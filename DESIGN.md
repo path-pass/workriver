@@ -260,8 +260,8 @@ Everything that can be picked has: default, hover, keyboard focus (violet ring),
 
 ## Rules that came out of iterating with the user
 
-- Two languages from the start, English and Chinese. Layout must hold in both: English
-  labels are longer, Chinese ones are denser.
+- Languages from the start: English and Chinese; Japanese ships too. Layout must hold in
+  all three: English labels are longer, Chinese and Japanese ones are denser.
 
 - If the interface can show it, do not also say it in text. Do not repeat what another
   part of the screen already shows.

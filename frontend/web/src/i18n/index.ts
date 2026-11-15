@@ -6,12 +6,14 @@ import LanguageDetector from 'i18next-browser-languagedetector'
 import { useMemo } from 'react'
 import { initReactI18next, useTranslation } from 'react-i18next'
 import { en } from './en'
+import { ja } from './ja'
 import { zhCN } from './zh-CN'
 
-/** Each language is named in itself, so the switch reads the same in either. */
+/** Each language is named in itself, so the switch reads the same in any of them. */
 export const LANGS = [
   { id: 'zh-CN', label: '中文' },
   { id: 'en', label: 'English' },
+  { id: 'ja', label: '日本語' },
 ] as const
 export type Lang = (typeof LANGS)[number]['id']
 export type T = TFunction
@@ -21,7 +23,7 @@ i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources: { en: { translation: en }, 'zh-CN': { translation: zhCN } },
+    resources: { en: { translation: en }, 'zh-CN': { translation: zhCN }, ja: { translation: ja } },
     supportedLngs: LANGS.map(l => l.id),
     fallbackLng: 'en',
     interpolation: { escapeValue: false }, // React escapes
@@ -30,7 +32,10 @@ i18n
       lookupLocalStorage: STORE,
       // Only an explicit choice is remembered (setLang below); otherwise keep following the browser.
       caches: [],
-      convertDetectedLanguage: lng => (lng.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'),
+      convertDetectedLanguage: lng => {
+        const l = lng.toLowerCase()
+        return l.startsWith('zh') ? 'zh-CN' : l.startsWith('ja') ? 'ja' : 'en'
+      },
     },
   })
 const syncHtml = (lng: string) => { document.documentElement.lang = lng }

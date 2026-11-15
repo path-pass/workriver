@@ -168,6 +168,8 @@
     font-variant-numeric: tabular-nums;
     caret-color: var(--you);
   }
+  /* Japanese glyph forms differ from Chinese ones for the same characters; PingFang SC would draw Chinese forms. */
+  :lang(ja) body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Segoe UI", sans-serif; }
   ::selection { background: var(--you-bg); color: var(--you-ink); }
   button:not(:disabled), label:has(button) { cursor: pointer; }
 }

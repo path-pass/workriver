@@ -78,8 +78,8 @@ outer crate with the daemon, the CLI and the Herdr runtime implementation.
   step. Only the English `README.md` sits at the root. Its Chinese version and every
   other document live under `docs/`.
 - UI text: never a literal in a component. Every string goes through the i18n
-  dictionaries in `frontend/web/src/i18n/`; English and Chinese (zh-CN) ship now and must stay in
-  step. Sample data is content, not UI text.
+  dictionaries in `frontend/web/src/i18n/`; English, Chinese (zh-CN) and Japanese (ja) ship
+  now and must stay in step. Sample data is content, not UI text.
 
 ## Working rules
 

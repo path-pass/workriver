@@ -1,10 +1,8 @@
 // Chinese UI text. Typed against en.ts so a missing or extra key is a compile error.
 // Chinese has one plural form, so the `_one` keys are left out.
-import type { en } from './en'
+import type { en, OneForm } from './en'
 
-type Same<T> = { [K in keyof T as K extends `${string}_one` ? never : K]: T[K] extends string ? string : Same<T[K]> }
-
-export const zhCN: Same<typeof en> = {
+export const zhCN: OneForm<typeof en> = {
   rail: {
     shortcut: '{{label}}（⌘B / Ctrl+B）',
     fold: '收起侧栏',
