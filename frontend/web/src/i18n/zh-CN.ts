@@ -14,6 +14,9 @@ export const zhCN: Same<typeof en> = {
     clearSearch: '清除搜索',
     none: '还没有记录任何单元。'
   },
+  service: {
+    unreachable: '连不上 workriver 服务。`workriver serve` 在运行吗？'
+  },
   settings: {
     title: '设置',
     close: '关闭',
@@ -134,7 +137,9 @@ export const zhCN: Same<typeof en> = {
     toManager: '已交给管理 bot',
     picked: '{{agent}} 已接手',
     undo: '撤回',
-    copy: '复制消息'
+    copy: '复制消息',
+    recorded: '已记下；送给 agent 还没接上',
+    failed: '没记下：服务没有收下'
   },
   decide: {
     label: '对 {{id}} 做决定',

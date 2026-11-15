@@ -11,17 +11,25 @@
 - **代码**：这个单元碰过的文件，左边是文件树，右边是改动。
 - **需要你**：跨所有工作的一条队列：agent 在等你做的手工步骤、要你接受驳回或延后的问题、没写任务编号的提交这类缺口。
 
-它在你自己的机器上作为一个服务运行。agent 通过 MCP 上报工作的内容；谁在运行、在哪里，从 [Herdr](https://herdr.dev) 取；你在浏览器里看。
+它在你自己的机器上作为一个服务运行。agent 在自己的 shell 里运行 `workriver` 命令行来上报工作；谁在运行、在哪里，从 [Herdr](https://herdr.dev) 取（还没接上）；你在浏览器里看。
 
 ## 状态
 
-刚开始。目前只有界面，用的是示例数据。
+刚开始。服务能记录意图、单元、任务、问题和杂事，从 git 读出各单元的提交，并让网页界面显示真实数据。把你的决定送到 agent、接上 Herdr 是下一步。
+
+## 构建和运行
+
+运行时由 [mise](https://mise.jdx.dev) 管理（`mise.toml`：Rust 和 Node）。网页界面会打进二进制文件里，所以先构建界面：
 
 ```
-cd frontend/web
-npm install
-npm run dev
+cd frontend/web && npm install && npm run build && cd ../..
+cargo build --release
+./target/release/workriver serve          # http://127.0.0.1:47820
 ```
+
+数据在 `~/workriver-data/workriver.db`（用 `WORKRIVER_HOME` 换位置）。`workriver --help` 说明各个命令；提交信息里写一行 `Task: u1#3`，这个提交就归到那个任务。
+
+改界面时：在 `frontend/web` 里 `npm run dev` 连正在运行的 `workriver serve`；`npm run dev:mock` 改用示例数据。
 
 ## 许可
 

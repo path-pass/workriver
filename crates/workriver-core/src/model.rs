@@ -1,0 +1,728 @@
+// The events workriver records, the state they add up to, and the rules a new event must
+// pass. Ids and numbers are assigned here, so replaying the stored events gives the same
+// state every time.
+use serde::{Deserialize, Serialize};
+
+/// A write that breaks a rule. The message is shown to whoever tried it, as is.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct Rejected(pub String);
+
+fn no<T>(msg: impl Into<String>) -> Result<T, Rejected> {
+    Err(Rejected(msg.into()))
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskKind {
+    Implement,
+    Review,
+    Tests,
+    Gate,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum GateKind {
+    Deploy,
+    Test,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum Reviewer {
+    CodeReview,
+    SecurityReview,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Severity {
+    P1,
+    P2,
+    P3,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Decision {
+    Accept,
+    Reject,
+    Defer,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Who {
+    User,
+    Agent,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckResult {
+    Passed,
+    Failed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum GateResult {
+    Done,
+    Problem,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskState {
+    Todo,
+    Running,
+    /// Gates only: the user has not done it yet.
+    Waiting,
+    Done,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum FindingState {
+    Open,
+    Accepted,
+    Rejected,
+    Deferred,
+}
+
+/// One thing to do by hand, with the command for it when there is one.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Step {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+/// The task this one follows: `"start"` or a task number of the same unit.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Input {
+    pub from: String,
+    #[serde(default = "yes")]
+    pub primary: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Findings of a review, tests task or gate (by task number) that a task answers.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Cause {
+    pub task: u32,
+    pub findings: Vec<String>,
+}
+
+/// A check run on a piece of work: the command and what came of it.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Evidence {
+    pub command: String,
+    pub result: CheckResult,
+    pub summary: String,
+}
+
+/// What the finder suggests the user decide, with one sentence of why.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Suggestion {
+    pub decision: Decision,
+    pub reason: String,
+}
+
+/// A problem as reported. `id` is assigned when it is recorded ("P2-1").
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct NewFinding {
+    #[serde(default)]
+    pub id: String,
+    pub severity: Severity,
+    pub problem: String,
+    #[serde(default)]
+    pub impact: String,
+    /// File paths that show the problem.
+    #[serde(default)]
+    pub r#where: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<Suggestion>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct NewTask {
+    pub unit: String,
+    /// Assigned when recorded.
+    #[serde(default)]
+    pub n: u32,
+    pub kind: TaskKind,
+    #[serde(default)]
+    pub title: String,
+    /// What the agent was asked to do.
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub inputs: Vec<Input>,
+    #[serde(default)]
+    pub causes: Vec<Cause>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub reviewer: Option<Reviewer>,
+    #[serde(default)]
+    pub gate: Option<GateKind>,
+    #[serde(default)]
+    pub steps: Vec<Step>,
+    /// Paths the work expects to change.
+    #[serde(default)]
+    pub plans: Vec<String>,
+}
+
+/// One recorded event's content. `kind` and `body` are the columns of the same name.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(tag = "kind", content = "body")]
+pub enum Body {
+    #[serde(rename = "intent.created")]
+    IntentCreated {
+        #[serde(default)]
+        id: String,
+        title: String,
+    },
+    #[serde(rename = "manager.registered")]
+    ManagerRegistered { intent: String, agent: String },
+    #[serde(rename = "unit.created")]
+    UnitCreated {
+        #[serde(default)]
+        id: String,
+        intent: String,
+        title: String,
+        #[serde(default)]
+        purpose: String,
+        /// Absolute path of the repository (or a worktree of it).
+        repo: String,
+        branch: String,
+        base: String,
+    },
+    #[serde(rename = "unit.merged")]
+    UnitMerged {
+        unit: String,
+        /// The unit's commits when it was merged, oldest first; the branch may be gone later.
+        #[serde(default)]
+        commits: Vec<String>,
+    },
+    #[serde(rename = "task.created")]
+    TaskCreated(NewTask),
+    #[serde(rename = "task.started")]
+    TaskStarted {
+        unit: String,
+        task: u32,
+        #[serde(default)]
+        agent: Option<String>,
+    },
+    #[serde(rename = "task.delivered")]
+    TaskDelivered {
+        unit: String,
+        task: u32,
+        #[serde(default)]
+        note: String,
+        #[serde(default)]
+        evidence: Vec<Evidence>,
+        #[serde(default)]
+        findings: Vec<NewFinding>,
+    },
+    #[serde(rename = "finding.decided")]
+    FindingDecided {
+        unit: String,
+        task: u32,
+        finding: String,
+        decision: Decision,
+        #[serde(default)]
+        note: String,
+        by: Who,
+        /// Where the decision's message to the agents is; None when nobody needs one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delivery: Option<String>,
+    },
+    #[serde(rename = "gate.submitted")]
+    GateSubmitted {
+        unit: String,
+        task: u32,
+        result: GateResult,
+        #[serde(default)]
+        note: String,
+        #[serde(default)]
+        findings: Vec<NewFinding>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delivery: Option<String>,
+    },
+    #[serde(rename = "chore.created")]
+    ChoreCreated {
+        #[serde(default)]
+        id: String,
+        intent: String,
+        #[serde(default)]
+        unit: Option<String>,
+        title: String,
+        #[serde(default)]
+        steps: Vec<Step>,
+    },
+    #[serde(rename = "chore.done")]
+    ChoreDone { chore: String },
+}
+
+impl Body {
+    /// The intent, unit and task (`u1#3`) an event concerns, for the indexed columns.
+    pub fn refs(&self) -> (Option<String>, Option<String>, Option<String>) {
+        use Body::*;
+        let task = |u: &str, n: u32| Some(format!("{u}#{n}"));
+        match self {
+            IntentCreated { id, .. } => (Some(id.clone()), None, None),
+            ManagerRegistered { intent, .. } => (Some(intent.clone()), None, None),
+            UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
+            UnitMerged { unit, .. } => (None, Some(unit.clone()), None),
+            TaskCreated(t) => (None, Some(t.unit.clone()), task(&t.unit, t.n)),
+            TaskStarted { unit, task: n, .. }
+            | TaskDelivered { unit, task: n, .. }
+            | FindingDecided { unit, task: n, .. }
+            | GateSubmitted { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
+            ChoreCreated { intent, unit, .. } => (Some(intent.clone()), unit.clone(), None),
+            ChoreDone { .. } => (None, None, None),
+        }
+    }
+}
+
+/// A recorded event.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Event {
+    pub seq: i64,
+    pub at: String,
+    pub actor: String,
+    #[serde(flatten)]
+    pub body: Body,
+}
+
+// ---- the state the events add up to ----
+
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct State {
+    pub intents: Vec<Intent>,
+    pub units: Vec<Unit>,
+    pub chores: Vec<Chore>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Intent {
+    pub id: String,
+    pub title: String,
+    pub manager: Option<String>,
+    pub at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Unit {
+    pub id: String,
+    pub intent: String,
+    pub title: String,
+    pub purpose: String,
+    pub repo: String,
+    pub branch: String,
+    pub base: String,
+    pub at: String,
+    /// When it was recorded as merged.
+    pub merged: Option<String>,
+    pub merged_commits: Vec<String>,
+    pub tasks: Vec<Task>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Task {
+    pub n: u32,
+    pub kind: TaskKind,
+    pub title: String,
+    pub text: String,
+    pub inputs: Vec<Input>,
+    pub causes: Vec<Cause>,
+    pub agent: Option<String>,
+    pub reviewer: Option<Reviewer>,
+    pub gate: Option<GateKind>,
+    pub steps: Vec<Step>,
+    pub plans: Vec<String>,
+    pub state: TaskState,
+    /// Who recorded it.
+    pub by: String,
+    pub at: String,
+    pub started: Option<String>,
+    /// When it was delivered, or a gate submitted.
+    pub done: Option<String>,
+    pub note: String,
+    pub evidence: Vec<Evidence>,
+    pub findings: Vec<Finding>,
+    pub result: Option<GateResult>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Finding {
+    #[serde(flatten)]
+    pub found: NewFinding,
+    pub state: FindingState,
+    pub decided_by: Option<Who>,
+    pub note: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Chore {
+    pub id: String,
+    pub intent: String,
+    pub unit: Option<String>,
+    pub title: String,
+    pub by: String,
+    pub steps: Vec<Step>,
+    pub done: bool,
+    pub at: String,
+}
+
+/// `u1#3` -> ("u1", 3).
+pub fn parse_task_ref(s: &str) -> Option<(&str, u32)> {
+    let (unit, n) = s.split_once('#')?;
+    Some((unit, n.parse().ok()?)).filter(|(u, _)| !u.is_empty())
+}
+
+/// A value's name as it is serialized, e.g. "running".
+pub fn name<T: Serialize>(v: &T) -> String {
+    serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+fn blank(s: &str) -> bool {
+    s.trim().is_empty()
+}
+
+impl State {
+    pub fn unit(&self, id: &str) -> Result<&Unit, Rejected> {
+        match self.units.iter().find(|u| u.id == id) {
+            Some(u) => Ok(u),
+            None => no(format!("no unit {id}")),
+        }
+    }
+
+    pub fn task(&self, unit: &str, n: u32) -> Result<&Task, Rejected> {
+        match self.unit(unit)?.tasks.iter().find(|t| t.n == n) {
+            Some(t) => Ok(t),
+            None => no(format!("no task {unit}#{n}")),
+        }
+    }
+
+    fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
+        match self.intents.iter().find(|i| i.id == id) {
+            Some(i) => Ok(i),
+            None => no(format!("no intent {id}")),
+        }
+    }
+
+    /// Checks a new event against the rules and fills in what is assigned here (ids and
+    /// numbers). The result is what gets stored.
+    pub fn prepare(&self, actor: &str, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        if blank(actor) {
+            return no("the actor is empty");
+        }
+        Ok(match body {
+            IntentCreated { title, .. } => {
+                if blank(&title) {
+                    return no("an intent needs a title");
+                }
+                IntentCreated { id: format!("i{}", self.intents.len() + 1), title }
+            }
+            ManagerRegistered { intent, agent } => {
+                self.intent(&intent)?;
+                if blank(&agent) {
+                    return no("a manager needs an agent");
+                }
+                ManagerRegistered { intent, agent }
+            }
+            UnitCreated { intent, title, purpose, repo, branch, base, .. } => {
+                self.intent(&intent)?;
+                for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
+                    if blank(v) {
+                        return no(format!("a unit needs a {field}"));
+                    }
+                }
+                let id = format!("u{}", self.units.len() + 1);
+                UnitCreated { id, intent, title, purpose, repo, branch, base }
+            }
+            UnitMerged { unit, commits } => {
+                if self.unit(&unit)?.merged.is_some() {
+                    return no(format!("unit {unit} is already merged"));
+                }
+                UnitMerged { unit, commits }
+            }
+            TaskCreated(t) => TaskCreated(self.prepare_task(t)?),
+            TaskStarted { unit, task, agent } => {
+                let t = self.task(&unit, task)?;
+                if t.kind == TaskKind::Gate {
+                    return no(format!("{unit}#{task} is a gate: only the user does it, with gate submit"));
+                }
+                if t.state != TaskState::Todo {
+                    return no(format!("{unit}#{task} is {}, not todo", name(&t.state)));
+                }
+                TaskStarted { unit, task, agent }
+            }
+            TaskDelivered { unit, task, note, evidence, findings } => {
+                let t = self.task(&unit, task)?;
+                if t.kind == TaskKind::Gate {
+                    return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
+                }
+                if t.state == TaskState::Done {
+                    return no(format!("{unit}#{task} is already delivered"));
+                }
+                if !findings.is_empty() && t.kind == TaskKind::Implement {
+                    return no("findings belong to a review or tests task; record a review task and deliver them there");
+                }
+                if evidence.iter().any(|e| blank(&e.command)) {
+                    return no("evidence needs the command that was run");
+                }
+                for f in &findings {
+                    if blank(&f.problem) || blank(&f.impact) || f.r#where.iter().all(|w| blank(w)) {
+                        return no("a finding needs a problem, an impact and at least one where (a file path)");
+                    }
+                }
+                TaskDelivered { unit, task, note, evidence, findings: numbered(findings) }
+            }
+            FindingDecided { unit, task, finding, decision, note, by, delivery } => {
+                let t = self.task(&unit, task)?;
+                match t.findings.iter().find(|f| f.found.id == finding) {
+                    None => return no(format!("{unit}#{task} has no finding {finding}")),
+                    Some(f) if f.state != FindingState::Open => {
+                        return no(format!("finding {finding} of {unit}#{task} is already {}", name(&f.state)));
+                    }
+                    Some(_) => {}
+                }
+                FindingDecided { unit, task, finding, decision, note, by, delivery }
+            }
+            GateSubmitted { unit, task, result, note, findings, delivery } => {
+                let t = self.task(&unit, task)?;
+                if t.kind != TaskKind::Gate || t.state != TaskState::Waiting {
+                    return no(format!("{unit}#{task} is not a waiting gate"));
+                }
+                match result {
+                    GateResult::Problem if findings.is_empty() => return no("a gate with a problem needs at least one finding"),
+                    GateResult::Done if !findings.is_empty() => return no("a gate that is done carries no findings; submit it as problem"),
+                    _ => {}
+                }
+                // The user at a gate may not know where the problem sits; a problem is enough.
+                if findings.iter().any(|f| blank(&f.problem)) {
+                    return no("a finding needs a problem");
+                }
+                GateSubmitted { unit, task, result, note, findings: numbered(findings), delivery }
+            }
+            ChoreCreated { intent, unit, title, steps, .. } => {
+                self.intent(&intent)?;
+                if let Some(u) = &unit
+                    && self.unit(u)?.intent != intent
+                {
+                    return no(format!("unit {u} is not part of intent {intent}"));
+                }
+                if blank(&title) {
+                    return no("a chore needs a title");
+                }
+                ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, unit, title, steps }
+            }
+            ChoreDone { chore } => match self.chores.iter().find(|c| c.id == chore) {
+                None => return no(format!("no chore {chore}")),
+                Some(c) if c.done => return no(format!("chore {chore} is already done")),
+                Some(_) => ChoreDone { chore },
+            },
+        })
+    }
+
+    fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
+        let unit = self.unit(&t.unit)?;
+        if unit.merged.is_some() {
+            return no(format!("unit {} is merged; record new work in a new unit", unit.id));
+        }
+        match t.kind {
+            TaskKind::Implement | TaskKind::Gate if blank(&t.title) => return no("an implement task or gate needs a title"),
+            TaskKind::Gate if t.gate.is_none() => return no("a gate needs its kind: deploy or test"),
+            TaskKind::Review if t.reviewer.is_none() => t.reviewer = Some(Reviewer::CodeReview),
+            _ => {}
+        }
+        if t.kind != TaskKind::Review {
+            t.reviewer = None;
+        }
+        if t.kind != TaskKind::Gate {
+            t.gate = None;
+        }
+        for c in &t.causes {
+            let by = self.task(&unit.id, c.task)?;
+            if by.kind == TaskKind::Implement {
+                return no(format!("{}#{} is an implement task; causes are findings of reviews, tests or gates", unit.id, c.task));
+            }
+            if c.findings.is_empty() {
+                return no(format!("the cause {}#{} names no finding", unit.id, c.task));
+            }
+            for id in &c.findings {
+                match by.findings.iter().find(|f| &f.found.id == id) {
+                    None => return no(format!("{}#{} has no finding {id}", unit.id, c.task)),
+                    Some(f) if f.state != FindingState::Accepted => {
+                        return no(format!(
+                            "finding {id} of {}#{} is not accepted; decide it first (workriver finding decide {}#{} {id} accept)",
+                            unit.id, c.task, unit.id, c.task
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        // Inputs default to the causes (the first one primary), or to the start.
+        if t.inputs.is_empty() {
+            t.inputs = t.causes.iter().enumerate().map(|(k, c)| Input { from: c.task.to_string(), primary: k == 0 }).collect();
+        }
+        if t.inputs.is_empty() {
+            t.inputs.push(Input { from: "start".into(), primary: true });
+        }
+        for i in &mut t.inputs {
+            let from = i.from.trim().trim_start_matches('#').to_string();
+            if from != "start" {
+                let n: u32 = from.parse().map_err(|_| Rejected(format!("input {:?} is neither \"start\" nor a task number", i.from)))?;
+                self.task(&unit.id, n)?;
+            }
+            i.from = from;
+        }
+        if !t.inputs.iter().any(|i| i.primary) {
+            t.inputs[0].primary = true;
+        }
+        t.n = unit.tasks.len() as u32 + 1;
+        Ok(t)
+    }
+
+    /// Adds a recorded event. It passed `prepare` when it was recorded, so it is trusted.
+    pub fn apply(&mut self, e: &Event) {
+        use Body::*;
+        let at = &e.at;
+        let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
+        match &e.body {
+            IntentCreated { id, title } => self.intents.push(Intent { id: id.clone(), title: title.clone(), manager: None, at: at.clone() }),
+            ManagerRegistered { intent, agent } => {
+                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    i.manager = Some(agent.clone());
+                }
+            }
+            UnitCreated { id, intent, title, purpose, repo, branch, base } => self.units.push(Unit {
+                id: id.clone(),
+                intent: intent.clone(),
+                title: title.clone(),
+                purpose: purpose.clone(),
+                repo: repo.clone(),
+                branch: branch.clone(),
+                base: base.clone(),
+                at: at.clone(),
+                merged: None,
+                merged_commits: vec![],
+                tasks: vec![],
+            }),
+            UnitMerged { unit, commits } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.merged = Some(at.clone());
+                    u.merged_commits = commits.clone();
+                }
+            }
+            TaskCreated(t) => {
+                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit) {
+                    u.tasks.push(Task {
+                        n: t.n,
+                        kind: t.kind,
+                        title: t.title.clone(),
+                        text: t.text.clone(),
+                        inputs: t.inputs.clone(),
+                        causes: t.causes.clone(),
+                        agent: t.agent.clone(),
+                        reviewer: t.reviewer,
+                        gate: t.gate,
+                        steps: t.steps.clone(),
+                        plans: t.plans.clone(),
+                        state: if t.kind == TaskKind::Gate { TaskState::Waiting } else { TaskState::Todo },
+                        by: e.actor.clone(),
+                        at: at.clone(),
+                        started: None,
+                        done: None,
+                        note: String::new(),
+                        evidence: vec![],
+                        findings: vec![],
+                        result: None,
+                    })
+                }
+            }
+            TaskStarted { unit, task, agent } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Running;
+                    t.started = Some(at.clone());
+                    t.agent = agent.clone().or_else(|| agent_of(&e.actor)).or(t.agent.take());
+                }
+            }
+            TaskDelivered { unit, task, note, evidence, findings } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Done;
+                    t.done = Some(at.clone());
+                    t.note = note.clone();
+                    t.evidence = evidence.clone();
+                    t.findings = findings.iter().cloned().map(open).collect();
+                    if t.agent.is_none() {
+                        t.agent = agent_of(&e.actor);
+                    }
+                }
+            }
+            FindingDecided { unit, task, finding, decision, note, by, .. } => {
+                if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
+                    f.state = match decision {
+                        Decision::Accept => FindingState::Accepted,
+                        Decision::Reject => FindingState::Rejected,
+                        Decision::Defer => FindingState::Deferred,
+                    };
+                    f.decided_by = Some(*by);
+                    f.note = (!note.is_empty()).then(|| note.clone());
+                }
+            }
+            GateSubmitted { unit, task, result, note, findings, .. } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Done;
+                    t.done = Some(at.clone());
+                    t.result = Some(*result);
+                    t.note = note.clone();
+                    t.findings = findings.iter().cloned().map(open).collect();
+                }
+            }
+            ChoreCreated { id, intent, unit, title, steps } => self.chores.push(Chore {
+                id: id.clone(),
+                intent: intent.clone(),
+                unit: unit.clone(),
+                title: title.clone(),
+                by: e.actor.clone(),
+                steps: steps.clone(),
+                done: false,
+                at: at.clone(),
+            }),
+            ChoreDone { chore } => {
+                if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
+                    c.done = true;
+                }
+            }
+        }
+    }
+
+    fn task_mut(&mut self, unit: &str, n: u32) -> Option<&mut Task> {
+        self.units.iter_mut().find(|u| u.id == unit)?.tasks.iter_mut().find(|t| t.n == n)
+    }
+}
+
+fn open(found: NewFinding) -> Finding {
+    Finding { found, state: FindingState::Open, decided_by: None, note: None }
+}
+
+/// Ids per severity, as a reviewer numbers them: P1-1, P2-1, P2-2…
+fn numbered(mut findings: Vec<NewFinding>) -> Vec<NewFinding> {
+    let mut seen = [0; 3];
+    for f in &mut findings {
+        let k = f.severity as usize;
+        seen[k] += 1;
+        f.id = format!("{:?}-{}", f.severity, seen[k]);
+    }
+    findings
+}

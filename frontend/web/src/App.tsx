@@ -8,8 +8,9 @@ import { Notes } from '@/components/bits'
 import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
-import { agents, askeeOf, blame, loadWorkspace, NO_EDITS, selectionOf, shownDelta, unitsOf, withEdits, type Edits, type Lines, type Pick } from '@/data'
-import { ask, decideFinding, detach, MANAGER, submitGate, type Delivery } from '@/runtime'
+import { agents, askeeOf, blame, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
+import { useT } from '@/i18n'
+import { ask, choreDone, decideFinding, detach, MANAGER, submitGate, type Delivery } from '@/runtime'
 import type { AskContext, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
@@ -18,7 +19,10 @@ const remember = (key: string, value: string) => { try { localStorage.setItem(ke
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
 export default function App() {
+  const { t } = useT()
   const [data, setData] = useState<Workspace | null>(null)
+  // The service cannot be reached right now; what was shown stays.
+  const [down, setDown] = useState(false)
   const [unitId, setUnitId] = useState<string | null>(null)
   const [pick, setPick] = useState<Pick>(null)
   const [onlyChanged, setOnlyChanged] = useState(true)
@@ -58,15 +62,12 @@ export default function App() {
     setPick(next)
   }, [])
 
-  useEffect(() => {
-    let current = true
-    loadWorkspace().then(w => {
-      if (!current) return
-      setData(w)
-      if (unitsOf(w).length) pickUnit(w, unitsOf(w)[0].id)
-    })
-    return () => { current = false }
-  }, [pickUnit])
+  // The first unit opens once there is one; later updates keep what is open.
+  useEffect(() => watchWorkspace(w => {
+    setData(w)
+    setDown(false)
+    setUnitId(id => id ?? unitsOf(w)[0]?.id ?? null)
+  }, () => setDown(true)), [])
 
   // Picking the same thing again clears it.
   const onPick = useCallback((next: Pick) => {
@@ -157,12 +158,12 @@ export default function App() {
     submitGate: (u, g, r) => {
       const key = gateKey(u, g)
       setEdits(e => ({ ...e, gates: { ...e.gates, [key]: r } }))
-      sent(key, submitGate(g, r, ownerOf(u, g) ?? MANAGER, track(key)))
+      sent(key, submitGate(u, g, r, ownerOf(u, g) ?? MANAGER, track(key)))
     },
     decide: (u, n, f, d, note) => {
       const key = findingKey(u, n, f)
       setEdits(e => ({ ...e, decisions: { ...e.decisions, [key]: { decision: d, note } } }))
-      sent(key, decideFinding(n, f, d, note, ownerOf(u, n), track(key)))
+      sent(key, decideFinding(u, n, f, d, note, ownerOf(u, n), track(key)))
     },
     undo: key => {
       cancels.current[key]?.()
@@ -175,7 +176,7 @@ export default function App() {
       setDelivery(all => drop(all, key))
       setMessage(all => drop(all, key))
     },
-    choreDone: id => setEdits(e => ({ ...e, chores: [...e.chores, id] })),
+    choreDone: id => { setEdits(e => ({ ...e, chores: [...e.chores, id] })); choreDone(id) },
     delivery,
     message,
   }
@@ -185,6 +186,7 @@ export default function App() {
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
       <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
+        {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {ws && unit && sel && talk && (
           <>
             <header className="flex items-start gap-3">
@@ -199,7 +201,7 @@ export default function App() {
             </header>
             <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={railOpen} />
             <CodeLayer
-              root={ws.modules}
+              root={repoOf(ws, unit).modules}
               unit={unit}
               sel={sel}
               onlyChanged={onlyChanged}

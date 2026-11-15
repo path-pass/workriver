@@ -1,86 +1,220 @@
 {
- "repo": "demo",
- "builtAt": "2026-11-15 20:48",
- "modules": {
-  "name": "demo",
-  "path": "",
-  "loc": 495,
-  "files": 18,
-  "children": [
-   {
-    "name": "app",
-    "path": "app",
-    "loc": 262,
-    "files": 14,
+ "repos": [
+  {
+   "path": "demo",
+   "name": "demo",
+   "modules": {
+    "name": "demo",
+    "path": "",
+    "loc": 495,
+    "files": 18,
     "children": [
      {
-      "name": "auth",
-      "path": "app/auth",
-      "loc": 3,
-      "files": 1,
+      "name": "app",
+      "path": "app",
+      "loc": 262,
+      "files": 14,
       "children": [
        {
-        "name": "permissions.ts",
-        "path": "app/auth/permissions.ts",
+        "name": "auth",
+        "path": "app/auth",
         "loc": 3,
-        "files": 1
-       }
-      ]
-     },
-     {
-      "name": "chat",
-      "path": "app/chat",
-      "loc": 10,
-      "files": 2,
-      "children": [
-       {
-        "name": "render.ts",
-        "path": "app/chat/render.ts",
-        "loc": 3,
-        "files": 1
-       },
-       {
-        "name": "send.ts",
-        "path": "app/chat/send.ts",
-        "loc": 7,
-        "files": 1
-       }
-      ]
-     },
-     {
-      "name": "notify",
-      "path": "app/notify",
-      "loc": 166,
-      "files": 4,
-      "children": [
-       {
-        "name": "channels",
-        "path": "app/notify/channels",
-        "loc": 163,
-        "files": 3,
+        "files": 1,
         "children": [
          {
-          "name": "email.ts",
-          "path": "app/notify/channels/email.ts",
-          "loc": 41,
+          "name": "permissions.ts",
+          "path": "app/auth/permissions.ts",
+          "loc": 3,
+          "files": 1
+         }
+        ]
+       },
+       {
+        "name": "chat",
+        "path": "app/chat",
+        "loc": 10,
+        "files": 2,
+        "children": [
+         {
+          "name": "render.ts",
+          "path": "app/chat/render.ts",
+          "loc": 3,
           "files": 1
          },
          {
-          "name": "mobile",
-          "path": "app/notify/channels/mobile",
-          "loc": 122,
-          "files": 2,
+          "name": "send.ts",
+          "path": "app/chat/send.ts",
+          "loc": 7,
+          "files": 1
+         }
+        ]
+       },
+       {
+        "name": "notify",
+        "path": "app/notify",
+        "loc": 166,
+        "files": 4,
+        "children": [
+         {
+          "name": "channels",
+          "path": "app/notify/channels",
+          "loc": 163,
+          "files": 3,
           "children": [
            {
-            "name": "apns.ts",
-            "path": "app/notify/channels/mobile/apns.ts",
-            "loc": 64,
+            "name": "email.ts",
+            "path": "app/notify/channels/email.ts",
+            "loc": 41,
             "files": 1
            },
            {
-            "name": "fcm.ts",
-            "path": "app/notify/channels/mobile/fcm.ts",
-            "loc": 58,
+            "name": "mobile",
+            "path": "app/notify/channels/mobile",
+            "loc": 122,
+            "files": 2,
+            "children": [
+             {
+              "name": "apns.ts",
+              "path": "app/notify/channels/mobile/apns.ts",
+              "loc": 64,
+              "files": 1
+             },
+             {
+              "name": "fcm.ts",
+              "path": "app/notify/channels/mobile/fcm.ts",
+              "loc": 58,
+              "files": 1
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "name": "push.ts",
+          "path": "app/notify/push.ts",
+          "loc": 3,
+          "files": 1
+         }
+        ]
+       },
+       {
+        "name": "search",
+        "path": "app/search",
+        "loc": 8,
+        "files": 2,
+        "children": [
+         {
+          "name": "index.ts",
+          "path": "app/search/index.ts",
+          "loc": 3,
+          "files": 1
+         },
+         {
+          "name": "query.ts",
+          "path": "app/search/query.ts",
+          "loc": 5,
+          "files": 1
+         }
+        ]
+       },
+       {
+        "name": "settings",
+        "path": "app/settings",
+        "loc": 59,
+        "files": 2,
+        "children": [
+         {
+          "name": "profile.ts",
+          "path": "app/settings/profile.ts",
+          "loc": 37,
+          "files": 1
+         },
+         {
+          "name": "theme.ts",
+          "path": "app/settings/theme.ts",
+          "loc": 22,
+          "files": 1
+         }
+        ]
+       },
+       {
+        "name": "store",
+        "path": "app/store",
+        "loc": 6,
+        "files": 1,
+        "children": [
+         {
+          "name": "messages.ts",
+          "path": "app/store/messages.ts",
+          "loc": 6,
+          "files": 1
+         }
+        ]
+       },
+       {
+        "name": "ui",
+        "path": "app/ui",
+        "loc": 10,
+        "files": 2,
+        "children": [
+         {
+          "name": "composer.tsx",
+          "path": "app/ui/composer.tsx",
+          "loc": 5,
+          "files": 1
+         },
+         {
+          "name": "search-box.tsx",
+          "path": "app/ui/search-box.tsx",
+          "loc": 5,
+          "files": 1
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "scripts",
+      "path": "scripts",
+      "loc": 19,
+      "files": 1,
+      "children": [
+       {
+        "name": "deploy.sh",
+        "path": "scripts/deploy.sh",
+        "loc": 19,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "server",
+      "path": "server",
+      "loc": 214,
+      "files": 3,
+      "children": [
+       {
+        "name": "api",
+        "path": "server/api",
+        "loc": 140,
+        "files": 2,
+        "children": [
+         {
+          "name": "v1",
+          "path": "server/api/v1",
+          "loc": 140,
+          "files": 2,
+          "children": [
+           {
+            "name": "messages.ts",
+            "path": "server/api/v1/messages.ts",
+            "loc": 88,
+            "files": 1
+           },
+           {
+            "name": "users.ts",
+            "path": "server/api/v1/users.ts",
+            "loc": 52,
             "files": 1
            }
           ]
@@ -88,155 +222,26 @@
         ]
        },
        {
-        "name": "push.ts",
-        "path": "app/notify/push.ts",
-        "loc": 3,
-        "files": 1
-       }
-      ]
-     },
-     {
-      "name": "search",
-      "path": "app/search",
-      "loc": 8,
-      "files": 2,
-      "children": [
-       {
-        "name": "index.ts",
-        "path": "app/search/index.ts",
-        "loc": 3,
-        "files": 1
-       },
-       {
-        "name": "query.ts",
-        "path": "app/search/query.ts",
-        "loc": 5,
-        "files": 1
-       }
-      ]
-     },
-     {
-      "name": "settings",
-      "path": "app/settings",
-      "loc": 59,
-      "files": 2,
-      "children": [
-       {
-        "name": "profile.ts",
-        "path": "app/settings/profile.ts",
-        "loc": 37,
-        "files": 1
-       },
-       {
-        "name": "theme.ts",
-        "path": "app/settings/theme.ts",
-        "loc": 22,
-        "files": 1
-       }
-      ]
-     },
-     {
-      "name": "store",
-      "path": "app/store",
-      "loc": 6,
-      "files": 1,
-      "children": [
-       {
-        "name": "messages.ts",
-        "path": "app/store/messages.ts",
-        "loc": 6,
-        "files": 1
-       }
-      ]
-     },
-     {
-      "name": "ui",
-      "path": "app/ui",
-      "loc": 10,
-      "files": 2,
-      "children": [
-       {
-        "name": "composer.tsx",
-        "path": "app/ui/composer.tsx",
-        "loc": 5,
-        "files": 1
-       },
-       {
-        "name": "search-box.tsx",
-        "path": "app/ui/search-box.tsx",
-        "loc": 5,
-        "files": 1
-       }
-      ]
-     }
-    ]
-   },
-   {
-    "name": "scripts",
-    "path": "scripts",
-    "loc": 19,
-    "files": 1,
-    "children": [
-     {
-      "name": "deploy.sh",
-      "path": "scripts/deploy.sh",
-      "loc": 19,
-      "files": 1
-     }
-    ]
-   },
-   {
-    "name": "server",
-    "path": "server",
-    "loc": 214,
-    "files": 3,
-    "children": [
-     {
-      "name": "api",
-      "path": "server/api",
-      "loc": 140,
-      "files": 2,
-      "children": [
-       {
-        "name": "v1",
-        "path": "server/api/v1",
-        "loc": 140,
-        "files": 2,
+        "name": "db",
+        "path": "server/db",
+        "loc": 74,
+        "files": 1,
         "children": [
          {
-          "name": "messages.ts",
-          "path": "server/api/v1/messages.ts",
-          "loc": 88,
-          "files": 1
-         },
-         {
-          "name": "users.ts",
-          "path": "server/api/v1/users.ts",
-          "loc": 52,
+          "name": "schema.ts",
+          "path": "server/db/schema.ts",
+          "loc": 74,
           "files": 1
          }
         ]
        }
       ]
-     },
-     {
-      "name": "db",
-      "path": "server/db",
-      "loc": 74,
-      "files": 1,
-      "children": [
-       {
-        "name": "schema.ts",
-        "path": "server/db/schema.ts",
-        "loc": 74,
-        "files": 1
-       }
-      ]
      }
     ]
    }
-  ]
- },
+  }
+ ],
+ "builtAt": "2026-11-15 20:48",
  "sessions": [
   {
    "agent": "agent-A",
@@ -292,6 +297,7 @@
      "id": "mention",
      "title": "加一个 @ 功能",
      "purpose": "在消息里 @ 某个人，对方会收到通知，并且消息里的名字要显示成高亮。",
+     "repo": "demo",
      "branch": "mention",
      "status": "active",
      "commits": [
@@ -1562,6 +1568,7 @@
      "id": "recall",
      "title": "消息支持撤回",
      "purpose": "发出两分钟内的消息可以撤回，所有人看到的都变成「已撤回」。",
+     "repo": "demo",
      "branch": "recall",
      "status": "active",
      "commits": [
@@ -1821,6 +1828,7 @@
      "id": "search",
      "title": "全文搜索",
      "purpose": "在所有消息里按词搜索，并在消息列表上方提供搜索框。",
+     "repo": "demo",
      "branch": null,
      "status": "merged",
      "commits": [
@@ -2123,6 +2131,7 @@
      "id": "ratelimit",
      "title": "登录限流",
      "purpose": "同一个 IP 一分钟内最多尝试登录十次，超过的返回 429。",
+     "repo": "demo",
      "branch": "login-rate-limit",
      "status": "active",
      "tasks": [
@@ -2237,6 +2246,7 @@
      "id": "deploy-doc",
      "title": "部署脚本写清楚用法",
      "purpose": "脚本开头说明怎么用，缺了 DEPLOY_HOST 时直接报错。",
+     "repo": "demo",
      "branch": null,
      "status": "merged",
      "tasks": [

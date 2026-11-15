@@ -1,16 +1,24 @@
-// The one place where the UI reaches out to agents. On sample data nothing is reached yet:
-// focusing a terminal only says so, and an answer is made up. Later both go through the
-// daemon (and Herdr).
-import type { Decision, GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Task, Turn } from './types'
+// The one place where the UI reaches out to agents, through the workriver service. With the
+// sample (VITE_MOCK=1) nothing is reached: focusing a terminal only says so. Asking is made
+// up either way for now, and the service records the user's inputs without delivering them
+// to agents yet.
+import { MOCK, type Decision, type GateResult } from './data'
+import type { AskContext, AskStep, Attachment, Finding, Task, Turn, Unit } from './types'
+
+async function post(path: string, body: unknown) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`)
+}
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
 export const NOTE = 'workriver:note'
 
 /** Bring the agent's terminal to the front. */
 export function focusAgent(agent: string) {
-  console.info(`[workriver] would focus the terminal of ${agent}`)
-  window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent } }))
+  // Without a runtime behind the service, say what would have happened.
+  const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent } }))
+  if (MOCK) note()
+  else post('/api/focus', { agent }).catch(note)
 }
 
 /**
@@ -43,7 +51,8 @@ export async function ask(
 /** The bot that turns accepted findings into tasks. */
 export const MANAGER = 'manager'
 
-export type DeliveryStep = 'pending' | 'delivered' | 'picked'
+/** recorded: the service took it (delivery to agents is not connected yet); failed: it did not. */
+export type DeliveryStep = 'pending' | 'delivered' | 'picked' | 'recorded' | 'failed'
 export interface Delivery { step: DeliveryStep; to: string }
 
 /** Where an agent will find an attachment once the daemon stores it. A placeholder for now. */
@@ -57,10 +66,15 @@ export const detach = (a: Attachment) => { if (a.url.startsWith('blob:')) URL.re
 
 /**
  * Send a message to an agent or the manager bot. It waits a moment before it goes out, so it
- * can be taken back; the returned function does that. For now the steps are made up.
+ * can be taken back; the returned function does that. Then `record` hands it to the service;
+ * with the sample the steps are made up.
  */
-function deliver(to: string, message: string, onStep: (d: Delivery) => void): () => void {
+function deliver(to: string, message: string, record: () => Promise<void>, onStep: (d: Delivery) => void): () => void {
   onStep({ step: 'pending', to })
+  if (!MOCK) {
+    const out = setTimeout(() => record().then(() => onStep({ step: 'recorded', to }), e => { console.warn(e); onStep({ step: 'failed', to }) }), 3000)
+    return () => clearTimeout(out)
+  }
   const out = setTimeout(() => { console.info(`[workriver] to ${to}:\n${message}`); onStep({ step: 'delivered', to }) }, 3000)
   const taken = to === MANAGER ? 0 : setTimeout(() => onStep({ step: 'picked', to }), 5500)
   return () => { clearTimeout(out); clearTimeout(taken) }
@@ -84,14 +98,23 @@ export function gateMessage(gate: Task, r: GateResult): string {
   )
 }
 
-export function submitGate(gate: Task, r: GateResult, to: string, onStep: (d: Delivery) => void) {
+// ponytail: pictures are not sent; the service stores none yet.
+export function submitGate(unit: Unit, gate: Task, r: GateResult, to: string, onStep: (d: Delivery) => void) {
   const message = gateMessage(gate, r)
-  return { message, cancel: deliver(to, message, onStep) }
+  const findings = r.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence }))
+  const record = () => post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings })
+  return { message, cancel: deliver(to, message, record, onStep) }
 }
 
 /** A decision on a finding: accepted ones go to the manager bot, the others to the agent. */
-export function decideFinding(task: Task, f: Finding, decision: Decision, note: string, agent: string | null, onStep: (d: Delivery) => void) {
+export function decideFinding(unit: Unit, task: Task, f: Finding, decision: Decision, note: string, agent: string | null, onStep: (d: Delivery) => void) {
   const to = decision === 'accept' || !agent ? MANAGER : agent
   const message = lines(`${f.id} on "${task.title || task.reviewer || task.gate}": ${decision}`, `Problem: ${f.problem}`, note && `Note: ${note}`)
-  return { message, cancel: deliver(to, message, onStep) }
+  const record = () => post('/api/decide', { unit: unit.id, task: Number(task.id), finding: f.id, decision, note })
+  return { message, cancel: deliver(to, message, record, onStep) }
+}
+
+/** A chore is done; it goes to no one, so it is only recorded. */
+export function choreDone(id: string) {
+  if (!MOCK) post('/api/chore-done', { chore: id }).catch(e => console.warn(e))
 }

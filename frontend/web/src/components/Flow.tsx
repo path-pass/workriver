@@ -219,7 +219,8 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
     const fixed = { selectable: false, focusable: false }
     const nodes: Node[] = [
       { id: 'start', type: 'start', position: at('start'), width: R, height: R, data: { title: unit.purpose || t('flow.start') } satisfies DotData, ...fixed },
-      ...unit.tasks.map(n => ({
+      // A node the layout has not placed yet (it just arrived) waits for the next layout.
+      ...unit.tasks.filter(n => layout.pos.has(n.id)).map(n => ({
         id: n.id, type: n.kind, position: at(n.id), width: W, height: H, ...fixed,
         data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n, talk).length } satisfies CardData,
       })),
@@ -241,17 +242,18 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
   }, [layout, unit, picked, finding, onPick, talk, t])
 
   // React Flow owns where nodes are once they are on screen, so that dragging works: its
-  // changes are applied here, and a re-render for a new pick keeps what the user moved.
+  // changes are applied here, and a re-render for a new pick keeps what the user moved. A new
+  // layout (another unit, or the graph grew) places everything afresh.
   const [nodes, setNodes] = useState<Node[]>([])
-  const shown = useRef<string | null>(null)
+  const shown = useRef<Layout | null>(null)
   useEffect(() => {
-    const sameUnit = shown.current === unit.id
-    shown.current = placed.length ? unit.id : null
+    const sameLayout = shown.current === layout
+    shown.current = placed.length ? layout : null
     setNodes(prev => {
-      const old = new Map(sameUnit ? prev.map(n => [n.id, n]) : [])
+      const old = new Map(sameLayout ? prev.map(n => [n.id, n]) : [])
       return placed.map(n => { const o = old.get(n.id); return o ? { ...n, position: o.position, measured: o.measured } : n })
     })
-  }, [placed, unit.id])
+  }, [placed, layout])
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes(ns => applyNodeChanges(changes, ns)), [])
 
   // The graph sits in a window of its own: drag the ground to move around, pinch or use

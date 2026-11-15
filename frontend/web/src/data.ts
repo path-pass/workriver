@@ -1,21 +1,58 @@
-// Loading the workspace and everything the views derive from it. Pure functions only.
+// Loading the workspace (from the service, or the sample with VITE_MOCK=1) and everything
+// the views derive from it. Apart from the loading, pure functions only.
 import { diffLines, structuredPatch } from 'diff'
 import type { T } from './i18n'
-import demo from './mock/demo.json'
-import lockscreen from './mock/lockscreen.svg'
 import type { Attachment, Chore, Commit, Intent, Finding, Unit, ModuleNode, Severity, Task, Workspace } from './types'
 
-/** The one place data comes from. Replace the body with a fetch when the service exists. */
-export async function loadWorkspace(): Promise<Workspace> {
-  const ws = demo as unknown as Workspace
-  // The data carries whole texts; the hunks and line counts are worked out from them.
+/** Sample data instead of the service, with `VITE_MOCK=1`. */
+export const MOCK = import.meta.env.VITE_MOCK === '1'
+
+/** The data carries whole texts; the hunks and line counts are worked out from them. */
+function prepare(ws: Workspace): Workspace {
   for (const unit of unitsOf(ws)) for (const c of unit.commits) c.files = c.files.map(f => ({ ...f, ...changeOf(f.before, f.after) }))
-  // Sample pictures are files next to the data; the service will serve them later.
-  const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
-  for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const f of n.output.findings ?? []) for (const a of f.attachments ?? []) a.url = pictures[a.url] ?? a.url
   if (import.meta.env.DEV) checkCounts(ws)
   return ws
 }
+
+async function loadWorkspace(): Promise<Workspace> {
+  if (!MOCK) {
+    const res = await fetch('/api/workspace')
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+    return prepare(await res.json())
+  }
+  const [{ default: demo }, { default: lockscreen }] = await Promise.all([import('./mock/demo.json'), import('./mock/lockscreen.svg')])
+  const ws = demo as unknown as Workspace
+  // Sample pictures are files next to the data.
+  const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
+  for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const f of n.output.findings ?? []) for (const a of f.attachments ?? []) a.url = pictures[a.url] ?? a.url
+  return prepare(ws)
+}
+
+/**
+ * The one place data comes from: the workspace now, and again whenever the service says it
+ * changed. `onDown` is called while the service cannot be reached. Returns a stop function.
+ */
+export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => void): () => void {
+  let stopped = false
+  let asked = 0
+  // Only the latest answer counts; an older one arriving late is dropped.
+  const get = () => {
+    const n = ++asked
+    loadWorkspace().then(ws => { if (!stopped && n === asked) onData(ws) }, () => { if (!stopped && n === asked) onDown() })
+  }
+  get()
+  if (MOCK) return () => { stopped = true }
+  const events = new EventSource('/api/events')
+  events.addEventListener('changed', get)
+  // The stream reconnects by itself; what changed while it was down is fetched then.
+  let opened = false
+  events.onopen = () => { if (opened) get(); opened = true }
+  events.onerror = () => { if (!stopped) onDown() }
+  return () => { stopped = true; events.close() }
+}
+
+/** The repository a unit works in. */
+export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo)!
 
 /**
  * Self-check, in development: for every unit and every scope (nothing picked, each node
@@ -25,7 +62,7 @@ function checkCounts(ws: Workspace) {
   for (const unit of unitsOf(ws))
     for (const pick of [null, ...unit.tasks.map(n => ({ kind: 'task', id: n.id }) as const)]) {
       const sel = selectionOf(unit, pick)
-      for (const r of fileTree(ws.modules, unit, sel, true).rows.values()) {
+      for (const r of fileTree(repoOf(ws, unit).modules, unit, sel, true).rows.values()) {
         if (r.folder || !r.status) continue
         const shown = shownDelta(unit, sel, r.id)
         console.assert(!!shown && r.add === shown.add && r.del === shown.del, 'tree and file view disagree', unit.id, pick?.id, r.id)

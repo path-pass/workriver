@@ -5,8 +5,8 @@ working in parallel: what each is doing now, how a piece of work came to be the 
 and which parts of the code it reached. It records and shows; it does not start or
 schedule agents.
 
-Status: pre-implementation. Only the web UI (`frontend/web/`) exists so far, running on
-sample data.
+Status: first version in progress. The daemon, the event store, the git scan, the CLI
+and the web UI on real data work; the Herdr runtime and delivery to agents are next.
 
 ## Terms
 
@@ -25,7 +25,7 @@ sample data.
 
 ## Stack (decided)
 
-- Service, CLI, MCP server, runtime adapter: Rust, one Cargo workspace.
+- Service, CLI, runtime adapter: Rust, one Cargo workspace.
 - UI: one web UI, written once: TypeScript, React, Vite, shadcn/ui (Radix + Tailwind),
   React Flow for the graph with @antv/layout's dagre for the initial placement, diff2html
   for diffs, i18next. Built to static files. React Flow's attribution stays visible (its
@@ -33,8 +33,16 @@ sample data.
   The service serves them to a browser; the desktop and iOS apps are shells around the
   same build.
 - Storage: one SQLite database outside the repositories it watches, append-only events.
-- Agents connect through MCP over HTTP to the one running service to report the content
-  of their work (nodes, output, findings). The CLI is for people.
+- Agents report the content of their work (tasks, output, evidence, findings) by running
+  the `workriver` CLI from their shell, which every harness can do. The CLI knows which
+  agent called it from the runtime's environment (under Herdr: `HERDR_PANE_ID`,
+  `HERDR_WORKSPACE_ID`), so no harness is configured or special-cased. The instructions
+  an agent needs travel inside the task message the manager sends it. MCP is not used
+  for now; add it only if a harness that cannot run shell commands has to be supported.
+- Each intent (one Herdr workspace) has one manager agent of its own. It registers itself
+  with the CLI, splits the work into units and tasks, hands tasks to agents through the
+  runtime, and receives the user's accepted findings. workriver records and delivers; the
+  manager schedules.
 - Who is running, where, in what state, and delivering a message to an agent come from
   the agent runtime, not from per-harness hooks. The core defines a small runtime
   interface in workriver's own terms (agent, session, state, working directory, send a
@@ -57,8 +65,7 @@ crates/             Rust workspace (not created yet): workriver-core, workriver-
 
 Layering follows memriver: a core crate with models, storage and write rules that knows
 nothing about the network or the UI; a scan crate that reads git and the file tree; an
-outer crate with the daemon, CLI, MCP server, the Herdr runtime implementation and
-per-harness install of the MCP connection.
+outer crate with the daemon, the CLI and the Herdr runtime implementation.
 
 ## Language rules
 

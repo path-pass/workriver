@@ -9,7 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { findingKey, gateKey, useAct } from '@/act'
 import { SEVERITIES, type Decision, type NewFinding } from '@/data'
 import { useT } from '@/i18n'
-import { attach, detach, MANAGER } from '@/runtime'
+import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Severity, Task, Unit } from '@/types'
 import { CopyButton, Icon, Who } from './bits'
 
@@ -62,11 +62,13 @@ export function DeliveryLine({ id, message }: { id: string; message?: boolean })
   const d = act.delivery[id]
   if (!d) return null
   const manager = d.to === MANAGER
-  const steps = [
-    ['pending', t('deliver.pending')],
-    ['delivered', manager ? t('deliver.toManager') : t('deliver.delivered', { agent: d.to })],
-    ...(manager ? [] : [['picked', t('deliver.picked', { agent: d.to })]]),
-  ] as const
+  const steps: [DeliveryStep, string][] = d.step === 'recorded' || d.step === 'failed'
+    ? [['pending', t('deliver.pending')], [d.step, d.step === 'recorded' ? t('deliver.recorded') : t('deliver.failed')]]
+    : [
+        ['pending', t('deliver.pending')],
+        ['delivered', manager ? t('deliver.toManager') : t('deliver.delivered', { agent: d.to })],
+        ...(manager ? [] : [['picked', t('deliver.picked', { agent: d.to })] as [DeliveryStep, string]]),
+      ]
   const at = steps.findIndex(([s]) => s === d.step)
   return (
     <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs" aria-live="polite">

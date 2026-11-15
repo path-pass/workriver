@@ -10,6 +10,9 @@ export const en = {
     clearSearch: 'Clear search',
     none: 'No units recorded yet.'
   },
+  service: {
+    unreachable: 'Cannot reach the workriver service. Is `workriver serve` running?'
+  },
   settings: {
     title: 'Settings',
     close: 'Close',
@@ -134,7 +137,9 @@ export const en = {
     toManager: 'Sent to the manager bot',
     picked: '{{agent}} picked it up',
     undo: 'Undo',
-    copy: 'Copy message'
+    copy: 'Copy message',
+    recorded: 'Recorded; delivery to agents is not connected yet',
+    failed: 'Not recorded: the service did not take it'
   },
   decide: {
     label: 'Decide on {{id}}',

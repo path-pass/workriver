@@ -16,18 +16,33 @@ work as it happens and shows it as one picture:
 - **Needs you** – one queue across everything: manual steps an agent is waiting on,
   findings to accept, reject or defer, and gaps such as commits that name no task.
 
-It runs on your machine as one service. Agents report their work through MCP; who is
-running and where comes from [Herdr](https://herdr.dev); you look through a browser.
+It runs on your machine as one service. Agents report their work by running the
+`workriver` CLI from their shell; who is running and where comes from
+[Herdr](https://herdr.dev) (not connected yet); you look through a browser.
 
 ## Status
 
-Early. Only the UI exists, running on sample data.
+Early. The service records intents, units, tasks, findings and chores, reads the units'
+commits from git, and serves the web UI on real data. Delivering your decisions to agents
+and the Herdr connection come next.
+
+## Build and run
+
+Runtimes come from [mise](https://mise.jdx.dev) (`mise.toml`: Rust and Node). The web UI is
+built into the binary, so build it first:
 
 ```
-cd frontend/web
-npm install
-npm run dev
+cd frontend/web && npm install && npm run build && cd ../..
+cargo build --release
+./target/release/workriver serve          # http://127.0.0.1:47820
 ```
+
+Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
+`workriver --help` explains the commands; a commit belongs to a task through a trailer line
+`Task: u1#3` in its message.
+
+Working on the UI: `npm run dev` in `frontend/web` uses a running `workriver serve`;
+`npm run dev:mock` uses the sample data instead.
 
 ## License
 

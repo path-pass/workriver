@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { attention, unitsOf } from '@/data'
+import { attention, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import type { Unit, Workspace } from '@/types'
 import { Icon, Tip } from './bits'
@@ -107,6 +107,9 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
   const groups = intents.map(intent => ({ intent, units: intent.units.filter(match) })).filter(g => g.units.length)
   // The intent of the open unit is open; the others are folded unless the user opened them.
   const home = intents.find(i => i.units.some(u => u.id === unitId))?.id
+  // The repository of the open unit; units of one intent may work in several.
+  const openUnit = unitsOf(ws).find(u => u.id === unitId)
+  const repo = ws && openUnit ? repoOf(ws, openUnit).name : ''
   const [open, setOpen] = useState<string[]>([])
   useEffect(() => { if (home) setOpen(o => (o.includes(home) ? o : [...o, home])) }, [home])
   if (!railOpen)
@@ -124,7 +127,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
       <div className="flex items-center gap-2 pl-1 text-lg font-[650] tracking-[-0.01em]">
         <Waves aria-hidden size={20} strokeWidth={1.6} className="flex-none" />
         workriver
-        <span className="min-w-0 flex-1 truncate font-normal text-rail-ink-2">{ws?.repo}</span>
+        <span className="min-w-0 flex-1 truncate font-normal text-rail-ink-2">{repo}</span>
         <Fold open onToggle={onToggle} />
       </div>
 

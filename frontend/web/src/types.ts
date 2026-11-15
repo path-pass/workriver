@@ -1,11 +1,10 @@
-// The shape of what the UI shows. For now it is filled from src/mock/demo.json; later the
-// same shape comes from the workriver service.
+// The shape of what the UI shows: what the workriver service answers on /api/workspace,
+// and what src/mock/demo.json holds for the sample.
 
 export interface Workspace {
-  repo: string;
+  /** Every repository a unit works in. */
+  repos: Repo[];
   builtAt: string;
-  /** The code as a tree of folders and files. The root has an empty path. */
-  modules: ModuleNode;
   intents: Intent[];
   /** One per agent. What it is working on comes from the tasks; only this does not. */
   sessions: Session[];
@@ -21,6 +20,14 @@ export interface Intent {
   units: Unit[];
   /** Things agents left for the user that block nobody. Never on a graph. */
   chores: Chore[];
+}
+
+export interface Repo {
+  /** Where it is on disk; a unit names its repository by this. */
+  path: string;
+  name: string;
+  /** The code as a tree of folders and files. The root has an empty path. */
+  modules: ModuleNode;
 }
 
 export interface Session {
@@ -68,6 +75,8 @@ export interface Unit {
   title: string;
   /** One sentence on what the unit is for; may be empty. */
   purpose: string;
+  /** Path of its repository, one of `Workspace.repos`. */
+  repo: string;
   /** The branch the work happens on; null once merged. */
   branch: string | null;
   status: UnitStatus;
