@@ -125,6 +125,14 @@ fn yes() -> bool {
     true
 }
 
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+fn user() -> String {
+    "user".into()
+}
+
 /// Findings of a review, tests task or gate (by task number) that a task answers.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Cause {
@@ -400,7 +408,14 @@ pub enum Body {
     },
     /// The temporary agent that answers it is running.
     #[serde(rename = "question.started")]
-    QuestionStarted { question: String, agent: String, name: String },
+    QuestionStarted {
+        question: String,
+        agent: String,
+        name: String,
+        /// False when the question went straight to the task's own agent, which is never closed.
+        #[serde(default = "yes", skip_serializing_if = "is_true")]
+        temporary: bool,
+    },
     #[serde(rename = "question.answered")]
     QuestionAnswered {
         question: String,
@@ -508,9 +523,15 @@ pub struct Question {
     pub text: String,
     pub context: Vec<AskContext>,
     pub at: String,
-    /// The temporary agent: its session and name, once started.
+    /// Who asked: "user", or an agent's session.
+    #[serde(default = "user")]
+    pub by: String,
+    /// The agent answering it: its session and name, once it has the question.
     pub agent: Option<String>,
     pub name: Option<String>,
+    /// That agent was started for it (and is closed later), not the task's own.
+    #[serde(default = "yes")]
+    pub temporary: bool,
     pub answer: Option<String>,
     pub asked: Option<String>,
     pub answered_by: Option<String>,
@@ -853,12 +874,12 @@ impl State {
                 };
                 QuestionAsked { id, thread, unit, task, text, context, conclude }
             }
-            QuestionStarted { question, agent, name } => {
+            QuestionStarted { question, agent, name, temporary } => {
                 let q = self.question(&question)?;
                 if !q.open() || q.agent.is_some() {
                     return no(format!("question {question} is not waiting for an agent"));
                 }
-                QuestionStarted { question, agent, name }
+                QuestionStarted { question, agent, name, temporary }
             }
             QuestionAnswered { question, text, asked, conclusion } => {
                 let q = self.question(&question)?;
@@ -868,7 +889,11 @@ impl State {
                 // Only the thread's temporary agent (known by session or by name), or the user.
                 let t = self.threads.iter().find(|t| t.id == q.thread);
                 let name = t.and_then(|t| t.name.as_deref()).or(q.name.as_deref());
-                let mine = [q.agent.as_deref(), t.and_then(|t| t.agent.as_deref())].contains(&Some(actor)) || (name.is_some() && self.name_of(actor) == name);
+                // The task's own agent may always answer about its work.
+                let own = self.task(&q.unit, q.task).ok().and_then(|x| x.agent.as_deref()) == Some(actor);
+                let mine = own
+                    || [q.agent.as_deref(), t.and_then(|t| t.agent.as_deref())].contains(&Some(actor))
+                    || [name, q.name.as_deref()].iter().any(|n| n.is_some() && self.name_of(actor) == *n);
                 if actor != "user" && !mine {
                     return no(format!("question {question} is answered by the agent started for it ({}), or by the user", name.unwrap_or("not started yet")));
                 }
@@ -1148,13 +1173,17 @@ impl State {
                 asked: None,
                 answered_by: None,
                 failed: None,
+                by: e.actor.clone(),
+                temporary: true,
                 })
             }
-            QuestionStarted { question, agent, name } => {
+            QuestionStarted { question, agent, name, temporary } => {
                 if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
                     q.agent = Some(agent.clone());
                     q.name = Some(name.clone());
-                    if let Some(t) = self.threads.iter_mut().find(|t| t.id == q.thread) {
+                    q.temporary = *temporary;
+                    // Only a temporary agent belongs to the thread (and is closed with it).
+                    if *temporary && let Some(t) = self.threads.iter_mut().find(|t| t.id == q.thread) {
                         t.agent = Some(agent.clone());
                         t.name = Some(name.clone());
                     }

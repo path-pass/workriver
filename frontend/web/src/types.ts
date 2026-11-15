@@ -303,6 +303,8 @@ export interface Thread {
 export interface Turn {
   /** Its id with the service ("q3"); absent in the sample. */
   id?: string;
+  /** The agent that asked; absent when the user did. */
+  by?: string;
   question: string;
   context: AskContext[];
   /** Null while it comes. */

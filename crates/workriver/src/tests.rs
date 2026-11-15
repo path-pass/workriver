@@ -281,7 +281,7 @@ fn asking_why() {
     assert!(prompt.contains("\"Why one table?\"") && prompt.contains("the file src/a.rs") && prompt.contains("workriver answer q1 --text"), "{prompt}");
     assert!(!prompt.contains('\n'));
     // Someone else may not answer; the temporary agent may.
-    assert!(d.append("s-w", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
+    assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
     d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "Fewer joins.", "asked": "s-w" })).unwrap();
 
     // A follow-up goes to the same agent.
@@ -363,4 +363,58 @@ fn blocked_agents_carry_their_wait() {
     assert_eq!(since(&d, 0), first, "the wait starts when first seen");
     fake.agents.lock().unwrap()[0].1.state = Working;
     wait_until("no longer blocked", || since(&d, 0).is_null());
+}
+
+/// Agents ask each other through workriver: a free task agent is asked directly, a busy one
+/// is not interrupted (a temporary agent answers); the answer goes back to the asker.
+#[test]
+fn agents_ask_each_other() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![
+        ("p1".into(), live("s-boss", "boss", "w1", Idle)),
+        ("p2".into(), live("s-back", "back", "w1", Idle)),
+        ("p3".into(), live("s-front", "front", "w1", Working)),
+    ];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    d.call("/api/here", Some(json!({ "place": "p1", "intent": true }))).unwrap();
+    d.call("/api/here", Some(json!({ "place": "p3", "intent": false }))).unwrap();
+    d.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API", "agent": "s-back" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+
+    // The back end's agent is free: asked directly, no temporary agent.
+    let q = d.call("/api/ask", Some(json!({ "by": "s-front", "unit": "u1", "task": 1, "text": "Is the list paged?", "context": [{ "kind": "file", "label": "api.ts", "path": "src/api.ts" }] }))).unwrap();
+    assert_eq!(q["actor"], "s-front");
+    wait_until("asked directly", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-back"));
+    assert!(fake.started.lock().unwrap().is_empty());
+    let text = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "s-back").unwrap().1.clone();
+    assert!(text.contains("The agent front asks about your task u1#1 \"API\" (question q1)") && text.contains("workriver answer q1"), "{text}");
+    // Another agent may not answer; the task's own agent may.
+    assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
+    d.append("s-back", "question.answered", json!({ "question": "q1", "text": "Yes, 50 per page." })).unwrap();
+    wait_until("the answer goes back to the asker", || fake.sent.lock().unwrap().iter().any(|(to, t)| to == "s-front" && t.contains("Answer to your question q1") && t.contains("50 per page")));
+    let ws = d.get("/api/workspace").unwrap();
+    assert_eq!(ws["intents"][0]["units"][0]["tasks"][0]["threads"][0]["turns"][0]["by"], "front", "shown with the asker");
+    assert!(fake.closed.lock().unwrap().is_empty(), "the task's own agent is never closed");
+
+    // Busy now: a temporary agent answers instead, and the answer still goes back.
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    d.call("/api/ask", Some(json!({ "by": "s-front", "unit": "u1", "task": 1, "text": "And sorted how?" }))).unwrap();
+    wait_until("a temporary agent starts", || fake.started.lock().unwrap().len() == 1);
+    assert!(!fake.sent.lock().unwrap().iter().any(|(to, t)| to == "s-back" && t.contains("q2")), "the busy agent is not interrupted");
+    d.append("s-why-q2", "question.answered", json!({ "question": "q2", "text": "By date." })).unwrap();
+    wait_until("answer back", || fake.sent.lock().unwrap().iter().any(|(to, t)| to == "s-front" && t.contains("q2") && t.contains("By date.")));
+
+    // --wait gives up with a clear message when nobody answers in time.
+    d.call("/api/ask", Some(json!({ "by": "s-front", "unit": "u1", "task": 1, "text": "Unanswered?" }))).unwrap();
+    let err = crate::wait_answer(&d, "q3", std::time::Duration::from_secs(1)).unwrap_err().to_string();
+    assert!(err.contains("no answer to q3 within 1 s"), "{err}");
 }

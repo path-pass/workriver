@@ -152,7 +152,11 @@ looked at now and then.
   starts a new one with the conversation so far). Under a conversation: "Draft conclusion"
   (its agent writes what was decided, what changes, what stays open; shown at the end, and
   it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
-  "New question" starts another conversation. File paths in an answer open the file. A node with questions carries a small
+  "New question" starts another conversation. File paths in an answer open the file.
+  Agents ask each other the same way, through workriver (never in each other's terminals):
+  their conversations show on the task asked about like the user's, with the asking agent's
+  mark before the question, and count in the node's speech-bubble mark; they never appear in
+  Needs you. A node with questions carries a small
   neutral speech-bubble mark with their count on the graph: information, not a button.
 
 ## Colour means one thing: the state of a piece of work

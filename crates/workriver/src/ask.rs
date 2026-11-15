@@ -62,10 +62,14 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
     let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
     let mut m = vec![
         format!(
-            "[workriver] You are a temporary agent started by workriver to answer the user's questions about recorded work; more questions may follow in this terminal, and workriver closes you when the user is done. Read-only: do not edit files, do not commit, and run no workriver command except `workriver board {}` and `workriver answer`.",
+            "[workriver] You are a temporary agent started by workriver to answer questions about recorded work (from the user, or from another agent); more questions may follow in this terminal, and workriver closes you when the user is done. Read-only: do not edit files, do not commit, and run no workriver command except `workriver board {}` and `workriver answer`.",
             q.unit
         ),
-        if q.conclude { String::new() } else { format!("Question {}: \"{}\"", q.id, q.text) },
+        match (q.conclude, q.by.as_str()) {
+            (true, _) => String::new(),
+            (false, "user") => format!("Question {}: \"{}\"", q.id, q.text),
+            (false, by) => format!("Question {} from the agent {}: \"{}\"", q.id, named(by), q.text),
+        },
         format!(
             "It is about task {r} \"{}\" ({}{}, {}) in unit {} \"{}\"{}. The code is in {dir} on branch {} (from {}); read it there.",
             t.title,
@@ -119,4 +123,28 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
     }
     m.push(format!("{} Then wait; more may come.", how_to_answer(q)));
     Some(m.into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" "))
+}
+
+/// An agent's question, straight to the agent of the task it is about (which is free).
+pub fn direct(state: &State, q: &Question) -> Option<String> {
+    let t = state.task(&q.unit, q.task).ok()?;
+    let asker = state.name_of(&q.by).unwrap_or(&q.by);
+    let about = pointed(q);
+    let at = if about.is_empty() { String::new() } else { format!(" It points at: {}.", about.join("; ")) };
+    Some(format!(
+        "[workriver] The agent {asker} asks about your task {}#{} \"{}\" (question {}): \"{}\"{at} Answer briefly with `workriver answer {} --text \"...\"`, then go on with what you were doing. If the question means the agreed contract or plan must change, do not agree a change between you: say so in the answer; the manager decides.",
+        q.unit, q.task, t.title, q.id, q.text, q.id
+    ))
+}
+
+/// The answer, back to the agent that asked.
+pub fn answer_back(state: &State, q: &Question) -> String {
+    let who = q.answered_by.as_deref().map(|a| state.name_of(a).unwrap_or(a).to_string()).unwrap_or_default();
+    format!(
+        "[workriver] Answer to your question {} about {}#{} (from {who}): \"{}\"",
+        q.id,
+        q.unit,
+        q.task,
+        q.answer.as_deref().unwrap_or_default()
+    )
 }

@@ -219,6 +219,9 @@ struct ThreadOut {
 #[derive(Serialize)]
 struct Turn {
     id: String,
+    /// The agent that asked; absent when the user did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    by: Option<String>,
     question: String,
     context: Vec<core::AskContext>,
     answer: Option<String>,
@@ -266,6 +269,7 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                     .filter(|q| q.thread == t.id)
                     .map(|q| Turn {
                         id: q.id.clone(),
+                        by: (q.by != "user").then(|| names.of(&q.by)),
                         question: q.text.clone(),
                         context: q.context.clone(),
                         answer: q.answer.clone(),

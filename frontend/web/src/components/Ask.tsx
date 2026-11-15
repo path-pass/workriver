@@ -83,6 +83,8 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
   return (
     <li className="flex flex-col gap-1">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        {/* Asked by another agent (through workriver): its mark, where the user's question has none. */}
+        {turn.by && <span className="self-center"><Who name={turn.by} /></span>}
         <span className={turn.conclude ? 'text-ink-2' : 'font-semibold'}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</span>
         <Chips chips={turn.context} />
       </div>

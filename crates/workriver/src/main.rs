@@ -85,7 +85,28 @@ enum Cmd {
     /// The manager: the one agent per intent that splits work and hands it out.
     #[command(subcommand)]
     Manager(ManagerCmd),
-    /// Answer a question the user asked about a task (for the temporary agent started for it).
+    /// Ask about another task, for an agent: the task's own agent answers if it is free, else
+    /// a temporary agent that reads the records and the code. The question is recorded on
+    /// that task; the answer comes back to your terminal as `[workriver] Answer to your
+    /// question qN …`. Returns at once with the question id, unless --wait.
+    Ask {
+        /// The task the question is about (u1#3).
+        task: String,
+        question: String,
+        /// A file it is about.
+        #[arg(long)]
+        file: Option<String>,
+        /// Lines of that file, `A-B`.
+        #[arg(long, value_name = "A-B", requires = "file")]
+        lines: Option<String>,
+        /// Wait for the answer and print it.
+        #[arg(long)]
+        wait: bool,
+        /// With --wait: give up after this many seconds.
+        #[arg(long, default_value_t = 600)]
+        timeout: u64,
+    },
+    /// Answer a question about a task (for the agent it was given to, or the task's own agent).
     Answer {
         /// The question (q3).
         question: String,
@@ -419,6 +440,24 @@ fn main() -> anyhow::Result<()> {
             d.append(actor, "chore.created", json!({ "intent": intent, "title": title, "unit": unit, "steps": steps }))?
         }
         Cmd::Chore(ChoreCmd::Done { chore }) => d.append(actor, "chore.done", json!({ "chore": chore }))?,
+        Cmd::Ask { task, question, file, lines, wait, timeout } => {
+            let (unit, n) = task_ref(&task)?;
+            let mut context = vec![];
+            if let Some(path) = &file {
+                context.push(match lines.as_deref().map(parse_lines).transpose()? {
+                    Some((a, b)) => json!({ "kind": "lines", "label": format!("{path} L{a}-{b}"), "path": path, "from": a, "to": b }),
+                    None => json!({ "kind": "file", "label": path, "path": path }),
+                });
+            }
+            let e = d.call("/api/ask", Some(json!({ "by": actor, "unit": unit, "task": n, "text": question, "context": context })))?;
+            let id = e["body"]["id"].as_str().unwrap_or("?").to_string();
+            if !wait {
+                println!("{id}");
+                return Ok(());
+            }
+            println!("{}", wait_answer(&d, &id, Duration::from_secs(timeout))?);
+            return Ok(());
+        }
         Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
     };
     // What was recorded, by the id an agent uses next.
@@ -478,6 +517,32 @@ fn actor_of(explicit: Option<String>, place: Option<&str>, here: Option<&Value>)
     match (place, here) {
         (Some(p), Some(h)) => h["actor"].as_str().map(str::to_string).ok_or_else(|| anyhow!(herdr::no_agent_at(p))),
         _ => Ok("user".into()),
+    }
+}
+
+/// `A-B` (or one line `A`).
+fn parse_lines(s: &str) -> anyhow::Result<(u32, u32)> {
+    let err = || anyhow!("--lines {s:?}: write A-B, e.g. 10-24");
+    let (a, b) = s.split_once('-').unwrap_or((s, s));
+    Ok((a.trim().parse().map_err(|_| err())?, b.trim().parse().map_err(|_| err())?))
+}
+
+/// Polls until question `id` is answered (its text) or fails, or `timeout` passes.
+fn wait_answer(d: &Daemon, id: &str, timeout: Duration) -> anyhow::Result<String> {
+    let until = std::time::Instant::now() + timeout;
+    loop {
+        let state: core::State = serde_json::from_value(d.get("/api/state")?)?;
+        let q = state.question(id).map_err(|e| anyhow!(e.0))?;
+        if let Some(a) = &q.answer {
+            return Ok(a.clone());
+        }
+        if let Some((code, why)) = &q.failed {
+            bail!("question {id} got no answer ({}): {why}", name(code));
+        }
+        if std::time::Instant::now() >= until {
+            bail!("no answer to {id} within {} s; it is still open, and the answer will come to your terminal", timeout.as_secs());
+        }
+        std::thread::sleep(Duration::from_millis(1000).min(until.saturating_duration_since(std::time::Instant::now()).max(Duration::from_millis(50))));
     }
 }
 

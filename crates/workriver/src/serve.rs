@@ -348,6 +348,28 @@ impl App {
         let fail = |code, why: String| self.fail_question(id, code, &why);
         // Read fresh: a temporary agent started since the last poll counts.
         let Ok(live) = self.runtime.agents() else { return fail(ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into()) };
+        // An agent's question goes straight to the task's own agent while it is free (it knows
+        // its work best); a working or blocked one is not interrupted: a temporary agent answers.
+        let direct = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().filter(|q| q.by != "user").and_then(|q| s.task(&q.unit, q.task).ok()).and_then(|t| t.agent.clone())
+        };
+        if let Some(own) = direct.and_then(|own| live.iter().find(|a| a.session == own && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned()) {
+            if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent: own.session.clone(), name: own.name.clone(), temporary: false }) {
+                tracing::warn!("question {id}: {}", e.1);
+            }
+            self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
+            let text = {
+                let store = self.store.lock().unwrap();
+                let s = store.state();
+                s.question(id).ok().and_then(|q| ask::direct(s, q))
+            };
+            if let Err(e) = self.runtime.send(&own.session, &text.unwrap_or_default()) {
+                fail(ReasonCode::RuntimeError, format!("cannot give {} the question: {e}", own.name));
+            }
+            return;
+        }
         // A follow-up goes to the thread's agent while it lives, which keeps its context.
         let current = {
             let store = self.store.lock().unwrap();
@@ -356,7 +378,7 @@ impl App {
         };
         if let Some((thread, agent, name)) = current.filter(|(_, _, n)| live.iter().any(|a| &a.name == n)) {
             self.idle.lock().unwrap().retain(|(t, _, _)| *t != thread);
-            if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent, name: name.clone() }) {
+            if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent, name: name.clone(), temporary: true }) {
                 tracing::warn!("question {id}: {}", e.1);
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
@@ -393,7 +415,7 @@ impl App {
             Ok(a) => a,
             Err(e) => return fail(if matches!(e, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }, format!("cannot start {harness} as {name}: {e}")),
         };
-        if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent: agent.session.clone(), name: agent.name.clone() }) {
+        if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent: agent.session.clone(), name: agent.name.clone(), temporary: true }) {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
@@ -411,7 +433,8 @@ impl App {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
-        let name = self.store.lock().unwrap().state().question(id).ok().and_then(|q| q.name.clone());
+        // Only an agent started for it is closed; a task's own agent is not.
+        let name = self.store.lock().unwrap().state().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
         if let Some(name) = name {
             self.close_later(name);
         }
@@ -420,6 +443,17 @@ impl App {
     /// An answer came: the thread's agent waits for a follow-up until it has been idle too long.
     fn answered(&self, id: &str) {
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        // An agent that asked hears the answer in its terminal.
+        let back = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), ask::answer_back(s, q)))
+        };
+        if let Some((asker, text)) = back
+            && let Err(e) = self.runtime.send(&asker, &text)
+        {
+            tracing::warn!("cannot give {asker} the answer to {id}: {e}");
+        }
         let found = {
             let store = self.store.lock().unwrap();
             let s = store.state();
@@ -710,6 +744,9 @@ struct Here {
 /// The CLI asks who and where it is: see `App::here`.
 #[derive(Deserialize)]
 struct Ask {
+    /// Who asks: an agent's session (from the CLI), or the user (the page).
+    #[serde(default)]
+    by: Option<String>,
     unit: String,
     task: u32,
     text: String,
@@ -736,7 +773,8 @@ async fn end_thread(State(app): State<Shared>, Json(t): Json<EndThread>) -> Resu
 async fn ask_why(State(app): State<Shared>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
     let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
     let starter = app.clone();
-    let e = blocking(move || app.record("user", body)).await?;
+    let by = a.by.unwrap_or_else(|| "user".into());
+    let e = blocking(move || app.record(&by, body)).await?;
     if let Body::QuestionAsked { id, .. } = &e.body {
         let id = id.clone();
         tokio::task::spawn_blocking(move || starter.start_question(&id));

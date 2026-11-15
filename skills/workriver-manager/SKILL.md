@@ -92,6 +92,18 @@ chore. `workriver board` shows where everything stands. To block until a worker 
 `herdr agent wait <name>` (see `herdr --skill`). A worker that delivered wrong output
 corrects it with `workriver task deliver u1#3 --amend ...`.
 
+## Front and back end, or any two tasks that must fit together
+
+First a design task that writes the contract as a file in the repository (types, API,
+component props), and a decide gate if the user must choose. Then the two implementation
+tasks in parallel, each with the contract file as input (`--after` the design or the gate,
+the path in `--text`). Questions between them go through `workriver ask <task> "..."`
+(recorded; the other agent answers if free, else a temporary agent does). A needed change
+to the contract is not agreed between the two workers: the worker that finds it records a
+review of the design task with one finding (`workriver task add u1 --kind review --after
+<design>`, then `task deliver ... --findings`); you are told of the delivery, the user
+decides, and an accepted or revised finding leads to a revised design as above.
+
 ## Reviews, tests and evidence
 
 - Implementers run their own unit tests and deliver them as evidence
@@ -162,4 +174,5 @@ when two attempts at a task failed the same way.
     workriver finding decide u1#4 P2-1 accept|revise|reject|defer [--note N]   (revise needs a note)
     workriver gate submit u1#5 done|problem [--note N] [--findings FILE]
     workriver chore add --title T [--unit u1] [--step 'TEXT => COMMAND'] | chore done c1
+    workriver ask u1#3 "question" [--file P [--lines A-B]] [--wait]
     workriver guide worker

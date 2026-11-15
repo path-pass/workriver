@@ -144,18 +144,21 @@ fn questions_are_answered_by_their_own_agent_or_the_user() {
     assert!(s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 9, "text": "?"}}))).is_err());
     s.append("workriver", body(json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}}))).unwrap();
     // Another agent may not answer; the started one may, known by its name even under a new session.
-    let other = s.append("agent-a", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}))).unwrap_err().to_string();
+    let other = s.append("agent-b", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}))).unwrap_err().to_string();
     assert!(other.contains("why-q1"), "{other}");
     s.append("workriver", body(json!({"kind": "agent.seen", "body": {"session": "s-why-2", "name": "why-q1", "harness": "claude"}}))).unwrap();
     s.append("s-why-2", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "It is short.", "asked": "agent-a"}}))).unwrap();
     let q = s.state().question("q1").unwrap();
     assert_eq!((q.answer.as_deref(), q.asked.as_deref(), q.answered_by.as_deref()), (Some("It is short."), Some("agent-a"), Some("s-why-2")));
     let again = s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "y"}}))).unwrap_err().to_string();
+    // The task's own agent may answer questions about its work.
+    s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Own?"}}))).unwrap();
+    s.append("agent-a", body(json!({"kind": "question.answered", "body": {"question": "q2", "text": "Mine."}}))).unwrap();
     assert!(again.contains("already answered"), "{again}");
     // A question can fail once, while open; the user can still answer an open one.
     s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "And?"}}))).unwrap();
-    s.append("workriver", body(json!({"kind": "question.failed", "body": {"question": "q2", "reason_code": "timeout", "reason": "no answer in 10 minutes"}}))).unwrap();
-    assert!(s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q2", "text": "late"}}))).is_err());
+    s.append("workriver", body(json!({"kind": "question.failed", "body": {"question": "q3", "reason_code": "timeout", "reason": "no answer in 10 minutes"}}))).unwrap();
+    assert!(s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q3", "text": "late"}}))).is_err());
 }
 
 #[test]
