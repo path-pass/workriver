@@ -8,12 +8,22 @@ export const en = {
     search: 'Search units',
     noMatch: 'No units match “{{q}}”',
     clearSearch: 'Clear search',
-    none: 'No units recorded yet.'
+    none: 'No units recorded yet.',
+    noUnits: 'No units yet'
   },
   manager: {
     mark: 'Manager of its intent',
     of: 'Manager {{name}}: {{state}}',
     state: { working: 'working', idle: 'idle', done: 'idle', blocked: 'blocked', unknown: 'unknown', gone: 'not running', none: 'no manager' }
+  },
+  start: {
+    title: 'Start here',
+    lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
+    agent: 'In a Herdr workspace, start a coding agent to be its manager.',
+    skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
+    register: 'Have it register, with the goal of the workspace in one sentence:',
+    work: 'It splits the goal into units and tasks and hands them to worker agents; their work shows up here.',
+    trailer: 'A commit belongs to a task through a line in its message:'
   },
   service: {
     unreachable: 'Cannot reach the workriver service. Is `workriver serve` running?'

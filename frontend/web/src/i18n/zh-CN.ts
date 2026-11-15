@@ -12,12 +12,22 @@ export const zhCN: Same<typeof en> = {
     search: '搜索单元',
     noMatch: '没有单元匹配「{{q}}」',
     clearSearch: '清除搜索',
-    none: '还没有记录任何单元。'
+    none: '还没有记录任何单元。',
+    noUnits: '还没有单元'
   },
   manager: {
     mark: '这个意图的管理者',
     of: '管理者 {{name}}：{{state}}',
     state: { working: '工作中', idle: '空闲', done: '空闲', blocked: '卡住了', unknown: '状态不明', gone: '没在运行', none: '没有管理者' }
+  },
+  start: {
+    title: '从这里开始',
+    lead: '还没有任何记录。agent 自己记录自己的工作；每个 Herdr 工作区有一个管理者 agent 负责规划。',
+    agent: '在一个 Herdr 工作区里，启动一个 coding agent 当它的管理者。',
+    skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
+    register: '让它登记自己，并用一句话写下这个工作区的目标：',
+    work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
+    trailer: '提交信息里写这样一行，这个提交就归到对应的任务：'
   },
   service: {
     unreachable: '连不上 workriver 服务。`workriver serve` 在运行吗？'

@@ -27,6 +27,14 @@ struct Repo {
 #[derive(Serialize)]
 struct Session {
     agent: String,
+    /// The session's own id; names may repeat across workspaces, this does not.
+    session: String,
+    /// What the session is about (its terminal title), while it lives.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topic: Option<String>,
+    /// The runtime group (Herdr workspace) it runs in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group: Option<core::RuntimeRef>,
     ended: bool,
     /// The runtime's state of the agent, while it lives.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,6 +110,9 @@ struct Task {
     task_id: Option<String>,
     title: String,
     agent: Option<String>,
+    /// The agent's session, to tell agents of the same name apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_session: Option<String>,
     writing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     raised_by: Option<String>,
@@ -251,6 +262,9 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             let intent = a.group.as_ref().and_then(|g| state.intent_for(g));
             Session {
                 agent: a.name.clone(),
+                session: a.session.clone(),
+                topic: a.topic.clone(),
+                group: a.group.clone(),
                 ended: false,
                 state: Some(name(&a.state)),
                 intent: intent.map(|i| i.id.clone()),
@@ -262,7 +276,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     for session in recorded {
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
-            sessions.push(Session { agent, ended: true, state: None, intent: None, manager: false });
+            sessions.push(Session { agent, session, topic: None, group: None, ended: true, state: None, intent: None, manager: false });
         }
     }
     Workspace { repos, built_at: core::now(), intents, sessions }
@@ -416,6 +430,7 @@ fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, co
         task_id: (kind != "review").then(|| t.n.to_string()),
         title: t.title.clone(),
         agent: t.agent.as_deref().map(|a| names.of(a)),
+        agent_session: t.agent.clone(),
         writing: false,
         raised_by,
         gate: t.gate,
@@ -454,6 +469,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         task_id: None,
         title: c.subject.clone(),
         agent: None,
+        agent_session: None,
         writing: false,
         raised_by: None,
         gate: None,

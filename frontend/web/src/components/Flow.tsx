@@ -485,7 +485,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
         {head}
         {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
         {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
-          <TerminalButton agent={n.agent} className="ml-auto text-you-ink hover:bg-surface/60" />
+          <TerminalButton agent={n.agent} session={n.agentSession} className="ml-auto text-you-ink hover:bg-surface/60" />
         )}
       </div>
       <div className={cn('grid text-sm wrap-anywhere', n.kind === 'review' ? 'min-[701px]:grid-cols-[1fr_2fr]' : 'grid-cols-[repeat(auto-fit,minmax(260px,1fr))]')}>

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
 import { SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
-import { Notes } from '@/components/bits'
+import { Notes, Topics } from '@/components/bits'
+import { Start } from '@/components/Start'
 import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
@@ -39,6 +40,13 @@ export default function App() {
   // What the user put in during this sitting; the data shown is the data with it on top.
   const [edits, setEdits] = useState<Edits>(NO_EDITS)
   const ws = useMemo(() => data && withEdits(data, edits), [data, edits])
+  // What each live session is about, for the agent marks' tooltips; a name that repeats
+  // across workspaces is left out rather than guessed.
+  const topics = useMemo(() => {
+    const live = (data?.sessions ?? []).filter(s => !s.ended)
+    const once = (name: string) => live.filter(s => s.agent === name).length === 1
+    return new Map(live.flatMap(s => (s.topic && once(s.agent) ? [[s.agent, s.topic] as const] : [])))
+  }, [data])
 
   // The file picked in the code layer and lines picked in a diff; a question takes them as context.
   const [file, setFile] = useState<string | null>(null)
@@ -183,10 +191,12 @@ export default function App() {
 
   return (
     <ActContext.Provider value={act}>
+    <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
       <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
+        {ws && !unitsOf(ws).length && <Start />}
         {ws && unit && sel && talk && (
           <>
             <header className="flex items-start gap-3">
@@ -225,6 +235,7 @@ export default function App() {
       )}
       <Notes />
     </div>
+    </Topics.Provider>
     </ActContext.Provider>
   )
 }

@@ -100,6 +100,7 @@ fn live(session: &str, name: &str, group: &str, state: workriver_core::runtime::
         cwd: String::new(),
         group: Some(workriver_core::RuntimeRef { id: group.into(), label: "chat".into() }),
         name: name.into(),
+        topic: None,
     }
 }
 

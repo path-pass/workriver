@@ -203,7 +203,7 @@ mod tests {
     use super::*;
 
     fn agent(session: &str) -> RuntimeAgent {
-        RuntimeAgent { session: session.into(), harness: "claude".into(), state: AgentState::Idle, cwd: String::new(), group: None, name: session.into() }
+        RuntimeAgent { session: session.into(), harness: "claude".into(), state: AgentState::Idle, cwd: String::new(), group: None, name: session.into(), topic: None }
     }
 
     fn at(store: &mut Store, actor: &str, v: serde_json::Value) -> Event {

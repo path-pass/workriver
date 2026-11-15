@@ -28,6 +28,8 @@ pub struct RuntimeAgent {
     pub group: Option<RuntimeRef>,
     /// The name shown for the agent.
     pub name: String,
+    /// What the session is about, in the harness's words (its terminal title), if known.
+    pub topic: Option<String>,
 }
 
 /// What is at a place the CLI found in its environment (a runtime-specific string).

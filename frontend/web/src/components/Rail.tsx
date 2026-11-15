@@ -119,7 +119,8 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
   const intents = ws?.intents ?? []
   const needle = q.trim().toLowerCase()
   const match = (u: Unit) => !needle || (u.title + ' ' + u.purpose).toLowerCase().includes(needle)
-  const groups = intents.map(intent => ({ intent, units: intent.units.filter(match) })).filter(g => g.units.length)
+  // An intent with no units yet still shows (it has a workspace and maybe a manager), but not in a search.
+  const groups = intents.map(intent => ({ intent, units: intent.units.filter(match) })).filter(g => g.units.length || (!needle && !g.intent.units.length))
   // The intent of the open unit is open; the others are folded unless the user opened them.
   const home = intents.find(i => i.units.some(u => u.id === unitId))?.id
   // The repository of the open unit; units of one intent may work in several.
@@ -159,7 +160,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
       <div className="flex flex-col gap-1 px-1 py-0.5">
         {groups.map(({ intent, units }) => {
           // A search opens every group with a match.
-          const isOpen = !!needle || open.includes(intent.id)
+          const isOpen = !!needle || open.includes(intent.id) || !intent.units.length
           const sum = needs(intent.units)
           return (
             <Collapsible
@@ -177,6 +178,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
               <CollapsibleContent className="flex flex-col gap-0.5 pl-3">
                 {/* The intent's goal, quietly, for whoever opened it. */}
                 {intent.goal && <p className="line-clamp-2 px-2.5 pb-1 text-xs text-rail-ink-2" title={intent.goal}>{intent.goal}</p>}
+                {!intent.units.length && <p className="px-2.5 pb-1 text-xs text-rail-ink-2 italic">{t('rail.noUnits')}</p>}
                 {units.map(unit => (
                   <button
                     key={unit.id}

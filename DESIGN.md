@@ -77,8 +77,14 @@ looked at now and then.
   node it finished. The amber ring around the mark means it is writing, as on a node. The
   line that led to what is open shows as picked. Whether a session has ended is the only
   thing recorded about agents; everything else comes from the nodes. Inside a unit, who
-  is on which node is the mark on the node. The list is grouped by intent in the rail's
-  order; an intent's manager comes first in its group and carries a small crown.
+  is on which node is the mark on the node. The list is grouped by the Herdr workspace each
+  agent runs in, headed by the intent's title when the workspace has one, else by the
+  workspace's label with a quiet "no manager"; groups with someone working come first, then
+  by name. In a group the manager comes first (with a small crown), then working, blocked,
+  holding work, idle. Under each name, quietly, what the session is about (its terminal
+  title); the agent's mark shows it on hover wherever the name is unique. An agent Herdr
+  knows by no name is called by its harness and a number within its workspace ("claude
+  2"); its mark reads "C2".
 - The main area shows the picked unit: its name and one-line purpose, nothing else (the
   graph already shows what waits: violet gates, violet counts on reviews), then two
   layers stacked top to bottom, each one block:
@@ -276,5 +282,8 @@ Everything that can be picked has: default, hover, keyboard focus (violet ring),
 ## Not done yet
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
-- No empty or loading states.
+- No loading state. The one empty state: with no units recorded, the main area is a short
+  start guide (start a manager agent per Herdr workspace, give it the skill, register with
+  a goal; the commands copyable; the commit trailer). An intent with no units yet keeps its
+  rail group, open, with a quiet "No units yet".
 - No syntax highlighting in the diff.

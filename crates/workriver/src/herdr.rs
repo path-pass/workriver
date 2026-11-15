@@ -93,6 +93,9 @@ struct AgentInfo {
     cwd: Option<String>,
     #[serde(default)]
     foreground_cwd: Option<String>,
+    /// The terminal title without decoration: what the session is about.
+    #[serde(default)]
+    terminal_title_stripped: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -162,15 +165,28 @@ fn group(snap: &Snap, workspace: &str) -> Option<RuntimeRef> {
 
 /// Panes with an agent in them, as workriver's agents. The name is the agent's name in Herdr
 /// (`herdr agent start <name>` / `herdr agent rename`), else the pane's label, else
-/// `<harness>-<pane>` (pane ids are not reused).
+/// `<harness> <n>`, numbered within its workspace in pane order.
 fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
     let set = |s: &Option<String>| s.clone().filter(|s| !s.trim().is_empty());
-    snap.agents
+    let pane_no = |p: &str| p.rsplit_once(":p").and_then(|(_, n)| n.parse::<u64>().ok()).unwrap_or(u64::MAX);
+    let mut list: Vec<(&AgentInfo, String, Option<String>)> = snap
+        .agents
         .iter()
         .filter_map(|a| {
             let harness = set(&a.agent)?;
             let label = snap.panes.iter().find(|p| p.pane_id == a.pane_id).and_then(|p| set(&p.label));
-            let name = set(&a.name).or(label).unwrap_or_else(|| format!("{harness}-{}", a.pane_id.replace(':', "")));
+            Some((a, harness, set(&a.name).or(label)))
+        })
+        .collect();
+    list.sort_by_key(|(a, _, _)| (a.workspace_id.clone(), pane_no(&a.pane_id)));
+    let mut counts: std::collections::HashMap<(String, String), u32> = Default::default();
+    list.into_iter()
+        .map(|(a, harness, name)| {
+            let name = name.unwrap_or_else(|| {
+                let n = counts.entry((a.workspace_id.clone(), harness.clone())).or_default();
+                *n += 1;
+                format!("{harness} {n}")
+            });
             let agent = RuntimeAgent {
                 session: a.agent_session.as_ref().map(|s| s.value.clone()).unwrap_or_else(|| format!("herdr:{}", a.pane_id)),
                 state: match a.agent_status.as_str() {
@@ -182,10 +198,11 @@ fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
                 },
                 cwd: set(&a.foreground_cwd).or_else(|| set(&a.cwd)).unwrap_or_default(),
                 group: group(snap, &a.workspace_id),
+                topic: set(&a.terminal_title_stripped),
                 harness,
                 name,
             };
-            Some((a.pane_id.clone(), agent))
+            (a.pane_id.clone(), agent)
         })
         .collect()
 }
@@ -267,7 +284,9 @@ mod tests {
                   "agent_session": { "agent": "claude", "kind": "id", "source": "herdr:claude", "value": "s-1" },
                   "cwd": "/r", "foreground_cwd": "/r/sub", "unknown_field": 1 },
                 { "pane_id": "w5:p2", "workspace_id": "w5", "agent": "codex", "name": "reviewer", "agent_status": "done" },
-                { "pane_id": "w5:p3", "workspace_id": "w5", "agent": null, "agent_status": "unknown" }
+                { "pane_id": "w5:p3", "workspace_id": "w5", "agent": null, "agent_status": "unknown" },
+                { "pane_id": "w5:p12", "workspace_id": "w5", "agent": "claude", "agent_status": "idle", "terminal_title_stripped": "Fix the login" },
+                { "pane_id": "w5:p4", "workspace_id": "w5", "agent": "claude", "agent_status": "idle" }
             ]
         }}})
     }
@@ -276,7 +295,10 @@ mod tests {
     fn reads_agents_one_request_per_connection() {
         let (_dir, herdr, server) = fake(vec![snapshot(), snapshot()]);
         let list = herdr.agents().unwrap();
-        assert_eq!(list.len(), 2, "a pane without an agent is no agent");
+        assert_eq!(list.len(), 4, "a pane without an agent is no agent");
+        // Unnamed agents are numbered per harness within their workspace, in pane order.
+        let named: Vec<(&str, Option<&str>)> = list.iter().map(|a| (a.name.as_str(), a.topic.as_deref())).collect();
+        assert_eq!(named[2..], [("claude 1", None), ("claude 2", Some("Fix the login"))]);
         let a = &list[0];
         assert_eq!((a.session.as_str(), a.name.as_str(), a.harness.as_str(), a.cwd.as_str()), ("s-1", "lead", "claude", "/r/sub"));
         assert_eq!(a.state, AgentState::Working);

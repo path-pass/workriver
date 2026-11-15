@@ -4,7 +4,7 @@
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { agents, baseName, commitStats, feed, ms, writingNow, type Pick } from '@/data'
+import { agentGroups, baseName, commitStats, feed, ms, writingNow, type Pick } from '@/data'
 import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { InboxList } from './Inbox'
@@ -25,33 +25,48 @@ interface ContentProps {
   commit: CommitFocus | null
 }
 
-/** Every live agent on one line: where it works, holds work, or that it is idle. */
+/**
+ * Every live agent on one line, by the runtime workspace it runs in: where it works, holds
+ * work, or that it is idle, with what its session is about underneath.
+ */
 function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit'>) {
   const { t } = useT()
   return (
     <div className="flex flex-col">
-      {agents(ws).map(({ agent, state, at, manager }) => (
-        // The line opens the agent's work; the icon at its end, its terminal.
-        <div key={agent} className="agent-row">
-        <button
-          type="button"
-          className="agent"
-          data-place={state}
-          disabled={!at}
-          aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
-          onClick={() => at && onOpen(at.unit.id, { kind: 'task', id: at.node.id })}
-        >
-          <Who name={agent} live={state === 'working' && !!at?.node.writing} />
-          <span className="flex-none">{agent}</span>
-          {manager && <Mark name="manager" label={t('manager.mark')} />}
-          <span className="at">
-            {state === 'idle'
-              ? <Mark name="idle" label={t('agents.idle')} />
-              : <><span className="truncate">{at?.unit.title}</span>{at?.node.taskId && <span className="flex-none font-mono">#{at.node.taskId}</span>}</>}
-          </span>
-        </button>
-        <TerminalButton agent={agent} />
-        </div>
+      {agentGroups(ws).map(g => (
+        <section key={g.key} aria-label={g.label || undefined} className="flex flex-col">
+          {g.label && (
+            <h3 className="flex items-center gap-1.5 px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-2">
+              <span className="min-w-0 truncate">{g.label}</span>
+              {!g.intent?.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
+            </h3>
+          )}
+          {g.agents.map(({ agent, session, topic, state, at, manager }) => (
+            // The line opens the agent's work; the icon at its end, its terminal.
+            <div key={session ?? agent} className="agent-row">
+            <button
+              type="button"
+              className="agent"
+              data-place={state}
+              disabled={!at}
+              aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
+              onClick={() => at && onOpen(at.unit.id, { kind: 'task', id: at.node.id })}
+            >
+              <Who name={agent} topic={topic} live={state === 'working' && !!at?.node.writing} />
+              <span className="flex min-w-0 flex-col">
+                <span className="flex items-center gap-1.5">{agent}{manager && <Mark name="manager" label={t('manager.mark')} />}</span>
+                {topic && <span className="truncate text-[11px] text-ink-2">{topic}</span>}
+              </span>
+              <span className="at">
+                {state === 'idle'
+                  ? <Mark name="idle" label={t('agents.idle')} />
+                  : <><span className="truncate">{at?.unit.title}</span>{at?.node.taskId && <span className="flex-none font-mono">#{at.node.taskId}</span>}</>}
+              </span>
+            </button>
+            <TerminalButton agent={agent} session={session} />
+            </div>
+          ))}
+        </section>
       ))}
     </div>
   )

@@ -218,35 +218,58 @@ export function working(unit: Unit): Working[] {
  * idle     neither; its session is still there
  */
 export type AgentState = 'working' | 'queued' | 'idle'
-const AGENT_ORDER: AgentState[] = ['working', 'queued', 'idle']
 
 export interface AgentAt {
   agent: string
+  /** The session, when the data has one: what the terminal button reaches. */
+  session?: string
+  /** What the session is about, in the harness's words. */
+  topic?: string
   state: AgentState
+  /** Waiting at a question or approval in its terminal (the runtime says so). */
+  blocked: boolean
   /** The manager of its intent. */
   manager: boolean
   /** The node it is on; idle: the last one it finished (data order), or null if none. */
   at: { unit: Unit; node: Task } | null
 }
 
+/** Agents of one runtime workspace (or, in the sample, of no workspace). */
+export interface AgentGroup {
+  key: string
+  /** The intent's title when the workspace has one, else the workspace's label. */
+  label: string
+  intent: Intent | null
+  agents: AgentAt[]
+}
+
+/** Where every live agent is, worked out over the whole workspace (agents cross units). */
 export function agents(ws: Workspace): AgentAt[] {
-  const on = (agent: string, state: string) =>
-    unitsOf(ws).flatMap(unit => unit.tasks.filter(n => n.agent === agent && n.state === state).map(node => ({ unit, node })))
-  // Grouped by intent in the rail's order, its manager first; agents of no intent last.
-  const group = (s: { intent?: string }) => { const k = ws.intents.findIndex(i => i.id === s.intent); return k < 0 ? ws.intents.length : k }
-  return ws.sessions
-    .filter(s => !s.ended)
-    .map((s): AgentAt & { group: number } => {
-      const { agent } = s, manager = !!s.manager, g = group(s)
-      const running = on(agent, 'running')[0]
-      if (running) return { agent, manager, group: g, state: 'working', at: running }
-      // Working without a node of its own (a manager planning, say): working all the same.
-      if (s.state === 'working') return { agent, manager, group: g, state: 'working', at: on(agent, 'todo')[0] ?? on(agent, 'done').at(-1) ?? null }
-      const todo = on(agent, 'todo')[0]
-      if (todo) return { agent, manager, group: g, state: 'queued', at: todo }
-      return { agent, manager, group: g, state: 'idle', at: on(agent, 'done').at(-1) ?? null }
-    })
-    .sort((a, b) => a.group - b.group || Number(b.manager) - Number(a.manager) || AGENT_ORDER.indexOf(a.state) - AGENT_ORDER.indexOf(b.state))
+  return agentGroups(ws).flatMap(g => g.agents)
+}
+
+/**
+ * Live agents by runtime workspace: groups with someone working first, then by label;
+ * inside, the manager, then working, blocked, holding work, idle.
+ */
+export function agentGroups(ws: Workspace): AgentGroup[] {
+  const tasks = unitsOf(ws).flatMap(unit => unit.tasks.map(node => ({ unit, node })))
+  const groups = new Map<string, AgentGroup>()
+  for (const s of ws.sessions.filter(s => !s.ended)) {
+    const mine = (state: string) => tasks.filter(({ node }) => node.state === state && (s.session && node.agentSession ? node.agentSession === s.session : node.agent === s.agent))
+    const running = mine('running')[0], todo = mine('todo')[0], last = mine('done').at(-1) ?? null
+    // Working without a node of its own (a manager planning, say): working all the same.
+    const [state, at]: [AgentState, AgentAt['at']] = running ? ['working', running] : s.state === 'working' ? ['working', todo ?? last] : todo ? ['queued', todo] : ['idle', last]
+    const intent = ws.intents.find(i => i.id === s.intent) ?? null
+    const key = s.group?.id ?? intent?.id ?? ''
+    if (!groups.has(key)) groups.set(key, { key, label: intent?.title ?? s.group?.label ?? '', intent, agents: [] })
+    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, at })
+  }
+  const rank = (a: AgentAt) => (a.manager ? 0 : a.state === 'working' ? 1 : a.blocked ? 2 : a.state === 'queued' ? 3 : 4)
+  const list = [...groups.values()]
+  for (const g of list) g.agents.sort((a, b) => rank(a) - rank(b))
+  const busy = (g: AgentGroup) => (g.agents.some(a => a.state === 'working') ? 0 : 1)
+  return list.sort((a, b) => busy(a) - busy(b) || a.label.localeCompare(b.label))
 }
 
 export interface Attention {

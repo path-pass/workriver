@@ -215,7 +215,7 @@ impl App {
     }
 
     fn record(&self, actor: &str, body: Body) -> Result<core::Event, ApiError> {
-        let body = self.complete(body)?;
+        let body = self.complete(actor, body)?;
         let e = self.store.lock().unwrap().append(actor, body)?;
         self.deliver(&e);
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
@@ -230,7 +230,7 @@ impl App {
     }
 
     /// What only git can check or fill in before an event is recorded.
-    fn complete(&self, body: Body) -> Result<Body, ApiError> {
+    fn complete(&self, actor: &str, body: Body) -> Result<Body, ApiError> {
         Ok(match body {
             Body::UnitCreated { id, intent, title, purpose, repo, branch, base } => {
                 let top = scan::toplevel(Path::new(&repo)).map_err(|e| bad(format!("{repo} is not a git repository: {e}")))?;
@@ -249,18 +249,26 @@ impl App {
             }
             // An agent given by its name is recorded by its session.
             Body::TaskCreated(mut t) => {
-                t.agent = t.agent.map(|a| self.session_of(&a));
+                t.agent = t.agent.map(|a| self.session_of(&a, Some(actor)));
                 Body::TaskCreated(t)
             }
-            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a)) },
+            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a, Some(actor))) },
             other => other,
         })
     }
 
     /// A live agent's session by its name; anything else as it is.
-    fn session_of(&self, agent: &str) -> String {
+    /// A live agent's session, given as a session or by its name; anything else as it is.
+    /// Names may repeat across runtime groups: then the one in `near`'s group wins.
+    fn session_of(&self, agent: &str, near: Option<&str>) -> String {
         let live = self.live().unwrap_or_default();
-        live.iter().find(|a| a.name == agent).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+        if live.iter().any(|a| a.session == agent) {
+            return agent.to_string();
+        }
+        let group_of = |s: &str| live.iter().find(|a| a.session == s).and_then(|a| a.group.clone());
+        let here = near.and_then(group_of);
+        let named: Vec<_> = live.iter().filter(|a| a.name == agent).collect();
+        named.iter().find(|a| here.is_some() && a.group == here).or(named.first()).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
     }
 
     /// Sends the message a user's input calls for, and records how far it got.
@@ -502,7 +510,7 @@ struct Focus {
 async fn focus(State(app): State<Shared>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
     blocking(move || {
         // The page knows agents by name.
-        app.runtime.focus(&app.session_of(&f.agent)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        app.runtime.focus(&app.session_of(&f.agent, None)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         Ok(StatusCode::NO_CONTENT)
     })
     .await

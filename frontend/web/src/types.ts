@@ -40,7 +40,14 @@ export interface Repo {
 }
 
 export interface Session {
+  /** The name shown; it may repeat across runtime workspaces. */
   agent: string;
+  /** The session's own id, unique; absent in the sample. */
+  session?: string;
+  /** What the session is about (its terminal title), while it lives. */
+  topic?: string;
+  /** The runtime workspace (in Herdr) it runs in. */
+  group?: { id: string; label: string };
   /** The session is gone: the agent is not shown anywhere any more. */
   ended: boolean;
   /** While it lives: its state in the runtime. */
@@ -207,6 +214,8 @@ export interface Task {
   /** What the work is; empty for reviews (their label is built from reviewer and result). */
   title: string;
   agent: string | null;
+  /** The agent's session, to tell agents of the same name apart; absent in the sample. */
+  agentSession?: string | null;
   /** True while the agent has uncommitted changes in its working directory. */
   writing: boolean;
   /** Who raised an implement node. 'plan' means the original breakdown. */
