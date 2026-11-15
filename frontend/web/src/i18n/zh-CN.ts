@@ -14,6 +14,11 @@ export const zhCN: Same<typeof en> = {
     clearSearch: '清除搜索',
     none: '还没有记录任何单元。'
   },
+  manager: {
+    mark: '这个意图的管理者',
+    of: '管理者 {{name}}：{{state}}',
+    state: { working: '工作中', idle: '空闲', done: '空闲', blocked: '卡住了', unknown: '状态不明', gone: '没在运行', none: '没有管理者' }
+  },
   service: {
     unreachable: '连不上 workriver 服务。`workriver serve` 在运行吗？'
   },
@@ -138,7 +143,8 @@ export const zhCN: Same<typeof en> = {
     picked: '{{agent}} 已接手',
     undo: '撤回',
     copy: '复制消息',
-    recorded: '已记下；送给 agent 还没接上',
+    recorded: '已记下',
+    notDelivered: '没送出：{{reason}}',
     failed: '没记下：服务没有收下'
   },
   decide: {

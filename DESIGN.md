@@ -33,7 +33,9 @@ looked at now and then.
   stuck on behind the user (filled violet, a hand, the count), everything else waiting for
   the user – open findings and commits that name no task – (an outlined violet count), and
   "beyond plan" (amber). A merged unit shows its date instead. Who is working is not shown
-  here. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
+  here, with one exception: each intent's header names its manager's state quietly (a
+  crown, then working, idle, not running, or "no manager"), since a missing manager means
+  accepted findings reach no one. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
   the product mark, the button, settings and, if any task anywhere is stuck on the user,
   the filled violet mark; on a narrow screen, to one header row. Folded or not is
   remembered, and the graph refits to the room it gets.
@@ -73,7 +75,8 @@ looked at now and then.
   node it finished. The amber ring around the mark means it is writing, as on a node. The
   line that led to what is open shows as picked. Whether a session has ended is the only
   thing recorded about agents; everything else comes from the nodes. Inside a unit, who
-  is on which node is the mark on the node.
+  is on which node is the mark on the node. The list is grouped by intent in the rail's
+  order; an intent's manager comes first in its group and carries a small crown.
 - The main area shows the picked unit: its name and one-line purpose, nothing else (the
   graph already shows what waits: violet gates, violet counts on reviews), then two
   layers stacked top to bottom, each one block:
@@ -178,8 +181,8 @@ it off the list. It is not counted in anything violet and goes to no one.
 
 ## What the user puts in
 
-Everything the user decides goes to the agents through one place (`runtime.ts`); there is
-no backend yet, so it stays in the page.
+Everything the user decides goes to the service through one place (`runtime.ts`), which
+records it and delivers it to the agents through Herdr.
 
 - **A waiting gate's output is a form**: Done or Problem; a note; with a problem, findings
   with the same three fields as a reviewer's (severity P1–P3, what is wrong, what happens
@@ -193,9 +196,10 @@ no backend yet, so it stays in the page.
   optional one-line note; the agent's suggestion, if any, is the filled button. The row
   takes its new state at once and every count drops (the task's badge, Needs you, the rail).
 - **Delivery.** A gate's result and a decision then show where their message is: not
-  delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it; an
-  accepted finding goes to the manager bot that turns it into tasks ("sent to the manager
-  bot"). A gate's message can be copied as the agent will read it, pictures listed as file
+  delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it (it
+  started working after the message arrived), or not delivered with the reason; an
+  accepted finding goes to the intent's manager agent that turns it into tasks ("sent to
+  the manager bot"). The service writes and sends the message; the line shows its record. A gate's message can be copied as the agent will read it, pictures listed as file
   paths.
 
 ## Evidence

@@ -20,7 +20,14 @@ export interface Intent {
   units: Unit[];
   /** Things agents left for the user that block nobody. Never on a graph. */
   chores: Chore[];
+  /** The agent that splits the intent's work and hands it out; absent when none registered. */
+  manager?: string;
+  /** The manager's state in the runtime, or 'gone' when it is not running. */
+  managerState?: RuntimeState | 'gone';
 }
+
+/** An agent's state as the runtime (Herdr) reports it. */
+export type RuntimeState = 'working' | 'idle' | 'done' | 'blocked' | 'unknown';
 
 export interface Repo {
   /** Where it is on disk; a unit names its repository by this. */
@@ -34,6 +41,26 @@ export interface Session {
   agent: string;
   /** The session is gone: the agent is not shown anywhere any more. */
   ended: boolean;
+  /** While it lives: its state in the runtime. */
+  state?: RuntimeState;
+  /** Id of the intent it works in. */
+  intent?: string;
+  /** It is the manager of that intent. */
+  manager?: boolean;
+}
+
+/**
+ * Where the service's message about a user's input (a decision, a gate result) is: not
+ * delivered (with why), delivered, or picked up (the receiver started working on it).
+ */
+export interface Sent {
+  step: 'not-delivered' | 'delivered' | 'picked';
+  /** The receiving agent. */
+  to: string | null;
+  toManager: boolean;
+  reason?: string;
+  /** The message as sent. */
+  message: string;
 }
 
 /** One thing to do by hand, with the command for it when there is one. */
@@ -137,6 +164,8 @@ export interface Finding {
   note?: string;
   /** Pictures that show it (screenshots from a manual test). */
   attachments?: Attachment[];
+  /** Where the message with the user's decision is. */
+  delivery?: Sent;
 }
 
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */
@@ -215,6 +244,8 @@ export interface Task {
   };
   /** Paths the work still expects to change (files or folders, possibly not existing yet). */
   plans: string[];
+  /** Gates: where the message with the user's result is. */
+  delivery?: Sent;
 }
 
 /** What a question is about, shown as a chip with it. */

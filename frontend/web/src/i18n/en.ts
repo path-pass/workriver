@@ -10,6 +10,11 @@ export const en = {
     clearSearch: 'Clear search',
     none: 'No units recorded yet.'
   },
+  manager: {
+    mark: 'Manager of its intent',
+    of: 'Manager {{name}}: {{state}}',
+    state: { working: 'working', idle: 'idle', done: 'idle', blocked: 'blocked', unknown: 'unknown', gone: 'not running', none: 'no manager' }
+  },
   service: {
     unreachable: 'Cannot reach the workriver service. Is `workriver serve` running?'
   },
@@ -138,7 +143,8 @@ export const en = {
     picked: '{{agent}} picked it up',
     undo: 'Undo',
     copy: 'Copy message',
-    recorded: 'Recorded; delivery to agents is not connected yet',
+    recorded: 'Recorded',
+    notDelivered: 'Not delivered: {{reason}}',
     failed: 'Not recorded: the service did not take it'
   },
   decide: {

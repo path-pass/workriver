@@ -30,7 +30,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
   const { t } = useT()
   return (
     <div className="flex flex-col">
-      {agents(ws).map(({ agent, state, at }) => (
+      {agents(ws).map(({ agent, state, at, manager }) => (
         // The line opens the agent's work; the icon at its end, its terminal.
         <div key={agent} className="agent-row">
         <button
@@ -43,6 +43,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
         >
           <Who name={agent} live={state === 'working' && !!at?.node.writing} />
           <span className="flex-none">{agent}</span>
+          {manager && <Mark name="manager" label={t('manager.mark')} />}
           <span className="at">
             {state === 'idle'
               ? <Mark name="idle" label={t('agents.idle')} />

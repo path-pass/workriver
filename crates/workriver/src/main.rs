@@ -1,4 +1,6 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
+mod deliver;
+mod herdr;
 mod serve;
 mod snapshot;
 
@@ -24,6 +26,10 @@ Terms:
   finding  a problem a review, tests task or gate found: P1-1, P2-1… within its task
   chore    something asked of the user that blocks nobody (ids c1, c2…)
 
+Who records: inside a Herdr pane, the agent running there (by its session); outside, the
+user. `--as NAME` overrides. Inside a Herdr workspace the intent is the one that follows
+that workspace (created on first use), so commands that take an intent may leave it out.
+
 Commits are read from git: a commit belongs to a task when its message has the trailer
 line `Task: u1#3`. A commit on the unit's branch without one shows as unregistered.
 
@@ -38,18 +44,23 @@ struct Cli {
     /// Port of the daemon on 127.0.0.1.
     #[arg(long, global = true, env = "WORKRIVER_PORT", default_value_t = 47820)]
     port: u16,
-    /// Who records this: your agent name (e.g. agent-a), or "user" for the person.
-    #[arg(long = "as", global = true, env = "WORKRIVER_AS", default_value = "user", value_name = "NAME")]
-    actor: String,
+    /// Who records this. Default: the agent of the Herdr pane this runs in, else "user".
+    #[arg(long = "as", global = true, env = "WORKRIVER_AS", value_name = "NAME")]
+    actor: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run the daemon: records events, reads git, serves the web UI. Data lives in
-    /// $WORKRIVER_HOME (default ~/workriver-data).
-    Serve,
+    /// Run the daemon: records events, reads git, follows the agents in Herdr, serves the
+    /// web UI. Data lives in $WORKRIVER_HOME (default ~/workriver-data).
+    Serve {
+        /// The terminal app brought to the front when an agent's terminal is opened (macOS);
+        /// empty for none.
+        #[arg(long, env = "WORKRIVER_TERMINAL_APP", default_value = "Ghostty")]
+        terminal_app: String,
+    },
     /// Check that the daemon is running and show what it holds.
     Status,
     /// Intents: goals that group units.
@@ -70,6 +81,15 @@ enum Cmd {
     /// Chores: things asked of the user that block nobody.
     #[command(subcommand)]
     Chore(ChoreCmd),
+    /// The manager: the one agent per intent that splits work and hands it out.
+    #[command(subcommand)]
+    Manager(ManagerCmd),
+    /// Print the instructions for an agent working with workriver.
+    Guide {
+        /// `worker` (short; goes into every task message) or `manager` (the manager's skill).
+        #[arg(value_parser = ["worker", "manager"])]
+        role: String,
+    },
     /// Print an intent or unit as text: its tasks, open findings, waiting gates and open
     /// chores. Without a target, everything.
     Board {
@@ -90,8 +110,8 @@ enum IntentCmd {
 enum UnitCmd {
     /// Record a unit of an intent; prints its id (u1…).
     Add {
-        /// The intent it serves (i1…).
-        intent: String,
+        /// The intent it serves (i1…); default: the intent of this Herdr workspace.
+        intent: Option<String>,
         #[arg(long)]
         title: String,
         /// One sentence on what it is for.
@@ -215,8 +235,8 @@ enum GateCmd {
 enum ChoreCmd {
     /// Ask the user for something that blocks nobody; prints its id (c1…).
     Add {
-        /// The intent it belongs to (i1…).
-        intent: String,
+        /// The intent it belongs to (i1…); default: the intent of this Herdr workspace.
+        intent: Option<String>,
         #[arg(long)]
         title: String,
         /// The unit it concerns, if one.
@@ -230,35 +250,88 @@ enum ChoreCmd {
     Done { chore: String },
 }
 
+#[derive(Subcommand)]
+enum ManagerCmd {
+    /// Register the agent of this Herdr pane as the manager of its workspace's intent.
+    /// Accepted findings and gate results without a waiting agent are delivered to it.
+    Here {
+        /// The intent, when not run inside a Herdr workspace.
+        #[arg(long)]
+        intent: Option<String>,
+    },
+}
+
+const GUIDE_WORKER: &str = include_str!("../../../skills/workriver-manager/references/worker.md");
+const GUIDE_MANAGER: &str = include_str!("../../../skills/workriver-manager/SKILL.md");
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    if let Cmd::Serve = cli.cmd {
-        tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
-        let store = core::Store::open_default().context("cannot open the workriver database")?;
-        let rt = tokio::runtime::Runtime::new()?;
-        return rt.block_on(async {
-            let listener = serve::bind(cli.port).await?;
-            serve::serve(listener, store).await
-        });
+    match &cli.cmd {
+        Cmd::Serve { terminal_app } => {
+            tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+            let store = core::Store::open_default().context("cannot open the workriver database")?;
+            let runtime = herdr::Herdr::new(herdr::socket_path(), terminal_app.clone());
+            // Without Herdr the daemon still records and shows; it just sees no agents.
+            let warning = runtime.check();
+            if let Some(w) = &warning {
+                tracing::warn!("{w}");
+            }
+            let rt = tokio::runtime::Runtime::new()?;
+            return rt.block_on(async {
+                let listener = serve::bind(cli.port).await?;
+                serve::serve(listener, store, std::sync::Arc::new(runtime), warning).await
+            });
+        }
+        Cmd::Guide { role } => {
+            print!("{}", if role == "worker" { GUIDE_WORKER } else { GUIDE_MANAGER });
+            return Ok(());
+        }
+        _ => {}
     }
     let d = Daemon { port: cli.port };
-    let actor = cli.actor.as_str();
+    // Who records, and in which intent, from the runtime place the CLI runs in.
+    let needs_intent = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, .. }) | Cmd::Manager(ManagerCmd::Here { intent: None }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. });
+    let here = match herdr::place_from_env() {
+        Some(place) if records && (cli.actor.is_none() || needs_intent) => Some(
+            d.call("/api/here", Some(json!({ "place": place, "intent": needs_intent })))
+                .context("cannot tell which agent this is; pass --as NAME (or --as user)")?,
+        ),
+        _ => None,
+    };
+    let actor = cli.actor.clone().or_else(|| here.as_ref().and_then(|h| h["actor"].as_str().map(str::to_string))).unwrap_or_else(|| "user".into());
+    let actor = actor.as_str();
+    let here_intent = |given: Option<String>| {
+        given
+            .or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string)))
+            .ok_or_else(|| anyhow!("no intent given, and not inside a Herdr workspace; name one (see `workriver intent add`)"))
+    };
     let by = if actor == "user" { "user" } else { "agent" };
-    // A decision or gate result from the user goes on to an agent (stage 2).
-    let delivery = (actor == "user").then_some("not delivered");
     let out = match cli.cmd {
-        Cmd::Serve => unreachable!(),
+        Cmd::Serve { .. } | Cmd::Guide { .. } => unreachable!(),
         Cmd::Status => {
             let s = d.get("/api/status")?;
             println!("workriver {} on http://127.0.0.1:{}", s["version"].as_str().unwrap_or("?"), s["port"]);
             println!("database: {}", s["db"].as_str().unwrap_or("?"));
             println!("{} events, {} intents, {} units", s["events"], s["intents"], s["units"]);
-            println!("agent runtime: {}", if s["runtime"] == true { "connected" } else { "none" });
+            let rt = &s["runtime"];
+            println!("agent runtime: {}", if rt["connected"] == true { "connected" } else { "not connected" });
+            if let Some(w) = rt["warning"].as_str() {
+                println!("  at start: {w}");
+            }
             return Ok(());
+        }
+        Cmd::Manager(ManagerCmd::Here { intent }) => {
+            if actor == "user" {
+                bail!("run this from the manager agent's Herdr pane (or pass --as <agent>)");
+            }
+            let intent = here_intent(intent)?;
+            d.append(actor, "manager.registered", json!({ "intent": intent, "agent": actor }))?
         }
         Cmd::Board { target } => return board(&d, target.as_deref()),
         Cmd::Intent(IntentCmd::Add { title }) => d.append(actor, "intent.created", json!({ "title": title }))?,
         Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base }) => {
+            let intent = here_intent(intent)?;
             let repo = std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?;
             d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base }))?
         }
@@ -284,14 +357,15 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Finding(FindingCmd::Decide { task, finding, decision, note }) => {
             let (unit, n) = task_ref(&task)?;
-            d.append(actor, "finding.decided", json!({ "unit": unit, "task": n, "finding": finding, "decision": decision, "note": note, "by": by, "delivery": delivery }))?
+            d.append(actor, "finding.decided", json!({ "unit": unit, "task": n, "finding": finding, "decision": decision, "note": note, "by": by }))?
         }
         Cmd::Gate(GateCmd::Submit { task, result, note, findings }) => {
             let (unit, n) = task_ref(&task)?;
             let findings = read_findings(findings.as_deref())?;
-            d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings, "delivery": delivery }))?
+            d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings }))?
         }
         Cmd::Chore(ChoreCmd::Add { intent, title, unit, step }) => {
+            let intent = here_intent(intent)?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
             d.append(actor, "chore.created", json!({ "intent": intent, "title": title, "unit": unit, "steps": steps }))?
         }
@@ -302,6 +376,7 @@ fn main() -> anyhow::Result<()> {
     let made = match out["kind"].as_str() {
         Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
+        Some("manager.registered") => format!("manager of {}", b["intent"].as_str().unwrap_or("?")),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }
@@ -409,7 +484,8 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
         if units.is_empty() && chores.is_empty() && !wanted(&i.id, None) {
             continue;
         }
-        println!("{} {}{}", i.id, i.title, i.manager.as_ref().map(|m| format!("  (manager {m})")).unwrap_or_default());
+        let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
+        println!("{} {}{}", i.id, i.title, i.manager.as_ref().map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
         for u in units {
             let merged = if u.merged.is_some() { "  merged" } else { "" };
             println!("  {} {}  [{} from {}]{merged}", u.id, u.title, u.branch, u.base);
@@ -420,7 +496,7 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
                     k => name(&k),
                 };
                 let after: Vec<String> = t.inputs.iter().map(|i| if i.from == "start" { "start".into() } else { format!("#{}", i.from) }).collect();
-                let agent = t.agent.as_ref().map(|a| format!(" @{a}")).unwrap_or_default();
+                let agent = t.agent.as_ref().map(|a| format!(" @{}", named(a))).unwrap_or_default();
                 println!("    #{} {:<8} {what} {}{agent}  after {}", t.n, name(&t.state), t.title, after.join(","));
                 for f in t.findings.iter().filter(|f| f.state == FindingState::Open) {
                     println!("       open {}: {}  ({})", f.found.id, f.found.problem, f.found.r#where.join(", "));
@@ -431,7 +507,7 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
             }
         }
         for c in chores {
-            println!("  chore {} {} (by {})", c.id, c.title, c.by);
+            println!("  chore {} {} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
         }
     }
     Ok(())

@@ -20,37 +20,74 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::broadcast;
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
-use workriver_core::runtime::{NoRuntime, Runtime};
-use workriver_core::{self as core, Body, Store};
+use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, RuntimeRef, Store};
 use workriver_scan as scan;
 
+use crate::deliver;
 use crate::snapshot::{self, Cache};
 
 pub struct App {
     store: Mutex<Store>,
     cache: Mutex<Cache>,
-    runtime: Box<dyn Runtime>,
+    runtime: Arc<dyn Runtime>,
+    /// What was wrong with the runtime at start, if anything.
+    warning: Option<String>,
+    /// The live agents as last polled; None while the runtime cannot be reached.
+    live: Mutex<Option<Vec<RuntimeAgent>>>,
+    /// Delivered messages waiting to be picked up.
+    pending: Mutex<Vec<Pending>>,
     changed: broadcast::Sender<()>,
     port: u16,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
     watched: Mutex<HashSet<PathBuf>>,
 }
 
+/// A delivered message: picked up once its receiver is seen working after it arrived.
+// ponytail: kept in memory; after a restart such a message stays "delivered".
+struct Pending {
+    unit: String,
+    task: u32,
+    finding: Option<String>,
+    delivery: Delivery,
+    /// The receiver was seen not working since the message went out.
+    armed: bool,
+    sent: std::time::Instant,
+}
+
+/// How long a delivered message is watched for its pick-up; the receiver may vanish from
+/// the runtime for a while (a restart, a moved pane) and come back.
+const WATCH: Duration = Duration::from_secs(30 * 60);
+
 type Shared = Arc<App>;
 
+/// How often the runtime's agents are read.
+const POLL: Duration = Duration::from_secs(2);
+
 /// Serves on an already bound listener until Ctrl-C.
-pub async fn serve(listener: tokio::net::TcpListener, store: Store) -> anyhow::Result<()> {
+pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>) -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
     let (changed, _) = broadcast::channel(16);
     let app = Arc::new(App {
         store: Mutex::new(store),
         cache: Mutex::default(),
-        // Stage 2: the Herdr runtime goes here when Herdr is reachable.
-        runtime: Box::new(NoRuntime),
+        runtime,
+        warning,
+        live: Mutex::new(None),
+        pending: Mutex::default(),
         changed: changed.clone(),
         port,
         watcher: Mutex::new(None),
         watched: Mutex::default(),
+    });
+    let poller = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(POLL);
+        loop {
+            tick.tick().await;
+            let app = poller.clone();
+            let _ = tokio::task::spawn_blocking(move || app.poll()).await;
+        }
     });
     let tx = changed.clone();
     let debouncer = new_debouncer(Duration::from_millis(300), move |res: DebounceEventResult| {
@@ -103,9 +140,50 @@ impl App {
         }
     }
 
+    /// Reads the runtime's agents; says "changed" when they differ, and marks delivered
+    /// messages picked up when their receiver starts working.
+    fn poll(&self) {
+        let now = self.runtime.agents().ok();
+        let differs = {
+            let mut live = self.live.lock().unwrap();
+            let differs = *live != now;
+            *live = now.clone();
+            differs
+        };
+        let mut picked = vec![];
+        self.pending.lock().unwrap().retain_mut(|p| {
+            let to = p.delivery.to.as_deref();
+            match now.as_ref().and_then(|l| l.iter().find(|a| Some(a.session.as_str()) == to)) {
+                None => p.sent.elapsed() < WATCH,
+                Some(a) if a.state == AgentState::Working && p.armed => {
+                    picked.push((p.unit.clone(), p.task, p.finding.clone(), Delivery { step: DeliveryStep::Picked, ..p.delivery.clone() }));
+                    false
+                }
+                Some(a) => {
+                    p.armed |= a.state != AgentState::Working;
+                    p.sent.elapsed() < WATCH
+                }
+            }
+        });
+        let recorded = !picked.is_empty();
+        for (unit, task, finding, delivery) in picked {
+            if let Err(e) = self.store.lock().unwrap().append("workriver", Body::DeliveryUpdated { unit, task, finding, delivery }) {
+                tracing::warn!("cannot record a pick-up: {e}");
+            }
+        }
+        if differs || recorded {
+            let _ = self.changed.send(());
+        }
+    }
+
+    fn live(&self) -> Option<Vec<RuntimeAgent>> {
+        self.live.lock().unwrap().clone()
+    }
+
     fn record(&self, actor: &str, body: Body) -> Result<core::Event, ApiError> {
         let body = self.complete(body)?;
         let e = self.store.lock().unwrap().append(actor, body)?;
+        self.deliver(&e);
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
         if let (_, Some(unit), _) = e.body.refs() {
             let found = self.store.lock().unwrap().state().unit(&unit).map(|u| (u.repo.clone(), u.branch.clone()));
@@ -135,8 +213,76 @@ impl App {
                 let commits = if now.is_empty() { self.cache.lock().unwrap().last.get(&unit).cloned().unwrap_or_default() } else { now };
                 Body::UnitMerged { unit, commits }
             }
+            // An agent given by its name is recorded by its session.
+            Body::TaskCreated(mut t) => {
+                t.agent = t.agent.map(|a| self.session_of(&a));
+                Body::TaskCreated(t)
+            }
+            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a)) },
             other => other,
         })
+    }
+
+    /// A live agent's session by its name; anything else as it is.
+    fn session_of(&self, agent: &str) -> String {
+        let live = self.live().unwrap_or_default();
+        live.iter().find(|a| a.name == agent).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+    }
+
+    /// Sends the message a user's input calls for, and records how far it got.
+    fn deliver(&self, e: &core::Event) {
+        let live = self.live();
+        let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), e);
+        let Some(plan) = plan else { return };
+        let delivery = match &plan.to {
+            Err(reason) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason: Some(reason.clone()), message: plan.message.clone() },
+            Ok(to) => match self.runtime.send(to, &plan.message) {
+                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason: None, message: plan.message.clone() },
+                Err(err) => Delivery { step: DeliveryStep::NotDelivered, to: Some(to.to_string()), reason: Some(err.to_string()), message: plan.message.clone() },
+            },
+        };
+        if delivery.step == DeliveryStep::Delivered {
+            let working = live.iter().flatten().any(|a| Some(&a.session) == delivery.to.as_ref() && a.state == AgentState::Working);
+            self.pending.lock().unwrap().push(Pending { unit: plan.unit.clone(), task: plan.task, finding: plan.finding.clone(), delivery: delivery.clone(), armed: !working, sent: std::time::Instant::now() });
+        }
+        let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, delivery };
+        if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
+            tracing::warn!("cannot record a delivery: {e}");
+        }
+    }
+
+    /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
+    /// time), and with `intent`, the intent following its group (created on first use).
+    fn here(&self, place: &str, intent: bool) -> Result<serde_json::Value, ApiError> {
+        let at = self.runtime.locate(place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        if let Some(a) = &at.agent {
+            let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
+            if !known {
+                self.record("workriver", Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
+            }
+        }
+        let intent = match (&at.group, intent) {
+            (Some(g), true) => Some(self.intent_here(g)?),
+            _ => None,
+        };
+        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "intent": intent }))
+    }
+
+    fn intent_here(&self, g: &RuntimeRef) -> Result<String, ApiError> {
+        let found = self.store.lock().unwrap().state().intent_for(g).map(|i| (i.id.clone(), i.runtime_ref.clone()));
+        match found {
+            Some((id, r)) if r.as_ref() == Some(g) => Ok(id),
+            // Found by its label: the group's id (or label) changed; follow it.
+            Some((id, _)) => {
+                self.record("workriver", Body::IntentLinked { intent: id.clone(), runtime_ref: g.clone() })?;
+                Ok(id)
+            }
+            None => {
+                let e = self.record("workriver", Body::IntentCreated { id: String::new(), title: g.label.clone(), runtime_ref: Some(g.clone()) })?;
+                let (Some(id), _, _) = e.body.refs() else { unreachable!("an intent has an id") };
+                Ok(id)
+            }
+        }
     }
 }
 
@@ -151,6 +297,7 @@ pub fn router(app: Shared) -> Router {
         .route("/api/gate", post(gate))
         .route("/api/chore-done", post(chore_done))
         .route("/api/focus", post(focus))
+        .route("/api/here", post(here))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
@@ -210,7 +357,7 @@ async fn workspace(State(app): State<Shared>) -> Result<Json<snapshot::Workspace
     blocking(move || {
         let state = app.store.lock().unwrap().state().clone();
         let mut cache = app.cache.lock().unwrap();
-        Ok(Json(snapshot::build(&state, &mut cache, app.runtime.as_ref())))
+        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref())))
     })
     .await
 }
@@ -229,7 +376,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
         "events": store.count()?,
         "intents": s.intents.len(),
         "units": s.units.len(),
-        "runtime": app.runtime.agents().is_ok(),
+        "runtime": { "connected": app.live().is_some(), "warning": app.warning },
     })))
 }
 
@@ -253,9 +400,7 @@ async fn append(State(app): State<Shared>, Json(a): Json<Append>) -> Result<Json
     blocking(move || app.record(&a.actor, body).map(Json)).await
 }
 
-// ---- the user's inputs from the page. Stage 2 delivers them to the agents. ----
-
-const NOT_DELIVERED: &str = "not delivered";
+// ---- the user's inputs from the page; `App::record` delivers them to the agents ----
 
 #[derive(Deserialize)]
 struct Decide {
@@ -275,7 +420,6 @@ async fn decide(State(app): State<Shared>, Json(d): Json<Decide>) -> Result<Json
         decision: d.decision,
         note: d.note,
         by: core::Who::User,
-        delivery: Some(NOT_DELIVERED.into()),
     };
     blocking(move || app.record("user", body).map(Json)).await
 }
@@ -292,7 +436,7 @@ struct Gate {
 }
 
 async fn gate(State(app): State<Shared>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
-    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, delivery: Some(NOT_DELIVERED.into()) };
+    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings };
     blocking(move || app.record("user", body).map(Json)).await
 }
 
@@ -312,10 +456,23 @@ struct Focus {
 
 async fn focus(State(app): State<Shared>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
     blocking(move || {
-        app.runtime.focus(&f.agent).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        // The page knows agents by name.
+        app.runtime.focus(&app.session_of(&f.agent)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         Ok(StatusCode::NO_CONTENT)
     })
     .await
+}
+
+#[derive(Deserialize)]
+struct Here {
+    place: String,
+    #[serde(default)]
+    intent: bool,
+}
+
+/// The CLI asks who and where it is: see `App::here`.
+async fn here(State(app): State<Shared>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || app.here(&h.place, h.intent).map(Json)).await
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----

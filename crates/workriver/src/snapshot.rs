@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use serde::Serialize;
-use workriver_core::runtime::{Runtime, RuntimeError};
+use workriver_core::runtime::RuntimeAgent;
 use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, parse_task_ref};
 use workriver_scan as scan;
 
@@ -28,14 +28,41 @@ struct Repo {
 struct Session {
     agent: String,
     ended: bool,
+    /// The runtime's state of the agent, while it lives.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<String>,
+    /// The intent it works in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    intent: Option<String>,
+    manager: bool,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Intent {
     id: String,
     title: String,
     units: Vec<Unit>,
     chores: Vec<Chore>,
+    /// The manager's name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manager: Option<String>,
+    /// The manager's runtime state, or "gone" when it is not running.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manager_state: Option<String>,
+}
+
+/// Where the message about a user's input is, as the page shows it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Sent {
+    step: core::DeliveryStep,
+    /// The receiver's name.
+    to: Option<String>,
+    to_manager: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    message: String,
 }
 
 #[derive(Serialize)]
@@ -86,6 +113,9 @@ struct Task {
     input: TaskIn,
     output: TaskOut,
     plans: Vec<String>,
+    /// Gates: where the message with the user's result is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivery: Option<Sent>,
 }
 
 #[derive(Serialize)]
@@ -130,6 +160,8 @@ struct Finding {
     recommendation: Option<core::Suggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivery: Option<Sent>,
 }
 
 #[derive(Serialize)]
@@ -154,7 +186,28 @@ pub struct Cache {
 /// The id of the live commit, as in the UI's data.
 const LIVE: &str = "uncommitted";
 
-pub fn build(state: &core::State, cache: &mut Cache, runtime: &dyn Runtime) -> Workspace {
+/// Names to show for agent sessions: as last seen in the records, then as live now.
+struct Names(HashMap<String, String>);
+
+impl Names {
+    fn of(&self, session: &str) -> String {
+        self.0.get(session).cloned().unwrap_or_else(|| session.to_string())
+    }
+
+    fn sent(&self, d: &Option<core::Delivery>, manager: Option<&str>) -> Option<Sent> {
+        d.as_ref().map(|d| Sent {
+            step: d.step,
+            to: d.to.as_deref().map(|s| self.of(s)),
+            to_manager: d.to.is_some() && d.to.as_deref() == manager,
+            reason: d.reason.clone(),
+            message: d.message.clone(),
+        })
+    }
+}
+
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>) -> Workspace {
+    let live = live.unwrap_or_default();
+    let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
     let repos: BTreeSet<&str> = state.units.iter().map(|u| u.repo.as_str()).collect();
     let repos = repos.into_iter().map(|r| repo(r, cache)).collect();
     let intents = state
@@ -163,7 +216,7 @@ pub fn build(state: &core::State, cache: &mut Cache, runtime: &dyn Runtime) -> W
         .map(|i| Intent {
             id: i.id.clone(),
             title: i.title.clone(),
-            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(u, cache)).collect(),
+            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(u, cache, &names, i.manager.as_deref())).collect(),
             chores: state
                 .chores
                 .iter()
@@ -171,23 +224,38 @@ pub fn build(state: &core::State, cache: &mut Cache, runtime: &dyn Runtime) -> W
                 .map(|c| Chore {
                     id: c.id.clone(),
                     title: c.title.clone(),
-                    by: c.by.clone(),
+                    by: names.of(&c.by),
                     steps: c.steps.clone(),
                     state: if c.done { "done" } else { "open" },
                     since: c.at.clone(),
                     unit: c.unit.clone(),
                 })
                 .collect(),
+            manager: i.manager.as_deref().map(|m| names.of(m)),
+            manager_state: i.manager.as_ref().map(|m| live.iter().find(|a| &a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
         })
         .collect();
-    let sessions = match runtime.agents() {
-        Ok(list) => list.into_iter().map(|a| Session { agent: a.name, ended: false }).collect(),
-        Err(RuntimeError::None) => vec![],
-        Err(e) => {
-            tracing::warn!("runtime: {e}");
-            vec![]
+    // Live agents, then those the records name that are gone.
+    let mut sessions: Vec<Session> = live
+        .iter()
+        .map(|a| {
+            let intent = a.group.as_ref().and_then(|g| state.intent_for(g));
+            Session {
+                agent: a.name.clone(),
+                ended: false,
+                state: Some(name(&a.state)),
+                intent: intent.map(|i| i.id.clone()),
+                manager: intent.is_some_and(|i| i.manager.as_ref() == Some(&a.session)),
+            }
+        })
+        .collect();
+    let recorded = state.agents.iter().map(|a| a.session.clone()).chain(state.units.iter().flat_map(|u| u.tasks.iter().filter_map(|t| t.agent.clone())));
+    for session in recorded {
+        let agent = names.of(&session);
+        if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
+            sessions.push(Session { agent, ended: true, state: None, intent: None, manager: false });
         }
-    };
+    }
     Workspace { repos, built_at: core::now(), intents, sessions }
 }
 
@@ -211,7 +279,7 @@ fn repo(path: &str, cache: &mut Cache) -> Repo {
     Repo { path: path.to_string(), name, modules }
 }
 
-fn unit(u: &core::Unit, cache: &mut Cache) -> Unit {
+fn unit(u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
     let repo = Path::new(&u.repo);
     let merged = u.merged.is_some();
     let hashes = if merged { Ok(u.merged_commits.clone()) } else { scan::commit_list(repo, &u.base, &u.branch) };
@@ -242,7 +310,7 @@ fn unit(u: &core::Unit, cache: &mut Cache) -> Unit {
     let owner = |c: &scan::Commit| {
         c.task.as_deref().and_then(parse_task_ref).filter(|(unit, n)| *unit == u.id && u.tasks.iter().any(|t| t.n == *n)).map(|(_, n)| n)
     };
-    let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(u, t, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
+    let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
     for c in commits.iter().filter(|c| owner(c).is_none()) {
         tasks.push(unregistered(c));
     }
@@ -283,7 +351,7 @@ fn unit(u: &core::Unit, cache: &mut Cache) -> Unit {
     }
 }
 
-fn task(u: &core::Unit, t: &core::Task, commits: Vec<String>) -> Task {
+fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, commits: Vec<String>) -> Task {
     let finder = t.kind != TaskKind::Implement;
     let reviewer = match t.kind {
         TaskKind::Tests => Some("test".to_string()),
@@ -324,6 +392,7 @@ fn task(u: &core::Unit, t: &core::Task, commits: Vec<String>) -> Task {
             decided_by: f.decided_by,
             recommendation: if f.state == FindingState::Open { f.found.suggestion.clone() } else { None },
             note: f.note.clone(),
+            delivery: names.sent(&f.delivery, manager),
         })
         .collect();
     let kind = match t.kind {
@@ -337,7 +406,7 @@ fn task(u: &core::Unit, t: &core::Task, commits: Vec<String>) -> Task {
         state: name(&t.state),
         task_id: (kind != "review").then(|| t.n.to_string()),
         title: t.title.clone(),
-        agent: t.agent.clone(),
+        agent: t.agent.as_deref().map(|a| names.of(a)),
         writing: false,
         raised_by,
         gate: t.gate,
@@ -361,6 +430,7 @@ fn task(u: &core::Unit, t: &core::Task, commits: Vec<String>) -> Task {
             evidence: (!t.evidence.is_empty()).then(|| t.evidence.clone()),
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
+        delivery: names.sent(&t.delivery, manager),
     }
 }
 
@@ -383,5 +453,6 @@ fn unregistered(c: &scan::Commit) -> Task {
         input: TaskIn { text: String::new(), causes: vec![], steps: None },
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
+        delivery: None,
     }
 }

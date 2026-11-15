@@ -10,7 +10,7 @@ import { findingKey, gateKey, useAct } from '@/act'
 import { SEVERITIES, type Decision, type NewFinding } from '@/data'
 import { useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
-import type { Attachment, Finding, Severity, Task, Unit } from '@/types'
+import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
 import { CopyButton, Icon, Who } from './bits'
 
 /** The images among pasted or dropped files. Only images for now. */
@@ -55,11 +55,37 @@ function AttachButton({ onAdd }: { onAdd: (a: Attachment[]) => void }) {
   )
 }
 
-/** Where a message is: not gone yet (and can be taken back), delivered, picked up. */
-export function DeliveryLine({ id, message }: { id: string; message?: boolean }) {
+/**
+ * Where a message is: not gone yet (and can be taken back), delivered, picked up. Once the
+ * service has it (`sent`), its record is shown, and its text is what gets copied.
+ */
+export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; message?: boolean }) {
   const { t } = useT()
   const act = useAct()
-  const d = act.delivery[id]
+  const local = act.delivery[id]
+  const text = sent?.message ?? act.message[id]
+  if (sent && (!local || local.step === 'recorded')) {
+    const to = sent.to ?? ''
+    const steps: [Sent['step'], string][] = sent.step === 'not-delivered'
+      ? [['not-delivered', sent.reason ? t('deliver.notDelivered', { reason: sent.reason }) : t('deliver.pending')]]
+      : [
+          ['delivered', sent.toManager ? t('deliver.toManager') : t('deliver.delivered', { agent: to })],
+          ['picked', t('deliver.picked', { agent: to })],
+        ]
+    const at = steps.findIndex(([s]) => s === sent.step)
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs" aria-live="polite">
+        {steps.map(([s, label], k) => (
+          <span key={s} className={k <= at ? (k === at ? 'font-semibold text-ink' : 'text-ink-2') : 'text-ink-2 opacity-50'}>
+            {k > 0 && <span aria-hidden className="mr-1.5">→</span>}
+            {s === 'picked' && k <= at && <Who name={to} />} {label}
+          </span>
+        ))}
+        {message && text && <CopyButton text={text} label={t('deliver.copy')} />}
+      </div>
+    )
+  }
+  const d = local
   if (!d) return null
   const manager = d.to === MANAGER
   const steps: [DeliveryStep, string][] = d.step === 'recorded' || d.step === 'failed'
@@ -79,7 +105,7 @@ export function DeliveryLine({ id, message }: { id: string; message?: boolean })
         </span>
       ))}
       {d.step === 'pending' && <Button variant="ghost" size="xs" className="rounded-sm" onClick={() => act.undo(id)}>{t('deliver.undo')}</Button>}
-      {message && act.message[id] && <CopyButton text={act.message[id]} label={t('deliver.copy')} />}
+      {message && text && <CopyButton text={text} label={t('deliver.copy')} />}
     </div>
   )
 }
@@ -115,7 +141,7 @@ export function Decided({ unit, task, f }: { unit: Unit; task: Task; f: Finding 
   return (
     <>
       {f.note && <div><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span>{f.note}</div>}
-      <DeliveryLine id={findingKey(unit, task, f)} />
+      <DeliveryLine id={findingKey(unit, task, f)} sent={f.delivery} message />
     </>
   )
 }
@@ -216,5 +242,5 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
 
 /** A gate the user finished in this sitting: its line on the way, and the message to copy. */
 export function GateSent({ unit, gate }: { unit: Unit; gate: Task }) {
-  return <DeliveryLine id={gateKey(unit, gate)} message />
+  return <DeliveryLine id={gateKey(unit, gate)} sent={gate.delivery} message />
 }

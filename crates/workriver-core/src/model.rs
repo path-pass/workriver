@@ -177,6 +177,41 @@ pub struct NewTask {
     pub plans: Vec<String>,
 }
 
+/// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct RuntimeRef {
+    pub id: String,
+    pub label: String,
+}
+
+/// An agent session as last seen: the name shown for it, and its harness.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Agent {
+    pub session: String,
+    pub name: String,
+    pub harness: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeliveryStep {
+    NotDelivered,
+    Delivered,
+    /// The receiver started working after it arrived.
+    Picked,
+}
+
+/// Where the message about a user's input (a decision, a gate result) is.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Delivery {
+    pub step: DeliveryStep,
+    /// The receiving session; None when there was none.
+    pub to: Option<String>,
+    /// Why it was not delivered.
+    pub reason: Option<String>,
+    pub message: String,
+}
+
 /// One recorded event's content. `kind` and `body` are the columns of the same name.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(tag = "kind", content = "body")]
@@ -186,7 +221,14 @@ pub enum Body {
         #[serde(default)]
         id: String,
         title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        runtime_ref: Option<RuntimeRef>,
     },
+    /// The intent now follows another runtime group (its id changed, say).
+    #[serde(rename = "intent.linked")]
+    IntentLinked { intent: String, runtime_ref: RuntimeRef },
+    #[serde(rename = "agent.seen")]
+    AgentSeen { session: String, name: String, harness: String },
     #[serde(rename = "manager.registered")]
     ManagerRegistered { intent: String, agent: String },
     #[serde(rename = "unit.created")]
@@ -238,9 +280,6 @@ pub enum Body {
         #[serde(default)]
         note: String,
         by: Who,
-        /// Where the decision's message to the agents is; None when nobody needs one.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        delivery: Option<String>,
     },
     #[serde(rename = "gate.submitted")]
     GateSubmitted {
@@ -251,8 +290,16 @@ pub enum Body {
         note: String,
         #[serde(default)]
         findings: Vec<NewFinding>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        delivery: Option<String>,
+    },
+    /// Where the message about a decision (`finding` set) or a gate result is.
+    #[serde(rename = "delivery.updated")]
+    DeliveryUpdated {
+        unit: String,
+        task: u32,
+        #[serde(default)]
+        finding: Option<String>,
+        #[serde(flatten)]
+        delivery: Delivery,
     },
     #[serde(rename = "chore.created")]
     ChoreCreated {
@@ -276,6 +323,8 @@ impl Body {
         let task = |u: &str, n: u32| Some(format!("{u}#{n}"));
         match self {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
+            IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
+            AgentSeen { .. } => (None, None, None),
             ManagerRegistered { intent, .. } => (Some(intent.clone()), None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } => (None, Some(unit.clone()), None),
@@ -283,7 +332,8 @@ impl Body {
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
-            | GateSubmitted { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
+            | GateSubmitted { unit, task: n, .. }
+            | DeliveryUpdated { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ChoreCreated { intent, unit, .. } => (Some(intent.clone()), unit.clone(), None),
             ChoreDone { .. } => (None, None, None),
         }
@@ -307,13 +357,18 @@ pub struct State {
     pub intents: Vec<Intent>,
     pub units: Vec<Unit>,
     pub chores: Vec<Chore>,
+    #[serde(default)]
+    pub agents: Vec<Agent>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Intent {
     pub id: String,
     pub title: String,
+    /// The manager's session.
     pub manager: Option<String>,
+    #[serde(default)]
+    pub runtime_ref: Option<RuntimeRef>,
     pub at: String,
 }
 
@@ -357,6 +412,9 @@ pub struct Task {
     pub evidence: Vec<Evidence>,
     pub findings: Vec<Finding>,
     pub result: Option<GateResult>,
+    /// Gates: where the message with the user's result is.
+    #[serde(default)]
+    pub delivery: Option<Delivery>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -366,6 +424,9 @@ pub struct Finding {
     pub state: FindingState,
     pub decided_by: Option<Who>,
     pub note: Option<String>,
+    /// Where the message with the user's decision is.
+    #[serde(default)]
+    pub delivery: Option<Delivery>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -410,6 +471,18 @@ impl State {
         }
     }
 
+    /// The intent following a runtime group: by its id, or else by its label, since a
+    /// runtime may give its groups new ids when it restarts.
+    pub fn intent_for(&self, r: &RuntimeRef) -> Option<&Intent> {
+        let by = |f: &dyn Fn(&RuntimeRef) -> bool| self.intents.iter().find(|i| i.runtime_ref.as_ref().is_some_and(f));
+        by(&|x| x.id == r.id).or_else(|| by(&|x| x.label == r.label))
+    }
+
+    /// The name last seen for an agent session.
+    pub fn name_of(&self, session: &str) -> Option<&str> {
+        self.agents.iter().find(|a| a.session == session).map(|a| a.name.as_str())
+    }
+
     fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
         match self.intents.iter().find(|i| i.id == id) {
             Some(i) => Ok(i),
@@ -425,11 +498,27 @@ impl State {
             return no("the actor is empty");
         }
         Ok(match body {
-            IntentCreated { title, .. } => {
+            IntentCreated { title, runtime_ref, .. } => {
                 if blank(&title) {
                     return no("an intent needs a title");
                 }
-                IntentCreated { id: format!("i{}", self.intents.len() + 1), title }
+                if runtime_ref.as_ref().is_some_and(|r| blank(&r.id)) {
+                    return no("a runtime group needs an id");
+                }
+                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, runtime_ref }
+            }
+            IntentLinked { intent, runtime_ref } => {
+                self.intent(&intent)?;
+                if blank(&runtime_ref.id) {
+                    return no("a runtime group needs an id");
+                }
+                IntentLinked { intent, runtime_ref }
+            }
+            AgentSeen { session, name, harness } => {
+                if blank(&session) || blank(&name) {
+                    return no("an agent needs a session and a name");
+                }
+                AgentSeen { session, name, harness }
             }
             ManagerRegistered { intent, agent } => {
                 self.intent(&intent)?;
@@ -486,7 +575,7 @@ impl State {
                 }
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings) }
             }
-            FindingDecided { unit, task, finding, decision, note, by, delivery } => {
+            FindingDecided { unit, task, finding, decision, note, by } => {
                 let t = self.task(&unit, task)?;
                 match t.findings.iter().find(|f| f.found.id == finding) {
                     None => return no(format!("{unit}#{task} has no finding {finding}")),
@@ -495,9 +584,9 @@ impl State {
                     }
                     Some(_) => {}
                 }
-                FindingDecided { unit, task, finding, decision, note, by, delivery }
+                FindingDecided { unit, task, finding, decision, note, by }
             }
-            GateSubmitted { unit, task, result, note, findings, delivery } => {
+            GateSubmitted { unit, task, result, note, findings } => {
                 let t = self.task(&unit, task)?;
                 if t.kind != TaskKind::Gate || t.state != TaskState::Waiting {
                     return no(format!("{unit}#{task} is not a waiting gate"));
@@ -511,7 +600,16 @@ impl State {
                 if findings.iter().any(|f| blank(&f.problem)) {
                     return no("a finding needs a problem");
                 }
-                GateSubmitted { unit, task, result, note, findings: numbered(findings), delivery }
+                GateSubmitted { unit, task, result, note, findings: numbered(findings) }
+            }
+            DeliveryUpdated { unit, task, finding, delivery } => {
+                let t = self.task(&unit, task)?;
+                if let Some(id) = &finding
+                    && !t.findings.iter().any(|f| &f.found.id == id)
+                {
+                    return no(format!("{unit}#{task} has no finding {id}"));
+                }
+                DeliveryUpdated { unit, task, finding, delivery }
             }
             ChoreCreated { intent, unit, title, steps, .. } => {
                 self.intent(&intent)?;
@@ -599,7 +697,21 @@ impl State {
         let at = &e.at;
         let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
         match &e.body {
-            IntentCreated { id, title } => self.intents.push(Intent { id: id.clone(), title: title.clone(), manager: None, at: at.clone() }),
+            IntentCreated { id, title, runtime_ref } => {
+                self.intents.push(Intent { id: id.clone(), title: title.clone(), manager: None, runtime_ref: runtime_ref.clone(), at: at.clone() })
+            }
+            IntentLinked { intent, runtime_ref } => {
+                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    i.runtime_ref = Some(runtime_ref.clone());
+                }
+            }
+            AgentSeen { session, name, harness } => {
+                let seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone() };
+                match self.agents.iter_mut().find(|a| &a.session == session) {
+                    Some(a) => *a = seen,
+                    None => self.agents.push(seen),
+                }
+            }
             ManagerRegistered { intent, agent } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
                     i.manager = Some(agent.clone());
@@ -647,6 +759,7 @@ impl State {
                         evidence: vec![],
                         findings: vec![],
                         result: None,
+                        delivery: None,
                     })
                 }
             }
@@ -689,6 +802,18 @@ impl State {
                     t.findings = findings.iter().cloned().map(open).collect();
                 }
             }
+            DeliveryUpdated { unit, task, finding, delivery } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    match finding {
+                        None => t.delivery = Some(delivery.clone()),
+                        Some(id) => {
+                            if let Some(f) = t.findings.iter_mut().find(|f| &f.found.id == id) {
+                                f.delivery = Some(delivery.clone());
+                            }
+                        }
+                    }
+                }
+            }
             ChoreCreated { id, intent, unit, title, steps } => self.chores.push(Chore {
                 id: id.clone(),
                 intent: intent.clone(),
@@ -713,7 +838,7 @@ impl State {
 }
 
 fn open(found: NewFinding) -> Finding {
-    Finding { found, state: FindingState::Open, decided_by: None, note: None }
+    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None }
 }
 
 /// Ids per severity, as a reviewer numbers them: P1-1, P2-1, P2-2…

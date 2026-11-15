@@ -223,6 +223,8 @@ const AGENT_ORDER: AgentState[] = ['working', 'queued', 'idle']
 export interface AgentAt {
   agent: string
   state: AgentState
+  /** The manager of its intent. */
+  manager: boolean
   /** The node it is on; idle: the last one it finished (data order), or null if none. */
   at: { unit: Unit; node: Task } | null
 }
@@ -230,16 +232,19 @@ export interface AgentAt {
 export function agents(ws: Workspace): AgentAt[] {
   const on = (agent: string, state: string) =>
     unitsOf(ws).flatMap(unit => unit.tasks.filter(n => n.agent === agent && n.state === state).map(node => ({ unit, node })))
+  // Grouped by intent in the rail's order, its manager first; agents of no intent last.
+  const group = (s: { intent?: string }) => { const k = ws.intents.findIndex(i => i.id === s.intent); return k < 0 ? ws.intents.length : k }
   return ws.sessions
     .filter(s => !s.ended)
-    .map(({ agent }): AgentAt => {
+    .map((s): AgentAt & { group: number } => {
+      const { agent } = s, manager = !!s.manager, g = group(s)
       const running = on(agent, 'running')[0]
-      if (running) return { agent, state: 'working', at: running }
+      if (running) return { agent, manager, group: g, state: 'working', at: running }
       const todo = on(agent, 'todo')[0]
-      if (todo) return { agent, state: 'queued', at: todo }
-      return { agent, state: 'idle', at: on(agent, 'done').at(-1) ?? null }
+      if (todo) return { agent, manager, group: g, state: 'queued', at: todo }
+      return { agent, manager, group: g, state: 'idle', at: on(agent, 'done').at(-1) ?? null }
     })
-    .sort((a, b) => AGENT_ORDER.indexOf(a.state) - AGENT_ORDER.indexOf(b.state))
+    .sort((a, b) => a.group - b.group || Number(b.manager) - Number(a.manager) || AGENT_ORDER.indexOf(a.state) - AGENT_ORDER.indexOf(b.state))
 }
 
 export interface Attention {

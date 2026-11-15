@@ -18,13 +18,14 @@ work as it happens and shows it as one picture:
 
 It runs on your machine as one service. Agents report their work by running the
 `workriver` CLI from their shell; who is running and where comes from
-[Herdr](https://herdr.dev) (not connected yet); you look through a browser.
+[Herdr](https://herdr.dev); you look through a browser.
 
 ## Status
 
 Early. The service records intents, units, tasks, findings and chores, reads the units'
-commits from git, and serves the web UI on real data. Delivering your decisions to agents
-and the Herdr connection come next.
+commits from git, follows the agents running in Herdr (one intent per Herdr workspace, one
+manager agent per intent), delivers your decisions and gate results to the right agent, and
+serves the web UI on real data.
 
 ## Build and run
 
@@ -39,7 +40,11 @@ cargo build --release
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
 `workriver --help` explains the commands; a commit belongs to a task through a trailer line
-`Task: u1#3` in its message.
+`Task: u1#3` in its message. Inside a Herdr pane the CLI knows which agent runs it; the
+manager of a workspace registers with `workriver manager here`, and `workriver guide
+manager` / `workriver guide worker` print the instructions for agents. Herdr's socket is
+`~/.config/herdr/herdr.sock` (or `HERDR_SOCKET_PATH`); without Herdr the service still
+records and shows, it just sees no agents.
 
 Working on the UI: `npm run dev` in `frontend/web` uses a running `workriver serve`;
 `npm run dev:mock` uses the sample data instead.

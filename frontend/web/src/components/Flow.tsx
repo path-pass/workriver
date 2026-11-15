@@ -204,11 +204,15 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
     return () => clearTimeout(later)
   }, [fitKey])
   const [layout, setLayout] = useState<Layout | null>(null)
+  // Laid out again only when the graph's shape changes, not on every refresh of the data.
+  const shape = unit.id + '|' + unit.tasks.map(n => `${n.id}<${n.inputs.map(i => i.from + (i.primary ? '' : '~')).join(',')}`).join(';')
+  const latest = useRef(unit)
+  latest.current = unit
   useEffect(() => {
     let current = true
-    layoutFlow(unit).then(l => current && setLayout(l))
+    layoutFlow(latest.current).then(l => current && setLayout(l))
     return () => { current = false }
-  }, [unit])
+  }, [shape])
 
   const { nodes: placed, edges } = useMemo(() => {
     if (!layout || layout.unitId !== unit.id) return { nodes: [], edges: [] }
@@ -349,7 +353,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span>{f.impact}</div>}
         {f.evidence.length > 0 && <div><span className="text-ink-2">{t('io.field', { name: t('io.evidence') })}</span><span className="font-mono">{f.evidence.join(t('list.sep'))}</span></div>}
         <Thumbs list={f.attachments ?? []} />
-        {f.state === 'open' ? <Decide unit={unit} task={n} f={f} /> : act.delivery[findingKey(unit, n, f)] ? <Decided unit={unit} task={n} f={f} /> : null}
+        {f.state === 'open' ? <Decide unit={unit} task={n} f={f} /> : act.delivery[findingKey(unit, n, f)] || f.delivery ? <Decided unit={unit} task={n} f={f} /> : null}
       </CollapsibleContent>
     </Collapsible>
   )

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
-import type { Unit, Workspace } from '@/types'
+import type { Intent, Unit, Workspace } from '@/types'
 import { Icon, Tip } from './bits'
 import { Settings } from './Settings'
 
@@ -74,6 +74,21 @@ interface Props {
   /** Folded, the rail is a strip (a header row on a narrow screen). */
   open: boolean
   onToggle: () => void
+}
+
+/** How the intent's manager is: working, idle and so on, not running, or none registered. */
+function ManagerState({ intent }: { intent: Intent }) {
+  const { t } = useT()
+  const state = intent.manager ? intent.managerState ?? 'gone' : 'none'
+  const label = t(`manager.state.${state}`)
+  return (
+    <Tip text={intent.manager ? t('manager.of', { name: intent.manager, state: label }) : label}>
+      <span className="flex flex-none items-center gap-1 font-normal" data-manager={state}>
+        <Icon name="manager" className="size-3" />
+        <span className="text-[11px]">{label}</span>
+      </span>
+    </Tip>
+  )
 }
 
 /** Folded, the rail still shows that some agent is stuck on the user, anywhere. */
@@ -155,6 +170,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
               <CollapsibleTrigger className="group/intent flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
                 <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
                 <span className="min-w-0 flex-1 truncate">{intent.title}</span>
+                <ManagerState intent={intent} />
                 {/* Folded, the group still says what waits inside it. */}
                 {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
               </CollapsibleTrigger>
