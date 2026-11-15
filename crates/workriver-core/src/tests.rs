@@ -106,3 +106,29 @@ fn events_are_append_only() {
         assert!(err.contains("append-only"), "{sql}: {err}");
     }
 }
+
+#[test]
+fn corrections_after_delivery() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    // Delivering twice points at --amend.
+    let again = s.append("agent-a", body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1}}))).unwrap_err().to_string();
+    assert!(again.contains("--amend"), "{again}");
+    s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "Better regex",
+        "evidence": [{"command": "npm test", "result": "passed", "summary": "7 passed"}]}}))).unwrap();
+    let t = s.state().task("u1", 1).unwrap();
+    assert_eq!((t.note.as_str(), t.evidence[0].summary.as_str()), ("Better regex", "7 passed"));
+    assert!(t.amended.is_some());
+    // Findings can be replaced while none is decided, and are numbered again.
+    s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": [
+        {"severity": "P1", "problem": "Crash", "impact": "Down", "where": ["a.ts"]}]}}))).unwrap();
+    assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.id, "P1-1");
+    s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
+    let late = s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
+    assert!(late.contains("already decided") && late.contains("new review or tests task"), "{late}");
+    // The goal: the user or the intent's manager only.
+    let other = s.append("agent-b", body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
+    assert!(other.contains("only the user or the manager"), "{other}");
+    s.append("user", body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
+    assert_eq!(s.state().intents[0].goal, "Let people mention each other");
+}

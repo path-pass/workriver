@@ -26,8 +26,9 @@ looked at now and then.
 
 - A dark rail on the left picks units and nothing else: product name, search, the units
   grouped under their intents, settings. It is the only large field of colour in the
-  interface. Each intent is a group that folds; the intent of the open unit is open, the
-  others folded, and a folded group still shows the sum of its units' violet marks, so
+  interface. Each intent is a group that folds; open, it starts with the intent's goal in
+  one or two quiet lines (when its manager or the user gave one). The intent of the open
+  unit is open, the others folded, and a folded group still shows the sum of its units' violet marks, so
   nothing waiting is hidden. A search looks through every unit and opens the groups with a
   match. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
   stuck on behind the user (filled violet, a hand, the count), everything else waiting for
@@ -108,7 +109,8 @@ looked at now and then.
 - Picking a node shows its input and output directly under the graph, not in the side
   panel, and lines cannot be picked: why a node exists is its input. On work that is
   running or still to do, the header names its agent and, while the session lives, a
-  terminal button.
+  terminal button. Output corrected after delivery shows its latest values, with a quiet
+  "amended" and the time next to the Output heading.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
   terminal) and in the header of running or waiting work. It is not on graph nodes. All
@@ -200,10 +202,12 @@ records it and delivers it to the agents through Herdr.
   delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it (it
   started working after the message arrived), or not delivered with the reason in the
   user's language (no manager, manager not running, Herdr not reachable, Herdr refused;
-  the service's own words in a tooltip); an
-  accepted finding goes to the intent's manager agent that turns it into tasks ("sent to
-  the manager bot"). The service writes and sends the message; the line shows its record. A gate's message can be copied as the agent will read it, pictures listed as file
-  paths.
+  the service's own words in a tooltip). Every decision goes to the intent's manager agent
+  ("sent to the manager bot"), which turns accepted findings into tasks and tells the
+  workers what they need; a gate's result goes to the agent waiting behind it, else the
+  manager. The service writes and sends the message; the line shows its record, and the
+  message can be copied as the agent reads it. The manager is also told, without anything
+  on this page, when a worker delivers a task or asks the user for a gate or chore.
 
 ## Evidence
 

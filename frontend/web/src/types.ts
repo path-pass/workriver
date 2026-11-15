@@ -17,6 +17,8 @@ export interface Workspace {
 export interface Intent {
   id: string;
   title: string;
+  /** One sentence on what it is for, set by its manager or the user; may be empty or absent. */
+  goal?: string;
   units: Unit[];
   /** Things agents left for the user that block nobody. Never on a graph. */
   chores: Chore[];
@@ -249,6 +251,8 @@ export interface Task {
   plans: string[];
   /** Gates: where the message with the user's result is. */
   delivery?: Sent;
+  /** When its output was last corrected after delivery. */
+  amended?: string;
 }
 
 /** What a question is about, shown as a chip with it. */

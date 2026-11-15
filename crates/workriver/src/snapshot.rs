@@ -42,6 +42,8 @@ struct Session {
 struct Intent {
     id: String,
     title: String,
+    /// One sentence on what it is for; may be empty.
+    goal: String,
     units: Vec<Unit>,
     chores: Vec<Chore>,
     /// The manager's name.
@@ -118,6 +120,9 @@ struct Task {
     /// Gates: where the message with the user's result is.
     #[serde(skip_serializing_if = "Option::is_none")]
     delivery: Option<Sent>,
+    /// When its output was last corrected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    amended: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -219,6 +224,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .map(|i| Intent {
             id: i.id.clone(),
             title: i.title.clone(),
+            goal: i.goal.clone(),
             units: state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(u, cache, &names, i.manager.as_deref())).collect(),
             chores: state
                 .chores
@@ -433,7 +439,9 @@ fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, co
             evidence: (!t.evidence.is_empty()).then(|| t.evidence.clone()),
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
-        delivery: names.sent(&t.delivery, manager),
+        // Only a gate's own message is shown on the page; the others went to the manager.
+        delivery: if t.kind == TaskKind::Gate && t.state == TaskState::Done { names.sent(&t.delivery, manager) } else { None },
+        amended: t.amended.clone(),
     }
 }
 
@@ -457,5 +465,6 @@ fn unregistered(c: &scan::Commit) -> Task {
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
         delivery: None,
+        amended: None,
     }
 }

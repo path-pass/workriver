@@ -202,6 +202,7 @@ export const zhCN: Same<typeof en> = {
   io: {
     input: '输入',
     output: '输出',
+    amended: '{{when}} 改过',
     field: '{{name}}：',
     problem: '哪里不对',
     impact: '不处理的后果',

@@ -138,9 +138,12 @@ fn identity_intents_and_delivery() {
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P1-1", "decision": "accept" }))).unwrap();
 
     let sent = fake.sent.lock().unwrap().clone();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].0, "s-boss");
-    assert!(sent[0].1.contains("--cause 1:P1-1"), "{}", sent[0].1);
+    // First the review's delivery, told to the manager; then the user's decision, to the manager too.
+    assert_eq!(sent.len(), 2);
+    assert!(sent.iter().all(|(to, _)| to == "s-boss"));
+    assert!(sent[0].1.starts_with("[workriver] u1#1 (code review) delivered by rev."), "{}", sent[0].1);
+    assert!(sent[0].1.contains("Findings: P1 1 (waiting for the user's decision)"), "{}", sent[0].1);
+    assert!(sent[1].1.contains("--cause 1:P1-1"), "{}", sent[1].1);
     let ws = d.get("/api/workspace").unwrap();
     let f = &ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0];
     assert_eq!((f["delivery"]["step"].as_str(), f["delivery"]["to"].as_str(), f["delivery"]["toManager"].as_bool()), (Some("delivered"), Some("boss"), Some(true)), "{f}");
@@ -186,7 +189,7 @@ fn pick_up_survives_a_restart() {
     a.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
     a.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P1-1", "decision": "accept" }))).unwrap();
-    assert_eq!(busy.sent.lock().unwrap().len(), 1);
+    assert_eq!(busy.sent.lock().unwrap().len(), 2, "the review's delivery and the decision");
 
     // A second daemon on the same records sees the manager go idle, then start working.
     let fresh = std::sync::Arc::new(Fake::default());
@@ -199,4 +202,16 @@ fn pick_up_survives_a_restart() {
         std::thread::sleep(std::time::Duration::from_millis(200));
         step(&b) == "picked"
     }));
+}
+
+/// Inside a runtime pane with no agent, the CLI says so instead of recording as the user.
+#[test]
+fn identity_is_explicit_about_a_pane_without_an_agent() {
+    use crate::actor_of;
+    let none = json!({ "actor": null, "intent": null });
+    let err = actor_of(None, Some("w1:p3"), Some(&none)).unwrap_err().to_string();
+    assert!(err.contains("Herdr lists no agent in pane w1:p3") && err.contains("--as <name>"), "{err}");
+    assert_eq!(actor_of(Some("rev".into()), Some("w1:p3"), Some(&none)).unwrap(), "rev");
+    assert_eq!(actor_of(None, Some("w1:p1"), Some(&json!({ "actor": "s-1" }))).unwrap(), "s-1");
+    assert_eq!(actor_of(None, None, None).unwrap(), "user");
 }

@@ -163,7 +163,7 @@ export default function App() {
     decide: (u, n, f, d, note) => {
       const key = findingKey(u, n, f)
       setEdits(e => ({ ...e, decisions: { ...e.decisions, [key]: { decision: d, note } } }))
-      sent(key, decideFinding(u, n, f, d, note, ownerOf(u, n), track(key)))
+      sent(key, decideFinding(u, n, f, d, note, track(key)))
     },
     undo: key => {
       cancels.current[key]?.()

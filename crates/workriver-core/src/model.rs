@@ -237,6 +237,9 @@ pub enum Body {
         #[serde(default)]
         id: String,
         title: String,
+        /// One sentence on what the intent is for.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        goal: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         runtime_ref: Option<RuntimeRef>,
     },
@@ -247,6 +250,15 @@ pub enum Body {
     AgentSeen { session: String, name: String, harness: String },
     #[serde(rename = "manager.registered")]
     ManagerRegistered { intent: String, agent: String },
+    /// A new title or goal; only the intent's manager or the user may change them.
+    #[serde(rename = "intent.updated")]
+    IntentUpdated {
+        intent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<String>,
+    },
     #[serde(rename = "unit.created")]
     UnitCreated {
         #[serde(default)]
@@ -287,6 +299,18 @@ pub enum Body {
         #[serde(default)]
         findings: Vec<NewFinding>,
     },
+    /// A correction to a delivered task: what is given replaces what was delivered.
+    #[serde(rename = "task.amended")]
+    TaskAmended {
+        unit: String,
+        task: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        evidence: Option<Vec<Evidence>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        findings: Option<Vec<NewFinding>>,
+    },
     #[serde(rename = "finding.decided")]
     FindingDecided {
         unit: String,
@@ -307,13 +331,18 @@ pub enum Body {
         #[serde(default)]
         findings: Vec<NewFinding>,
     },
-    /// Where the message about a decision (`finding` set) or a gate result is.
+    /// Where a message is: about a task (a decision when `finding` is set, a gate result, a
+    /// delivered task, a gate asked for), or about a chore (`chore` set; then no unit/task).
     #[serde(rename = "delivery.updated")]
     DeliveryUpdated {
+        #[serde(default)]
         unit: String,
+        #[serde(default)]
         task: u32,
         #[serde(default)]
         finding: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chore: Option<String>,
         #[serde(flatten)]
         delivery: Delivery,
     },
@@ -341,12 +370,14 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } => (None, None, None),
-            ManagerRegistered { intent, .. } => (Some(intent.clone()), None, None),
+            ManagerRegistered { intent, .. } | IntentUpdated { intent, .. } => (Some(intent.clone()), None, None),
+            DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } => (None, Some(unit.clone()), None),
             TaskCreated(t) => (None, Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
+            | TaskAmended { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
             | GateSubmitted { unit, task: n, .. }
             | DeliveryUpdated { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
@@ -383,6 +414,8 @@ pub struct Intent {
     pub title: String,
     /// The manager's session.
     pub manager: Option<String>,
+    #[serde(default)]
+    pub goal: String,
     #[serde(default)]
     pub runtime_ref: Option<RuntimeRef>,
     pub at: String,
@@ -428,9 +461,13 @@ pub struct Task {
     pub evidence: Vec<Evidence>,
     pub findings: Vec<Finding>,
     pub result: Option<GateResult>,
-    /// Gates: where the message with the user's result is.
+    /// Gates: where the message with the user's result is; other tasks: the note to the
+    /// manager that they were delivered (or, a gate, asked for).
     #[serde(default)]
     pub delivery: Option<Delivery>,
+    /// When it was last corrected after delivery.
+    #[serde(default)]
+    pub amended: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -455,6 +492,9 @@ pub struct Chore {
     pub steps: Vec<Step>,
     pub done: bool,
     pub at: String,
+    /// The note to the manager that the user was asked.
+    #[serde(default)]
+    pub delivery: Option<Delivery>,
 }
 
 /// `u1#3` -> ("u1", 3).
@@ -514,14 +554,14 @@ impl State {
             return no("the actor is empty");
         }
         Ok(match body {
-            IntentCreated { title, runtime_ref, .. } => {
+            IntentCreated { title, goal, runtime_ref, .. } => {
                 if blank(&title) {
                     return no("an intent needs a title");
                 }
                 if runtime_ref.as_ref().is_some_and(|r| blank(&r.id)) {
                     return no("a runtime group needs an id");
                 }
-                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, runtime_ref }
+                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref }
             }
             IntentLinked { intent, runtime_ref } => {
                 self.intent(&intent)?;
@@ -535,6 +575,19 @@ impl State {
                     return no("an agent needs a session and a name");
                 }
                 AgentSeen { session, name, harness }
+            }
+            IntentUpdated { intent, title, goal } => {
+                let i = self.intent(&intent)?;
+                if actor != "user" && i.manager.as_deref() != Some(actor) {
+                    return no(format!("only the user or the manager of intent {intent} may change it"));
+                }
+                if title.as_deref().is_some_and(blank) {
+                    return no("an intent needs a title");
+                }
+                if title.is_none() && goal.is_none() {
+                    return no("nothing to change: give a title or a goal");
+                }
+                IntentUpdated { intent, title, goal }
             }
             ManagerRegistered { intent, agent } => {
                 self.intent(&intent)?;
@@ -576,20 +629,26 @@ impl State {
                     return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
                 }
                 if t.state == TaskState::Done {
-                    return no(format!("{unit}#{task} is already delivered"));
+                    return no(format!("{unit}#{task} is already delivered; to correct it, run `workriver task deliver {unit}#{task} --amend` with what replaces it"));
                 }
-                if !findings.is_empty() && t.kind == TaskKind::Implement {
-                    return no("findings belong to a review or tests task; record a review task and deliver them there");
-                }
-                if evidence.iter().any(|e| blank(&e.command)) {
-                    return no("evidence needs the command that was run");
-                }
-                for f in &findings {
-                    if blank(&f.problem) || blank(&f.impact) || f.r#where.iter().all(|w| blank(w)) {
-                        return no("a finding needs a problem, an impact and at least one where (a file path)");
-                    }
-                }
+                check_output(t, &evidence, &findings)?;
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings) }
+            }
+            TaskAmended { unit, task, note, evidence, findings } => {
+                let t = self.task(&unit, task)?;
+                if t.kind == TaskKind::Gate || t.state != TaskState::Done {
+                    return no(format!("{unit}#{task} is not a delivered task; only a delivered task can be amended"));
+                }
+                if note.is_none() && evidence.is_none() && findings.is_none() {
+                    return no("nothing to amend: give a note, evidence or findings");
+                }
+                if findings.is_some() && t.findings.iter().any(|f| f.state != FindingState::Open) {
+                    return no(format!(
+                        "some findings of {unit}#{task} are already decided, so they cannot be replaced; record the new findings in a new review or tests task"
+                    ));
+                }
+                check_output(t, evidence.as_deref().unwrap_or_default(), findings.as_deref().unwrap_or_default())?;
+                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered) }
             }
             FindingDecided { unit, task, finding, decision, note, by } => {
                 let t = self.task(&unit, task)?;
@@ -618,14 +677,20 @@ impl State {
                 }
                 GateSubmitted { unit, task, result, note, findings: numbered(findings) }
             }
-            DeliveryUpdated { unit, task, finding, delivery } => {
-                let t = self.task(&unit, task)?;
-                if let Some(id) = &finding
-                    && !t.findings.iter().any(|f| &f.found.id == id)
-                {
-                    return no(format!("{unit}#{task} has no finding {id}"));
+            DeliveryUpdated { unit, task, finding, chore, delivery } => {
+                if let Some(c) = &chore {
+                    if !self.chores.iter().any(|x| &x.id == c) {
+                        return no(format!("no chore {c}"));
+                    }
+                } else {
+                    let t = self.task(&unit, task)?;
+                    if let Some(id) = &finding
+                        && !t.findings.iter().any(|f| &f.found.id == id)
+                    {
+                        return no(format!("{unit}#{task} has no finding {id}"));
+                    }
                 }
-                DeliveryUpdated { unit, task, finding, delivery }
+                DeliveryUpdated { unit, task, finding, chore, delivery }
             }
             ChoreCreated { intent, unit, title, steps, .. } => {
                 self.intent(&intent)?;
@@ -713,8 +778,23 @@ impl State {
         let at = &e.at;
         let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
         match &e.body {
-            IntentCreated { id, title, runtime_ref } => {
-                self.intents.push(Intent { id: id.clone(), title: title.clone(), manager: None, runtime_ref: runtime_ref.clone(), at: at.clone() })
+            IntentCreated { id, title, goal, runtime_ref } => self.intents.push(Intent {
+                id: id.clone(),
+                title: title.clone(),
+                manager: None,
+                goal: goal.clone(),
+                runtime_ref: runtime_ref.clone(),
+                at: at.clone(),
+            }),
+            IntentUpdated { intent, title, goal } => {
+                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    if let Some(t) = title {
+                        i.title = t.clone();
+                    }
+                    if let Some(g) = goal {
+                        i.goal = g.clone();
+                    }
+                }
             }
             IntentLinked { intent, runtime_ref } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
@@ -776,6 +856,7 @@ impl State {
                         findings: vec![],
                         result: None,
                         delivery: None,
+                        amended: None,
                     })
                 }
             }
@@ -818,7 +899,26 @@ impl State {
                     t.findings = findings.iter().cloned().map(open).collect();
                 }
             }
-            DeliveryUpdated { unit, task, finding, delivery } => {
+            DeliveryUpdated { chore: Some(c), delivery, .. } => {
+                if let Some(x) = self.chores.iter_mut().find(|x| &x.id == c) {
+                    x.delivery = Some(delivery.clone());
+                }
+            }
+            TaskAmended { unit, task, note, evidence, findings } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    if let Some(n) = note {
+                        t.note = n.clone();
+                    }
+                    if let Some(e) = evidence {
+                        t.evidence = e.clone();
+                    }
+                    if let Some(f) = findings {
+                        t.findings = f.iter().cloned().map(open).collect();
+                    }
+                    t.amended = Some(at.clone());
+                }
+            }
+            DeliveryUpdated { unit, task, finding, delivery, .. } => {
                 if let Some(t) = self.task_mut(unit, *task) {
                     match finding {
                         None => t.delivery = Some(delivery.clone()),
@@ -839,6 +939,7 @@ impl State {
                 steps: steps.clone(),
                 done: false,
                 at: at.clone(),
+                delivery: None,
             }),
             ChoreDone { chore } => {
                 if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
@@ -851,6 +952,22 @@ impl State {
     fn task_mut(&mut self, unit: &str, n: u32) -> Option<&mut Task> {
         self.units.iter_mut().find(|u| u.id == unit)?.tasks.iter_mut().find(|t| t.n == n)
     }
+}
+
+/// What a delivery or its correction may carry.
+fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Result<(), Rejected> {
+    if !findings.is_empty() && t.kind == TaskKind::Implement {
+        return no("findings belong to a review or tests task; record a review task and deliver them there");
+    }
+    if evidence.iter().any(|e| blank(&e.command)) {
+        return no("evidence needs the command that was run");
+    }
+    for f in findings {
+        if blank(&f.problem) || blank(&f.impact) || f.r#where.iter().all(|w| blank(w)) {
+            return no("a finding needs a problem, an impact and at least one where (a file path)");
+        }
+    }
+    Ok(())
 }
 
 fn open(found: NewFinding) -> Finding {

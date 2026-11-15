@@ -23,7 +23,8 @@ details of every command.
 
 1. `workriver status` - the service must answer and say "agent runtime: connected".
    If it cannot be reached, ask the user to start `workriver serve`.
-2. `workriver manager here` - registers you; prints `manager of i1`.
+2. `workriver manager here --goal "<the intent's goal in one sentence>"` - registers you;
+   prints `manager of i1`. Change title or goal later with `workriver intent set i1 --goal "..."`.
 3. `workriver board` - what is already recorded: units, tasks, open findings, waiting gates.
 
 ## Units
@@ -58,16 +59,28 @@ twice"), not activities ("Work on notifications").
 Use Herdr's own CLI for panes and agents; `herdr --skill` explains it (split a pane, `herdr
 agent start <name> --kind <kind> --pane <id>`, `herdr agent prompt <name> "..."`). Reuse an
 idle worker before starting a new one. Give workers short unique names and record the name
-with the task: `--agent <name>` on `task add`.
+with the task: `--agent <name>` on `task add`. For an agent already running, name it with
+`herdr agent rename <target> <name>`; that Herdr name is what `--agent` takes and what
+workriver shows.
 
 The message you send must stand on its own:
 
 - the task ref (`u1#3`) and its goal;
+- the repository path and the unit's branch: `git checkout <branch>` there (created from the
+  unit's base if it does not exist yet); `workriver board u1` shows both;
 - its inputs: the work it follows, and for each cause the finding's problem, impact and where;
 - the worker instructions: the output of `workriver guide worker` (paste it whole).
 
 Send it as one paragraph (a newline may submit early in some terminals). The worker records
 `task start`, commits with the trailer, and `task deliver` itself.
+
+## Following up
+
+You are told without asking: when a worker delivers a task (`[workriver] u1#3 "..." delivered
+by <name>. ... Evidence: ... Findings: ...`), and when a worker asks the user for a gate or a
+chore. `workriver board` shows where everything stands. To block until a worker is done,
+`herdr agent wait <name>` (see `herdr --skill`). A worker that delivered wrong output
+corrects it with `workriver task deliver u1#3 --amend ...`.
 
 ## Reviews, tests and evidence
 
@@ -94,17 +107,19 @@ Send it as one paragraph (a newline may submit early in some terminals). The wor
 
 ## What arrives from the user
 
-Messages start with `[workriver]` and arrive in your pane (or the worker's):
+Messages start with `[workriver]`. Every decision on a finding comes to you; you decide
+what the workers need to hear:
 
 - **"The user accepted finding P1-1 from u1#4 ..."** - hand out work for it:
   `workriver task add u1 --title "<outcome>" --cause 4:P1-1 --agent <name>`, then send it to
   a worker as above. One finding may need several tasks; several findings may share one.
-- **"... rejected finding ..."** - no work. **"... deferred finding ..."** - nothing now; it
-  comes up again later.
-- **"The user finished gate u1#5 ...: done."** - tell the waiting worker to go on (it is
-  usually told directly; you get it when it is not running).
+- **"... rejected finding ..."** - no work; tell whoever waits on it, if anyone does.
+  **"... deferred finding ..."** - nothing now; it comes up again later (`workriver board`
+  lists deferred findings).
+- **"The user finished gate u1#5 ...: done."** - goes to the worker waiting behind the gate;
+  you get it only when that worker is not running: tell a worker to go on.
 - **"... gate ...: found a problem. Findings: ..."** - wait: the user decides each finding,
-  and accepted ones reach you as above.
+  and the decisions reach you as above.
 
 ## Commits
 
@@ -120,11 +135,11 @@ when two attempts at a task failed the same way.
 ## Commands
 
     workriver status | board [i1|u1]
-    workriver manager here
+    workriver manager here [--goal G] | intent set i1 [--title T] [--goal G]
     workriver unit add --title T --branch B [--base main] [--purpose P] [--repo PATH]
     workriver unit merged u1
     workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID] [--agent NAME] [--plan P]
-    workriver task start u1#3 | task deliver u1#3 [--evidence 'CMD => passed: SUMMARY'] [--findings FILE|-] [--note N]
+    workriver task start u1#3 | task deliver u1#3 [--evidence 'CMD => passed: SUMMARY'] [--findings FILE|-] [--note N] [--amend]
     workriver finding decide u1#4 P2-1 accept|reject|defer [--note N]
     workriver gate submit u1#5 done|problem [--note N] [--findings FILE]
     workriver chore add --title T [--unit u1] [--step 'TEXT => COMMAND'] | chore done c1

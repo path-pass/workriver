@@ -175,6 +175,8 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
                 {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
               </CollapsibleTrigger>
               <CollapsibleContent className="flex flex-col gap-0.5 pl-3">
+                {/* The intent's goal, quietly, for whoever opened it. */}
+                {intent.goal && <p className="line-clamp-2 px-2.5 pb-1 text-xs text-rail-ink-2" title={intent.goal}>{intent.goal}</p>}
                 {units.map(unit => (
                   <button
                     key={unit.id}

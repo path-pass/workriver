@@ -3,51 +3,106 @@
 use workriver_core::runtime::RuntimeAgent;
 use workriver_core::{Body, Decision, Event, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
 
-/// A message to deliver about one input: a decision (`finding` set) or a gate result.
+/// A message to deliver: about a user's decision (`finding` set) or gate result, about a
+/// delivered task or a gate asked for (to the manager), or about a chore (`chore` set).
 #[derive(Debug, PartialEq)]
 pub struct Plan {
     pub unit: String,
     pub task: u32,
     pub finding: Option<String>,
+    pub chore: Option<String>,
     /// The receiving session, or why there is none.
     pub to: Result<String, (ReasonCode, String)>,
     pub message: String,
 }
 
-/// The delivery an event calls for: only the user's decisions and gate results get one.
+/// The delivery an event calls for, if any.
 pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<Plan> {
+    let on = |unit: &str, task: u32, finding: Option<String>, to, message| Plan { unit: unit.into(), task, finding, chore: None, to, message };
+    let intent_of = |unit: &str| state.unit(unit).ok().map(|u| u.intent.clone());
+    // Whether the actor is someone other than the intent's manager (a worker, or the user).
+    let not_manager = |intent: &str| state.intents.iter().find(|i| i.id == intent).is_none_or(|i| i.manager.as_deref() != Some(e.actor.as_str()));
     match &e.body {
+        // Every decision goes to the manager, who decides what the workers hear of it.
         Body::FindingDecided { unit, task, finding, decision, note, by: Who::User } => {
-            // Accepted work goes to the manager, who hands it out; anything else to whoever
-            // did the work that was looked at.
-            let to = target(state, live, unit, *task, *decision != Decision::Accept);
-            Some(Plan { unit: unit.clone(), task: *task, finding: Some(finding.clone()), to, message: decision_message(state, unit, *task, finding, *decision, note)? })
+            let to = target(state, live, &intent_of(unit)?, None);
+            Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note)?))
         }
+        // A gate result goes to the agent waiting behind the gate, else the manager.
         Body::GateSubmitted { unit, task, .. } if e.actor == "user" => {
-            let to = target(state, live, unit, *task, true);
-            Some(Plan { unit: unit.clone(), task: *task, finding: None, to, message: gate_message(state, unit, *task)? })
+            let waiting = state.task(unit, *task).ok().and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
+            let to = target(state, live, &intent_of(unit)?, waiting.as_deref());
+            Some(on(unit, *task, None, to, gate_message(state, unit, *task)?))
         }
+        Body::TaskDelivered { unit, task, .. } if not_manager(&intent_of(unit)?) => {
+            let to = target(state, live, &intent_of(unit)?, None);
+            Some(on(unit, *task, None, to, delivered_message(state, &e.actor, unit, *task)?))
+        }
+        Body::TaskCreated(t) if t.kind == TaskKind::Gate && e.actor != "user" && not_manager(&intent_of(&t.unit)?) => {
+            let to = target(state, live, &intent_of(&t.unit)?, None);
+            let gate = state.task(&t.unit, t.n).ok()?;
+            let message = format!(
+                "[workriver] {} asked the user for gate {} ({}); the work after it waits until the user submits it. Check with `workriver board {}`.",
+                who(state, &e.actor),
+                label(state, &t.unit, gate),
+                t.gate.map(|g| name(&g)).unwrap_or_default(),
+                t.unit
+            );
+            Some(on(&t.unit, t.n, None, to, message))
+        }
+        Body::ChoreCreated { id, intent, title, .. } if e.actor != "user" && not_manager(intent) => Some(Plan {
+            unit: String::new(),
+            task: 0,
+            finding: None,
+            chore: Some(id.clone()),
+            to: target(state, live, intent, None),
+            message: format!("[workriver] {} asked the user for chore {id} \"{title}\"; it blocks nobody.", who(state, &e.actor)),
+        }),
         _ => None,
     }
 }
 
-/// The agent of the work `task` follows if `worker` and it is live, else the intent's manager.
-fn target(state: &State, live: Option<&[RuntimeAgent]>, unit: &str, task: u32, worker: bool) -> Result<String, (ReasonCode, String)> {
+/// `first` if it is live, else the intent's manager.
+fn target(state: &State, live: Option<&[RuntimeAgent]>, intent: &str, first: Option<&str>) -> Result<String, (ReasonCode, String)> {
     let Some(live) = live else { return Err((ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into())) };
     let is_live = |s: &str| live.iter().any(|a| a.session == s);
-    let u = state.unit(unit).map_err(|e| (ReasonCode::RuntimeError, e.0))?;
-    if worker {
-        let follows = state.task(unit, task).ok().and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
-        if let Some(a) = follows.filter(|a| is_live(a)) {
-            return Ok(a);
-        }
+    if let Some(a) = first.filter(|a| is_live(a)) {
+        return Ok(a.to_string());
     }
-    let intent = state.intents.iter().find(|i| i.id == u.intent);
-    match intent.and_then(|i| i.manager.clone()) {
+    match state.intents.iter().find(|i| i.id == intent).and_then(|i| i.manager.clone()) {
         Some(m) if is_live(&m) => Ok(m),
-        Some(m) => Err((ReasonCode::ManagerGone, format!("the manager of intent {} ({}) is not running", u.intent, state.name_of(&m).unwrap_or(&m)))),
-        None => Err((ReasonCode::NoManager, format!("intent {} has no manager; the manager registers with `workriver manager here`", u.intent))),
+        Some(m) => Err((ReasonCode::ManagerGone, format!("the manager of intent {intent} ({}) is not running", state.name_of(&m).unwrap_or(&m)))),
+        None => Err((ReasonCode::NoManager, format!("intent {intent} has no manager; the manager registers with `workriver manager here`"))),
     }
+}
+
+/// The name an actor is shown by.
+fn who(state: &State, actor: &str) -> String {
+    state.name_of(actor).unwrap_or(actor).to_string()
+}
+
+/// What the manager hears when someone delivers a task.
+fn delivered_message(state: &State, actor: &str, unit: &str, n: u32) -> Option<String> {
+    let t = state.task(unit, n).ok()?;
+    let mut m = vec![format!("[workriver] {} delivered by {}.", label(state, unit, t), who(state, actor))];
+    if !t.note.is_empty() {
+        m.push(format!("Note: {}", sentence(&t.note)));
+    }
+    let passed = t.evidence.iter().filter(|e| e.result == workriver_core::CheckResult::Passed).count();
+    let failed = t.evidence.len() - passed;
+    m.push(if t.evidence.is_empty() { "No checks run.".to_string() } else { format!("Evidence: {passed} passed, {failed} failed.") });
+    if !t.findings.is_empty() {
+        let per: Vec<String> = ["P1", "P2", "P3"]
+            .iter()
+            .filter_map(|s| {
+                let k = t.findings.iter().filter(|f| name(&f.found.severity) == *s).count();
+                (k > 0).then(|| format!("{s} {k}"))
+            })
+            .collect();
+        m.push(format!("Findings: {} (waiting for the user's decision).", per.join(", ")));
+    }
+    m.push(format!("Next: hand out the next task, or see the unit with `workriver board {unit}`."));
+    Some(paragraph(m))
 }
 
 /// The task `t` follows directly.
@@ -90,7 +145,7 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
         Decision::Accept => format!(
             "Next: hand out work for it, e.g. `workriver task add {unit} --title \"<what to do>\" --cause {n}:{finding} --agent <agent>`, then give that task to an agent with the worker instructions (`workriver guide worker`)."
         ),
-        Decision::Reject => "No work is needed for it.".into(),
+        Decision::Reject => "No work is needed for it; tell whoever waits on it if anyone does.".into(),
         Decision::Defer => "Leave it for now; it will come up again later.".into(),
     });
     Some(paragraph(m))
@@ -181,16 +236,31 @@ mod tests {
 
         at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "boss"}}));
         assert_eq!(plan(s.state(), Some(&live), &accept).unwrap().to, Ok("boss".into()));
-        // A rejection goes to whoever did the reviewed work while it is live, else the manager.
+        // Every decision goes to the manager, a rejection too.
         let reject = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P3-1", "decision": "reject", "by": "user"}}));
-        assert_eq!(plan(s.state(), Some(&live), &reject).unwrap().to, Ok("worker".into()));
-        assert_eq!(plan(s.state(), Some(&[agent("boss")]), &reject).unwrap().to, Ok("boss".into()));
+        assert_eq!(plan(s.state(), Some(&live), &reject).unwrap().to, Ok("boss".into()));
         // A gate result goes to the agent of the work the gate follows.
         let gate = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "problem", "note": "Mostly fine",
             "findings": [{"severity": "P1", "problem": "Crashes"}]}}));
         let p = plan(s.state(), Some(&live), &gate).unwrap();
         assert_eq!(p.to, Ok("worker".into()));
         assert!(p.message.contains("found a problem") && p.message.contains("P1-1 (P1): Crashes."), "{}", p.message);
+        // A worker's delivery and the gates and chores it asks for are told to the manager.
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Fix twice", "causes": [{"task": 2, "findings": ["P2-1"]}]}}));
+        let done = at(&mut s, "worker", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "note": "Deduplicated",
+            "evidence": [{"command": "npm test", "result": "passed", "summary": "7 passed"}, {"command": "npm run lint", "result": "failed", "summary": "1 error"}]}}));
+        let p = plan(s.state(), Some(&live), &done).unwrap();
+        assert_eq!((p.to, p.finding, p.task), (Ok("boss".into()), None, 4));
+        assert!(p.message.starts_with("[workriver] u1#4 \"Fix twice\" delivered by worker. Note: Deduplicated. Evidence: 1 passed, 1 failed."), "{}", p.message);
+        assert!(p.message.contains("`workriver board u1`"), "{}", p.message);
+        let asked = at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "4"}]}}));
+        assert!(plan(s.state(), Some(&live), &asked).unwrap().message.contains("worker asked the user for gate u1#5 \"Deploy\" (deploy)"));
+        let chore = at(&mut s, "worker", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}}));
+        let p = plan(s.state(), Some(&live), &chore).unwrap();
+        assert_eq!((p.chore.as_deref(), p.to), (Some("c1"), Ok("boss".into())));
+        // The manager's own records are not told back to it.
+        let own_gate = at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "4"}]}}));
+        assert_eq!(plan(s.state(), Some(&live), &own_gate), None);
         // An agent's own decision is not delivered.
         let own = at(&mut s, "rev", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "defer", "by": "agent"}}));
         assert_eq!(plan(s.state(), Some(&live), &own), None);

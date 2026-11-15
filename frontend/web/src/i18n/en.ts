@@ -204,6 +204,7 @@ export const en = {
   io: {
     input: 'Input',
     output: 'Output',
+    amended: 'amended {{when}}',
     field: '{{name}}: ',
     problem: 'What is wrong',
     impact: 'If left alone',

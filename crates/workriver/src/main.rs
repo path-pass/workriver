@@ -103,6 +103,19 @@ enum IntentCmd {
     /// Record a new intent; prints its id.
     Add {
         title: String,
+        /// One sentence on what it is for.
+        #[arg(long, default_value = "")]
+        goal: String,
+    },
+    /// Change an intent's title or goal (its manager or the user only).
+    Set {
+        /// The intent (i1…).
+        intent: String,
+        #[arg(long)]
+        title: Option<String>,
+        /// One sentence on what it is for.
+        #[arg(long)]
+        goal: Option<String>,
     },
 }
 
@@ -197,6 +210,10 @@ enum TaskCmd {
         /// A JSON file of findings, or `-` for stdin.
         #[arg(long, value_name = "FILE")]
         findings: Option<String>,
+        /// Correct a task already delivered: what is given (note, evidence, findings)
+        /// replaces what was delivered. Findings only while none of them is decided.
+        #[arg(long)]
+        amend: bool,
     },
 }
 
@@ -258,6 +275,9 @@ enum ManagerCmd {
         /// The intent, when not run inside a Herdr workspace.
         #[arg(long)]
         intent: Option<String>,
+        /// One sentence on what the intent is for (also `workriver intent set --goal`).
+        #[arg(long)]
+        goal: Option<String>,
     },
 }
 
@@ -290,16 +310,16 @@ fn main() -> anyhow::Result<()> {
     }
     let d = Daemon { port: cli.port };
     // Who records, and in which intent, from the runtime place the CLI runs in.
-    let needs_intent = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, .. }) | Cmd::Manager(ManagerCmd::Here { intent: None }));
+    let needs_intent = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, .. }) | Cmd::Manager(ManagerCmd::Here { intent: None, .. }));
     let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. });
-    let here = match herdr::place_from_env() {
+    let place = herdr::place_from_env();
+    let here = match &place {
         Some(place) if records && (cli.actor.is_none() || needs_intent) => Some(
-            d.call("/api/here", Some(json!({ "place": place, "intent": needs_intent })))
-                .context("cannot tell which agent this is; pass --as NAME (or --as user)")?,
+            d.call("/api/here", Some(json!({ "place": place, "intent": needs_intent }))).map_err(|e| anyhow!(herdr::cannot_ask(place, &e.to_string())))?,
         ),
         _ => None,
     };
-    let actor = cli.actor.clone().or_else(|| here.as_ref().and_then(|h| h["actor"].as_str().map(str::to_string))).unwrap_or_else(|| "user".into());
+    let actor = if records { actor_of(cli.actor.clone(), place.as_deref(), here.as_ref())? } else { "user".into() };
     let actor = actor.as_str();
     let here_intent = |given: Option<String>| {
         given
@@ -311,7 +331,8 @@ fn main() -> anyhow::Result<()> {
         Cmd::Serve { .. } | Cmd::Guide { .. } => unreachable!(),
         Cmd::Status => {
             let s = d.get("/api/status")?;
-            println!("workriver {} on http://127.0.0.1:{}", s["version"].as_str().unwrap_or("?"), s["port"]);
+            println!("workriver {} is running", s["version"].as_str().unwrap_or("?"));
+            println!("web UI: http://127.0.0.1:{}", s["port"]);
             println!("database: {}", s["db"].as_str().unwrap_or("?"));
             println!("{} events, {} intents, {} units", s["events"], s["intents"], s["units"]);
             let rt = &s["runtime"];
@@ -321,15 +342,20 @@ fn main() -> anyhow::Result<()> {
             }
             return Ok(());
         }
-        Cmd::Manager(ManagerCmd::Here { intent }) => {
+        Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
             if actor == "user" {
                 bail!("run this from the manager agent's Herdr pane (or pass --as <agent>)");
             }
             let intent = here_intent(intent)?;
-            d.append(actor, "manager.registered", json!({ "intent": intent, "agent": actor }))?
+            let out = d.append(actor, "manager.registered", json!({ "intent": intent, "agent": actor }))?;
+            if let Some(goal) = goal {
+                d.append(actor, "intent.updated", json!({ "intent": intent, "goal": goal }))?;
+            }
+            out
         }
         Cmd::Board { target } => return board(&d, target.as_deref()),
-        Cmd::Intent(IntentCmd::Add { title }) => d.append(actor, "intent.created", json!({ "title": title }))?,
+        Cmd::Intent(IntentCmd::Add { title, goal }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal }))?,
+        Cmd::Intent(IntentCmd::Set { intent, title, goal }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal }))?,
         Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base }) => {
             let intent = here_intent(intent)?;
             let repo = std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?;
@@ -349,11 +375,19 @@ fn main() -> anyhow::Result<()> {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
         }
-        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings }) => {
+        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings, amend }) => {
             let (unit, n) = task_ref(&task)?;
             let evidence = evidence.iter().map(|e| parse_evidence(e)).collect::<anyhow::Result<Vec<_>>>()?;
-            let findings = read_findings(findings.as_deref())?;
-            d.append(actor, "task.delivered", json!({ "unit": unit, "task": n, "note": note, "evidence": evidence, "findings": findings }))?
+            if amend {
+                // Only what is given replaces what was delivered.
+                let note = (!note.is_empty()).then_some(note);
+                let evidence = (!evidence.is_empty()).then_some(evidence);
+                let findings = findings.map(|f| read_findings(Some(&f))).transpose()?;
+                d.append(actor, "task.amended", json!({ "unit": unit, "task": n, "note": note, "evidence": evidence, "findings": findings }))?
+            } else {
+                let findings = read_findings(findings.as_deref())?;
+                d.append(actor, "task.delivered", json!({ "unit": unit, "task": n, "note": note, "evidence": evidence, "findings": findings }))?
+            }
         }
         Cmd::Finding(FindingCmd::Decide { task, finding, decision, note }) => {
             let (unit, n) = task_ref(&task)?;
@@ -377,6 +411,7 @@ fn main() -> anyhow::Result<()> {
         Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("manager.registered") => format!("manager of {}", b["intent"].as_str().unwrap_or("?")),
+        Some("task.amended") => "amended".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }
@@ -414,6 +449,18 @@ impl Daemon {
 
     fn append(&self, actor: &str, kind: &str, body: Value) -> anyhow::Result<Value> {
         self.call("/api/append", Some(json!({ "actor": actor, "kind": kind, "body": body })))
+    }
+}
+
+/// Who records: `--as`, else the agent at the runtime place the CLI runs in (an error if
+/// there is none), else, outside any runtime, the user.
+fn actor_of(explicit: Option<String>, place: Option<&str>, here: Option<&Value>) -> anyhow::Result<String> {
+    if let Some(a) = explicit {
+        return Ok(a);
+    }
+    match (place, here) {
+        (Some(p), Some(h)) => h["actor"].as_str().map(str::to_string).ok_or_else(|| anyhow!(herdr::no_agent_at(p))),
+        _ => Ok("user".into()),
     }
 }
 
@@ -486,9 +533,12 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
         }
         let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
         println!("{} {}{}", i.id, i.title, i.manager.as_ref().map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        if !i.goal.is_empty() {
+            println!("  goal: {}", i.goal);
+        }
         for u in units {
             let merged = if u.merged.is_some() { "  merged" } else { "" };
-            println!("  {} {}  [{} from {}]{merged}", u.id, u.title, u.branch, u.base);
+            println!("  {} {}  [branch {} from {}, in {}]{merged}", u.id, u.title, u.branch, u.base, u.repo);
             for t in &u.tasks {
                 let what = match t.kind {
                     TaskKind::Review => format!("review ({})", t.reviewer.map(|r| name(&r)).unwrap_or_default()),
@@ -503,6 +553,17 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
                 }
                 if t.state == TaskState::Waiting {
                     println!("       waiting for the user");
+                }
+            }
+            let deferred: Vec<String> = u
+                .tasks
+                .iter()
+                .flat_map(|t| t.findings.iter().filter(|f| f.state == FindingState::Deferred).map(move |f| format!("#{} {}: {}", t.n, f.found.id, f.found.problem)))
+                .collect();
+            if !deferred.is_empty() {
+                println!("    deferred:");
+                for d in deferred {
+                    println!("      {d}");
                 }
             }
         }

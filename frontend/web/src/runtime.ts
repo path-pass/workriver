@@ -106,9 +106,9 @@ export function submitGate(unit: Unit, gate: Task, r: GateResult, to: string, on
   return { message, cancel: deliver(to, message, record, onStep) }
 }
 
-/** A decision on a finding: accepted ones go to the manager bot, the others to the agent. */
-export function decideFinding(unit: Unit, task: Task, f: Finding, decision: Decision, note: string, agent: string | null, onStep: (d: Delivery) => void) {
-  const to = decision === 'accept' || !agent ? MANAGER : agent
+/** A decision on a finding: every one goes to the manager, who tells the workers what they need. */
+export function decideFinding(unit: Unit, task: Task, f: Finding, decision: Decision, note: string, onStep: (d: Delivery) => void) {
+  const to = MANAGER
   const message = lines(`${f.id} on "${task.title || task.reviewer || task.gate}": ${decision}`, `Problem: ${f.problem}`, note && `Note: ${note}`)
   const record = () => post('/api/decide', { unit: unit.id, task: Number(task.id), finding: f.id, decision, note })
   return { message, cancel: deliver(to, message, record, onStep) }

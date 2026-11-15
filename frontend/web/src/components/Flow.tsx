@@ -6,7 +6,7 @@ import { AntVDagreLayout } from '@antv/layout'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { commitStats, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
+import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
@@ -413,7 +413,7 @@ function Checks({ n }: { n: Task }) {
 }
 
 function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk }) {
-  const { t, num } = useT()
+  const { t, num, when } = useT()
   const byId = (id?: string) => unit.tasks.find(x => x.id === id)
   const commitsOf = (x?: Task) => unit.commits.filter(c => x?.output.commits?.includes(c.id))
   const quiet = (text: string) => <div className="text-xs text-ink-2">{text}</div>
@@ -462,19 +462,22 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
         </div>
       )}
     </>
-    output = commits.length ? <>
-        {commits.map(c => {
-          const s = commitStats(c)
-          return (
-            <div key={c.id}>
-              {c.live ? t('io.uncommitted') : c.subject}
-              <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}</span>
-            </div>
-          )
-        })}
-        <Checks n={n} />
-      </>
-      : <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>
+    // Delivered work shows its note and checks even without a commit of its own.
+    output = <>
+      {commits.length
+        ? commits.map(c => {
+            const s = commitStats(c)
+            return (
+              <div key={c.id}>
+                {c.live ? t('io.uncommitted') : c.subject}
+                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}</span>
+              </div>
+            )
+          })
+        : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
+      {n.output.note && <div className="mt-1">{n.output.note}</div>}
+      <Checks n={n} />
+    </>
   }
   return (
     <div className="mt-1 overflow-hidden rounded-md border border-you">
@@ -487,7 +490,14 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
       </div>
       <div className={cn('grid text-sm wrap-anywhere', n.kind === 'review' ? 'min-[701px]:grid-cols-[1fr_2fr]' : 'grid-cols-[repeat(auto-fit,minmax(260px,1fr))]')}>
         <div className="min-w-0 p-3"><h3 className="mb-1.5 text-xs font-semibold text-ink-2">{t('io.input')}</h3>{input}</div>
-        <div className="min-w-0 border-line p-3 max-[700px]:border-t min-[701px]:border-l"><h3 className="mb-1.5 text-xs font-semibold text-ink-2">{t('io.output')}</h3>{output}</div>
+        <div className="min-w-0 border-line p-3 max-[700px]:border-t min-[701px]:border-l">
+          <h3 className="mb-1.5 flex items-baseline gap-2 text-xs font-semibold text-ink-2">
+            {t('io.output')}
+            {/* Corrected after delivery: what shows is the latest. */}
+            {n.amended && <span className="font-normal">{t('io.amended', { when: when(ms(n.amended)) })}</span>}
+          </h3>
+          {output}
+        </div>
       </div>
       <Ask unit={unit} n={n} finding={finding} talk={talk} />
     </div>

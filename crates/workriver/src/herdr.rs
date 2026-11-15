@@ -25,6 +25,16 @@ pub fn place_from_env() -> Option<String> {
     std::env::var("HERDR_PANE_ID").ok().filter(|s| !s.is_empty())
 }
 
+/// Why the CLI at `place` cannot tell which agent it is.
+pub fn no_agent_at(place: &str) -> String {
+    format!("Herdr lists no agent in pane {place} (see `herdr agent list`); run this from a pane running a coding agent, or pass --as <name>.")
+}
+
+/// The same when the service cannot ask Herdr.
+pub fn cannot_ask(place: &str, why: &str) -> String {
+    format!("cannot tell which agent runs in Herdr pane {place}: {why}. Is Herdr running and `workriver serve` started inside it? Or pass --as <name>.")
+}
+
 /// `HERDR_SOCKET_PATH`, or Herdr's default socket.
 pub fn socket_path() -> PathBuf {
     match std::env::var_os("HERDR_SOCKET_PATH") {
@@ -150,8 +160,9 @@ fn group(snap: &Snap, workspace: &str) -> Option<RuntimeRef> {
     snap.workspaces.iter().find(|w| w.workspace_id == workspace).map(|w| RuntimeRef { id: w.workspace_id.clone(), label: w.label.clone() })
 }
 
-/// Panes with an agent in them, as workriver's agents. The name is the pane's label if it
-/// has one, else the agent's own name in Herdr, else `<harness>-<pane>` (pane ids are not reused).
+/// Panes with an agent in them, as workriver's agents. The name is the agent's name in Herdr
+/// (`herdr agent start <name>` / `herdr agent rename`), else the pane's label, else
+/// `<harness>-<pane>` (pane ids are not reused).
 fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
     let set = |s: &Option<String>| s.clone().filter(|s| !s.trim().is_empty());
     snap.agents
@@ -159,7 +170,7 @@ fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
         .filter_map(|a| {
             let harness = set(&a.agent)?;
             let label = snap.panes.iter().find(|p| p.pane_id == a.pane_id).and_then(|p| set(&p.label));
-            let name = label.or_else(|| set(&a.name)).unwrap_or_else(|| format!("{harness}-{}", a.pane_id.replace(':', "")));
+            let name = set(&a.name).or(label).unwrap_or_else(|| format!("{harness}-{}", a.pane_id.replace(':', "")));
             let agent = RuntimeAgent {
                 session: a.agent_session.as_ref().map(|s| s.value.clone()).unwrap_or_else(|| format!("herdr:{}", a.pane_id)),
                 state: match a.agent_status.as_str() {
@@ -248,14 +259,14 @@ mod tests {
             "workspaces": [{ "workspace_id": "w5", "label": "chat", "number": 1 }],
             "panes": [
                 { "pane_id": "w5:p1", "workspace_id": "w5", "label": "lead" },
-                { "pane_id": "w5:p2", "workspace_id": "w5" },
+                { "pane_id": "w5:p2", "workspace_id": "w5", "label": "side" },
                 { "pane_id": "w5:p3", "workspace_id": "w5" }
             ],
             "agents": [
                 { "pane_id": "w5:p1", "workspace_id": "w5", "agent": "claude", "agent_status": "working",
                   "agent_session": { "agent": "claude", "kind": "id", "source": "herdr:claude", "value": "s-1" },
                   "cwd": "/r", "foreground_cwd": "/r/sub", "unknown_field": 1 },
-                { "pane_id": "w5:p2", "workspace_id": "w5", "agent": "codex", "agent_status": "done" },
+                { "pane_id": "w5:p2", "workspace_id": "w5", "agent": "codex", "name": "reviewer", "agent_status": "done" },
                 { "pane_id": "w5:p3", "workspace_id": "w5", "agent": null, "agent_status": "unknown" }
             ]
         }}})
@@ -271,7 +282,7 @@ mod tests {
         assert_eq!(a.state, AgentState::Working);
         assert_eq!(a.group, Some(RuntimeRef { id: "w5".into(), label: "chat".into() }));
         let b = &list[1];
-        assert_eq!((b.session.as_str(), b.name.as_str(), b.state), ("herdr:w5:p2", "codex-w5p2", AgentState::Done));
+        assert_eq!((b.session.as_str(), b.name.as_str(), b.state), ("herdr:w5:p2", "reviewer", AgentState::Done), "the Herdr name before the pane label");
         // A shell pane: its workspace, no agent.
         let shell = herdr.locate("w5:p3").unwrap();
         assert_eq!((shell.agent, shell.group.map(|g| g.label)), (None, Some("chat".into())));

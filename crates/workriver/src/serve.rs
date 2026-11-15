@@ -49,6 +49,7 @@ struct Pending {
     unit: String,
     task: u32,
     finding: Option<String>,
+    chore: Option<String>,
     delivery: Delivery,
     /// The receiver was seen not working since the message went out.
     armed: bool,
@@ -113,13 +114,18 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         for u in &store.state().units {
             for t in &u.tasks {
                 if let Some(d) = delivered(&t.delivery) {
-                    out.push(Pending { unit: u.id.clone(), task: t.n, finding: None, delivery: d, armed: false, sent: now });
+                    out.push(Pending { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d, armed: false, sent: now });
                 }
                 for f in &t.findings {
                     if let Some(d) = delivered(&f.delivery) {
-                        out.push(Pending { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), delivery: d, armed: false, sent: now });
+                        out.push(Pending { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d, armed: false, sent: now });
                     }
                 }
+            }
+        }
+        for c in &store.state().chores {
+            if let Some(d) = delivered(&c.delivery) {
+                out.push(Pending { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d, armed: false, sent: now });
             }
         }
         out
@@ -178,7 +184,13 @@ impl App {
             match now.as_ref().and_then(|l| l.iter().find(|a| Some(a.session.as_str()) == to)) {
                 None => p.sent.elapsed() < WATCH,
                 Some(a) if a.state == AgentState::Working && p.armed => {
-                    picked.push((p.unit.clone(), p.task, p.finding.clone(), Delivery { step: DeliveryStep::Picked, ..p.delivery.clone() }));
+                    picked.push(Body::DeliveryUpdated {
+                        unit: p.unit.clone(),
+                        task: p.task,
+                        finding: p.finding.clone(),
+                        chore: p.chore.clone(),
+                        delivery: Delivery { step: DeliveryStep::Picked, ..p.delivery.clone() },
+                    });
                     false
                 }
                 Some(a) => {
@@ -188,8 +200,8 @@ impl App {
             }
         });
         let recorded = !picked.is_empty();
-        for (unit, task, finding, delivery) in picked {
-            if let Err(e) = self.store.lock().unwrap().append("workriver", Body::DeliveryUpdated { unit, task, finding, delivery }) {
+        for body in picked {
+            if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }
@@ -268,9 +280,17 @@ impl App {
         };
         if delivery.step == DeliveryStep::Delivered {
             let working = live.iter().flatten().any(|a| Some(&a.session) == delivery.to.as_ref() && a.state == AgentState::Working);
-            self.pending.lock().unwrap().push(Pending { unit: plan.unit.clone(), task: plan.task, finding: plan.finding.clone(), delivery: delivery.clone(), armed: !working, sent: std::time::Instant::now() });
+            self.pending.lock().unwrap().push(Pending {
+                unit: plan.unit.clone(),
+                task: plan.task,
+                finding: plan.finding.clone(),
+                chore: plan.chore.clone(),
+                delivery: delivery.clone(),
+                armed: !working,
+                sent: std::time::Instant::now(),
+            });
         }
-        let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, delivery };
+        let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, chore: plan.chore, delivery };
         if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
             tracing::warn!("cannot record a delivery: {e}");
         }
@@ -303,7 +323,7 @@ impl App {
                 Ok(id)
             }
             None => {
-                let e = self.record("workriver", Body::IntentCreated { id: String::new(), title: g.label.clone(), runtime_ref: Some(g.clone()) })?;
+                let e = self.record("workriver", Body::IntentCreated { id: String::new(), title: g.label.clone(), goal: String::new(), runtime_ref: Some(g.clone()) })?;
                 let (Some(id), _, _) = e.body.refs() else { unreachable!("an intent has an id") };
                 Ok(id)
             }
