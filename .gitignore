@@ -1,5 +1,5 @@
 # Local-only working material (plans, prototypes, research notes). Never synced.
-/local/
+/.local/
 
 # Per-checkout agent tool settings and third-party skills (e.g. impeccable). Not shared.
 /.claude/

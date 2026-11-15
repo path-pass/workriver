@@ -52,7 +52,7 @@ frontend/web/       the web UI; everything a user sees is built here
 frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
 crates/             Rust workspace (not created yet): workriver-core, workriver-scan, workriver
-local/              local-only working material; ignored by git, never commit it
+.local/             local-only working material; ignored by git, never commit it
 ```
 
 Layering follows memriver: a core crate with models, storage and write rules that knows
@@ -73,7 +73,7 @@ per-harness install of the MCP connection.
 
 ## Working rules
 
-- `local/` holds plans, prototypes and research notes. It is in `.gitignore`. Put new
+- `.local/` holds plans, prototypes and research notes. It is in `.gitignore`. Put new
   material of that kind there, not in the tree that gets committed.
 - Before the first push, the repository is cleaned: nothing local-only, no generated
   files, no third-party skill copies.

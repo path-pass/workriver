@@ -1,7 +1,7 @@
 # workriver design
 
 Direction set on 2026-11-15 following the Operate mode of the `impeccable` skill. The
-structure below was worked out on a throwaway prototype (`local/prototype/`, not in git);
+structure below was worked out on a throwaway prototype (`.local/prototype/`, not in git);
 the real UI lives in `frontend/web/`.
 
 ## Use scene
