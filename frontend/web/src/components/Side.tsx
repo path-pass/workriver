@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { agents, baseName, commitStats, feed, ms, writingNow, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { InboxList } from './Inbox'
 import { Icon, Mark, TerminalButton, Tip, Who } from './bits'
@@ -47,7 +47,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
           <span className="at">
             {state === 'idle'
               ? <Mark name="idle" label={t('agents.idle')} />
-              : <><span className="truncate">{at?.unit.title}</span>{at?.node.taskId && <span className="flex-none font-mono">#{at.node.taskId}</span>}</>}
+              : <><span className="truncate" lang={contentLang(at?.unit.title)}>{at?.unit.title}</span>{at?.node.taskId && <span className="flex-none font-mono">#{at.node.taskId}</span>}</>}
           </span>
         </button>
         <TerminalButton agent={agent} />
@@ -80,7 +80,7 @@ function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'sect
               <Who name={w.node.agent ?? '?'} live />
               <span className="min-w-0">
                 <span className="block truncate font-mono text-xs">{w.files.map(baseName).join(' ')}</span>
-                <span className="block truncate text-xs text-ink-2">{w.unit.title}{w.node.taskId && ` #${w.node.taskId}`}</span>
+                <span className="block truncate text-xs text-ink-2" lang={contentLang(w.unit.title)}>{w.unit.title}{w.node.taskId && ` #${w.node.taskId}`}</span>
               </span>
             </div>
           ))}
@@ -104,9 +104,9 @@ function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'sect
                 >
                   <Who name={commit.author || '?'} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate">{commit.subject}</span>
+                    <span className="block truncate" lang={contentLang(commit.subject)}>{commit.subject}</span>
                     <span className="flex items-center gap-1.5 text-xs text-ink-2">
-                      <span className="truncate">{unit.title}</span>
+                      <span className="truncate" lang={contentLang(unit.title)}>{unit.title}</span>
                       {task?.state === 'unregistered'
                         ? <span className="flex flex-none items-center gap-0.5 text-del"><Icon name="no" className="size-3" />{t('need.loose')}</span>
                         : task?.taskId && <span className="flex-none font-mono">#{task.taskId}</span>}

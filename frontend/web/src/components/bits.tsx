@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUp, Bot, Crown, FlaskConicalOff, GitCommitHorizontal, C
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE } from '@/runtime'
 import type { Step } from '@/types'
@@ -107,7 +107,7 @@ export function Steps({ steps }: { steps: Step[] }) {
     <ol className="steps">
       {steps.map((s, k) => (
         <li key={k}>
-          {s.text}
+          <span lang={contentLang(s.text)}>{s.text}</span>
           {s.command && <div className="cmd"><code>{s.command}</code><CopyButton text={s.command} /></div>}
         </li>
       ))}

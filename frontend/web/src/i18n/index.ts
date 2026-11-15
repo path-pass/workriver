@@ -16,6 +16,13 @@ export const LANGS = [
   { id: 'ja', label: '日本語' },
 ] as const
 export type Lang = (typeof LANGS)[number]['id']
+/**
+ * A guess at the language of content (titles, notes, findings), which the UI does not know:
+ * kana means Japanese, Han without kana Chinese, anything else unset. Put on the element that
+ * shows it, so the browser picks the right CJK glyphs whatever the UI language is.
+ */
+export const contentLang = (s: string | null | undefined): string | undefined =>
+  !s ? undefined : /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(s) ? 'ja' : /\p{Script=Han}/u.test(s) ? 'zh-CN' : undefined
 export type T = TFunction
 const STORE = 'workriver.lang'
 

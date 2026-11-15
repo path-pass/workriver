@@ -6,7 +6,7 @@ import { useAct } from '@/act'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { Icon, Steps, Tip, Who } from './bits'
 
@@ -29,7 +29,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
   const body = (
     <>
       <Icon name={icon} />
-      <span className="title">{title}</span>
+      <span className="title" lang={r.kind === 'decision' || r.kind === 'far' ? undefined : contentLang(title)}>{title}</span>
       <span className="meta">
         {open.length > 0 && <span className="flex-none font-mono">{severityCounts(open)}</span>}
         {suggested > 0 && (
@@ -44,7 +44,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
         {r.far.length > 0 && <span className="truncate font-mono">{r.far.map(baseName).join(' ')}</span>}
         {r.chore && <Who name={r.chore.by} />}
         {/* Where it is: the intent quietly, then the unit. */}
-        <span className="unit"><span className="opacity-70">{r.intent.title}{r.unit && ' / '}</span>{r.unit?.title}</span>
+        <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent.title)}>{r.intent.title}</span>{r.unit && ' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>
       </span>
       <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
     </>

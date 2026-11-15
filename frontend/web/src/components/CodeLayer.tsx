@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
 import { changeOf, fileTree, ROOT, shownDelta, type Lines, type FileTree, type Pick, type Selection, type TreeRow } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { FileChange, Unit, ModuleNode } from '@/types'
 import { Icon, Tip, Who } from './bits'
 import type { CommitFocus } from './Side'
@@ -301,7 +301,7 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
           ) : blocks.length ? (
             blocks.map(({ c, k, files }) => (
               <div key={c.id} className="round" data-commit={c.id}>
-                <div className="text-sm font-semibold wrap-anywhere">{c.live ? t('io.uncommitted') : c.subject}</div>
+                <div className="text-sm font-semibold wrap-anywhere" lang={c.live ? undefined : contentLang(c.subject)}>{c.live ? t('io.uncommitted') : c.subject}</div>
                 <div className="mb-2 font-mono text-xs text-ink-2">{[c.live ? '' : c.id, date(c.date), c.author].filter(Boolean).join(' · ')}</div>
                 <div className="flex flex-col gap-2">
                   {files.slice(0, limit).map(f => <Pickable key={f.path} path={f.path} commit={k} lines={lines} onLines={onLines} onAsk={onAsk}><FileDiff file={f} /></Pickable>)}

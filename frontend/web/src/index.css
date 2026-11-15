@@ -169,8 +169,10 @@
     caret-color: var(--you);
   }
   /* Japanese glyph forms differ from Chinese ones for the same characters; PingFang SC would draw Chinese forms.
-     Strict line breaking keeps ー and small kana from starting a line. */
-  :lang(ja) body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Segoe UI", sans-serif; line-break: strict; }
+     Strict line breaking keeps ー and small kana from starting a line. The UI's language sets the body;
+     content marked with its own language (contentLang) gets that language's stack. */
+  body:lang(ja), [lang=ja] { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Segoe UI", sans-serif; line-break: strict; }
+  [lang=zh-CN] { font-family: var(--font-sans); line-break: auto; }
   ::selection { background: var(--you-bg); color: var(--you-ink); }
   button:not(:disabled), label:has(button) { cursor: pointer; }
 }

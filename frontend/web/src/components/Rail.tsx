@@ -8,7 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, repoOf, unitsOf } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { Intent, Unit, Workspace } from '@/types'
 import { Icon, Tip } from './bits'
 import { Settings } from './Settings'
@@ -169,14 +169,14 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
             >
               <CollapsibleTrigger className="group/intent flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
                 <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
-                <span className="min-w-0 flex-1 truncate">{intent.title}</span>
+                <span className="min-w-0 flex-1 truncate" lang={contentLang(intent.title)}>{intent.title}</span>
                 <ManagerState intent={intent} />
                 {/* Folded, the group still says what waits inside it. */}
                 {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
               </CollapsibleTrigger>
               <CollapsibleContent className="flex flex-col gap-0.5 pl-3">
                 {/* The intent's goal, quietly, for whoever opened it. */}
-                {intent.goal && <p className="line-clamp-2 px-2.5 pb-1 text-xs text-rail-ink-2" title={intent.goal}>{intent.goal}</p>}
+                {intent.goal && <p className="line-clamp-2 px-2.5 pb-1 text-xs text-rail-ink-2" title={intent.goal} lang={contentLang(intent.goal)}>{intent.goal}</p>}
                 {units.map(unit => (
                   <button
                     key={unit.id}
@@ -185,7 +185,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
                     onClick={() => onUnit(unit.id)}
                     className="block w-full rounded-md px-2.5 py-2 text-left transition-colors hover:bg-rail-2 aria-pressed:bg-rail-3"
                   >
-                    <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere">{unit.title}</span>
+                    <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere" lang={contentLang(unit.title)}>{unit.title}</span>
                     <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden"><Signals unit={unit} /></span>
                   </button>
                 ))}

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { askeeOf, baseName, finderLabel, findingsOf, type Lines } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { AskContext, Session, Turn, Task, Unit } from '@/types'
 import { Icon, Who } from './bits'
 
@@ -37,7 +37,7 @@ function Answer({ text, onFile }: { text: string; onFile: (path: string) => void
     last = m.index + m[0].length
   }
   parts.push(text.slice(last))
-  return <p className="whitespace-pre-wrap">{parts}</p>
+  return <p className="whitespace-pre-wrap" lang={contentLang(text)}>{parts}</p>
 }
 
 function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext) => void }) {
@@ -113,7 +113,7 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
         <ol className="mb-3 flex flex-col gap-3">
           {turns.map((turn, k) => (
             <li key={k} className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="font-semibold">{turn.question}</span><Chips chips={turn.context} /></div>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="font-semibold" lang={contentLang(turn.question)}>{turn.question}</span><Chips chips={turn.context} /></div>
               {turn.answer === null ? (
                 <p className="text-ink-2" aria-live="polite">
                   <span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: n.agent ?? '' })}

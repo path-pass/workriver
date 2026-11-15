@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
 import { Ask, turnsOf, type Talk } from './Ask'
@@ -115,7 +115,8 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
           name={glyph(n)}
           className={n.kind === 'review' ? (n.result === 'running' ? 'text-amber!' : 'text-water!') : ''}
         />
-        <span className="lb">
+        {/* A task's own title is content; a review's or an unregistered commit's label is UI text. */}
+        <span className="lb" lang={n.kind === 'review' || n.state === 'unregistered' ? undefined : contentLang(n.title)}>
           {n.kind === 'review'
             ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
             : n.state === 'unregistered' || !n.taskId ? nodeLabel(t, n) : <><b>#{n.taskId}</b> {n.title}</>}
@@ -330,7 +331,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         <CollapsibleTrigger className="fchev" aria-label={t('finding.details', { id: f.id })}><Icon name="chev" /></CollapsibleTrigger>
         <button type="button" className="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm py-1 text-left" aria-pressed={picked} onClick={onSelect}>
           <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
-          <span className={cn('truncate group-data-[state=open]:whitespace-normal', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')}>{f.problem}</span>
+          <span className={cn('truncate group-data-[state=open]:whitespace-normal', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')} lang={contentLang(f.problem)}>{f.problem}</span>
         </button>
         {f.decidedBy === 'agent' && (
           <span className="flex h-7 items-center text-ink-2"><Mark name="agent" label={t('finding.byAgent')} /></span>
@@ -358,8 +359,8 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         )}
       </div>
       <CollapsibleContent className="pb-1.5 pl-6 text-xs">
-        {suggests && <div><span className="text-ink-2">{t('io.field', { name: suggests })}</span>{f.recommendation?.reason}</div>}
-        {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span>{f.impact}</div>}
+        {suggests && <div><span className="text-ink-2">{t('io.field', { name: suggests })}</span><span lang={contentLang(f.recommendation?.reason)}>{f.recommendation?.reason}</span></div>}
+        {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span><span lang={contentLang(f.impact)}>{f.impact}</span></div>}
         {f.evidence.length > 0 && <div><span className="text-ink-2">{t('io.field', { name: t('io.evidence') })}</span><span className="font-mono">{f.evidence.join(t('list.sep'))}</span></div>}
         <Thumbs list={f.attachments ?? []} />
         {f.state === 'open' ? <Decide unit={unit} task={n} f={f} /> : act.delivery[findingKey(unit, n, f)] || f.delivery ? <Decided unit={unit} task={n} f={f} /> : null}
@@ -414,7 +415,7 @@ function Checks({ n }: { n: Task }) {
           <span className="sr-only">{t(`evidence.${e.result}`)}</span>
           <code className="min-w-0 truncate">{e.command}</code>
           <CopyButton text={e.command} />
-          <span className="flex-none text-ink-2">{e.summary}</span>
+          <span className="flex-none text-ink-2" lang={contentLang(e.summary)}>{e.summary}</span>
         </li>
       ))}
     </ul>
@@ -437,11 +438,11 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
-    input = <><div>{n.input.text || n.title}</div><Steps steps={n.input.steps ?? []} /></>
+    input = <><div lang={contentLang(n.input.text || n.title)}>{n.input.text || n.title}</div><Steps steps={n.input.steps ?? []} /></>
     output = n.state === 'waiting'
       ? <GateForm key={gateKey(unit, n)} unit={unit} gate={n} />
       : <>
-          {n.output.note && <div>{n.output.note}</div>}
+          {n.output.note && <div lang={contentLang(n.output.note)}>{n.output.note}</div>}
           <Thumbs list={n.output.attachments ?? []} />
           <GateSent unit={unit} gate={n} />
           {found && <div className="mt-3">{found}</div>}
@@ -454,7 +455,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     })
     head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t('kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
     input = <>
-      <div>{n.input.text || n.title}</div>
+      <div lang={contentLang(n.input.text || n.title)}>{n.input.text || n.title}</div>
       {n.state === 'unregistered' && quiet(t('io.unknownInput'))}
       {causes.length > 0 && (
         <div className="mt-2">
@@ -464,7 +465,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
               <Icon name={glyph(by)} />
               <span className="flex-none">{finderLabel(t, by)}</span>
               <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
-              <span className="min-w-0">{f.problem}</span>
+              <span className="min-w-0" lang={contentLang(f.problem)}>{f.problem}</span>
             </button>
           ))}
           <Thumbs list={causes.flatMap(c => c.f.attachments ?? [])} />
@@ -478,13 +479,13 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             const s = commitStats(c)
             return (
               <div key={c.id}>
-                {c.live ? t('io.uncommitted') : c.subject}
+                {c.live ? t('io.uncommitted') : <span lang={contentLang(c.subject)}>{c.subject}</span>}
                 <span className="text-xs text-ink-2"> · <span className="whitespace-nowrap">{t('stat.files', { count: s.files })}</span> +{num(s.add)} −{num(s.del)}</span>
               </div>
             )
           })
         : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
-      {n.output.note && <div className="mt-1">{n.output.note}</div>}
+      {n.output.note && <div className="mt-1" lang={contentLang(n.output.note)}>{n.output.note}</div>}
       <Checks n={n} />
     </>
   }

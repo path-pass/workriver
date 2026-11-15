@@ -9,7 +9,7 @@ import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { ask, choreDone, decideFinding, detach, MANAGER, submitGate, type Delivery } from '@/runtime'
 import type { AskContext, Task, Turn, Unit, Workspace } from '@/types'
 
@@ -192,10 +192,10 @@ export default function App() {
             <header className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
-                  {unit.title}
+                  <span lang={contentLang(unit.title)}>{unit.title}</span>
                   {unit.branch && <span className="font-mono text-xs font-normal tracking-normal text-ink-2">{unit.branch}</span>}
                 </h1>
-                {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}
+                {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(unit.purpose)}>{unit.purpose}</p>}
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
