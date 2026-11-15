@@ -81,6 +81,15 @@ const ports = (
   </>
 )
 
+/** A review's label with the reviewer's name, and punctuation right after it (「：」 may not start a line), kept whole. */
+function ReviewLabel({ n }: { n: Task }) {
+  const { t } = useT()
+  const by = finderLabel(t, n), label = reviewLabel(t, n), i = label.indexOf(by)
+  if (i < 0) return label
+  const end = i + by.length + label.slice(i + by.length).match(/^\p{P}*/u)![0].length
+  return <>{label.slice(0, i)}<span className="whitespace-nowrap">{label.slice(i, end)}</span>{label.slice(end)}</>
+}
+
 // What kind of work is a shape (set in CSS from data-kind): square corners for
 // implementing, a pill for a review, a double frame for a gate. A review says how much it found per severity and
 // carries a violet count while findings of it wait for the user.
@@ -108,7 +117,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         />
         <span className="lb">
           {n.kind === 'review'
-            ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : reviewLabel(t, n)
+            ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
             : n.state === 'unregistered' || !n.taskId ? nodeLabel(t, n) : <><b>#{n.taskId}</b> {n.title}</>}
         </span>
         {n.agent && (n.state === 'running' || n.state === 'todo') && <Who name={n.agent} live={n.writing} />}
@@ -470,7 +479,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             return (
               <div key={c.id}>
                 {c.live ? t('io.uncommitted') : c.subject}
-                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}</span>
+                <span className="text-xs text-ink-2"> · <span className="whitespace-nowrap">{t('stat.files', { count: s.files })}</span> +{num(s.add)} −{num(s.del)}</span>
               </div>
             )
           })
