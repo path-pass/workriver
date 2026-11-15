@@ -5,8 +5,10 @@ working in parallel: what each is doing now, how a piece of work came to be the 
 and which parts of the code it reached. It records and shows; it does not start or
 schedule agents.
 
-Status: first version in progress. The daemon, the event store, the git scan, the CLI
-and the web UI on real data work; the Herdr runtime and delivery to agents are next.
+Status: first version usable. The daemon, the event store, the git scan, the CLI, the
+Herdr runtime, delivery of the user's decisions to agents, the manager skill
+(`skills/workriver-manager/`) and the web UI on real data work. People start with
+`docs/getting-started.md`.
 
 ## Terms
 
@@ -59,7 +61,8 @@ docs/               documents for people, English and Chinese
 frontend/web/       the web UI; everything a user sees is built here
 frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
-crates/             Rust workspace (not created yet): workriver-core, workriver-scan, workriver
+crates/             Rust workspace: workriver-core, workriver-scan, workriver
+skills/             the manager agent's skill; the binary embeds it (`workriver guide`)
 .local/             local-only working material; ignored by git, never commit it
 ```
 

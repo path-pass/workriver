@@ -1,7 +1,7 @@
 // Where the user's inputs go once recorded, and what the message says. Pure: the daemon
 // sends the message and records how far it got.
 use workriver_core::runtime::RuntimeAgent;
-use workriver_core::{Body, Decision, Event, GateResult, State, Task, TaskKind, Who, name};
+use workriver_core::{Body, Decision, Event, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
 
 /// A message to deliver about one input: a decision (`finding` set) or a gate result.
 #[derive(Debug, PartialEq)]
@@ -10,7 +10,7 @@ pub struct Plan {
     pub task: u32,
     pub finding: Option<String>,
     /// The receiving session, or why there is none.
-    pub to: Result<String, String>,
+    pub to: Result<String, (ReasonCode, String)>,
     pub message: String,
 }
 
@@ -32,10 +32,10 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<P
 }
 
 /// The agent of the work `task` follows if `worker` and it is live, else the intent's manager.
-fn target(state: &State, live: Option<&[RuntimeAgent]>, unit: &str, task: u32, worker: bool) -> Result<String, String> {
-    let Some(live) = live else { return Err("the agent runtime (Herdr) is not connected".into()) };
+fn target(state: &State, live: Option<&[RuntimeAgent]>, unit: &str, task: u32, worker: bool) -> Result<String, (ReasonCode, String)> {
+    let Some(live) = live else { return Err((ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into())) };
     let is_live = |s: &str| live.iter().any(|a| a.session == s);
-    let u = state.unit(unit).map_err(|e| e.0)?;
+    let u = state.unit(unit).map_err(|e| (ReasonCode::RuntimeError, e.0))?;
     if worker {
         let follows = state.task(unit, task).ok().and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
         if let Some(a) = follows.filter(|a| is_live(a)) {
@@ -45,8 +45,8 @@ fn target(state: &State, live: Option<&[RuntimeAgent]>, unit: &str, task: u32, w
     let intent = state.intents.iter().find(|i| i.id == u.intent);
     match intent.and_then(|i| i.manager.clone()) {
         Some(m) if is_live(&m) => Ok(m),
-        Some(m) => Err(format!("the manager of intent {} ({}) is not running", u.intent, state.name_of(&m).unwrap_or(&m))),
-        None => Err(format!("intent {} has no manager; the manager registers with `workriver manager here`", u.intent)),
+        Some(m) => Err((ReasonCode::ManagerGone, format!("the manager of intent {} ({}) is not running", u.intent, state.name_of(&m).unwrap_or(&m)))),
+        None => Err((ReasonCode::NoManager, format!("intent {} has no manager; the manager registers with `workriver manager here`", u.intent))),
     }
 }
 
@@ -76,24 +76,24 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
         Decision::Defer => "deferred",
     };
     let mut m = vec![format!("[workriver] The user {verb} finding {finding} from {} in unit {unit} \"{}\".", label(state, unit, t), u.title)];
-    m.push(format!("Problem: {}", f.found.problem));
+    m.push(format!("Problem: {}", sentence(&f.found.problem)));
     if !f.found.impact.is_empty() {
-        m.push(format!("If left: {}", f.found.impact));
+        m.push(format!("If left: {}", sentence(&f.found.impact)));
     }
     if !f.found.r#where.is_empty() {
-        m.push(format!("Where: {}", f.found.r#where.join(", ")));
+        m.push(format!("Where: {}.", f.found.r#where.join(", ")));
     }
     if !note.is_empty() {
-        m.push(format!("Note from the user: {note}"));
+        m.push(format!("Note from the user: {}", sentence(note)));
     }
     m.push(match decision {
         Decision::Accept => format!(
-            "Next: hand out work for it, e.g.\n  workriver task add {unit} --title \"<what to do>\" --cause {n}:{finding} --agent <agent>\nthen give that task to an agent with the worker instructions (workriver guide worker)."
+            "Next: hand out work for it, e.g. `workriver task add {unit} --title \"<what to do>\" --cause {n}:{finding} --agent <agent>`, then give that task to an agent with the worker instructions (`workriver guide worker`)."
         ),
         Decision::Reject => "No work is needed for it.".into(),
         Decision::Defer => "Leave it for now; it will come up again later.".into(),
     });
-    Some(m.join("\n"))
+    Some(paragraph(m))
 }
 
 fn gate_message(state: &State, unit: &str, n: u32) -> Option<String> {
@@ -105,27 +105,38 @@ fn gate_message(state: &State, unit: &str, n: u32) -> Option<String> {
         if problem { "found a problem" } else { "done" }
     )];
     if !t.note.is_empty() {
-        m.push(format!("Note from the user: {}", t.note));
+        m.push(format!("Note from the user: {}", sentence(&t.note)));
     }
     if problem {
         m.push("Findings:".into());
         for f in &t.findings {
-            let mut line = format!("- {} ({}): {}", f.found.id, name(&f.found.severity), f.found.problem);
+            let mut line = format!("{} ({}): {}.", f.found.id, name(&f.found.severity), f.found.problem.trim_end_matches('.'));
             if !f.found.impact.is_empty() {
-                line += &format!(" If left: {}", f.found.impact);
+                line += &format!(" If left: {}", sentence(&f.found.impact));
             }
             if !f.found.r#where.is_empty() {
-                line += &format!(" Where: {}", f.found.r#where.join(", "));
+                line += &format!(" Where: {}.", f.found.r#where.join(", "));
             }
             m.push(line);
         }
         m.push(format!(
-            "The user decides on each finding (or decide yourself: workriver finding decide {unit}#{n} <id> accept|reject|defer). Work for accepted ones is handed out with --cause {n}:<id>."
+            "The user decides on each finding in workriver; accepted ones reach the manager, who hands out work with `--cause {n}:<id>`. Until then the work behind gate {unit}#{n} waits."
         ));
     } else {
         m.push("You can go on with the work that waited on it.".into());
     }
-    Some(m.join("\n"))
+    Some(paragraph(m))
+}
+
+/// Text that ends like a sentence, so the paragraph below reads as one.
+fn sentence(s: &str) -> String {
+    let s = s.trim();
+    if s.ends_with(['.', '!', '?']) { s.to_string() } else { format!("{s}.") }
+}
+
+/// The message as one paragraph: a terminal without bracketed paste submits at each newline.
+fn paragraph(lines: Vec<String>) -> String {
+    lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -162,10 +173,11 @@ mod tests {
         let accept = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}}));
         // No manager yet: the accepted finding has nowhere to go, and says why.
         let p = plan(s.state(), Some(&live), &accept).unwrap();
-        assert!(p.to.unwrap_err().contains("no manager"));
+        assert_eq!(p.to.unwrap_err().0, ReasonCode::NoManager);
+        assert!(!p.message.contains('\n'), "one paragraph: {}", p.message);
         assert!(p.message.contains("--cause 2:P2-1"), "{}", p.message);
         assert!(p.message.contains("u1#2 (code review of u1#1 \"Find mentions\")"), "{}", p.message);
-        assert_eq!(plan(s.state(), None, &accept).unwrap().to.unwrap_err(), "the agent runtime (Herdr) is not connected");
+        assert_eq!(plan(s.state(), None, &accept).unwrap().to.unwrap_err().0, ReasonCode::RuntimeDown);
 
         at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "boss"}}));
         assert_eq!(plan(s.state(), Some(&live), &accept).unwrap().to, Ok("boss".into()));
@@ -178,7 +190,7 @@ mod tests {
             "findings": [{"severity": "P1", "problem": "Crashes"}]}}));
         let p = plan(s.state(), Some(&live), &gate).unwrap();
         assert_eq!(p.to, Ok("worker".into()));
-        assert!(p.message.contains("found a problem") && p.message.contains("- P1-1 (P1): Crashes"), "{}", p.message);
+        assert!(p.message.contains("found a problem") && p.message.contains("P1-1 (P1): Crashes."), "{}", p.message);
         // An agent's own decision is not delivered.
         let own = at(&mut s, "rev", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "defer", "by": "agent"}}));
         assert_eq!(plan(s.state(), Some(&live), &own), None);

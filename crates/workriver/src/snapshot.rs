@@ -61,6 +61,8 @@ struct Sent {
     to: Option<String>,
     to_manager: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reason_code: Option<core::ReasonCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
     message: String,
 }
@@ -199,6 +201,7 @@ impl Names {
             step: d.step,
             to: d.to.as_deref().map(|s| self.of(s)),
             to_manager: d.to.is_some() && d.to.as_deref() == manager,
+            reason_code: d.reason_code,
             reason: d.reason.clone(),
             message: d.message.clone(),
         })

@@ -145,6 +145,13 @@ export const en = {
     copy: 'Copy message',
     recorded: 'Recorded',
     notDelivered: 'Not delivered: {{reason}}',
+    reason: {
+      'no-manager': 'the intent has no manager',
+      'manager-gone': 'the manager is not running',
+      'runtime-down': 'Herdr is not reachable',
+      'runtime-error': 'Herdr refused it',
+      unknown: 'no reason given'
+    },
     failed: 'Not recorded: the service did not take it'
   },
   decide: {

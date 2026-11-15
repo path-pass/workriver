@@ -145,6 +145,13 @@ export const zhCN: Same<typeof en> = {
     copy: '复制消息',
     recorded: '已记下',
     notDelivered: '没送出：{{reason}}',
+    reason: {
+      'no-manager': '这个意图还没有管理者',
+      'manager-gone': '管理者没在运行',
+      'runtime-down': '连不上 Herdr',
+      'runtime-error': 'Herdr 没有接收',
+      unknown: '没有说明原因'
+    },
     failed: '没记下：服务没有收下'
   },
   decide: {

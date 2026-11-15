@@ -11,7 +11,7 @@ import { SEVERITIES, type Decision, type NewFinding } from '@/data'
 import { useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
-import { CopyButton, Icon, Who } from './bits'
+import { CopyButton, Icon, Tip, Who } from './bits'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
@@ -67,7 +67,7 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
   if (sent && (!local || local.step === 'recorded')) {
     const to = sent.to ?? ''
     const steps: [Sent['step'], string][] = sent.step === 'not-delivered'
-      ? [['not-delivered', sent.reason ? t('deliver.notDelivered', { reason: sent.reason }) : t('deliver.pending')]]
+      ? [['not-delivered', t('deliver.notDelivered', { reason: sent.reasonCode ? t(`deliver.reason.${sent.reasonCode}`) : t('deliver.reason.unknown') })]]
       : [
           ['delivered', sent.toManager ? t('deliver.toManager') : t('deliver.delivered', { agent: to })],
           ['picked', t('deliver.picked', { agent: to })],
@@ -75,12 +75,16 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
     const at = steps.findIndex(([s]) => s === sent.step)
     return (
       <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs" aria-live="polite">
-        {steps.map(([s, label], k) => (
-          <span key={s} className={k <= at ? (k === at ? 'font-semibold text-ink' : 'text-ink-2') : 'text-ink-2 opacity-50'}>
-            {k > 0 && <span aria-hidden className="mr-1.5">→</span>}
-            {s === 'picked' && k <= at && <Who name={to} />} {label}
-          </span>
-        ))}
+        {steps.map(([s, label], k) => {
+          const line = (
+            <span key={s} className={k <= at ? (k === at ? 'font-semibold text-ink' : 'text-ink-2') : 'text-ink-2 opacity-50'}>
+              {k > 0 && <span aria-hidden className="mr-1.5">→</span>}
+              {s === 'picked' && k <= at && <Who name={to} />} {label}
+            </span>
+          )
+          // The service's own words, for whoever needs the detail.
+          return s === 'not-delivered' && sent.reason ? <Tip key={s} text={sent.reason}>{line}</Tip> : line
+        })}
         {message && text && <CopyButton text={text} label={t('deliver.copy')} />}
       </div>
     )

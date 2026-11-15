@@ -22,12 +22,15 @@ It runs on your machine as one service. Agents report their work by running the
 
 ## Status
 
-Early. The service records intents, units, tasks, findings and chores, reads the units'
+First version, usable. The service records intents, units, tasks, findings and chores, reads the units'
 commits from git, follows the agents running in Herdr (one intent per Herdr workspace, one
 manager agent per intent), delivers your decisions and gate results to the right agent, and
 serves the web UI on real data.
 
 ## Build and run
+
+Step by step, from a fresh Mac to a manager agent in each Herdr workspace:
+[Getting started](docs/getting-started.md).
 
 Runtimes come from [mise](https://mise.jdx.dev) (`mise.toml`: Rust and Node). The web UI is
 built into the binary, so build it first:

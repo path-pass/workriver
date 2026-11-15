@@ -1,9 +1,1 @@
-# Working with workriver
-
-Placeholder: the full instructions come later. Record your work from your shell:
-
-- `workriver task start <unit>#<n>` when you begin.
-- Commit with the trailer line `Task: <unit>#<n>` in every commit message.
-- `workriver task deliver <unit>#<n> --evidence 'COMMAND => passed: SUMMARY'` when done;
-  reviews add `--findings FILE` (JSON; see `workriver task deliver --help`).
-- `workriver --help` explains the rest.
+workriver records this work; run its commands from your own pane. 1) Begin with `workriver task start <unit>#<n>`. 2) Every commit message ends with the trailer line `Task: <unit>#<n>`. 3) When done, run the checks you can and deliver with each as evidence: `workriver task deliver <unit>#<n> --evidence 'COMMAND => passed: SUMMARY'` (or `failed`), plus `--note` for anything the next person should know. 4) Only if this is a review or tests task, add findings: `--findings FILE` with a JSON array of `{"severity":"P1|P2|P3","problem":"...","impact":"...","where":["path"],"suggestion":{"decision":"accept|reject|defer","reason":"..."}}`. 5) Never decide findings yourself. 6) If you need the user to do something you cannot (a deploy, a device test), stop and tell your manager; for something that blocks nobody, `workriver chore add --title "..." --step 'TEXT => COMMAND'`. 7) Questions go to the user through your manager. `workriver --help` explains the rest.

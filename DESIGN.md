@@ -69,8 +69,9 @@ looked at now and then.
   Within a group the oldest comes first. A row of the first three opens the unit at the
   node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. One line per agent whose
-  session has not ended, working first, then holding work that has not started (the mark
-  faded), then idle (a grey mark and a moon, nothing else). A working or waiting line
+  session has not ended, working first (on a node, or by the runtime's word when it has
+  none, as a manager planning), then holding work that has not started (the mark faded),
+  then idle (a grey mark and a moon, nothing else). A working or waiting line
   names the unit and node it is on, and a click opens them; an idle line opens the last
   node it finished. The amber ring around the mark means it is writing, as on a node. The
   line that led to what is open shows as picked. Whether a session has ended is the only
@@ -197,7 +198,9 @@ records it and delivers it to the agents through Herdr.
   takes its new state at once and every count drops (the task's badge, Needs you, the rail).
 - **Delivery.** A gate's result and a decision then show where their message is: not
   delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it (it
-  started working after the message arrived), or not delivered with the reason; an
+  started working after the message arrived), or not delivered with the reason in the
+  user's language (no manager, manager not running, Herdr not reachable, Herdr refused;
+  the service's own words in a tooltip); an
   accepted finding goes to the intent's manager agent that turns it into tasks ("sent to
   the manager bot"). The service writes and sends the message; the line shows its record. A gate's message can be copied as the agent will read it, pictures listed as file
   paths.

@@ -240,6 +240,8 @@ export function agents(ws: Workspace): AgentAt[] {
       const { agent } = s, manager = !!s.manager, g = group(s)
       const running = on(agent, 'running')[0]
       if (running) return { agent, manager, group: g, state: 'working', at: running }
+      // Working without a node of its own (a manager planning, say): working all the same.
+      if (s.state === 'working') return { agent, manager, group: g, state: 'working', at: on(agent, 'todo')[0] ?? on(agent, 'done').at(-1) ?? null }
       const todo = on(agent, 'todo')[0]
       if (todo) return { agent, manager, group: g, state: 'queued', at: todo }
       return { agent, manager, group: g, state: 'idle', at: on(agent, 'done').at(-1) ?? null }

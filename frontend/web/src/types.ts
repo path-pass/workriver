@@ -58,6 +58,9 @@ export interface Sent {
   /** The receiving agent. */
   to: string | null;
   toManager: boolean;
+  /** Why it was not delivered; shown in the user's language. */
+  reasonCode?: 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error';
+  /** The same in the service's words (for a runtime error, the runtime's own). */
   reason?: string;
   /** The message as sent. */
   message: string;

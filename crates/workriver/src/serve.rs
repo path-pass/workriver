@@ -20,8 +20,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::broadcast;
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
-use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent};
-use workriver_core::{self as core, Body, Delivery, DeliveryStep, RuntimeRef, Store};
+use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, RuntimeRef, Store};
 use workriver_scan as scan;
 
 use crate::deliver;
@@ -44,7 +44,7 @@ pub struct App {
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
-// ponytail: kept in memory; after a restart such a message stays "delivered".
+/// Rebuilt from the records at start.
 struct Pending {
     unit: String,
     task: u32,
@@ -103,6 +103,28 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }
+    // Messages delivered before a restart are watched again; whether their receiver was seen
+    // idle since is lost, so it must be seen not working first.
+    let pending: Vec<Pending> = {
+        let store = app.store.lock().unwrap();
+        let delivered = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Delivered);
+        let now = std::time::Instant::now();
+        let mut out = vec![];
+        for u in &store.state().units {
+            for t in &u.tasks {
+                if let Some(d) = delivered(&t.delivery) {
+                    out.push(Pending { unit: u.id.clone(), task: t.n, finding: None, delivery: d, armed: false, sent: now });
+                }
+                for f in &t.findings {
+                    if let Some(d) = delivered(&f.delivery) {
+                        out.push(Pending { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), delivery: d, armed: false, sent: now });
+                    }
+                }
+            }
+        }
+        out
+    };
+    app.pending.lock().unwrap().extend(pending);
     tracing::info!("workriver on http://127.0.0.1:{port}");
     axum::serve(listener, router(app)).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
     Ok(())
@@ -235,10 +257,13 @@ impl App {
         let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), e);
         let Some(plan) = plan else { return };
         let delivery = match &plan.to {
-            Err(reason) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason: Some(reason.clone()), message: plan.message.clone() },
+            Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
             Ok(to) => match self.runtime.send(to, &plan.message) {
-                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason: None, message: plan.message.clone() },
-                Err(err) => Delivery { step: DeliveryStep::NotDelivered, to: Some(to.to_string()), reason: Some(err.to_string()), message: plan.message.clone() },
+                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason_code: None, reason: None, message: plan.message.clone() },
+                Err(err) => {
+                    let code = if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError };
+                    Delivery { step: DeliveryStep::NotDelivered, to: Some(to.to_string()), reason_code: Some(code), reason: Some(err.to_string()), message: plan.message.clone() }
+                }
             },
         };
         if delivery.step == DeliveryStep::Delivered {

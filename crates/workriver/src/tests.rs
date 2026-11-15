@@ -156,3 +156,47 @@ fn identity_intents_and_delivery() {
     });
     assert!(picked, "picked up after the receiver started working");
 }
+
+/// A message delivered before a restart is still marked picked up afterwards.
+#[test]
+fn pick_up_survives_a_restart() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let db = tmp.path().join("w.db");
+    let start = |fake: std::sync::Arc<Fake>| {
+        let store = workriver_core::Store::open(&db).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+        let d = Daemon { port: listener.local_addr().unwrap().port() };
+        std::thread::spawn(move || rt.block_on(crate::serve::serve(listener, store, fake, None)));
+        d
+    };
+    // The first daemon delivers to a manager that is busy all along: no pick-up seen.
+    let busy = std::sync::Arc::new(Fake::default());
+    *busy.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Working))];
+    let a = start(busy.clone());
+    a.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
+    a.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    a.append("s-rev", "task.created", json!({ "unit": "u1", "kind": "review" })).unwrap();
+    a.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    a.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P1-1", "decision": "accept" }))).unwrap();
+    assert_eq!(busy.sent.lock().unwrap().len(), 1);
+
+    // A second daemon on the same records sees the manager go idle, then start working.
+    let fresh = std::sync::Arc::new(Fake::default());
+    *fresh.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let b = start(fresh.clone());
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    fresh.agents.lock().unwrap()[0].1.state = Working;
+    let step = |d: &Daemon| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0]["delivery"]["step"].clone();
+    assert!((0..30).any(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        step(&b) == "picked"
+    }));
+}
