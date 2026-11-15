@@ -16,21 +16,28 @@ import { CopyButton, Icon, Tip, Who } from './bits'
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
 
-/** Small pictures; a click shows one large. With `onRemove`, each has a ×. */
+/** Small pictures (a click shows one large) and other files as links. With `onRemove`, each has a ×. */
 export function Thumbs({ list, onRemove }: { list: Attachment[]; onRemove?: (a: Attachment) => void }) {
   const { t } = useT()
   const [big, setBig] = useState<Attachment | null>(null)
   if (!list.length) return null
+  const isImage = (a: Attachment) => !a.type || (a.type.startsWith('image/') && a.type !== 'image/svg+xml')
+  const files = list.filter(a => !isImage(a))
   return (
     <>
-      <div className="thumbs">
-        {list.map(a => (
+      {files.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {files.map(a => <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" />{a.name}</a>)}
+        </div>
+      )}
+      {list.some(isImage) && <div className="thumbs">
+        {list.filter(isImage).map(a => (
           <span key={a.id} className="thumb">
             <button type="button" aria-label={t('attach.open', { name: a.name })} onClick={() => setBig(a)}><img src={a.url} alt="" /></button>
             {onRemove && <button type="button" className="x" aria-label={t('attach.remove', { name: a.name })} onClick={() => onRemove(a)}><Icon name="no" className="size-3" /></button>}
           </span>
         ))}
-      </div>
+      </div>}
       <Dialog open={!!big} onOpenChange={o => { if (!o) setBig(null) }}>
         <DialogContent closeLabel={t('settings.close')} aria-describedby={undefined} className="sm:max-w-[min(900px,calc(100%-2rem))]">
           <DialogTitle className="text-sm">{big?.name}</DialogTitle>

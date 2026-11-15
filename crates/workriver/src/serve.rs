@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, Request, State};
 use axum::http::{Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
@@ -24,7 +24,7 @@ use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, RuntimeRef, Store};
 use workriver_scan as scan;
 
-use crate::{ask, deliver};
+use crate::{ask, attachments, deliver};
 use crate::snapshot::{self, Cache};
 
 pub struct App {
@@ -47,6 +47,8 @@ pub struct App {
     blocked: Mutex<std::collections::HashMap<String, String>>,
     changed: broadcast::Sender<()>,
     port: u16,
+    /// The data directory: the database's folder, which holds the attachment store too.
+    home: PathBuf,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
     watched: Mutex<HashSet<PathBuf>>,
 }
@@ -92,6 +94,7 @@ impl Default for Waits {
 
 pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
+    let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
     let app = Arc::new(App {
         store: Mutex::new(store),
@@ -106,6 +109,7 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         blocked: Mutex::default(),
         changed: changed.clone(),
         port,
+        home: store_home,
         watcher: Mutex::new(None),
         watched: Mutex::default(),
     });
@@ -419,7 +423,7 @@ impl App {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-        let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits).unwrap_or_default();
+        let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits, &self.home).unwrap_or_default();
         if let Err(e) = self.runtime.send(&agent.name, &prompt) {
             fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
         }
@@ -489,7 +493,7 @@ impl App {
     /// Sends the message a user's input calls for, and records how far it got.
     fn deliver(&self, e: &core::Event) {
         let live = self.live();
-        let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), e);
+        let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
         let Some(plan) = plan else { return };
         let delivery = match &plan.to {
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
@@ -568,6 +572,9 @@ pub fn router(app: Shared) -> Router {
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
         .route("/api/thread/end", post(end_thread))
+        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
+        .route("/api/attachments/inbox", post(inbox))
+        .route("/api/attachments/{id}", get(attachment))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
@@ -640,6 +647,7 @@ async fn state(State(app): State<Shared>) -> Json<core::State> {
 async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     let store = app.store.lock().unwrap();
     let s = store.state();
+    let (files, bytes) = attachments::usage(&app.home);
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "port": app.port,
@@ -648,6 +656,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
         "intents": s.intents.len(),
         "units": s.units.len(),
         "runtime": { "connected": app.live().is_some(), "warning": app.warning },
+        "attachments": { "dir": attachments::dir(&app.home), "files": files, "bytes": bytes },
     })))
 }
 
@@ -704,10 +713,12 @@ struct Gate {
     note: String,
     #[serde(default)]
     findings: Vec<core::NewFinding>,
+    #[serde(default)]
+    attachments: Vec<String>,
 }
 
 async fn gate(State(app): State<Shared>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
-    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings };
+    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments };
     blocking(move || app.record("user", body).map(Json)).await
 }
 
@@ -758,6 +769,62 @@ struct Ask {
     /// Ask the thread's agent for the conclusion instead.
     #[serde(default)]
     conclude: bool,
+}
+
+#[derive(Deserialize)]
+struct Upload {
+    name: String,
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    task: Option<u32>,
+    #[serde(default)]
+    finding: Option<String>,
+}
+
+/// A file into the store, its body raw (`?name=…`, the type from Content-Type), optionally
+/// linked to a task or a finding. Answers its id and path.
+async fn attach(State(app): State<Shared>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
+    let given = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    blocking(move || {
+        // Only the last part of the name: it is shown, never used as a path.
+        let name = Path::new(&u.name).file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).ok_or_else(|| bad("an attachment needs a file name".into()))?;
+        let mime = attachments::mime(&name, given.as_deref());
+        let (id, path) = attachments::put(&app.home, &body, &name).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot store {name}: {e}")))?;
+        let by = u.by.unwrap_or_else(|| "user".into());
+        let size = body.len() as u64;
+        app.record(&by, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
+        Ok(Json(json!({ "id": id, "path": path, "name": name, "type": mime, "size": size })))
+    })
+    .await
+}
+
+/// A stored file. Only images show in the page; anything else downloads, and nothing is sniffed.
+async fn attachment(State(app): State<Shared>, UrlPath(id): UrlPath<String>) -> Result<Response, ApiError> {
+    let found = app.store.lock().unwrap().state().attachments.iter().find(|a| a.id == id).cloned();
+    let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
+    let file = attachments::path(&app.home, &a.id, &a.name);
+    let bytes = blocking(move || std::fs::read(&file).map_err(|e| ApiError(StatusCode::NOT_FOUND, format!("attachment {id}: {e}")))).await?;
+    let image = a.mime.starts_with("image/") && a.mime != "image/svg+xml";
+    let disposition = if image { "inline".to_string() } else { format!("attachment; filename=\"{}\"", a.name.replace(['"', '\\', '\r', '\n'], "_")) };
+    let mime = if image { a.mime.clone() } else { "application/octet-stream".to_string() };
+    Ok(([(header::CONTENT_TYPE, mime), (header::CONTENT_DISPOSITION, disposition), (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string())], bytes).into_response())
+}
+
+#[derive(Deserialize)]
+struct Inbox {
+    unit: String,
+    task: u32,
+}
+
+/// A task's staging folder for screenshots and the like, made if needed.
+async fn inbox(State(app): State<Shared>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.store.lock().unwrap().state().task(&i.unit, i.task)?;
+    let d = attachments::inbox(&app.home, &i.unit, i.task);
+    attachments::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
+    Ok(Json(json!({ "dir": d })))
 }
 
 #[derive(Deserialize)]

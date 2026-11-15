@@ -418,3 +418,79 @@ fn agents_ask_each_other() {
     let err = crate::wait_answer(&d, "q3", std::time::Duration::from_secs(1)).unwrap_err().to_string();
     assert!(err.contains("no answer to q3 within 1 s"), "{err}");
 }
+
+/// Files go into the store and come back with their type: images inline, anything else as a
+/// download, never sniffed, and only for this machine's Host. Delivering a task takes its
+/// folder's files (one named after a finding goes with it), a finding's own files and a
+/// check's file; the manager's message lists their paths.
+#[test]
+fn attachments_round_trip() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let home = tmp.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    let d = daemon_with(fake.clone(), &home.join("w.db"), Default::default());
+    d.call("/api/here", Some(json!({ "place": "p1", "intent": true }))).unwrap();
+    d.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "tests", "agent": "s-t" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+
+    // Routes: an image and a text file.
+    let files = tmp.path().join("files");
+    std::fs::create_dir(&files).unwrap();
+    std::fs::write(files.join("shot.png"), b"\x89PNG fake").unwrap();
+    std::fs::write(files.join("notes.txt"), b"<script>alert(1)</script>").unwrap();
+    let png = d.upload(&files.join("shot.png"), "s-t", None).unwrap();
+    let txt = d.upload(&files.join("notes.txt"), "s-t", Some(("u1", 1, None))).unwrap();
+    assert!(png["path"].as_str().unwrap().starts_with(home.join("attachments").to_str().unwrap()));
+    let get = |id: &str, host: &str| {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", d.port)).unwrap();
+        write!(s, "GET /api/attachments/{id} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").unwrap();
+        let mut answer = vec![];
+        s.read_to_end(&mut answer).unwrap();
+        String::from_utf8_lossy(&answer).to_lowercase()
+    };
+    let ours = format!("127.0.0.1:{}", d.port);
+    let image = get(png["id"].as_str().unwrap(), &ours);
+    assert!(image.contains("content-type: image/png") && image.contains("content-disposition: inline") && image.contains("x-content-type-options: nosniff"), "{image}");
+    let text = get(txt["id"].as_str().unwrap(), &ours);
+    assert!(text.contains("content-type: application/octet-stream") && text.contains("content-disposition: attachment; filename=\"notes.txt\""), "{text}");
+    assert!(get(png["id"].as_str().unwrap(), "evil.example").starts_with("http/1.1 403"));
+
+    // Delivering: the folder's files, a finding's own file and a check's file.
+    let inbox = d.inbox("u1", 1).unwrap();
+    std::fs::write(inbox.join("P2-1-login.png"), b"login shot").unwrap();
+    std::fs::write(inbox.join("overview.png"), b"overview shot").unwrap();
+    std::fs::write(files.join("trace.txt"), b"trace").unwrap();
+    std::fs::write(files.join("report.html"), b"<p>report</p>").unwrap();
+    let findings = files.join("f.json");
+    let trace = files.join("trace.txt");
+    std::fs::write(&findings, json!([{ "severity": "P2", "problem": "Login fails", "impact": "No entry", "where": ["login.ts"], "attachments": [trace] }]).to_string()).unwrap();
+    let evidence = format!("npx playwright test => failed: 1 failed => {}", files.join("report.html").display());
+    crate::deliver(&d, "s-t", "u1#1", "See shots".into(), &[evidence], Some(findings.to_string_lossy().into_owned()), false).unwrap();
+    assert_eq!(std::fs::read_dir(&inbox).unwrap().count(), 0, "the folder is emptied");
+    let state: workriver_core::State = serde_json::from_value(d.get("/api/state").unwrap()).unwrap();
+    let t = state.task("u1", 1).unwrap();
+    let named = |ids: &[String]| ids.iter().map(|id| state.attachments.iter().find(|a| &a.id == id).unwrap().name.clone()).collect::<Vec<_>>();
+    assert_eq!(named(&t.attachments), ["notes.txt", "overview.png"]);
+    assert_eq!(named(&t.findings[0].found.attachments), ["trace.txt", "P2-1-login.png"]);
+    assert_eq!(named(std::slice::from_ref(t.evidence[0].attachment.as_ref().unwrap())), ["report.html"]);
+    // The manager is told where the files are.
+    wait_until("the manager hears of the delivery", || fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.contains("Attachments:")));
+    let told = fake.sent.lock().unwrap().iter().find(|(to, m)| to == "s-boss" && m.contains("Attachments:")).unwrap().1.clone();
+    assert!(told.contains(&home.join("attachments").display().to_string()) && told.contains(".png"), "{told}");
+    // The page gets previews and links.
+    let ws = d.get("/api/workspace").unwrap();
+    let out = &ws["intents"][0]["units"][0]["tasks"][0]["output"];
+    assert_eq!(out["attachments"][1]["type"], "image/png");
+    assert!(out["attachments"][1]["url"].as_str().unwrap().starts_with("/api/attachments/"));
+    assert_eq!(out["findings"][0]["attachments"][1]["name"], "P2-1-login.png");
+    assert_eq!(out["evidence"][0]["attachment"]["name"], "report.html");
+}

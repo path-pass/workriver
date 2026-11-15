@@ -108,6 +108,9 @@ decides, and an accepted or revised finding leads to a revised design as above.
 
 - Implementers run their own unit tests and deliver them as evidence
   (`--evidence 'cargo test => passed: 12 passed'`).
+- Screenshots and reports are attached through workriver, never left in the repository:
+  saved in the task's folder (`workriver attach --dir u1#3`), or `--evidence '... => FILE'`;
+  messages about the task then list their stored paths.
 - Independent acceptance is a separate `tests` task for another agent; a separate `review`
   task for code or security review.
 - Reviewers and testers report findings when they deliver. Each finding needs a severity

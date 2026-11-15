@@ -1,11 +1,13 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
 mod ask;
+mod attachments;
 mod deliver;
 mod herdr;
 mod serve;
 mod snapshot;
 
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, anyhow, bail};
@@ -105,6 +107,25 @@ enum Cmd {
         /// With --wait: give up after this many seconds.
         #[arg(long, default_value_t = 600)]
         timeout: u64,
+    },
+    /// Put files (screenshots, reports, logs) into workriver's store and print where they are.
+    /// Better: save them in the task's folder from the start (`workriver attach --dir u1#3`);
+    /// `task deliver` attaches everything there (a file whose name starts with a finding id,
+    /// e.g. `P2-1-login.png`, goes with that finding).
+    Attach {
+        files: Vec<String>,
+        /// The task they belong to (u1#3).
+        #[arg(long)]
+        task: Option<String>,
+        /// The finding of that task they show (P2-1).
+        #[arg(long, requires = "task")]
+        finding: Option<String>,
+        /// Remove the originals once stored.
+        #[arg(long = "move")]
+        r#move: bool,
+        /// Print (and make) the task's folder for screenshots instead.
+        #[arg(long, value_name = "TASK", conflicts_with_all = ["files", "task"])]
+        dir: Option<String>,
     },
     /// Answer a question about a task (for the agent it was given to, or the task's own agent).
     Answer {
@@ -232,14 +253,17 @@ enum TaskCmd {
     /// Findings are JSON, an array of
     ///   {"severity": "P1|P2|P3", "problem": "…", "impact": "what happens if left",
     ///    "where": ["path/to/file"], "suggestion": {"decision": "accept|reject|defer", "reason": "…"}}
-    /// (suggestion is optional), read from a file or from stdin with `--findings -`.
+    /// (suggestion is optional; `"attachments": ["/abs/path.png"]` attaches files to a finding),
+    /// read from a file or from stdin with `--findings -`.
     Deliver {
         /// The task (u1#3).
         task: String,
         #[arg(long, default_value = "")]
         note: String,
         /// A check that was run: `COMMAND => passed: SUMMARY` or `COMMAND => failed: SUMMARY`,
-        /// e.g. `cargo test => passed: 12 passed`. Repeatable.
+        /// e.g. `cargo test => passed: 12 passed`; add `=> FILE` to attach its screenshot or
+        /// report. Repeatable. Files in the task's folder (`workriver attach --dir`) are
+        /// attached too.
         #[arg(long)]
         evidence: Vec<String>,
         /// A JSON file of findings, or `-` for stdin.
@@ -376,6 +400,13 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = rt["warning"].as_str() {
                 println!("  at start: {w}");
             }
+            let at = &s["attachments"];
+            println!(
+                "attachments: {} files, {:.1} MB in {} (kept for good, like the records)",
+                at["files"],
+                at["bytes"].as_f64().unwrap_or(0.0) / 1_048_576.0,
+                at["dir"].as_str().unwrap_or("?")
+            );
             return Ok(());
         }
         Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
@@ -411,19 +442,26 @@ fn main() -> anyhow::Result<()> {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
         }
-        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings, amend }) => {
-            let (unit, n) = task_ref(&task)?;
-            let evidence = evidence.iter().map(|e| parse_evidence(e)).collect::<anyhow::Result<Vec<_>>>()?;
-            if amend {
-                // Only what is given replaces what was delivered.
-                let note = (!note.is_empty()).then_some(note);
-                let evidence = (!evidence.is_empty()).then_some(evidence);
-                let findings = findings.map(|f| read_findings(Some(&f))).transpose()?;
-                d.append(actor, "task.amended", json!({ "unit": unit, "task": n, "note": note, "evidence": evidence, "findings": findings }))?
-            } else {
-                let findings = read_findings(findings.as_deref())?;
-                d.append(actor, "task.delivered", json!({ "unit": unit, "task": n, "note": note, "evidence": evidence, "findings": findings }))?
+        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings, amend }) => deliver(&d, actor, &task, note, &evidence, findings, amend)?,
+        Cmd::Attach { files, task, finding, r#move, dir } => {
+            if let Some(t) = dir {
+                let (unit, n) = task_ref(&t)?;
+                println!("{}", d.inbox(&unit, n)?.display());
+                return Ok(());
             }
+            if files.is_empty() {
+                bail!("name the files to attach, or use --dir <task> for the task's folder");
+            }
+            let link = task.as_deref().map(task_ref).transpose()?;
+            for f in &files {
+                let file = PathBuf::from(f);
+                let up = d.upload(&file, actor, link.as_ref().map(|(u, n)| (u.as_str(), *n, finding.as_deref())))?;
+                if r#move {
+                    std::fs::remove_file(&file).with_context(|| format!("stored, but cannot remove {}", file.display()))?;
+                }
+                println!("{}", up["path"].as_str().unwrap_or_default());
+            }
+            return Ok(());
         }
         Cmd::Finding(FindingCmd::Decide { task, finding, decision, note }) => {
             let (unit, n) = task_ref(&task)?;
@@ -432,6 +470,10 @@ fn main() -> anyhow::Result<()> {
         Cmd::Gate(GateCmd::Submit { task, result, note, findings }) => {
             let (unit, n) = task_ref(&task)?;
             let findings = read_findings(findings.as_deref())?;
+            let mut findings = findings;
+            if let Some(list) = findings.as_array_mut() {
+                upload_finding_files(&d, actor, list)?;
+            }
             d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings }))?
         }
         Cmd::Chore(ChoreCmd::Add { intent, title, unit, step }) => {
@@ -503,6 +545,40 @@ impl Daemon {
         self.call(path, None)
     }
 
+    /// Puts a file into the attachment store, linked to a task (and a finding) if given.
+    fn upload(&self, file: &Path, by: &str, link: Option<(&str, u32, Option<&str>)>) -> anyhow::Result<Value> {
+        let bytes = std::fs::read(file).with_context(|| format!("cannot read {}", file.display()))?;
+        if bytes.len() > attachments::MAX {
+            bail!("{} is larger than {} MB, the most workriver stores", file.display(), attachments::MAX / 1024 / 1024);
+        }
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(Duration::from_secs(120))).build().into();
+        let mut req = agent
+            .post(format!("http://127.0.0.1:{}/api/attachments", self.port))
+            .query("name", &name)
+            .query("by", by)
+            .header("content-type", attachments::mime(&name, None));
+        if let Some((unit, task, finding)) = link {
+            req = req.query("unit", unit).query("task", task.to_string());
+            if let Some(f) = finding {
+                req = req.query("finding", f);
+            }
+        }
+        let mut res = req.send(&bytes[..]).map_err(|e| anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port))?;
+        let ok = res.status().is_success();
+        let text = res.body_mut().read_to_string()?;
+        if !ok {
+            bail!("{text}");
+        }
+        Ok(serde_json::from_str(&text)?)
+    }
+
+    /// A task's staging folder for screenshots, made if needed.
+    fn inbox(&self, unit: &str, task: u32) -> anyhow::Result<PathBuf> {
+        let v = self.call("/api/attachments/inbox", Some(json!({ "unit": unit, "task": task })))?;
+        Ok(PathBuf::from(v["dir"].as_str().unwrap_or_default()))
+    }
+
     fn append(&self, actor: &str, kind: &str, body: Value) -> anyhow::Result<Value> {
         self.call("/api/append", Some(json!({ "actor": actor, "kind": kind, "body": body })))
     }
@@ -566,8 +642,22 @@ fn parse_step(s: &str) -> Value {
 }
 
 /// `COMMAND => passed: SUMMARY`; the command may itself hold `=>`, so the last one splits.
+/// `COMMAND => passed: SUMMARY`, optionally `=> FILE` after it (a screenshot or report of
+/// the check); the file comes back as the second value.
+fn parse_evidence_file(s: &str) -> anyhow::Result<(Value, Option<PathBuf>)> {
+    if let Some((head, last)) = s.rsplit_once("=>")
+        && head.contains("=>")
+        && parse_evidence(head).is_ok()
+        && !last.trim().starts_with("passed")
+        && !last.trim().starts_with("failed")
+    {
+        return Ok((parse_evidence(head)?, Some(PathBuf::from(last.trim()))));
+    }
+    Ok((parse_evidence(s)?, None))
+}
+
 fn parse_evidence(s: &str) -> anyhow::Result<Value> {
-    let err = || anyhow!("--evidence {s:?}: write 'COMMAND => passed: SUMMARY' or 'COMMAND => failed: SUMMARY'");
+    let err = || anyhow!("--evidence {s:?}: write 'COMMAND => passed: SUMMARY' or 'COMMAND => failed: SUMMARY' (and `=> FILE` to attach one)");
     let (cmd, rest) = s.rsplit_once("=>").ok_or_else(err)?;
     let (result, summary) = rest.split_once(':').ok_or_else(err)?;
     let result = result.trim();
@@ -575,6 +665,115 @@ fn parse_evidence(s: &str) -> anyhow::Result<Value> {
         return Err(err());
     }
     Ok(json!({ "command": cmd.trim(), "result": result, "summary": summary.trim() }))
+}
+
+/// `task deliver`: stores the files it names and those in the task's folder (a name starting
+/// with a finding id goes with that finding), records the delivery (or `--amend`), then
+/// empties the folder.
+fn deliver(d: &Daemon, actor: &str, task: &str, note: String, evidence: &[String], findings: Option<String>, amend: bool) -> anyhow::Result<Value> {
+    let (unit, n) = task_ref(task)?;
+    let mut checks = vec![];
+    for e in evidence {
+        let (mut v, file) = parse_evidence_file(e)?;
+        if let Some(f) = file {
+            v["attachment"] = d.upload(&f, actor, None)?["id"].clone();
+        }
+        checks.push(v);
+    }
+    let mut found = findings.map(|f| read_findings(Some(&f))).transpose()?;
+    if let Some(list) = found.as_mut().and_then(Value::as_array_mut) {
+        upload_finding_files(d, actor, list)?;
+    }
+    // The task's inbox: files named after a finding go with it, the rest with the task.
+    let inbox = d.inbox(&unit, n)?;
+    let staged = staged_files(&inbox)?;
+    let new_ids = found.as_ref().and_then(Value::as_array).map(|l| finding_ids(l)).unwrap_or_default();
+    let known: Vec<String> = if found.is_some() {
+        new_ids.clone()
+    } else {
+        let state: core::State = serde_json::from_value(d.get("/api/state")?)?;
+        state.task(&unit, n).map(|t| t.findings.iter().map(|f| f.found.id.clone()).collect()).unwrap_or_default()
+    };
+    let mut task_files = vec![];
+    for file in &staged {
+        let name = file.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
+        match known.iter().find(|id| finding_file(&name, id)) {
+            Some(id) if new_ids.contains(id) => {
+                let up = d.upload(file, actor, None)?;
+                let k = new_ids.iter().position(|x| x == id).unwrap_or(0);
+                if let Some(f) = found.as_mut().and_then(|v| v.get_mut(k)) {
+                    let list = f["attachments"].as_array().cloned().unwrap_or_default();
+                    f["attachments"] = Value::Array(list.into_iter().chain([up["id"].clone()]).collect());
+                }
+            }
+            // A finding already recorded: linked to it directly.
+            Some(id) => {
+                d.upload(file, actor, Some((&unit, n, Some(id))))?;
+            }
+            None => task_files.push(d.upload(file, actor, None)?["id"].clone()),
+        }
+    }
+    let out = if amend {
+        // Only what is given replaces what was delivered.
+        let note = (!note.is_empty()).then_some(note);
+        let checks = (!checks.is_empty()).then_some(checks);
+        d.append(actor, "task.amended", json!({ "unit": unit, "task": n, "note": note, "evidence": checks, "findings": found, "attachments": task_files }))?
+    } else {
+        let found = found.unwrap_or_else(|| json!([]));
+        d.append(actor, "task.delivered", json!({ "unit": unit, "task": n, "note": note, "evidence": checks, "findings": found, "attachments": task_files }))?
+    };
+    // Recorded: the staged files now live in the store.
+    for file in &staged {
+        let _ = std::fs::remove_file(file);
+    }
+    Ok(out)
+}
+
+/// Findings JSON may name files to attach (`"attachments": ["/abs/shot.png"]`): they are
+/// stored, and their ids put in their place.
+fn upload_finding_files(d: &Daemon, actor: &str, findings: &mut [Value]) -> anyhow::Result<()> {
+    for f in findings {
+        let Some(list) = f.get("attachments").and_then(Value::as_array).cloned() else { continue };
+        let mut ids = vec![];
+        for p in list {
+            let p = p.as_str().ok_or_else(|| anyhow!("a finding's attachments are file paths"))?;
+            ids.push(d.upload(Path::new(p), actor, None)?["id"].clone());
+        }
+        f["attachments"] = Value::Array(ids);
+    }
+    Ok(())
+}
+
+/// The ids findings get when recorded: per severity, in order (P1-1, P2-1, P2-2…).
+fn finding_ids(findings: &[Value]) -> Vec<String> {
+    let mut seen = std::collections::HashMap::new();
+    findings
+        .iter()
+        .map(|f| {
+            let sev = f["severity"].as_str().unwrap_or("P3").to_string();
+            let k = seen.entry(sev.clone()).or_insert(0);
+            *k += 1;
+            format!("{sev}-{k}")
+        })
+        .collect()
+}
+
+/// A staged file belongs to a finding when its name starts with the finding's id and a
+/// separator: `P2-1-login.png`, `P2-1.png`, `P2-1_x.txt`.
+fn finding_file(name: &str, id: &str) -> bool {
+    name.strip_prefix(id).is_some_and(|rest| rest.starts_with(['-', '_', '.', ' ']))
+}
+
+/// The files waiting in a task's inbox, oldest first.
+fn staged_files(inbox: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(inbox)
+        .with_context(|| format!("cannot read {}", inbox.display()))?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()) && !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| (e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), e.path()))
+        .collect();
+    files.sort();
+    Ok(files.into_iter().map(|(_, p)| p).collect())
 }
 
 fn read_findings(from: Option<&str>) -> anyhow::Result<Value> {

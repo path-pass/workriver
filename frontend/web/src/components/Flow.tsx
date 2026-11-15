@@ -409,6 +409,7 @@ function Checks({ n }: { n: Task }) {
           <code className="min-w-0 truncate">{e.command}</code>
           <CopyButton text={e.command} />
           <span className="flex-none text-ink-2">{e.summary}</span>
+          {e.attachment && <Thumbs list={[e.attachment]} />}
         </li>
       ))}
     </ul>
@@ -428,7 +429,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     const files = [...new Set(commitsOf(of).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.result === 'running' ? 'state.running' : 'state.done')}</>
     input = <>{of && <div>{t('io.changesOf', { label: nodeLabel(t, of) })}</div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
-    output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /></>
+    output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
     input = <><div>{n.input.text || n.title}</div><Steps steps={n.input.steps ?? []} /></>
@@ -479,6 +480,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
           })
         : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
       {n.output.note && <div className="mt-1">{n.output.note}</div>}
+      <Thumbs list={n.output.attachments ?? []} />
       <Checks n={n} />
     </>
   }

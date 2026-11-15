@@ -172,7 +172,36 @@ struct TaskOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    evidence: Option<Vec<core::Evidence>>,
+    evidence: Option<Vec<EvidenceOut>>,
+    /// Gates: pictures with the note; other tasks: files with the output.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<AttachmentOut>,
+}
+
+#[derive(Serialize)]
+struct EvidenceOut {
+    command: String,
+    result: core::CheckResult,
+    summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attachment: Option<AttachmentOut>,
+}
+
+/// A stored file as the page shows it: an image previews, anything else is a link.
+#[derive(Serialize, Clone)]
+struct AttachmentOut {
+    id: String,
+    name: String,
+    url: String,
+    #[serde(rename = "type")]
+    mime: String,
+}
+
+fn attachments_of(state: &core::State, ids: &[String]) -> Vec<AttachmentOut> {
+    ids.iter()
+        .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
+        .map(|a| AttachmentOut { id: a.id.clone(), name: a.name.clone(), url: format!("/api/attachments/{}", a.id), mime: a.mime.clone() })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -193,6 +222,8 @@ struct Finding {
     note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     delivery: Option<Sent>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<AttachmentOut>,
 }
 
 #[derive(Serialize)]
@@ -513,6 +544,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             recommendation: if f.state == FindingState::Open { f.found.suggestion.clone() } else { None },
             note: f.note.clone(),
             delivery: names.sent(&f.delivery, manager),
+            attachments: attachments_of(state, &f.found.attachments),
         })
         .collect();
     let kind = match t.kind {
@@ -548,7 +580,18 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             commits: Some(commits),
             findings: finder.then_some(findings),
             note: (!t.note.is_empty()).then(|| t.note.clone()),
-            evidence: (!t.evidence.is_empty()).then(|| t.evidence.clone()),
+            evidence: (!t.evidence.is_empty()).then(|| {
+                t.evidence
+                    .iter()
+                    .map(|e| EvidenceOut {
+                        command: e.command.clone(),
+                        result: e.result,
+                        summary: e.summary.clone(),
+                        attachment: e.attachment.as_ref().and_then(|id| attachments_of(state, std::slice::from_ref(id)).pop()),
+                    })
+                    .collect()
+            }),
+            attachments: attachments_of(state, &t.attachments),
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
         // Only a gate's own message is shown on the page; the others went to the manager.

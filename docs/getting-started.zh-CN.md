@@ -38,7 +38,8 @@ workriver serve              # http://127.0.0.1:47820
 打开 <http://127.0.0.1:47820>。`workriver status` 应该显示 `agent runtime: connected`。
 
 - 数据：`~/workriver-data/workriver.db`（设 `WORKRIVER_HOME` 换位置）。只有一个 SQLite
-  文件；备份时先停掉服务再复制它。
+  文件；备份时先停掉服务再复制它。附件（截图、报告）放在旁边的 `attachments/` 里，同样的
+  内容只存一份，和记录一样永不删除；`workriver status` 会显示它们占了多少空间。
 - 页面上的终端按钮会在 Herdr 里把 agent 的窗格切到前面，再把终端应用切到前台（默认
   Ghostty；用 `workriver serve --terminal-app iTerm` 改，传 `''` 表示不切）。
 
@@ -55,6 +56,12 @@ workriver serve              # http://127.0.0.1:47820
 
 然后告诉它，例如："你是这个工作区的 workriver 管理者。目标：让聊天里的人能互相 @。
 规划单元和任务，交给 worker agent 去做。"
+
+可选：如果 agent 用 Playwright MCP 截图，它的文件默认会落在项目里（`.playwright-mcp/`）。
+可以把它自己命名的文件指到 workriver 的目录，例如 Claude Code：
+`claude mcp add playwright -- npx @playwright/mcp@latest --output-dir ~/workriver-data/attachments/inbox/playwright`
+（或者设 `PLAYWRIGHT_MCP_OUTPUT_DIR`）。这只管没有指定文件名的截图；agent 自己给了文件名的，
+仍然相对项目目录保存。之后 agent 用 `workriver attach <文件> --task u1#3 --move` 把需要的附上。
 
 ## 4. 接下来会发生什么
 

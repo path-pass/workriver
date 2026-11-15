@@ -17,7 +17,9 @@ pub struct Plan {
 }
 
 /// The delivery an event calls for, if any.
-pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<Plan> {
+/// `home`: the data directory, where stored attachments are listed from.
+pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Option<Plan> {
+    let files = |unit: &str, n: u32, finding: Option<&str>| files(state, home, unit, n, finding);
     let on = |unit: &str, task: u32, finding: Option<String>, to, message| Plan { unit: unit.into(), task, finding, chore: None, to, message };
     let intent_of = |unit: &str| state.unit(unit).ok().map(|u| u.intent.clone());
     // Whether the actor is someone other than the intent's manager (a worker, or the user).
@@ -26,7 +28,7 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<P
         // Every decision goes to the manager, who decides what the workers hear of it.
         Body::FindingDecided { unit, task, finding, decision, note, by: Who::User } => {
             let to = target(state, live, &intent_of(unit)?, None);
-            Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note)?))
+            Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note)? + &files(unit, *task, Some(finding))))
         }
         // A gate result goes to the agent waiting behind the gate, else the manager; a design
         // decision always to the manager, who hands out what follows.
@@ -35,11 +37,11 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<P
             let decide = gate.is_some_and(|g| g.gate == Some(GateKind::Decide));
             let waiting = gate.filter(|_| !decide).and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
             let to = target(state, live, &intent_of(unit)?, waiting.as_deref());
-            Some(on(unit, *task, None, to, gate_message(state, unit, *task)?))
+            Some(on(unit, *task, None, to, gate_message(state, unit, *task)? + &files(unit, *task, None)))
         }
         Body::TaskDelivered { unit, task, .. } if not_manager(&intent_of(unit)?) => {
             let to = target(state, live, &intent_of(unit)?, None);
-            Some(on(unit, *task, None, to, delivered_message(state, &e.actor, unit, *task)?))
+            Some(on(unit, *task, None, to, delivered_message(state, &e.actor, unit, *task)? + &files(unit, *task, None)))
         }
         Body::TaskCreated(t) if t.kind == TaskKind::Gate && e.actor != "user" && not_manager(&intent_of(&t.unit)?) => {
             let to = target(state, live, &intent_of(&t.unit)?, None);
@@ -63,6 +65,22 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<P
         }),
         _ => None,
     }
+}
+
+/// " Attachments: <paths>." for a finding, or for a task (its own, its checks' and its
+/// findings'), so the receiver can open them; empty when there are none.
+fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, finding: Option<&str>) -> String {
+    let Ok(t) = state.task(unit, n) else { return String::new() };
+    let ids: Vec<&String> = match finding {
+        Some(id) => t.findings.iter().filter(|f| f.found.id == id).flat_map(|f| &f.found.attachments).collect(),
+        None => t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(t.findings.iter().flat_map(|f| &f.found.attachments)).collect(),
+    };
+    let paths: Vec<String> = ids
+        .into_iter()
+        .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
+        .map(|a| crate::attachments::path(home, &a.id, &a.name).display().to_string())
+        .collect();
+    if paths.is_empty() { String::new() } else { format!(" Attachments: {}.", paths.join(", ")) }
 }
 
 /// `first` if it is live, else the intent's manager.
@@ -247,55 +265,55 @@ mod tests {
         let live = [agent("worker"), agent("boss")];
         let accept = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}}));
         // No manager yet: the accepted finding has nowhere to go, and says why.
-        let p = plan(s.state(), Some(&live), &accept).unwrap();
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &accept).unwrap();
         assert_eq!(p.to.unwrap_err().0, ReasonCode::NoManager);
         assert!(!p.message.contains('\n'), "one paragraph: {}", p.message);
         assert!(p.message.contains("--cause 2:P2-1"), "{}", p.message);
         assert!(p.message.contains("u1#2 (code review of u1#1 \"Find mentions\")"), "{}", p.message);
-        assert_eq!(plan(s.state(), None, &accept).unwrap().to.unwrap_err().0, ReasonCode::RuntimeDown);
+        assert_eq!(plan(s.state(), None, std::path::Path::new("/h"), &accept).unwrap().to.unwrap_err().0, ReasonCode::RuntimeDown);
 
         at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "boss"}}));
-        assert_eq!(plan(s.state(), Some(&live), &accept).unwrap().to, Ok("boss".into()));
+        assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &accept).unwrap().to, Ok("boss".into()));
         // Every decision goes to the manager, a rejection too.
         let reject = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P3-1", "decision": "reject", "by": "user"}}));
-        assert_eq!(plan(s.state(), Some(&live), &reject).unwrap().to, Ok("boss".into()));
+        assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &reject).unwrap().to, Ok("boss".into()));
         // A gate result goes to the agent of the work the gate follows.
         let gate = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "problem", "note": "Mostly fine",
             "findings": [{"severity": "P1", "problem": "Crashes"}]}}));
-        let p = plan(s.state(), Some(&live), &gate).unwrap();
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &gate).unwrap();
         assert_eq!(p.to, Ok("worker".into()));
         assert!(p.message.contains("found a problem") && p.message.contains("P1-1 (P1): Crashes."), "{}", p.message);
         // A worker's delivery and the gates and chores it asks for are told to the manager.
         at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Fix twice", "causes": [{"task": 2, "findings": ["P2-1"]}]}}));
         let done = at(&mut s, "worker", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "note": "Deduplicated",
             "evidence": [{"command": "npm test", "result": "passed", "summary": "7 passed"}, {"command": "npm run lint", "result": "failed", "summary": "1 error"}]}}));
-        let p = plan(s.state(), Some(&live), &done).unwrap();
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &done).unwrap();
         assert_eq!((p.to, p.finding, p.task), (Ok("boss".into()), None, 4));
         assert!(p.message.starts_with("[workriver] u1#4 \"Fix twice\" delivered by worker. Note: Deduplicated. Evidence: 1 passed, 1 failed."), "{}", p.message);
         assert!(p.message.contains("`workriver board u1`"), "{}", p.message);
         let asked = at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "4"}]}}));
-        assert!(plan(s.state(), Some(&live), &asked).unwrap().message.contains("worker asked the user for gate u1#5 \"Deploy\" (deploy)"));
+        assert!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &asked).unwrap().message.contains("worker asked the user for gate u1#5 \"Deploy\" (deploy)"));
         let chore = at(&mut s, "worker", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}}));
-        let p = plan(s.state(), Some(&live), &chore).unwrap();
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &chore).unwrap();
         assert_eq!((p.chore.as_deref(), p.to), (Some("c1"), Ok("boss".into())));
         // The manager's own records are not told back to it.
         let own_gate = at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "4"}]}}));
-        assert_eq!(plan(s.state(), Some(&live), &own_gate), None);
+        assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &own_gate), None);
         // A revision is told as the user's way; a design decision as such.
         at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design it", "inputs": [{"from": "1"}]}}));
         at(&mut s, "worker", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 7, "note": "One table"}}));
         at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm it", "inputs": [{"from": "7"}]}}));
         let confirmed = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 8, "result": "problem", "note": "Not yet",
             "findings": [{"severity": "P2", "problem": "Too rigid"}]}}));
-        let p = plan(s.state(), Some(&live), &confirmed).unwrap();
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &confirmed).unwrap();
         assert_eq!(p.to, Ok("boss".into()), "a design decision goes to the manager");
         assert!(p.message.contains("did not confirm the design") && p.message.contains("revise the design"), "{}", p.message);
         let revise = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 8, "finding": "P2-1", "decision": "revise", "note": "Two tables", "by": "user"}}));
-        let p = plan(s.state(), Some(&live), &revise).unwrap();
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &revise).unwrap();
         assert!(p.message.contains("changed their way: Two tables. Follow the note, not the finding's suggestion."), "{}", p.message);
         assert!(p.message.contains("--kind design") && p.message.contains("--cause 8:P2-1") && p.message.contains("--gate decide"), "{}", p.message);
         // An agent's own decision is not delivered.
         let own = at(&mut s, "rev", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "defer", "by": "agent"}}));
-        assert_eq!(plan(s.state(), Some(&live), &own), None);
+        assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &own), None);
     }
 }

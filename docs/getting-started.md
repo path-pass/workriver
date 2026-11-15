@@ -39,7 +39,9 @@ workriver serve              # http://127.0.0.1:47820
 Open <http://127.0.0.1:47820>. `workriver status` should say `agent runtime: connected`.
 
 - Data: `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to put it elsewhere). One
-  SQLite file; copy it while the service is stopped to back it up.
+  SQLite file; copy it while the service is stopped to back it up. Attachments
+  (screenshots, reports) live next to it in `attachments/`, one file per content, and are
+  never deleted, like the records; `workriver status` shows how much they take.
 - The page's terminal button brings the agent's pane to the front in Herdr, then the
   terminal app (Ghostty by default; `workriver serve --terminal-app iTerm`, or `''` for none).
 
@@ -57,6 +59,14 @@ and give it the manager skill from `skills/workriver-manager/`:
 
 Then tell it, for example: "You are the workriver manager of this workspace. Goal: let
 people mention each other in chat. Plan units and tasks, and hand them to worker agents."
+
+Optional, if agents take screenshots with the Playwright MCP: by default its files land in
+the project (`.playwright-mcp/`). Give it workriver's folder for files it names itself,
+e.g. for Claude Code
+`claude mcp add playwright -- npx @playwright/mcp@latest --output-dir ~/workriver-data/attachments/inbox/playwright`
+(or set `PLAYWRIGHT_MCP_OUTPUT_DIR`). This covers screenshots taken without a file name;
+a file name an agent gives is still taken relative to the project. Agents then attach what
+they need with `workriver attach <file> --task u1#3 --move`.
 
 ## 4. What happens next
 

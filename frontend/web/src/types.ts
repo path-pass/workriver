@@ -189,14 +189,18 @@ export interface Evidence {
   command: string;
   result: 'passed' | 'failed';
   summary: string;
+  /** A screenshot or report of the check. */
+  attachment?: Attachment;
 }
 
 /** A picture the user attached. Only images for now. */
 export interface Attachment {
   id: string;
   name: string;
-  /** Where the page can show it from (an object URL while the service does not store it). */
+  /** Where the page shows it from: the service's store, or an object URL before upload. */
   url: string;
+  /** Its type; an image previews, anything else is a link. Absent means an image. */
+  type?: string;
 }
 
 export type Reviewer = 'security-review' | 'code-review' | 'test';

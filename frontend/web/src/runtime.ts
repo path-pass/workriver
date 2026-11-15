@@ -98,11 +98,24 @@ export function gateMessage(gate: Task, r: GateResult): string {
   )
 }
 
-// ponytail: pictures are not sent; the service stores none yet.
+/** Puts a picture the page holds into the service's store; its id. */
+async function upload(a: Attachment): Promise<string> {
+  const blob = await (await fetch(a.url)).blob()
+  const res = await fetch(`/api/attachments?name=${encodeURIComponent(a.name)}`, { method: 'POST', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
+  if (!res.ok) throw new Error(`upload ${a.name}: ${res.status} ${await res.text()}`)
+  return (await res.json()).id
+}
+
 export function submitGate(unit: Unit, gate: Task, r: GateResult, to: string, onStep: (d: Delivery) => void) {
   const message = gateMessage(gate, r)
-  const findings = r.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence }))
-  const record = () => post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings })
+  // The pictures go into the store when the result goes out; the result names them.
+  const record = async () => {
+    const attachments = await Promise.all(r.attachments.map(upload))
+    const findings = await Promise.all(r.findings.map(async f => ({
+      severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence, attachments: await Promise.all(f.attachments.map(upload)),
+    })))
+    await post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings, attachments })
+  }
   return { message, cancel: deliver(to, message, record, onStep) }
 }
 

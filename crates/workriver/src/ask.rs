@@ -55,7 +55,7 @@ pub fn agent_name(q: &str) -> String {
 /// One paragraph: a newline would submit early in a terminal without bracketed paste.
 /// `dir` is where the unit's branch is checked out (or the repository); `commits` are the
 /// task's commits as (short id, subject).
-pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String)]) -> Option<String> {
+pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String)], home: &std::path::Path) -> Option<String> {
     let u = state.unit(&q.unit).ok()?;
     let t = state.task(&q.unit, q.task).ok()?;
     let r = format!("{}#{}", q.unit, q.task);
@@ -101,6 +101,18 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
     }
     for f in &t.findings {
         m.push(format!("Finding {} ({}, {}): {} If left: {} Where: {}.", f.found.id, name(&f.found.severity), name(&f.state), f.found.problem, f.found.impact, f.found.r#where.join(", ")));
+    }
+    // Stored files (screenshots, reports) of the task, its checks and its findings.
+    let stored: Vec<String> = t
+        .attachments
+        .iter()
+        .chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref()))
+        .chain(t.findings.iter().flat_map(|f| &f.found.attachments))
+        .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
+        .map(|a| format!("{} ({})", crate::attachments::path(home, &a.id, &a.name).display(), a.name))
+        .collect();
+    if !stored.is_empty() {
+        m.push(format!("Its attachments, to open: {}.", stored.join(", ")));
     }
     if !commits.is_empty() {
         let list: Vec<String> = commits.iter().map(|(id, s)| format!("{id} \"{s}\"")).collect();

@@ -220,11 +220,16 @@ records it and delivers it to the agents through Herdr.
   with the same three fields as a reviewer's (severity P1–P3, what is wrong, what happens
   if it is left, where), at least one. Pictures can be pasted into the note or a finding,
   dropped on the form, or picked with "Attach"; they show as thumbnails with a ×, and one
-  opens large on a click. Only images for now. Submitted, the gate is done, its findings are
+  opens large on a click. Only images in the form. They go into the service's store when
+  the result goes out. Submitted, the gate is done, its findings are
   open findings like a review's (so they wait in Needs you) and the work behind it stays
   not started until they are decided. The pictures stay with the gate's output and with
   each finding, wherever it shows, including as the cause of the work it led to.
-- **An open finding** takes one of three decisions, Accept, Reject or Defer, with an
+- **Attachments** from agents (screenshots, reports, logs, any file) show the same way
+  wherever they belong: with a task's output, a finding, or a check (next to its line).
+  Images preview as thumbnails; any other file is a small chip that downloads it. The store
+  keeps every file for good, like the records.
+- **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer, with an
   optional one-line note; the agent's suggestion, if any, is the filled button. The row
   takes its new state at once and every count drops (the task's badge, Needs you, the rail).
 - **Delivery.** A gate's result and a decision then show where their message is: not

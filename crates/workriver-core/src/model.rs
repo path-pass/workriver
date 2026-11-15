@@ -146,6 +146,9 @@ pub struct Evidence {
     pub command: String,
     pub result: CheckResult,
     pub summary: String,
+    /// A stored attachment that shows it (a screenshot, a report).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<String>,
 }
 
 /// What the finder suggests the user decide, with one sentence of why.
@@ -169,6 +172,9 @@ pub struct NewFinding {
     pub r#where: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<Suggestion>,
+    /// Stored attachments that show it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -341,6 +347,9 @@ pub enum Body {
         evidence: Vec<Evidence>,
         #[serde(default)]
         findings: Vec<NewFinding>,
+        /// Stored attachments of the output (screenshots, reports).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
     },
     /// A correction to a delivered task: what is given replaces what was delivered.
     #[serde(rename = "task.amended")]
@@ -353,6 +362,9 @@ pub enum Body {
         evidence: Option<Vec<Evidence>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         findings: Option<Vec<NewFinding>>,
+        /// More stored attachments of the output (added to those it has).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
     },
     #[serde(rename = "finding.decided")]
     FindingDecided {
@@ -373,6 +385,25 @@ pub enum Body {
         note: String,
         #[serde(default)]
         findings: Vec<NewFinding>,
+        /// Stored attachments with the note.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
+    },
+    /// A file was put in the store (once per content; added again only to link it elsewhere),
+    /// and linked to a task or one of its findings when given.
+    #[serde(rename = "attachment.added")]
+    AttachmentAdded {
+        id: String,
+        name: String,
+        #[serde(rename = "type")]
+        mime: String,
+        size: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        finding: Option<String>,
     },
     /// Where a message is: about a task (a decision when `finding` is set, a gate result, a
     /// delivered task, a gate asked for), or about a chore (`chore` set; then no unit/task).
@@ -470,6 +501,7 @@ impl Body {
             | DeliveryUpdated { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ChoreCreated { intent, unit, .. } => (Some(intent.clone()), unit.clone(), None),
             ChoreDone { .. } => (None, None, None),
+            AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
         }
     }
 }
@@ -497,6 +529,20 @@ pub struct State {
     pub questions: Vec<Question>,
     #[serde(default)]
     pub threads: Vec<Thread>,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
+}
+
+/// A stored file. Never deleted, like the records.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Attachment {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub mime: String,
+    pub size: u64,
+    pub by: String,
+    pub at: String,
 }
 
 /// A conversation about a task: its questions share one temporary agent while it lives.
@@ -604,6 +650,9 @@ pub struct Task {
     /// When it was last corrected after delivery.
     #[serde(default)]
     pub amended: Option<String>,
+    /// Stored attachments of its output (a gate's note, a task's screenshots).
+    #[serde(default)]
+    pub attachments: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -680,6 +729,16 @@ impl State {
             Some(q) => Ok(q),
             None => no(format!("no question {id}")),
         }
+    }
+
+    /// Every id names a stored attachment.
+    fn stored<'a>(&self, ids: impl Iterator<Item = &'a String>) -> Result<(), Rejected> {
+        for id in ids {
+            if !self.attachments.iter().any(|a| &a.id == id) {
+                return no(format!("no stored attachment {id}; store the file first (workriver attach)"));
+            }
+        }
+        Ok(())
     }
 
     fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
@@ -766,7 +825,7 @@ impl State {
                 }
                 TaskStarted { unit, task, agent }
             }
-            TaskDelivered { unit, task, note, evidence, findings } => {
+            TaskDelivered { unit, task, note, evidence, findings, attachments } => {
                 let t = self.task(&unit, task)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
@@ -775,17 +834,18 @@ impl State {
                     return no(format!("{unit}#{task} is already delivered; to correct it, run `workriver task deliver {unit}#{task} --amend` with what replaces it"));
                 }
                 check_output(t, &evidence, &findings)?;
+                self.stored(evidence.iter().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flat_map(|f| &f.attachments)).chain(&attachments))?;
                 if t.kind == TaskKind::Design && blank(&note) {
                     return no("a design task delivers its design as the note: --note \"...\"");
                 }
-                TaskDelivered { unit, task, note, evidence, findings: numbered(findings) }
+                TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
             }
-            TaskAmended { unit, task, note, evidence, findings } => {
+            TaskAmended { unit, task, note, evidence, findings, attachments } => {
                 let t = self.task(&unit, task)?;
                 if t.kind == TaskKind::Gate || t.state != TaskState::Done {
                     return no(format!("{unit}#{task} is not a delivered task; only a delivered task can be amended"));
                 }
-                if note.is_none() && evidence.is_none() && findings.is_none() {
+                if note.is_none() && evidence.is_none() && findings.is_none() && attachments.is_empty() {
                     return no("nothing to amend: give a note, evidence or findings");
                 }
                 if findings.is_some() && t.findings.iter().any(|f| f.state != FindingState::Open) {
@@ -794,7 +854,10 @@ impl State {
                     ));
                 }
                 check_output(t, evidence.as_deref().unwrap_or_default(), findings.as_deref().unwrap_or_default())?;
-                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered) }
+                self.stored(
+                    evidence.iter().flatten().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flatten().flat_map(|f| &f.attachments)).chain(&attachments),
+                )?;
+                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered), attachments }
             }
             FindingDecided { unit, task, finding, decision, note, by } => {
                 let t = self.task(&unit, task)?;
@@ -810,7 +873,8 @@ impl State {
                 }
                 FindingDecided { unit, task, finding, decision, note, by }
             }
-            GateSubmitted { unit, task, result, note, findings } => {
+            GateSubmitted { unit, task, result, note, findings, attachments } => {
+                self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
                 let t = self.task(&unit, task)?;
                 if t.kind != TaskKind::Gate || t.state != TaskState::Waiting {
                     return no(format!("{unit}#{task} is not a waiting gate"));
@@ -824,7 +888,25 @@ impl State {
                 if findings.iter().any(|f| blank(&f.problem)) {
                     return no("a finding needs a problem");
                 }
-                GateSubmitted { unit, task, result, note, findings: numbered(findings) }
+                GateSubmitted { unit, task, result, note, findings: numbered(findings), attachments }
+            }
+            AttachmentAdded { id, name, mime, size, unit, task, finding } => {
+                if blank(&id) || blank(&name) {
+                    return no("an attachment needs its id and name");
+                }
+                match (&unit, task, &finding) {
+                    (None, None, None) => {}
+                    (Some(u), Some(n), f) => {
+                        let t = self.task(u, n)?;
+                        if let Some(f) = f
+                            && !t.findings.iter().any(|x| &x.found.id == f)
+                        {
+                            return no(format!("{u}#{n} has no finding {f}"));
+                        }
+                    }
+                    _ => return no("an attachment is linked to a task (unit and number), or to nothing"),
+                }
+                AttachmentAdded { id, name, mime, size, unit, task, finding }
             }
             DeliveryUpdated { unit, task, finding, chore, delivery } => {
                 if let Some(c) = &chore {
@@ -1069,6 +1151,7 @@ impl State {
                         result: None,
                         delivery: None,
                         amended: None,
+                        attachments: vec![],
                     })
                 }
             }
@@ -1079,8 +1162,9 @@ impl State {
                     t.agent = agent.clone().or_else(|| agent_of(&e.actor)).or(t.agent.take());
                 }
             }
-            TaskDelivered { unit, task, note, evidence, findings } => {
+            TaskDelivered { unit, task, note, evidence, findings, attachments } => {
                 if let Some(t) = self.task_mut(unit, *task) {
+                    t.attachments.extend(attachments.iter().cloned());
                     t.state = TaskState::Done;
                     t.done = Some(at.clone());
                     t.note = note.clone();
@@ -1103,13 +1187,30 @@ impl State {
                     f.note = (!note.is_empty()).then(|| note.clone());
                 }
             }
-            GateSubmitted { unit, task, result, note, findings, .. } => {
+            GateSubmitted { unit, task, result, note, findings, attachments } => {
                 if let Some(t) = self.task_mut(unit, *task) {
                     t.state = TaskState::Done;
                     t.done = Some(at.clone());
                     t.result = Some(*result);
                     t.note = note.clone();
                     t.findings = findings.iter().cloned().map(open).collect();
+                    t.attachments.extend(attachments.iter().cloned());
+                }
+            }
+            AttachmentAdded { id, name, mime, size, unit, task, finding } => {
+                if !self.attachments.iter().any(|a| &a.id == id) {
+                    self.attachments.push(Attachment { id: id.clone(), name: name.clone(), mime: mime.clone(), size: *size, by: e.actor.clone(), at: at.clone() });
+                }
+                if let (Some(u), Some(n)) = (unit, task)
+                    && let Some(t) = self.task_mut(u, *n)
+                {
+                    let list = match finding {
+                        Some(f) => t.findings.iter_mut().find(|x| &x.found.id == f).map(|x| &mut x.found.attachments),
+                        None => Some(&mut t.attachments),
+                    };
+                    if let Some(list) = list.filter(|l| !l.contains(id)) {
+                        list.push(id.clone());
+                    }
                 }
             }
             DeliveryUpdated { chore: Some(c), delivery, .. } => {
@@ -1117,8 +1218,9 @@ impl State {
                     x.delivery = Some(delivery.clone());
                 }
             }
-            TaskAmended { unit, task, note, evidence, findings } => {
+            TaskAmended { unit, task, note, evidence, findings, attachments } => {
                 if let Some(t) = self.task_mut(unit, *task) {
+                    t.attachments.extend(attachments.iter().cloned());
                     if let Some(n) = note {
                         t.note = n.clone();
                     }

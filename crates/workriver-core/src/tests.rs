@@ -178,3 +178,19 @@ fn design_tasks_decide_gates_and_revised_findings() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].state, FindingState::Revised);
     s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Dedupe with a set", "causes": [{"task": 2, "findings": ["P2-1"]}]}}))).unwrap();
 }
+
+#[test]
+fn attachments_are_stored_before_they_are_used() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let unknown = s.append("user", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap_err().to_string();
+    assert!(unknown.contains("no stored attachment abc"), "{unknown}");
+    s.append("agent-a", body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3}}))).unwrap();
+    s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap();
+    // Added again only to link it to a finding: one record, two links.
+    s.append("agent-a", body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3, "unit": "u1", "task": 2, "finding": "P2-1"}}))).unwrap();
+    assert!(s.append("agent-a", body(json!({"kind": "attachment.added", "body": {"id": "x", "name": "x", "type": "", "size": 1, "unit": "u1", "task": 2, "finding": "P9-9"}}))).is_err());
+    assert_eq!(s.state().attachments.len(), 1);
+    assert_eq!(s.state().task("u1", 1).unwrap().attachments, ["abc"]);
+    assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["abc"]);
+}
