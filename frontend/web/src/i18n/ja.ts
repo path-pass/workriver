@@ -55,11 +55,11 @@ export const ja: OneForm<typeof en> = {
     none: 'テスト未実行'
   },
   ask: {
-    placeholderGate: 'このステップについて {{agent}} に質問…',
+    placeholderGate: '{{agent}}にこのステップを質問…',
     placeholderManager: 'マネージャーボットに質問…',
     why: '理由を聞く',
     label: 'この作業についての質問',
-    placeholder: '{{who}} のエージェントに理由を質問…',
+    placeholder: '{{who}}に理由を質問…',
     send: '送信',
     remove: '{{label}} を外す',
     how: '一時的なエージェントが記録とコードから回答します。{{agent}} が待機中のときだけ {{agent}} に確認します。',
