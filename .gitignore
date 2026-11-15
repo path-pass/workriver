@@ -1,0 +1,14 @@
+# Local-only working material (plans, prototypes, research notes). Never synced.
+/local/
+
+# Per-checkout agent tool settings and third-party skills (e.g. impeccable). Not shared.
+/.claude/
+
+# Build output and dependencies
+/target/
+node_modules/
+dist/
+
+# Tool leftovers
+.playwright-mcp/
+.DS_Store

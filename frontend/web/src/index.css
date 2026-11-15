@@ -1,0 +1,448 @@
+@layer theme, base, vendor, components, utilities;
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+@import "diff2html/bundles/css/diff2html.min.css" layer(vendor);
+@import "@xyflow/react/dist/base.css" layer(vendor);
+
+/* shadcn components carry a few `dark:` classes; make them follow the same rule as the tokens. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]) *) { @slot; }
+  }
+  &:where([data-theme="dark"] *) { @slot; }
+}
+
+/* Roles, not swatches (see DESIGN.md). Colour in the work area means one thing only: the
+   state of a piece of work. Water = it has flowed. Amber = flowing now. Violet = waiting
+   for you, and what you picked. Each token is light-dark(light, dark); the theme follows
+   the system and data-theme on <html> overrides it. */
+:root {
+  color-scheme: light dark;
+  --canvas: light-dark(oklch(97.4% 0.006 232), oklch(17% 0.012 242));
+  --surface: light-dark(oklch(100% 0 0), oklch(21% 0.015 242));
+  --sunken: light-dark(oklch(95.4% 0.008 232), oklch(24.5% 0.017 242));
+  --line: light-dark(oklch(89.5% 0.01 232), oklch(30% 0.018 242));
+  --line-2: light-dark(oklch(76% 0.016 232), oklch(44% 0.022 242));
+  --ink: light-dark(oklch(24% 0.022 242), oklch(93.5% 0.008 232));
+  --ink-2: light-dark(oklch(45% 0.022 242), oklch(74% 0.016 232));
+  --rail: light-dark(oklch(26% 0.046 236), oklch(13.5% 0.02 242));
+  --rail-2: light-dark(oklch(31.5% 0.052 236), oklch(19.5% 0.03 240));
+  --rail-3: light-dark(oklch(38% 0.062 236), oklch(27% 0.05 236));
+  --rail-ink: light-dark(oklch(95% 0.01 232), oklch(94% 0.008 232));
+  --rail-ink-2: light-dark(oklch(79% 0.03 232), oklch(72% 0.022 232));
+  --rail-line: light-dark(oklch(36% 0.05 236), oklch(25% 0.03 240));
+  --water: light-dark(oklch(52% 0.112 216), oklch(72% 0.11 210));
+  --water-bg: light-dark(oklch(94.6% 0.03 216), oklch(27.5% 0.05 216));
+  --water-ink: light-dark(oklch(35% 0.09 222), oklch(87% 0.07 206));
+  --amber: light-dark(oklch(66% 0.15 68), oklch(78% 0.14 76));
+  --amber-bg: light-dark(oklch(95.4% 0.05 86), oklch(29.5% 0.06 76));
+  --amber-ink: light-dark(oklch(41% 0.1 62), oklch(89% 0.1 86));
+  --you: light-dark(oklch(52% 0.2 296), oklch(73% 0.16 296));
+  --you-bg: light-dark(oklch(95.4% 0.03 296), oklch(29% 0.08 296));
+  --you-ink: light-dark(oklch(40% 0.17 296), oklch(88% 0.08 296));
+  --on-you: light-dark(oklch(99% 0 0), oklch(17% 0.02 296));
+  /* The same violet, light enough to ring a control on the dark rail in either theme. */
+  --rail-you: oklch(76% 0.15 296);
+  --add: light-dark(oklch(44% 0.13 150), oklch(79% 0.15 150));
+  --del: light-dark(oklch(50% 0.19 26), oklch(75% 0.15 26));
+  --add-row: light-dark(oklch(95.5% 0.045 150), oklch(26% 0.05 150));
+  --add-gut: light-dark(oklch(90% 0.08 150), oklch(31% 0.07 150));
+  --del-row: light-dark(oklch(95.5% 0.03 26), oklch(26% 0.05 26));
+  --del-gut: light-dark(oklch(90% 0.06 26), oklch(31% 0.07 26));
+  --shadow: 0 1px 2px light-dark(oklch(24% 0.02 242 / .08), oklch(0% 0 0 / .4)),
+    0 6px 16px -6px light-dark(oklch(24% 0.02 242 / .18), oklch(0% 0 0 / .6));
+
+  /* shadcn's names, pointed at ours, so its components take the palette in both themes. */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--you);
+  --primary-foreground: var(--on-you);
+  --secondary: var(--sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--sunken);
+  --muted-foreground: var(--ink-2);
+  --accent: var(--sunken);
+  --accent-foreground: var(--ink);
+  --destructive: var(--del);
+  --border: var(--line);
+  --input: var(--line-2);
+  --ring: var(--you);
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+/* Inside the rail the same components sit on the rail's own neutrals. */
+.rail {
+  --background: var(--rail);
+  --foreground: var(--rail-ink);
+  --muted: var(--rail-2);
+  --muted-foreground: var(--rail-ink-2);
+  --accent: var(--rail-3);
+  --accent-foreground: var(--rail-ink);
+  --border: var(--rail-line);
+  --input: var(--rail-line);
+  --ring: var(--rail-you);
+  scrollbar-color: var(--rail-3) transparent;
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-rail: var(--rail);
+  --color-rail-2: var(--rail-2);
+  --color-rail-3: var(--rail-3);
+  --color-rail-ink: var(--rail-ink);
+  --color-rail-ink-2: var(--rail-ink-2);
+  --color-rail-line: var(--rail-line);
+  --color-water: var(--water);
+  --color-water-bg: var(--water-bg);
+  --color-water-ink: var(--water-ink);
+  --color-amber: var(--amber);
+  --color-amber-bg: var(--amber-bg);
+  --color-amber-ink: var(--amber-ink);
+  --color-you: var(--you);
+  --color-you-bg: var(--you-bg);
+  --color-you-ink: var(--you-ink);
+  --color-on-you: var(--on-you);
+  --color-add: var(--add);
+  --color-del: var(--del);
+  --color-del-row: var(--del-row);
+  --shadow-pick: var(--shadow);
+  /* Radius: 6 small controls, 8 nodes, 10 blocks. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+}
+/* The fixed type scale: 11, 12, 13, 14, 15, 20. */
+@theme {
+  --text-2xs: 11px;
+  --text-2xs--line-height: 1.45;
+  --text-xs: 12px;
+  --text-xs--line-height: 1.5;
+  --text-sm: 13px;
+  --text-sm--line-height: 1.5;
+  --text-base: 14px;
+  --text-base--line-height: 1.5;
+  --text-lg: 15px;
+  --text-lg--line-height: 1.35;
+  --text-xl: 20px;
+  --text-xl--line-height: 1.3;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { scrollbar-color: var(--line-2) transparent; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 14px/1.5 var(--font-sans);
+    font-variant-numeric: tabular-nums;
+    caret-color: var(--you);
+  }
+  ::selection { background: var(--you-bg); color: var(--you-ink); }
+  button:not(:disabled), label:has(button) { cursor: pointer; }
+}
+
+@layer components {
+  .block-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .ic { flex: none; }
+  /* Repeated items in one block are separated by a rule, never the first from its heading. */
+  .round + .round { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+  /* ---- small parts used everywhere ---- */
+  .tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 9px; font-size: 11px; font-weight: 600; white-space: nowrap; background: var(--sunken); color: var(--ink-2); }
+  .rail .tag { background: var(--rail-2); color: var(--rail-ink-2); }
+  .tag[data-tone="ask"] { background: var(--you); color: var(--on-you); }
+  /* On a unit in the rail: an agent stuck on the user (filled), other things waiting (outlined). */
+  .tag[data-tone="block"] { gap: 3px; background: var(--rail-you); color: var(--rail); }
+  .tag[data-tone="wait"] { background: transparent; box-shadow: inset 0 0 0 1px var(--rail-you); color: var(--rail-you); }
+  .tag[data-tone="far"] { background: transparent; box-shadow: inset 0 0 0 1px var(--amber); color: var(--amber); }
+  .tag[data-tone="add"] { background: var(--water-bg); color: var(--water-ink); }
+  .tag[data-tone="del"] { background: var(--del-row); color: var(--del); }
+
+  /* Findings waiting for the user: the one violet count, on a review and in the row above. */
+  .count { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--you); color: var(--on-you); font-size: 10px; font-weight: 700; font-style: normal; line-height: 1; }
+
+  /* An agent's mark. Its colour comes from its name and is used nowhere else. */
+  .who { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: .02em; box-shadow: 0 0 0 2px var(--who-ground, var(--surface)); }
+  .rail .who { --who-ground: var(--rail); }
+  /* An agent in the side panel, quieter the further it is from working: holding work that
+     has not started, then idle. The line that led to what is open shows as picked. The left
+     padding leaves room for the writing ring as it grows (about 15px past the mark), which
+     the panel's scroll area would otherwise cut. */
+  .agent-row { display: flex; align-items: center; gap: 2px; padding-right: 4px; }
+  .agent-row .agent { flex: 1; min-width: 0; }
+  .agent { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 2px 10px 2px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
+  .agent:not(:disabled):hover { background: var(--sunken); }
+  .agent[aria-pressed="true"] { background: var(--you-bg); color: var(--you-ink); }
+  .agent .at { display: flex; align-items: center; gap: 4px; min-width: 0; margin-left: auto; color: var(--ink-2); }
+  .agent[data-place="queued"] { color: var(--ink-2); }
+  .agent[data-place="queued"] .who { opacity: .55; }
+  .agent[data-place="idle"] { color: var(--ink-2); }
+  .agent[data-place="idle"] .who { opacity: .45; filter: grayscale(1); }
+  /* An agent that is writing right now: the mark breathes. */
+  .who[data-live]::after { content: ''; position: absolute; inset: -2px; border-radius: 12px; border: 2px solid var(--amber); animation: writing 1.8s cubic-bezier(.2, .7, .2, 1) infinite; }
+
+  /* ---- the inbox: one row per thing that asks something of the user ---- */
+  .igroup + .igroup { margin-top: 16px; }
+  .irow { display: grid; grid-template-columns: 16px minmax(0, 1fr) minmax(0, auto) 4em; align-items: center; gap: 2px 10px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 6px; text-align: left; font-size: 13px; transition: background .15s; }
+  .irow:hover { background: var(--sunken); }
+  .irow .ic { color: var(--ink-2); }
+  .irow .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .irow .meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink-2); font-size: 12px; }
+  .irow .unit { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .irow .age { color: var(--ink-2); font-size: 12px; text-align: right; }
+  /* An agent cannot go on: the strongest row. */
+  .irow[data-kind="gate"] { background: var(--you-bg); color: var(--you-ink); font-weight: 600; }
+  .irow[data-kind="gate"]:hover { box-shadow: var(--shadow); }
+  .irow[data-kind="gate"] .ic { color: var(--you); }
+  .irow[data-kind="gate"] .meta, .irow[data-kind="gate"] .age { color: inherit; font-weight: 400; }
+  .irow[data-kind="loose"] .ic { color: var(--del); }
+  .irow[data-kind="far"] .ic { color: var(--amber); }
+  /* Blocks nobody: the quietest rows; the chevron opens its steps. */
+  .irow[data-kind="chore"] { color: var(--ink-2); }
+  .irow[data-kind="chore"] .ic { transition: transform .15s; }
+  .irow[data-kind="chore"][data-state="open"] .ic { transform: rotate(90deg); }
+  /* In the narrow side panel (and on a narrow screen) a row takes two lines. */
+  .sidepane .irow { grid-template-columns: 16px minmax(0, 1fr) auto; }
+  .sidepane .irow .meta { grid-column: 2 / -1; grid-row: 2; }
+
+  /* ---- layer 1: the flow of work ---- */
+  .wnode { position: relative; display: flex; align-items: center; gap: 6px; width: 176px; height: 48px; padding: 0 10px 0 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--ink); text-align: left; font-size: 12px; line-height: 1.4; transition: box-shadow .15s, opacity .15s; }
+  .wnode:hover { box-shadow: var(--shadow); }
+  .wnode .ic { color: var(--ink-2); }
+  .wnode .lb { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
+  .wnode .lb b { font-family: var(--font-mono); font-weight: 600; font-size: 11px; }
+  .wnode .who { position: absolute; right: -7px; top: -8px; }
+  .wnode[data-state="done"] { border-color: var(--water); background: var(--water-bg); color: var(--water-ink); }
+  .wnode[data-state="done"] .ic { color: var(--water); }
+  .wnode[data-state="running"] { border-color: var(--amber); background: var(--amber-bg); color: var(--amber-ink); }
+  .wnode[data-state="running"] .ic { color: var(--amber); }
+  .wnode[data-state="unregistered"] { border: 1.5px dashed var(--del); color: var(--del); }
+  .wnode[data-state="unregistered"] .ic { color: var(--del); }
+  /* A gate is the user's to do: a double frame, violet while it waits. (A notched outline
+     would clip the selection ring and the hover shadow.) */
+  .wnode[data-kind="gate"] { --gate-bg: var(--surface); --gate-line: var(--line-2); --frame: inset 0 0 0 2.5px var(--gate-bg), inset 0 0 0 3.5px var(--gate-line); border-radius: 3px; padding: 0 12px 0 10px; box-shadow: var(--frame); }
+  .wnode[data-kind="gate"][data-state="done"] { --gate-bg: var(--water-bg); --gate-line: var(--water); }
+  .wnode[data-kind="gate"][data-state="waiting"] { --gate-bg: var(--you-bg); --gate-line: var(--you); border-color: var(--you); background: var(--you-bg); color: var(--you-ink); }
+  .wnode[data-kind="gate"][data-state="waiting"] .ic { color: var(--you); }
+  .wnode[data-kind="gate"]:hover, .wnode[data-kind="gate"][aria-pressed="true"] { box-shadow: var(--frame), var(--shadow); }
+  /* What kind of work is a shape: a review is a pill and keeps the neutral ground. */
+  .wnode[data-kind="review"] { border-radius: 24px; padding: 0 14px 0 12px; background: var(--surface); color: var(--ink); }
+  .wnode .sev { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); }
+  /* Finished work handed in with no check run: a small neutral mark at the bottom left. */
+  .wnode .untested { position: absolute; left: -6px; bottom: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
+  .wnode .untested .ic { width: 11px; height: 11px; }
+  /* A check run on the work: passed in the done tone, failed in the diff's red. */
+  .check { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .check code { font-family: var(--font-mono); font-size: 11.5px; }
+  .check[data-result="passed"] > .ic { color: var(--water); }
+  .check[data-result="failed"] > .ic { color: var(--del); }
+  /* Questions asked about this work: a small neutral mark at the bottom corner. */
+  .wnode .talks { position: absolute; right: -6px; bottom: -7px; display: inline-flex; align-items: center; gap: 2px; height: 14px; padding: 0 4px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); font-size: 9px; font-weight: 600; line-height: 1; }
+  .wnode .count { position: absolute; right: -6px; top: -7px; box-shadow: 0 0 0 2px var(--surface); }
+  .wnode[data-dim] { opacity: .32; }
+  .wnode[aria-pressed="true"] { outline: 2px solid var(--you); outline-offset: 2px; box-shadow: var(--shadow); }
+  .wdot { width: 18px; height: 18px; border-radius: 50%; background: var(--water); }
+
+  /* A line takes the state of the work it leads into: flowed, flowing now, or not yet. */
+  .river { fill: none; stroke: var(--line-2); stroke-width: 1.5; transition: opacity .15s; }
+  .river[data-state="flowed"] { stroke: var(--water); stroke-width: 2; }
+  /* The signature: work being done shows as water moving along its line. */
+  .river[data-state="flowing"] { stroke: var(--amber); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; animation: flowing 1.2s linear infinite; }
+  .river[data-also] { stroke-dasharray: 4 4; }
+  .river[data-off] { opacity: .2; }
+  /* Lines cannot be picked: a press on one reaches the ground under it. */
+  .flow .react-flow__handle { opacity: 0; pointer-events: none; }
+  /* The library's own credit: kept, small and quiet, in its corner. */
+  .flow .react-flow__attribution { margin: 0 16px 10px 0; background: transparent; color: var(--ink-2); font-size: 10px; }
+  /* The legend shares the bottom row of the graph with that credit and leaves it room. */
+  .flow .legend-row { margin: 0 0 8px 16px; max-width: calc(100% - 120px); }
+
+  /* ---- the findings of the picked review ---- */
+  .fgroup + .fgroup { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .frow { margin: 0 -4px; padding: 0 4px; border-radius: 6px; }
+  .frow:hover { background: var(--sunken); }
+  .frow[data-picked] { background: var(--you-bg); }
+  .fchev { display: flex; align-items: center; height: 28px; border-radius: 4px; color: var(--ink-2); }
+  .fchev:hover { color: var(--ink); }
+  .fchev .ic, .chore > .ic { transition: transform .15s; }
+  .fchev[data-state="open"] .ic, .chore[data-state="open"] > .ic { transform: rotate(90deg); }
+
+  /* ---- things to do by hand: the steps of a gate or a chore ---- */
+  .steps { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding-left: 20px; list-style: decimal; }
+  .steps li::marker { color: var(--ink-2); font-size: 12px; }
+  .cmd { display: flex; align-items: flex-start; gap: 4px; margin-top: 4px; padding: 3px 3px 3px 8px; border-radius: 6px; background: var(--sunken); }
+  .cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: pre; font: 12px/24px var(--font-mono); scrollbar-width: thin; }
+  .chore { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; border-radius: 6px; text-align: left; font-size: 13px; }
+  .chore > .ic { color: var(--ink-2); }
+  /* The work a finding led to, in the state that work is in. */
+  .chip { height: 20px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); font: 600 11px/1 var(--font-mono); transition: box-shadow .15s; }
+  .chip:hover { box-shadow: var(--shadow); }
+  .chip[data-state="done"] { border-color: var(--water); background: var(--water-bg); color: var(--water-ink); }
+  .chip[data-state="running"] { border-color: var(--amber); background: var(--amber-bg); color: var(--amber-ink); }
+  .cause { display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 3px 4px; margin: 0 -4px; border-radius: 6px; text-align: left; }
+  .cause:hover { background: var(--sunken); }
+  .cause .ic { align-self: center; color: var(--ink-2); }
+
+  .key { display: inline-flex; align-items: center; gap: 5px; }
+  .key .sw { width: 16px; height: 11px; border: 1px solid var(--line-2); border-radius: 3px; background: var(--surface); }
+  .key .sw[data-state="done"] { border-color: var(--water); background: var(--water-bg); }
+  .key .sw[data-state="running"] { border-color: var(--amber); background: var(--amber-bg); }
+  .key .sw[data-state="review"] { border-radius: 6px; }
+  .key .sw[data-state="gate"] { height: 12px; border: 3px double var(--line-2); border-radius: 2px; }
+  .key .stroke { width: 18px; border-top: 2px solid var(--line-2); }
+  .key .stroke[data-state="flowed"] { border-color: var(--water); }
+  .key .stroke[data-state="flowing"] { border-top: 2px dotted var(--amber); }
+  .key .stroke[data-state="also"] { border-top-style: dashed; }
+
+  /* ---- layer 2: the code. The file tree on the left, the diff on the right. ---- */
+  .code-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+  /* The tree stays in view while the changes scroll past, with a scroll of its own. It is a
+     plain wrapper that sticks: the scroll area inside carries a `relative` utility, which
+     would win over a sticky position set on it from this layer. */
+  .code-side { position: sticky; top: 12px; }
+  .code-tree > [data-slot=scroll-area-viewport] { max-height: calc(100vh - 64px); }
+  @media (max-width: 720px) {
+    .code-grid { grid-template-columns: minmax(0, 1fr); }
+    .code-side { position: static; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .code-tree > [data-slot=scroll-area-viewport] { max-height: 40vh; }
+  }
+  .ftree { display: flex; flex-direction: column; padding: 2px; }
+  .trow { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding-right: 6px; border-radius: 6px; font-size: 12px; text-align: left; white-space: nowrap; }
+  .trow:hover { background: var(--sunken); }
+  .trow[aria-selected="true"] { background: var(--you-bg); color: var(--you-ink); }
+  .trow:focus-visible { outline-offset: -2px; }
+  .trow .chev { flex: none; width: 14px; color: var(--ink-2); transition: transform .15s; }
+  .trow[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .trow .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+  .trow[aria-expanded] .nm { font-weight: 600; }
+  .trow .ct { margin-left: auto; padding-left: 6px; font-family: var(--font-mono); font-size: 11px; }
+  .trow .who { min-width: 18px; height: 18px; font-size: 9px; }
+  /* How a file changed: the diff's own convention, added green and deleted red. */
+  .trow .st { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 14px; font: 600 10px/1 var(--font-mono); color: var(--ink-2); }
+  .trow .st[data-status="A"] { color: var(--add); }
+  .trow .st[data-status="D"] { color: var(--del); }
+  /* The unit's other changes, while a piece of work is picked. */
+  .trow[data-dim] { opacity: .45; }
+  /* Not there yet: the unit adds it. */
+  .trow[data-ghost] .nm { color: var(--ink-2); text-decoration: underline dashed var(--line-2); text-underline-offset: 3px; }
+
+  /* ---- asking why: chips for what a question is about, the box, the pending dot ---- */
+  .ctx { display: inline-flex; align-items: center; gap: 2px; height: 20px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--sunken); color: var(--ink-2); font: 500 11px/1 var(--font-mono); }
+  .ctx button { display: inline-flex; border-radius: 3px; color: var(--ink-2); }
+  .ctx button:hover { color: var(--ink); }
+  .askbox { display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); }
+  .askbox:focus-within { border-color: var(--you); box-shadow: 0 0 0 1px var(--you); }
+  .askbox textarea { flex: 1; min-width: 0; max-height: 160px; resize: none; border: 0; outline: none; background: transparent; font: inherit; line-height: 1.5; }
+  .pending { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 3px; background: var(--ink-2); vertical-align: middle; animation: pulse 1s ease-in-out infinite alternate; }
+
+  /* ---- picking lines in a diff, and the "Ask why" that floats next to them ---- */
+  .pickable { position: relative; }
+  .pickable .diff .d2h-code-linenumber { cursor: pointer; }
+  .pickable .diff .d2h-code-linenumber:hover { color: var(--you-ink); }
+  .pickable .diff tr[data-picked] .d2h-code-linenumber { background: var(--you-bg); color: var(--you-ink); box-shadow: inset 3px 0 var(--you); }
+  .askfloat { position: absolute; right: 8px; z-index: 2; transform: translateY(-2px); box-shadow: var(--shadow); }
+
+  /* ---- what the user puts in: fields, findings being written, pictures ---- */
+  .field { width: 100%; resize: vertical; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); font: inherit; line-height: 1.5; }
+  .draft { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px dashed var(--line-2); border-radius: 8px; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .thumb { position: relative; display: inline-flex; }
+  .thumb img { width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--line-2); border-radius: 6px; background: var(--sunken); }
+  .thumb .x { position: absolute; top: -6px; right: -6px; display: inline-flex; padding: 2px; border-radius: 8px; background: var(--ink); color: var(--canvas); }
+
+  /* ---- the commits feed in the side panel ---- */
+  .crow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px 6px 12px; border-radius: 6px; text-align: left; font-size: 13px; }
+  button.crow:hover { background: var(--sunken); }
+  .crow[aria-pressed="true"] { background: var(--you-bg); }
+  .crow[data-live] { color: var(--amber-ink); }
+
+  /* ---- the diff. diff2html draws the lines; these point it at our tokens. ---- */
+  .fview { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .fhead { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; background: var(--sunken); font-size: 12px; text-align: left; }
+  .fhead:hover .chev, .fhead:focus-visible .chev { color: var(--ink); }
+  .fhead .chev { color: var(--ink-2); transition: transform .15s; }
+  .fhead[data-state="open"] .chev { transform: rotate(90deg); }
+  /* The ring would be clipped by the block's rounded corners: draw it inside. */
+  .fhead:focus-visible { outline-offset: -2px; }
+  .diff {
+    --d2h-bg-color: var(--surface);
+    --d2h-border-color: transparent;
+    --d2h-dim-color: var(--ink-2);
+    --d2h-line-border-color: transparent;
+    --d2h-ins-bg-color: var(--add-row);
+    --d2h-ins-border-color: transparent;
+    --d2h-ins-highlight-bg-color: var(--add-gut);
+    --d2h-ins-label-color: var(--add);
+    --d2h-del-bg-color: var(--del-row);
+    --d2h-del-border-color: transparent;
+    --d2h-del-highlight-bg-color: var(--del-gut);
+    --d2h-del-label-color: var(--del);
+    --d2h-change-ins-color: var(--add-row);
+    --d2h-change-del-color: var(--del-row);
+    --d2h-info-bg-color: var(--sunken);
+    --d2h-info-border-color: transparent;
+    --d2h-empty-placeholder-bg-color: var(--sunken);
+    color: var(--ink);
+    scrollbar-color: var(--line-2) transparent;
+  }
+  .diff .d2h-file-header { display: none; }
+  .diff .d2h-file-wrapper { border: 0; border-radius: 0; margin: 0; }
+  .diff .d2h-file-diff { overflow-x: auto; }
+  .diff .d2h-diff-table { font: 12px/20px var(--font-mono); tab-size: 2; }
+  .diff .d2h-code-linenumber { width: 88px; border: 0; cursor: default; user-select: none; }
+  .diff .d2h-code-linenumber.d2h-ins { background: var(--add-gut); }
+  .diff .d2h-code-linenumber.d2h-del { background: var(--del-gut); }
+  .diff .line-num1, .diff .line-num2 { width: 44px; padding: 0 8px; }
+  .diff .d2h-code-line { padding: 0 12px 0 96px; width: auto; }
+  .diff .d2h-code-line-prefix { display: inline-block; width: 2ch; }
+  .diff .d2h-ins .d2h-code-line-prefix { color: var(--add); }
+  .diff .d2h-del .d2h-code-line-prefix { color: var(--del); }
+  .diff .d2h-code-line ins, .diff .d2h-code-line del { border-radius: 2px; }
+}
+
+@keyframes writing { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.7); } }
+@keyframes flowing { to { stroke-dashoffset: -16; } }
+@keyframes pulse { from { opacity: .3; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .who[data-live]::after { animation: none; opacity: 1; }
+  .river[data-state="flowing"] { animation: none; }
+  .pending { animation: none; }
+}
+
+
+/* One focus ring everywhere, unlayered so it also wins over component classes. */
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.field:focus-visible { outline: none; border-color: var(--you); box-shadow: 0 0 0 1px var(--you); }
+/* The ask box draws its own ring around the field. */
+.askbox textarea:focus-visible { outline: none; }

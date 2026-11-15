@@ -1,0 +1,2299 @@
+{
+ "repo": "demo",
+ "builtAt": "2026-11-15 20:48",
+ "modules": {
+  "name": "demo",
+  "path": "",
+  "loc": 495,
+  "files": 18,
+  "children": [
+   {
+    "name": "app",
+    "path": "app",
+    "loc": 262,
+    "files": 14,
+    "children": [
+     {
+      "name": "auth",
+      "path": "app/auth",
+      "loc": 3,
+      "files": 1,
+      "children": [
+       {
+        "name": "permissions.ts",
+        "path": "app/auth/permissions.ts",
+        "loc": 3,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "chat",
+      "path": "app/chat",
+      "loc": 10,
+      "files": 2,
+      "children": [
+       {
+        "name": "render.ts",
+        "path": "app/chat/render.ts",
+        "loc": 3,
+        "files": 1
+       },
+       {
+        "name": "send.ts",
+        "path": "app/chat/send.ts",
+        "loc": 7,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "notify",
+      "path": "app/notify",
+      "loc": 166,
+      "files": 4,
+      "children": [
+       {
+        "name": "channels",
+        "path": "app/notify/channels",
+        "loc": 163,
+        "files": 3,
+        "children": [
+         {
+          "name": "email.ts",
+          "path": "app/notify/channels/email.ts",
+          "loc": 41,
+          "files": 1
+         },
+         {
+          "name": "mobile",
+          "path": "app/notify/channels/mobile",
+          "loc": 122,
+          "files": 2,
+          "children": [
+           {
+            "name": "apns.ts",
+            "path": "app/notify/channels/mobile/apns.ts",
+            "loc": 64,
+            "files": 1
+           },
+           {
+            "name": "fcm.ts",
+            "path": "app/notify/channels/mobile/fcm.ts",
+            "loc": 58,
+            "files": 1
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "name": "push.ts",
+        "path": "app/notify/push.ts",
+        "loc": 3,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "search",
+      "path": "app/search",
+      "loc": 8,
+      "files": 2,
+      "children": [
+       {
+        "name": "index.ts",
+        "path": "app/search/index.ts",
+        "loc": 3,
+        "files": 1
+       },
+       {
+        "name": "query.ts",
+        "path": "app/search/query.ts",
+        "loc": 5,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "settings",
+      "path": "app/settings",
+      "loc": 59,
+      "files": 2,
+      "children": [
+       {
+        "name": "profile.ts",
+        "path": "app/settings/profile.ts",
+        "loc": 37,
+        "files": 1
+       },
+       {
+        "name": "theme.ts",
+        "path": "app/settings/theme.ts",
+        "loc": 22,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "store",
+      "path": "app/store",
+      "loc": 6,
+      "files": 1,
+      "children": [
+       {
+        "name": "messages.ts",
+        "path": "app/store/messages.ts",
+        "loc": 6,
+        "files": 1
+       }
+      ]
+     },
+     {
+      "name": "ui",
+      "path": "app/ui",
+      "loc": 10,
+      "files": 2,
+      "children": [
+       {
+        "name": "composer.tsx",
+        "path": "app/ui/composer.tsx",
+        "loc": 5,
+        "files": 1
+       },
+       {
+        "name": "search-box.tsx",
+        "path": "app/ui/search-box.tsx",
+        "loc": 5,
+        "files": 1
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "scripts",
+    "path": "scripts",
+    "loc": 19,
+    "files": 1,
+    "children": [
+     {
+      "name": "deploy.sh",
+      "path": "scripts/deploy.sh",
+      "loc": 19,
+      "files": 1
+     }
+    ]
+   },
+   {
+    "name": "server",
+    "path": "server",
+    "loc": 214,
+    "files": 3,
+    "children": [
+     {
+      "name": "api",
+      "path": "server/api",
+      "loc": 140,
+      "files": 2,
+      "children": [
+       {
+        "name": "v1",
+        "path": "server/api/v1",
+        "loc": 140,
+        "files": 2,
+        "children": [
+         {
+          "name": "messages.ts",
+          "path": "server/api/v1/messages.ts",
+          "loc": 88,
+          "files": 1
+         },
+         {
+          "name": "users.ts",
+          "path": "server/api/v1/users.ts",
+          "loc": 52,
+          "files": 1
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "db",
+      "path": "server/db",
+      "loc": 74,
+      "files": 1,
+      "children": [
+       {
+        "name": "schema.ts",
+        "path": "server/db/schema.ts",
+        "loc": 74,
+        "files": 1
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "sessions": [
+  {
+   "agent": "agent-A",
+   "ended": false
+  },
+  {
+   "agent": "agent-B",
+   "ended": false
+  },
+  {
+   "agent": "agent-C",
+   "ended": false
+  },
+  {
+   "agent": "agent-D",
+   "ended": false
+  },
+  {
+   "agent": "review-agent",
+   "ended": true
+  },
+  {
+   "agent": "agent-E",
+   "ended": false
+  },
+  {
+   "agent": "agent-F",
+   "ended": false
+  },
+  {
+   "agent": "agent-G",
+   "ended": false
+  },
+  {
+   "agent": "agent-H",
+   "ended": false
+  },
+  {
+   "agent": "agent-I",
+   "ended": false
+  },
+  {
+   "agent": "agent-J",
+   "ended": false
+  }
+ ],
+ "intents": [
+  {
+   "id": "chat-v2",
+   "title": "聊天 v2",
+   "units": [
+    {
+     "id": "mention",
+     "title": "加一个 @ 功能",
+     "purpose": "在消息里 @ 某个人，对方会收到通知，并且消息里的名字要显示成高亮。",
+     "branch": "mention",
+     "status": "active",
+     "commits": [
+      {
+       "id": "75657476d",
+       "subject": "feat(chat): find the people mentioned in a message",
+       "date": "2026-11-14 16:10",
+       "author": "agent-D",
+       "live": false,
+       "files": [
+        {
+         "path": "app/chat/mention.ts",
+         "status": "A",
+         "before": null,
+         "after": "// The people a message mentions: @name, made of letters, digits and underscores.\nconst MENTION = /@(\\w+)/g\n\nexport function parseMentions(text) {\n  return [...text.matchAll(MENTION)].map(m => m[1])\n}\n\nexport function hasMention(text) {\n  return /@\\w+/.test(text)\n}\n\nexport function stripMentions(text) {\n  return text.replace(MENTION, '').replace(/\\s+/g, ' ').trim()\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "e40cb2ed2",
+       "subject": "feat(chat): notify everyone mentioned when a message is sent",
+       "date": "2026-11-14 17:30",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/chat/send.ts",
+         "status": "M",
+         "before": "// Sending a message: check the sender may post, store it, hand it back.\nimport { canPost } from '../auth/permissions'\nimport { save } from '../store/messages'\n\nexport interface Sent {\n  id: string\n  channel: string\n  at: number\n}\n\nfunction trimmed(text) {\n  const t = text.trim()\n  if (!t) throw new Error('empty message')\n  if (t.length > 4000) throw new Error('message too long')\n  return t\n}\n\nexport function sendMessage(channel, text) {\n  if (!canPost(channel)) throw new Error('forbidden')\n  return save(channel, trimmed(text))\n}\n\nexport function editMessage(message, text) {\n  if (message.author !== currentUser()) throw new Error('forbidden')\n  return save(message.channel, trimmed(text), message.id)\n}\n",
+         "after": "// Sending a message: check the sender may post, store it, hand it back.\nimport { canPost } from '../auth/permissions'\nimport { save } from '../store/messages'\nimport { push } from '../notify/push'\nimport { parseMentions } from './mention'\n\nexport interface Sent {\n  id: string\n  channel: string\n  at: number\n}\n\nfunction trimmed(text) {\n  const t = text.trim()\n  if (!t) throw new Error('empty message')\n  if (t.length > 4000) throw new Error('message too long')\n  return t\n}\n\nexport function sendMessage(channel, text) {\n  if (!canPost(channel)) throw new Error('forbidden')\n  const message = save(channel, trimmed(text))\n  for (const user of parseMentions(text)) push(user, message)\n  return message\n}\n\nexport function editMessage(message, text) {\n  if (message.author !== currentUser()) throw new Error('forbidden')\n  return save(message.channel, trimmed(text), message.id)\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "21476e43c",
+       "subject": "fix(chat): notify a person once when they are mentioned twice",
+       "date": "2026-11-15 10:05",
+       "author": "review-agent",
+       "live": false,
+       "files": [
+        {
+         "path": "app/chat/mention.ts",
+         "status": "M",
+         "before": "// The people a message mentions: @name, made of letters, digits and underscores.\nconst MENTION = /@(\\w+)/g\n\nexport function parseMentions(text) {\n  return [...text.matchAll(MENTION)].map(m => m[1])\n}\n\nexport function hasMention(text) {\n  return /@\\w+/.test(text)\n}\n\nexport function stripMentions(text) {\n  return text.replace(MENTION, '').replace(/\\s+/g, ' ').trim()\n}\n",
+         "after": "// The people a message mentions: @name, made of letters, digits and underscores.\nconst MENTION = /@(\\w+)/g\n\nexport function parseMentions(text) {\n  const names = [...text.matchAll(MENTION)].map(m => m[1])\n  return [...new Set(names)]\n}\n\nexport function hasMention(text) {\n  return /@\\w+/.test(text)\n}\n\nexport function stripMentions(text) {\n  return text.replace(MENTION, '').replace(/\\s+/g, ' ').trim()\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "bee88a5ef",
+       "subject": "fix(notify): leave the message text out of the notification",
+       "date": "2026-11-15 19:22",
+       "author": "agent-C",
+       "live": false,
+       "files": [
+        {
+         "path": "app/notify/push.ts",
+         "status": "M",
+         "before": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n",
+         "after": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "9c1d7e0aa",
+       "subject": "feat(notify): say who mentioned you",
+       "date": "2026-11-15 20:31",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/notify/push.ts",
+         "status": "M",
+         "before": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n",
+         "after": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at, from: payload.author } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "uncommitted",
+       "subject": "正在写，还没有提交",
+       "date": "2026-11-15 21:45",
+       "author": "",
+       "live": true,
+       "files": [
+        {
+         "path": "app/chat/render.ts",
+         "status": "M",
+         "before": "// Turning a stored message into what the message list shows.\nimport { escapeHtml } from '../ui/escape'\n\nexport function renderMessageBody(message) {\n  return message.text\n}\n\nexport function renderMessage(message) {\n  return [\n    '<article class=\"message\">',\n    `<header>${escapeHtml(message.authorName)}</header>`,\n    `<p>${renderMessageBody(message)}</p>`,\n    '</article>',\n  ].join('')\n}\n",
+         "after": "// Turning a stored message into what the message list shows.\nimport { escapeHtml } from '../ui/escape'\n\nexport function renderMessageBody(message) {\n  return message.text.replace(/@(\\w+)/g, '<b class=\"mention\">@$1</b>')\n}\n\nexport function renderMessage(message) {\n  return [\n    '<article class=\"message\">',\n    `<header>${escapeHtml(message.authorName)}</header>`,\n    `<p>${renderMessageBody(message)}</p>`,\n    '</article>',\n  ].join('')\n}\n"
+        }
+       ]
+      }
+     ],
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "从消息文本里找出被 @ 的人",
+       "agent": "agent-D",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "从消息文本里找出被 @ 的人",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "75657476d"
+        ],
+        "evidence": [
+         {
+          "command": "npm test app/chat/mention.test.ts",
+          "result": "passed",
+          "summary": "6 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "s2",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "2",
+       "title": "发送消息时通知被 @ 的人",
+       "agent": "agent-A",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "发送消息时通知被 @ 的人",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "e40cb2ed2"
+        ],
+        "evidence": [
+         {
+          "command": "npm test app/chat",
+          "result": "passed",
+          "summary": "12 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "s3",
+       "kind": "implement",
+       "state": "running",
+       "taskId": "3",
+       "title": "把消息里的 @名字 显示成高亮",
+       "agent": "agent-A",
+       "writing": true,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "把消息里的 @名字 显示成高亮",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "uncommitted"
+        ]
+       },
+       "plans": [
+        "app/chat/render.ts"
+       ]
+      },
+      {
+       "id": "s4",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "4",
+       "title": "输入 @ 时弹出成员列表供选择",
+       "agent": "agent-B",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "输入 @ 时弹出成员列表供选择",
+        "causes": []
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/ui/composer.tsx",
+        "app/ui/mention-picker.tsx"
+       ]
+      },
+      {
+       "id": "s5",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "5",
+       "title": "只允许 @ 这个频道里的成员",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "user",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "只允许 @ 这个频道里的成员",
+        "causes": []
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/auth/permissions.ts"
+       ]
+      },
+      {
+       "id": "s6",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "6",
+       "title": "通知里不要带消息全文，避免内容出现在别人的锁屏上",
+       "agent": "agent-C",
+       "writing": false,
+       "raisedBy": "security-review",
+       "inputs": [
+        {
+         "from": "v2|security-review",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "通知里不要带消息全文，避免内容出现在别人的锁屏上",
+        "causes": [
+         {
+          "review": "v2|security-review",
+          "findings": [
+           "P1-1"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": [
+         "bee88a5ef"
+        ],
+        "evidence": [
+         {
+          "command": "npm test app/notify",
+          "result": "passed",
+          "summary": "4 passed"
+         }
+        ]
+       },
+       "plans": [],
+       "thread": [
+        {
+         "question": "为什么通知里干脆不带消息内容，而不是只截前几个字？",
+         "context": [
+          {
+           "kind": "task",
+           "label": "#6"
+          },
+          {
+           "kind": "finding",
+           "label": "安全审查 P1-1"
+          },
+          {
+           "kind": "file",
+           "label": "push.ts",
+           "path": "app/notify/push.ts"
+          }
+         ],
+         "answer": "安全审查的 P1-1 指出推送内容里带了整条消息，会出现在别人的锁屏上。截前几个字也一样会泄露：一句话的前十个字往往就是要点。所以 app/notify/push.ts 里的 push() 只留下 channel 和 at，正文要点开通知、通过权限检查之后才在 app/chat/render.ts 里显示。代价是通知里看不出是谁 @ 的，这一点后来由 #11 补上了 from 字段。",
+         "at": "2026-11-15T19:31",
+         "consulted": {
+          "agent": "agent-C",
+          "outcome": "asked"
+         }
+        }
+       ]
+      },
+      {
+       "id": "g6|test",
+       "kind": "gate",
+       "gate": "test",
+       "state": "done",
+       "taskId": null,
+       "title": "在手机上看一眼锁屏通知",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "s6",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "在手机上看一眼锁屏通知",
+        "causes": [],
+        "steps": [
+         {
+          "text": "把这个分支装到测试手机上",
+          "command": "npm run build:mobile -- --device"
+         },
+         {
+          "text": "锁屏，用另一个账号 @ 自己"
+         },
+         {
+          "text": "看锁屏上的通知：不应该出现消息正文"
+         }
+        ]
+       },
+       "output": {
+        "note": "正文确实不见了，但通知读起来有两处不对。",
+        "findings": [
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "锁屏上的通知显示的是频道 id，不是频道名",
+          "impact": "看到一串字符，不知道是哪个频道",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s17"
+          ],
+          "decidedBy": "user",
+          "attachments": [
+           {
+            "id": "lockscreen",
+            "name": "lockscreen.svg",
+            "url": "lockscreen.svg"
+           }
+          ]
+         },
+         {
+          "id": "P3-1",
+          "severity": "P3",
+          "problem": "@ 的通知和普通消息的通知是同一个提示音",
+          "impact": "听声音分不出是不是有人在找自己",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "deferred",
+          "leadsTo": [],
+          "decidedBy": "user"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "s9",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "9",
+       "title": "推送失败时把通知存下来重试",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "code-review",
+       "inputs": [
+        {
+         "from": "v6|code-review",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "推送失败时把通知存下来重试",
+        "causes": [
+         {
+          "review": "v6|code-review",
+          "findings": [
+           "P1-1"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/notify/push.ts",
+        "app/store",
+        "app/notify/channels/mobile/apns.ts"
+       ]
+      },
+      {
+       "id": "s11",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "11",
+       "title": "通知里写明是谁 @ 了你",
+       "agent": "agent-A",
+       "writing": false,
+       "raisedBy": "test",
+       "inputs": [
+        {
+         "from": "v6|test",
+         "primary": true
+        },
+        {
+         "from": "v6|code-review",
+         "primary": false
+        }
+       ],
+       "input": {
+        "text": "通知里写明是谁 @ 了你",
+        "causes": [
+         {
+          "review": "v6|code-review",
+          "findings": [
+           "P2-3"
+          ]
+         },
+         {
+          "review": "v6|test",
+          "findings": [
+           "P2-1"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": [
+         "9c1d7e0aa"
+        ],
+        "evidence": [
+         {
+          "command": "npm test app/notify app/chat",
+          "result": "passed",
+          "summary": "17 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "s13",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "13",
+       "title": "同一个人被 @ 两次只通知一次",
+       "agent": "review-agent",
+       "writing": false,
+       "raisedBy": "code-review",
+       "inputs": [
+        {
+         "from": "v1|code-review",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "同一个人被 @ 两次只通知一次",
+        "causes": [
+         {
+          "review": "v1|code-review",
+          "findings": [
+           "P2-1"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": [
+         "21476e43c"
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "g13|deploy",
+       "kind": "gate",
+       "gate": "deploy",
+       "state": "done",
+       "taskId": null,
+       "title": "把 @ 解析部署到测试环境",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "s13",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "把 @ 解析部署到测试环境",
+        "causes": [],
+        "steps": [
+         {
+          "text": "切到 mention 分支，确认是最新的",
+          "command": "git switch mention && git pull"
+         },
+         {
+          "text": "部署到测试环境",
+          "command": "npm run deploy -- --env staging"
+         },
+         {
+          "text": "打开测试环境，确认版本号是 21476e4"
+         }
+        ]
+       },
+       "output": {
+        "note": "已经部署到测试环境，版本 21476e4。"
+       },
+       "plans": []
+      },
+      {
+       "id": "s14",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "14",
+       "title": "推送失败时记一条日志，写明是谁、哪个频道",
+       "agent": "agent-E",
+       "writing": false,
+       "raisedBy": "code-review",
+       "inputs": [
+        {
+         "from": "v6|code-review",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "推送失败时记一条日志，写明是谁、哪个频道",
+        "causes": [
+         {
+          "review": "v6|code-review",
+          "findings": [
+           "P1-1"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/notify/push.ts"
+       ]
+      },
+      {
+       "id": "s15",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "15",
+       "title": "推送出错不影响消息发送",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "code-review",
+       "inputs": [
+        {
+         "from": "v6|code-review",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "推送出错不影响消息发送",
+        "causes": [
+         {
+          "review": "v6|code-review",
+          "findings": [
+           "P1-2"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/chat/send.ts"
+       ]
+      },
+      {
+       "id": "s16",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "16",
+       "title": "给通知内容定一个类型，私聊时不带频道",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "code-review",
+       "inputs": [
+        {
+         "from": "v6|code-review",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "给通知内容定一个类型，私聊时不带频道",
+        "causes": [
+         {
+          "review": "v6|code-review",
+          "findings": [
+           "P2-1",
+           "P2-2"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/notify/push.ts",
+        "app/store/messages.ts"
+       ]
+      },
+      {
+       "id": "s17",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "17",
+       "title": "通知里显示频道名，不显示频道 id",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "user",
+       "inputs": [
+        {
+         "from": "g6|test",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "通知里显示频道名，不显示频道 id",
+        "causes": [
+         {
+          "review": "g6|test",
+          "findings": [
+           "P2-1"
+          ]
+         }
+        ]
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/notify/push.ts"
+       ]
+      },
+      {
+       "id": "g11|test",
+       "kind": "gate",
+       "gate": "test",
+       "state": "waiting",
+       "taskId": null,
+       "title": "试一下：被 @ 时通知里能看到是谁",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "s11",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "试一下：被 @ 时通知里能看到是谁",
+        "causes": [],
+        "steps": [
+         {
+          "text": "启动开发服务器",
+          "command": "npm run dev"
+         },
+         {
+          "text": "用测试账号在 general 频道发一条 @ 自己的消息",
+          "command": "curl -X POST localhost:3000/api/messages -H 'content-type: application/json' -d '{\"channel\":\"general\",\"text\":\"@lin 看一下这个\"}'"
+         },
+         {
+          "text": "看收到的通知：应该写着是谁 @ 的，不应该出现消息正文"
+         },
+         {
+          "text": "锁屏再发一次，确认锁屏上也是这样"
+         }
+        ]
+       },
+       "output": {},
+       "plans": [],
+       "since": "2026-11-15T20:35"
+      },
+      {
+       "id": "s18",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "18",
+       "title": "对所有频道打开 @ 通知",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "g11|test",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "对所有频道打开 @ 通知",
+        "causes": []
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/notify/push.ts",
+        "app/chat/send.ts"
+       ]
+      },
+      {
+       "id": "v2|security-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P1-1",
+          "severity": "P1",
+          "problem": "推送内容里带了整条消息",
+          "impact": "消息会出现在别人的锁屏上，任何人都能看到",
+          "evidence": [
+           "app/chat/send.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s6"
+          ],
+          "decidedBy": "agent"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v3|security-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s3",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P1-1",
+          "severity": "P1",
+          "problem": "消息文本没有转义就拼进了 HTML",
+          "impact": "可以在消息里注入脚本，所有看到这条消息的人都会执行",
+          "evidence": [
+           "app/chat/render.ts"
+          ],
+          "state": "open",
+          "leadsTo": [],
+          "recommendation": {
+           "decision": "accept",
+           "reason": "这是可以直接利用的注入，#3 提交之前必须修。"
+          }
+         }
+        ]
+       },
+       "plans": [],
+       "since": "2026-11-15T19:40"
+      },
+      {
+       "id": "v1|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "同一个名字出现几次就会返回几次",
+          "impact": "被 @ 两次的人会收到两条一样的通知",
+          "evidence": [
+           "app/chat/mention.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s13"
+          ],
+          "decidedBy": "user"
+         },
+         {
+          "id": "P3-1",
+          "severity": "P3",
+          "problem": "正则只认字母和数字",
+          "impact": "名字里带表情符号的人 @ 不到",
+          "evidence": [
+           "app/chat/mention.ts"
+          ],
+          "state": "rejected",
+          "leadsTo": [],
+          "decidedBy": "user"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v6|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": "review-agent",
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s6",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P1-1",
+          "severity": "P1",
+          "problem": "推送失败时通知直接丢掉，没有任何记录",
+          "impact": "被 @ 的人可能永远收不到，事后也查不出丢了哪些",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s9",
+           "s14"
+          ],
+          "decidedBy": "user"
+         },
+         {
+          "id": "P1-2",
+          "severity": "P1",
+          "problem": "sendMessage 在循环里直接调用 push()，推送抛错会让整个发送失败",
+          "impact": "消息已经存进去了，发送者却看到发送失败，重发就会出现两条一样的消息",
+          "evidence": [
+           "app/chat/send.ts",
+           "app/notify/push.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s15"
+          ],
+          "decidedBy": "agent"
+         },
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "通知内容是随手拼出来的对象，没有类型",
+          "impact": "字段改名或漏传时编译器发现不了，要等客户端解析失败才知道",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s16"
+          ],
+          "decidedBy": "agent"
+         },
+         {
+          "id": "P2-2",
+          "severity": "P2",
+          "problem": "私聊消息没有 channel，通知里的 channel 会是 undefined",
+          "impact": "在私聊里被 @ 的人点开通知，去不到任何地方",
+          "evidence": [
+           "app/notify/push.ts",
+           "app/store/messages.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s16"
+          ],
+          "decidedBy": "agent"
+         },
+         {
+          "id": "P2-3",
+          "severity": "P2",
+          "problem": "去掉全文之后，通知里没有留下发送者",
+          "impact": "收到通知只知道有人 @ 了自己，不知道是谁",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s11"
+          ],
+          "decidedBy": "user"
+         },
+         {
+          "id": "P2-4",
+          "severity": "P2",
+          "problem": "发送者在消息里 @ 自己，也会给自己推送",
+          "impact": "每次 @ 自己都收到一条没用的通知",
+          "evidence": [
+           "app/chat/send.ts"
+          ],
+          "state": "open",
+          "leadsTo": [],
+          "recommendation": {
+           "decision": "accept",
+           "reason": "在 send.ts 的循环里跳过发送者，一行就能改完。"
+          }
+         },
+         {
+          "id": "P3-1",
+          "severity": "P3",
+          "problem": "push() 没有任何测试",
+          "impact": "下次再改通知内容时，没有东西能拦住把全文加回去",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "open",
+          "leadsTo": [],
+          "recommendation": {
+           "decision": "defer",
+           "reason": "#16 会重写通知内容的结构，等它做完再补测试，免得写两遍。"
+          }
+         },
+         {
+          "id": "P3-2",
+          "severity": "P3",
+          "problem": "参数名叫 payload，传进来的其实是整条消息",
+          "impact": "读代码的人会以为可以传任意内容",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "rejected",
+          "leadsTo": [],
+          "decidedBy": "agent"
+         },
+         {
+          "id": "P3-3",
+          "severity": "P3",
+          "problem": "一条消息 @ 很多人时是一个一个推送的，没有批量接口",
+          "impact": "@ 上百人的消息会让发送明显变慢",
+          "evidence": [
+           "app/chat/send.ts",
+           "app/notify/push.ts"
+          ],
+          "state": "deferred",
+          "leadsTo": [],
+          "decidedBy": "user"
+         }
+        ]
+       },
+       "plans": [],
+       "since": "2026-11-15T19:50",
+       "thread": [
+        {
+         "question": "P2-1 为什么是 P2，不是 P1？没有类型不是很危险吗？",
+         "context": [
+          {
+           "kind": "task",
+           "label": "代码 review #6"
+          },
+          {
+           "kind": "finding",
+           "label": "P2-1"
+          }
+         ],
+         "answer": "我按\"出错时的后果\"定级：P1 是用户会直接受害（收不到通知、内容泄露），P2 是会让后面的改动更容易出错。payload 没有类型现在不会让任何通知出错，它的风险在下一次有人改字段名的时候；而且 #16 已经计划给它定类型，所以放在 P2。如果 app/notify/push.ts 以后要被别的模块直接调用，我会把它升到 P1。",
+         "at": "2026-11-15T20:12",
+         "consulted": {
+          "agent": "review-agent",
+          "outcome": "ended"
+         }
+        }
+       ]
+      },
+      {
+       "id": "v9|security-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s9",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "重试队列没有上限",
+          "impact": "可以被人用大量 @ 撑爆存储",
+          "evidence": [
+           "app/notify/push.ts"
+          ],
+          "state": "open",
+          "leadsTo": []
+         }
+        ]
+       },
+       "plans": [],
+       "since": "2026-11-15T20:05"
+      },
+      {
+       "id": "v6|test",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "test",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s6",
+         "primary": true
+        },
+        {
+         "from": "s2",
+         "primary": false
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "去掉全文之后，通知里看不出是谁 @ 的",
+          "impact": "收到通知也不知道该去哪看",
+          "evidence": [
+           "app/notify/push.ts",
+           "app/chat/send.ts"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s11"
+          ],
+          "decidedBy": "agent"
+         }
+        ],
+        "evidence": [
+         {
+          "command": "npx playwright test e2e/mention-notify.spec.ts",
+          "result": "failed",
+          "summary": "1 failed, 4 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v4|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s4",
+         "primary": true
+        },
+        {
+         "from": "s5",
+         "primary": false
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "弹出列表里会出现没有权限 @ 的人",
+          "impact": "选了也发不出去，用户不知道为什么",
+          "evidence": [
+           "app/ui/composer.tsx",
+           "app/auth/permissions.ts"
+          ],
+          "state": "open",
+          "leadsTo": []
+         },
+         {
+          "id": "P3-1",
+          "severity": "P3",
+          "problem": "成员列表按名字排序，没有把最近聊过的人放在前面",
+          "impact": "大频道里要翻很久才找得到人",
+          "evidence": [
+           "app/ui/composer.tsx"
+          ],
+          "state": "deferred",
+          "leadsTo": [],
+          "decidedBy": "agent"
+         }
+        ]
+       },
+       "plans": [],
+       "since": "2026-11-15T19:45"
+      },
+      {
+       "id": "v2|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "passed",
+       "inputs": [
+        {
+         "from": "s2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      },
+      {
+       "id": "v1|security-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "passed",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      },
+      {
+       "id": "v6|security-review",
+       "kind": "review",
+       "state": "running",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "running",
+       "inputs": [
+        {
+         "from": "s6",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      }
+     ]
+    },
+    {
+     "id": "recall",
+     "title": "消息支持撤回",
+     "purpose": "发出两分钟内的消息可以撤回，所有人看到的都变成「已撤回」。",
+     "branch": "recall",
+     "status": "active",
+     "commits": [
+      {
+       "id": "a3f9c21b7",
+       "subject": "feat(auth): only the sender may recall, within two minutes",
+       "date": "2026-11-15 20:40",
+       "author": "agent-E",
+       "live": false,
+       "files": [
+        {
+         "path": "app/auth/permissions.ts",
+         "status": "M",
+         "before": "// Who may do what in a channel.\nimport { currentUser } from './session'\n\nexport function canPost(channel) {\n  return channel.members.includes(currentUser())\n}\n\nexport function canRead(channel) {\n  return channel.public || channel.members.includes(currentUser())\n}\n\nexport function canAdmin(channel) {\n  return channel.admins.includes(currentUser())\n}\n",
+         "after": "// Who may do what in a channel.\nimport { currentUser } from './session'\n\nexport function canPost(channel) {\n  return channel.members.includes(currentUser())\n}\n\nexport function canRead(channel) {\n  return channel.public || channel.members.includes(currentUser())\n}\n\nexport function canAdmin(channel) {\n  return channel.admins.includes(currentUser())\n}\n\nexport function canRecall(message, now = Date.now()) {\n  return message.author === currentUser() && now - message.at < 2 * 60 * 1000\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "e7b20d4c1",
+       "subject": "chore(store): add a recalled flag to stored messages",
+       "date": "2026-11-15 21:30",
+       "author": "agent-D",
+       "live": false,
+       "files": [
+        {
+         "path": "app/store/messages.ts",
+         "status": "M",
+         "before": "// Storing messages, newest last, per channel.\nconst byChannel = new Map()\n\nexport function save(channel, text, id = crypto.randomUUID()) {\n  const message = { id, channel, text, at: Date.now() }\n  const list = byChannel.get(channel) ?? []\n  byChannel.set(channel, [...list.filter(m => m.id !== id), message])\n  return message\n}\n\nexport function messagesIn(channel) {\n  return byChannel.get(channel) ?? []\n}\n",
+         "after": "// Storing messages, newest last, per channel.\nconst byChannel = new Map()\n\nexport function save(channel, text, id = crypto.randomUUID()) {\n  const message = { id, channel, text, at: Date.now(), recalled: false }\n  const list = byChannel.get(channel) ?? []\n  byChannel.set(channel, [...list.filter(m => m.id !== id), message])\n  return message\n}\n\nexport function messagesIn(channel) {\n  return byChannel.get(channel) ?? []\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "uncommitted",
+       "subject": "正在写，还没有提交",
+       "date": "2026-11-15 21:45",
+       "author": "",
+       "live": true,
+       "files": [
+        {
+         "path": "app/store/messages.ts",
+         "status": "M",
+         "before": "// Storing messages, newest last, per channel.\nconst byChannel = new Map()\n\nexport function save(channel, text, id = crypto.randomUUID()) {\n  const message = { id, channel, text, at: Date.now(), recalled: false }\n  const list = byChannel.get(channel) ?? []\n  byChannel.set(channel, [...list.filter(m => m.id !== id), message])\n  return message\n}\n\nexport function messagesIn(channel) {\n  return byChannel.get(channel) ?? []\n}\n",
+         "after": "// Storing messages, newest last, per channel.\nconst byChannel = new Map()\n\nexport function save(channel, text, id = crypto.randomUUID()) {\n  const message = { id, channel, text, at: Date.now(), recalled: false }\n  const list = byChannel.get(channel) ?? []\n  byChannel.set(channel, [...list.filter(m => m.id !== id), message])\n  return message\n}\n\nexport function messagesIn(channel) {\n  return byChannel.get(channel) ?? []\n}\n\nexport const recall = message => ({ ...message, recalled: true, text: '' })\n"
+        }
+       ]
+      }
+     ],
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "running",
+       "taskId": "1",
+       "title": "给消息加上已撤回的状态",
+       "agent": "agent-D",
+       "writing": true,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "给消息加上已撤回的状态",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "uncommitted"
+        ]
+       },
+       "plans": [
+        "app/store/messages.ts"
+       ]
+      },
+      {
+       "id": "s2",
+       "kind": "implement",
+       "state": "running",
+       "taskId": "2",
+       "title": "只有发送者能在两分钟内撤回",
+       "agent": "agent-E",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "只有发送者能在两分钟内撤回",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "a3f9c21b7"
+        ]
+       },
+       "plans": [
+        "app/chat",
+        "app/auth/permissions.ts"
+       ]
+      },
+      {
+       "id": "s3",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "3",
+       "title": "撤回的消息不再出现在搜索结果里",
+       "agent": "agent-F",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "撤回的消息不再出现在搜索结果里",
+        "causes": []
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "app/search"
+       ]
+      },
+      {
+       "id": "v2|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "found",
+       "since": "2026-11-15T20:52",
+       "inputs": [
+        {
+         "from": "s2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P2-1",
+          "severity": "P2",
+          "problem": "两分钟的时限写死在 canRecall 里",
+          "impact": "以后要改时限就得改代码重新发布",
+          "evidence": [
+           "app/auth/permissions.ts"
+          ],
+          "state": "open",
+          "leadsTo": [],
+          "recommendation": {
+           "decision": "accept",
+           "reason": "提成一个常量放进配置，改动只有几行。"
+          }
+         },
+         {
+          "id": "P3-1",
+          "severity": "P3",
+          "problem": "canRecall 没有单独的测试",
+          "impact": "时限边界（正好两分钟）出错时没人发现",
+          "evidence": [
+           "app/auth/permissions.ts"
+          ],
+          "state": "open",
+          "leadsTo": []
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v2|security-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "found",
+       "since": "2026-11-15T21:05",
+       "inputs": [
+        {
+         "from": "s2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P1-1",
+          "severity": "P1",
+          "problem": "canRecall 的 now 参数可以由调用方传进来",
+          "impact": "客户端只要传一个旧时间，就能撤回任意一条自己的旧消息",
+          "evidence": [
+           "app/auth/permissions.ts"
+          ],
+          "state": "open",
+          "leadsTo": [],
+          "recommendation": {
+           "decision": "accept",
+           "reason": "时间必须用服务端的，这是能直接利用的漏洞。"
+          }
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "u|e7b20d4c1",
+       "kind": "implement",
+       "state": "unregistered",
+       "taskId": null,
+       "title": "chore(store): add a recalled flag to stored messages",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "e7b20d4c1"
+        ]
+       },
+       "plans": []
+      }
+     ]
+    },
+    {
+     "id": "search",
+     "title": "全文搜索",
+     "purpose": "在所有消息里按词搜索，并在消息列表上方提供搜索框。",
+     "branch": null,
+     "status": "merged",
+     "commits": [
+      {
+       "id": "4056a9478",
+       "subject": "feat(search): find messages that contain a word",
+       "date": "2026-11-13 11:00",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/search/query.ts",
+         "status": "A",
+         "before": null,
+         "after": "// Finding messages that contain a word.\nimport { indexMessage } from './index'\n\nexport function search(messages, word) {\n  return messages.filter(m => indexMessage(m).includes(word.toLowerCase()))\n}\n\nexport function highlight(text, word) {\n  if (!word) return text\n  const at = text.toLowerCase().indexOf(word.toLowerCase())\n  if (at < 0) return text\n  return text.slice(0, at) + '<mark>' + text.slice(at, at + word.length) + '</mark>' + text.slice(at + word.length)\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "845665151",
+       "subject": "feat(search): a search box above the message list",
+       "date": "2026-11-13 15:40",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/ui/search-box.tsx",
+         "status": "A",
+         "before": null,
+         "after": "// The search box above the message list.\nimport { useState } from 'react'\nimport { search } from '../search/query'\n\nexport function SearchBox({ messages, onResults }) {\n  const [word, setWord] = useState('')\n  return (\n    <input\n      type=\"search\"\n      value={word}\n      placeholder=\"Search messages\"\n      onChange={e => {\n        setWord(e.target.value)\n        onResults(search(messages, e.target.value))\n      }}\n    />\n  )\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "b51c0e9a3",
+       "subject": "fix(search): ignore case and surrounding spaces in the query",
+       "date": "2026-11-15 22:10",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/search/query.ts",
+         "status": "M",
+         "before": "// Finding messages that contain a word.\nimport { indexMessage } from './index'\n\nexport function search(messages, word) {\n  return messages.filter(m => indexMessage(m).includes(word.toLowerCase()))\n}\n\nexport function highlight(text, word) {\n  if (!word) return text\n  const at = text.toLowerCase().indexOf(word.toLowerCase())\n  if (at < 0) return text\n  return text.slice(0, at) + '<mark>' + text.slice(at, at + word.length) + '</mark>' + text.slice(at + word.length)\n}\n",
+         "after": "// Finding messages that contain a word.\nimport { indexMessage } from './index'\n\nexport function search(messages, word) {\n  return messages.filter(m => indexMessage(m).includes(word.trim().toLowerCase()))\n}\n\nexport function highlight(text, word) {\n  if (!word) return text\n  const at = text.toLowerCase().indexOf(word.toLowerCase())\n  if (at < 0) return text\n  return text.slice(0, at) + '<mark>' + text.slice(at, at + word.length) + '</mark>' + text.slice(at + word.length)\n}\n"
+        }
+       ]
+      }
+     ],
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "按词查找消息",
+       "agent": "agent-A",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "按词查找消息",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "4056a9478"
+        ],
+        "evidence": [
+         {
+          "command": "npm test app/search",
+          "result": "passed",
+          "summary": "8 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v1|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "passed",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      },
+      {
+       "id": "v1|security-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "security-review",
+       "result": "passed",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      },
+      {
+       "id": "s2",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "2",
+       "title": "消息列表上方的搜索框",
+       "agent": "agent-B",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "消息列表上方的搜索框",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "845665151"
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v2|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "passed",
+       "inputs": [
+        {
+         "from": "s2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      },
+      {
+       "id": "g|deploy",
+       "kind": "gate",
+       "gate": "deploy",
+       "state": "done",
+       "taskId": null,
+       "title": "把搜索部署到正式环境",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "v2|code-review",
+         "primary": true
+        },
+        {
+         "from": "v1|code-review",
+         "primary": false
+        },
+        {
+         "from": "v1|security-review",
+         "primary": false
+        }
+       ],
+       "input": {
+        "text": "把搜索部署到正式环境",
+        "causes": [],
+        "steps": [
+         {
+          "text": "合并到 main",
+          "command": "git switch main && git merge --no-ff search"
+         },
+         {
+          "text": "部署到正式环境",
+          "command": "npm run deploy -- --env production"
+         },
+         {
+          "text": "在正式环境里搜一个词，确认有结果"
+         }
+        ]
+       },
+       "output": {
+        "note": "已经上线，搜索框在消息列表上方可以用。"
+       },
+       "plans": []
+      },
+      {
+       "id": "u|b51c0e9a3",
+       "kind": "implement",
+       "state": "unregistered",
+       "taskId": null,
+       "title": "fix(search): ignore case and surrounding spaces in the query",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "b51c0e9a3"
+        ]
+       },
+       "plans": []
+      }
+     ]
+    }
+   ],
+   "chores": [
+    {
+     "id": "c2",
+     "title": "给测试环境换一个新的推送密钥",
+     "by": "agent-A",
+     "state": "open",
+     "steps": [
+      {
+       "text": "在推送服务的后台生成一个新密钥，旧的那个月底过期"
+      },
+      {
+       "text": "写进本地的环境变量",
+       "command": "echo \"PUSH_KEY=<新密钥>\" >> .env.local"
+      }
+     ],
+     "since": "2026-11-15T18:00",
+     "unit": "mention"
+    },
+    {
+     "id": "c3",
+     "title": "在正式环境的监控面板上加一张搜索耗时的图",
+     "by": "agent-A",
+     "state": "open",
+     "since": "2026-11-14T16:20",
+     "steps": [
+      {
+       "text": "打开监控面板，新建一张图"
+      },
+      {
+       "text": "查询用这一条",
+       "command": "histogram_quantile(0.95, sum by (le) (rate(search_duration_seconds_bucket[5m])))"
+      }
+     ],
+     "unit": "search"
+    }
+   ]
+  },
+  {
+   "id": "hardening",
+   "title": "上线前加固",
+   "units": [
+    {
+     "id": "ratelimit",
+     "title": "登录限流",
+     "purpose": "同一个 IP 一分钟内最多尝试登录十次，超过的返回 429。",
+     "branch": "login-rate-limit",
+     "status": "active",
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "running",
+       "taskId": "1",
+       "title": "登录接口按 IP 限流",
+       "agent": "agent-G",
+       "writing": true,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "登录接口按 IP 限流",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "uncommitted"
+        ],
+        "evidence": [
+         {
+          "command": "npm test server/api/v1/users.test.ts",
+          "result": "failed",
+          "summary": "1 failed, 8 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "s2",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "2",
+       "title": "被限流时告诉客户端多久以后再试",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "被限流时告诉客户端多久以后再试",
+        "causes": []
+       },
+       "output": {
+        "commits": []
+       },
+       "plans": [
+        "server/api/v1/users.ts"
+       ]
+      }
+     ],
+     "commits": [
+      {
+       "id": "uncommitted",
+       "subject": "正在写，还没有提交",
+       "date": "2026-11-15 21:45",
+       "author": "",
+       "live": true,
+       "files": [
+        {
+         "path": "server/api/v1/users.ts",
+         "status": "M",
+         "before": "// Users: sign-in and the profile behind it.\nimport { db } from '../../db/schema'\n\nexport async function signIn(req) {\n  const user = await db.users.byEmail(req.body.email)\n  if (!user || !(await user.checkPassword(req.body.password))) {\n    return { status: 401 }\n  }\n  return { status: 200, session: await db.sessions.open(user.id) }\n}\n\nexport async function profile(req) {\n  return { status: 200, user: await db.users.byId(req.session.userId) }\n}\n",
+         "after": "// Users: sign-in and the profile behind it.\nimport { db } from '../../db/schema'\nimport { limiter } from '../limits'\n\nconst signIns = limiter({ per: 'ip', max: 10, window: 60_000 })\n\nexport async function signIn(req) {\n  if (!signIns.take(req.ip)) return { status: 429 }\n  const user = await db.users.byEmail(req.body.email)\n  if (!user || !(await user.checkPassword(req.body.password))) {\n    return { status: 401 }\n  }\n  return { status: 200, session: await db.sessions.open(user.id) }\n}\n\nexport async function profile(req) {\n  return { status: 200, user: await db.users.byId(req.session.userId) }\n}\n"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "chores": [
+    {
+     "id": "c1",
+     "title": "清理本地磁盘：旧的 worktree 和构建缓存",
+     "by": "agent-B",
+     "state": "open",
+     "steps": [
+      {
+       "text": "看一下还留着哪些 worktree",
+       "command": "git worktree list"
+      },
+      {
+       "text": "删掉已经合并的分支留下的 worktree",
+       "command": "git worktree remove ../demo-search && git worktree prune"
+      },
+      {
+       "text": "清掉构建缓存",
+       "command": "rm -rf node_modules/.vite dist"
+      }
+     ],
+     "since": "2026-11-13T10:00"
+    }
+   ]
+  },
+  {
+   "id": "ops",
+   "title": "运维",
+   "units": [
+    {
+     "id": "deploy-doc",
+     "title": "部署脚本写清楚用法",
+     "purpose": "脚本开头说明怎么用，缺了 DEPLOY_HOST 时直接报错。",
+     "branch": null,
+     "status": "merged",
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "给部署脚本加用法说明和参数检查",
+       "agent": "agent-H",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "给部署脚本加用法说明和参数检查",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "c0ffee123"
+        ],
+        "evidence": [
+         {
+          "command": "sh -n scripts/deploy.sh && DEPLOY_HOST= sh scripts/deploy.sh; test $? -ne 0",
+          "result": "passed",
+          "summary": "fails without DEPLOY_HOST, as intended"
+         }
+        ]
+       },
+       "plans": []
+      }
+     ],
+     "commits": [
+      {
+       "id": "c0ffee123",
+       "subject": "docs(scripts): say how to run deploy.sh and fail without DEPLOY_HOST",
+       "date": "2026-11-14 17:05",
+       "author": "agent-H",
+       "live": false,
+       "files": [
+        {
+         "path": "scripts/deploy.sh",
+         "status": "M",
+         "before": "#!/bin/sh\nset -e\nnpm ci\nnpm run build\nrsync -a dist/ \"$DEPLOY_HOST:/srv/app/\"\nssh \"$DEPLOY_HOST\" 'systemctl restart app'\n",
+         "after": "#!/bin/sh\n# Build the app and put it on the server named by DEPLOY_HOST.\n# Usage: DEPLOY_HOST=app.example.com scripts/deploy.sh\nset -e\n: \"${DEPLOY_HOST:?set DEPLOY_HOST to the server to deploy to}\"\nnpm ci\nnpm run build\nrsync -a dist/ \"$DEPLOY_HOST:/srv/app/\"\nssh \"$DEPLOY_HOST\" 'systemctl restart app'\n"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "chores": []
+  }
+ ]
+}
