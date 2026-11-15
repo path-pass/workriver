@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { attention, repoOf, unitsOf } from '@/data'
+import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import type { Intent, Unit, Workspace } from '@/types'
 import { Icon, Tip } from './bits'
@@ -94,7 +94,8 @@ function ManagerState({ intent }: { intent: Intent }) {
 /** Folded, the rail still shows that some agent is stuck on the user, anywhere. */
 function Blocked({ ws }: { ws: Workspace | null }) {
   const { t } = useT()
-  const n = needs(unitsOf(ws)).blocking
+  // Gates anywhere, and agents anywhere waiting in their terminal.
+  const n = needs(unitsOf(ws)).blocking + blockedAgents(ws).length
   return n > 0 ? (
     <Tip text={t('unit.blocking', { count: n })}>
       <span role="img" aria-label={t('unit.blocking', { count: n })} className="tag" data-tone="block"><Icon name="gate-test" className="size-3" /></span>
@@ -162,6 +163,8 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
           // A search opens every group with a match.
           const isOpen = !!needle || open.includes(intent.id) || !intent.units.length
           const sum = needs(intent.units)
+          // Its agents waiting in their terminal count as blocking too.
+          sum.blocking += blockedAgents(ws).filter(s => s.intent === intent.id).length
           return (
             <Collapsible
               key={intent.id}

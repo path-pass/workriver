@@ -61,8 +61,14 @@ looked at now and then.
   kind as an icon, a title, the unit, and how long it has waited; in the narrow panel a
   row takes two lines. Groups, each behind a small header with its count, in this order,
   an empty one not drawn:
-  1. **Blocking** – gates waiting for the user; an agent cannot go on. Violet, the
-     strongest rows.
+  1. **Blocking** – first, agents waiting for a person in their terminal (an approval, a
+     question; the runtime says "blocked"), across every workspace: the agent's mark and
+     name, its topic, its intent or workspace, how long it has waited; a click brings its
+     terminal to the front, and the row leaves by itself once it is no longer waiting. Then
+     gates waiting for the user; an agent cannot go on. Violet, the strongest rows. Both
+     count in the filled violet marks (the intent's in the rail, the folded rail's), the
+     tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
+     Settings, a newly waiting agent raises a browser notification that opens its terminal.
   2. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
   3. **Gaps** – commits that name no node, branches that grew beyond the original plan.
@@ -80,8 +86,9 @@ looked at now and then.
   is on which node is the mark on the node. The list is grouped by the Herdr workspace each
   agent runs in, headed by the intent's title when the workspace has one, else by the
   workspace's label with a quiet "no manager"; groups with someone working come first, then
-  by name. In a group the manager comes first (with a small crown), then working, blocked,
-  holding work, idle. Under each name, quietly, what the session is about (its terminal
+  by name. In a group an agent waiting for a person in its terminal comes first, with a
+  violet hand (the Blocking meaning, not the amber writing ring), then the manager (with a
+  small crown), then working, holding work, idle. Under each name, quietly, what the session is about (its terminal
   title); the agent's mark shows it on hover wherever the name is unique. An agent Herdr
   knows by no name is called by its harness and a number within its workspace ("claude
   2"); its mark reads "C2".
@@ -138,8 +145,14 @@ looked at now and then.
   steps; its chip is the gate's title. A temporary agent answers
   from workriver's records and the code; it asks the agent that did the work only when
   that agent is idle, never one at work, and the answer says quietly whether it did. While
-  it works, the step it is at shows. The questions and answers stay on the node, above
-  the box; file paths in an answer open the file. A node with questions carries a small
+  it works, the step it is at shows; if none can be started, the turn says why in the
+  user's language (the service's words on hover). Questions form conversations on the node:
+  question, answer, question, answer, with the box under the last one; follow-ups go to the
+  same temporary agent while it lives (it closes after a quiet while, and a later question
+  starts a new one with the conversation so far). Under a conversation: "Draft conclusion"
+  (its agent writes what was decided, what changes, what stays open; shown at the end, and
+  it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
+  "New question" starts another conversation. File paths in an answer open the file. A node with questions carries a small
   neutral speech-bubble mark with their count on the graph: information, not a button.
 
 ## Colour means one thing: the state of a piece of work
@@ -156,16 +169,22 @@ Three things that used to share colour now have their own channel:
 - **Who raised it** is an icon: shield for security review, eye for code review, flask
   for tests.
 - **What kind of work** is a shape: square corners for implementing, a pill for a review,
-  a double frame with sharp corners for a gate (work only the user can do).
+  a double frame with sharp corners for a gate (work only the user can do). Design work is
+  drawn as implementing with a compass icon; its output is its design note, and it never
+  carries the "no tests run" mark. A gate to confirm a design ("Confirm design") has a
+  scale icon; its note is the decision.
 - **Which agent** appears only on the agent's mark. Its colour is derived from the name
   and is used nowhere else.
 
 ## Findings
 
 A review's output is a list of findings, and they live in the review, not on the graph.
-A decision is not a node. Each finding gets one of three outcomes: accepted (work was
+A decision is not a node. Each finding gets one of four outcomes: accepted (work was
 handed out for it: one finding may lead to several nodes, several findings to one node),
-rejected (struck through), or deferred (quiet, with a clock); until then it is open.
+revised (the same, but fixed the user's way: a note is required and travels to the manager;
+shown like accepted with a small pencil), rejected (struck through), or deferred (quiet,
+with a clock); until then it is open. The buttons read Accept, Revise, Reject, Defer;
+Revise waits for the note. Every decision goes to the intent's manager.
 An agent may decide on its own: such a finding carries a small neutral robot mark, a
 decision by the user none. An open finding may carry the agent's suggestion, and its
 reason once the row is opened.

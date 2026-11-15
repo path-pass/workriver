@@ -46,6 +46,8 @@ export interface Session {
   session?: string;
   /** What the session is about (its terminal title), while it lives. */
   topic?: string;
+  /** Waiting for a person in its terminal (a question, an approval) since then. */
+  blockedSince?: string;
   /** The runtime workspace (in Herdr) it runs in. */
   group?: { id: string; label: string };
   /** The session is gone: the agent is not shown anywhere any more. */
@@ -68,7 +70,7 @@ export interface Sent {
   to: string | null;
   toManager: boolean;
   /** Why it was not delivered; shown in the user's language. */
-  reasonCode?: 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error';
+  reasonCode?: ReasonCode;
   /** The same in the service's words (for a runtime error, the runtime's own). */
   reason?: string;
   /** The message as sent. */
@@ -133,7 +135,8 @@ export interface Unit {
 export type TaskKind = 'implement' | 'review' | 'gate';
 
 /** What a gate asks of the user. More kinds may follow. */
-export type GateKind = 'deploy' | 'test';
+/** decide: the user discusses a design (asking why) and confirms it; the note is the decision. */
+export type GateKind = 'deploy' | 'test' | 'decide';
 
 /**
  * done         finished
@@ -147,10 +150,11 @@ export type TaskState = 'done' | 'running' | 'todo' | 'waiting' | 'unregistered'
 export type Severity = 'P1' | 'P2' | 'P3';
 
 /**
- * open: waiting for the user's decision. accepted: work was handed out for it.
+ * open: waiting for the user's decision. accepted: work was handed out for it. revised: to
+ * be fixed the user's way (their note says how), work handed out like accepted.
  * rejected: decided against. deferred: put off, to be raised again later.
  */
-export type FindingState = 'open' | 'accepted' | 'rejected' | 'deferred';
+export type FindingState = 'open' | 'accepted' | 'revised' | 'rejected' | 'deferred';
 
 /**
  * One problem a review, or the user at a test gate, found. A decision on it is not a node:
@@ -227,8 +231,14 @@ export interface Task {
    * open findings finished. Absent when nothing waits.
    */
   since?: string;
-  /** Questions asked about this work and their answers, oldest first. */
+  /** Questions asked about this work and their answers, oldest first (the sample's form). */
   thread?: Turn[];
+  /** Conversations about this work, oldest first (from the service). */
+  threads?: Thread[];
+  /** A design task: implement work whose output is its design note. */
+  design?: boolean;
+  /** Waiting gates: the latest conclusion about it or the work it follows, to start the note from. */
+  draft?: string;
   /** Review nodes only. */
   reviewer?: Reviewer;
   /** Review nodes only: found problems, found none, or still running. */
@@ -270,13 +280,29 @@ export interface AskContext {
   label: string;
   /** file and lines: the repository path. */
   path?: string;
+  /** lines: the first and last line. */
+  from?: number;
+  to?: number;
 }
 
 /**
  * One question about a piece of work and its answer. A temporary agent answers from the
  * records and the code; it asks the agent that did the work only when that agent is idle.
  */
+/** A conversation about a task; its questions share one temporary agent while it lives. */
+export interface Thread {
+  id: string;
+  /** The user ended it; a new question starts a new thread. */
+  ended: boolean;
+  /** Its temporary agent runs, so a follow-up keeps its context. */
+  live: boolean;
+  conclusion?: string;
+  turns: Turn[];
+}
+
 export interface Turn {
+  /** Its id with the service ("q3"); absent in the sample. */
+  id?: string;
   question: string;
   context: AskContext[];
   /** Null while it comes. */
@@ -286,7 +312,14 @@ export interface Turn {
   /** The agent that did the work: asked, or not asked because it was busy or gone. */
   consulted?: { agent: string; outcome: 'asked' | 'busy' | 'ended' };
   at: string;
+  /** No answer will come, and why. */
+  failed?: { code: ReasonCode; reason: string };
+  /** A request for the thread's conclusion rather than a question. */
+  conclude?: boolean;
 }
+
+/** Why a message was not delivered, or a question got no answer. */
+export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error' | 'no-workspace' | 'timeout' | 'restarted';
 
 export type AskStep = 'starting' | 'reading' | 'asking';
 

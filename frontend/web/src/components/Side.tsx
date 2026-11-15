@@ -41,7 +41,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
               {!g.intent?.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
             </h3>
           )}
-          {g.agents.map(({ agent, session, topic, state, at, manager }) => (
+          {g.agents.map(({ agent, session, topic, state, at, manager, blocked }) => (
             // The line opens the agent's work; the icon at its end, its terminal.
             <div key={session ?? agent} className="agent-row">
             <button
@@ -54,7 +54,12 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
             >
               <Who name={agent} topic={topic} live={state === 'working' && !!at?.node.writing} />
               <span className="flex min-w-0 flex-col">
-                <span className="flex items-center gap-1.5">{agent}{manager && <Mark name="manager" label={t('manager.mark')} />}</span>
+                <span className="flex items-center gap-1.5">
+                  {agent}
+                  {manager && <Mark name="manager" label={t('manager.mark')} />}
+                  {/* Waiting for a person in its terminal: the Blocking meaning, in violet. */}
+                  {blocked && <span className="text-you-ink"><Mark name="blocked" label={t('agents.blocked')} /></span>}
+                </span>
                 {topic && <span className="truncate text-[11px] text-ink-2">{topic}</span>}
               </span>
               <span className="at">

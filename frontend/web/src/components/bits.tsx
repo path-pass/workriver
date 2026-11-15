@@ -1,5 +1,5 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { ArrowLeft, ArrowUp, Bot, Crown, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ArrowUp, Bot, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
 import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -19,6 +19,9 @@ const ICONS: Record<string, LucideIcon> = {
   manager: Crown,
   'gate-deploy': Rocket,
   'gate-test': Hand,
+  'gate-decide': Scale,
+  design: DraftingCompass,
+  blocked: Hand,
   chore: ListTodo,
   inbox: Inbox,
   agents: Users,

@@ -72,6 +72,7 @@ type LineData = { state?: 'flowed' | 'flowing'; also: boolean; off: boolean }
 const glyph = (n: Task) =>
   n.kind === 'review' ? n.reviewer ?? 'ring'
   : n.kind === 'gate' ? `gate-${n.gate}`
+  : n.design && (n.state === 'done' || n.state === 'todo') ? 'design'
   : ({ done: 'check', running: 'pen', unregistered: 'no', todo: 'ring', waiting: 'ring' })[n.state]
 
 const ports = (
@@ -326,10 +327,12 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         {f.decidedBy === 'agent' && (
           <span className="flex h-7 items-center text-ink-2"><Mark name="agent" label={t('finding.byAgent')} /></span>
         )}
-        {f.state === 'accepted' && !f.leadsTo.length ? (
-          // Accepted here and not turned into tasks yet: the manager bot has it.
-          <span className="flex flex-none items-center py-1 text-xs text-ink-2">{t('finding.acceptedHere')}</span>
-        ) : f.state === 'accepted' ? (
+        {/* Revised: like accepted, the user's way; a pencil says so. */}
+        {f.state === 'revised' && <span className="flex h-7 items-center text-ink-2"><Mark name="pen" label={t('finding.revised')} /></span>}
+        {(f.state === 'accepted' || f.state === 'revised') && !f.leadsTo.length ? (
+          // Decided here and not turned into tasks yet: the manager bot has it.
+          <span className="flex flex-none items-center py-1 text-xs text-ink-2">{t(f.state === 'revised' ? 'finding.revised' : 'finding.acceptedHere')}</span>
+        ) : f.state === 'accepted' || f.state === 'revised' ? (
           <span role="group" aria-label={t('finding.leadsTo')} className="flex flex-none items-center gap-1 py-0.5">
             {f.leadsTo.map(id => {
               const to = unit.tasks.find(n => n.id === id)
@@ -443,7 +446,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
       const by = byId(c.review)
       return by ? findingsOf(by).filter(f => c.findings.includes(f.id)).map(f => ({ by, f })) : []
     })
-    head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t('kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
+    head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t(n.design ? 'kind.design' : 'kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
     input = <>
       <div>{n.input.text || n.title}</div>
       {n.state === 'unregistered' && quiet(t('io.unknownInput'))}

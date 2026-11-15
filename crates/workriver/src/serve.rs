@@ -24,7 +24,7 @@ use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, RuntimeRef, Store};
 use workriver_scan as scan;
 
-use crate::deliver;
+use crate::{ask, deliver};
 use crate::snapshot::{self, Cache};
 
 pub struct App {
@@ -37,6 +37,14 @@ pub struct App {
     live: Mutex<Option<Vec<RuntimeAgent>>>,
     /// Delivered messages waiting to be picked up.
     pending: Mutex<Vec<Pending>>,
+    /// Questions waiting for their temporary agent's answer, with when they give up.
+    deadlines: Mutex<Vec<(String, std::time::Instant)>>,
+    /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
+    idle: Mutex<Vec<(String, String, std::time::Instant)>>,
+    waits: Waits,
+    /// When each live agent was first seen blocked, by session.
+    // ponytail: in memory; a restart makes a blocked agent's wait start again.
+    blocked: Mutex<std::collections::HashMap<String, String>>,
     changed: broadcast::Sender<()>,
     port: u16,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
@@ -62,11 +70,27 @@ const WATCH: Duration = Duration::from_secs(30 * 60);
 
 type Shared = Arc<App>;
 
+/// How long after the decision a temporary agent is closed, so its own command can return.
+const CLOSE_DELAY: Duration = Duration::from_secs(3);
+
 /// How often the runtime's agents are read.
 const POLL: Duration = Duration::from_secs(2);
 
 /// Serves on an already bound listener until Ctrl-C.
-pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>) -> anyhow::Result<()> {
+/// How long a temporary agent may take to answer, and to wait idle for a follow-up.
+#[derive(Clone, Copy)]
+pub struct Waits {
+    pub answer: Duration,
+    pub idle: Duration,
+}
+
+impl Default for Waits {
+    fn default() -> Self {
+        Waits { answer: ask::TIMEOUT, idle: ask::IDLE }
+    }
+}
+
+pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
     let (changed, _) = broadcast::channel(16);
     let app = Arc::new(App {
@@ -76,6 +100,10 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         warning,
         live: Mutex::new(None),
         pending: Mutex::default(),
+        deadlines: Mutex::default(),
+        idle: Mutex::default(),
+        waits,
+        blocked: Mutex::default(),
         changed: changed.clone(),
         port,
         watcher: Mutex::new(None),
@@ -131,6 +159,17 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         out
     };
     app.pending.lock().unwrap().extend(pending);
+    // Questions left open by a previous run have lost their wait; close them.
+    let open: Vec<String> = app.store.lock().unwrap().state().questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect();
+    for id in open {
+        app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
+    }
+    // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
+    // the next question starts a new one with the thread so far.
+    let left: Vec<String> = app.store.lock().unwrap().state().threads.iter().filter_map(|t| t.name.clone()).collect();
+    for name in left {
+        let _ = app.runtime.close(&name);
+    }
     tracing::info!("workriver on http://127.0.0.1:{port}");
     axum::serve(listener, router(app)).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
     Ok(())
@@ -172,6 +211,14 @@ impl App {
     /// messages picked up when their receiver starts working.
     fn poll(&self) {
         let now = self.runtime.agents().ok();
+        {
+            let mut blocked = self.blocked.lock().unwrap();
+            let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();
+            blocked.retain(|s, _| still.iter().any(|a| &a.session == s));
+            for a in still {
+                blocked.entry(a.session.clone()).or_insert_with(core::now);
+            }
+        }
         let differs = {
             let mut live = self.live.lock().unwrap();
             let differs = *live != now;
@@ -205,6 +252,25 @@ impl App {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }
+        // Questions whose temporary agent has not answered in time.
+        let now = std::time::Instant::now();
+        let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
+        for id in &late {
+            self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {} seconds", self.waits.answer.as_secs()));
+        }
+        let recorded = recorded || !late.is_empty();
+        // Threads idle for too long: their temporary agent goes; the thread stays open.
+        let gone: Vec<String> = {
+            let mut idle = self.idle.lock().unwrap();
+            let gone = idle.iter().filter(|(_, _, at)| *at <= now).map(|(_, name, _)| name.clone()).collect();
+            idle.retain(|(_, _, at)| *at > now);
+            gone
+        };
+        for name in gone {
+            if let Err(e) = self.runtime.close(&name) {
+                tracing::warn!("cannot close {name}: {e}");
+            }
+        }
         if differs || recorded {
             let _ = self.changed.send(());
         }
@@ -218,6 +284,11 @@ impl App {
         let body = self.complete(actor, body)?;
         let e = self.store.lock().unwrap().append(actor, body)?;
         self.deliver(&e);
+        match &e.body {
+            Body::QuestionAnswered { question, .. } => self.answered(question),
+            Body::ThreadEnded { thread } => self.end_thread(thread),
+            _ => {}
+        }
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
         if let (_, Some(unit), _) = e.body.refs() {
             let found = self.store.lock().unwrap().state().unit(&unit).map(|u| (u.repo.clone(), u.branch.clone()));
@@ -269,6 +340,116 @@ impl App {
         let here = near.and_then(group_of);
         let named: Vec<_> = live.iter().filter(|a| a.name == agent).collect();
         named.iter().find(|a| here.is_some() && a.group == here).or(named.first()).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+    }
+
+    /// Starts the temporary agent for a question and gives it the prompt; any failure is
+    /// recorded on the question. Blocking: it waits for the agent to be ready.
+    fn start_question(&self, id: &str) {
+        let fail = |code, why: String| self.fail_question(id, code, &why);
+        // Read fresh: a temporary agent started since the last poll counts.
+        let Ok(live) = self.runtime.agents() else { return fail(ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into()) };
+        // A follow-up goes to the thread's agent while it lives, which keeps its context.
+        let current = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().and_then(|q| s.threads.iter().find(|t| t.id == q.thread)).and_then(|t| Some((t.id.clone(), t.agent.clone()?, t.name.clone()?)))
+        };
+        if let Some((thread, agent, name)) = current.filter(|(_, _, n)| live.iter().any(|a| &a.name == n)) {
+            self.idle.lock().unwrap().retain(|(t, _, _)| *t != thread);
+            if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent, name: name.clone() }) {
+                tracing::warn!("question {id}: {}", e.1);
+            }
+            self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
+            let text = self.store.lock().unwrap().state().question(id).ok().map(ask::follow_up).unwrap_or_default();
+            if let Err(e) = self.runtime.send(&name, &text) {
+                fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
+            }
+            return;
+        }
+        let (q, unit, task_agent, manager, group) = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            let Ok(q) = s.question(id).cloned() else { return };
+            let Ok(u) = s.unit(&q.unit).cloned() else { return };
+            let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
+            let intent = s.intents.iter().find(|i| i.id == u.intent);
+            let manager = intent.and_then(|i| i.manager.clone());
+            let group = intent.and_then(|i| i.runtime_ref.clone());
+            (q, u, task_agent, manager, group)
+        };
+        let live_one = |s: &Option<String>| s.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).cloned();
+        let (worker, boss) = (live_one(&task_agent), live_one(&manager));
+        // Where: the intent's workspace, else where its agents run.
+        let Some(group) = group.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
+            return fail(ReasonCode::NoWorkspace, format!("intent {} follows no Herdr workspace and none of its agents runs", unit.intent));
+        };
+        // Which harness: the task's agent's, else the manager's, else claude.
+        let known = |s: &Option<String>| s.as_ref().and_then(|s| self.store.lock().unwrap().state().agents.iter().find(|a| &a.session == s).map(|a| a.harness.clone()));
+        let harness = worker.map(|a| a.harness).or_else(|| known(&task_agent)).or_else(|| boss.map(|a| a.harness)).or_else(|| known(&manager)).unwrap_or_else(|| "claude".into());
+        let dir = scan::worktree_of(Path::new(&unit.repo), &unit.branch).ok().flatten().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
+        let commits = task_commits(&unit, q.task);
+        let name = ask::agent_name(id);
+        let agent = match self.runtime.start_temporary(&group.id, &harness, &name, &dir) {
+            Ok(a) => a,
+            Err(e) => return fail(if matches!(e, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }, format!("cannot start {harness} as {name}: {e}")),
+        };
+        if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent: agent.session.clone(), name: agent.name.clone() }) {
+            tracing::warn!("question {id}: {}", e.1);
+        }
+        self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
+        let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits).unwrap_or_default();
+        if let Err(e) = self.runtime.send(&agent.name, &prompt) {
+            fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
+        }
+    }
+
+    /// Records a question as failed (if still open) and closes its temporary agent, which
+    /// did not answer.
+    fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
+        let body = Body::QuestionFailed { question: id.into(), reason_code: code, reason: why.into() };
+        if let Err(e) = self.record("workriver", body) {
+            tracing::warn!("question {id}: {}", e.1);
+        }
+        self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        let name = self.store.lock().unwrap().state().question(id).ok().and_then(|q| q.name.clone());
+        if let Some(name) = name {
+            self.close_later(name);
+        }
+    }
+
+    /// An answer came: the thread's agent waits for a follow-up until it has been idle too long.
+    fn answered(&self, id: &str) {
+        self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        let found = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().and_then(|q| s.threads.iter().find(|t| t.id == q.thread)).map(|t| (t.id.clone(), t.name.clone()))
+        };
+        if let Some((thread, Some(name))) = found {
+            let mut idle = self.idle.lock().unwrap();
+            idle.retain(|(t, _, _)| *t != thread);
+            idle.push((thread, name, std::time::Instant::now() + self.waits.idle));
+        }
+    }
+
+    /// The user ended a thread: its agent goes now.
+    fn end_thread(&self, thread: &str) {
+        self.idle.lock().unwrap().retain(|(t, _, _)| t != thread);
+        let name = self.store.lock().unwrap().state().threads.iter().find(|t| t.id == thread).and_then(|t| t.name.clone());
+        if let Some(name) = name {
+            self.close_later(name);
+        }
+    }
+
+    /// Closes a temporary agent a moment later, so a `workriver answer` it runs can finish.
+    fn close_later(&self, name: String) {
+        let runtime = self.runtime.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(CLOSE_DELAY);
+            if let Err(e) = runtime.close(&name) {
+                tracing::warn!("cannot close {name}: {e}");
+            }
+        });
     }
 
     /// Sends the message a user's input calls for, and records how far it got.
@@ -351,6 +532,8 @@ pub fn router(app: Shared) -> Router {
         .route("/api/chore-done", post(chore_done))
         .route("/api/focus", post(focus))
         .route("/api/here", post(here))
+        .route("/api/ask", post(ask_why))
+        .route("/api/thread/end", post(end_thread))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
@@ -410,7 +593,8 @@ async fn workspace(State(app): State<Shared>) -> Result<Json<snapshot::Workspace
     blocking(move || {
         let state = app.store.lock().unwrap().state().clone();
         let mut cache = app.cache.lock().unwrap();
-        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref())))
+        let blocked = app.blocked.lock().unwrap().clone();
+        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked)))
     })
     .await
 }
@@ -524,6 +708,50 @@ struct Here {
 }
 
 /// The CLI asks who and where it is: see `App::here`.
+#[derive(Deserialize)]
+struct Ask {
+    unit: String,
+    task: u32,
+    text: String,
+    /// The thread it continues; none starts a new one.
+    #[serde(default)]
+    thread: Option<String>,
+    #[serde(default)]
+    context: Vec<core::AskContext>,
+    /// Ask the thread's agent for the conclusion instead.
+    #[serde(default)]
+    conclude: bool,
+}
+
+#[derive(Deserialize)]
+struct EndThread {
+    thread: String,
+}
+
+async fn end_thread(State(app): State<Shared>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
+    blocking(move || app.record("user", Body::ThreadEnded { thread: t.thread }).map(Json)).await
+}
+
+/// The user asks why: recorded at once; the temporary agent starts in the background.
+async fn ask_why(State(app): State<Shared>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
+    let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
+    let starter = app.clone();
+    let e = blocking(move || app.record("user", body)).await?;
+    if let Body::QuestionAsked { id, .. } = &e.body {
+        let id = id.clone();
+        tokio::task::spawn_blocking(move || starter.start_question(&id));
+    }
+    Ok(Json(e))
+}
+
+/// A task's commits on its unit's branch, as (short id, subject).
+fn task_commits(u: &core::Unit, task: u32) -> Vec<(String, String)> {
+    let repo = Path::new(&u.repo);
+    let hashes = if u.merged.is_some() { u.merged_commits.clone() } else { scan::commit_list(repo, &u.base, &u.branch).unwrap_or_default() };
+    let want = format!("{}#{task}", u.id);
+    hashes.iter().filter_map(|h| scan::commit(repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
+}
+
 async fn here(State(app): State<Shared>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || app.here(&h.place, h.intent).map(Json)).await
 }

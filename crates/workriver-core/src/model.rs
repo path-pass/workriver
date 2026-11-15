@@ -19,6 +19,8 @@ pub enum TaskKind {
     Review,
     Tests,
     Gate,
+    /// Working out how, when the user has choices to make: its output is a design note.
+    Design,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -26,6 +28,8 @@ pub enum TaskKind {
 pub enum GateKind {
     Deploy,
     Test,
+    /// The user discusses a design (asking why) and confirms it; the note is the decision.
+    Decide,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -46,6 +50,8 @@ pub enum Severity {
 #[serde(rename_all = "lowercase")]
 pub enum Decision {
     Accept,
+    /// It must be fixed, but the user's way: the note says how.
+    Revise,
     Reject,
     Defer,
 }
@@ -86,8 +92,17 @@ pub enum TaskState {
 pub enum FindingState {
     Open,
     Accepted,
+    /// To be fixed the way the user's note says.
+    Revised,
     Rejected,
     Deferred,
+}
+
+impl FindingState {
+    /// Accepted or revised: work is handed out for it, and it can be a cause.
+    pub fn leads_to_work(self) -> bool {
+        matches!(self, FindingState::Accepted | FindingState::Revised)
+    }
 }
 
 /// One thing to do by hand, with the command for it when there is one.
@@ -213,6 +228,26 @@ pub enum ReasonCode {
     RuntimeDown,
     /// The runtime refused or failed; `reason` holds its words.
     RuntimeError,
+    /// The intent follows no runtime group, and no agent of it runs: nowhere to start one.
+    NoWorkspace,
+    /// No answer came in time.
+    Timeout,
+    /// The service restarted while waiting.
+    Restarted,
+}
+
+/// What a question is about besides its task: a finding, a file, or lines of a file.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct AskContext {
+    /// "task", "finding", "file" or "lines".
+    pub kind: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<u32>,
 }
 
 /// Where the message about a user's input (a decision, a gate result) is.
@@ -346,6 +381,42 @@ pub enum Body {
         #[serde(flatten)]
         delivery: Delivery,
     },
+    /// The user asks why about a task; a temporary agent answers.
+    #[serde(rename = "question.asked")]
+    QuestionAsked {
+        #[serde(default)]
+        id: String,
+        /// The thread it continues; empty starts a new one (whose id is this question's).
+        #[serde(default)]
+        thread: String,
+        unit: String,
+        task: u32,
+        text: String,
+        #[serde(default)]
+        context: Vec<AskContext>,
+        /// A request to write the thread's conclusion rather than a question.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        conclude: bool,
+    },
+    /// The temporary agent that answers it is running.
+    #[serde(rename = "question.started")]
+    QuestionStarted { question: String, agent: String, name: String },
+    #[serde(rename = "question.answered")]
+    QuestionAnswered {
+        question: String,
+        text: String,
+        /// The agent that did the work, if the answerer asked it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asked: Option<String>,
+        /// The answer is the thread's conclusion.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        conclusion: bool,
+    },
+    /// The user ends a thread; its temporary agent is closed.
+    #[serde(rename = "thread.ended")]
+    ThreadEnded { thread: String },
+    #[serde(rename = "question.failed")]
+    QuestionFailed { question: String, reason_code: ReasonCode, reason: String },
     #[serde(rename = "chore.created")]
     ChoreCreated {
         #[serde(default)]
@@ -369,7 +440,8 @@ impl Body {
         match self {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
-            AgentSeen { .. } => (None, None, None),
+            AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
+            QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } | IntentUpdated { intent, .. } => (Some(intent.clone()), None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
@@ -406,6 +478,49 @@ pub struct State {
     pub chores: Vec<Chore>,
     #[serde(default)]
     pub agents: Vec<Agent>,
+    #[serde(default)]
+    pub questions: Vec<Question>,
+    #[serde(default)]
+    pub threads: Vec<Thread>,
+}
+
+/// A conversation about a task: its questions share one temporary agent while it lives.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Thread {
+    pub id: String,
+    pub unit: String,
+    pub task: u32,
+    /// The temporary agent last started for it: session and name.
+    pub agent: Option<String>,
+    pub name: Option<String>,
+    pub ended: bool,
+    pub conclusion: Option<String>,
+}
+
+/// A question about a task and how it fared.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Question {
+    pub id: String,
+    pub thread: String,
+    pub conclude: bool,
+    pub unit: String,
+    pub task: u32,
+    pub text: String,
+    pub context: Vec<AskContext>,
+    pub at: String,
+    /// The temporary agent: its session and name, once started.
+    pub agent: Option<String>,
+    pub name: Option<String>,
+    pub answer: Option<String>,
+    pub asked: Option<String>,
+    pub answered_by: Option<String>,
+    pub failed: Option<(ReasonCode, String)>,
+}
+
+impl Question {
+    pub fn open(&self) -> bool {
+        self.answer.is_none() && self.failed.is_none()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -539,6 +654,13 @@ impl State {
         self.agents.iter().find(|a| a.session == session).map(|a| a.name.as_str())
     }
 
+    pub fn question(&self, id: &str) -> Result<&Question, Rejected> {
+        match self.questions.iter().find(|q| q.id == id) {
+            Some(q) => Ok(q),
+            None => no(format!("no question {id}")),
+        }
+    }
+
     fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
         match self.intents.iter().find(|i| i.id == id) {
             Some(i) => Ok(i),
@@ -632,6 +754,9 @@ impl State {
                     return no(format!("{unit}#{task} is already delivered; to correct it, run `workriver task deliver {unit}#{task} --amend` with what replaces it"));
                 }
                 check_output(t, &evidence, &findings)?;
+                if t.kind == TaskKind::Design && blank(&note) {
+                    return no("a design task delivers its design as the note: --note \"...\"");
+                }
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings) }
             }
             TaskAmended { unit, task, note, evidence, findings } => {
@@ -658,6 +783,9 @@ impl State {
                         return no(format!("finding {finding} of {unit}#{task} is already {}", name(&f.state)));
                     }
                     Some(_) => {}
+                }
+                if decision == Decision::Revise && blank(&note) {
+                    return no("revise needs a note saying how it is to be fixed: --note \"...\"");
                 }
                 FindingDecided { unit, task, finding, decision, note, by }
             }
@@ -704,6 +832,65 @@ impl State {
                 }
                 ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, unit, title, steps }
             }
+            QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
+                self.task(&unit, task)?;
+                if blank(&text) {
+                    return no("a question needs its text");
+                }
+                let id = format!("q{}", self.questions.len() + 1);
+                let thread = if thread.is_empty() {
+                    if conclude {
+                        return no("a conclusion is written for a thread; name it");
+                    }
+                    id.clone()
+                } else {
+                    match self.threads.iter().find(|t| t.id == thread) {
+                        None => return no(format!("no thread {thread}")),
+                        Some(t) if t.unit != unit || t.task != task => return no(format!("thread {thread} is about another task")),
+                        Some(t) if t.ended => return no(format!("thread {thread} has ended; start a new one")),
+                        Some(_) => thread,
+                    }
+                };
+                QuestionAsked { id, thread, unit, task, text, context, conclude }
+            }
+            QuestionStarted { question, agent, name } => {
+                let q = self.question(&question)?;
+                if !q.open() || q.agent.is_some() {
+                    return no(format!("question {question} is not waiting for an agent"));
+                }
+                QuestionStarted { question, agent, name }
+            }
+            QuestionAnswered { question, text, asked, conclusion } => {
+                let q = self.question(&question)?;
+                if !q.open() {
+                    return no(format!("question {question} is already {}", if q.answer.is_some() { "answered" } else { "closed" }));
+                }
+                // Only the thread's temporary agent (known by session or by name), or the user.
+                let t = self.threads.iter().find(|t| t.id == q.thread);
+                let name = t.and_then(|t| t.name.as_deref()).or(q.name.as_deref());
+                let mine = [q.agent.as_deref(), t.and_then(|t| t.agent.as_deref())].contains(&Some(actor)) || (name.is_some() && self.name_of(actor) == name);
+                if actor != "user" && !mine {
+                    return no(format!("question {question} is answered by the agent started for it ({}), or by the user", name.unwrap_or("not started yet")));
+                }
+                if blank(&text) {
+                    return no("an answer needs its text");
+                }
+                if conclusion != q.conclude {
+                    return no(if q.conclude { format!("{question} asks for the conclusion: answer with --conclusion") } else { format!("{question} is a question, not a request for a conclusion: answer without --conclusion") });
+                }
+                QuestionAnswered { question, text, asked, conclusion }
+            }
+            ThreadEnded { thread } => match self.threads.iter().find(|t| t.id == thread) {
+                None => return no(format!("no thread {thread}")),
+                Some(t) if t.ended => return no(format!("thread {thread} has already ended")),
+                Some(_) => ThreadEnded { thread },
+            },
+            QuestionFailed { question, reason_code, reason } => {
+                if !self.question(&question)?.open() {
+                    return no(format!("question {question} is already closed"));
+                }
+                QuestionFailed { question, reason_code, reason }
+            }
             ChoreDone { chore } => match self.chores.iter().find(|c| c.id == chore) {
                 None => return no(format!("no chore {chore}")),
                 Some(c) if c.done => return no(format!("chore {chore} is already done")),
@@ -718,7 +905,7 @@ impl State {
             return no(format!("unit {} is merged; record new work in a new unit", unit.id));
         }
         match t.kind {
-            TaskKind::Implement | TaskKind::Gate if blank(&t.title) => return no("an implement task or gate needs a title"),
+            TaskKind::Implement | TaskKind::Gate | TaskKind::Design if blank(&t.title) => return no("an implement or design task, or a gate, needs a title"),
             TaskKind::Gate if t.gate.is_none() => return no("a gate needs its kind: deploy or test"),
             TaskKind::Review if t.reviewer.is_none() => t.reviewer = Some(Reviewer::CodeReview),
             _ => {}
@@ -731,8 +918,8 @@ impl State {
         }
         for c in &t.causes {
             let by = self.task(&unit.id, c.task)?;
-            if by.kind == TaskKind::Implement {
-                return no(format!("{}#{} is an implement task; causes are findings of reviews, tests or gates", unit.id, c.task));
+            if matches!(by.kind, TaskKind::Implement | TaskKind::Design) {
+                return no(format!("{}#{} is an implement or design task; causes are findings of reviews, tests or gates", unit.id, c.task));
             }
             if c.findings.is_empty() {
                 return no(format!("the cause {}#{} names no finding", unit.id, c.task));
@@ -740,9 +927,9 @@ impl State {
             for id in &c.findings {
                 match by.findings.iter().find(|f| &f.found.id == id) {
                     None => return no(format!("{}#{} has no finding {id}", unit.id, c.task)),
-                    Some(f) if f.state != FindingState::Accepted => {
+                    Some(f) if !f.state.leads_to_work() => {
                         return no(format!(
-                            "finding {id} of {}#{} is not accepted; decide it first (workriver finding decide {}#{} {id} accept)",
+                            "finding {id} of {}#{} is neither accepted nor revised; decide it first (workriver finding decide {}#{} {id} accept)",
                             unit.id, c.task, unit.id, c.task
                         ));
                     }
@@ -883,6 +1070,7 @@ impl State {
                 if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
                     f.state = match decision {
                         Decision::Accept => FindingState::Accepted,
+                        Decision::Revise => FindingState::Revised,
                         Decision::Reject => FindingState::Rejected,
                         Decision::Defer => FindingState::Deferred,
                     };
@@ -941,6 +1129,57 @@ impl State {
                 at: at.clone(),
                 delivery: None,
             }),
+            QuestionAsked { id, thread, unit, task, text, context, conclude } => {
+                if !self.threads.iter().any(|t| &t.id == thread) {
+                    self.threads.push(Thread { id: thread.clone(), unit: unit.clone(), task: *task, agent: None, name: None, ended: false, conclusion: None });
+                }
+                self.questions.push(Question {
+                id: id.clone(),
+                thread: thread.clone(),
+                conclude: *conclude,
+                unit: unit.clone(),
+                task: *task,
+                text: text.clone(),
+                context: context.clone(),
+                at: at.clone(),
+                agent: None,
+                name: None,
+                answer: None,
+                asked: None,
+                answered_by: None,
+                failed: None,
+                })
+            }
+            QuestionStarted { question, agent, name } => {
+                if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
+                    q.agent = Some(agent.clone());
+                    q.name = Some(name.clone());
+                    if let Some(t) = self.threads.iter_mut().find(|t| t.id == q.thread) {
+                        t.agent = Some(agent.clone());
+                        t.name = Some(name.clone());
+                    }
+                }
+            }
+            QuestionAnswered { question, text, asked, conclusion } => {
+                if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
+                    q.answer = Some(text.clone());
+                    q.asked = asked.clone();
+                    q.answered_by = Some(e.actor.clone());
+                    if *conclusion && let Some(t) = self.threads.iter_mut().find(|t| t.id == q.thread) {
+                        t.conclusion = Some(text.clone());
+                    }
+                }
+            }
+            ThreadEnded { thread } => {
+                if let Some(t) = self.threads.iter_mut().find(|t| &t.id == thread) {
+                    t.ended = true;
+                }
+            }
+            QuestionFailed { question, reason_code, reason } => {
+                if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
+                    q.failed = Some((*reason_code, reason.clone()));
+                }
+            }
             ChoreDone { chore } => {
                 if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
                     c.done = true;
@@ -956,7 +1195,7 @@ impl State {
 
 /// What a delivery or its correction may carry.
 fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Result<(), Rejected> {
-    if !findings.is_empty() && t.kind == TaskKind::Implement {
+    if !findings.is_empty() && matches!(t.kind, TaskKind::Implement | TaskKind::Design) {
         return no("findings belong to a review or tests task; record a review task and deliver them there");
     }
     if evidence.iter().any(|e| blank(&e.command)) {

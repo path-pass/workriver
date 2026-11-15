@@ -1,4 +1,5 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
+mod ask;
 mod deliver;
 mod herdr;
 mod serve;
@@ -84,6 +85,19 @@ enum Cmd {
     /// The manager: the one agent per intent that splits work and hands it out.
     #[command(subcommand)]
     Manager(ManagerCmd),
+    /// Answer a question the user asked about a task (for the temporary agent started for it).
+    Answer {
+        /// The question (q3).
+        question: String,
+        #[arg(long)]
+        text: String,
+        /// The agent that did the work, if you asked it.
+        #[arg(long)]
+        asked: Option<String>,
+        /// The text is the conclusion the user asked for.
+        #[arg(long)]
+        conclusion: bool,
+    },
     /// Print the instructions for an agent working with workriver.
     Guide {
         /// `worker` (short; goes into every task message) or `manager` (the manager's skill).
@@ -154,7 +168,7 @@ enum TaskCmd {
     Add {
         /// The unit (u1…).
         unit: String,
-        #[arg(long, value_parser = ["implement", "review", "tests", "gate"], default_value = "implement")]
+        #[arg(long, value_parser = ["implement", "design", "review", "tests", "gate"], default_value = "implement")]
         kind: String,
         /// What the work is (needed for implement and gate).
         #[arg(long, default_value = "")]
@@ -175,8 +189,8 @@ enum TaskCmd {
         /// Review tasks: which kind of review.
         #[arg(long, value_parser = ["code-review", "security-review"])]
         reviewer: Option<String>,
-        /// Gate tasks: what the user is asked to do.
-        #[arg(long, value_parser = ["deploy", "test"])]
+        /// Gate tasks: what the user is asked to do (`decide`: discuss and confirm a design).
+        #[arg(long, value_parser = ["deploy", "test", "decide"])]
         gate: Option<String>,
         /// Gate tasks: one step for the user, `TEXT` or `TEXT => COMMAND`. Repeatable.
         #[arg(long)]
@@ -226,7 +240,8 @@ enum FindingCmd {
         task: String,
         /// The finding (P2-1).
         finding: String,
-        #[arg(value_parser = ["accept", "reject", "defer"])]
+        /// `revise`: it must be fixed, but the way the note says (a note is required).
+        #[arg(value_parser = ["accept", "revise", "reject", "defer"])]
         decision: String,
         #[arg(long, default_value = "")]
         note: String,
@@ -299,7 +314,7 @@ fn main() -> anyhow::Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port).await?;
-                serve::serve(listener, store, std::sync::Arc::new(runtime), warning).await
+                serve::serve(listener, store, std::sync::Arc::new(runtime), warning, serve::Waits::default()).await
             });
         }
         Cmd::Guide { role } => {
@@ -404,6 +419,7 @@ fn main() -> anyhow::Result<()> {
             d.append(actor, "chore.created", json!({ "intent": intent, "title": title, "unit": unit, "steps": steps }))?
         }
         Cmd::Chore(ChoreCmd::Done { chore }) => d.append(actor, "chore.done", json!({ "chore": chore }))?,
+        Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
     };
     // What was recorded, by the id an agent uses next.
     let b = &out["body"];
@@ -412,6 +428,7 @@ fn main() -> anyhow::Result<()> {
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("manager.registered") => format!("manager of {}", b["intent"].as_str().unwrap_or("?")),
         Some("task.amended") => "amended".into(),
+        Some("question.answered") => "answered".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }

@@ -6,8 +6,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { askeeOf, baseName, finderLabel, findingsOf, type Lines } from '@/data'
 import { useT } from '@/i18n'
-import type { AskContext, Session, Turn, Task, Unit } from '@/types'
-import { Icon, Who } from './bits'
+import type { AskContext, Session, Thread, Turn, Task, Unit } from '@/types'
+import { Icon, Tip, Who } from './bits'
+
+/** What a conclusion request says to the agent; content, not UI text. */
+const CONCLUDE = 'Draft a conclusion of this discussion.'
 
 export interface Talk {
   sessions: Session[]
@@ -16,7 +19,12 @@ export interface Talk {
   lines: Lines | null
   /** Questions asked in this sitting, by node id, after the recorded ones. */
   asked: Record<string, Turn[]>
-  onAsk: (node: Task, question: string, context: AskContext[]) => void
+  /** `thread`: the conversation it continues, or null for a new one. */
+  onAsk: (node: Task, question: string, context: AskContext[], thread: string | null, conclude?: boolean) => void
+  /** Ends a conversation (with the service). */
+  onEnd: (thread: string) => void
+  /** Questions go to the service and real agents (not the sample). */
+  live: boolean
   onFile: (path: string) => void
   /** Changes when the box should take the cursor (`?`, or "Ask why" on picked lines). */
   focusAt: number
@@ -56,11 +64,57 @@ function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext
   )
 }
 
-export const turnsOf = (n: Task, talk: Talk) => [...(n.thread ?? []), ...(talk.asked[n.id] ?? [])]
+/**
+ * A task's conversations: from the service, or the sample's single one; questions asked in
+ * this sitting that the data does not have yet go with the last.
+ */
+export function threadsOf(n: Task, talk: Talk): Thread[] {
+  const list: Thread[] = n.threads ?? (n.thread?.length ? [{ id: '', ended: false, live: false, turns: n.thread }] : [])
+  const extra = talk.asked[n.id] ?? []
+  if (!extra.length) return list
+  const last = list.at(-1)
+  return last && !last.ended ? [...list.slice(0, -1), { ...last, turns: [...last.turns, ...extra] }] : [...list, { id: '', ended: false, live: false, turns: extra }]
+}
+
+export const turnsOf = (n: Task, talk: Talk) => threadsOf(n, talk).flatMap(t => t.turns)
+
+function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; onFile: (path: string) => void }) {
+  const { t } = useT()
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className={turn.conclude ? 'text-ink-2' : 'font-semibold'}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</span>
+        <Chips chips={turn.context} />
+      </div>
+      {turn.failed ? (
+        <Tip text={turn.failed.reason}>
+          <p className="text-del">{t('ask.cannot', { reason: t(`deliver.reason.${turn.failed.code}`) })}</p>
+        </Tip>
+      ) : turn.answer === null ? (
+        <p className="text-ink-2" aria-live="polite">
+          <span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: agent ?? '' })}
+        </p>
+      ) : turn.conclude ? null : (
+        <>
+          <Answer text={turn.answer} onFile={onFile} />
+          {turn.consulted && (
+            <p className="flex items-center gap-1.5 text-xs text-ink-2">
+              {turn.consulted.outcome === 'asked' && <Who name={turn.consulted.agent} />}
+              {t(`ask.${turn.consulted.outcome}`, { agent: turn.consulted.agent })}
+            </p>
+          )}
+        </>
+      )}
+    </li>
+  )
+}
 
 export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?: string; talk: Talk }) {
   const { t } = useT()
-  const turns = turnsOf(n, talk)
+  const threads = threadsOf(n, talk)
+  // The box continues the last open conversation, unless the user starts a new one.
+  const [fresh, setFresh] = useState(false)
+  const current = fresh ? undefined : threads.filter(x => !x.ended).at(-1)
   // Whom the question goes to: the task's agent; on a gate (the user's own task), the agent
   // that asked for it, or else the manager bot. It is asked only while its session is there.
   const askee = askeeOf(unit, n)
@@ -79,7 +133,7 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
     ...talk.extra,
     ...(f ? [{ kind: 'finding' as const, label: f.id }] : []),
     ...(lines
-      ? [{ kind: 'lines' as const, label: `${baseName(lines.path)} L${lines.from}${lines.to > lines.from ? `–${lines.to}` : ''}`, path: lines.path }]
+      ? [{ kind: 'lines' as const, label: `${baseName(lines.path)} L${lines.from}${lines.to > lines.from ? `–${lines.to}` : ''}`, path: lines.path, from: lines.from, to: lines.to }]
       : talk.file ? [{ kind: 'file' as const, label: baseName(talk.file), path: talk.file }] : []),
   ]
   const chipKey = chips.map(c => c.label).join('|')
@@ -103,36 +157,41 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
   const send = () => {
     const q = text.trim()
     if (!q) return
-    talk.onAsk(n, q, context)
+    talk.onAsk(n, q, context, current?.id || null)
     setText('')
+    setFresh(false)
   }
 
   return (
     <div className="border-t border-line p-3 text-sm">
-      {turns.length > 0 && (
-        <ol className="mb-3 flex flex-col gap-3">
-          {turns.map((turn, k) => (
-            <li key={k} className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><span className="font-semibold">{turn.question}</span><Chips chips={turn.context} /></div>
-              {turn.answer === null ? (
-                <p className="text-ink-2" aria-live="polite">
-                  <span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: n.agent ?? '' })}
-                </p>
-              ) : (
-                <>
-                  <Answer text={turn.answer} onFile={talk.onFile} />
-                  {turn.consulted && (
-                    <p className="flex items-center gap-1.5 text-xs text-ink-2">
-                      {turn.consulted.outcome === 'asked' && <Who name={turn.consulted.agent} />}
-                      {t(`ask.${turn.consulted.outcome}`, { agent: turn.consulted.agent })}
-                    </p>
-                  )}
-                </>
-              )}
-            </li>
-          ))}
-        </ol>
+      {threads.map((th, k) => (
+        <section key={th.id || k} className={k > 0 ? 'mt-3 border-t border-line pt-3' : undefined}>
+          <ol className="flex flex-col gap-3">
+            {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={n.agent} onFile={talk.onFile} />)}
+          </ol>
+          {th.conclusion && (
+            <div className="mt-2 rounded-md bg-sunken p-2">
+              <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
+              <Answer text={th.conclusion} onFile={talk.onFile} />
+            </div>
+          )}
+          {/* With the service: ask for a conclusion, or end the conversation (its agent closes). */}
+          {talk.live && th.id && (
+            th.ended
+              ? <p className="mt-2 text-xs text-ink-2">{t('ask.threadEnded')}</p>
+              : (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Button variant="outline" size="xs" className="rounded-sm" onClick={() => talk.onAsk(n, CONCLUDE, [chips[0]], th.id, true)}>{t('ask.conclude')}</Button>
+                  <Tip text={t('ask.endHint')}><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => talk.onEnd(th.id)}>{t('ask.end')}</Button></Tip>
+                </div>
+              )
+          )}
+        </section>
+      ))}
+      {current && (
+        <div className="mt-3"><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button></div>
       )}
+      {threads.length > 0 && <div className="mb-3" />}
       {/* Every node has records to answer from, so the box is never disabled. */}
       <>
           <div className="mb-1.5"><Chips chips={context} onDrop={c => setDropped(d => [...d, c.label])} /></div>

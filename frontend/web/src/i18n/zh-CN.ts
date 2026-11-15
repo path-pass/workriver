@@ -37,7 +37,9 @@ export const zhCN: Same<typeof en> = {
     close: '关闭',
     language: '语言',
     theme: '主题',
-    themes: { system: '跟随系统', light: '浅色', dark: '深色' }
+    themes: { system: '跟随系统', light: '浅色', dark: '深色' },
+    notify: 'agent 需要我时通知我',
+    notifyDenied: '浏览器不允许这个页面发通知。'
   },
   unit: {
     blocking_other: '{{count, number}} 个手动步骤卡住了 agent',
@@ -48,6 +50,8 @@ export const zhCN: Same<typeof en> = {
     grewHint: '有分支长到了原计划之外'
   },
   agents: {
+    blocked: '在终端里等你',
+    notice: '{{agent}} 在等你',
     title: 'Agent',
     idle: '空闲'
   },
@@ -84,6 +88,14 @@ export const zhCN: Same<typeof en> = {
     asked: '问过 {{agent}}',
     busy: '{{agent}} 正忙，根据记录回答',
     ended: '{{agent}} 的会话已结束，根据记录回答',
+    cannot: '没能启动回答的 agent：{{reason}}',
+    end: '结束',
+    endHint: '结束这段对话；它的 agent 会关掉',
+    threadEnded: '已结束',
+    conclude: '起草结论',
+    concludeAsked: '请它写结论',
+    conclusion: '结论',
+    fresh: '新问题',
     count_other: '{{count, number}} 个提问'
   },
   chore: {
@@ -98,6 +110,7 @@ export const zhCN: Same<typeof en> = {
   inbox: {
     title: '需要你',
     blocking: '卡住了',
+    blockedAgent: '{{agent}} 在终端里等你',
     decisions: '待决定',
     gaps: '缺口',
     later: '不急',
@@ -110,6 +123,7 @@ export const zhCN: Same<typeof en> = {
   },
   kind: {
     implement: '实现',
+    design: '设计',
     gate: '要你动手',
     review: '审查'
   },
@@ -128,6 +142,7 @@ export const zhCN: Same<typeof en> = {
   gate: {
     deploy: '手动部署',
     test: '手动试用',
+    decide: '确认方案',
     result: '结果',
     done: '做完了',
     problem: '有问题',
@@ -160,6 +175,9 @@ export const zhCN: Same<typeof en> = {
       'manager-gone': '管理者没在运行',
       'runtime-down': '连不上 Herdr',
       'runtime-error': 'Herdr 没有接收',
+      'no-workspace': '它的意图没有对应的 Herdr 工作区',
+      timeout: '没有及时回答',
+      restarted: '服务重启了',
       unknown: '没有说明原因'
     },
     failed: '没记下：服务没有收下'
@@ -169,8 +187,10 @@ export const zhCN: Same<typeof en> = {
     note: '给 agent 的备注（可选）',
     noteShort: '备注',
     accept: '接受',
+    revise: '修改',
     reject: '驳回',
     defer: '延后',
+    reviseNeedsNote: '选“修改”要在备注里写清怎么改。',
     suggested: '（agent 建议这样）'
   },
   steps: {
@@ -186,6 +206,7 @@ export const zhCN: Same<typeof en> = {
     open: '等你决定',
     rejected: '已驳回',
     deferred: '延后',
+    revised: '修改',
     acceptedHere: '已接受',
     suggests: '建议{{decision}}',
     decision: { accept: '接受', reject: '驳回', defer: '延后' },

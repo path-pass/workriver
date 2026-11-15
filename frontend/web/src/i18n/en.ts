@@ -33,7 +33,9 @@ export const en = {
     close: 'Close',
     language: 'Language',
     theme: 'Theme',
-    themes: { system: 'System', light: 'Light', dark: 'Dark' }
+    themes: { system: 'System', light: 'Light', dark: 'Dark' },
+    notify: 'Notify me when an agent needs me',
+    notifyDenied: 'The browser does not allow notifications for this page.'
   },
   unit: {
     blocking_one: '{{count, number}} manual step an agent is waiting on',
@@ -46,6 +48,8 @@ export const en = {
     grewHint: 'A branch grew beyond the original plan'
   },
   agents: {
+    blocked: 'Waiting for you in its terminal',
+    notice: '{{agent}} is waiting for you',
     title: 'Agents',
     idle: 'Idle'
   },
@@ -82,6 +86,14 @@ export const en = {
     asked: 'Asked {{agent}}',
     busy: '{{agent}} was busy; answered from the records',
     ended: '{{agent}}’s session has ended; answered from the records',
+    cannot: 'Could not start an agent to answer: {{reason}}',
+    end: 'End',
+    endHint: 'End this conversation; its agent closes',
+    threadEnded: 'Ended',
+    conclude: 'Draft conclusion',
+    concludeAsked: 'Conclusion asked for',
+    conclusion: 'Conclusion',
+    fresh: 'New question',
     count_one: '{{count, number}} question asked',
     count_other: '{{count, number}} questions asked'
   },
@@ -97,6 +109,7 @@ export const en = {
   inbox: {
     title: 'Needs you',
     blocking: 'Blocking',
+    blockedAgent: '{{agent}} is waiting for you in its terminal',
     decisions: 'Decisions',
     gaps: 'Gaps',
     later: 'Not urgent',
@@ -110,6 +123,7 @@ export const en = {
   },
   kind: {
     implement: 'Implement',
+    design: 'Design',
     gate: 'Manual step',
     review: 'Review'
   },
@@ -128,6 +142,7 @@ export const en = {
   gate: {
     deploy: 'Manual deploy',
     test: 'Manual test',
+    decide: 'Confirm design',
     result: 'Result',
     done: 'Done',
     problem: 'Problem',
@@ -160,6 +175,9 @@ export const en = {
       'manager-gone': 'the manager is not running',
       'runtime-down': 'Herdr is not reachable',
       'runtime-error': 'Herdr refused it',
+      'no-workspace': 'its intent has no Herdr workspace',
+      timeout: 'no answer in time',
+      restarted: 'the service restarted',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'
@@ -169,8 +187,10 @@ export const en = {
     note: 'Note for the agent (optional)',
     noteShort: 'Note',
     accept: 'Accept',
+    revise: 'Revise',
     reject: 'Reject',
     defer: 'Defer',
+    reviseNeedsNote: 'Revise needs a note saying how it is to be fixed.',
     suggested: '(the agent suggests this)'
   },
   steps: {
@@ -187,6 +207,7 @@ export const en = {
     open: 'Waiting for you',
     rejected: 'Rejected',
     deferred: 'Deferred',
+    revised: 'Revise',
     acceptedHere: 'Accepted',
     suggests: 'Suggests {{decision}}',
     decision: { accept: 'accept', reject: 'reject', defer: 'defer' },

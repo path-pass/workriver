@@ -60,7 +60,7 @@ fn rules_reject_bad_input() {
         "at least one where",
     );
     // Work for a finding nobody accepted.
-    rejects(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "fix", "causes": [{"task": 2, "findings": ["P2-1"]}]}}), "not accepted");
+    rejects(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "fix", "causes": [{"task": 2, "findings": ["P2-1"]}]}}), "neither accepted nor revised");
     rejects(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P9-1", "decision": "accept", "by": "user"}}), "no finding P9-1");
     rejects(json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "done"}}), "not a waiting gate");
     rejects(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}), "is done, not todo");
@@ -131,4 +131,47 @@ fn corrections_after_delivery() {
     assert!(other.contains("only the user or the manager"), "{other}");
     s.append("user", body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
     assert_eq!(s.state().intents[0].goal, "Let people mention each other");
+}
+
+#[test]
+fn questions_are_answered_by_their_own_agent_or_the_user() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let e = s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?",
+        "context": [{"kind": "lines", "label": "a.ts L3–4", "path": "app/a.ts", "from": 3, "to": 4}]}}))).unwrap();
+    let Body::QuestionAsked { id, .. } = e.body else { panic!() };
+    assert_eq!(id, "q1");
+    assert!(s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 9, "text": "?"}}))).is_err());
+    s.append("workriver", body(json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}}))).unwrap();
+    // Another agent may not answer; the started one may, known by its name even under a new session.
+    let other = s.append("agent-a", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}))).unwrap_err().to_string();
+    assert!(other.contains("why-q1"), "{other}");
+    s.append("workriver", body(json!({"kind": "agent.seen", "body": {"session": "s-why-2", "name": "why-q1", "harness": "claude"}}))).unwrap();
+    s.append("s-why-2", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "It is short.", "asked": "agent-a"}}))).unwrap();
+    let q = s.state().question("q1").unwrap();
+    assert_eq!((q.answer.as_deref(), q.asked.as_deref(), q.answered_by.as_deref()), (Some("It is short."), Some("agent-a"), Some("s-why-2")));
+    let again = s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "y"}}))).unwrap_err().to_string();
+    assert!(again.contains("already answered"), "{again}");
+    // A question can fail once, while open; the user can still answer an open one.
+    s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "And?"}}))).unwrap();
+    s.append("workriver", body(json!({"kind": "question.failed", "body": {"question": "q2", "reason_code": "timeout", "reason": "no answer in 10 minutes"}}))).unwrap();
+    assert!(s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q2", "text": "late"}}))).is_err());
+}
+
+#[test]
+fn design_tasks_decide_gates_and_revised_findings() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store"}}))).unwrap();
+    let no_note = s.append("w", body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3}}))).unwrap_err().to_string();
+    assert!(no_note.contains("design as the note"), "{no_note}");
+    s.append("w", body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "One table."}}))).unwrap();
+    s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm the design", "inputs": [{"from": "3"}]}}))).unwrap();
+    assert_eq!(s.state().task("u1", 4).unwrap().gate, Some(GateKind::Decide));
+    // Revise needs a note, and then leads to work like an accepted finding.
+    let bare = s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "revise", "by": "user"}}))).unwrap_err().to_string();
+    assert!(bare.contains("revise needs a note"), "{bare}");
+    s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "revise", "note": "Use a set", "by": "user"}}))).unwrap();
+    assert_eq!(s.state().task("u1", 2).unwrap().findings[0].state, FindingState::Revised);
+    s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Dedupe with a set", "causes": [{"task": 2, "findings": ["P2-1"]}]}}))).unwrap();
 }

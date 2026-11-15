@@ -114,7 +114,7 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
   )
 }
 
-/** The three decisions on an open finding; the agent's suggestion, if any, stands out. */
+/** The four decisions on an open finding; the agent's suggestion, if any, stands out. */
 export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
   const { t } = useT()
   const act = useAct()
@@ -124,10 +124,12 @@ export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }
     <div className="mt-2 flex flex-col gap-1.5">
       <Input value={note} onChange={e => setNote(e.target.value)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />
       <div role="group" aria-label={t('decide.label', { id: f.id })} className="flex flex-wrap gap-1.5">
-        {(['accept', 'reject', 'defer'] as const).map(d => {
+        {(['accept', 'revise', 'reject', 'defer'] as const).map(d => {
           const suggested = f.recommendation?.decision === d
+          // Revise is fixing it the user's way: the note says how, so it needs one.
+          const needsNote = d === 'revise' && !note.trim()
           return (
-            <Button key={d} type="button" size="xs" variant={suggested ? 'default' : 'outline'} className="rounded-sm" onClick={() => decide(d)}>
+            <Button key={d} type="button" size="xs" variant={suggested ? 'default' : 'outline'} className="rounded-sm" disabled={needsNote} aria-describedby={needsNote ? `revise-${f.id}` : undefined} onClick={() => decide(d)}>
               {suggested && <Icon name="agent" className="size-3" />}
               {t(`decide.${d}`)}
               {suggested && <span className="sr-only">{t('decide.suggested')}</span>}
@@ -135,6 +137,7 @@ export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }
           )
         })}
       </div>
+      {!note.trim() && <p id={`revise-${f.id}`} className="text-xs text-ink-2">{t('decide.reviseNeedsNote')}</p>}
     </div>
   )
 }
@@ -158,7 +161,9 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const { t } = useT()
   const act = useAct()
   const [result, setResult] = useState<'done' | 'problem'>('done')
-  const [note, setNote] = useState('')
+  // A conclusion reached by asking about it starts the note; the user edits it.
+  const [note, setNote] = useState(gate.draft ?? '')
+  useEffect(() => { if (gate.draft) setNote(n => n || gate.draft!) }, [gate.draft])
   const [files, setFiles] = useState<Attachment[]>([])
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [error, setError] = useState(false)

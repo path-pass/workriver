@@ -120,7 +120,7 @@ export const askeeOf = (unit: Unit, n: Task): string | null =>
   n.kind === 'gate' ? unit.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null : n.agent
 
 /** Finished work handed in with no check run: shown on the graph, not counted anywhere. */
-export const untested = (n: Task) => n.kind === 'implement' && n.state === 'done' && !n.output.evidence?.length
+export const untested = (n: Task) => n.kind === 'implement' && !n.design && n.state === 'done' && !n.output.evidence?.length
 
 export function nodeLabel(t: T, n: Task): string {
   if (n.kind === 'review') return reviewLabel(t, n)
@@ -265,7 +265,7 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
     if (!groups.has(key)) groups.set(key, { key, label: intent?.title ?? s.group?.label ?? '', intent, agents: [] })
     groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, at })
   }
-  const rank = (a: AgentAt) => (a.manager ? 0 : a.state === 'working' ? 1 : a.blocked ? 2 : a.state === 'queued' ? 3 : 4)
+  const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
   const list = [...groups.values()]
   for (const g of list) g.agents.sort((a, b) => rank(a) - rank(b))
   const busy = (g: AgentGroup) => (g.agents.some(a => a.state === 'working') ? 0 : 1)
@@ -318,8 +318,11 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'gate' | 'decision' | 'loose' | 'far' | 'chore'
-  intent: Intent
+  kind: 'agent' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  /** The intent; null for an agent in a workspace no intent follows. */
+  intent: Intent | null
+  /** agent: the agent waiting in its terminal, and where it runs. */
+  agent?: { name: string; session?: string; topic?: string; place: string }
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
   unit: Unit | null
   /** What a click opens; null for a chore. */
@@ -331,6 +334,9 @@ export interface InboxRow {
   /** Since when it has waited, in milliseconds. */
   since: number
 }
+
+/** Live agents waiting for a person in their terminal (a question, an approval). */
+export const blockedAgents = (ws: Workspace | null) => (ws?.sessions ?? []).filter(s => !s.ended && s.blockedSince)
 
 export interface Inbox {
   /** Gates: an agent cannot go on. */
@@ -363,7 +369,16 @@ export function inbox(ws: Workspace): Inbox {
       box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent, unit: intent.units.find(u => u.id === c.unit) ?? null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
   const oldest = (a: InboxRow, b: InboxRow) => a.since - b.since
   const top = (r: InboxRow) => SEVERITIES.indexOf(openFindings(r.node!)[0].severity)
+  // Agents waiting for a person in their terminal come first: nothing moves until someone looks.
+  const waiting = blockedAgents(ws).map((s): InboxRow => {
+    const intent = ws.intents.find(i => i.id === s.intent) ?? null
+    return {
+      key: `agent:${s.session ?? s.agent}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, far: [], since: ms(s.blockedSince),
+      agent: { name: s.agent, session: s.session, topic: s.topic, place: intent?.title ?? s.group?.label ?? '' },
+    }
+  }).sort(oldest)
   box.blocking.sort(oldest)
+  box.blocking.unshift(...waiting)
   box.decisions.sort((a, b) => top(a) - top(b) || oldest(a, b))
   box.gaps.sort(oldest)
   box.later.sort(oldest)
@@ -529,7 +544,7 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
 
 // ---- what the user puts in: gate results, decisions on findings, chores done ----
 
-export type Decision = 'accept' | 'reject' | 'defer'
+export type Decision = 'accept' | 'revise' | 'reject' | 'defer'
 
 export interface NewFinding {
   severity: Severity
@@ -558,7 +573,7 @@ export interface Edits {
 
 export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [] }
 
-const STATE = { accept: 'accepted', reject: 'rejected', defer: 'deferred' } as const
+const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
 /** The workspace as the user's inputs leave it. Nothing in `ws` is changed. */
 export function withEdits(ws: Workspace, edits: Edits): Workspace {

@@ -59,7 +59,13 @@ pub trait Runtime: Send + Sync {
     /// Bring the agent's terminal to the front.
     fn focus(&self, session: &str) -> Result<(), RuntimeError>;
     /// Type a message into the agent's terminal and submit it; does not wait for an answer.
-    fn send(&self, session: &str, text: &str) -> Result<(), RuntimeError>;
+    /// `agent` is a session or a live agent's name.
+    fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError>;
+    /// Start a temporary agent of `harness`, named `name`, in a place of its own inside
+    /// `group`, working in `cwd`; returns it once it is ready for a prompt.
+    fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError>;
+    /// Close an agent started with `start_temporary`, and its place (session or name).
+    fn close(&self, agent: &str) -> Result<(), RuntimeError>;
 }
 
 /// Used when no runtime is configured: no agents are known and none can be reached.
@@ -76,6 +82,12 @@ impl Runtime for NoRuntime {
         Err(RuntimeError::None)
     }
     fn send(&self, _: &str, _: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<RuntimeAgent, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    fn close(&self, _: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::None)
     }
 }

@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { Settings as Gear } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { notifyWanted, wantNotify } from '@/runtime'
 import { LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
 
@@ -20,6 +22,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function Settings({ compact = false }: { compact?: boolean }) {
   const { t, lang, setLang } = useT()
   const [theme, pickTheme] = useState<Theme>(readTheme)
+  // Off until the user turns it on; the browser's permission is asked only then.
+  const [notifying, setNotifying] = useState(notifyWanted)
+  const [denied, setDenied] = useState(false)
   const item = 'h-7 px-3 text-xs font-normal data-[state=on]:font-semibold'
   return (
     <Dialog>
@@ -53,6 +58,14 @@ export function Settings({ compact = false }: { compact?: boolean }) {
               {THEMES.map(id => <ToggleGroupItem key={id} value={id} className={item}>{t(`settings.themes.${id}`)}</ToggleGroupItem>)}
             </ToggleGroup>
           </Row>
+          <Row label={t('settings.notify')}>
+            <Switch
+              checked={notifying}
+              aria-label={t('settings.notify')}
+              onCheckedChange={on => { wantNotify(on).then(ok => { setNotifying(ok); setDenied(on && !ok) }) }}
+            />
+          </Row>
+          {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
         </div>
       </DialogContent>
     </Dialog>

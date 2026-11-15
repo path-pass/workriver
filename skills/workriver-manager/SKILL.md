@@ -44,15 +44,25 @@ A task is one piece of work for one agent (or, a gate, for the user). Tasks are 
 unit: `u1#1`, `u1#2`... Write titles as outcomes ("Notify a person once when mentioned
 twice"), not activities ("Work on notifications").
 
-    workriver task add u1 --title "..." [--kind implement|review|tests|gate] [--after N]... [--cause N:ID[,ID]]... [--agent NAME] [--plan PATH]... [--text "full ask"]
+    workriver task add u1 --title "..." [--kind implement|design|review|tests|gate] [--after N]... [--cause N:ID[,ID]]... [--agent NAME] [--plan PATH]... [--text "full ask"]
 
 - `--after N`: the task it follows (the first is the direct cause). Without it, and without
   `--cause`, the task starts from the unit itself.
-- `--cause 4:P1-1`: the accepted findings of task 4 that it answers (it then follows task 4).
-  Only accepted findings can be causes.
+- `--cause 4:P1-1`: the accepted or revised findings of task 4 that it answers (it then
+  follows task 4). Only those can be causes.
 - `--kind review` (with `--reviewer code-review|security-review`) and `--kind tests` look at
   other tasks' work; give them to a different agent than the one that did the work.
 - `--plan`: files or folders the work expects to change; shown on the user's file tree.
+
+**Design first when the user has choices to make.** If the goal leaves choices the user has
+not made (how it should look, which approach, what to give up), start with a `--kind design`
+task (its output is a design note: `task deliver --note`), then a gate
+`--kind gate --gate decide --title "Confirm design" --after <design>` where the user
+discusses it (asking why, in the browser) and confirms it; hang the implementation tasks
+`--after` that gate. If the gate comes back with a problem, for each finding the user accepts
+or revises: a revised design task `--cause <gate>:<id>`, a new decide gate after it, and the
+implementation after the new gate, not the old one. What is already decided needs no design
+task: cite where the decision is written in the implementation task's `--text`.
 
 ## Handing a task to an agent
 
@@ -94,7 +104,7 @@ corrects it with `workriver task deliver u1#3 --amend ...`.
   `--findings FILE` or `--findings -`:
   `[{"severity":"P2","problem":"...","impact":"...","where":["src/a.rs"],"suggestion":{"decision":"accept","reason":"..."}}]`
 - Findings are decided by the user in the browser. Do not decide them yourself unless the
-  user asked you to (`workriver finding decide u1#4 P2-1 accept|reject|defer --note "..."`).
+  user asked you to (`workriver finding decide u1#4 P2-1 accept|revise|reject|defer --note "..."`).
 
 ## Gates and chores
 
@@ -108,18 +118,27 @@ corrects it with `workriver task deliver u1#3 --amend ...`.
 ## What arrives from the user
 
 Messages start with `[workriver]`. Every decision on a finding comes to you; you decide
-what the workers need to hear:
+what the workers need to hear. Four outcomes:
 
-- **"The user accepted finding P1-1 from u1#4 ..."** - hand out work for it:
-  `workriver task add u1 --title "<outcome>" --cause 4:P1-1 --agent <name>`, then send it to
-  a worker as above. One finding may need several tasks; several findings may share one.
-- **"... rejected finding ..."** - no work; tell whoever waits on it, if anyone does.
-  **"... deferred finding ..."** - nothing now; it comes up again later (`workriver board`
-  lists deferred findings).
+- **accepted** - fix it as found: `workriver task add u1 --title "<outcome>" --cause 4:P1-1
+  --agent <name>`, then send it to a worker. One finding may need several tasks; several
+  findings may share one.
+- **revised** ("wants finding ... changed their way: <note>") - fix it, but the way the
+  note says, not the finding's suggestion; hand out work with `--cause` as for accepted and
+  put the note in the task's text.
+- **rejected** - no work. To have something redone, the user accepts or revises the finding
+  and writes how in the note; the note comes with the message.
+- **deferred** - nothing now; it comes up again later (`workriver board` lists them).
 - **"The user finished gate u1#5 ...: done."** - goes to the worker waiting behind the gate;
   you get it only when that worker is not running: tell a worker to go on.
 - **"... gate ...: found a problem. Findings: ..."** - wait: the user decides each finding,
   and the decisions reach you as above.
+- **"The user confirmed the design in gate u1#5. The decision: ..."** - hand out the
+  implementation `--after 5`, citing the decision. **"... did not confirm the design ...:
+  revise the design"** - wait for the decisions, then revise as above.
+
+Temporary agents named `why-q…` may appear in your workspace: workriver starts them to answer
+the user's questions and closes them itself. Leave them alone.
 
 ## Commits
 
@@ -140,7 +159,7 @@ when two attempts at a task failed the same way.
     workriver unit merged u1
     workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID] [--agent NAME] [--plan P]
     workriver task start u1#3 | task deliver u1#3 [--evidence 'CMD => passed: SUMMARY'] [--findings FILE|-] [--note N] [--amend]
-    workriver finding decide u1#4 P2-1 accept|reject|defer [--note N]
+    workriver finding decide u1#4 P2-1 accept|revise|reject|defer [--note N]   (revise needs a note)
     workriver gate submit u1#5 done|problem [--note N] [--findings FILE]
     workriver chore add --title T [--unit u1] [--step 'TEXT => COMMAND'] | chore done c1
     workriver guide worker

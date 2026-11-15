@@ -1,7 +1,7 @@
 // Where the user's inputs go once recorded, and what the message says. Pure: the daemon
 // sends the message and records how far it got.
 use workriver_core::runtime::RuntimeAgent;
-use workriver_core::{Body, Decision, Event, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
+use workriver_core::{Body, Decision, Event, GateKind, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
 
 /// A message to deliver: about a user's decision (`finding` set) or gate result, about a
 /// delivered task or a gate asked for (to the manager), or about a chore (`chore` set).
@@ -28,9 +28,12 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Option<P
             let to = target(state, live, &intent_of(unit)?, None);
             Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note)?))
         }
-        // A gate result goes to the agent waiting behind the gate, else the manager.
+        // A gate result goes to the agent waiting behind the gate, else the manager; a design
+        // decision always to the manager, who hands out what follows.
         Body::GateSubmitted { unit, task, .. } if e.actor == "user" => {
-            let waiting = state.task(unit, *task).ok().and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
+            let gate = state.task(unit, *task).ok();
+            let decide = gate.is_some_and(|g| g.gate == Some(GateKind::Decide));
+            let waiting = gate.filter(|_| !decide).and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
             let to = target(state, live, &intent_of(unit)?, waiting.as_deref());
             Some(on(unit, *task, None, to, gate_message(state, unit, *task)?))
         }
@@ -125,12 +128,13 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
     let u = state.unit(unit).ok()?;
     let t = state.task(unit, n).ok()?;
     let f = t.findings.iter().find(|f| f.found.id == finding)?;
-    let verb = match decision {
-        Decision::Accept => "accepted",
-        Decision::Reject => "rejected",
-        Decision::Defer => "deferred",
-    };
-    let mut m = vec![format!("[workriver] The user {verb} finding {finding} from {} in unit {unit} \"{}\".", label(state, unit, t), u.title)];
+    let from = format!("from {} in unit {unit} \"{}\"", label(state, unit, t), u.title);
+    let mut m = vec![match decision {
+        Decision::Revise => format!("[workriver] The user wants finding {finding} {from} changed their way: {} Follow the note, not the finding's suggestion.", sentence(note)),
+        Decision::Accept => format!("[workriver] The user accepted finding {finding} {from}."),
+        Decision::Reject => format!("[workriver] The user rejected finding {finding} {from}."),
+        Decision::Defer => format!("[workriver] The user deferred finding {finding} {from}."),
+    }];
     m.push(format!("Problem: {}", sentence(&f.found.problem)));
     if !f.found.impact.is_empty() {
         m.push(format!("If left: {}", sentence(&f.found.impact)));
@@ -138,11 +142,16 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
     if !f.found.r#where.is_empty() {
         m.push(format!("Where: {}.", f.found.r#where.join(", ")));
     }
-    if !note.is_empty() {
+    if !note.is_empty() && decision != Decision::Revise {
         m.push(format!("Note from the user: {}", sentence(note)));
     }
+    let design = t.gate == Some(GateKind::Decide);
     m.push(match decision {
-        Decision::Accept => format!(
+        // From a design decision: the design is done again, and confirmed again.
+        Decision::Accept | Decision::Revise if design => format!(
+            "Next: revise the design: `workriver task add {unit} --kind design --title \"<revised design>\" --cause {n}:{finding} --agent <agent>`, then a new `--kind gate --gate decide` after it; the implementation hangs after the new gate, not after {unit}#{n}."
+        ),
+        Decision::Accept | Decision::Revise => format!(
             "Next: hand out work for it, e.g. `workriver task add {unit} --title \"<what to do>\" --cause {n}:{finding} --agent <agent>`, then give that task to an agent with the worker instructions (`workriver guide worker`)."
         ),
         Decision::Reject => "No work is needed for it; tell whoever waits on it if anyone does.".into(),
@@ -154,15 +163,20 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
 fn gate_message(state: &State, unit: &str, n: u32) -> Option<String> {
     let t = state.task(unit, n).ok()?;
     let problem = t.result == Some(GateResult::Problem);
-    let mut m = vec![format!(
-        "[workriver] The user finished gate {}: {}.",
-        label(state, unit, t),
-        if problem { "found a problem" } else { "done" }
-    )];
+    let decide = t.gate == Some(GateKind::Decide);
+    let mut m = vec![match (decide, problem) {
+        (true, false) => format!("[workriver] The user confirmed the design in gate {}.", label(state, unit, t)),
+        (true, true) => format!("[workriver] The user did not confirm the design in gate {}: revise the design.", label(state, unit, t)),
+        (false, p) => format!("[workriver] The user finished gate {}: {}.", label(state, unit, t), if p { "found a problem" } else { "done" }),
+    }];
     if !t.note.is_empty() {
-        m.push(format!("Note from the user: {}", sentence(&t.note)));
+        m.push(format!("{} {}", if decide && !problem { "The decision:" } else { "Note from the user:" }, sentence(&t.note)));
     }
-    if problem {
+    if decide && !problem {
+        m.push(format!(
+            "Next: hand out the implementation accordingly, after this gate: `workriver task add {unit} --title \"<outcome>\" --after {n} --agent <agent>`, citing the decision in the task's text."
+        ));
+    } else if problem {
         m.push("Findings:".into());
         for f in &t.findings {
             let mut line = format!("{} ({}): {}.", f.found.id, name(&f.found.severity), f.found.problem.trim_end_matches('.'));
@@ -174,9 +188,15 @@ fn gate_message(state: &State, unit: &str, n: u32) -> Option<String> {
             }
             m.push(line);
         }
-        m.push(format!(
-            "The user decides on each finding in workriver; accepted ones reach the manager, who hands out work with `--cause {n}:<id>`. Until then the work behind gate {unit}#{n} waits."
-        ));
+        m.push(if decide {
+            format!(
+                "The user decides on each finding; for each accepted or revised one, a revised design task (`--kind design --cause {n}:<id>`) and a new decide gate after it; the implementation hangs after the new gate, not after {unit}#{n}."
+            )
+        } else {
+            format!(
+                "The user decides on each finding in workriver; accepted or revised ones reach the manager, who hands out work with `--cause {n}:<id>`. Until then the work behind gate {unit}#{n} waits."
+            )
+        });
     } else {
         m.push("You can go on with the work that waited on it.".into());
     }
@@ -261,6 +281,19 @@ mod tests {
         // The manager's own records are not told back to it.
         let own_gate = at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "4"}]}}));
         assert_eq!(plan(s.state(), Some(&live), &own_gate), None);
+        // A revision is told as the user's way; a design decision as such.
+        at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design it", "inputs": [{"from": "1"}]}}));
+        at(&mut s, "worker", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 7, "note": "One table"}}));
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm it", "inputs": [{"from": "7"}]}}));
+        let confirmed = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 8, "result": "problem", "note": "Not yet",
+            "findings": [{"severity": "P2", "problem": "Too rigid"}]}}));
+        let p = plan(s.state(), Some(&live), &confirmed).unwrap();
+        assert_eq!(p.to, Ok("boss".into()), "a design decision goes to the manager");
+        assert!(p.message.contains("did not confirm the design") && p.message.contains("revise the design"), "{}", p.message);
+        let revise = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 8, "finding": "P2-1", "decision": "revise", "note": "Two tables", "by": "user"}}));
+        let p = plan(s.state(), Some(&live), &revise).unwrap();
+        assert!(p.message.contains("changed their way: Two tables. Follow the note, not the finding's suggestion."), "{}", p.message);
+        assert!(p.message.contains("--kind design") && p.message.contains("--cause 8:P2-1") && p.message.contains("--gate decide"), "{}", p.message);
         // An agent's own decision is not delivered.
         let own = at(&mut s, "rev", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "defer", "by": "agent"}}));
         assert_eq!(plan(s.state(), Some(&live), &own), None);

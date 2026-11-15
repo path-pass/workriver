@@ -114,6 +114,36 @@ export function decideFinding(unit: Unit, task: Task, f: Finding, decision: Deci
   return { message, cancel: deliver(to, message, record, onStep) }
 }
 
+// ---- notifications: an agent waiting for a person, told outside the page ----
+
+const NOTIFY = 'workriver.notify'
+/** Whether the user asked to be notified (off until they turn it on in Settings). */
+export function notifyWanted() { try { return localStorage.getItem(NOTIFY) === '1' } catch { return false } }
+/** Turns notifying on (asking the browser's permission) or off; says whether it is on. */
+export async function wantNotify(on: boolean): Promise<boolean> {
+  let ok = on && typeof Notification !== 'undefined'
+  if (ok && Notification.permission !== 'granted') ok = (await Notification.requestPermission()) === 'granted'
+  try { localStorage.setItem(NOTIFY, ok ? '1' : '0') } catch { /* not remembered; still applies now */ }
+  return ok
+}
+/** One notification; clicking it brings this tab and then the agent's terminal forward. */
+export function notify(title: string, body: string | undefined, agent: string) {
+  if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const n = new Notification(title, { body, tag: `workriver:${agent}` })
+  n.onclick = () => { window.focus(); focusAgent(agent); n.close() }
+}
+
+/** Asks the service a question about a task (live mode): it records it, and starts the
+ * thread's temporary agent or gives it to the one already there. */
+export async function askWhy(unit: Unit, task: Task, text: string, context: AskContext[], thread: string | null, conclude = false) {
+  await post('/api/ask', { unit: unit.id, task: Number(task.id), text, context, thread, conclude })
+}
+
+/** Ends a conversation; its temporary agent closes. */
+export async function endThread(thread: string) {
+  await post('/api/thread/end', { thread })
+}
+
 /** A chore is done; it goes to no one, so it is only recorded. */
 export function choreDone(id: string) {
   if (!MOCK) post('/api/chore-done', { chore: id }).catch(e => console.warn(e))

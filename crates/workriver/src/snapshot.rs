@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use serde::Serialize;
-use workriver_core::runtime::RuntimeAgent;
+use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, parse_task_ref};
 use workriver_scan as scan;
 
@@ -32,6 +32,9 @@ struct Session {
     /// What the session is about (its terminal title), while it lives.
     #[serde(skip_serializing_if = "Option::is_none")]
     topic: Option<String>,
+    /// Waiting for a person in its terminal since then (a question, an approval).
+    #[serde(rename = "blockedSince", skip_serializing_if = "Option::is_none")]
+    blocked_since: Option<String>,
     /// The runtime group (Herdr workspace) it runs in.
     #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<core::RuntimeRef>,
@@ -131,6 +134,16 @@ struct Task {
     /// Gates: where the message with the user's result is.
     #[serde(skip_serializing_if = "Option::is_none")]
     delivery: Option<Sent>,
+    /// A design task (shown like implement work; its output is its note).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    design: bool,
+    /// Conversations about it ("ask why"), oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    threads: Vec<ThreadOut>,
+    /// Waiting gates: the latest conclusion reached about it or the work it follows, to start
+    /// the user's note from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    draft: Option<String>,
     /// When its output was last corrected.
     #[serde(skip_serializing_if = "Option::is_none")]
     amended: Option<String>,
@@ -192,6 +205,82 @@ struct Commit {
     files: Vec<scan::FileChange>,
 }
 
+#[derive(Serialize)]
+struct ThreadOut {
+    id: String,
+    ended: bool,
+    /// Its temporary agent runs, so a follow-up keeps its context.
+    live: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conclusion: Option<String>,
+    turns: Vec<Turn>,
+}
+
+#[derive(Serialize)]
+struct Turn {
+    id: String,
+    question: String,
+    context: Vec<core::AskContext>,
+    answer: Option<String>,
+    /// While it comes: starting (the agent), reading (it works on it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consulted: Option<Consulted>,
+    at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed: Option<Failed>,
+    /// A request for the thread's conclusion.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    conclude: bool,
+}
+
+#[derive(Serialize)]
+struct Consulted {
+    agent: String,
+    outcome: &'static str,
+}
+
+#[derive(Serialize)]
+struct Failed {
+    code: core::ReasonCode,
+    reason: String,
+}
+
+/// A task's conversations, from the records, with the runtime's word on their agents.
+fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str, n: u32) -> Vec<ThreadOut> {
+    state
+        .threads
+        .iter()
+        .filter(|t| t.unit == unit && t.task == n)
+        .map(|t| {
+            let agent = t.name.as_ref().and_then(|name| live.iter().find(|a| &a.name == name));
+            ThreadOut {
+                id: t.id.clone(),
+                ended: t.ended,
+                live: agent.is_some(),
+                conclusion: t.conclusion.clone(),
+                turns: state
+                    .questions
+                    .iter()
+                    .filter(|q| q.thread == t.id)
+                    .map(|q| Turn {
+                        id: q.id.clone(),
+                        question: q.text.clone(),
+                        context: q.context.clone(),
+                        answer: q.answer.clone(),
+                        step: q.open().then_some(if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        consulted: q.asked.as_ref().map(|a| Consulted { agent: names.of(a), outcome: "asked" }),
+                        at: q.at.clone(),
+                        failed: q.failed.as_ref().map(|(code, reason)| Failed { code: *code, reason: reason.clone() }),
+                        conclude: q.conclude,
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
 /// Commits never change and a tree only with its HEAD, so both are kept between snapshots.
 #[derive(Default)]
 pub struct Cache {
@@ -224,7 +313,8 @@ impl Names {
     }
 }
 
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>) -> Workspace {
+/// `blocked`: when each blocked live agent (by session) was first seen blocked.
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>) -> Workspace {
     let live = live.unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
     let repos: BTreeSet<&str> = state.units.iter().map(|u| u.repo.as_str()).collect();
@@ -236,7 +326,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             id: i.id.clone(),
             title: i.title.clone(),
             goal: i.goal.clone(),
-            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(u, cache, &names, i.manager.as_deref())).collect(),
+            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(state, live, u, cache, &names, i.manager.as_deref())).collect(),
             chores: state
                 .chores
                 .iter()
@@ -264,6 +354,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                 agent: a.name.clone(),
                 session: a.session.clone(),
                 topic: a.topic.clone(),
+                blocked_since: (a.state == AgentState::Blocked).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
                 group: a.group.clone(),
                 ended: false,
                 state: Some(name(&a.state)),
@@ -276,7 +367,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     for session in recorded {
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
-            sessions.push(Session { agent, session, topic: None, group: None, ended: true, state: None, intent: None, manager: false });
+            sessions.push(Session { agent, session, topic: None, blocked_since: None, group: None, ended: true, state: None, intent: None, manager: false });
         }
     }
     Workspace { repos, built_at: core::now(), intents, sessions }
@@ -302,7 +393,7 @@ fn repo(path: &str, cache: &mut Cache) -> Repo {
     Repo { path: path.to_string(), name, modules }
 }
 
-fn unit(u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
+fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
     let repo = Path::new(&u.repo);
     let merged = u.merged.is_some();
     let hashes = if merged { Ok(u.merged_commits.clone()) } else { scan::commit_list(repo, &u.base, &u.branch) };
@@ -333,7 +424,7 @@ fn unit(u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>)
     let owner = |c: &scan::Commit| {
         c.task.as_deref().and_then(parse_task_ref).filter(|(unit, n)| *unit == u.id && u.tasks.iter().any(|t| t.n == *n)).map(|(_, n)| n)
     };
-    let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
+    let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(state, live, u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
     for c in commits.iter().filter(|c| owner(c).is_none()) {
         tasks.push(unregistered(c));
     }
@@ -374,8 +465,10 @@ fn unit(u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>)
     }
 }
 
-fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, commits: Vec<String>) -> Task {
-    let finder = t.kind != TaskKind::Implement;
+#[allow(clippy::too_many_arguments)]
+fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, commits: Vec<String>) -> Task {
+    let design = t.kind == TaskKind::Design;
+    let finder = !matches!(t.kind, TaskKind::Implement | TaskKind::Design);
     let reviewer = match t.kind {
         TaskKind::Tests => Some("test".to_string()),
         TaskKind::Review => t.reviewer.map(|r| name(&r)),
@@ -383,7 +476,7 @@ fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, co
     };
     let by_task = |n: u32| u.tasks.iter().find(|x| x.n == n);
     // Who raised implement work: the finder of what it answers, the user, or the plan.
-    let raised_by = (t.kind == TaskKind::Implement).then(|| match t.causes.first().and_then(|c| by_task(c.task)) {
+    let raised_by = (!finder).then(|| match t.causes.first().and_then(|c| by_task(c.task)) {
         Some(f) if f.kind == TaskKind::Gate => "user".to_string(),
         Some(f) if f.kind == TaskKind::Tests => "test".to_string(),
         Some(f) => f.reviewer.map(|r| name(&r)).unwrap_or_else(|| "code-review".into()),
@@ -419,7 +512,7 @@ fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, co
         })
         .collect();
     let kind = match t.kind {
-        TaskKind::Implement => "implement",
+        TaskKind::Implement | TaskKind::Design => "implement",
         TaskKind::Review | TaskKind::Tests => "review",
         TaskKind::Gate => "gate",
     };
@@ -455,6 +548,13 @@ fn task(u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, co
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
         // Only a gate's own message is shown on the page; the others went to the manager.
+        design,
+        threads: threads(state, live, names, &u.id, t.n),
+        // The latest conclusion about the gate or the work it follows starts the user's note.
+        draft: (t.state == TaskState::Waiting).then(|| {
+            let follows: Option<u32> = t.inputs.iter().find(|i| i.primary).and_then(|i| i.from.parse().ok());
+            state.threads.iter().rev().filter(|x| x.unit == u.id && (x.task == t.n || Some(x.task) == follows)).find_map(|x| x.conclusion.clone())
+        }).flatten(),
         delivery: if t.kind == TaskKind::Gate && t.state == TaskState::Done { names.sent(&t.delivery, manager) } else { None },
         amended: t.amended.clone(),
     }
@@ -481,6 +581,9 @@ fn unregistered(c: &scan::Commit) -> Task {
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
         delivery: None,
+        design: false,
+        threads: vec![],
+        draft: None,
         amended: None,
     }
 }

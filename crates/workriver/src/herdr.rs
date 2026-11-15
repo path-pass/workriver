@@ -35,6 +35,13 @@ pub fn cannot_ask(place: &str, why: &str) -> String {
     format!("cannot tell which agent runs in Herdr pane {place}: {why}. Is Herdr running and `workriver serve` started inside it? Or pass --as <name>.")
 }
 
+/// How an agent may ask another agent one question through Herdr's own CLI.
+pub fn ask_hint(agent: &str) -> String {
+    format!(
+        "If {agent} (the agent that did the work) is idle - check with `herdr agent get {agent}` - you may ask it one short question with `herdr agent prompt {agent} \"...\" --wait --timeout 120000` and read the reply with `herdr agent read {agent} --source recent-unwrapped --lines 80`; never while it is working or blocked. If you asked it, add `--asked {agent}` to your answer."
+    )
+}
+
 /// `HERDR_SOCKET_PATH`, or Herdr's default socket.
 pub fn socket_path() -> PathBuf {
     match std::env::var_os("HERDR_SOCKET_PATH") {
@@ -110,9 +117,14 @@ impl Herdr {
 
     /// One request on its own connection. A missing socket means Herdr is not running.
     fn call(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
+        self.call_within(method, params, Duration::from_secs(10))
+    }
+
+    /// The same, for a request that answers only after `wait` at most (starting an agent).
+    fn call_within(&self, method: &str, params: Value, wait: Duration) -> Result<Value, RuntimeError> {
         let fail = |e: std::io::Error| RuntimeError::Failed(format!("herdr {method}: {e}"));
         let stream = UnixStream::connect(&self.socket).map_err(|_| RuntimeError::None)?;
-        stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(fail)?;
+        stream.set_read_timeout(Some(wait)).map_err(fail)?;
         stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(fail)?;
         let id = format!("workriver:{}", self.ids.fetch_add(1, Ordering::Relaxed));
         let mut line = json!({ "id": id, "method": method, "params": params }).to_string();
@@ -150,12 +162,13 @@ impl Herdr {
         Ok((snap, list))
     }
 
-    fn pane_of(&self, session: &str) -> Result<String, RuntimeError> {
-        if let Some(p) = self.panes.lock().unwrap().get(session) {
+    /// The pane of an agent given by session or by name.
+    fn pane_of(&self, agent: &str) -> Result<String, RuntimeError> {
+        if let Some(p) = self.panes.lock().unwrap().get(agent) {
             return Ok(p.clone());
         }
         let (_, list) = self.read()?;
-        list.into_iter().find(|(_, a)| a.session == session).map(|(p, _)| p).ok_or_else(|| RuntimeError::NoAgent(session.into()))
+        list.into_iter().find(|(_, a)| a.session == agent || a.name == agent).map(|(p, _)| p).ok_or_else(|| RuntimeError::NoAgent(agent.into()))
     }
 }
 
@@ -231,9 +244,36 @@ impl Runtime for Herdr {
         Ok(())
     }
 
-    fn send(&self, session: &str, text: &str) -> Result<(), RuntimeError> {
-        let pane = self.pane_of(session)?;
+    fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError> {
+        let pane = self.pane_of(agent)?;
         self.call("agent.prompt", json!({ "target": pane, "text": text }))?;
+        Ok(())
+    }
+
+    /// A new tab in the workspace, so nobody's pane is split; the agent starts in its shell.
+    fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
+        let tab = self.call("tab.create", json!({ "workspace_id": group, "cwd": cwd, "label": name, "focus": false }))?;
+        let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();
+        let started = self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": pane, "timeout_ms": 60_000 }), Duration::from_secs(75));
+        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state.
+        let found = started.and_then(|_| {
+            for _ in 0..60 {
+                if let Some((_, a)) = self.read()?.1.into_iter().find(|(p, _)| *p == pane).filter(|(_, a)| a.state != AgentState::Unknown) {
+                    return Ok(a);
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(RuntimeError::NoAgent(name.into()))
+        });
+        if found.is_err() {
+            let _ = self.call("pane.close", json!({ "pane_id": pane }));
+        }
+        found
+    }
+
+    fn close(&self, agent: &str) -> Result<(), RuntimeError> {
+        let pane = self.pane_of(agent)?;
+        self.call("pane.close", json!({ "pane_id": pane }))?;
         Ok(())
     }
 }

@@ -9,9 +9,9 @@ import { Start } from '@/components/Start'
 import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
-import { agents, askeeOf, blame, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
+import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
 import { useT } from '@/i18n'
-import { ask, choreDone, decideFinding, detach, MANAGER, submitGate, type Delivery } from '@/runtime'
+import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, submitGate, type Delivery } from '@/runtime'
 import type { AskContext, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
@@ -40,6 +40,19 @@ export default function App() {
   // What the user put in during this sitting; the data shown is the data with it on top.
   const [edits, setEdits] = useState<Edits>(NO_EDITS)
   const ws = useMemo(() => data && withEdits(data, edits), [data, edits])
+  // Agents newly waiting in their terminal: a notification (if wanted), and the count in the
+  // tab's title with the gates waiting.
+  const seen = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const now = blockedAgents(data)
+    const before = seen.current
+    seen.current = new Set(now.map(s => s.session ?? s.agent))
+    // The first data only sets what is known; it is not news.
+    if (before) for (const s of now) if (!before.has(s.session ?? s.agent)) notify(t('agents.notice', { agent: s.agent }), s.topic, s.session ?? s.agent)
+  }, [data, t])
+  const blocking = useMemo(() => (ws ? inbox(ws).blocking.length : 0), [ws])
+  useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])
   // What each live session is about, for the agent marks' tooltips; a name that repeats
   // across workspaces is left out rather than guessed.
   const topics = useMemo(() => {
@@ -126,11 +139,19 @@ export default function App() {
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
   const panel = { ws: ws!, here, onOpen: open, onCommit, commit }
 
-  const onAsk = (node: Task, question: string, context: AskContext[]) => {
+  const onAsk = (node: Task, question: string, context: AskContext[], thread: string | null, conclude = false) => {
     if (!ws || !unit) return
     const at = unit.id, id = node.id
-    const turn: Turn = { question, context, answer: null, step: 'starting', at: new Date().toISOString() }
+    const turn: Turn = { question, context, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
     const put = (next: Turn) => setAsked(all => ({ ...all, [at]: { ...all[at], [id]: (all[at]?.[id] ?? []).map(x => (x === turn || x.at === turn.at ? next : x)) } }))
+    // With the service, the question and its answer come back with the data; only a refusal
+    // to take it stays here.
+    if (!MOCK) {
+      askWhy(unit, node, question, context, thread, conclude).catch(e => {
+        setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), { ...turn, step: undefined, failed: { code: 'runtime-error', reason: String(e) } }] } }))
+      })
+      return
+    }
     setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), turn] } }))
     // The agent that did the work is asked only while it is idle; a gone session cannot be.
     const who = askeeOf(unit, node)
@@ -144,6 +165,8 @@ export default function App() {
   const talk: Talk | null = ws && unit
     ? {
         sessions: ws.sessions, file, lines, asked: asked[unit.id] ?? {}, onAsk,
+        onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
+        live: !MOCK,
         onFile: p => { setFile(p); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
         extra: askReq.task === pick?.id ? askReq.extra : [],
