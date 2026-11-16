@@ -31,12 +31,12 @@ pub fn place_from_env() -> Option<String> {
 
 /// Why the CLI at `place` cannot tell which agent it is.
 pub fn no_agent_at(place: &str) -> String {
-    format!("Herdr lists no agent in pane {place} (see `herdr agent list`); run this from a pane running a coding agent, or pass --as <name>.")
+    format!("Herdr lists no agent in pane {place} (see `herdr agent list`); an agent runs this from its own pane; the user, from a terminal that is not an agent's, on the machine workriver runs on (where the user token is).")
 }
 
 /// The same when the service cannot ask Herdr.
 pub fn cannot_ask(place: &str, why: &str) -> String {
-    format!("cannot tell which agent runs in Herdr pane {place}: {why}. Is Herdr running and `workriver serve` started inside it? Or pass --as <name>.")
+    format!("cannot tell which agent runs in Herdr pane {place}: {why}. Is Herdr running and `workriver serve` started inside it? (As the user: use a terminal outside Herdr.)")
 }
 
 /// How an agent may ask another agent one question through Herdr's own CLI.
@@ -57,6 +57,7 @@ pub fn socket_path() -> PathBuf {
 pub struct Herdr {
     socket: PathBuf,
     /// The terminal app brought to the front after a focus (macOS); empty: none.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     terminal_app: String,
     ids: AtomicU64,
     /// Session -> pane, as last read.

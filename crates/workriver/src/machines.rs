@@ -106,8 +106,24 @@ const MAX: Duration = Duration::from_secs(120);
 /// Prints Herdr's socket path on the machine, as Herdr itself works it out (default session).
 const ASK_SOCKET: &str = r#"printf %s "${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/herdr.sock}""#;
 
-/// The ssh options every connection of ours uses: never ask, give up on a dead line.
-const QUIET: [&str; 4] = ["BatchMode=yes", "ConnectTimeout=10", "ServerAliveInterval=30", "ServerAliveCountMax=3"];
+/// The ssh options every connection of ours uses, whatever the user's ssh config says:
+/// never ask, never forward the user's ssh agent to the machine, never take a host key
+/// that is not known yet, give up on a dead line.
+const QUIET: [&str; 6] = ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ConnectTimeout=10", "ServerAliveInterval=30", "ServerAliveCountMax=3"];
+
+/// What to do about an ssh failure the user can fix, after ssh's own words.
+fn hint(error: &str, ssh: &str) -> String {
+    let e = error.to_lowercase();
+    if e.contains("host key verification failed") || e.contains("no matching host key") || e.contains("remote host identification has changed") {
+        format!("{error} (workriver takes no host key by itself: connect once by hand to check and accept it, `ssh {ssh}`)")
+    } else if e.contains("forwarding") || e.contains("cannot listen") || e.contains("address already in use") {
+        // ponytail: forwards from the user's config cannot be cleared without clearing ours
+        // (ClearAllForwardings clears both); a Host alias of workriver's own is the way out.
+        format!("{error} (if the port there is taken: `--remote-port`; if your ssh config sets LocalForward/RemoteForward for this host, they are set up on workriver's connection too and can fail it: give workriver a Host alias without them)")
+    } else {
+        error.to_string()
+    }
+}
 
 impl Machines {
     pub fn new(local: Arc<dyn Runtime>, home: PathBuf, terminal_app: String) -> Arc<Machines> {
@@ -318,7 +334,8 @@ fn ask_socket(ssh: &str) -> Result<String, String> {
     for o in QUIET {
         cmd.args(["-o", o]);
     }
-    cmd.args(["--", ssh, ASK_SOCKET]);
+    // This one sets up no forward, so the config's are cleared.
+    cmd.args(["-o", "ClearAllForwardings=yes", "--", ssh, ASK_SOCKET]);
     let out = herdr::output_within(cmd, Duration::from_secs(20)).map_err(|e| format!("cannot run ssh: {e}"))?;
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if out.status.success() && path.starts_with('/') {
@@ -329,6 +346,7 @@ fn ask_socket(ssh: &str) -> Result<String, String> {
 }
 
 fn state_of(e: &Entry) -> MachineState {
+    let e_ssh = e.setting.ssh.clone();
     let seen = e.seen.lock().unwrap();
     let tunnel = e.tunnel.lock().unwrap();
     MachineState {
@@ -339,7 +357,7 @@ fn state_of(e: &Entry) -> MachineState {
         reachable: seen.ok,
         error: seen.error.clone(),
         tunnel: tunnel.up,
-        tunnel_error: tunnel.error.clone(),
+        tunnel_error: tunnel.error.as_deref().map(|e| hint(e, &e_ssh)),
         agents: seen.agents.len(),
     }
 }

@@ -36,7 +36,11 @@ Start it in a Herdr pane of its own, so it finds Herdr's socket and keeps runnin
 workriver serve              # http://127.0.0.1:47820
 ```
 
-Open <http://127.0.0.1:47820>. `workriver status` should say `agent runtime: connected`.
+Then, from a terminal that is not an agent's pane, `workriver open`: it opens the page in
+your browser with a one-time link that signs this browser in as you (the same link is in
+the service's first log line). The plain address shows only how to open it; see
+[Security model](security.md) for why. `workriver status` should say
+`agent runtime: connected`.
 
 - Data: `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to put it elsewhere). One
   SQLite file; copy it while the service is stopped to back it up. Attachments
@@ -196,7 +200,11 @@ Then stop `workriver serve` (Ctrl-C) and start it again. The data is kept.
   above. *connected, but its Herdr does not answer*: Herdr is not running there, or its
   socket is elsewhere (`--herdr-socket`).
 - **"cannot tell which agent this is"** from the CLI in a pane: the service cannot reach
-  Herdr (see above). `--as <name>` records under a name you give.
+  Herdr (see above). To run a command as yourself meanwhile, use a terminal outside Herdr.
+- **"this is the user's to do…" (401)**: the command or the page is not known to be you.
+  The page: `workriver open`. The CLI: run it from a terminal that is not an agent's pane,
+  on the machine workriver runs on. Decisions, gates, chores, projects, machines and
+  workspace links are yours alone; see [Security model](security.md).
 - **"Not delivered: …"** on the page (hover for the details):
   - *the intent has no manager*: run `workriver manager here` in the manager's pane of
     the workspace the intent was started in;

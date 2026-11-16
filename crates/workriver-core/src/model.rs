@@ -271,6 +271,60 @@ pub struct NewTask {
     pub plans: Vec<String>,
 }
 
+/// Who a request was found to come from. The daemon works this out (a session of the web
+/// UI or the user's token; the agent at the caller's place in the runtime); it is never
+/// taken from what the caller says. Events are recorded under `actor()`.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Principal {
+    /// The person: authenticated with the user token or a session of the web UI.
+    User,
+    /// An agent, by its session, on a machine (none: this one).
+    Agent { session: String, machine: Option<String> },
+    /// workriver itself: deliveries, what it sees of agents, its temporary agents.
+    Service,
+}
+
+impl Principal {
+    pub fn actor(&self) -> &str {
+        match self {
+            Principal::User => "user",
+            Principal::Agent { session, .. } => session,
+            Principal::Service => "workriver",
+        }
+    }
+
+    pub fn machine(&self) -> Option<&str> {
+        match self {
+            Principal::Agent { machine, .. } => machine.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// For tests of the rules: "user", "workriver", or an agent's session.
+#[cfg(test)]
+impl From<&str> for Principal {
+    fn from(s: &str) -> Principal {
+        match s {
+            "user" => Principal::User,
+            "workriver" => Principal::Service,
+            s => Principal::Agent { session: s.into(), machine: None },
+        }
+    }
+}
+
+impl Body {
+    /// What only the person may record: their decisions and results, and what changes
+    /// where workriver reaches (projects, links between workspaces).
+    pub fn user_only(&self) -> bool {
+        use Body::*;
+        matches!(
+            self,
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | FindingsBatched { .. } | FindingDropped { .. }
+        )
+    }
+}
+
 /// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct RuntimeRef {
@@ -453,6 +507,8 @@ pub enum Body {
         /// Before 0.2: the intent it managed (whose runtime group it ran in).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         intent: Option<String>,
+        /// The agent's session; empty when recorded: whoever records it.
+        #[serde(default)]
         agent: String,
         /// The runtime group it manages.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -536,6 +592,8 @@ pub enum Body {
         decision: Decision,
         #[serde(default)]
         note: String,
+        /// Whose decision; set from who records it.
+        #[serde(default = "an_agent")]
         by: Who,
     },
     #[serde(rename = "gate.submitted")]
@@ -911,6 +969,15 @@ pub fn parse_task_ref(s: &str) -> Option<(&str, u32)> {
 }
 
 /// A value's name as it is serialized, e.g. "running".
+fn an_agent() -> Who {
+    Who::Agent
+}
+
+/// An event's kind, as recorded ("gate.submitted").
+fn name_of_kind(b: &Body) -> String {
+    serde_json::to_value(b).ok().and_then(|v| v["kind"].as_str().map(str::to_string)).unwrap_or_default()
+}
+
 pub fn name<T: Serialize>(v: &T) -> String {
     serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
@@ -1050,10 +1117,17 @@ impl State {
 
     /// Checks a new event against the rules and fills in what is assigned here (ids and
     /// numbers). The result is what gets stored.
-    pub fn prepare(&self, actor: &str, body: Body) -> Result<Body, Rejected> {
+    pub fn prepare(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
         use Body::*;
-        if blank(actor) {
-            return no("the actor is empty");
+        let actor = who.actor();
+        let user = *who == Principal::User;
+        // An agent is never the user or workriver by calling itself so.
+        if blank(actor) || (matches!(who, Principal::Agent { .. }) && matches!(actor, "user" | "workriver")) {
+            return no("the actor is empty or not an agent's");
+        }
+        // The last line of defence: whatever let the request in, these are the user's alone.
+        if body.user_only() && !user {
+            return no(format!("only the user does this ({}): in the web UI, or with the CLI from a terminal that is not an agent's", name_of_kind(&body)));
         }
         Ok(match body {
             IntentCreated { title, goal, runtime_ref, project, state, note, external, .. } => {
@@ -1084,12 +1158,15 @@ impl State {
                     (Planned, Active) => {
                         let Some(g) = &workspace else { return no(format!("start {intent} from its manager's pane: workriver intent start {intent}")) };
                         let manager = self.workspace_of(g).and_then(|w| w.manager.as_deref());
-                        if actor != "user" && manager != Some(actor) {
+                        if !user && manager != Some(actor) {
                             return no(format!("only the manager of workspace {} starts intents there; register with `workriver manager here` first", g.label));
                         }
                     }
                     (Active, Done) | (Active, Planned) => {}
                     (Planned, Dropped) | (Active, Dropped) => {
+                        if !user && self.manager_of(&intent) != Some(actor) {
+                            return no(format!("only the user or the manager of intent {intent} drops it"));
+                        }
                         if reason.as_deref().is_none_or(blank) {
                             return no("dropping an intent needs a reason: --reason \"...\"");
                         }
@@ -1192,7 +1269,7 @@ impl State {
             }
             IntentUpdated { intent, title, goal } => {
                 self.intent(&intent)?;
-                if actor != "user" && self.manager_of(&intent) != Some(actor) {
+                if !user && self.manager_of(&intent) != Some(actor) {
                     return no(format!("only the user or the manager of intent {intent} may change it"));
                 }
                 if title.as_deref().is_some_and(blank) {
@@ -1210,9 +1287,12 @@ impl State {
                 if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
                     return no("a manager manages a runtime workspace: run `workriver manager here` in its pane");
                 }
-                if blank(&agent) {
-                    return no("a manager needs an agent");
-                }
+                // An agent registers itself; nobody is made a manager by someone else.
+                let agent = match who {
+                    Principal::Agent { session, .. } if blank(&agent) || &agent == session => session.clone(),
+                    Principal::Agent { .. } => return no("an agent registers itself as manager, not another agent"),
+                    _ => return no("a manager is an agent: run `workriver manager here` in the manager agent's pane"),
+                };
                 ManagerRegistered { intent, agent, workspace }
             }
             UnitCreated { intent, title, purpose, repo, branch, base, machine, .. } => {
@@ -1294,7 +1374,9 @@ impl State {
                 if decision == Decision::Revise && blank(&note) {
                     return no("revise needs a note saying how it is to be fixed: --note \"...\"");
                 }
-                FindingDecided { unit, task, finding, decision, note, by }
+                // Whose decision it is follows from who records it, whatever the event says.
+                let _ = by;
+                FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent } }
             }
             GateSubmitted { unit, task, result, note, findings, attachments } => {
                 self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
@@ -1402,7 +1484,7 @@ impl State {
                 let mine = own
                     || [q.agent.as_deref(), t.and_then(|t| t.agent.as_deref())].contains(&Some(actor))
                     || [name, q.name.as_deref()].iter().any(|n| n.is_some() && self.name_of(actor) == *n);
-                if actor != "user" && !mine {
+                if !user && !mine {
                     return no(format!("question {question} is answered by the agent started for it ({}), or by the user", name.unwrap_or("not started yet")));
                 }
                 if blank(&text) {

@@ -21,7 +21,7 @@ fn seeded(store: &mut Store) {
         ]}}),
     ];
     for s in steps {
-        store.append("agent-a", body(s)).unwrap();
+        store.append(&"agent-a".into(), body(s)).unwrap();
     }
 }
 
@@ -47,9 +47,9 @@ fn rules_reject_bad_input() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
     // A second review (#3), left open for the delivery below.
-    s.append("agent-b", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review"}}))).unwrap();
+    s.append(&"agent-b".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review"}}))).unwrap();
     let mut rejects = |v: serde_json::Value, says: &str| {
-        let err = s.append("agent-a", body(v)).unwrap_err().to_string();
+        let err = s.append(&"agent-a".into(), body(v)).unwrap_err().to_string();
         assert!(err.contains(says), "{err:?} does not say {says:?}");
     };
     rejects(json!({"kind": "unit.created", "body": {"intent": "i9", "title": "x", "repo": "/r", "branch": "b", "base": "main"}}), "no intent i9");
@@ -62,20 +62,23 @@ fn rules_reject_bad_input() {
     // Work for a finding nobody accepted.
     rejects(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "fix", "causes": [{"task": 2, "findings": ["P2-1"]}]}}), "neither accepted, revised nor scheduled");
     rejects(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P9-1", "decision": "accept", "by": "user"}}), "no finding P9-1");
-    rejects(json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "done"}}), "not a waiting gate");
+    rejects(json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "done"}}), "only the user does this (gate.submitted)");
+
     rejects(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}), "is done, not todo");
     // Decisions only on open findings.
-    s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "by": "user"}}))).unwrap();
-    let err = s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}})));
+    s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "by": "user"}}))).unwrap();
+    let err = s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}})));
     assert!(err.unwrap_err().to_string().contains("already rejected"));
+    let err = s.append(&"user".into(), body(json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "done"}}))).unwrap_err().to_string();
+    assert!(err.contains("not a waiting gate"), "{err}");
 }
 
 #[test]
 fn accepted_finding_leads_to_task_with_derived_inputs() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
-    s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "decision": "accept", "by": "user"}}))).unwrap();
-    let e = s.append("manager", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "fix", "causes": [{"task": 2, "findings": ["P2-2"]}]}}))).unwrap();
+    s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "decision": "accept", "by": "user"}}))).unwrap();
+    let e = s.append(&"manager".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "fix", "causes": [{"task": 2, "findings": ["P2-2"]}]}}))).unwrap();
     let Body::TaskCreated(t) = e.body else { panic!() };
     assert_eq!(t.n, 3);
     assert_eq!(t.inputs, [Input { from: "2".into(), primary: true }]);
@@ -112,24 +115,24 @@ fn corrections_after_delivery() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
     // Delivering twice points at --amend.
-    let again = s.append("agent-a", body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1}}))).unwrap_err().to_string();
+    let again = s.append(&"agent-a".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1}}))).unwrap_err().to_string();
     assert!(again.contains("--amend"), "{again}");
-    s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "Better regex",
+    s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "Better regex",
         "evidence": [{"command": "npm test", "result": "passed", "summary": "7 passed"}]}}))).unwrap();
     let t = s.state().task("u1", 1).unwrap();
     assert_eq!((t.note.as_str(), t.evidence[0].summary.as_str()), ("Better regex", "7 passed"));
     assert!(t.amended.is_some());
     // Findings can be replaced while none is decided, and are numbered again.
-    s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": [
+    s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": [
         {"severity": "P1", "problem": "Crash", "impact": "Down", "where": ["a.ts"]}]}}))).unwrap();
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.id, "P1-1");
-    s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
-    let late = s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
+    s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
+    let late = s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
     assert!(late.contains("already decided") && late.contains("new review or tests task"), "{late}");
     // The goal: the user or the intent's manager only.
-    let other = s.append("agent-b", body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
+    let other = s.append(&"agent-b".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
     assert!(other.contains("only the user or the manager"), "{other}");
-    s.append("user", body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
+    s.append(&"user".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
     assert_eq!(s.state().intents[0].goal, "Let people mention each other");
 }
 
@@ -137,66 +140,66 @@ fn corrections_after_delivery() {
 fn questions_are_answered_by_their_own_agent_or_the_user() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
-    let e = s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?",
+    let e = s.append(&"user".into(), body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?",
         "context": [{"kind": "lines", "label": "a.ts L3–4", "path": "app/a.ts", "from": 3, "to": 4}]}}))).unwrap();
     let Body::QuestionAsked { id, .. } = e.body else { panic!() };
     assert_eq!(id, "q1");
-    assert!(s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 9, "text": "?"}}))).is_err());
-    s.append("workriver", body(json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}}))).unwrap();
+    assert!(s.append(&"user".into(), body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 9, "text": "?"}}))).is_err());
+    s.append(&"workriver".into(), body(json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}}))).unwrap();
     // Another agent may not answer; the started one may, known by its name even under a new session.
-    let other = s.append("agent-b", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}))).unwrap_err().to_string();
+    let other = s.append(&"agent-b".into(), body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}))).unwrap_err().to_string();
     assert!(other.contains("why-q1"), "{other}");
-    s.append("workriver", body(json!({"kind": "agent.seen", "body": {"session": "s-why-2", "name": "why-q1", "harness": "claude"}}))).unwrap();
-    s.append("s-why-2", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "It is short.", "asked": "agent-a"}}))).unwrap();
+    s.append(&"workriver".into(), body(json!({"kind": "agent.seen", "body": {"session": "s-why-2", "name": "why-q1", "harness": "claude"}}))).unwrap();
+    s.append(&"s-why-2".into(), body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "It is short.", "asked": "agent-a"}}))).unwrap();
     let q = s.state().question("q1").unwrap();
     assert_eq!((q.answer.as_deref(), q.asked.as_deref(), q.answered_by.as_deref()), (Some("It is short."), Some("agent-a"), Some("s-why-2")));
-    let again = s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "y"}}))).unwrap_err().to_string();
+    let again = s.append(&"user".into(), body(json!({"kind": "question.answered", "body": {"question": "q1", "text": "y"}}))).unwrap_err().to_string();
     // The task's own agent may answer questions about its work.
-    s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Own?"}}))).unwrap();
-    s.append("agent-a", body(json!({"kind": "question.answered", "body": {"question": "q2", "text": "Mine."}}))).unwrap();
+    s.append(&"user".into(), body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Own?"}}))).unwrap();
+    s.append(&"agent-a".into(), body(json!({"kind": "question.answered", "body": {"question": "q2", "text": "Mine."}}))).unwrap();
     assert!(again.contains("already answered"), "{again}");
     // A question can fail once, while open; the user can still answer an open one.
-    s.append("user", body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "And?"}}))).unwrap();
-    s.append("workriver", body(json!({"kind": "question.failed", "body": {"question": "q3", "reason_code": "timeout", "reason": "no answer in 10 minutes"}}))).unwrap();
-    assert!(s.append("user", body(json!({"kind": "question.answered", "body": {"question": "q3", "text": "late"}}))).is_err());
+    s.append(&"user".into(), body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "And?"}}))).unwrap();
+    s.append(&"workriver".into(), body(json!({"kind": "question.failed", "body": {"question": "q3", "reason_code": "timeout", "reason": "no answer in 10 minutes"}}))).unwrap();
+    assert!(s.append(&"user".into(), body(json!({"kind": "question.answered", "body": {"question": "q3", "text": "late"}}))).is_err());
 }
 
 #[test]
 fn design_tasks_decide_gates_and_revised_findings() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
-    s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store"}}))).unwrap();
-    let no_note = s.append("w", body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3}}))).unwrap_err().to_string();
+    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store"}}))).unwrap();
+    let no_note = s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3}}))).unwrap_err().to_string();
     assert!(no_note.contains("design as the note"), "{no_note}");
-    s.append("w", body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "One table."}}))).unwrap();
-    s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm the design", "inputs": [{"from": "3"}]}}))).unwrap();
+    s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "One table."}}))).unwrap();
+    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm the design", "inputs": [{"from": "3"}]}}))).unwrap();
     assert_eq!(s.state().task("u1", 4).unwrap().gate, Some(GateKind::Decide));
     // Revise needs a note, and then leads to work like an accepted finding.
-    let bare = s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "revise", "by": "user"}}))).unwrap_err().to_string();
+    let bare = s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "revise", "by": "user"}}))).unwrap_err().to_string();
     assert!(bare.contains("revise needs a note"), "{bare}");
-    s.append("user", body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "revise", "note": "Use a set", "by": "user"}}))).unwrap();
+    s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "revise", "note": "Use a set", "by": "user"}}))).unwrap();
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].state, FindingState::Revised);
-    s.append("boss", body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Dedupe with a set", "causes": [{"task": 2, "findings": ["P2-1"]}]}}))).unwrap();
+    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Dedupe with a set", "causes": [{"task": 2, "findings": ["P2-1"]}]}}))).unwrap();
 }
 
 #[test]
 fn attachments_are_stored_before_they_are_used() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
-    let unknown = s.append("user", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap_err().to_string();
+    let unknown = s.append(&"user".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap_err().to_string();
     assert!(unknown.contains("no stored attachment abc"), "{unknown}");
-    s.append("agent-a", body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3}}))).unwrap();
-    s.append("agent-a", body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap();
+    s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3}}))).unwrap();
+    s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap();
     // Added again only to link it to a finding: one record, two links.
-    s.append("agent-a", body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3, "unit": "u1", "task": 2, "finding": "P2-1"}}))).unwrap();
-    assert!(s.append("agent-a", body(json!({"kind": "attachment.added", "body": {"id": "x", "name": "x", "type": "", "size": 1, "unit": "u1", "task": 2, "finding": "P9-9"}}))).is_err());
+    s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3, "unit": "u1", "task": 2, "finding": "P2-1"}}))).unwrap();
+    assert!(s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "x", "name": "x", "type": "", "size": 1, "unit": "u1", "task": 2, "finding": "P9-9"}}))).is_err());
     assert_eq!(s.state().attachments.len(), 1);
     assert_eq!(s.state().task("u1", 1).unwrap().attachments, ["abc"]);
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["abc"]);
 }
 
 fn add(s: &mut Store, actor: &str, v: serde_json::Value) -> Result<Event, String> {
-    s.append(actor, body(v)).map_err(|e| e.to_string())
+    s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
 /// The state rebuilt from the records alone.
@@ -369,4 +372,46 @@ fn remote_workspaces_are_linked_explicitly() {
     assert_eq!(st.manager_of("i1"), Some("far"));
     add(&mut s, "user", json!({"kind": "workspace.unlinked", "body": {"machine": "box", "workspace": "chat"}})).unwrap();
     assert!(s.state().workspace_of(&remote).is_none());
+}
+
+/// What is the user's is the user's whoever asks: an agent cannot submit a gate, finish a
+/// chore, batch or drop findings, link workspaces or add projects; its decision on a finding
+/// is recorded as an agent's whatever it claims; and it cannot call itself the user.
+#[test]
+fn only_the_user_does_what_is_the_users() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    add(&mut s, "agent-a", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "decision": "defer"}})).unwrap();
+    let theirs = [
+        json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "done"}}),
+        json!({"kind": "chore.done", "body": {"chore": "c1"}}),
+        json!({"kind": "findings.batched", "body": {"intent": "i1", "findings": [{"unit": "u1", "task": 2, "finding": "P2-2"}]}}),
+        json!({"kind": "finding.dropped", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "reason": "x"}}),
+        json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "a", "local": "a"}}),
+        json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}}),
+    ];
+    for who in ["agent-a", "workriver"] {
+        for v in &theirs {
+            let e = add(&mut s, who, v.clone()).unwrap_err();
+            assert!(e.contains("only the user does this"), "{who}: {e}");
+        }
+    }
+    let impostor = Principal::Agent { session: "user".into(), machine: None };
+    assert!(s.append(&impostor, body(theirs[0].clone())).is_err());
+    assert!(s.append(&impostor, body(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}))).is_err(), "nor record anything under that name");
+    // An agent may decide a finding, but never as the user.
+    let e = add(&mut s, "agent-a", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}})).unwrap();
+    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "agent"}})));
+    // A manager is an agent registering itself.
+    let w = json!({"id": "w1", "label": "chat"});
+    assert!(add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w}})).is_err());
+    assert!(add(&mut s, "user", json!({"kind": "manager.registered", "body": {"workspace": w}})).is_err());
+    let e = add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
+    assert_eq!(e.body, body(json!({"kind": "manager.registered", "body": {"agent": "agent-a", "workspace": w}})));
+    // The user does all of it.
+    for v in theirs {
+        add(&mut s, "user", v).unwrap();
+    }
 }

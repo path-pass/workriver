@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import App from './App'
+import { Session } from './components/Session'
 import './i18n'
 import { applyTheme, readTheme } from './theme'
 import './index.css'
@@ -11,7 +12,7 @@ applyTheme(readTheme())
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TooltipProvider delayDuration={400}>
-      <App />
+      <Session><App /></Session>
     </TooltipProvider>
   </StrictMode>,
 )

@@ -5,9 +5,29 @@
 import { MOCK, type Decision, type GateResult } from './data'
 import type { AskContext, AskStep, Attachment, Finding, Machine, Task, Turn, Unit } from './types'
 
+/** Sent on the window when the service says this page is not the user (any more). */
+export const SIGNED_OUT = 'workriver:signed-out'
+
 async function post(path: string, body: unknown) {
   const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
   if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`)
+}
+
+/**
+ * Whether this page is the user's. A one-time code in the address (`#k=…`, from
+ * `workriver open`) is exchanged for the session cookie first and taken out of the address,
+ * so it is not kept in history or shared with a copied link.
+ */
+export async function startSession(): Promise<boolean> {
+  const code = new URLSearchParams(location.hash.slice(1)).get('k')
+  if (code) {
+    history.replaceState(null, '', location.pathname + location.search)
+    await fetch('/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => undefined)
+  }
+  const res = await fetch('/api/session')
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).user === true
 }
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
@@ -169,7 +189,8 @@ export function choreDone(id: string) {
  */
 export async function record(kind: string, body: unknown) {
   if (MOCK) return
-  await post('/api/append', { actor: 'user', kind, body })
+  // Who records is the service's to find: this page's session is the user's.
+  await post('/api/append', { kind, body })
 }
 
 /** The machines the service knows, followed or not. */

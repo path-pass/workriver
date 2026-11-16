@@ -20,7 +20,7 @@
 
 ## 构建和运行
 
-从一台新 Mac 到每个 Herdr 工作区都有管理者 agent，一步一步：[上手](getting-started.zh-CN.md)。
+从一台新 Mac 到每个 Herdr 工作区都有管理者 agent，一步一步：[上手](getting-started.zh-CN.md)。启动服务后用 `workriver open` 打开页面（一次性链接，以你的身份登录）。页面和命令行只有带着你机器上的用户令牌才算是你；agent 和其他机器不行。它能防什么、防不住什么：[安全模型](security.zh-CN.md)。
 
 运行时由 [mise](https://mise.jdx.dev) 管理（`mise.toml`：Rust 和 Node）。网页界面会打进二进制文件里，所以先构建界面：
 

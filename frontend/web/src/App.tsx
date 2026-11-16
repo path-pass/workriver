@@ -35,7 +35,7 @@ export default function App() {
   // The side panel shows one section or is folded; which, is remembered.
   const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' || v === 'backlog' ? v : null })
   // The project the rail and the backlog show, or all; remembered.
-  const [project, setProject] = useState<string | null>(() => recall(PROJECT) || null)
+  const [picked, setProject] = useState<string | null>(() => recall(PROJECT) || null)
   const pickProject = (p: string | null) => { setProject(p); remember(PROJECT, p ?? '') }
   // A planned intent whose start steps are shown.
   const [starting, setStarting] = useState<Intent | null>(null)
@@ -46,6 +46,8 @@ export default function App() {
   // What the user put in during this sitting; the data shown is the data with it on top.
   const [edits, setEdits] = useState<Edits>(NO_EDITS)
   const ws = useMemo(() => data && withEdits(data, edits), [data, edits])
+  // A remembered project that is no longer there (another data folder) shows all.
+  const project = data?.projects?.some(p => p.id === picked) ? picked : null
   // Agents newly waiting in their terminal: a notification (if wanted), and the count in the
   // tab's title with the gates waiting.
   const seen = useRef<Set<string> | null>(null)

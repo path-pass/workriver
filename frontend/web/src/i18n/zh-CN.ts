@@ -46,6 +46,12 @@ export const zhCN: Same<typeof en> = {
     work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
     trailer: '提交信息里写这样一行，这个提交就归到对应的任务：'
   },
+  session: {
+    title: 'workriver',
+    lead: '这个页面替你做决定、以你的身份操作，所以只能用你自己终端里给出的链接打开。',
+    open: '在 workriver 所在的机器上，找一个不是 agent 窗格的终端运行：',
+    why: '这个链接只能用一次，五分钟内有效；之后这个浏览器会保持登录。agent 和其他机器不能以你的身份操作。'
+  },
   service: {
     unreachable: '连不上 workriver 服务。`workriver serve` 在运行吗？'
   },

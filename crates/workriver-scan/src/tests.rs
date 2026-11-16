@@ -81,7 +81,9 @@ fn ssh_command_is_quoted_and_never_asks() {
     let c = at.command(&["git", "-C", "/srv/it's here", "log", "--format=%h%x00%s"]);
     let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
     assert_eq!(c.get_program(), "ssh");
-    assert!(args.windows(2).any(|w| w == ["-o", "BatchMode=yes"]), "{args:?}");
+    for o in ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ClearAllForwardings=yes"] {
+        assert!(args.windows(2).any(|w| w == ["-o", o]), "{o} in {args:?}");
+    }
     assert!(args.contains(&"ControlPath=/data/wr/ssh-%C".to_string()), "{args:?}");
     let n = args.len();
     assert_eq!(&args[n - 3..], ["--", "me@box", r#"'git' '-C' '/srv/it'\''s here' 'log' '--format=%h%x00%s'"#]);

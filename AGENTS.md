@@ -12,8 +12,8 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
 
 ## Terms
 
-- **Intent**: a high-level goal; it groups the units that serve it. One intent is one Herdr
-  workspace, a mapping that lives only in the runtime adapter.
+- **Intent**: a goal in a project; it groups the units that serve it. It is planned in the
+  project's roadmap until a Herdr workspace's manager starts it.
 - **Unit**: a piece of an intent that can be implemented on its own, on its own branch.
 - **Task**: one piece of work handed to one agent (implement, review) or to the user (a
   gate); a node in a unit's graph. Not "bolt": in AI-DLC a bolt is a coarser delivery slice.
@@ -36,9 +36,9 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
   same build.
 - Storage: one SQLite database outside the repositories it watches, append-only events.
 - Agents report the content of their work (tasks, output, evidence, findings) by running
-  the `workriver` CLI from their shell, which every harness can do. The CLI knows which
-  agent called it from the runtime's environment (under Herdr: `HERDR_PANE_ID`,
-  `HERDR_WORKSPACE_ID`), so no harness is configured or special-cased. The instructions
+  the `workriver` CLI from their shell, which every harness can do. The CLI sends where
+  it runs (under Herdr: `HERDR_PANE_ID`) and the service finds the agent there, so no
+  harness is configured or special-cased and nobody is anyone by saying so. The instructions
   an agent needs travel inside the task message the manager sends it. MCP is not used
   for now; add it only if a harness that cannot run shell commands has to be supported.
 - Each intent (one Herdr workspace) has one manager agent of its own. It registers itself
@@ -91,6 +91,15 @@ outer crate with the daemon, the CLI and the Herdr runtime implementation.
   it yourself only when the library would clearly cost performance or bundle size; say
   which library you turned down and why, with the number.
 - Do not commit or push unless the user says so.
+- Security rule (see `docs/security.md`): the service never takes anyone's word for who
+  they are. Whatever acts as the user, or changes where workriver reaches (machines,
+  links, projects), asks for the user in its handler (`App::user`, or `App::who` for what
+  agents may record too) and is refused by the event rules for anyone else
+  (`Body::user_only`). Never add a route that acts as the user without that; never serve
+  such a route on a machine's listener (`machine_router` is an allow-list; add to it only
+  what an agent's CLI on another machine needs); never pass an actor string taken from a
+  request into `record` (it takes a `Principal`). Text written by agents or the user goes
+  into messages only through `quote.rs`.
 - Read `DESIGN.md` before changing anything in `frontend/`.
 - Runtimes come from mise (node, rust). Do not install tools globally; keep dependencies
   inside the project.

@@ -42,6 +42,12 @@ export const en = {
     work: 'It splits the goal into units and tasks and hands them to worker agents; their work shows up here.',
     trailer: 'A commit belongs to a task through a line in its message:'
   },
+  session: {
+    title: 'workriver',
+    lead: 'This page decides and acts as you, so it opens only with a link from your own terminal.',
+    open: 'In a terminal that is not an agent’s pane, on the machine workriver runs on:',
+    why: 'The link works once and for five minutes; after that this browser stays signed in. Agents and other machines cannot act as you.'
+  },
   service: {
     unreachable: 'Cannot reach the workriver service. Is `workriver serve` running?'
   },

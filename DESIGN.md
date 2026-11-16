@@ -324,6 +324,14 @@ never name a raw colour.
   space: along the gap between rows, then down just before its target.
 - With "reduce motion" set, both are still.
 
+## Signed in or not
+
+The page decides and acts as the user, so it works only with a session (`docs/security.md`).
+Without one it shows a single calm screen, nothing of the app: the product mark, one
+sentence on why, the command `workriver open` with its copy button, and a quiet line that
+the link works once. No form, no token field: the link from the user's own terminal is the
+only way in. A session that ended shows the same screen at the user's next action.
+
 ## States
 
 Everything that can be picked has: default, hover, keyboard focus (violet ring), selected

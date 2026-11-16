@@ -43,7 +43,11 @@ built into the binary, so build it first:
 cd frontend/web && npm install && npm run build && cd ../..
 cargo build --release
 ./target/release/workriver serve          # http://127.0.0.1:47820
+./target/release/workriver open           # the page, signed in as you (a one-time link)
 ```
+
+The page and the CLI act as you only with the user token on your machine; agents and
+other machines cannot. What that does and does not protect: [Security model](docs/security.md).
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
 `workriver --help` explains the commands; a commit belongs to a task through a trailer line

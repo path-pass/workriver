@@ -1,10 +1,12 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
 mod ask;
 mod attachments;
+mod auth;
 mod backlog;
 mod deliver;
 mod herdr;
 mod machines;
+mod quote;
 mod serve;
 mod snapshot;
 
@@ -31,17 +33,20 @@ Terms:
   finding  a problem a review, tests task or gate found: P1-1, P2-1… within its task
   chore    something asked of the user that blocks nobody (ids c1, c2…)
 
-Who records: inside a Herdr pane, the agent running there (by its session); outside, the
-user. `--as NAME` overrides. Inside a Herdr workspace the intent is the one that follows
-that workspace (created on first use), so commands that take an intent may leave it out.
+Who records: the service finds it. In an agent's Herdr pane, that agent (by its session).
+From a terminal that is not an agent's pane, on the machine workriver runs on: the user
+(the CLI sends the user token, `<WORKRIVER_HOME>/user-token`). Nobody is anyone by saying
+so. Decisions as the user, gates, chores done, projects, machines and workspace links are
+the user's alone. Inside a Herdr workspace the intent is the workspace's current one, so
+commands that take an intent may leave it out.
 
 Commits are read from git: a commit belongs to a task when its message has the trailer
 line `Task: u1#3`. A commit on the unit's branch without one shows as unregistered.
 
 Typical flow for an agent:
-  workriver task start u1#3 --as agent-a
+  workriver task start u1#3
   …work, commit with `Task: u1#3`…
-  workriver task deliver u1#3 --as agent-a --evidence 'cargo test => passed: 12 passed'";
+  workriver task deliver u1#3 --evidence 'cargo test => passed: 12 passed'";
 
 #[derive(Parser)]
 #[command(name = "workriver", version, about = "Keep track of many coding agents working in parallel.", long_about = ABOUT)]
@@ -49,8 +54,9 @@ struct Cli {
     /// Port of the daemon on 127.0.0.1.
     #[arg(long, global = true, env = "WORKRIVER_PORT", default_value_t = 47820)]
     port: u16,
-    /// Who records this. Default: the agent of the Herdr pane this runs in, else "user".
-    #[arg(long = "as", global = true, env = "WORKRIVER_AS", value_name = "NAME")]
+    /// For tests and development: record as this agent instead of the one in this Herdr
+    /// pane. Refused unless the service was started with WORKRIVER_ALLOW_AS=1; never the user.
+    #[arg(long = "as", global = true, env = "WORKRIVER_AS", value_name = "AGENT", hide = true)]
     actor: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
@@ -68,6 +74,13 @@ enum Cmd {
     },
     /// Check that the daemon is running and show what it holds.
     Status,
+    /// Open the web UI in the browser as the user: with a one-time link that gives the page
+    /// its session. Not from an agent's pane.
+    Open {
+        /// Only print the link.
+        #[arg(long)]
+        print: bool,
+    },
     /// Other machines whose agents (in their own Herdr) are followed over ssh.
     #[command(subcommand)]
     Machine(MachineCmd),
@@ -408,7 +421,7 @@ enum TaskCmd {
         #[arg(long)]
         plan: Vec<String>,
     },
-    /// Mark a task as started (by the --as agent unless --agent is given).
+    /// Mark a task as started (by the calling agent unless --agent is given).
     Start {
         /// The task (u1#3).
         task: String,
@@ -537,10 +550,11 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = &warning {
                 tracing::warn!("{w}");
             }
+            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1") };
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port).await?;
-                serve::serve_with(listener, store, all.clone(), warning, serve::Waits::default(), Some(all)).await
+                serve::serve_with(listener, store, all, options).await
             });
         }
         Cmd::Guide { role } => {
@@ -553,7 +567,11 @@ fn main() -> anyhow::Result<()> {
         }
         _ => {}
     }
-    let d = Daemon { port: cli.port };
+    let place = herdr::place_from_env();
+    let d = Daemon { port: cli.port, place: place.clone(), home: Some(core::data_dir()) };
+    if cli.actor.as_deref() == Some("user") {
+        bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");
+    }
     // Who records, and in which intent, from the runtime place the CLI runs in.
     // Where it runs matters to these: the workspace's current intent, or the workspace itself.
     let needs_place = matches!(
@@ -565,15 +583,17 @@ fn main() -> anyhow::Result<()> {
             | Cmd::Intent(IntentCmd::Start { .. })
     );
     let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
-    let place = herdr::place_from_env();
+    // Who records is the daemon's to find, from this place; the CLI only asks where it is
+    // for the commands that need the workspace or its current intent.
     let here = match &place {
-        Some(place) if records && (cli.actor.is_none() || needs_place) => {
+        Some(place) if records && needs_place => {
             Some(d.call("/api/here", Some(json!({ "place": place }))).map_err(|e| anyhow!(herdr::cannot_ask(place, &e.to_string())))?)
         }
         _ => None,
     };
     let group = here.as_ref().map(|h| h["group"].clone()).filter(|g| !g.is_null());
-    let actor = if records { actor_of(cli.actor.clone(), place.as_deref(), here.as_ref())? } else { "user".into() };
+    // `--as`, where the service allows it; else empty: whoever the service finds this to be.
+    let actor = cli.actor.clone().unwrap_or_default();
     let actor = actor.as_str();
     let here_intent = |given: Option<String>| {
         given.or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string))).ok_or_else(|| match &group {
@@ -584,13 +604,12 @@ fn main() -> anyhow::Result<()> {
             None => anyhow!("no intent given, and not inside a Herdr workspace; name one (see `workriver backlog list`)"),
         })
     };
-    let by = if actor == "user" { "user" } else { "agent" };
     let out = match cli.cmd {
         Cmd::Serve { .. } | Cmd::Guide { .. } => unreachable!(),
         Cmd::Status => {
             let s = d.get("/api/status")?;
             println!("workriver {} is running", s["version"].as_str().unwrap_or("?"));
-            println!("web UI: http://127.0.0.1:{}", s["port"]);
+            println!("web UI: http://127.0.0.1:{}  (open it as you with `workriver open`)", s["port"]);
             println!("database: {}", s["db"].as_str().unwrap_or("?"));
             println!("{} events, {} intents, {} units", s["events"], s["intents"], s["units"]);
             let rt = &s["runtime"];
@@ -608,14 +627,26 @@ fn main() -> anyhow::Result<()> {
             );
             return Ok(());
         }
-        Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
-            if actor == "user" {
-                bail!("run this from the manager agent's Herdr pane (or pass --as <agent>)");
+        Cmd::Open { print } => {
+            // An agent does not open the user's session for itself.
+            if let Some(p) = &place
+                && d.call("/api/here", Some(json!({ "place": p }))).is_ok_and(|h| h["actor"].is_string())
+            {
+                bail!("`workriver open` is the user's: run it from a terminal that is not an agent's pane");
             }
+            let url = d.call("/api/session/code", Some(json!({})))?["url"].as_str().unwrap_or_default().to_string();
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            if print || std::process::Command::new(opener).arg(&url).status().map(|s| !s.success()).unwrap_or(true) {
+                println!("{url}");
+                println!("(works once, for 5 minutes)");
+            }
+            return Ok(());
+        }
+        Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
             if group.is_none() && intent.is_none() {
                 bail!("not inside a Herdr workspace: run `workriver manager here` in the manager's Herdr pane");
             }
-            d.append(actor, "manager.registered", json!({ "intent": intent, "agent": actor, "workspace": group }))?;
+            d.append(actor, "manager.registered", json!({ "intent": intent, "workspace": group }))?;
             println!("manager of workspace {}", group.as_ref().and_then(|g| g["label"].as_str()).or(intent.as_deref()).unwrap_or("?"));
             if let Some(goal) = goal {
                 // ponytail: kept one release for old prompts; remove with --goal.
@@ -775,7 +806,7 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Finding(FindingCmd::Decide { task, finding, decision, note }) => {
             let (unit, n) = task_ref(&task)?;
-            d.append(actor, "finding.decided", json!({ "unit": unit, "task": n, "finding": finding, "decision": decision, "note": note, "by": by }))?
+            d.append(actor, "finding.decided", json!({ "unit": unit, "task": n, "finding": finding, "decision": decision, "note": note }))?
         }
         Cmd::Gate(GateCmd::Submit { task, result, note, findings }) => {
             let (unit, n) = task_ref(&task)?;
@@ -801,7 +832,12 @@ fn main() -> anyhow::Result<()> {
                     None => json!({ "kind": "file", "label": path, "path": path }),
                 });
             }
-            let e = d.call("/api/ask", Some(json!({ "by": actor, "unit": unit, "task": n, "text": question, "context": context })))?;
+            let mut ask = d.me(actor);
+            ask["unit"] = json!(unit);
+            ask["task"] = json!(n);
+            ask["text"] = json!(question);
+            ask["context"] = json!(context);
+            let e = d.call("/api/ask", Some(ask))?;
             let id = e["body"]["id"].as_str().unwrap_or("?").to_string();
             if !wait {
                 println!("{id}");
@@ -836,15 +872,23 @@ fn main() -> anyhow::Result<()> {
 
 struct Daemon {
     port: u16,
+    /// Where the CLI runs in the runtime (its Herdr pane): sent along, so the service can
+    /// tell which agent this is.
+    place: Option<String>,
+    /// Where the user token is, if this machine has it; read for each request.
+    home: Option<PathBuf>,
 }
 
 impl Daemon {
     fn call(&self, path: &str, body: Option<Value>) -> anyhow::Result<Value> {
         let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(Duration::from_secs(60))).build().into();
         let url = format!("http://127.0.0.1:{}{path}", self.port);
+        // The token goes along whenever this machine has it. It makes this the user only
+        // where the service finds no agent at this place; in an agent's pane it changes nothing.
+        let token = self.token().map(|t| format!("Bearer {t}")).unwrap_or_default();
         let res = match body {
-            Some(b) => agent.post(&url).send_json(b),
-            None => agent.get(&url).call(),
+            Some(b) => agent.post(&url).header("authorization", &token).send_json(b),
+            None => agent.get(&url).header("authorization", &token).call(),
         };
         let mut res = res.map_err(|e| anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port))?;
         let ok = res.status().is_success();
@@ -859,8 +903,22 @@ impl Daemon {
         self.call(path, None)
     }
 
+    fn token(&self) -> Option<String> {
+        self.home.as_deref().and_then(auth::read_token)
+    }
+
+    /// What tells the service who this is: the place the CLI runs at; or, with `--as` (an
+    /// agent's name, where the service allows it), that name. "user" in tests: no place.
+    fn me(&self, actor: &str) -> Value {
+        match actor {
+            "" => json!({ "place": self.place }),
+            "user" => json!({}),
+            name => json!({ "as": name }),
+        }
+    }
+
     /// Puts a file into the attachment store, linked to a task (and a finding) if given.
-    fn upload(&self, file: &Path, by: &str, link: Option<(&str, u32, Option<&str>)>) -> anyhow::Result<Value> {
+    fn upload(&self, file: &Path, actor: &str, link: Option<(&str, u32, Option<&str>)>) -> anyhow::Result<Value> {
         let bytes = std::fs::read(file).with_context(|| format!("cannot read {}", file.display()))?;
         if bytes.len() > attachments::MAX {
             bail!("{} is larger than {} MB, the most workriver stores", file.display(), attachments::MAX / 1024 / 1024);
@@ -870,8 +928,14 @@ impl Daemon {
         let mut req = agent
             .post(format!("http://127.0.0.1:{}/api/attachments", self.port))
             .query("name", &name)
-            .query("by", by)
+            .header("authorization", self.token().map(|t| format!("Bearer {t}")).unwrap_or_default())
             .header("content-type", attachments::mime(&name, None));
+        let me = self.me(actor);
+        for key in ["place", "as"] {
+            if let Some(v) = me[key].as_str() {
+                req = req.query(key, v);
+            }
+        }
         if let Some((unit, task, finding)) = link {
             req = req.query("unit", unit).query("task", task.to_string());
             if let Some(f) = finding {
@@ -900,19 +964,10 @@ impl Daemon {
     }
 
     fn append(&self, actor: &str, kind: &str, body: Value) -> anyhow::Result<Value> {
-        self.call("/api/append", Some(json!({ "actor": actor, "kind": kind, "body": body })))
-    }
-}
-
-/// Who records: `--as`, else the agent at the runtime place the CLI runs in (an error if
-/// there is none), else, outside any runtime, the user.
-fn actor_of(explicit: Option<String>, place: Option<&str>, here: Option<&Value>) -> anyhow::Result<String> {
-    if let Some(a) = explicit {
-        return Ok(a);
-    }
-    match (place, here) {
-        (Some(p), Some(h)) => h["actor"].as_str().map(str::to_string).ok_or_else(|| anyhow!(herdr::no_agent_at(p))),
-        _ => Ok("user".into()),
+        let mut req = self.me(actor);
+        req["kind"] = json!(kind);
+        req["body"] = body;
+        self.call("/api/append", Some(req))
     }
 }
 

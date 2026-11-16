@@ -35,6 +35,10 @@ agent 会在自己的 shell 里调用 `workriver`，所以它们看到的 PATH �
 workriver serve              # http://127.0.0.1:47820
 ```
 
+然后在一个不是 agent 窗格的终端里运行 `workriver open`：它用一个一次性的链接在浏览器里打开页面，
+让这个浏览器以你的身份登录（服务启动时的第一行日志里也有这个链接）。直接打开地址只会看到"怎么打开"
+的说明；原因见[安全模型](security.zh-CN.md)。
+
 打开 <http://127.0.0.1:47820>。`workriver status` 应该显示 `agent runtime: connected`。
 
 - 数据：`~/workriver-data/workriver.db`（设 `WORKRIVER_HOME` 换位置）。只有一个 SQLite
@@ -176,7 +180,10 @@ cargo build --release
   会显示）：Herdr 没在运行，或者服务看的是另一个 socket。在 Herdr 窗格里启动服务，或者设
   `HERDR_SOCKET_PATH`。协议警告表示 Herdr 不是 0.9；可能还能用，但没测过。
 - 在窗格里用命令行时报 **"cannot tell which agent this is"**：服务连不上 Herdr（见上一条）。
-  `--as <名字>` 可以用你给的名字记录。
+  这期间要以你自己的身份运行命令，请用 Herdr 之外的终端。
+- **"this is the user's to do…"（401）**：服务不确定这个命令或页面是你。页面：运行
+  `workriver open`。命令行：在 workriver 所在的机器上，用一个不是 agent 窗格的终端运行。决定、
+  手工步骤、杂事、项目、机器和工作区关联只有你能做；见[安全模型](security.zh-CN.md)。
 - 页面上显示 **"没送出：…"**（鼠标停上去能看到细节）：
   - *这个意图还没有管理者*：在这个意图开始时所在工作区的管理者窗格里运行 `workriver manager here`；
   - *管理者没在运行*：重新启动它，再登记一次；

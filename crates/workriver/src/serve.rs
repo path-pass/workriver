@@ -21,10 +21,11 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
-use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, Store};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode, Store};
 use workriver_scan as scan;
 
 use crate::machines::Machines;
+use crate::auth::{self, Auth};
 use crate::{ask, attachments, deliver};
 use crate::snapshot::{self, Cache};
 
@@ -58,6 +59,29 @@ pub struct App {
     listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
     /// The runtime's groups as last polled, with or without agents.
     groups: Mutex<Vec<core::RuntimeRef>>,
+    /// Who the user is: the token, sessions of the page, one-time codes.
+    auth: Auth,
+    /// A caller may name the agent it records as (`--as`): for tests and development only.
+    allow_as: bool,
+}
+
+/// What a request was found to be, before any handler sees it.
+#[derive(Clone)]
+struct Caller {
+    /// The followed machine whose listener it came in on; none: this machine's.
+    machine: Option<String>,
+    port: u16,
+    /// It carries the user token, or a session of the page from our own origin. Never on a
+    /// machine's listener: a caller on another machine is never the user.
+    user: bool,
+}
+
+/// What else the daemon is started with.
+pub struct Options {
+    pub warning: Option<String>,
+    pub waits: Waits,
+    pub machines: Option<Arc<Machines>>,
+    pub allow_as: bool,
 }
 
 /// Which listener a request came in on: this machine's, or a followed machine's own (the
@@ -110,17 +134,25 @@ impl Default for Waits {
     }
 }
 
+/// As the tests start it: callers may say which agent they are.
 #[cfg(test)]
 pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
-    serve_with(listener, store, runtime, warning, waits, None).await
+    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true }).await
 }
 
-/// The same, following other machines too (`runtime` is then `machines` itself).
-pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits, machines: Option<Arc<Machines>>) -> anyhow::Result<()> {
+/// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
+pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
+    let Options { warning, waits, machines, allow_as } = options;
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
+    let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
+    if allow_as {
+        tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
+    }
     let app = Arc::new(App {
+        auth,
+        allow_as,
         store: Mutex::new(store),
         cache: Mutex::new(Cache::following(machines.clone())),
         machines,
@@ -222,7 +254,11 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     for name in left {
         let _ = app.runtime.close(&name);
     }
-    tracing::info!("workriver on http://127.0.0.1:{port}");
+    // The page opens with a one-time code that makes its session; `workriver open` gives another.
+    match app.auth.code() {
+        Ok(code) => tracing::info!("workriver on http://127.0.0.1:{port}/#k={code}  (this link works once, for 5 minutes; later: `workriver open`)"),
+        Err(e) => tracing::warn!("workriver on http://127.0.0.1:{port}; no one-time code: {e}"),
+    }
     axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
     Ok(())
 }
@@ -303,7 +339,7 @@ impl App {
         });
         let recorded = !picked.is_empty();
         for body in picked {
-            if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
+            if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }
@@ -353,14 +389,57 @@ impl App {
         }
     }
 
-    fn record(&self, actor: &str, body: Body) -> Result<core::Event, ApiError> {
-        self.record_via(actor, body, None)
+    /// Who a request acts as. An agent is the agent at the caller's place in the runtime (on
+    /// the machine the request came from), whatever else it carries; the user is a caller at
+    /// no agent's place that carries the token or a session. Nobody is anyone by saying so,
+    /// except, where the daemon was started to allow it, an agent named with `--as`.
+    fn who(&self, caller: &Caller, place: Option<&str>, named: Option<&str>) -> Result<Principal, ApiError> {
+        let machine = caller.machine.as_deref();
+        if let Some(name) = named.filter(|n| !n.is_empty()) {
+            if !self.allow_as {
+                return Err(ApiError(StatusCode::FORBIDDEN, "--as is off: workriver takes the agent from the Herdr pane the command runs in (for tests, start the service with WORKRIVER_ALLOW_AS=1)".into()));
+            }
+            if matches!(name, "user" | "workriver") {
+                return Err(ApiError(StatusCode::FORBIDDEN, format!("nobody records as {name:?} by saying so")));
+            }
+            return Ok(Principal::Agent { session: self.session_of(name, None), machine: machine.map(str::to_string) });
+        }
+        if let Some(place) = place.filter(|p| !p.is_empty()) {
+            let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(place, &e.to_string())))?;
+            if let Some(a) = at.agent {
+                self.seen(&a)?;
+                return Ok(Principal::Agent { session: a.session, machine: a.machine });
+            }
+            if machine.is_some() || !caller.user {
+                return Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_agent_at(place)));
+            }
+        }
+        self.user(caller)
     }
 
-    /// Records what came in from `machine` (none: this one).
-    fn record_via(&self, actor: &str, body: Body, machine: Option<&str>) -> Result<core::Event, ApiError> {
+    /// The user, or a refusal that says how to be the user.
+    fn user(&self, caller: &Caller) -> Result<Principal, ApiError> {
+        match (&caller.machine, caller.user) {
+            (None, true) => Ok(Principal::User),
+            (Some(m), _) => Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} is an agent of that machine, never the user"))),
+            (None, false) => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
+        }
+    }
+
+    /// Records the name a live agent goes by, the first time and when it changes.
+    fn seen(&self, a: &RuntimeAgent) -> Result<(), ApiError> {
+        let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
+        if !known {
+            self.record(&Principal::Service, Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
+        }
+        Ok(())
+    }
+
+    /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
+    fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
+        let (actor, machine) = (who.actor(), who.machine());
         let body = self.complete(actor, body, machine)?;
-        let e = self.store.lock().unwrap().append(actor, body)?;
+        let e = self.store.lock().unwrap().append(who, body)?;
         self.deliver(&e);
         match &e.body {
             Body::QuestionAnswered { question, .. } => self.answered(question),
@@ -448,7 +527,7 @@ impl App {
             s.question(id).ok().filter(|q| q.by != "user").and_then(|q| s.task(&q.unit, q.task).ok()).and_then(|t| t.agent.clone())
         };
         if let Some(own) = direct.and_then(|own| live.iter().find(|a| a.session == own && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned()) {
-            if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent: own.session.clone(), name: own.name.clone(), temporary: false }) {
+            if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent: own.session.clone(), name: own.name.clone(), temporary: false }) {
                 tracing::warn!("question {id}: {}", e.1);
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
@@ -470,11 +549,14 @@ impl App {
         };
         if let Some((thread, agent, name)) = current.filter(|(_, _, n)| live.iter().any(|a| &a.name == n)) {
             self.idle.lock().unwrap().retain(|(t, _, _)| *t != thread);
-            if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent, name: name.clone(), temporary: true }) {
+            if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent, name: name.clone(), temporary: true }) {
                 tracing::warn!("question {id}: {}", e.1);
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-            let text = self.store.lock().unwrap().state().question(id).ok().map(ask::follow_up).unwrap_or_default();
+            let text = {
+                let store = self.store.lock().unwrap();
+                store.state().question(id).ok().map(|q| ask::follow_up(store.state(), q)).unwrap_or_default()
+            };
             if let Err(e) = self.send(&name, &text) {
                 fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
             }
@@ -520,7 +602,7 @@ impl App {
             Ok(a) => a,
             Err(e) => return fail(if matches!(e, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }, format!("cannot start {harness} as {name}: {e}")),
         };
-        if let Err(e) = self.record("workriver", Body::QuestionStarted { question: id.into(), agent: agent.session.clone(), name: agent.name.clone(), temporary: true }) {
+        if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent: agent.session.clone(), name: agent.name.clone(), temporary: true }) {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
@@ -534,7 +616,7 @@ impl App {
     /// did not answer.
     fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
         let body = Body::QuestionFailed { question: id.into(), reason_code: code, reason: why.into() };
-        if let Err(e) = self.record("workriver", body) {
+        if let Err(e) = self.record(&Principal::Service, body) {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
@@ -619,7 +701,7 @@ impl App {
             });
         }
         let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, chore: plan.chore, delivery };
-        if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
+        if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
             tracing::warn!("cannot record a delivery: {e}");
         }
     }
@@ -631,10 +713,7 @@ impl App {
     fn here(&self, place: &str, machine: Option<&str>) -> Result<serde_json::Value, ApiError> {
         let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         if let Some(a) = &at.agent {
-            let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
-            if !known {
-                self.record("workriver", Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
-            }
+            self.seen(a)?;
         }
         let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
         Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
@@ -666,8 +745,16 @@ pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Pr
     state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
 }
 
+/// What a caller that is not the user is told when it asks for what only the user does.
+const NOT_THE_USER: &str = "this is the user's to do, and this request does not show it comes from the user. In the browser: open workriver with `workriver open`. With the CLI: run it from a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
+
+/// Every route, on this machine's listener. Reading is open to any local caller (agents need
+/// the board); what acts as the user or changes where workriver reaches asks for the user in
+/// its handler (`App::user`, `App::who`).
 fn router(app: Shared, via: Via) -> Router {
     Router::new()
+        .route("/api/session", get(session).post(session_start))
+        .route("/api/session/code", post(session_code))
         .route("/api/machines", get(machines).post(machine_set))
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
@@ -690,22 +777,51 @@ fn router(app: Shared, via: Via) -> Router {
         .with_state(app)
 }
 
+/// The routes of a followed machine's listener: only what an agent's CLI over there needs.
+/// An allow-list: who it is, recording as that agent, asking, attachments, and reading the
+/// board. Nothing here is ever done as the user (no session, no token), and what the user
+/// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
+fn machine_router(app: Shared, via: Via) -> Router {
+    Router::new()
+        .route("/api/here", post(here))
+        .route("/api/append", post(append))
+        .route("/api/ask", post(ask_why))
+        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
+        .route("/api/attachments/inbox", post(inbox))
+        .route("/api/attachments/{id}", get(attachment))
+        .route("/api/workspace", get(workspace))
+        .route("/api/state", get(state))
+        .route("/api/status", get(status))
+        .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
+        .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .layer(Extension(via))
+        .with_state(app)
+}
+
 /// Only this machine's browser and CLI, by name: the Host must be 127.0.0.1 or localhost
 /// with our port (against DNS rebinding), and a POST from a page must come from our origin.
 /// On a followed machine's listener the port is the one its CLI uses over there.
-async fn guard(Extension(via): Extension<Via>, req: Request, next: Next) -> Response {
+///
+/// Also works out whether the request is the user's: it carries the user token; or a
+/// session cookie, which counts only from our own page. Against a forged request from
+/// another site we rely on the cookie being SameSite=Strict (the browser does not send it
+/// along) and, for anything but a GET, on the Origin header being there and ours.
+async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut req: Request, next: Next) -> Response {
     let ours = [via.port, via.local].map(|p| [format!("127.0.0.1:{p}"), format!("localhost:{p}")]).concat();
-    let allowed = {
+    let (allowed, user) = {
         let header = |h| req.headers().get(h).map(|v| v.to_str().unwrap_or(""));
         let host_ok = header(header::HOST).is_some_and(|h| ours.iter().any(|o| o == h));
-        let origin_ok = req.method() == Method::GET || header(header::ORIGIN).is_none_or(|o| ours.iter().any(|h| o == format!("http://{h}")));
-        host_ok && origin_ok
+        let our_origin = header(header::ORIGIN).map(|o| ours.iter().any(|h| o == format!("http://{h}")));
+        let get = req.method() == Method::GET;
+        let origin_ok = get || our_origin.unwrap_or(true);
+        let session = app.auth.session(header(header::COOKIE)) && (get || our_origin == Some(true));
+        (host_ok && origin_ok, via.machine.is_none() && (app.auth.bearer(header(header::AUTHORIZATION)) || session))
     };
-    if allowed {
-        next.run(req).await
-    } else {
-        (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response()
+    if !allowed {
+        return (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response();
     }
+    req.extensions_mut().insert(Caller { machine: via.machine, port: via.port, user });
+    next.run(req).await
 }
 
 /// An error answered as plain text: a broken rule is the caller's (422), anything else ours (500).
@@ -779,18 +895,54 @@ async fn events(State(app): State<Shared>) -> Sse<impl Stream<Item = Result<SseE
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
+// ---- the user's session in the page ----
+
+/// Whether this request is the user's; the page shows nothing else until it is.
+async fn session(Extension(caller): Extension<Caller>) -> Json<serde_json::Value> {
+    Json(json!({ "user": caller.user }))
+}
+
+#[derive(Deserialize)]
+struct Code {
+    code: String,
+}
+
+/// A one-time code for a session: the cookie is the page's alone (HttpOnly) and is not
+/// sent along with requests from other sites (SameSite=Strict).
+async fn session_start(State(app): State<Shared>, Json(c): Json<Code>) -> Result<Response, ApiError> {
+    let value = app.auth.redeem(&c.code).ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "this link was used already or is older than 5 minutes; run `workriver open` for a new one".into()))?;
+    let cookie = format!("{}={value}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}", auth::COOKIE, auth::SESSION_DAYS * 24 * 3600);
+    Ok(([(header::SET_COOKIE, cookie)], Json(json!({ "user": true }))).into_response())
+}
+
+/// A new one-time code, for `workriver open`: the user's to ask for.
+async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.user(&caller)?;
+    let code = app.auth.code().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({ "url": format!("http://127.0.0.1:{}/#k={code}", app.port) })))
+}
+
 #[derive(Deserialize)]
 struct Append {
-    actor: String,
+    /// The caller's place in the runtime (its Herdr pane), which says which agent it is.
+    #[serde(default)]
+    place: Option<String>,
+    /// `--as`: taken only where the daemon was started to allow it.
+    #[serde(default, rename = "as")]
+    named: Option<String>,
     kind: String,
     #[serde(default)]
     body: serde_json::Value,
 }
 
-/// Any event, as the CLI records it.
-async fn append(State(app): State<Shared>, Extension(via): Extension<Via>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
+/// Any event, as the CLI or the page records it, as whoever the caller is found to be.
+async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
-    blocking(move || app.record_via(&a.actor, body, via.machine.as_deref()).map(Json)).await
+    blocking(move || {
+        let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
+        app.record(&who, body).map(Json)
+    })
+    .await
 }
 
 // ---- other machines ----
@@ -809,7 +961,7 @@ async fn follow(app: &Shared, label: &str, setting: crate::machines::Setting) ->
 async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let local_port = listener.local_addr().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.port();
-    let routes = router(app.clone(), Via { machine: Some(label.to_string()), port, local: local_port });
+    let routes = machine_router(app.clone(), Via { machine: Some(label.to_string()), port, local: local_port });
     let task = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, routes).await {
             tracing::warn!("a machine's listener ended: {e}");
@@ -843,10 +995,8 @@ struct MachineSet {
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.
-async fn machine_set(State(app): State<Shared>, Extension(via): Extension<Via>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
-    if via.machine.is_some() {
-        return Err(ApiError(StatusCode::FORBIDDEN, "machines are managed on the machine workriver runs on".into()));
-    }
+async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+    app.user(&caller)?;
     let Some(all) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
     let stop = |label: &str| {
         all.stop(label);
@@ -886,7 +1036,8 @@ struct Decide {
     note: String,
 }
 
-async fn decide(State(app): State<Shared>, Json(d): Json<Decide>) -> Result<Json<core::Event>, ApiError> {
+async fn decide(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<Decide>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
     let body = Body::FindingDecided {
         unit: d.unit,
         task: d.task,
@@ -895,7 +1046,7 @@ async fn decide(State(app): State<Shared>, Json(d): Json<Decide>) -> Result<Json
         note: d.note,
         by: core::Who::User,
     };
-    blocking(move || app.record("user", body).map(Json)).await
+    blocking(move || app.record(&who, body).map(Json)).await
 }
 
 #[derive(Deserialize)]
@@ -911,9 +1062,10 @@ struct Gate {
     attachments: Vec<String>,
 }
 
-async fn gate(State(app): State<Shared>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
+async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
     let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments };
-    blocking(move || app.record("user", body).map(Json)).await
+    blocking(move || app.record(&who, body).map(Json)).await
 }
 
 #[derive(Deserialize)]
@@ -921,8 +1073,9 @@ struct ChoreDone {
     chore: String,
 }
 
-async fn chore_done(State(app): State<Shared>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
-    blocking(move || app.record("user", Body::ChoreDone { chore: c.chore }).map(Json)).await
+async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::ChoreDone { chore: c.chore }).map(Json)).await
 }
 
 #[derive(Deserialize)]
@@ -930,7 +1083,8 @@ struct Focus {
     agent: String,
 }
 
-async fn focus(State(app): State<Shared>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
+async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
+    app.user(&caller)?;
     blocking(move || {
         // The page knows agents by name.
         app.runtime.focus(&app.session_of(&f.agent, None)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
@@ -947,9 +1101,11 @@ struct Here {
 /// The CLI asks who and where it is: see `App::here`.
 #[derive(Deserialize)]
 struct Ask {
-    /// Who asks: an agent's session (from the CLI), or the user (the page).
+    /// The asking agent's place in the runtime; none: the user asks (the page).
     #[serde(default)]
-    by: Option<String>,
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
     unit: String,
     task: u32,
     text: String,
@@ -966,8 +1122,11 @@ struct Ask {
 #[derive(Deserialize)]
 struct Upload {
     name: String,
+    /// The uploading agent's place in the runtime; none: the user uploads (the page).
     #[serde(default)]
-    by: Option<String>,
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
     #[serde(default)]
     unit: Option<String>,
     #[serde(default)]
@@ -978,16 +1137,16 @@ struct Upload {
 
 /// A file into the store, its body raw (`?name=…`, the type from Content-Type), optionally
 /// linked to a task or a finding. Answers its id and path.
-async fn attach(State(app): State<Shared>, Extension(via): Extension<Via>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
+async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
     let given = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
     blocking(move || {
+        let who = app.who(&via, u.place.as_deref(), u.named.as_deref())?;
         // Only the last part of the name: it is shown, never used as a path.
         let name = Path::new(&u.name).file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).ok_or_else(|| bad("an attachment needs a file name".into()))?;
         let mime = attachments::mime(&name, given.as_deref());
         let (id, path) = attachments::put(&app.home, &body, &name).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot store {name}: {e}")))?;
-        let by = u.by.unwrap_or_else(|| "user".into());
         let size = body.len() as u64;
-        app.record(&by, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
+        app.record(&who, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
         // To a caller on another machine the file is where its tunnel shows it.
         let path = match &via.machine {
             Some(_) => json!(crate::machines::attachment_url(via.port, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
@@ -1019,7 +1178,7 @@ struct Inbox {
 }
 
 /// A task's staging folder for screenshots and the like, made if needed.
-async fn inbox(State(app): State<Shared>, Extension(via): Extension<Via>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
     app.store.lock().unwrap().state().task(&i.unit, i.task)?;
     // A caller on another machine keeps the folder on its own disk; the CLI makes it there.
     if via.machine.is_some() {
@@ -1035,16 +1194,20 @@ struct EndThread {
     thread: String,
 }
 
-async fn end_thread(State(app): State<Shared>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
-    blocking(move || app.record("user", Body::ThreadEnded { thread: t.thread }).map(Json)).await
+async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::ThreadEnded { thread: t.thread }).map(Json)).await
 }
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.
-async fn ask_why(State(app): State<Shared>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
+async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
     let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
     let starter = app.clone();
-    let by = a.by.unwrap_or_else(|| "user".into());
-    let e = blocking(move || app.record(&by, body)).await?;
+    let e = blocking(move || {
+        let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
+        app.record(&who, body)
+    })
+    .await?;
     if let Body::QuestionAsked { id, .. } = &e.body {
         let id = id.clone();
         tokio::task::spawn_blocking(move || starter.start_question(&id));
@@ -1060,7 +1223,7 @@ fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32) -> Vec<(String, St
     hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
 }
 
-async fn here(State(app): State<Shared>, Extension(via): Extension<Via>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn here(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || app.here(&h.place, via.machine.as_deref()).map(Json)).await
 }
 
