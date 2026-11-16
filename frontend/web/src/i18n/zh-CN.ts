@@ -6,6 +6,9 @@ type Same<T> = { [K in keyof T as K extends `${string}_one` ? never : K]: T[K] e
 
 export const zhCN: Same<typeof en> = {
   rail: {
+    note: '备注',
+    noteMore: '展开',
+    noteLess: '收起',
     shortcut: '{{label}}（⌘B / Ctrl+B）',
     fold: '收起侧栏',
     unfold: '展开侧栏',
@@ -32,11 +35,20 @@ export const zhCN: Same<typeof en> = {
     start: '开始',
     intentWork: '调研与设计',
     failed: '没有保存：{{error}}',
-    mergePick: '选中以合并：{{title}}',
-    mergeInto: '合并到',
+    mergeOpen: '合并…',
+    mergeTitle: '合并计划中的意图',
+    mergeHint: '勾选同一个项目里的两个或更多意图。保留其中一个，其余的被放弃，它们写的内容进到保留那个的备注里。',
+    mergeInto: '保留哪一个',
+    mergeNewTitle: '它的标题',
     mergeWhat: '{{from}} 会被放弃；它们的标题、目标、备注和链接写进 {{into}} 的备注。',
+    mergeRename: '“{{into}}”会改名。',
     merge: '合并',
-    mergeOneProject: '只能合并同一个项目的目标。'
+    held: {
+      tasks: '有自己的任务，不能合并（可以写明原因放弃它）。',
+      units: '有自己的单元，不能合并（可以写明原因放弃它）。',
+      findings: '有自己的待办问题，不能合并（可以写明原因放弃它）。',
+      chores: '有自己的杂事，不能合并（可以写明原因放弃它）。'
+    }
   },
   manager: {
     mark: '这个工作区的管理者',
@@ -152,7 +164,7 @@ export const zhCN: Same<typeof en> = {
     unit: '{{intent}} · {{unit}}'
   },
   side: {
-    title: '需要你、Agent、提交和待办',
+    title: '需要你、Agent、提交、待办和问为什么',
     close: '收起面板'
   },
   terminal: {
@@ -200,6 +212,8 @@ export const zhCN: Same<typeof en> = {
       ended: '已结束'
     },
     fresh: '新问题',
+    empty: '在图里选一个任务，或在代码里选几行，就可以问为什么。',
+    conversations_other: '{{count, number}} 段对话',
     count_other: '{{count, number}} 个提问'
   },
   chore: {

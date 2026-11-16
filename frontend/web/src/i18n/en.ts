@@ -2,6 +2,9 @@
 // plural forms picked by `count`. This file defines the key set (see i18next.d.ts).
 export const en = {
   rail: {
+    note: 'Note',
+    noteMore: 'Show more',
+    noteLess: 'Show less',
     shortcut: '{{label}} (⌘B / Ctrl+B)',
     fold: 'Fold the rail',
     unfold: 'Open the rail',
@@ -28,11 +31,20 @@ export const en = {
     start: 'Start',
     intentWork: 'Research and design',
     failed: 'Not saved: {{error}}',
-    mergePick: 'Pick to merge: {{title}}',
-    mergeInto: 'Merge into',
+    mergeOpen: 'Merge…',
+    mergeTitle: 'Merge planned intents',
+    mergeHint: 'Tick two or more intents of one project. One stays; the others are dropped and what they said goes into its note.',
+    mergeInto: 'The one that stays',
+    mergeNewTitle: 'Its title',
     mergeWhat: '{{from}} will be dropped; their titles, goals, notes and links go into the note of {{into}}.',
+    mergeRename: '“{{into}}” is renamed.',
     merge: 'Merge',
-    mergeOneProject: 'Only intents of one project merge.'
+    held: {
+      tasks: 'Has tasks of its own, so it cannot be merged (drop it with a reason instead).',
+      units: 'Has units of its own, so it cannot be merged (drop it with a reason instead).',
+      findings: 'Has backlog findings of its own, so it cannot be merged (drop it with a reason instead).',
+      chores: 'Has chores of its own, so it cannot be merged (drop it with a reason instead).'
+    }
   },
   manager: {
     mark: 'Manager of its workspace',
@@ -154,7 +166,7 @@ export const en = {
     unit: '{{intent}} · {{unit}}'
   },
   side: {
-    title: 'Needs you, agents, commits and backlog',
+    title: 'Needs you, agents, commits, backlog and ask why',
     close: 'Fold the panel'
   },
   terminal: {
@@ -204,6 +216,9 @@ export const en = {
       failed: 'failed',
       ended: 'ended'
     },
+    empty: 'Pick a task in the graph, or lines in the code, to ask why about it.',
+    conversations_one: '{{count, number}} conversation',
+    conversations_other: '{{count, number}} conversations',
     count_one: '{{count, number}} question asked',
     count_other: '{{count, number}} questions asked'
   },

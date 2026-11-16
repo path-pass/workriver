@@ -73,8 +73,10 @@ of one goal become one intent, with them as a checklist in its note), shows you 
 preview table and waits for your yes, then adds them in the file's order with
 `workriver backlog add` and `workriver backlog add-finding`. It never changes the file.
 `workriver backlog export --project P` prints the backlog back as Markdown.
-Split too finely? Tick the rows in the roadmap and "Merge into…" one of them, or
-`workriver backlog merge i3 i4 i5`: i4 and i5 are dropped and what they said goes into i3's note.
+Split too finely? "Merge…" in the roadmap's heading opens a dialog: tick the intents, pick the
+one that stays and, if you like, give it a new title. Or `workriver backlog merge i3 i4 i5
+--title "Search"`: i4 and i5 are dropped and what they said goes into i3's note, shown under
+its goal.
 
 ## 4. Give each workspace a manager
 

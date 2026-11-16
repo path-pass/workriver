@@ -12,7 +12,7 @@ export interface Act {
   undo: (key: string) => void
   choreDone: (id: string) => void
   /** Merges planned intents into `into`; rejects with the service's words. */
-  merge: (into: string, from: string[]) => Promise<void>
+  merge: (into: string, from: string[], title?: string) => Promise<void>
   /** By the same key as the input: `unit:task` for a gate, `unit:task:finding` for a decision. */
   delivery: Record<string, Delivery>
   message: Record<string, string>

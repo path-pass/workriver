@@ -607,7 +607,7 @@ export interface Edits {
   decisions: Record<string, { decision: Decision; note: string }>
   chores: string[]
   /** Planned intents merged into another (as the service records it: dropped, with this reason). */
-  merges: { into: string; from: string[] }[]
+  merges: { into: string; from: string[]; title?: string }[]
 }
 
 export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [] }
@@ -640,12 +640,22 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
   }
   // Only a still planned one: once the service has it, it is dropped there already.
   const mergedInto = (i: Intent) => (i.state === 'planned' ? edits.merges.find(m => m.from.includes(i.id))?.into : undefined)
+  // The target's note gains what the merged ones said, as the service writes it (`merged_note`).
+  const said = (x: Intent) => [`Merged from ${x.id}: ${x.title}`, x.goal?.trim(), x.note?.trim(), x.external && `${x.external.system}:${x.external.key}${x.external.url ? ` ${x.external.url}` : ''}`].filter(Boolean).join('\n')
+  const noteOf = (i: Intent) => {
+    const blocks = ws.intents.filter(x => mergedInto(x) === i.id).map(said)
+    return blocks.length ? [i.note?.trimEnd(), ...blocks].filter(Boolean).join('\n\n') : i.note
+  }
+  // And its new title, if one was given.
+  const titleOf = (i: Intent) => edits.merges.find(m => m.into === i.id && m.title && ws.intents.some(x => mergedInto(x) === i.id))?.title ?? i.title
   return {
     ...ws,
     chores: ws.chores?.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     intents: ws.intents.map(i => ({
       ...i,
       ...(mergedInto(i) && { state: 'dropped' as const, reason: `merged into ${mergedInto(i)}` }),
+      note: noteOf(i),
+      title: titleOf(i),
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),
       chores: i.chores.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     })),

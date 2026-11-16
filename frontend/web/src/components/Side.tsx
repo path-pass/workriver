@@ -1,6 +1,8 @@
 // The side panel, right of the main area: what asks something of the user (the inbox),
-// where the agents are, what was committed lately, or the backlog – one at a time. Neither is looked at all the time, so the panel folds
+// where the agents are, what was committed lately, the backlog, or asking why about the
+// picked task – one at a time. Neither is looked at all the time, so the panel folds
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
+import { useRef, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -11,7 +13,8 @@ import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
 
-export type Section = 'inbox' | 'agents' | 'commits' | 'backlog'
+export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'ask'
+export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'ask']
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }
@@ -26,13 +29,15 @@ interface ContentProps {
   commit: CommitFocus | null
   /** The project picked in the rail, or null for all: the backlog shows its findings. */
   project: string | null
+  /** The Ask section, made by the caller: it lays itself out (its box stays at the bottom). */
+  ask: ReactNode
 }
 
 /**
  * Every live agent on one line, by the runtime workspace it runs in: where it works, holds
  * work, or that it is idle, with what its session is about underneath.
  */
-function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project'>) {
+function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project' | 'ask'>) {
   const { t } = useT()
   return (
     <div className="agents flex flex-col">
@@ -86,7 +91,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
 }
 
 /** Commits across every unit, newest first, by day; on top, who is writing right now. */
-function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen' | 'project'>) {
+function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen' | 'project' | 'ask'>) {
   const { t, num, waited, date } = useT()
   const rows = feed(ws)
   const now = writingNow(ws)
@@ -152,7 +157,7 @@ function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'sect
   )
 }
 
-function Content({ ws, here, onOpen, section, onCommit, commit, project }: ContentProps) {
+function Content({ ws, here, onOpen, section, onCommit, commit, project }: Omit<ContentProps, 'ask'>) {
   const { t, num } = useT()
   const live = ws.sessions.filter(s => !s.ended).length
   return (
@@ -184,7 +189,13 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project }: Conte
   )
 }
 
-/** The four buttons work as a switch: one section at a time; the open one again folds it. */
+/** Ask keeps its box at the bottom, so it scrolls inside itself; the others scroll whole. */
+function Body(props: ContentProps) {
+  if (props.section === 'ask') return props.ask
+  return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
+}
+
+/** The five buttons work as a switch: one section at a time; the open one again folds it. */
 export function SideButtons({ active, onPick }: { active: Section | null; onPick: (s: Section) => void }) {
   const { t } = useT()
   const button = (s: Section, icon: string, label: string) => (
@@ -194,7 +205,7 @@ export function SideButtons({ active, onPick }: { active: Section | null; onPick
       </Button>
     </Tip>
   )
-  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}</>
+  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('ask', 'talk', t('ask.why'))}</>
 }
 
 interface PanelProps extends Omit<ContentProps, 'section'> {
@@ -221,7 +232,7 @@ export function SidePanel({ section, onSection, onClose, ...content }: PanelProp
           <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t('side.close')} onClick={onClose}><Icon name="fold" /></Button>
         </Tip>
       </div>
-      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content section={section} {...content} /></ScrollArea>
+      <Body section={section} {...content} />
     </aside>
   )
 }
@@ -229,15 +240,21 @@ export function SidePanel({ section, onSection, onClose, ...content }: PanelProp
 /** Narrow screens: the same content as a sheet over the page, with the same switch. */
 export function SideSheet({ section, onSection, onClose, ...content }: PanelProps) {
   const { t } = useT()
+  // The sheet has no trigger of its own (several buttons open it): focus goes back to the one used.
+  const opener = useRef<HTMLElement | null>(null)
   return (
     <Sheet open={!!section} onOpenChange={o => { if (!o) onClose() }}>
-      <SheetContent aria-describedby={undefined}>
+      <SheetContent
+        aria-describedby={undefined}
+        onOpenAutoFocus={() => { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null }}
+        onCloseAutoFocus={e => { if (opener.current?.isConnected) { e.preventDefault(); opener.current.focus() } }}
+      >
         <div className="flex items-center gap-1 px-2 pt-3 pb-2">
           <SheetTitle className="sr-only">{t('side.title')}</SheetTitle>
           <SideButtons active={section} onPick={onSection} />
           <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t('side.close')} onClick={onClose}><Icon name="no" /></Button>
         </div>
-        <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!">{section && <Content section={section} {...content} />}</ScrollArea>
+        {section && <Body section={section} {...content} />}
       </SheetContent>
     </Sheet>
   )

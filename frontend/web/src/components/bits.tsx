@@ -1,6 +1,7 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
 import { Archive, ArrowLeft, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
-import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useT } from '@/i18n'
@@ -246,5 +247,58 @@ export function ChipName({ name }: { name: string }) {
         <span className="sr-only">{name}</span>
       </span>
     </Tip>
+  )
+}
+
+/** Web links in plain text, cut before trailing punctuation. */
+const LINK = /https?:\/\/[^\s<>"'）。，、]+[^\s<>"'）。，、.,;:!?)]/g
+
+/** Quiet text on the dark rail or on the page. */
+const QUIET = { rail: 'text-rail-ink-2 [&_:is(a,button):hover]:text-rail-ink', page: 'text-ink-2 [&_:is(a,button):hover]:text-ink' }
+
+/**
+ * An intent's note: plain text with its line breaks, its links clickable. A long one shows
+ * its first lines, with "show more".
+ */
+export function IntentNote({ text, tone }: { text: string; tone: 'rail' | 'page' }) {
+  const { t } = useT()
+  const box = useRef<HTMLParagraphElement>(null)
+  const [long, setLong] = useState(false)
+  const [all, setAll] = useState(false)
+  // Measured while clamped: more than fits in the first lines.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el && !all) setLong(el.scrollHeight > el.clientHeight + 1)
+  }, [text, all])
+  const parts: ReactNode[] = []
+  let last = 0
+  for (const m of text.matchAll(LINK)) {
+    parts.push(text.slice(last, m.index))
+    parts.push(<a key={m.index} href={m[0]} target="_blank" rel="noreferrer" className="underline underline-offset-2">{m[0]}</a>)
+    last = m.index + m[0].length
+  }
+  parts.push(text.slice(last))
+  return (
+    <div className={cn('text-xs', QUIET[tone])}>
+      <p ref={box} className={cn('whitespace-pre-line wrap-anywhere', !all && 'line-clamp-3')}>{parts}</p>
+      {(long || all) && (
+        <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold" onClick={() => setAll(a => !a)}>
+          {t(all ? 'rail.noteLess' : 'rail.noteMore')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** A note behind a small disclosure, where rows must stay compact (the roadmap). */
+export function NoteDisclosure({ text, tone }: { text: string; tone: 'rail' | 'page' }) {
+  const { t } = useT()
+  return (
+    <Collapsible className={QUIET[tone]}>
+      <CollapsibleTrigger className="group/note mt-0.5 flex items-center gap-0.5 rounded-sm text-[11px] font-semibold">
+        <Icon name="chev" className="size-3 transition-transform group-data-[state=open]/note:rotate-90" />{t('rail.note')}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-0.5"><IntentNote text={text} tone={tone} /></CollapsibleContent>
+    </Collapsible>
   )
 }

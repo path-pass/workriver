@@ -194,9 +194,9 @@ export async function record(kind: string, body: unknown) {
 }
 
 /** Merges planned intents into one: the user's alone, so it has a route of its own. */
-export async function mergeIntents(into: string, from: string[]) {
+export async function mergeIntents(into: string, from: string[], title?: string) {
   if (MOCK) return
-  await post('/api/backlog/merge', { into, from })
+  await post('/api/backlog/merge', { into, from, title })
 }
 
 /** The machines the service knows, followed or not. */

@@ -11,11 +11,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import { useResize } from '@/lib/useResize'
-import { useAct } from '@/act'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
-import { ExternalChip, Icon, MachineChip, Progress, Tip } from './bits'
+import { ExternalChip, Icon, IntentNote, MachineChip, NoteDisclosure, Progress, Tip } from './bits'
 import { Choice } from './Choice'
+import { MergeDialog } from './Merge'
 
 /** All projects, in the project switch (Radix takes no empty value). */
 const ALL = '*'
@@ -163,6 +163,8 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
             <ExternalChip ext={intent.external} />
           </p>
         )}
+        {/* More about it (what merged intents brought in, too): its first lines, then "show more". */}
+        {intent.note?.trim() && <div className="px-2.5 pb-1"><IntentNote text={intent.note.trim()} tone="rail" /></div>}
         {/* Who decides its findings: the user's to say, and only the user's (this page is the user's). */}
         {stateOf(intent) === 'active' && intent.findings && (
           <label className="flex items-center gap-1.5 px-2.5 pb-1 text-xs text-rail-ink-2">
@@ -208,15 +210,12 @@ function Heading({ children, extra }: { children: string; extra?: ReactNode }) {
 
 /**
  * The planned intents in order. Dragging a row (or Alt+↑/↓ on its grip) moves it within its
- * project's roadmap; "+" adds one at the end, with a title and a one-sentence goal. Rows
- * picked with their checkboxes merge into one of them (a roadmap split too finely).
+ * project's roadmap; "+" adds one at the end, with a title and a one-sentence goal.
+ * "Merge…" opens a dialog that folds intents of one project into one (a roadmap split too finely).
  */
-function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: Intent[]; addTo: string | null; onStart: (i: Intent) => void; onError: (e: string) => void }) {
-  const { t, lang } = useT()
-  const act = useAct()
+function Roadmap({ ws, list, all, addTo, onStart, onError }: { ws: Workspace; list: Intent[]; all: Intent[]; addTo: string | null; onStart: (i: Intent) => void; onError: (e: string) => void }) {
+  const { t } = useT()
   const [drag, setDrag] = useState<string | null>(null)
-  const [picked, setPicked] = useState<string[]>([])
-  const [target, setTarget] = useState('')
   const [over, setOver] = useState<{ id: string; where: 'before' | 'after' } | null>(null)
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
@@ -244,13 +243,6 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
     record('intent.created', { title: title.trim(), goal: goal.trim(), project: addTo, state: 'planned' })
       .then(() => { setTitle(''); setGoal(''); setAdding(false) }, fail)
   }
-  // Merging: the picked ones in roadmap order; the target is one of them (the first unless chosen).
-  const chosen = list.filter(i => picked.includes(i.id))
-  const into = chosen.find(i => i.id === target) ?? chosen[0]
-  const from = chosen.filter(i => i !== into)
-  const oneProject = new Set(chosen.map(i => i.project)).size === 1
-  const titles = (l: Intent[]) => new Intl.ListFormat(lang, { type: 'conjunction' }).format(l.map(i => i.title))
-  const merge = () => { if (into) act.merge(into.id, from.map(i => i.id)).then(() => setPicked([]), fail) }
   const add = (
     <Tip text={addTo ? t('rail.add') : t('rail.addPick')}>
       <Button variant="ghost" size="icon-sm" aria-label={t('rail.add')} disabled={!addTo} className="size-5 rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink" onClick={() => setAdding(a => !a)}>
@@ -260,7 +252,7 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
   )
   return (
     <section aria-label={t('rail.roadmap')} className="flex flex-col gap-0.5">
-      <Heading extra={add}>{t('rail.roadmap')}</Heading>
+      <Heading extra={<><MergeDialog ws={ws} project={addTo} />{add}</>}>{t('rail.roadmap')}</Heading>
       {list.map(i => (
         <div
           key={i.id}
@@ -283,44 +275,20 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
               <Icon name="grip" className="size-3.5" />
             </button>
           </Tip>
-          {list.length > 1 && (
-            <input
-              type="checkbox"
-              className="pick"
-              aria-label={t('rail.mergePick', { title: i.title })}
-              checked={picked.includes(i.id)}
-              onChange={e => setPicked(p => (e.target.checked ? [...p, i.id] : p.filter(x => x !== i.id)))}
-            />
-          )}
-          <span className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1">
             <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere">{i.title}</span>
             {i.goal && <span className="line-clamp-2 text-xs text-rail-ink-2" title={i.goal}>{i.goal}</span>}
             {i.external && <span className="mt-0.5 flex"><ExternalChip ext={i.external} /></span>}
-          </span>
+          </div>
           <Tip text={t('plan.title', { title: i.title })}>
             <Button variant="ghost" size="sm" className="h-6 flex-none gap-1 rounded-sm px-1.5 text-xs text-rail-ink-2 hover:bg-rail-3 hover:text-rail-ink" onClick={() => onStart(i)}>
               <Icon name="play" className="size-3" />{t('rail.start')}
             </Button>
           </Tip>
+          {/* Its own line under the title column, as wide as the row (the Start button stays beside the title). */}
+          {i.note?.trim() && <div className="-mt-1 basis-full pl-[18px]"><NoteDisclosure text={i.note.trim()} tone="rail" /></div>}
         </div>
       ))}
-      {chosen.length > 1 && into && (
-        <div className="flex flex-col gap-1.5 px-1.5 py-1 text-xs text-rail-ink-2">
-          {oneProject ? (
-            <>
-              <label className="flex items-center gap-1.5">
-                {t('rail.mergeInto')}
-                <Choice tone="rail" label={t('rail.mergeInto')} value={into.id} onChange={setTarget} options={chosen.map(i => ({ value: i.id, label: i.title }))} className="h-6 flex-1 text-xs" />
-              </label>
-              <p>{t('rail.mergeWhat', { from: titles(from), into: into.title })}</p>
-            </>
-          ) : <p>{t('rail.mergeOneProject')}</p>}
-          <div className="flex gap-1.5">
-            <Button type="button" size="sm" variant="outline" className="h-7 rounded-sm bg-transparent text-rail-ink" disabled={!oneProject} onClick={merge}>{t('rail.merge')}</Button>
-            <Button type="button" size="sm" variant="ghost" className="h-7 rounded-sm text-rail-ink-2" onClick={() => setPicked([])}>{t('rail.addCancel')}</Button>
-          </div>
-        </div>
-      )}
       {adding && (
         <form className="flex flex-col gap-1.5 px-1.5 py-1" onSubmit={e => { e.preventDefault(); save() }}>
           <input className="rail-field" autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder={t('rail.addTitle')} aria-label={t('rail.addTitle')} />
@@ -349,7 +317,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const active = groupsOf(intents.filter(i => stateOf(i) === 'active'))
   const done = groupsOf(intents.filter(i => stateOf(i) === 'done'))
   const planned = intents
-    .filter(i => stateOf(i) === 'planned' && (!needle || (i.title + ' ' + (i.goal ?? '')).toLowerCase().includes(needle)))
+    .filter(i => stateOf(i) === 'planned' && (!needle || [i.title, i.goal, i.note].join(' ').toLowerCase().includes(needle)))
     .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? '') || (a.order ?? 0) - (b.order ?? 0))
   // New intents go to the project shown, or to the only one there is.
   const addTo = project ?? (projects.length === 1 ? projects[0].id : null)
@@ -424,7 +392,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh] [&>[data-slot=scroll-area-viewport]>div]:block!">
       <div className="flex flex-col gap-1 px-1 py-0.5">
         {active.length > 0 && <section aria-label={t('rail.active')} className="flex flex-col gap-1"><Heading>{t('rail.active')}</Heading>{active.map(group)}</section>}
-        {ws && (planned.length > 0 || addTo) && <Roadmap list={planned} all={intents} addTo={addTo} onStart={onStart} onError={setError} />}
+        {ws && (planned.length > 0 || addTo) && <Roadmap ws={ws} list={planned} all={intents} addTo={addTo} onStart={onStart} onError={setError} />}
         {error && <p role="alert" className="px-2.5 text-xs text-rail-you">{error}</p>}
         {done.length > 0 && (
           <Collapsible>

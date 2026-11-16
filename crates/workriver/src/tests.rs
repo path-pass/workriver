@@ -985,6 +985,8 @@ fn only_the_user_is_the_user() {
     assert!(boss.call("/api/backlog/merge", Some(merge.clone())).unwrap_err().to_string().contains("only the user does this"));
     assert_eq!(user.call("/api/backlog/merge", Some(merge)).unwrap()["kind"], "intent.merged");
     assert!(user.get("/api/state").unwrap()["intents"][2]["reason"] == "merged into i2");
+    // The manager sees what was merged: the note, line by line, under the goal on the board.
+    assert!(crate::board_text(&boss, Some("i2")).unwrap().contains("  note:\n    Merged from i3: Split off\n"));
 
     // Every route that acts as the user or changes settings: 401 without the token or a session.
     let user_routes = [

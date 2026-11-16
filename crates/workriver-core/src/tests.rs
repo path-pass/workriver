@@ -348,6 +348,13 @@ fn planned_intents_merge() {
     assert_eq!(st.roadmap[..2], ["i9", "i1"]);
     assert_eq!(st.intent("i1").unwrap().external, None, "the target keeps its own external id");
     assert!(add(&mut s, "user", merge("i1", &["i2"])).unwrap_err().contains("i2 is dropped"), "merged once");
+    assert_eq!(s.state().intent("i1").unwrap().title, "Search", "no title given: the target keeps its own");
+    // A new title for the merged whole: never blank; given, the target takes it.
+    let titled = |title: &str| json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i9"], "title": title}});
+    assert!(add(&mut s, "user", titled("  ")).unwrap_err().contains("the new title is empty"));
+    add(&mut s, "user", titled(" Search and filters ")).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().title, "Search and filters");
+    assert!(s.state().intent("i1").unwrap().note.ends_with("Merged from i9: Last\nLast goal"));
     let replayed = replayed(&s);
     assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
@@ -481,6 +488,7 @@ fn only_the_user_does_what_is_the_users() {
         json!({"kind": "finding.dropped", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "reason": "x"}}),
         json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "a", "local": "a"}}),
         json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}}),
+        json!({"kind": "project.renamed", "body": {"project": "/p", "title": "Q"}}),
     ];
     for who in ["agent-a", "workriver"] {
         for v in &theirs {
@@ -679,4 +687,21 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
     // A gate whose inputs are done when it is made waits at once.
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "1"}]}})).unwrap();
     assert_eq!(s.state().task("u1", 4).unwrap().state, TaskState::Waiting);
+}
+
+#[test]
+fn the_user_renames_a_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("w.db");
+    {
+        let mut s = Store::open(&path).unwrap();
+        add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
+        assert!(add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "/nope", "title": "Q"}})).unwrap_err().contains("no project /nope"));
+        assert!(add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "p1", "title": " "}})).is_err());
+        // By folder or by id; recorded by id.
+        let e = add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "/p", "title": "Q"}})).unwrap();
+        assert_eq!(e.body, body(json!({"kind": "project.renamed", "body": {"project": "p1", "title": "Q"}})));
+        add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "p1", "title": "R"}})).unwrap();
+    }
+    assert_eq!(Store::open(&path).unwrap().state().projects[0].title, "R", "replayed");
 }

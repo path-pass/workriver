@@ -4,6 +4,7 @@
 import { applyNodeChanges, Controls, getBezierPath, Handle, Position, ReactFlow, useNodes, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, type FitViewOptions } from '@xyflow/react'
 import { AntVDagreLayout } from '@antv/layout'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
@@ -11,7 +12,7 @@ import { record } from '@/runtime'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
-import { Ask, turnsOf, type Talk } from './Ask'
+import { threadsOf, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
 import { CopyButton, ExternalChip, Icon, Mark, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
@@ -280,7 +281,8 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
-          onNodeClick={(_, node) => { if (node.type !== 'start') onPick(node.id) }}
+          // A keyboard click (detail 0) is the card's own; taking it here too would pick and unpick.
+          onNodeClick={(e, node) => { if (node.type !== 'start' && e.detail !== 0) onPick(node.id) }}
           onPaneClick={() => onPick(null)}
           nodesConnectable={false}
           nodesFocusable={false}
@@ -468,6 +470,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
   const commitsOf = (x?: Task) => unit.commits.filter(c => x?.output.commits?.includes(c.id))
   const quiet = (text: string) => <div className="text-xs text-ink-2">{text}</div>
   const paths = (list: string[]) => <div className="font-mono text-xs text-ink-2">{list.join(t('list.sep'))}</div>
+  const threads = threadsOf(n, talk).length
   const found = findingsOf(n).length > 0 && <Findings unit={unit} n={n} finding={finding} onPick={onPick} />
   let head: ReactNode, input: ReactNode, output: ReactNode
   if (n.kind === 'review') {
@@ -569,7 +572,11 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
           {output}
         </div>
       </div>
-      <Ask unit={unit} n={n} finding={finding} talk={talk} />
+      {/* Asking why happens in the side panel; here only the way there, with how many conversations there are. */}
+      <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-2">
+        <Button variant="outline" size="xs" className="rounded-sm" onClick={talk.onOpen}><Icon name="talk" className="size-3" />{t('ask.why')}</Button>
+        {threads > 0 && <span>{t('ask.conversations', { count: threads })}</span>}
+      </div>
     </div>
   )
 }

@@ -1,9 +1,11 @@
-// Asking why about a piece of work. One box under the picked node's detail; what the
-// question is about is the current selection, shown as chips above it. A temporary agent
+// Asking why about a piece of work, in the side panel's Ask section: the picked task's
+// conversations, and one box under them; what the question is about is the current
+// selection, shown as chips above it. A temporary agent
 // answers from the records and the code, and asks the agent that did the work only when it
 // is idle, so an agent at work is never interrupted.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { askeeOf, baseName, finderLabel, findingsOf, ms, type Lines } from '@/data'
 import { useT } from '@/i18n'
 import type { AskContext, Session, Thread, Turn, Task, Unit } from '@/types'
@@ -28,6 +30,8 @@ export interface Talk {
   onFile: (path: string) => void
   /** Changes when the box should take the cursor (`?`, or "Ask why" on picked lines). */
   focusAt: number
+  /** Opens the side panel on Ask, the box taking the cursor (the node detail's "Ask why"). */
+  onOpen: () => void
   /** More context to go with the next question: other tasks that changed the picked lines. */
   extra: AskContext[]
 }
@@ -130,7 +134,8 @@ function ThreadRow({ th, open, onToggle }: { th: Thread; open: boolean; onToggle
     <button type="button" className="thread-row" aria-expanded={open} onClick={onToggle}>
       <Icon name="chev" className="size-3.5 flex-none transition-transform" />
       {first?.by ? <Who name={first.by} /> : null}
-      <span className="min-w-0 flex-1 truncate">{first?.question}</span>
+      {/* Two lines in the narrow panel, so a question reads before it is cut. */}
+      <span className="line-clamp-2 min-w-0 flex-1 wrap-anywhere">{first?.question}</span>
       <span className="flex-none text-ink-2">{t('ask.exchanges', { count: th.turns.length, n: num(th.turns.length) })}</span>
       <span className="thread-state flex-none" data-state={state}>{t(`ask.state.${state}`)}</span>
       {Number.isFinite(at) && <Tip text={when(at)}><span className="w-8 flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
@@ -180,7 +185,24 @@ function ThreadBody({ th, n, talk, chips }: { th: Thread; n: Task; talk: Talk; c
 /** Conversations shown before "earlier" is opened. */
 const LATEST = 3
 
-export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?: string; talk: Talk }) {
+/** The last request for the cursor that a box took, so a box shown later does not take it again. */
+let tookFocus = 0
+
+/** The side panel's Ask section: the picked task's conversations, and the box fixed under them.
+ *  With nothing picked, what to pick: every question is about a task. */
+export function Ask({ unit, n, finding, talk }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null }) {
+  const { t } = useT()
+  return (
+    <section aria-labelledby="side-ask" className="flex min-h-0 flex-1 flex-col">
+      <h2 id="side-ask" className="mb-2 px-4.5 text-sm font-[650]">{t('ask.why')}</h2>
+      {unit && n && talk
+        ? <Conversations key={unit.id} unit={unit} n={n} finding={finding} talk={talk} />
+        : <p className="px-4.5 text-sm text-ink-2">{t('ask.empty')}</p>}
+    </section>
+  )
+}
+
+function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?: string; talk: Talk }) {
   const { t } = useT()
   const threads = threadsOf(n, talk)
   // The box continues the last open conversation, unless the user starts a new one.
@@ -214,11 +236,18 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
 
   const [text, setText] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
-  // Asked for from outside (`?`, "Ask why"): the cursor comes here.
+  // Asked for from outside ("Ask why", `?`): the cursor comes here, once per request, and only
+  // into a box on screen (the wide panel stays mounted, hidden, on a narrow screen). A frame
+  // later, so a sheet opening around it first notes where focus was, and gives it back on close.
   useEffect(() => {
-    if (!talk.focusAt) return
-    box.current?.focus()
-    box.current?.scrollIntoView({ block: 'nearest' })
+    if (!talk.focusAt || talk.focusAt === tookFocus) return
+    const k = requestAnimationFrame(() => {
+      const el = box.current
+      if (!el || !el.getClientRects().length) return
+      tookFocus = talk.focusAt
+      el.focus()
+    })
+    return () => cancelAnimationFrame(k)
   }, [talk.focusAt])
   // The box grows with what is typed.
   useEffect(() => {
@@ -235,7 +264,7 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
   const [all, setAll] = useState(false)
   // Another piece of work: its waiting conversation open, if any, the rest folded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setOpen(waitingKey); setOpenLast(false); setAll(false) }, [n.id])
+  useEffect(() => { setOpen(waitingKey); setOpenLast(false); setAll(false); setFresh(false) }, [n.id])
   const openKey = openLast && threads.length ? keyOf(threads[threads.length - 1], threads.length - 1) : open
   const send = () => {
     const q = text.trim()
@@ -249,44 +278,48 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
   const earlier = all ? 0 : Math.max(0, threads.length - LATEST)
 
   return (
-    <div className="border-t border-line p-3 text-sm">
-      {earlier > 0 && (
-        <button type="button" className="mb-1 text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
-      )}
-      {threads.map((th, k) => {
-        if (k < earlier) return null
-        const key = keyOf(th, k)
-        const isOpen = openKey === key
-        return (
-          <section key={key} className="thread" data-open={isOpen || undefined}>
-            <ThreadRow th={th} open={isOpen} onToggle={() => { setOpenLast(false); setOpen(isOpen ? null : key) }} />
-            {isOpen && <ThreadBody th={th} n={n} talk={talk} chips={chips} />}
-          </section>
-        )
-      })}
-      {current && (
-        <div className="mt-3"><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button></div>
-      )}
-      {threads.length > 0 && <div className="mb-3" />}
+    <>
+      {/* The conversations scroll; the box stays fixed under them. */}
+      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!">
+        <div className="px-4 pb-3 text-sm">
+          {earlier > 0 && (
+            <button type="button" className="mb-1 text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
+          )}
+          {threads.map((th, k) => {
+            if (k < earlier) return null
+            const key = keyOf(th, k)
+            const isOpen = openKey === key
+            return (
+              <section key={key} className="thread" data-open={isOpen || undefined}>
+                <ThreadRow th={th} open={isOpen} onToggle={() => { setOpenLast(false); setOpen(isOpen ? null : key) }} />
+                {isOpen && <ThreadBody th={th} n={n} talk={talk} chips={chips} />}
+              </section>
+            )
+          })}
+        </div>
+      </ScrollArea>
       {/* Every node has records to answer from, so the box is never disabled. */}
-      <>
-          <div className="mb-1.5"><Chips chips={context} onDrop={c => setDropped(d => [...d, c.label])} /></div>
-          <div className="askbox">
-            <textarea
-              ref={box}
-              rows={1}
-              value={text}
-              aria-label={t('ask.label')}
-              placeholder={placeholder}
-              onChange={e => setText(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
-              }}
-            />
-            <Button size="icon-xs" aria-label={t('ask.send')} disabled={!text.trim()} onClick={send}><Icon name="send" className="size-3.5" /></Button>
-          </div>
-          <p className="mt-1.5 text-xs text-ink-2">{live ? t('ask.how', { agent: askee }) : t('ask.howAlone')}</p>
-      </>
-    </div>
+      <div className="border-t border-line px-4 pt-3 pb-4 text-sm">
+        <div className="mb-1.5 flex items-start gap-2">
+          <span className="min-w-0 flex-1"><Chips chips={context} onDrop={c => setDropped(d => [...d, c.label])} /></span>
+          {current && <Button variant="ghost" size="xs" className="-my-0.5 flex-none rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button>}
+        </div>
+        <div className="askbox">
+          <textarea
+            ref={box}
+            rows={1}
+            value={text}
+            aria-label={t('ask.label')}
+            placeholder={placeholder}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
+            }}
+          />
+          <Button size="icon-xs" aria-label={t('ask.send')} disabled={!text.trim()} onClick={send}><Icon name="send" className="size-3.5" /></Button>
+        </div>
+        <p className="mt-1.5 text-xs text-ink-2">{live ? t('ask.how', { agent: askee }) : t('ask.howAlone')}</p>
+      </div>
+    </>
   )
 }
