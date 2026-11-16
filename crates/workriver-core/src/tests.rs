@@ -293,6 +293,65 @@ fn roadmap_order_and_moves() {
     assert_eq!(replayed.intent("i1").unwrap().external, i.external);
 }
 
+/// Planned intents split too finely are merged into one: the others are dropped and what
+/// they said goes into its note, in the order given; it keeps its place in the roadmap.
+#[test]
+fn planned_intents_merge() {
+    let (_dir, mut s) = temp_store();
+    let plan = |title: &str, project: &str| json!({"kind": "intent.created", "body": {"title": title, "goal": format!("{title} goal"), "project": project, "state": "planned"}});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "goal": "Find things", "project": "/p", "state": "planned", "note": "Own note\n"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Filters", "goal": "By date", "project": "/p", "state": "planned", "note": "see #12", "external": {"system": "jira", "key": "ABC-2", "url": "https://x/ABC-2"}}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Ranking", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "user", plan("Other project", "/q")).unwrap(); // i4
+    add(&mut s, "user", plan("Has a task", "/p")).unwrap(); // i5
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i5", "kind": "research", "title": "Look"}})).unwrap();
+    add(&mut s, "user", plan("Has a chore", "/p")).unwrap(); // i6
+    add(&mut s, "user", json!({"kind": "chore.created", "body": {"intent": "i6", "title": "Rotate"}})).unwrap();
+    add(&mut s, "user", plan("Has a finding", "/p")).unwrap(); // i7
+    add(&mut s, "user", json!({"kind": "finding.added", "body": {"project": "/p", "intent": "i7", "finding": {"severity": "P2", "problem": "Slow"}}})).unwrap();
+    add(&mut s, "user", plan("Dropped", "/p")).unwrap(); // i8
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i8", "state": "dropped", "reason": "no"}})).unwrap();
+    add(&mut s, "user", plan("Last", "/p")).unwrap(); // i9
+    add(&mut s, "user", json!({"kind": "intent.moved", "body": {"intent": "i9", "before": "i1"}})).unwrap();
+    let merge = |into: &str, from: &[&str]| json!({"kind": "intent.merged", "body": {"intent": into, "from": from}});
+
+    for (into, from, says) in [
+        ("i1", &[][..], "name the planned intents"),
+        ("i1", &["i1"][..], "named twice"),
+        ("i1", &["i2", "i2"][..], "named twice"),
+        ("i1", &["i99"][..], "no intent i99"),
+        ("i99", &["i2"][..], "no intent i99"),
+        ("i8", &["i2"][..], "i8 is dropped"),
+        ("i1", &["i8"][..], "i8 is dropped"),
+        ("i1", &["i4"][..], "another project"),
+        ("i1", &["i5"][..], "has tasks"),
+        ("i1", &["i6"][..], "has chores"),
+        ("i1", &["i7"][..], "has backlog findings"),
+    ] {
+        let e = add(&mut s, "user", merge(into, from)).unwrap_err();
+        assert!(e.contains(says), "{into} <- {from:?}: {e}");
+    }
+    // The user's alone: not even a workspace's manager merges.
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": {"id": "w1", "label": "chat"}}})).unwrap();
+    assert!(add(&mut s, "boss", merge("i1", &["i2"])).unwrap_err().contains("only the user does this"));
+
+    let before = s.state().roadmap.clone();
+    add(&mut s, "user", merge("i1", &["i3", "i2"])).unwrap();
+    let st = s.state();
+    assert_eq!(st.intent("i1").unwrap().note, "Own note\n\nMerged from i3: Ranking\n\nMerged from i2: Filters\nBy date\nsee #12\njira:ABC-2 https://x/ABC-2");
+    for f in ["i2", "i3"] {
+        let x = st.intent(f).unwrap();
+        assert_eq!((x.state, x.reason.as_deref()), (IntentState::Dropped, Some("merged into i1")));
+    }
+    let after: Vec<_> = before.iter().filter(|x| !["i2", "i3"].contains(&x.as_str())).cloned().collect();
+    assert_eq!(st.roadmap, after, "the target keeps its place");
+    assert_eq!(st.roadmap[..2], ["i9", "i1"]);
+    assert_eq!(st.intent("i1").unwrap().external, None, "the target keeps its own external id");
+    assert!(add(&mut s, "user", merge("i1", &["i2"])).unwrap_err().contains("i2 is dropped"), "merged once");
+    let replayed = replayed(&s);
+    assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
+}
+
 /// Research and design belong to an intent without a unit; research hands in a note or a report.
 #[test]
 fn intent_level_research() {

@@ -27,7 +27,12 @@ export const en = {
     drag: 'Drag to reorder',
     start: 'Start',
     intentWork: 'Research and design',
-    failed: 'Not saved: {{error}}'
+    failed: 'Not saved: {{error}}',
+    mergePick: 'Pick to merge: {{title}}',
+    mergeInto: 'Merge into',
+    mergeWhat: '{{from}} will be dropped; their titles, goals, notes and links go into the note of {{into}}.',
+    merge: 'Merge',
+    mergeOneProject: 'Only intents of one project merge.'
   },
   manager: {
     mark: 'Manager of its workspace',

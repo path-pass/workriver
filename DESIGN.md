@@ -36,7 +36,10 @@ looked at now and then.
   in order, each with its goal, a link chip when it is tracked elsewhere, and "Start", which
   shows the steps to start it in Herdr with the commands to copy – workriver never starts an
   agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
-  "+" adds one inline, title and one-sentence goal, to the project shown), and **Done**,
+  "+" adds one inline, title and one-sentence goal, to the project shown; with two or more
+  rows, each has a checkbox, and two or more picked in one project merge into one of them,
+  chosen in a select, under a line saying what happens: the others are dropped and their
+  text goes into its note), and **Done**,
   folded; dropped intents are not shown. Settings at the bottom. It is the only large field
   of colour in the interface. Each active or done intent is a group that folds; open, it starts with the intent's goal in
   one or two quiet lines (when its manager or the user gave one). The intent of the open

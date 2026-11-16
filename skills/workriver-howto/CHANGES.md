@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Planned intents merge**: the user (only) folds roadmap intents that are one goal into
+  one with `workriver backlog merge <into> <from>...` or in the roadmap; the others become
+  dropped, "merged into i3", and their title, goal, note and external id are added to i3's
+  note. Intents with tasks, units, findings or chores of their own are not merged.
+  (`start-intent`)
 - **Split little**: an intent is a goal the user would name (a feature, one or a few related
   PRs); a step of the goal you are on is never an intent of its own (no `backlog add` for
   it). An intent has one unit by default; another only for work that must land separately

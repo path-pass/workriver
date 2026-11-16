@@ -1000,6 +1000,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/decide", post(decide))
         .route("/api/gate", post(gate))
         .route("/api/chore-done", post(chore_done))
+        .route("/api/backlog/merge", post(merge))
         .route("/api/focus", post(focus))
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
@@ -1435,6 +1436,18 @@ struct ChoreDone {
 async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::ChoreDone { chore: c.chore }).map(Json)).await
+}
+
+#[derive(Deserialize)]
+struct Merge {
+    into: String,
+    from: Vec<String>,
+}
+
+/// Planned intents folded into one (`workriver backlog merge`, or the roadmap in the page).
+async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from }).map(Json)).await
 }
 
 #[derive(Deserialize)]

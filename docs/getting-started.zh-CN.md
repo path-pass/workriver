@@ -68,6 +68,8 @@ skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide i
 合成一个意图，作为清单放进它的备注），先给你看一张预览表，
 等你同意，再按文件里的顺序用 `workriver backlog add` 和 `workriver backlog add-finding` 加进去。
 它不会改动原文件。`workriver backlog export --project P` 把待办再打印成 Markdown。
+拆得太碎？在路线图里勾选几行，"合并到"其中一个，或者 `workriver backlog merge i3 i4 i5`：
+i4 和 i5 被放弃，它们写的内容进到 i3 的备注里。
 
 ## 4. 给每个工作区一个管理者
 

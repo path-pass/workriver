@@ -324,7 +324,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | FindingsBatched { .. } | FindingDropped { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | FindingsBatched { .. } | FindingDropped { .. } | IntentMerged { .. }
         )
     }
 }
@@ -535,6 +535,11 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<String>,
     },
+    /// Planned intents folded into another planned one of their project (a roadmap split too
+    /// finely): each is dropped, and its title, goal, note and external id go into the
+    /// target's note, in the order given. The target keeps its place in the roadmap.
+    #[serde(rename = "intent.merged")]
+    IntentMerged { intent: String, from: Vec<String> },
     /// The user picked deferred findings to do together: they go to the intent's manager.
     #[serde(rename = "findings.batched")]
     FindingsBatched { intent: String, findings: Vec<FindingRef> },
@@ -852,7 +857,7 @@ impl Body {
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } => (intent.clone(), None, None),
-            IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
+            IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
             ProjectAdded { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
@@ -1201,6 +1206,13 @@ fn name_of_kind(b: &Body) -> String {
     serde_json::to_value(b).ok().and_then(|v| v["kind"].as_str().map(str::to_string)).unwrap_or_default()
 }
 
+/// What a merged intent said, as a block of its target's note: its title, goal, note and
+/// external id (with its link), one per line, empty ones left out.
+fn merged_note(i: &Intent) -> String {
+    let external = i.external.as_ref().map(|e| format!("{}:{}{}", e.system, e.key, e.url.as_deref().map(|u| format!(" {u}")).unwrap_or_default()));
+    [format!("Merged from {}: {}", i.id, i.title), i.goal.trim().to_string(), i.note.trim().to_string(), external.unwrap_or_default()].into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
 pub fn name<T: Serialize>(v: &T) -> String {
     serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
@@ -1528,6 +1540,39 @@ impl State {
                     return no(format!("{other} is not another planned intent"));
                 }
                 IntentMoved { intent, before, after }
+            }
+            IntentMerged { intent, from } => {
+                let i = self.intent(&intent)?;
+                if i.state != IntentState::Planned {
+                    return no(format!("intent {intent} is {}; only planned intents are merged", name(&i.state)));
+                }
+                if from.is_empty() {
+                    return no(format!("name the planned intents to merge into {intent}"));
+                }
+                for (k, f) in from.iter().enumerate() {
+                    if f == &intent || from[..k].contains(f) {
+                        return no(format!("{f} is named twice: give each intent to merge once, and not {intent} itself"));
+                    }
+                    let x = self.intent(f)?;
+                    if x.state != IntentState::Planned {
+                        return no(format!("intent {f} is {}; only planned intents are merged", name(&x.state)));
+                    }
+                    if x.project != i.project {
+                        return no(format!("{f} is in another project than {intent}"));
+                    }
+                    // Work, findings or chores of its own would be lost with it.
+                    let held = [
+                        ("tasks", !x.tasks.is_empty()),
+                        ("units", self.units.iter().any(|u| &u.intent == f)),
+                        ("backlog findings", self.backlog.iter().any(|b| b.intent.as_deref() == Some(f))),
+                        ("chores", self.chores.iter().any(|c| &c.intent == f)),
+                        ("conversations", self.threads.iter().any(|t| &t.unit == f)),
+                    ];
+                    if let Some((what, _)) = held.iter().find(|(_, has)| *has) {
+                        return no(format!("{f} has {what} of its own; only an intent with nothing attached is merged (drop it with a reason instead)"));
+                    }
+                }
+                IntentMerged { intent, from }
             }
             FindingsBatched { intent, findings } => {
                 let i = self.intent(&intent)?;
@@ -2156,6 +2201,21 @@ impl State {
                     (None, _) => self.roadmap.len(),
                 };
                 self.roadmap.insert(k, intent.clone());
+            }
+            IntentMerged { intent, from } => {
+                let mut blocks = vec![];
+                for f in from {
+                    if let Some(x) = self.intents.iter_mut().find(|i| &i.id == f) {
+                        blocks.push(merged_note(x));
+                        x.state = IntentState::Dropped;
+                        x.reason = Some(format!("merged into {intent}"));
+                    }
+                    self.roadmap.retain(|r| r != f);
+                }
+                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    let own = i.note.trim_end().to_string();
+                    i.note = std::iter::once(own).chain(blocks).filter(|b| !b.is_empty()).collect::<Vec<_>>().join("\n\n");
+                }
             }
             FindingsBatched { intent, findings } => {
                 for r in findings {

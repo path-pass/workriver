@@ -11,6 +11,8 @@ export interface Act {
   /** Takes an input back while its message has not gone out. */
   undo: (key: string) => void
   choreDone: (id: string) => void
+  /** Merges planned intents into `into`; rejects with the service's words. */
+  merge: (into: string, from: string[]) => Promise<void>
   /** By the same key as the input: `unit:task` for a gate, `unit:task:finding` for a decision. */
   delivery: Record<string, Delivery>
   message: Record<string, string>

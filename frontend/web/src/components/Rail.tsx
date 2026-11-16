@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import { useResize } from '@/lib/useResize'
+import { useAct } from '@/act'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
 import { ExternalChip, Icon, MachineChip, Progress, Tip } from './bits'
@@ -207,11 +208,15 @@ function Heading({ children, extra }: { children: string; extra?: ReactNode }) {
 
 /**
  * The planned intents in order. Dragging a row (or Alt+↑/↓ on its grip) moves it within its
- * project's roadmap; "+" adds one at the end, with a title and a one-sentence goal.
+ * project's roadmap; "+" adds one at the end, with a title and a one-sentence goal. Rows
+ * picked with their checkboxes merge into one of them (a roadmap split too finely).
  */
 function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: Intent[]; addTo: string | null; onStart: (i: Intent) => void; onError: (e: string) => void }) {
-  const { t } = useT()
+  const { t, lang } = useT()
+  const act = useAct()
   const [drag, setDrag] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [target, setTarget] = useState('')
   const [over, setOver] = useState<{ id: string; where: 'before' | 'after' } | null>(null)
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
@@ -239,6 +244,13 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
     record('intent.created', { title: title.trim(), goal: goal.trim(), project: addTo, state: 'planned' })
       .then(() => { setTitle(''); setGoal(''); setAdding(false) }, fail)
   }
+  // Merging: the picked ones in roadmap order; the target is one of them (the first unless chosen).
+  const chosen = list.filter(i => picked.includes(i.id))
+  const into = chosen.find(i => i.id === target) ?? chosen[0]
+  const from = chosen.filter(i => i !== into)
+  const oneProject = new Set(chosen.map(i => i.project)).size === 1
+  const titles = (l: Intent[]) => new Intl.ListFormat(lang, { type: 'conjunction' }).format(l.map(i => i.title))
+  const merge = () => { if (into) act.merge(into.id, from.map(i => i.id)).then(() => setPicked([]), fail) }
   const add = (
     <Tip text={addTo ? t('rail.add') : t('rail.addPick')}>
       <Button variant="ghost" size="icon-sm" aria-label={t('rail.add')} disabled={!addTo} className="size-5 rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink" onClick={() => setAdding(a => !a)}>
@@ -271,6 +283,15 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
               <Icon name="grip" className="size-3.5" />
             </button>
           </Tip>
+          {list.length > 1 && (
+            <input
+              type="checkbox"
+              className="pick"
+              aria-label={t('rail.mergePick', { title: i.title })}
+              checked={picked.includes(i.id)}
+              onChange={e => setPicked(p => (e.target.checked ? [...p, i.id] : p.filter(x => x !== i.id)))}
+            />
+          )}
           <span className="min-w-0 flex-1">
             <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere">{i.title}</span>
             {i.goal && <span className="line-clamp-2 text-xs text-rail-ink-2" title={i.goal}>{i.goal}</span>}
@@ -283,6 +304,23 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
           </Tip>
         </div>
       ))}
+      {chosen.length > 1 && into && (
+        <div className="flex flex-col gap-1.5 px-1.5 py-1 text-xs text-rail-ink-2">
+          {oneProject ? (
+            <>
+              <label className="flex items-center gap-1.5">
+                {t('rail.mergeInto')}
+                <Choice tone="rail" label={t('rail.mergeInto')} value={into.id} onChange={setTarget} options={chosen.map(i => ({ value: i.id, label: i.title }))} className="h-6 flex-1 text-xs" />
+              </label>
+              <p>{t('rail.mergeWhat', { from: titles(from), into: into.title })}</p>
+            </>
+          ) : <p>{t('rail.mergeOneProject')}</p>}
+          <div className="flex gap-1.5">
+            <Button type="button" size="sm" variant="outline" className="h-7 rounded-sm bg-transparent text-rail-ink" disabled={!oneProject} onClick={merge}>{t('rail.merge')}</Button>
+            <Button type="button" size="sm" variant="ghost" className="h-7 rounded-sm text-rail-ink-2" onClick={() => setPicked([])}>{t('rail.addCancel')}</Button>
+          </div>
+        </div>
+      )}
       {adding && (
         <form className="flex flex-col gap-1.5 px-1.5 py-1" onSubmit={e => { e.preventDefault(); save() }}>
           <input className="rail-field" autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder={t('rail.addTitle')} aria-label={t('rail.addTitle')} />
