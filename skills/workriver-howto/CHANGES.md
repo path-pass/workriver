@@ -4,6 +4,17 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Agents may merge planned intents that agents added** (an import split too finely):
+  `workriver backlog merge <into> <from>...`. Intents the user added stay the user's to
+  merge; the service refuses with "… was added by the user". (`start-intent`)
+- **Ask the user through Needs you, not your pane**: before merging, deploying, changing
+  the goal or agreed units, anything destructive, or after a task failed the same way
+  twice, add a decide gate on the unit (or the intent) and wait for the answer. The user
+  does not watch your pane. (`ask-user`)
+- **A merge can rename the intent that stays**: `workriver backlog merge <into> <from>...
+  --title "<new title>"`; without `--title` it keeps its title. The intent's note (where
+  merged intents' text goes) now shows on `workriver board` under its goal, and in
+  `workriver task show` under the intent. (`start-intent`)
 - **Planned intents merge**: the user (only) folds roadmap intents that are one goal into
   one with `workriver backlog merge <into> <from>...` or in the roadmap; the others become
   dropped, "merged into i3", and their title, goal, note and external id are added to i3's

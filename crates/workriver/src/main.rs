@@ -309,6 +309,12 @@ enum ProjectCmd {
     },
     /// List the projects and their repositories.
     List,
+    /// Change a project's title. The user only.
+    Rename {
+        /// Its id (p1…) or its folder.
+        project: String,
+        title: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -383,6 +389,9 @@ enum BacklogCmd {
         /// The planned intents merged into it, in the order their text is added.
         #[arg(required = true)]
         from: Vec<String>,
+        /// A new title for the intent that stays (the merged whole may need one).
+        #[arg(long)]
+        title: Option<String>,
     },
     /// Print a project's backlog as Markdown (a read-only copy; the records stay in workriver).
     Export {
@@ -907,7 +916,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Workspace(WorkspaceCmd::List) => {
-            let w = d.get("/api/workspace")?;
+            let w = d.get("/api/workspace?light=true")?;
             for g in w["workspaces"].as_array().into_iter().flatten() {
                 let label = g["label"].as_str().unwrap_or("?");
                 match (g["machine"].as_str(), g["linkedTo"].as_str()) {
@@ -930,8 +939,9 @@ fn main() -> anyhow::Result<()> {
             let folder = std::fs::canonicalize(&folder).with_context(|| format!("no folder {folder}"))?;
             d.append(actor, "project.added", json!({ "path": folder, "title": title }))?
         }
+        Cmd::Project(ProjectCmd::Rename { project, title }) => d.append(actor, "project.renamed", json!({ "project": project_arg(&project)?, "title": title }))?,
         Cmd::Project(ProjectCmd::List) => {
-            let w = d.get("/api/workspace")?;
+            let w = d.get("/api/workspace?light=true")?;
             for p in w["projects"].as_array().into_iter().flatten() {
                 let kind = if p["registered"] == true { "" } else { "  (a repository outside every project)" };
                 let key = p["key"].as_str().map(|k| format!("{k} ")).unwrap_or_default();
@@ -958,7 +968,7 @@ fn main() -> anyhow::Result<()> {
         Cmd::Backlog(BacklogCmd::List { project }) => return backlog::list(&d, project.as_deref().map(project_arg).transpose()?.as_deref()),
         Cmd::Backlog(BacklogCmd::Export { project }) => return backlog::export(&d, &project_arg(&project)?),
         Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
-        Cmd::Backlog(BacklogCmd::Merge { into, from }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from })))?,
+        Cmd::Backlog(BacklogCmd::Merge { into, from, title }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from, "title": title })))?,
         Cmd::Intent(IntentCmd::Start { intent }) => {
             let Some(g) = &group else { bail!("run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace") };
             d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?
@@ -1137,7 +1147,7 @@ fn main() -> anyhow::Result<()> {
         Some("workspace.linked") => "linked".into(),
         Some("workspace.unlinked") => "unlinked".into(),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
-        Some("intent.merged") => format!("merged {} into {}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?")),
+        Some("intent.merged") => format!("merged {} into {}{}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?"), b["title"].as_str().map(|t| format!(", now \"{t}\"")).unwrap_or_default()),
         Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
         Some("task.amended") if b["add"].as_array().is_some_and(|a| !a.is_empty()) => {
             let ids: Vec<&str> = b["add"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
@@ -1241,7 +1251,7 @@ impl Daemon {
         };
         let mut res = res.map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
+        let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
@@ -1294,7 +1304,7 @@ impl Daemon {
         }
         let mut res = req.send(&bytes[..]).map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
+        let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
@@ -1666,15 +1676,30 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     // What git shows (commits, where each unit stands), as the page shows it.
     let ws = d.get("/api/workspace?light=true").unwrap_or_default();
     let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
+    // Dropped intents (merged ones among them) only when asked for by id.
+    let hidden = state.intents.iter().filter(|i| target.is_none() && i.state == core::IntentState::Dropped).count();
     for i in &state.intents {
+        if target.is_none() && i.state == core::IntentState::Dropped {
+            continue;
+        }
         let units: Vec<_> = state.units.iter().filter(|u| u.intent == i.id && wanted(&i.id, Some(&u.id))).collect();
         let chores: Vec<_> = state.chores.iter().filter(|c| c.intent == i.id && !c.done && wanted(&i.id, c.unit.as_deref())).collect();
         if units.is_empty() && chores.is_empty() && !wanted(&i.id, None) {
             continue;
         }
         let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        if i.state == core::IntentState::Dropped {
+            let _ = writeln!(out, "  dropped: {}", i.reason.as_deref().unwrap_or(""));
+        }
         if !i.goal.is_empty() {
             let _ = writeln!(out, "  goal: {}", i.goal);
+        }
+        // More about it, line by line: what the user wrote, and what merged intents brought in.
+        if !i.note.trim().is_empty() {
+            let _ = writeln!(out, "  note:");
+            for l in i.note.trim().lines() {
+                let _ = writeln!(out, "    {l}");
+            }
         }
         if i.state == core::IntentState::Active && state.finished(&i.id) {
             let _ = writeln!(out, "  every unit is merged or done: close it with `workriver intent done {}`", i.id);
@@ -1739,9 +1764,19 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             let of = if c.project.is_empty() { String::new() } else { format!(" [project {}]", c.project) };
             let _ = writeln!(out, "chore {} {}{of} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
         }
+        if hidden > 0 {
+            let _ = writeln!(out, "({hidden} dropped or merged intents not shown; `workriver board <intent>` shows one)");
+        }
     }
     Ok(out)
 }
 
 #[cfg(test)]
 mod tests;
+
+/// The service's answer as text. A reply that cannot be read is said as that, not as the
+/// service being unreachable: it answered.
+// ponytail: whole answer in memory, capped at 256 MB; stream it if snapshots ever get there.
+fn read_answer(res: &mut ureq::http::Response<ureq::Body>) -> anyhow::Result<String> {
+    res.body_mut().with_config().limit(256 * 1024 * 1024).read_to_string().map_err(|e| anyhow!("the service answered, but its answer could not be read: {e}"))
+}

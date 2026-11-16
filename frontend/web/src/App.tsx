@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
-import { SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
+import { SECTIONS, SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
 import { MachineChip, Notes, Progress, Topics } from '@/components/bits'
 import { Start, StartIntent } from '@/components/Start'
-import { isField, type Talk } from '@/components/Ask'
+import { Ask, isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
@@ -35,7 +35,7 @@ export default function App() {
   const [railWidth, setRailWidth] = useState(0)
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
-  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' || v === 'backlog' ? v : null })
+  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE) as Section; return SECTIONS.includes(v) ? v : null })
   // The project the rail and the backlog show, or all; remembered.
   const [picked, setProject] = useState<string | null>(() => recall(PROJECT) || null)
   const pickProject = (p: string | null) => { setProject(p); remember(PROJECT, p ?? '') }
@@ -107,6 +107,14 @@ export default function App() {
     setPick(now => (next && now && next.id === now.id && next.finding === now.finding ? null : next))
   }, [])
 
+  // The side panel on Ask (the sheet on a narrow screen), its box taking the cursor when a
+  // task is picked; with none, the panel says what to pick and nothing waits to take it later.
+  const openAsk = (focus = true) => {
+    if (window.matchMedia('(width < 860px)').matches) setSheet('ask')
+    else showSide('ask')
+    if (focus) setAskReq(r => ({ ...r, at: Date.now() }))
+  }
+
   // Ask why about picked lines: the task that last changed them is picked, with the others
   // that changed them as more context, and its box takes the cursor.
   const askAbout = (l: Lines) => {
@@ -120,6 +128,7 @@ export default function App() {
     if (!tasks.length) return
     setPick({ kind: 'task', id: tasks[0].id })
     setAskReq({ at: Date.now(), task: tasks[0].id, extra: tasks.slice(1).map(n => ({ kind: 'task', label: n.taskId ? `#${n.taskId}` : n.title })) })
+    openAsk(false)
   }
 
   // Keys: Escape clears what is picked; `?` asks about picked lines, or brings the cursor to
@@ -132,11 +141,12 @@ export default function App() {
         return
       }
       if (isField(e.target)) return
-      if (e.key === 'Escape') setPick(null)
+      // An Escape that closed the sheet (Radix takes it first) leaves the pick alone.
+      if (e.key === 'Escape' && !e.defaultPrevented) setPick(null)
       if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
         if (lines) askAbout(lines)
-        else setAskReq(r => ({ ...r, at: Date.now() }))
+        else openAsk(!!pick)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -149,7 +159,6 @@ export default function App() {
   // A commit opened from the panel: its unit and task, and the code block brings it into view.
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project }
 
   const onAsk = (node: Task, question: string, context: AskContext[], thread: string | null, conclude = false) => {
     if (!ws || !unit) return
@@ -179,11 +188,17 @@ export default function App() {
         sessions: ws.sessions, file, lines, asked: asked[unit.id] ?? {}, onAsk,
         onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
         live: !MOCK,
-        onFile: p => { setFile(p); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
+        // The sheet gets out of the way of the file, as for a row of the panel.
+        onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
+        onOpen: () => openAsk(),
         extra: askReq.task === pick?.id ? askReq.extra : [],
       }
     : null
+
+  // The Ask section asks about the picked task, in the unit on screen.
+  const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, ask: <Ask unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
 
   // ---- what the user puts in, and where it is on its way ----
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
@@ -220,7 +235,7 @@ export default function App() {
       setMessage(all => drop(all, key))
     },
     choreDone: id => { setEdits(e => ({ ...e, chores: [...e.chores, id] })); choreDone(id) },
-    merge: (into, from) => mergeIntents(into, from).then(() => setEdits(e => ({ ...e, merges: [...e.merges, { into, from }] }))),
+    merge: (into, from, title) => mergeIntents(into, from, title).then(() => setEdits(e => ({ ...e, merges: [...e.merges, { into, from, title }] }))),
     delivery,
     message,
   }

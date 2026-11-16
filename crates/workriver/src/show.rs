@@ -47,6 +47,9 @@ pub struct Part {
     pub title: String,
     /// The intent's goal, or the unit's purpose.
     pub about: String,
+    /// The intent's note (more about it; a merge appends the merged intents' text).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
     /// A unit's: working, waiting, ready, merged or done.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<String>,
@@ -232,11 +235,12 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
         kind: name(&t.kind),
         state: name(&t.state),
         title: t.title.clone(),
-        intent: Part { id: intent_id.clone(), title: intent.map(|i| i.title.clone()).unwrap_or_default(), about: intent.map(|i| i.goal.clone()).unwrap_or_default(), progress: None },
+        intent: Part { id: intent_id.clone(), title: intent.map(|i| i.title.clone()).unwrap_or_default(), about: intent.map(|i| i.goal.clone()).unwrap_or_default(), note: intent.map(|i| i.note.trim().to_string()).unwrap_or_default(), progress: None },
         unit: u.map(|u| Part {
             id: u.id.clone(),
             title: u.title.clone(),
             about: u.purpose.clone(),
+            note: String::new(),
             progress: Some(shown.and_then(|x| x["progress"].as_str()).map(str::to_string).unwrap_or_else(|| name(&state.progress(u)))),
         }),
         place: u.filter(|u| !u.branch.is_empty()).map(|u| Place {
@@ -328,6 +332,9 @@ pub fn text(s: &TaskShow) -> String {
         let _ = writeln!(out, "Title: {}", s.title);
     }
     let _ = writeln!(out, "Intent {} \"{}\": {}", s.intent.id, s.intent.title, s.intent.about);
+    if !s.intent.note.is_empty() {
+        block(&mut out, "Intent note", &s.intent.note);
+    }
     if let Some(u) = &s.unit {
         let about = if u.about.is_empty() { String::new() } else { format!(": {}", u.about) };
         let _ = writeln!(out, "Unit {} \"{}\" ({}){about}", u.id, u.title, u.progress.as_deref().unwrap_or("?"));

@@ -54,7 +54,7 @@ fn deferred<'a>(w: &'a Value, project: &str) -> Vec<Deferred<'a>> {
 }
 
 pub fn list(d: &Daemon, project: Option<&str>) -> anyhow::Result<()> {
-    let w = d.get("/api/workspace")?;
+    let w = d.get("/api/workspace?light=true")?;
     let wanted = project.map(|p| folder(&w, p).unwrap_or_default());
     let projects: Vec<&Value> = w["projects"].as_array().into_iter().flatten().filter(|p| wanted.as_deref().is_none_or(|x| s(&p["id"]) == x)).collect();
     if projects.is_empty() {
@@ -87,7 +87,7 @@ pub fn list(d: &Daemon, project: Option<&str>) -> anyhow::Result<()> {
 }
 
 pub fn export(d: &Daemon, project: &str) -> anyhow::Result<()> {
-    let w = d.get("/api/workspace")?;
+    let w = d.get("/api/workspace?light=true")?;
     let Some(project) = folder(&w, project) else { bail!("no project {project}; see `workriver project list`") };
     let project = project.as_str();
     let p = w["projects"].as_array().into_iter().flatten().find(|p| s(&p["id"]) == project).expect("found above");

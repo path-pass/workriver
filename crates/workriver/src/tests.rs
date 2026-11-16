@@ -59,6 +59,11 @@ fn daemon_smoke() {
     assert_eq!(unit["tasks"][0]["output"]["commits"].as_array().unwrap().len(), 1, "the trailer links the commit");
     assert_eq!(unit["commits"][0]["files"][0]["after"], "one\ntwo\n");
     assert_eq!(unit["tasks"][1]["output"]["findings"][0]["state"], "deferred");
+    // A light read (the CLI's lists) names the files but carries none of their texts, even
+    // once a full read has cached them.
+    let light = d.get("/api/workspace?light=true").unwrap();
+    let f = &light["intents"][0]["units"][0]["commits"][0]["files"][0];
+    assert_eq!((f["path"].as_str(), f["after"].is_null(), f["before"].is_null()), (Some("a.txt"), true, true), "{f}");
 
     // Another Host is turned away, whatever the path.
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -979,19 +984,25 @@ fn only_the_user_is_the_user() {
     // A plain shell pane (no agent there): the user with the token, nobody without.
     assert!(at("w1:p9", false).append("", "intent.created", json!({ "title": "x" })).unwrap_err().to_string().contains("Herdr lists no agent in pane w1:p9"));
     assert_eq!(at("w1:p9", true).append("", "intent.created", json!({ "title": "From a shell", "state": "planned" })).unwrap()["actor"], "user");
-    // Merging planned intents is the user's route: an agent's pane is refused, token and all.
+    // Merging planned intents: an agent (at its pane, token and all) may not merge what the
+    // user added; the user may.
     user.append("", "intent.created", json!({ "title": "Split off", "state": "planned" })).unwrap();
     let merge = json!({ "into": "i2", "from": ["i3"] });
-    assert!(boss.call("/api/backlog/merge", Some(merge.clone())).unwrap_err().to_string().contains("only the user does this"));
+    assert!(boss.call("/api/backlog/merge", Some(merge.clone())).unwrap_err().to_string().contains("was added by the user"));
     assert_eq!(user.call("/api/backlog/merge", Some(merge)).unwrap()["kind"], "intent.merged");
     assert!(user.get("/api/state").unwrap()["intents"][2]["reason"] == "merged into i2");
+    // The manager sees what was merged: the note, line by line, under the goal on the board.
+    assert!(crate::board_text(&boss, Some("i2")).unwrap().contains("  note:\n    Merged from i3: Split off\n"));
+    // The merged one is off the whole board, and shown with why when asked for.
+    let all = crate::board_text(&boss, None).unwrap();
+    assert!(!all.contains("i3 Split off") && all.contains("1 dropped or merged intents not shown"), "{all}");
+    assert!(crate::board_text(&boss, Some("i3")).unwrap().contains("  dropped: merged into i2\n"));
 
     // Every route that acts as the user or changes settings: 401 without the token or a session.
     let user_routes = [
         ("/api/decide", json!({ "unit": "u1", "task": 3, "finding": "P1-1", "decision": "accept" })),
         ("/api/gate", json!({ "unit": "u1", "task": 2, "result": "done" })),
         ("/api/chore-done", json!({ "chore": "c1" })),
-        ("/api/backlog/merge", json!({ "into": "i2", "from": ["i3"] })),
         ("/api/focus", json!({ "agent": "boss" })),
         ("/api/thread/end", json!({ "thread": "q1" })),
         ("/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),

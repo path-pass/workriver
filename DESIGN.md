@@ -33,16 +33,18 @@ looked at now and then.
 - A dark rail on the left picks units and nothing else: product name, the project switch
   (a select in the rail's colours, "All projects" first; remembered), search, then the intents in three
   groups under quiet headings: **Active** (with their units), **Roadmap** (planned intents
-  in order, each with its goal, a link chip when it is tracked elsewhere, and "Start", which
+  in order, each with its goal, a link chip when it is tracked elsewhere, its note behind a
+  small "Note" disclosure on a line of its own, and "Start", which
   shows the steps to start it in Herdr with the commands to copy – workriver never starts an
   agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
-  "+" adds one inline, title and one-sentence goal, to the project shown; with two or more
-  rows, each has a checkbox, and two or more picked in one project merge into one of them,
-  chosen in a select, under a line saying what happens: the others are dropped and their
-  text goes into its note), and **Done**,
+  "+" adds one inline, title and one-sentence goal, to the project shown; a quiet "Merge…"
+  in the heading, when a project has two planned intents or more, opens a dialog to merge
+  them), and **Done**,
   folded; dropped intents are not shown. Settings at the bottom. It is the only large field
   of colour in the interface. Each active or done intent is a group that folds; open, it starts with the intent's goal in
-  one or two quiet lines (when its manager or the user gave one). The intent of the open
+  one or two quiet lines (when its manager or the user gave one), then its note.
+  An intent's note (more about it; what merged intents said is added to it) is plain text
+  with its line breaks and clickable links, cut to three lines with "Show more". The intent of the open
   unit is open, the others folded, and a folded group still shows the sum of its units' violet marks, so
   nothing waiting is hidden. A search looks through every unit and opens the groups with a
   match. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
@@ -69,8 +71,16 @@ looked at now and then.
   hover. The handle is a small hook of ours (`lib/useResize.ts`), written so the side
   panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
   handle, which is the case the "prefer a library" rule excepts.
+- **Merging planned intents** is a dialog, not a mode of the rail: the planned intents of the
+  project shown (with all shown and several to merge, a select picks the project) as a list
+  of checkboxes, each with its title, its goal on one line and its note folded; one that
+  holds something (tasks, units, backlog findings, chores) is shown but cannot be ticked, and
+  says why. With two or more ticked: which one stays (a select among them), its title
+  (prefilled from it and following it until the user writes one), and a line saying what
+  happens: the others are dropped and what they said goes into its note. Merge and Cancel;
+  the service's refusal shows in the dialog. Escape closes it and focus goes back to "Merge…".
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents**, **Commits** and **Backlog**, one at a time, never mixed. Its four buttons work as a
+  **Agents**, **Commits**, **Backlog** and **Ask why**, one at a time, never mixed. Its five buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
   already has them); open, it is about 340 px wide. Which section is open, if any, is
@@ -194,17 +204,22 @@ looked at now and then.
   terminal) and in the header of running or waiting work. It is not on graph nodes. All
   of it goes through one function in the UI (`runtime.focusAgent`); until the daemon is
   there it only says what it would do.
-- **Asking why.** There is no "why" button on every element. One ask box sits at the
-  bottom of a picked task's detail, always there. What a question is about is the current
+- **Asking why.** There is no "why" button on every element. Asking happens in the side
+  panel's **Ask why** section, as a chat sits beside a pull request's diff: its heading, the
+  picked task's conversations, and at the bottom, fixed, the context chips, the box and the
+  line saying who answers. With no task picked it says what to pick (a task in the graph, or
+  lines in the code); every question is about a task. The picked task's detail keeps only a
+  small "Ask why" with how many conversations it has; it, "Ask why" on picked lines and `?`
+  open the panel on Ask (the sheet on a narrow screen) with the cursor in the box. What a question is about is the current
   selection, shown as chips above the box: the task always, the picked finding, and the
   picked file – or, when lines are picked, the lines instead of their file. Lines are
   picked in any diff, the single file or the list (click a line number, shift-click to
   stretch); next to them floats "Ask why", like the "+" of a code review. It picks the task
   that last changed those lines (worked out from the unit's commits; other tasks that
   changed some of them come along as chips) and puts the cursor in its box, so the code can
-  be asked about with no task picked. A chip can be left out for this question. `?`
-  (outside a field) does the same with picked lines, and otherwise puts the cursor in the
-  box; Enter sends, Shift+Enter breaks the line. On a gate – the user's own task – the
+  be asked about with no task picked. A chip can be left out for this question (its ×).
+  `?` (outside a field) does the same with picked lines, and otherwise opens the panel on
+  Ask; Enter sends, Shift+Enter breaks the line. On a gate – the user's own task – the
   question goes to the agent that asked for it (the agent of the task the gate follows; with
   none, the manager bot), so "step 2's curl fails, what now" reaches whoever wrote the
   steps; its chip is the gate's title. A temporary agent answers
@@ -217,13 +232,14 @@ looked at now and then.
   starts a new one with the conversation so far). Under a conversation: "Draft conclusion"
   (its agent writes what was decided, what changes, what stays open; shown at the end, and
   it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
-  "New question" starts another conversation. File paths in an answer open the file.
-  The detail stays compact however long the talk gets: each conversation folds to one row
-  (its first question, who asked, how many exchanges, answered / waiting / failed / ended,
-  when last), and one opens at a time, as its own scroll area of at most 360 px kept at
-  the latest exchange (it follows a new answer only while the reader is at the bottom);
-  the one just asked in, or one still waiting, is open. Past three conversations only the
-  latest three show, with "N earlier" above them. The box stays under them, outside.
+  "New question" (beside the chips) starts another conversation. File paths in an answer
+  open the file (the sheet gets out of the way). Each conversation folds to one row
+  (its first question in up to two lines, who asked, how many exchanges, answered / waiting
+  / failed / ended, when last), and one opens at a time, as its own scroll area of at most
+  360 px kept at the latest exchange (it follows a new answer only while the reader is at
+  the bottom); the one just asked in, or one still waiting, is open. Past three
+  conversations only the latest three show, with "N earlier" above them. The list scrolls;
+  the box stays under it.
   Agents ask each other the same way, through workriver (never in each other's terminals):
   their conversations show on the task asked about like the user's, with the asking agent's
   mark before the question, and count in the node's speech-bubble mark; they never appear in

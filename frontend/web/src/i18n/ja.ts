@@ -4,6 +4,9 @@ import type { en, OneForm } from './en'
 
 export const ja: OneForm<typeof en> = {
   rail: {
+    note: 'メモ',
+    noteMore: 'もっと見る',
+    noteLess: '折りたたむ',
     shortcut: '{{label}}（⌘B / Ctrl+B）',
     fold: 'サイドバーを閉じる',
     unfold: 'サイドバーを開く',
@@ -30,11 +33,21 @@ export const ja: OneForm<typeof en> = {
     start: '開始',
     intentWork: '調査と設計',
     failed: '保存できませんでした：{{error}}',
-    mergePick: '統合する対象に選ぶ：{{title}}',
-    mergeInto: '統合先',
-    mergeWhat: '{{from}} は取り下げられ、そのタイトル・目標・メモ・リンクは {{into}} のメモに入ります。',
+    mergeOpen: '統合…',
+    mergeTitle: '計画中のインテントを統合',
+    mergeHint: '同じプロジェクトのインテントを 2 つ以上選びます。1 つを残し、ほかは取り下げられて、その内容は残すインテントのメモに入ります。',
+    mergeInto: '残すインテント',
+    mergeNewTitle: 'そのタイトル',
+    mergeWhat: '{{from}}は取り下げられ、そのタイトル・目標・メモ・リンクは{{into}}のメモに入ります。',
+    mergeRename: '「{{into}}」の名前が変わります。',
+    quoted: '「{{title}}」',
     merge: '統合',
-    mergeOneProject: '統合できるのは同じプロジェクトのインテントだけです。'
+    held: {
+      tasks: '独自のタスクがあるため統合できません（理由を添えて取り下げることはできます）。',
+      units: '独自のユニットがあるため統合できません（理由を添えて取り下げることはできます）。',
+      findings: 'バックログに独自の指摘があるため統合できません（理由を添えて取り下げることはできます）。',
+      chores: 'あなたへの独自の依頼があるため統合できません（理由を添えて取り下げることはできます）。'
+    }
   },
   manager: {
     mark: 'このワークスペースのマネージャー',
@@ -150,7 +163,7 @@ export const ja: OneForm<typeof en> = {
     unit: '{{intent}} · {{unit}}'
   },
   side: {
-    title: '要対応・エージェント・コミット・バックログ',
+    title: '要対応・エージェント・コミット・バックログ・理由を聞く',
     close: 'パネルを閉じる'
   },
   terminal: {
@@ -198,6 +211,8 @@ export const ja: OneForm<typeof en> = {
       failed: '失敗',
       ended: '終了'
     },
+    empty: 'グラフでタスクを、またはコードで行を選ぶと、その理由を聞けます。',
+    conversations_other: '会話 {{count, number}} 件',
     count_other: '質問 {{count, number}} 件'
   },
   chore: {
@@ -262,7 +277,10 @@ export const ja: OneForm<typeof en> = {
     add: '添付',
     hint: 'または画像を貼り付け／ドロップ',
     open: '{{name}} を拡大表示',
-    remove: '{{name}} を削除'
+    remove: '{{name}} を削除',
+    zoomIn: '幅いっぱいに表示（画像のクリックでも切り替え）',
+    zoomOut: '画像全体を表示（画像のクリックでも切り替え）',
+    original: '元の画像を新しいタブで開く'
   },
   deliver: {
     pending: '未送信',

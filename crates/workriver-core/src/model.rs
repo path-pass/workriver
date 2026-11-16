@@ -324,7 +324,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | FindingsBatched { .. } | FindingDropped { .. } | IntentMerged { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. }
         )
     }
 }
@@ -515,6 +515,9 @@ pub enum Body {
         path: String,
         title: String,
     },
+    /// A project's title changed; `project` is its id or its folder.
+    #[serde(rename = "project.renamed")]
+    ProjectRenamed { project: String, title: String },
     /// Planned → active (started in a runtime group) → done; or dropped; or back to planned.
     #[serde(rename = "intent.state_changed")]
     IntentStateChanged {
@@ -537,9 +540,15 @@ pub enum Body {
     },
     /// Planned intents folded into another planned one of their project (a roadmap split too
     /// finely): each is dropped, and its title, goal, note and external id go into the
-    /// target's note, in the order given. The target keeps its place in the roadmap.
+    /// target's note, in the order given. The target keeps its place in the roadmap; with
+    /// `title`, it takes that title (the merged whole may need a new name).
     #[serde(rename = "intent.merged")]
-    IntentMerged { intent: String, from: Vec<String> },
+    IntentMerged {
+        intent: String,
+        from: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
     /// The user picked deferred findings to do together: they go to the intent's manager.
     #[serde(rename = "findings.batched")]
     FindingsBatched { intent: String, findings: Vec<FindingRef> },
@@ -858,7 +867,7 @@ impl Body {
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } => (intent.clone(), None, None),
             IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
-            ProjectAdded { .. } => (None, None, None),
+            ProjectAdded { .. } | ProjectRenamed { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
             WorkspaceLinked(_) | WorkspaceUnlinked { .. } => (None, None, None),
@@ -1000,6 +1009,10 @@ pub struct Intent {
     pub note: String,
     #[serde(default)]
     pub external: Option<External>,
+    /// Who added it: "user", or the agent (session) that did. Only the user merges what the
+    /// user added; agents may tidy what agents added (an import split too finely).
+    #[serde(default)]
+    pub by: String,
     /// Where it runs while active (and last ran).
     #[serde(default)]
     pub workspace: Option<RuntimeRef>,
@@ -1503,6 +1516,15 @@ impl State {
                 }
                 ProjectAdded { id: format!("p{}", self.projects.len() + 1), path, title }
             }
+            ProjectRenamed { project, title } => {
+                let Some(p) = self.projects.iter().find(|p| p.id == project || p.path == project) else {
+                    return no(format!("no project {project}; a repository outside every project is registered with `workriver project add <folder> --title ...`"));
+                };
+                if blank(&title) {
+                    return no("a project needs a title");
+                }
+                ProjectRenamed { project: p.id.clone(), title }
+            }
             IntentStateChanged { intent, state, reason, workspace } => {
                 let i = self.intent(&intent)?;
                 use IntentState::*;
@@ -1541,13 +1563,20 @@ impl State {
                 }
                 IntentMoved { intent, before, after }
             }
-            IntentMerged { intent, from } => {
+            IntentMerged { intent, from, title } => {
                 let i = self.intent(&intent)?;
                 if i.state != IntentState::Planned {
                     return no(format!("intent {intent} is {}; only planned intents are merged", name(&i.state)));
                 }
+                if title.as_deref().is_some_and(blank) {
+                    return no("the new title is empty: give one, or leave --title out to keep the title");
+                }
                 if from.is_empty() {
                     return no(format!("name the planned intents to merge into {intent}"));
+                }
+                // The user's own goals are the user's to merge; what agents added, agents may tidy.
+                if !user && let Some(mine) = std::iter::once(&intent).chain(&from).find(|x| self.intents.iter().any(|i| &i.id == *x && i.by == "user")) {
+                    return no(format!("{mine} was added by the user: only the user merges it (in the roadmap, or `workriver backlog merge` from the user's terminal)"));
                 }
                 for (k, f) in from.iter().enumerate() {
                     if f == &intent || from[..k].contains(f) {
@@ -1572,7 +1601,7 @@ impl State {
                         return no(format!("{f} has {what} of its own; only an intent with nothing attached is merged (drop it with a reason instead)"));
                     }
                 }
-                IntentMerged { intent, from }
+                IntentMerged { intent, from, title: title.map(|t| t.trim().to_string()) }
             }
             FindingsBatched { intent, findings } => {
                 let i = self.intent(&intent)?;
@@ -2143,6 +2172,7 @@ impl State {
                     reason: None,
                     findings: FindingsPolicy::default(),
                     tasks: vec![],
+                    by: e.actor.clone(),
                 });
                 if *state == IntentState::Planned {
                     self.roadmap.push(id.clone());
@@ -2155,6 +2185,11 @@ impl State {
                 }
             }
             ProjectAdded { id, path, title } => self.projects.push(Project { id: id.clone(), path: path.clone(), title: title.clone() }),
+            ProjectRenamed { project, title } => {
+                if let Some(p) = self.projects.iter_mut().find(|p| &p.id == project || &p.path == project) {
+                    p.title = title.clone();
+                }
+            }
             IntentStateChanged { intent, state, reason, workspace } => {
                 let Some(k) = self.intents.iter().position(|i| &i.id == intent) else { return };
                 let before = self.intents[k].workspace.clone();
@@ -2202,7 +2237,7 @@ impl State {
                 };
                 self.roadmap.insert(k, intent.clone());
             }
-            IntentMerged { intent, from } => {
+            IntentMerged { intent, from, title } => {
                 let mut blocks = vec![];
                 for f in from {
                     if let Some(x) = self.intents.iter_mut().find(|i| &i.id == f) {
@@ -2215,6 +2250,9 @@ impl State {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
                     let own = i.note.trim_end().to_string();
                     i.note = std::iter::once(own).chain(blocks).filter(|b| !b.is_empty()).collect::<Vec<_>>().join("\n\n");
+                    if let Some(t) = title {
+                        i.title = t.clone();
+                    }
                 }
             }
             FindingsBatched { intent, findings } => {

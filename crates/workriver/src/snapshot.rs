@@ -1026,7 +1026,14 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
             Err(e) => tracing::warn!("unit {}: {e}", u.id),
         }
     }
-    let commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).cloned().or_else(|| named(h, cache))).collect();
+    let mut commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).cloned().or_else(|| named(h, cache))).collect();
+    // Light: which files, not their texts (a full build may have cached them; they are what
+    // makes a snapshot many megabytes).
+    if cache.light {
+        for f in commits.iter_mut().flat_map(|c| c.files.iter_mut()) {
+            (f.before, f.after) = (None, None);
+        }
+    }
     // Links whose commit is not here any more, and commits of a branch the unit left (a
     // rebase gave them other hashes): told by patch ids, worked out once each (none: "").
     let stale = u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash));

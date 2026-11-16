@@ -1442,12 +1442,16 @@ async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Call
 struct Merge {
     into: String,
     from: Vec<String>,
+    /// A new title for the intent that stays.
+    #[serde(default)]
+    title: Option<String>,
 }
 
 /// Planned intents folded into one (`workriver backlog merge`, or the roadmap in the page).
 async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
-    let who = app.user(&caller)?;
-    blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from }).map(Json)).await
+    // The user, or an agent at its pane: the event rules keep the user's own intents the user's.
+    let who = app.who(&caller, caller.place.as_deref(), None)?;
+    blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from, title: m.title }).map(Json)).await
 }
 
 #[derive(Deserialize)]
