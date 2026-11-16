@@ -916,7 +916,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Workspace(WorkspaceCmd::List) => {
-            let w = d.get("/api/workspace")?;
+            let w = d.get("/api/workspace?light=true")?;
             for g in w["workspaces"].as_array().into_iter().flatten() {
                 let label = g["label"].as_str().unwrap_or("?");
                 match (g["machine"].as_str(), g["linkedTo"].as_str()) {
@@ -941,7 +941,7 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Project(ProjectCmd::Rename { project, title }) => d.append(actor, "project.renamed", json!({ "project": project_arg(&project)?, "title": title }))?,
         Cmd::Project(ProjectCmd::List) => {
-            let w = d.get("/api/workspace")?;
+            let w = d.get("/api/workspace?light=true")?;
             for p in w["projects"].as_array().into_iter().flatten() {
                 let kind = if p["registered"] == true { "" } else { "  (a repository outside every project)" };
                 let key = p["key"].as_str().map(|k| format!("{k} ")).unwrap_or_default();
@@ -1251,7 +1251,7 @@ impl Daemon {
         };
         let mut res = res.map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
+        let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
@@ -1304,7 +1304,7 @@ impl Daemon {
         }
         let mut res = req.send(&bytes[..]).map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
+        let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
@@ -1762,3 +1762,10 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests;
+
+/// The service's answer as text. A reply that cannot be read is said as that, not as the
+/// service being unreachable: it answered.
+// ponytail: whole answer in memory, capped at 256 MB; stream it if snapshots ever get there.
+fn read_answer(res: &mut ureq::http::Response<ureq::Body>) -> anyhow::Result<String> {
+    res.body_mut().with_config().limit(256 * 1024 * 1024).read_to_string().map_err(|e| anyhow!("the service answered, but its answer could not be read: {e}"))
+}

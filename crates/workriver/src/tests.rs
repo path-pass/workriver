@@ -59,6 +59,11 @@ fn daemon_smoke() {
     assert_eq!(unit["tasks"][0]["output"]["commits"].as_array().unwrap().len(), 1, "the trailer links the commit");
     assert_eq!(unit["commits"][0]["files"][0]["after"], "one\ntwo\n");
     assert_eq!(unit["tasks"][1]["output"]["findings"][0]["state"], "deferred");
+    // A light read (the CLI's lists) names the files but carries none of their texts, even
+    // once a full read has cached them.
+    let light = d.get("/api/workspace?light=true").unwrap();
+    let f = &light["intents"][0]["units"][0]["commits"][0]["files"][0];
+    assert_eq!((f["path"].as_str(), f["after"].is_null(), f["before"].is_null()), (Some("a.txt"), true, true), "{f}");
 
     // Another Host is turned away, whatever the path.
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
