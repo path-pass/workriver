@@ -15,33 +15,59 @@ so the dark theme is composed on its own, not an inversion of the light one.
 
 ## Structure
 
-Terms (after AWS AI-DLC where it fits): an **intent** is a high-level goal; it groups the
-**units** that serve it, each a piece that can be implemented on its own, on its own branch;
-a unit's work is a graph of **tasks**, each one piece of work handed to one agent
-(implement, review) or to the user (a gate). A task is drawn as a node. In the runtime one
-intent is one Herdr workspace; the UI only says intent.
+Terms (after AWS AI-DLC where it fits): a **project** is a folder holding one or more
+repositories (or one repository outside every registered folder); an **intent** is a goal in
+it, which may span its repositories; it groups the **units** that serve it, each a piece
+that can be implemented on its own, on its own branch; a unit's work is a graph of
+**tasks**, each one piece of work handed to one agent (implement, design, research, review)
+or to the user (a gate). A task is drawn as a node. An intent is planned (in its project's
+roadmap), active (started in a Herdr workspace by that workspace's manager), done or
+dropped. A workspace may run several active intents; the one started last is its current
+intent, where new work goes. Research and design that belong to the intent rather than to
+one unit are intent-level tasks, shown as a unit of their own named "Research and design",
+first under the intent, with no branch and no code layer.
 
 Three columns: the rail picks a unit, the main area shows it, the side panel holds what is
 looked at now and then.
 
-- A dark rail on the left picks units and nothing else: product name, search, the units
-  grouped under their intents, settings. It is the only large field of colour in the
-  interface. Each intent is a group that folds; open, it starts with the intent's goal in
+- A dark rail on the left picks units and nothing else: product name, the project switch
+  (a select in the rail's colours, "All projects" first; remembered), search, then the intents in three
+  groups under quiet headings: **Active** (with their units), **Roadmap** (planned intents
+  in order, each with its goal, a link chip when it is tracked elsewhere, and "Start", which
+  shows the steps to start it in Herdr with the commands to copy – workriver never starts an
+  agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
+  "+" adds one inline, title and one-sentence goal, to the project shown), and **Done**,
+  folded; dropped intents are not shown. Settings at the bottom. It is the only large field
+  of colour in the interface. Each active or done intent is a group that folds; open, it starts with the intent's goal in
   one or two quiet lines (when its manager or the user gave one). The intent of the open
   unit is open, the others folded, and a folded group still shows the sum of its units' violet marks, so
   nothing waiting is hidden. A search looks through every unit and opens the groups with a
   match. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
   stuck on behind the user (filled violet, a hand, the count), everything else waiting for
   the user – open findings and commits that name no task – (an outlined violet count), and
-  "beyond plan" (amber). A merged unit shows its date instead. Who is working is not shown
-  here, with one exception: each intent's header names its manager's state quietly (a
-  crown, then working, idle, not running, or "no manager"), since a missing manager means
-  accepted findings reach no one. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
+  "beyond plan" (amber). Before them, where the unit stands as a dot and a word, except
+  while it is simply being worked on: waiting, ready to merge (in the done tone, so what
+  can be merged stands out; it counts nowhere as attention), merged (with its date) or done
+  (why, on hover). The unit header carries the same word. An active intent whose units are
+  all merged or done says "Finished" in its header, for its manager to close it. Who is working is not shown
+  here, with one exception: each active intent's header names its manager's state quietly
+  (a crown, then working, idle, not running, or "no manager"), since a missing manager means
+  accepted findings reach no one; opened, its goal line also names the Herdr workspace it
+  runs in. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
   the product mark, the button, settings and, if any task anywhere is stuck on the user,
   the filled violet mark; on a narrow screen, to one header row. Folded or not is
-  remembered, and the graph refits to the room it gets.
+  remembered, and the graph refits to the room it gets. Open and on a wide screen, its
+  right edge drags its width (200 to 480 px, 248 by default; double-click resets): a 6 px
+  hit area with the column-resize cursor that shows a line in the selection colour when
+  pointed at, focused or dragged. It is a separator for the keyboard too (arrows move it
+  by 16 px, Home and End go to the ends). The width is remembered; the graph refits once
+  when the drag ends, not during it. With more width, unit and roadmap titles use it
+  (they wrap); an intent's title stays on one line and is cut with its full text on
+  hover. The handle is a small hook of ours (`lib/useResize.ts`), written so the side
+  panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
+  handle, which is the case the "prefer a library" rule excepts.
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents** and **Commits**, one at a time, never mixed. Its three buttons work as a
+  **Agents**, **Commits** and **Backlog**, one at a time, never mixed. Its four buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
   already has them); open, it is about 340 px wide. Which section is open, if any, is
@@ -55,18 +81,35 @@ looked at now and then.
   while any agent has uncommitted work, "Writing now": each such agent with its amber ring
   and the files it is writing. A row opens its unit and task and brings that commit into
   view in the code layer; it stays picked.
+- **Backlog** lists the deferred findings of the project picked in the rail (or of all):
+  those from reviews, tests and gates, grouped by intent and unit, and those added to the
+  backlog from outside (an earlier review, a notes file), grouped by where they came from;
+  highest severity first, each with its id, age, note and link chip, and a quiet "no impact
+  or place given" when an added one lacks them. A row's problem opens the task that found
+  it. Checkboxes pick deferred ones; "Do together" sends them as one message to the manager
+  of the intent they belong to (or of an active intent picked from a select) and they show
+  as scheduled until the work they cause is delivered; it is disabled, saying to start the
+  intent first, when that intent is not active. "Drop" asks for a reason. Planned intents
+  are not repeated here; they are the rail's roadmap.
 - **Needs you** is the workspace's inbox. One person works one queue across all units, so
   what asks something of them is one list, not a row of chips per unit: a list keeps order
   and age and still reads with twenty agents, chips only pile up. One row per item: the
   kind as an icon, a title, the unit, and how long it has waited; in the narrow panel a
   row takes two lines. Groups, each behind a small header with its count, in this order,
   an empty one not drawn:
-  1. **Blocking** – gates waiting for the user; an agent cannot go on. Violet, the
-     strongest rows.
+  1. **Blocking** – first, agents waiting for a person in their terminal (an approval, a
+     question; the runtime says "blocked"), across every workspace: the agent's mark and
+     name, its topic, its intent or workspace, how long it has waited; a click brings its
+     terminal to the front, and the row leaves by itself once it is no longer waiting. Then
+     gates waiting for the user; an agent cannot go on. Violet, the strongest rows. Both
+     count in the filled violet marks (the intent's in the rail, the folded rail's), the
+     tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
+     Settings, a newly waiting agent raises a browser notification that opens its terminal.
   2. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
   3. **Gaps** – commits that name no node, branches that grew beyond the original plan.
-  4. **Not urgent** – chores, quietest; a row opens its steps.
+  4. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
+     its project where others name their intent, or nothing when it has none.
   Within a group the oldest comes first. A row of the first three opens the unit at the
   node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. One line per agent whose
@@ -77,16 +120,36 @@ looked at now and then.
   node it finished. The amber ring around the mark means it is writing, as on a node. The
   line that led to what is open shows as picked. Whether a session has ended is the only
   thing recorded about agents; everything else comes from the nodes. Inside a unit, who
-  is on which node is the mark on the node. The list is grouped by intent in the rail's
-  order; an intent's manager comes first in its group and carries a small crown.
+  is on which node is the mark on the node. The list is grouped by the Herdr workspace each
+  agent runs in, headed by the workspace's label and, quietly, the title of its current
+  intent, with a quiet "no manager" when none is registered; groups with someone working come first, then
+  by name. In a group an agent waiting for a person in its terminal comes first, with a
+  violet hand (the Blocking meaning, not the amber writing ring), then the manager (with a
+  small crown), then working, holding work, idle. Under each name, quietly, what the session is about (its terminal
+  title); the agent's mark shows it on hover wherever the name is unique. An agent Herdr
+  knows by no name is called by its harness and a number within its workspace ("claude
+  2"); its mark reads "C2". A line is a grid, so nothing is drawn over anything: the mark;
+  the name (truncated; its marks and machine chip never shrink) over the topic; where it
+  works, in a column of its own that truncates; the terminal button. In a panel narrower
+  than about 340 px, where it works moves to a third line (an idle moon stays on the first).
 - The main area shows the picked unit: its name and one-line purpose, nothing else (the
   graph already shows what waits: violet gates, violet counts on reviews), then two
   layers stacked top to bottom, each one block:
-  1. **Activity** – the flow of work: how the nodes changed.
+  1. **Activity** – the flow of work: how the nodes changed. Its key (what the colours,
+     marks and lines mean) is a row under the graph's canvas, wrapping as it needs, never
+     over it: no node can hide behind it. Only React Flow's credit stays inside the canvas,
+     in its own bottom-right corner, with room left for it when the graph is fitted.
   2. **Code** – the file tree on the left and the changes on the right, as in a pull
-     request's "Files changed". The tree pane, with its "only show changed" switch on
-     top, sticks to the top of the window and scrolls by itself, so a long diff never
-     hides it. The tree is there to keep attention on where agents are changing things:
+     request's "Files changed". A bar at the block's top (it stays in view while the diff
+     scrolls) holds a toggle that hides or shows the tree (remembered). Where the block is
+     wide (768 px or more, measured on the block, since the rails and the side panel change
+     it) the tree is a pane beside the diff, as wide as its right edge is dragged (between
+     220 px and half the block; remembered; a double click resets); narrower, the tree
+     starts hidden and the toggle shows it as a drawer over the diff from the left (Escape
+     or a press outside closes it; focus goes in and back), never squeezing the diff. The
+     tree has "Filter files…" (by path; folders above a match stay; Escape clears) and its
+     "only show changed" switch on top, sticks below the bar and scrolls by itself, so a
+     long diff never hides it. The tree is there to keep attention on where agents are changing things:
      "only show changed" is on by default and hides every file and folder the unit did not
      touch; turned off, the whole repository shows where the changes sit. A chain of
      folders with one child each is one row. A changed file shows how it changed (A, M or
@@ -111,6 +174,18 @@ looked at now and then.
   running or still to do, the header names its agent and, while the session lives, a
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
+- **Other machines.** Agents may run on other machines, each with its own Herdr. Whatever is
+  on another machine carries a small chip with the machine's name (a server glyph): an
+  agent's line in Agents, a unit's header and its line in the rail; an agent mark's tooltip
+  ends with "@machine". When the machine cannot be reached, its agents stay as last seen,
+  faded, the chip dashed (its tooltip says since when it is disconnected), and they raise
+  nothing in Needs you. Settings says "disconnected since …" and when it connects again. A workspace of another
+  machine is its own group in Agents, with the chip in its heading, until the user links it
+  to a workspace of this machine; then its agents sit in that group (one manager, the same
+  intents). Nothing is ever merged by name alone. Settings has "Other machines": each with
+  a follow switch, its state in a few words (connecting… until the first attempt ends,
+  connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
+  one; and, per workspace over there, a select that links it to a workspace here.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
   terminal) and in the header of running or waiting work. It is not on graph nodes. All
@@ -132,8 +207,24 @@ looked at now and then.
   steps; its chip is the gate's title. A temporary agent answers
   from workriver's records and the code; it asks the agent that did the work only when
   that agent is idle, never one at work, and the answer says quietly whether it did. While
-  it works, the step it is at shows. The questions and answers stay on the node, above
-  the box; file paths in an answer open the file. A node with questions carries a small
+  it works, the step it is at shows; if none can be started, the turn says why in the
+  user's language (the service's words on hover). Questions form conversations on the node:
+  question, answer, question, answer, with the box under the last one; follow-ups go to the
+  same temporary agent while it lives (it closes after a quiet while, and a later question
+  starts a new one with the conversation so far). Under a conversation: "Draft conclusion"
+  (its agent writes what was decided, what changes, what stays open; shown at the end, and
+  it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
+  "New question" starts another conversation. File paths in an answer open the file.
+  The detail stays compact however long the talk gets: each conversation folds to one row
+  (its first question, who asked, how many exchanges, answered / waiting / failed / ended,
+  when last), and one opens at a time, as its own scroll area of at most 360 px kept at
+  the latest exchange (it follows a new answer only while the reader is at the bottom);
+  the one just asked in, or one still waiting, is open. Past three conversations only the
+  latest three show, with "N earlier" above them. The box stays under them, outside.
+  Agents ask each other the same way, through workriver (never in each other's terminals):
+  their conversations show on the task asked about like the user's, with the asking agent's
+  mark before the question, and count in the node's speech-bubble mark; they never appear in
+  Needs you. A node with questions carries a small
   neutral speech-bubble mark with their count on the graph: information, not a button.
 
 ## Colour means one thing: the state of a piece of work
@@ -150,16 +241,25 @@ Three things that used to share colour now have their own channel:
 - **Who raised it** is an icon: shield for security review, eye for code review, flask
   for tests.
 - **What kind of work** is a shape: square corners for implementing, a pill for a review,
-  a double frame with sharp corners for a gate (work only the user can do).
+  a double frame with sharp corners for a gate (work only the user can do). Design work is
+  drawn as implementing with a compass icon; its output is its design note, and it never
+  carries the "no tests run" mark. A gate to confirm a design ("Confirm design") has a
+  scale icon; its note is the decision.
 - **Which agent** appears only on the agent's mark. Its colour is derived from the name
   and is used nowhere else.
 
 ## Findings
 
 A review's output is a list of findings, and they live in the review, not on the graph.
-A decision is not a node. Each finding gets one of three outcomes: accepted (work was
+A decision is not a node. Each finding gets one of four outcomes: accepted (work was
 handed out for it: one finding may lead to several nodes, several findings to one node),
-rejected (struck through), or deferred (quiet, with a clock); until then it is open.
+revised (the same, but fixed the user's way: a note is required and travels to the manager;
+shown like accepted with a small pencil), rejected (struck through), or deferred (quiet,
+with a clock; it waits in the project's backlog, becomes scheduled with a clock when picked
+to be done together, done when the work it caused is delivered, or dropped with a reason,
+all quiet); until then it is open. The buttons read Accept, Revise, Reject, Defer;
+Revise waits for the note. Every decision goes to the manager of the workspace the intent
+runs in.
 An agent may decide on its own: such a finding carries a small neutral robot mark, a
 decision by the user none. An open finding may carry the agent's suggestion, and its
 reason once the row is opened.
@@ -169,11 +269,43 @@ as a violet count on the review node, in the unit's outlined count in the rail, 
 row of the inbox. Picking a
 finding lights the review and the nodes it led to.
 
+Who decides an intent's findings is the user's choice: a small select in the intent's open
+group in the rail ("Findings decided by: the manager / only me"; the manager by default).
+There is no choice by severity: severity is the reviewer's own rating, so it would only look
+like a control. A finding that is the manager's to decide stays open on its review, in quiet
+ink with a small crown and "The manager decides", and does not count in the violet marks or
+in Needs you: violet means waiting for the user. With no manager running it falls to the
+user: it reads "No manager running: yours to decide" in violet and counts. The user can
+always decide it, and can change what the manager decided: under a finding with the robot
+mark, the details offer the decision again ("Decided by the manager. You can decide
+differently").
+
+A unit whose branch was renamed or rebased onto a new one is the same unit: under its name
+the header says, quietly and in mono, "previously on <branch>". A task whose commits were
+only on a branch the unit left says "Its commits are not on the current branch: <hashes>"
+where it would say it has none. A commit that names no task is a gap (an unregistered node);
+its detail has a small select, "It belongs to task", that links it by hand; a commit linked
+that way says "linked by hand" after its stats.
+
+What is added to a finding after it was reported (a requirement for the fix, a detail) is
+never merged into its text: the row shows a small "+n", and its details list each addition
+with its author's mark and time. The same list shows with the finding where it is a cause
+of other work, since that work must meet it.
+
+A review done blind (its agent saw nothing of other work until it delivered) carries a small
+neutral "eye crossed out" mark: at the top left of its node, in its detail header with the
+word "Blind", and in its row in Needs you. It is information for weighing agreement between
+reviews (two reviews finding the same thing, one of them blind, is stronger than two that
+read each other); nothing is matched or merged automatically.
+
 ## Gates and chores
 
 Both are things an agent hands to the user; what separates them is whether an agent is
 stuck. A **gate** blocks: a manual deploy, a manual try-out. It is a node, placed where
-the flow stops, violet while it waits and water once done; the work behind it stays not
+the flow stops, violet while it waits and water once done. It waits only once every task
+it follows is done; before that it is drawn like any task not started and counts nowhere
+(not in Needs you, the marks, the tab's title or the unit's state), and its age in Needs
+you counts from the moment it opened. The work behind it stays not
 started, and the lines around a waiting gate do not flow, so a stuck branch is visible on
 the graph. Its input is the steps the agent prepared, each command with a copy button;
 its output is a short note and, for a try-out that went wrong, findings like a review's.
@@ -191,11 +323,16 @@ records it and delivers it to the agents through Herdr.
   with the same three fields as a reviewer's (severity P1–P3, what is wrong, what happens
   if it is left, where), at least one. Pictures can be pasted into the note or a finding,
   dropped on the form, or picked with "Attach"; they show as thumbnails with a ×, and one
-  opens large on a click. Only images for now. Submitted, the gate is done, its findings are
+  opens large on a click. Only images in the form. They go into the service's store when
+  the result goes out. Submitted, the gate is done, its findings are
   open findings like a review's (so they wait in Needs you) and the work behind it stays
   not started until they are decided. The pictures stay with the gate's output and with
   each finding, wherever it shows, including as the cause of the work it led to.
-- **An open finding** takes one of three decisions, Accept, Reject or Defer, with an
+- **Attachments** from agents (screenshots, reports, logs, any file) show the same way
+  wherever they belong: with a task's output, a finding, or a check (next to its line).
+  Images preview as thumbnails; any other file is a small chip that downloads it. The store
+  keeps every file for good, like the records.
+- **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer, with an
   optional one-line note; the agent's suggestion, if any, is the filled button. The row
   takes its new state at once and every count drops (the task's badge, Needs you, the rail).
 - **Delivery.** A gate's result and a decision then show where their message is: not
@@ -241,6 +378,14 @@ never name a raw colour.
   review nodes, 3 for gates.
 - Shadow appears only on hover and selection, meaning "this can be picked" or "this is
   picked".
+- A chip (a file, a context, a link, a machine) is one line and never wider than what holds
+  it; a list of chips wraps whole chips. A long name in it is shortened in the middle,
+  keeping its start and its extension ("2026-11-16-new-acc…source.md"), and cut at the end
+  only if even that does not fit; the whole name is in its tooltip and read out by screen
+  readers. A long path inside running text (an answer) breaks where it must.
+- Pickers (the project switch, who decides findings, a workspace link, the task a commit
+  belongs to, the intent of a batch) are Radix Select in our colours, never the system's
+  menu: on the rail in the rail's colours, elsewhere on the page's.
 
 ## The signature: lines are a river
 
@@ -252,6 +397,14 @@ never name a raw colour.
 - A line that would cross columns (a secondary input reaching far) runs through the empty
   space: along the gap between rows, then down just before its target.
 - With "reduce motion" set, both are still.
+
+## Signed in or not
+
+The page decides and acts as the user, so it works only with a session (`docs/security.md`).
+Without one it shows a single calm screen, nothing of the app: the product mark, one
+sentence on why, the command `workriver open` with its copy button, and a quiet line that
+the link works once. No form, no token field: the link from the user's own terminal is the
+only way in. A session that ended shows the same screen at the user's next action.
 
 ## States
 
@@ -276,5 +429,12 @@ Everything that can be picked has: default, hover, keyboard focus (violet ring),
 ## Not done yet
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
-- No empty or loading states.
+- No loading state. The one empty state: with no units recorded, the main area is a short
+  start guide (start a manager agent per Herdr workspace, give it the skill, register, start
+  an intent from the roadmap; the commands copyable; the commit trailer; the import skill
+  for an existing backlog file). An intent with no units yet keeps its
+  rail group, open, with a quiet "No units yet".
 - No syntax highlighting in the diff.
+- Trackers: intents and findings carry an optional external id (`system`, `key`, `url`),
+  shown as a link chip. Later a tracker adapter (a trait like the runtime one) imports items
+  into the backlog and pushes status and links back; agents never talk to trackers directly.

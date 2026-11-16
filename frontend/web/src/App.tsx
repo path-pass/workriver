@@ -4,17 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
 import { SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
-import { Notes } from '@/components/bits'
+import { MachineChip, Notes, Progress, Topics } from '@/components/bits'
+import { Start, StartIntent } from '@/components/Start'
 import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
-import { agents, askeeOf, blame, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
+import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
 import { contentLang, useT } from '@/i18n'
-import { ask, choreDone, decideFinding, detach, MANAGER, submitGate, type Delivery } from '@/runtime'
-import type { AskContext, Task, Turn, Unit, Workspace } from '@/types'
+import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, submitGate, type Delivery } from '@/runtime'
+import type { AskContext, Intent, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
+const PROJECT = 'workriver.project'
 const remember = (key: string, value: string) => { try { localStorage.setItem(key, value) } catch { /* not remembered, still shown */ } }
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
@@ -29,9 +31,16 @@ export default function App() {
   const [q, setQ] = useState('')
   // The rail is open unless the user folded it; remembered.
   const [railOpen, setRailOpen] = useState(() => recall(RAIL) !== 'closed')
+  // The rail's width once a drag has ended: the graph refits then, not while dragging.
+  const [railWidth, setRailWidth] = useState(0)
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
-  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' ? v : null })
+  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' || v === 'backlog' ? v : null })
+  // The project the rail and the backlog show, or all; remembered.
+  const [picked, setProject] = useState<string | null>(() => recall(PROJECT) || null)
+  const pickProject = (p: string | null) => { setProject(p); remember(PROJECT, p ?? '') }
+  // A planned intent whose start steps are shown.
+  const [starting, setStarting] = useState<Intent | null>(null)
   const showSide = (next: Section | null) => { setSide(next); remember(SIDE, next ?? 'closed') }
   // Narrow screens: the same content as a sheet over the page; not remembered.
   const [sheet, setSheet] = useState<Section | null>(null)
@@ -39,6 +48,30 @@ export default function App() {
   // What the user put in during this sitting; the data shown is the data with it on top.
   const [edits, setEdits] = useState<Edits>(NO_EDITS)
   const ws = useMemo(() => data && withEdits(data, edits), [data, edits])
+  // A remembered project that is no longer there (another data folder) shows all.
+  const project = data?.projects?.some(p => p.id === picked) ? picked : null
+  // Agents newly waiting in their terminal: a notification (if wanted), and the count in the
+  // tab's title with the gates waiting.
+  const seen = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const now = blockedAgents(data)
+    const before = seen.current
+    seen.current = new Set(now.map(s => s.session ?? s.agent))
+    // The first data only sets what is known; it is not news.
+    if (before) for (const s of now) if (!before.has(s.session ?? s.agent)) notify(t('agents.notice', { agent: s.agent }), s.topic, s.session ?? s.agent)
+  }, [data, t])
+  const blocking = useMemo(() => (ws ? inbox(ws).blocking.length : 0), [ws])
+  useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])
+  // What each live session is about, for the agent marks' tooltips; a name that repeats
+  // across workspaces is left out rather than guessed.
+  const topics = useMemo(() => {
+    const live = (data?.sessions ?? []).filter(s => !s.ended)
+    const once = (name: string) => live.filter(s => s.agent === name).length === 1
+    // An agent on another machine says so there too.
+    const about = (s: (typeof live)[number]) => [s.topic, s.machine && `@${s.machine}`].filter(Boolean).join(' · ')
+    return new Map(live.flatMap(s => (about(s) && once(s.agent) ? [[s.agent, about(s)] as const] : [])))
+  }, [data])
 
   // The file picked in the code layer and lines picked in a diff; a question takes them as context.
   const [file, setFile] = useState<string | null>(null)
@@ -116,13 +149,21 @@ export default function App() {
   // A commit opened from the panel: its unit and task, and the code block brings it into view.
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit }
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project }
 
-  const onAsk = (node: Task, question: string, context: AskContext[]) => {
+  const onAsk = (node: Task, question: string, context: AskContext[], thread: string | null, conclude = false) => {
     if (!ws || !unit) return
     const at = unit.id, id = node.id
-    const turn: Turn = { question, context, answer: null, step: 'starting', at: new Date().toISOString() }
+    const turn: Turn = { question, context, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
     const put = (next: Turn) => setAsked(all => ({ ...all, [at]: { ...all[at], [id]: (all[at]?.[id] ?? []).map(x => (x === turn || x.at === turn.at ? next : x)) } }))
+    // With the service, the question and its answer come back with the data; only a refusal
+    // to take it stays here.
+    if (!MOCK) {
+      askWhy(unit, node, question, context, thread, conclude).catch(e => {
+        setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), { ...turn, step: undefined, failed: { code: 'runtime-error', reason: String(e) } }] } }))
+      })
+      return
+    }
     setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), turn] } }))
     // The agent that did the work is asked only while it is idle; a gone session cannot be.
     const who = askeeOf(unit, node)
@@ -136,6 +177,8 @@ export default function App() {
   const talk: Talk | null = ws && unit
     ? {
         sessions: ws.sessions, file, lines, asked: asked[unit.id] ?? {}, onAsk,
+        onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
+        live: !MOCK,
         onFile: p => { setFile(p); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
         extra: askReq.task === pick?.id ? askReq.extra : [],
@@ -183,24 +226,30 @@ export default function App() {
 
   return (
     <ActContext.Provider value={act}>
+    <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
-      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} />
+      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
+        {ws && !unitsOf(ws).length && <Start />}
         {ws && unit && sel && talk && (
           <>
             <header className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
-                  <span lang={contentLang(unit.title)}>{unit.title}</span>
-                  {unit.branch && <span className="font-mono text-xs font-normal tracking-normal text-ink-2">{unit.branch}</span>}
+                  <span lang={contentLang(unit.title)}>{unit.title}</span>{unit.intentLevel && ` · ${t('rail.intentWork')}`}
+                  {unit.branch && <span className="max-w-full min-w-0 truncate font-mono text-xs font-normal tracking-normal text-ink-2" title={unit.branch}>{unit.branch}</span>}
+                  <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} />
+                  {!unit.intentLevel && <Progress unit={unit} />}
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(unit.purpose)}>{unit.purpose}</p>}
+                {/* Rebased onto a new branch, or renamed: the same unit, said quietly. */}
+                {(unit.previously?.length ?? 0) > 0 && <p className="mt-0.5 font-mono text-xs text-ink-2">{t('unit.previously', { branches: unit.previously!.join(t('list.sep')) })}</p>}
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
-            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={railOpen} />
-            <CodeLayer
+            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}`} />
+            {!unit.intentLevel && <CodeLayer
               root={repoOf(ws, unit).modules}
               unit={unit}
               sel={sel}
@@ -213,7 +262,7 @@ export default function App() {
               onLines={setLines}
               onAsk={askAbout}
               commit={commit?.unit === unit.id ? commit : null}
-            />
+            />}
           </>
         )}
       </main>
@@ -223,8 +272,10 @@ export default function App() {
           <SideSheet {...panel} section={sheet} onSection={s => setSheet(now => (now === s ? null : s))} onClose={() => setSheet(null)} />
         </>
       )}
+      <StartIntent intent={starting} onClose={() => setStarting(null)} />
       <Notes />
     </div>
+    </Topics.Provider>
     </ActContext.Provider>
   )
 }

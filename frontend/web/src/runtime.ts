@@ -3,11 +3,31 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Task, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, Task, Turn, Unit } from './types'
+
+/** Sent on the window when the service says this page is not the user (any more). */
+export const SIGNED_OUT = 'workriver:signed-out'
 
 async function post(path: string, body: unknown) {
   const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
   if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`)
+}
+
+/**
+ * Whether this page is the user's. A one-time code in the address (`#k=…`, from
+ * `workriver open`) is exchanged for the session cookie first and taken out of the address,
+ * so it is not kept in history or shared with a copied link.
+ */
+export async function startSession(): Promise<boolean> {
+  const code = new URLSearchParams(location.hash.slice(1)).get('k')
+  if (code) {
+    history.replaceState(null, '', location.pathname + location.search)
+    await fetch('/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => undefined)
+  }
+  const res = await fetch('/api/session')
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).user === true
 }
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
@@ -98,11 +118,24 @@ export function gateMessage(gate: Task, r: GateResult): string {
   )
 }
 
-// ponytail: pictures are not sent; the service stores none yet.
+/** Puts a picture the page holds into the service's store; its id. */
+async function upload(a: Attachment): Promise<string> {
+  const blob = await (await fetch(a.url)).blob()
+  const res = await fetch(`/api/attachments?name=${encodeURIComponent(a.name)}`, { method: 'POST', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
+  if (!res.ok) throw new Error(`upload ${a.name}: ${res.status} ${await res.text()}`)
+  return (await res.json()).id
+}
+
 export function submitGate(unit: Unit, gate: Task, r: GateResult, to: string, onStep: (d: Delivery) => void) {
   const message = gateMessage(gate, r)
-  const findings = r.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence }))
-  const record = () => post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings })
+  // The pictures go into the store when the result goes out; the result names them.
+  const record = async () => {
+    const attachments = await Promise.all(r.attachments.map(upload))
+    const findings = await Promise.all(r.findings.map(async f => ({
+      severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence, attachments: await Promise.all(f.attachments.map(upload)),
+    })))
+    await post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings, attachments })
+  }
   return { message, cancel: deliver(to, message, record, onStep) }
 }
 
@@ -114,7 +147,63 @@ export function decideFinding(unit: Unit, task: Task, f: Finding, decision: Deci
   return { message, cancel: deliver(to, message, record, onStep) }
 }
 
+// ---- notifications: an agent waiting for a person, told outside the page ----
+
+const NOTIFY = 'workriver.notify'
+/** Whether the user asked to be notified (off until they turn it on in Settings). */
+export function notifyWanted() { try { return localStorage.getItem(NOTIFY) === '1' } catch { return false } }
+/** Turns notifying on (asking the browser's permission) or off; says whether it is on. */
+export async function wantNotify(on: boolean): Promise<boolean> {
+  let ok = on && typeof Notification !== 'undefined'
+  if (ok && Notification.permission !== 'granted') ok = (await Notification.requestPermission()) === 'granted'
+  try { localStorage.setItem(NOTIFY, ok ? '1' : '0') } catch { /* not remembered; still applies now */ }
+  return ok
+}
+/** One notification; clicking it brings this tab and then the agent's terminal forward. */
+export function notify(title: string, body: string | undefined, agent: string) {
+  if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const n = new Notification(title, { body, tag: `workriver:${agent}` })
+  n.onclick = () => { window.focus(); focusAgent(agent); n.close() }
+}
+
+/** Asks the service a question about a task (live mode): it records it, and starts the
+ * thread's temporary agent or gives it to the one already there. */
+export async function askWhy(unit: Unit, task: Task, text: string, context: AskContext[], thread: string | null, conclude = false) {
+  await post('/api/ask', { unit: unit.id, task: Number(task.id), text, context, thread, conclude })
+}
+
+/** Ends a conversation; its temporary agent closes. */
+export async function endThread(thread: string) {
+  await post('/api/thread/end', { thread })
+}
+
 /** A chore is done; it goes to no one, so it is only recorded. */
 export function choreDone(id: string) {
   if (!MOCK) post('/api/chore-done', { chore: id }).catch(e => console.warn(e))
+}
+
+/**
+ * Records a change the user makes to the roadmap or backlog (adding or moving an intent,
+ * batching or dropping findings); the service delivers what goes to an agent. Nothing is
+ * recorded with the sample.
+ */
+export async function record(kind: string, body: unknown) {
+  if (MOCK) return
+  // Who records is the service's to find: this page's session is the user's.
+  await post('/api/append', { kind, body })
+}
+
+/** The machines the service knows, followed or not. */
+export async function machines(): Promise<Machine[]> {
+  if (MOCK) return []
+  const res = await fetch('/api/machines')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** Adds, enables, disables or removes a machine; answers the list after it. */
+export async function setMachine(label: string, action: 'add' | 'enable' | 'disable' | 'remove', ssh = ''): Promise<Machine[]> {
+  const res = await fetch('/api/machines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, action, ssh }) })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

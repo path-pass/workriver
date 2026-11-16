@@ -7,29 +7,33 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, Request, State};
 use axum::http::{Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::broadcast;
-use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
+use tokio::sync::{broadcast, watch};
+use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
-use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, RuntimeRef, Store};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode, Store};
 use workriver_scan as scan;
 
-use crate::deliver;
+use crate::machines::Machines;
+use crate::auth::{self, Auth};
+use crate::{ask, attachments, deliver};
 use crate::snapshot::{self, Cache};
 
 pub struct App {
     store: Mutex<Store>,
     cache: Mutex<Cache>,
+    /// Wakes the background read of repositories on other machines.
+    remote_kick: std::sync::mpsc::Sender<()>,
     runtime: Arc<dyn Runtime>,
     /// What was wrong with the runtime at start, if anything.
     warning: Option<String>,
@@ -37,10 +41,71 @@ pub struct App {
     live: Mutex<Option<Vec<RuntimeAgent>>>,
     /// Delivered messages waiting to be picked up.
     pending: Mutex<Vec<Pending>>,
+    /// Questions waiting for their temporary agent's answer, with when they give up.
+    deadlines: Mutex<Vec<(String, std::time::Instant)>>,
+    /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
+    idle: Mutex<Vec<(String, String, std::time::Instant)>>,
+    waits: Waits,
+    /// When each live agent was first seen blocked, by session.
+    // ponytail: in memory; a restart makes a blocked agent's wait start again.
+    blocked: Mutex<std::collections::HashMap<String, String>>,
     changed: broadcast::Sender<()>,
+    /// Set once the service is stopping: open event streams end, so nothing holds it up.
+    stopping: watch::Sender<bool>,
     port: u16,
+    /// The data directory: the database's folder, which holds the attachment store too.
+    home: PathBuf,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
     watched: Mutex<HashSet<PathBuf>>,
+    /// The other machines, when the runtime follows any.
+    machines: Option<Arc<Machines>>,
+    /// Each followed machine's own listener, to end it when the machine is no longer followed.
+    listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
+    /// The runtime's groups as last polled, with or without agents.
+    groups: Mutex<Vec<core::RuntimeRef>>,
+    /// Which machines' connections were up at the last poll: the page hears of a change at once.
+    tunnels: Mutex<Vec<(String, bool)>>,
+    /// Who the user is: the token, sessions of the page, one-time codes.
+    auth: Auth,
+    /// A caller may name the agent it records as (`--as`): for tests and development only.
+    allow_as: bool,
+    /// Held while the list of managers told of this build is read and written.
+    told: Mutex<()>,
+}
+
+/// This build of the service, as `workriver status` and the guides name it.
+pub const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER_COMMIT"), ")");
+
+/// What a request was found to be, before any handler sees it.
+#[derive(Clone)]
+struct Caller {
+    /// The followed machine whose listener it came in on; none: this machine's.
+    machine: Option<String>,
+    /// It carries the user token, or a session of the page from our own origin. Never on a
+    /// machine's listener: a caller on another machine is never the user.
+    user: bool,
+    /// The Herdr pane the CLI says it runs in, if any: with an agent there it is that
+    /// agent's command and never the user's, token or not.
+    place: Option<String>,
+}
+
+/// What else the daemon is started with.
+pub struct Options {
+    pub warning: Option<String>,
+    pub waits: Waits,
+    pub machines: Option<Arc<Machines>>,
+    pub allow_as: bool,
+}
+
+/// Which listener a request came in on: this machine's, or a followed machine's own (the
+/// far end of its tunnel), which is how the daemon knows where a caller is, whatever it says.
+#[derive(Clone)]
+struct Via {
+    machine: Option<String>,
+    /// The port the caller used: ours, or the machine's port that leads here.
+    port: u16,
+    /// The listener's own port.
+    local: u16,
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -62,22 +127,67 @@ const WATCH: Duration = Duration::from_secs(30 * 60);
 
 type Shared = Arc<App>;
 
+/// How long after the decision a temporary agent is closed, so its own command can return.
+const CLOSE_DELAY: Duration = Duration::from_secs(3);
+
 /// How often the runtime's agents are read.
 const POLL: Duration = Duration::from_secs(2);
 
 /// Serves on an already bound listener until Ctrl-C.
-pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>) -> anyhow::Result<()> {
+/// How long a temporary agent may take to answer, and to wait idle for a follow-up.
+#[derive(Clone, Copy)]
+pub struct Waits {
+    pub answer: Duration,
+    pub idle: Duration,
+}
+
+impl Default for Waits {
+    fn default() -> Self {
+        Waits { answer: ask::TIMEOUT, idle: ask::IDLE }
+    }
+}
+
+/// As the tests start it: callers may say which agent they are.
+#[cfg(test)]
+pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
+    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true }).await
+}
+
+/// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
+pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
+    let Options { warning, waits, machines, allow_as } = options;
     let port = listener.local_addr()?.port();
+    let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
+    let shared = Arc::new(Mutex::new(snapshot::Shared::default()));
+    let (kick, kicked) = std::sync::mpsc::channel::<()>();
+    let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
+    if allow_as {
+        tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
+    }
     let app = Arc::new(App {
+        auth,
+        allow_as,
+        told: Mutex::default(),
         store: Mutex::new(store),
-        cache: Mutex::default(),
+        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join("scan-cache").join("local.json"))),
+        remote_kick: kick,
+        machines,
+        listeners: Mutex::default(),
+        groups: Mutex::default(),
+        tunnels: Mutex::default(),
         runtime,
         warning,
         live: Mutex::new(None),
         pending: Mutex::default(),
+        deadlines: Mutex::default(),
+        idle: Mutex::default(),
+        waits,
+        blocked: Mutex::default(),
         changed: changed.clone(),
+        stopping: watch::channel(false).0,
         port,
+        home: store_home,
         watcher: Mutex::new(None),
         watched: Mutex::default(),
     });
@@ -100,10 +210,55 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         Ok(d) => *app.watcher.lock().unwrap() = Some(d),
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
-    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().map(|u| (u.repo.clone(), u.branch.clone())).collect();
+    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().filter(|u| u.machine.is_none()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }
+    for (label, setting) in app.machines.iter().flat_map(|m| m.wanted()) {
+        if let Err(e) = follow(&app, &label, setting).await {
+            tracing::warn!("machine {label}: {}", e.1);
+        }
+    }
+    // Machines already there (stand-ins in tests) get their listener only.
+    #[cfg(test)]
+    for m in app.machines.iter().flat_map(|m| m.states()) {
+        let _ = listen(&app, &m.label, 0).await;
+    }
+    // Repositories on other machines cannot be watched: they are read in the background,
+    // every `REMOTE` and whenever a record touches one of their units, never while a request
+    // waits; the page hears when something there changed.
+    let remote = app.clone();
+    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join("scan-cache").join("remote.json"));
+    bg.remote_reads = true;
+    std::thread::spawn(move || {
+        let mut wait = snapshot::REMOTE;
+        loop {
+            match kicked.recv_timeout(wait) {
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                _ => while kicked.try_recv().is_ok() {},
+            }
+            if *remote.stopping.borrow() {
+                break;
+            }
+            let state = remote.store.lock().unwrap().state().clone();
+            if !state.units.iter().any(|u| u.machine.is_some()) {
+                continue;
+            }
+            let started = std::time::Instant::now();
+            let (changed, skipped) = snapshot::refresh_remote(&state, &mut bg);
+            // A machine not reachable yet (just started, reconnecting): looked at again soon.
+            wait = if skipped { Duration::from_secs(1) } else { snapshot::REMOTE };
+            bg.save();
+            let found = std::mem::take(&mut bg.merged_now);
+            remote.record_merges(found);
+            let ms = started.elapsed().as_millis() as u64;
+            tracing::info!(target: "perf", kind = "remote_read", ms, recomputed = bg.recomputed, reused = bg.reused, changed, slow = ms >= snapshot::SLOW_MS);
+            if changed {
+                let _ = remote.changed.send(());
+            }
+        }
+    });
+    let _ = app.remote_kick.send(());
     // Messages delivered before a restart are watched again; whether their receiver was seen
     // idle since is lost, so it must be seen not working first.
     let pending: Vec<Pending> = {
@@ -131,9 +286,62 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         out
     };
     app.pending.lock().unwrap().extend(pending);
-    tracing::info!("workriver on http://127.0.0.1:{port}");
-    axum::serve(listener, router(app)).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
+    // Questions left open by a previous run have lost their wait; close them.
+    let open: Vec<String> = app.store.lock().unwrap().state().questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect();
+    for id in open {
+        app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
+    }
+    // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
+    // the next question starts a new one with the thread so far.
+    let left: Vec<String> = app.store.lock().unwrap().state().threads.iter().filter_map(|t| t.name.clone()).collect();
+    for name in left {
+        let _ = app.runtime.close(&name);
+    }
+    // Nothing that signs anyone in is ever written here: this output is on a screen (a
+    // Herdr pane) that agents can read. The user opens the page with `workriver open`.
+    tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");
+    let stop = {
+        let app = app.clone();
+        async move {
+            stop_signal().await;
+            tracing::info!("stopping: open requests get {} s", GRACE.as_secs());
+            let _ = app.stopping.send(true);
+            if let Some(m) = &app.machines {
+                m.stop_all();
+            }
+        }
+    };
+    let mut stopping = app.stopping.subscribe();
+    let server = axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(stop);
+    tokio::select! {
+        r = server => r?,
+        _ = async { let _ = stopping.wait_for(|s| *s).await; tokio::time::sleep(GRACE).await } => tracing::warn!("requests still open after {} s; stopping anyway", GRACE.as_secs()),
+    }
     Ok(())
+}
+
+/// How long open requests may finish once the service is told to stop.
+const GRACE: Duration = Duration::from_secs(2);
+
+/// Returns at the first Ctrl-C or SIGTERM; a second one ends the process at once.
+async fn stop_signal() {
+    let term = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term => {}
+    }
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            std::process::exit(130);
+        }
+    });
 }
 
 /// The git changes that can change what is shown: work-tree files, refs and HEAD.
@@ -153,9 +361,10 @@ impl App {
     /// Watches a unit's repository: its work tree, the work tree of its branch, and the
     /// git folder where refs move.
     fn watch(&self, repo: &Path, branch: &str) {
+        let here = scan::Runner::Local;
         let mut paths = vec![repo.to_path_buf()];
-        paths.extend(scan::common_dir(repo).ok());
-        paths.extend(scan::worktree_of(repo, branch).ok().flatten());
+        paths.extend(scan::common_dir(&here, repo).ok());
+        paths.extend(scan::worktree_of(&here, repo, branch).ok().flatten());
         let mut watcher = self.watcher.lock().unwrap();
         let Some(w) = watcher.as_mut() else { return };
         let mut seen = self.watched.lock().unwrap();
@@ -172,12 +381,24 @@ impl App {
     /// messages picked up when their receiver starts working.
     fn poll(&self) {
         let now = self.runtime.agents().ok();
+        let groups = self.runtime.groups().unwrap_or_default();
+        let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
+        {
+            let mut blocked = self.blocked.lock().unwrap();
+            let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();
+            blocked.retain(|s, _| still.iter().any(|a| &a.session == s));
+            for a in still {
+                blocked.entry(a.session.clone()).or_insert_with(core::now);
+            }
+        }
         let differs = {
             let mut live = self.live.lock().unwrap();
             let differs = *live != now;
             *live = now.clone();
             differs
         };
+        let tunnels: Vec<(String, bool)> = self.machines.iter().flat_map(|m| m.states()).map(|m| (m.label, m.tunnel)).collect();
+        let differs = differs || std::mem::replace(&mut *self.tunnels.lock().unwrap(), tunnels.clone()) != tunnels;
         let mut picked = vec![];
         self.pending.lock().unwrap().retain_mut(|p| {
             let to = p.delivery.to.as_deref();
@@ -201,11 +422,30 @@ impl App {
         });
         let recorded = !picked.is_empty();
         for body in picked {
-            if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
+            if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }
-        if differs || recorded {
+        // Questions whose temporary agent has not answered in time.
+        let now = std::time::Instant::now();
+        let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
+        for id in &late {
+            self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {} seconds", self.waits.answer.as_secs()));
+        }
+        let recorded = recorded || !late.is_empty();
+        // Threads idle for too long: their temporary agent goes; the thread stays open.
+        let gone: Vec<String> = {
+            let mut idle = self.idle.lock().unwrap();
+            let gone = idle.iter().filter(|(_, _, at)| *at <= now).map(|(_, name, _)| name.clone()).collect();
+            idle.retain(|(_, _, at)| *at > now);
+            gone
+        };
+        for name in gone {
+            if let Err(e) = self.runtime.close(&name) {
+                tracing::warn!("cannot close {name}: {e}");
+            }
+        }
+        if differs || recorded || regrouped {
             let _ = self.changed.send(());
         }
     }
@@ -214,15 +454,168 @@ impl App {
         self.live.lock().unwrap().clone()
     }
 
-    fn record(&self, actor: &str, body: Body) -> Result<core::Event, ApiError> {
-        let body = self.complete(body)?;
-        let e = self.store.lock().unwrap().append(actor, body)?;
+    /// Where git runs for a repository on `machine`; an error while it cannot be reached.
+    fn runner(&self, machine: Option<&str>) -> Result<scan::Runner, ApiError> {
+        match machine {
+            None => Ok(scan::Runner::Local),
+            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)).ok_or_else(|| {
+                let since = self.machines.as_ref().and_then(|x| x.down_since(m)).filter(|s| !s.is_empty()).map(|s| format!(" (disconnected since {s})")).unwrap_or_default();
+                ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} cannot be reached now{since}; see `workriver machine list`"))
+            }),
+        }
+    }
+
+    /// A repository's top folder on `machine`, checked there to be one and to have `base`.
+    fn repository(&self, machine: Option<&str>, repo: &str, base: &str) -> Result<String, ApiError> {
+        let at = self.runner(machine)?;
+        let on = machine.map(|m| format!(" on {m}")).unwrap_or_default();
+        let top = scan::toplevel(&at, Path::new(repo)).map_err(|e| bad(format!("{repo}{on} is not a git repository: {e}")))?;
+        if !scan::has_rev(&at, &top, base) {
+            return Err(bad(format!("base {base:?} is not a commit or branch in {}{on}", top.display())));
+        }
+        Ok(top.to_string_lossy().into_owned())
+    }
+
+    /// Sends a message to an agent. One on another machine cannot open files of this
+    /// machine: paths into the attachment store become links through its tunnel.
+    fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
+        let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
+        match machine {
+            Some(_) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", attachments::dir(&self.home).display()))),
+            None => self.runtime.send(to, text),
+        }
+    }
+
+    /// Who a request acts as. An agent is the agent at the caller's place in the runtime (on
+    /// the machine the request came from), whatever else it carries; the user is a caller at
+    /// no agent's place that carries the token or a session. Nobody is anyone by saying so,
+    /// except, where the daemon was started to allow it, an agent named with `--as`.
+    fn who(&self, caller: &Caller, place: Option<&str>, named: Option<&str>) -> Result<Principal, ApiError> {
+        let machine = caller.machine.as_deref();
+        if let Some(name) = named.filter(|n| !n.is_empty()) {
+            if !self.allow_as {
+                return Err(ApiError(StatusCode::FORBIDDEN, "--as is off: workriver takes the agent from the Herdr pane the command runs in (for tests, start the service with WORKRIVER_ALLOW_AS=1)".into()));
+            }
+            if matches!(name, "user" | "workriver") {
+                return Err(ApiError(StatusCode::FORBIDDEN, format!("nobody records as {name:?} by saying so")));
+            }
+            return Ok(Principal::Agent { session: self.session_of(name, None), machine: machine.map(str::to_string) });
+        }
+        if let Some(place) = place.filter(|p| !p.is_empty()) {
+            let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(place, &e.to_string())))?;
+            if let Some(a) = at.agent {
+                self.seen(&a)?;
+                self.tell_of_update(&a.session, false);
+                return Ok(Principal::Agent { session: a.session, machine: a.machine });
+            }
+            if machine.is_some() || !caller.user {
+                return Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_agent_at(place)));
+            }
+        }
+        self.user(caller)
+    }
+
+    /// The user, or a refusal that says how to be the user.
+    fn user(&self, caller: &Caller) -> Result<Principal, ApiError> {
+        // The token file can be read from an agent's pane on this machine; the CLI there says
+        // where it runs, and what runs in an agent's pane is the agent's doing.
+        if let Some(place) = caller.place.as_deref().filter(|_| caller.machine.is_none())
+            && self.runtime.locate(None, place).is_ok_and(|at| at.agent.is_some())
+        {
+            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's".into()));
+        }
+        match (&caller.machine, caller.user) {
+            (None, true) => Ok(Principal::User),
+            (Some(m), _) => Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} is an agent of that machine, never the user"))),
+            (None, false) => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
+        }
+    }
+
+    /// What the page reads, of `state` as the reader may see it.
+    /// `light`: without file texts, uncommitted work or trees (board, `task show`).
+    fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> snapshot::Workspace {
+        let started = std::time::Instant::now();
+        let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
+        let blocked = self.blocked.lock().unwrap().clone();
+        let groups = self.groups.lock().unwrap().clone();
+        let live = self.live();
+        let mut cache = self.cache.lock().unwrap();
+        cache.light = light;
+        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &groups);
+        cache.save();
+        if state.reduced {
+            snapshot::hide(&mut ws);
+        }
+        let ms = started.elapsed().as_millis() as u64;
+        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= snapshot::SLOW_MS);
+        ws
+    }
+
+    /// Units git shows merged (a fast-forward, a merge commit) are recorded merged, with the
+    /// commits they had, as `workriver unit merged` would.
+    fn record_merges(&self, found: Vec<(String, Vec<String>)>) {
+        for (unit, commits) in found {
+            if let Err(e) = self.record(&Principal::Service, Body::UnitMerged { unit: unit.clone(), commits }) {
+                tracing::warn!("cannot record unit {unit} merged: {}", e.1);
+            }
+        }
+    }
+
+    /// A manager that was at work before this build of the service is told, once, to read
+    /// what changed: the skill it follows was read from an older workriver, and nothing else
+    /// would tell it. `fresh`: it registers now, having just read this build's guide.
+    // Which manager was told of which build is kept in a small file next to the database.
+    fn tell_of_update(&self, session: &str, fresh: bool) {
+        if !fresh && !self.store.lock().unwrap().state().workspaces.iter().any(|w| w.manager.as_deref() == Some(session)) {
+            return;
+        }
+        let _one = self.told.lock().unwrap();
+        let path = self.home.join("guide-told.json");
+        let mut told: std::collections::BTreeMap<String, String> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        if told.get(session).map(String::as_str) == Some(BUILD) {
+            return;
+        }
+        let text = format!("[workriver] workriver was updated (it is now {BUILD}). Some things behave differently: run `workriver guide changes`, read it, then go on with what you were doing.");
+        // Not reached now (not running, busy at a prompt): told at its next command instead.
+        if fresh || self.send(session, &text).is_ok() {
+            told.insert(session.to_string(), BUILD.to_string());
+            if let Err(e) = serde_json::to_vec_pretty(&told).map_err(std::io::Error::other).and_then(|b| std::fs::write(&path, b)) {
+                tracing::warn!("cannot write {}: {e}", path.display());
+            }
+        }
+    }
+
+    /// Records the name a live agent goes by, the first time and when it changes.
+    fn seen(&self, a: &RuntimeAgent) -> Result<(), ApiError> {
+        let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
+        if !known {
+            self.record(&Principal::Service, Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
+        }
+        Ok(())
+    }
+
+    /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
+    fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
+        let (actor, machine) = (who.actor(), who.machine());
+        let body = self.complete(actor, body, machine)?;
+        let e = self.store.lock().unwrap().append(who, body)?;
         self.deliver(&e);
+        match &e.body {
+            Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
+            Body::QuestionAnswered { question, .. } => self.answered(question),
+            Body::ThreadEnded { thread } => self.end_thread(thread),
+            _ => {}
+        }
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
+        // One on another machine is read again in the background.
         if let (_, Some(unit), _) = e.body.refs() {
-            let found = self.store.lock().unwrap().state().unit(&unit).map(|u| (u.repo.clone(), u.branch.clone()));
-            if let Ok((repo, branch)) = found {
-                self.watch(Path::new(&repo), &branch);
+            let found = self.store.lock().unwrap().state().unit(&unit).ok().map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
+            match found {
+                Some((false, repo, branch)) => self.watch(Path::new(&repo), &branch),
+                Some((true, ..)) => {
+                    let _ = self.remote_kick.send(());
+                }
+                None => {}
             }
         }
         let _ = self.changed.send(());
@@ -230,47 +623,287 @@ impl App {
     }
 
     /// What only git can check or fill in before an event is recorded.
-    fn complete(&self, body: Body) -> Result<Body, ApiError> {
+    fn complete(&self, actor: &str, body: Body, machine: Option<&str>) -> Result<Body, ApiError> {
         Ok(match body {
-            Body::UnitCreated { id, intent, title, purpose, repo, branch, base } => {
-                let top = scan::toplevel(Path::new(&repo)).map_err(|e| bad(format!("{repo} is not a git repository: {e}")))?;
-                if !scan::has_rev(&top, &base) {
-                    return Err(bad(format!("base {base:?} is not a commit or branch in {}", top.display())));
-                }
-                Body::UnitCreated { id, intent, title, purpose, repo: top.to_string_lossy().into_owned(), branch, base }
+            // ponytail: a project is a folder of this machine; a repository on another
+            // machine is a project of its own. Give projects a machine when that is not enough.
+            Body::ProjectAdded { .. } if machine.is_some() => return Err(bad("register project folders on the machine workriver runs on; a repository on another machine is a project of its own".into())),
+            Body::ProjectAdded { id, path, title } => {
+                let folder = std::fs::canonicalize(&path).map_err(|e| bad(format!("{path}: {e}")))?;
+                let title = if title.trim().is_empty() { folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { title };
+                Body::ProjectAdded { id, path: folder.to_string_lossy().into_owned(), title }
+            }
+            Body::FindingAdded { project, intent, finding, source, note } => Body::FindingAdded { project: self.project_folder(&project, machine)?, intent, finding, source, note },
+            Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
+                let project = if project.is_empty() { project } else { self.project_folder(&project, machine)? };
+                Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external }
+            }
+            // The repository is where the work happens: on the machine named, else on the
+            // one the unit was recorded from. It is checked there, over ssh for another machine.
+            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named } => {
+                let machine = place(named.as_deref(), machine);
+                let top = self.repository(machine.as_deref(), &repo, &base)?;
+                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine }
+            }
+            // What is not given stays as it is; `machine` is always said (the CLI sends it).
+            Body::UnitRelocated { unit, machine: named, repo, branch, base, .. } => {
+                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
+                let machine = match named.as_deref() {
+                    None => u.machine.clone(),
+                    named => place(named, None),
+                };
+                let (repo, branch, base) = (if repo.is_empty() { u.repo.clone() } else { repo }, if branch.is_empty() { u.branch.clone() } else { branch }, if base.is_empty() { u.base.clone() } else { base });
+                let top = self.repository(machine.as_deref(), &repo, &base)?;
+                // What is on the place it leaves is read once, now: the old branch is not
+                // read again, and what only it had would otherwise vanish without a word.
+                // Their patch ids are taken too, all at once, so that their rebased copies are
+                // told without reading the old branch again.
+                let previous = match self.runner(u.machine.as_deref()) {
+                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => {
+                        let list = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map(|(list, _)| list).unwrap_or_default();
+                        let ids = scan::patch_ids(&at, Path::new(&u.repo), &list.iter().map(|c| c.hash.clone()).collect::<Vec<_>>()).unwrap_or_default();
+                        list.into_iter()
+                            .map(|c| {
+                                let linked = u.links.iter().find(|l| l.hash == c.hash).map(|l| l.task);
+                                let named = c.task.as_deref().and_then(core::parse_task_ref).filter(|(x, _)| *x == u.id).map(|(_, n)| n);
+                                core::SeenCommit { task: linked.or(named), patch_id: ids.get(&c.hash).cloned().unwrap_or_default(), hash: c.hash, subject: c.subject, date: c.date }
+                            })
+                            .collect()
+                    }
+                    _ => vec![],
+                };
+                Body::UnitRelocated { unit, machine, repo: top, branch, base, previous }
+            }
+            // The commit is looked up where the unit is: it must be one of the unit's, and
+            // what a rebased copy of it will be known by is taken down.
+            Body::CommitLinked { unit, hash, task, .. } => {
+                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
+                let at = self.runner(u.machine.as_deref())?;
+                let repo = Path::new(&u.repo);
+                let full = scan::resolve(&at, repo, &hash).map_err(|_| bad(format!("no commit {hash} in {}", u.repo)))?;
+                let named = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0;
+                let Some(c) = named.into_iter().find(|c| c.hash == full) else {
+                    return Err(bad(format!("commit {hash} is not one of unit {unit}'s: not on branch {} since {}", u.branch, u.base)));
+                };
+                let patch_id = scan::patch_id(&at, repo, &full).unwrap_or_default();
+                Body::CommitLinked { unit, hash: full, patch_id, subject: c.subject, date: c.date, task }
+            }
+            // A chore of no intent belongs to a project, if one is given or can be told.
+            Body::ChoreCreated { id, intent, project, unit, title, steps } if intent.is_empty() && !project.is_empty() => {
+                let project = self.project_folder(&project, machine).unwrap_or_default();
+                Body::ChoreCreated { id, intent, project, unit, title, steps }
             }
             Body::UnitMerged { unit, commits } if commits.is_empty() => {
                 // The branch's commits now, or as last seen if they are already merged away.
-                let state = self.store.lock().unwrap();
-                let u = state.state().unit(&unit)?;
-                let now = scan::commit_list(Path::new(&u.repo), &u.base, &u.branch).unwrap_or_default();
-                let commits = if now.is_empty() { self.cache.lock().unwrap().last.get(&unit).cloned().unwrap_or_default() } else { now };
+                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
+                let at = self.runner(u.machine.as_deref())?;
+                let commits = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0.into_iter().map(|c| c.hash).collect();
                 Body::UnitMerged { unit, commits }
             }
             // An agent given by its name is recorded by its session.
             Body::TaskCreated(mut t) => {
-                t.agent = t.agent.map(|a| self.session_of(&a));
+                t.agent = t.agent.map(|a| self.session_of(&a, Some(actor)));
                 Body::TaskCreated(t)
             }
-            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a)) },
+            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a, Some(actor))) },
             other => other,
         })
     }
 
     /// A live agent's session by its name; anything else as it is.
-    fn session_of(&self, agent: &str) -> String {
+    /// A live agent's session, given as a session or by its name; anything else as it is.
+    /// Names may repeat across runtime groups: then the one in `near`'s group wins.
+    fn session_of(&self, agent: &str, near: Option<&str>) -> String {
         let live = self.live().unwrap_or_default();
-        live.iter().find(|a| a.name == agent).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+        if live.iter().any(|a| a.session == agent) {
+            return agent.to_string();
+        }
+        let group_of = |s: &str| live.iter().find(|a| a.session == s).and_then(|a| a.group.clone());
+        let here = near.and_then(group_of);
+        let named: Vec<_> = live.iter().filter(|a| a.name == agent).collect();
+        named.iter().find(|a| here.is_some() && a.group == here).or(named.first()).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+    }
+
+    /// Starts the temporary agent for a question and gives it the prompt; any failure is
+    /// recorded on the question. Blocking: it waits for the agent to be ready.
+    fn start_question(&self, id: &str) {
+        let fail = |code, why: String| self.fail_question(id, code, &why);
+        // Read fresh: a temporary agent started since the last poll counts.
+        let Ok(live) = self.runtime.agents() else { return fail(ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into()) };
+        // An agent's question goes straight to the task's own agent while it is free (it knows
+        // its work best); a working or blocked one is not interrupted: a temporary agent answers.
+        let direct = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().filter(|q| q.by != "user").and_then(|q| s.task(&q.unit, q.task).ok()).and_then(|t| t.agent.clone())
+        };
+        if let Some(own) = direct.and_then(|own| live.iter().find(|a| a.session == own && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned()) {
+            if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent: own.session.clone(), name: own.name.clone(), temporary: false }) {
+                tracing::warn!("question {id}: {}", e.1);
+            }
+            self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
+            let text = {
+                let store = self.store.lock().unwrap();
+                let s = store.state();
+                s.question(id).ok().and_then(|q| ask::direct(s, q))
+            };
+            if let Err(e) = self.send(&own.session, &text.unwrap_or_default()) {
+                fail(ReasonCode::RuntimeError, format!("cannot give {} the question: {e}", own.name));
+            }
+            return;
+        }
+        // A follow-up goes to the thread's agent while it lives, which keeps its context.
+        let current = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().and_then(|q| s.threads.iter().find(|t| t.id == q.thread)).and_then(|t| Some((t.id.clone(), t.agent.clone()?, t.name.clone()?)))
+        };
+        if let Some((thread, agent, name)) = current.filter(|(_, _, n)| live.iter().any(|a| &a.name == n)) {
+            self.idle.lock().unwrap().retain(|(t, _, _)| *t != thread);
+            if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent, name: name.clone(), temporary: true }) {
+                tracing::warn!("question {id}: {}", e.1);
+            }
+            self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
+            let text = {
+                let store = self.store.lock().unwrap();
+                store.state().question(id).ok().map(|q| ask::follow_up(store.state(), q)).unwrap_or_default()
+            };
+            if let Err(e) = self.send(&name, &text) {
+                fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
+            }
+            return;
+        }
+        let (q, unit, task_agent, manager, group) = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            let Ok(q) = s.question(id).cloned() else { return };
+            let Some(u) = s.unit_or_intent(&q.unit) else { return };
+            let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
+            let intent = s.intents.iter().find(|i| i.id == u.intent);
+            let manager = intent.and_then(|i| s.manager_of(&i.id)).map(str::to_string);
+            let group = intent.and_then(|i| i.workspace.clone());
+            (q, u, task_agent, manager, group)
+        };
+        let live_one = |s: &Option<String>| s.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).cloned();
+        let (worker, boss) = (live_one(&task_agent), live_one(&manager));
+        // Work on another machine is read there: the group of that machine that is the
+        // intent's workspace (linked to it), else where the task's agent runs.
+        let group = match &unit.machine {
+            None => group,
+            Some(m) => {
+                let state = self.store.lock().unwrap().state().clone();
+                let same = |g: &core::RuntimeRef| group.as_ref().is_some_and(|w| state.workspace_of(g).is_some_and(|a| state.workspace_of(w).is_some_and(|b| a.group == b.group)));
+                let there = |g: &&core::RuntimeRef| g.machine.as_ref() == Some(m);
+                let groups = self.groups.lock().unwrap().clone();
+                groups.iter().filter(there).find(|g| same(g)).cloned().or_else(|| worker.as_ref().and_then(|a| a.group.clone()).filter(|g| there(&g)))
+            }
+        };
+        let Some(group) = group.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
+            return fail(ReasonCode::NoWorkspace, format!("intent {} follows no Herdr workspace and none of its agents runs", unit.intent));
+        };
+        // Which harness: the task's agent's, else the manager's, else claude.
+        let known = |s: &Option<String>| s.as_ref().and_then(|s| self.store.lock().unwrap().state().agents.iter().find(|a| &a.session == s).map(|a| a.harness.clone()));
+        let harness = worker.map(|a| a.harness).or_else(|| known(&task_agent)).or_else(|| boss.map(|a| a.harness)).or_else(|| known(&manager)).unwrap_or_else(|| "claude".into());
+        // Intent-level work has no branch: its project folder is where to read.
+        let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
+        let dir = at.as_ref().and_then(|at| scan::worktree_of(at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
+        let commits = at.map(|at| task_commits(&at, &unit, q.task, &mut self.cache.lock().unwrap())).unwrap_or_default();
+        let name = ask::agent_name(id);
+        let agent = match self.runtime.start_temporary(&group.id, &harness, &name, &dir) {
+            Ok(a) => a,
+            Err(e) => return fail(if matches!(e, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }, format!("cannot start {harness} as {name}: {e}")),
+        };
+        if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent: agent.session.clone(), name: agent.name.clone(), temporary: true }) {
+            tracing::warn!("question {id}: {}", e.1);
+        }
+        self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
+        let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits, &self.home).unwrap_or_default();
+        if let Err(e) = self.send(&agent.name, &prompt) {
+            fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
+        }
+    }
+
+    /// Records a question as failed (if still open) and closes its temporary agent, which
+    /// did not answer.
+    fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
+        let body = Body::QuestionFailed { question: id.into(), reason_code: code, reason: why.into() };
+        if let Err(e) = self.record(&Principal::Service, body) {
+            tracing::warn!("question {id}: {}", e.1);
+        }
+        self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        // Only an agent started for it is closed; a task's own agent is not.
+        let name = self.store.lock().unwrap().state().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
+        if let Some(name) = name {
+            self.close_later(name);
+        }
+    }
+
+    /// An answer came: the thread's agent waits for a follow-up until it has been idle too long.
+    fn answered(&self, id: &str) {
+        self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        // An agent that asked hears the answer in its terminal.
+        let back = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), ask::answer_back(s, q)))
+        };
+        if let Some((asker, text)) = back
+            && let Err(e) = self.send(&asker, &text)
+        {
+            tracing::warn!("cannot give {asker} the answer to {id}: {e}");
+        }
+        let found = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            s.question(id).ok().and_then(|q| s.threads.iter().find(|t| t.id == q.thread)).map(|t| (t.id.clone(), t.name.clone()))
+        };
+        if let Some((thread, Some(name))) = found {
+            let mut idle = self.idle.lock().unwrap();
+            idle.retain(|(t, _, _)| *t != thread);
+            idle.push((thread, name, std::time::Instant::now() + self.waits.idle));
+        }
+    }
+
+    /// The user ended a thread: its agent goes now.
+    fn end_thread(&self, thread: &str) {
+        self.idle.lock().unwrap().retain(|(t, _, _)| t != thread);
+        let name = self.store.lock().unwrap().state().threads.iter().find(|t| t.id == thread).and_then(|t| t.name.clone());
+        if let Some(name) = name {
+            self.close_later(name);
+        }
+    }
+
+    /// Closes a temporary agent a moment later, so a `workriver answer` it runs can finish.
+    fn close_later(&self, name: String) {
+        let runtime = self.runtime.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(CLOSE_DELAY);
+            if let Err(e) = runtime.close(&name) {
+                tracing::warn!("cannot close {name}: {e}");
+            }
+        });
     }
 
     /// Sends the message a user's input calls for, and records how far it got.
     fn deliver(&self, e: &core::Event) {
         let live = self.live();
-        let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), e);
+        // An addition to a finding goes to several at once; it is on the page either way, so
+        // what does not arrive is only logged.
+        // ponytail: these are not followed up as "delivered / picked up" like decisions are.
+        if matches!(e.body, Body::FindingNoted { .. }) {
+            let to = deliver::notes(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
+            for (agent, message) in to {
+                if let Err(err) = self.send(&agent, &message) {
+                    tracing::warn!("cannot tell {agent} of a note on a finding: {err}");
+                }
+            }
+            return;
+        }
+        let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
         let Some(plan) = plan else { return };
         let delivery = match &plan.to {
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
-            Ok(to) => match self.runtime.send(to, &plan.message) {
+            Ok(to) => match self.send(to, &plan.message) {
                 Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason_code: None, reason: None, message: plan.message.clone() },
                 Err(err) => {
                     let code = if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError };
@@ -291,50 +924,76 @@ impl App {
             });
         }
         let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, chore: plan.chore, delivery };
-        if let Err(e) = self.store.lock().unwrap().append("workriver", body) {
+        if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
             tracing::warn!("cannot record a delivery: {e}");
         }
     }
 
     /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
     /// time), and with `intent`, the intent following its group (created on first use).
-    fn here(&self, place: &str, intent: bool) -> Result<serde_json::Value, ApiError> {
-        let at = self.runtime.locate(place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+    /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
+    /// time), its runtime group, and that group's current intent, if any.
+    fn here(&self, place: &str, machine: Option<&str>) -> Result<serde_json::Value, ApiError> {
+        let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         if let Some(a) = &at.agent {
-            let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
-            if !known {
-                self.record("workriver", Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
-            }
+            self.seen(a)?;
         }
-        let intent = match (&at.group, intent) {
-            (Some(g), true) => Some(self.intent_here(g)?),
-            _ => None,
-        };
-        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "intent": intent }))
+        let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
+        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
     }
 
-    fn intent_here(&self, g: &RuntimeRef) -> Result<String, ApiError> {
-        let found = self.store.lock().unwrap().state().intent_for(g).map(|i| (i.id.clone(), i.runtime_ref.clone()));
-        match found {
-            Some((id, r)) if r.as_ref() == Some(g) => Ok(id),
-            // Found by its label: the group's id (or label) changed; follow it.
-            Some((id, _)) => {
-                self.record("workriver", Body::IntentLinked { intent: id.clone(), runtime_ref: g.clone() })?;
-                Ok(id)
-            }
-            None => {
-                let e = self.record("workriver", Body::IntentCreated { id: String::new(), title: g.label.clone(), goal: String::new(), runtime_ref: Some(g.clone()) })?;
-                let (Some(id), _, _) = e.body.refs() else { unreachable!("an intent has an id") };
-                Ok(id)
-            }
+    /// A project as given (`p1`, or a folder) as its folder: a registered project's, or the
+    /// repository's top folder for a repository outside every registered project.
+    fn project_folder(&self, given: &str, machine: Option<&str>) -> Result<String, ApiError> {
+        let state = self.store.lock().unwrap().state().clone();
+        if let Some(p) = state.projects.iter().find(|p| p.id == given) {
+            return Ok(p.path.clone());
         }
+        // On another machine: the repository's top folder there.
+        if machine.is_some() {
+            let at = self.runner(machine)?;
+            return scan::toplevel(&at, Path::new(given)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{given} is not a git repository on that machine; name a project of this machine by its id (p1)")));
+        }
+        let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
+        let path = path.to_string_lossy().into_owned();
+        if let Some(p) = project_of(&state, &path) {
+            return Ok(p.path.clone());
+        }
+        scan::toplevel(&scan::Runner::Local, Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))
     }
 }
 
-pub fn router(app: Shared) -> Router {
+/// The registered project whose folder holds `path`, the deepest one.
+pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Project> {
+    state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
+}
+
+/// The machine a unit is put on: the one named ("local": the one workriver runs on), else
+/// the caller's.
+fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
+    match named {
+        Some("local") => None,
+        Some(m) => Some(m.to_string()),
+        None => callers.map(str::to_string),
+    }
+}
+
+/// What a caller that is nobody is told.
+const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
+
+/// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
+/// acts as the user or changes where workriver reaches asks for the user in its handler
+/// (`App::user`); recording and reading ask who the caller is (`App::who`, `App::view`: the
+/// user, or the agent at the caller's place, which on a blind task sees only its own). Only
+/// `status`, `here` and the session routes answer anyone local.
+fn router(app: Shared, via: Via) -> Router {
     Router::new()
+        .route("/api/session", get(session).post(session_start))
+        .route("/api/session/code", post(session_code))
+        .route("/api/machines", get(machines).post(machine_set))
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
+        .route("/api/task", get(task_show))
         .route("/api/status", get(status))
         .route("/api/events", get(events))
         .route("/api/append", post(append))
@@ -343,26 +1002,88 @@ pub fn router(app: Shared) -> Router {
         .route("/api/chore-done", post(chore_done))
         .route("/api/focus", post(focus))
         .route("/api/here", post(here))
+        .route("/api/ask", post(ask_why))
+        .route("/api/thread/end", post(end_thread))
+        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
+        .route("/api/attachments/inbox", post(inbox))
+        .route("/api/attachments/{id}", get(attachment))
+        .route_layer(middleware::from_fn(timing))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .layer(Extension(via))
+        .with_state(app)
+}
+
+/// One line of the timing log per request: its route (the template, never the path or the
+/// query), status, time, size and what kind of caller; nothing that names anyone.
+async fn timing(req: Request, next: Next) -> Response {
+    let started = std::time::Instant::now();
+    let route = req.extensions().get::<axum::extract::MatchedPath>().map(|p| p.as_str().to_string()).unwrap_or_default();
+    let method = req.method().to_string();
+    let who = req.extensions().get::<Caller>().map_or("none", |c| match (&c.machine, &c.place, c.user) {
+        (Some(_), ..) => "machine",
+        (None, Some(_), _) => "pane",
+        (None, None, true) => "user",
+        _ => "none",
+    });
+    let res = next.run(req).await;
+    let ms = started.elapsed().as_millis() as u64;
+    let bytes = axum::body::HttpBody::size_hint(res.body()).exact().unwrap_or(0);
+    tracing::info!(target: "perf", kind = "http", method, route, status = res.status().as_u16(), ms, bytes, who, slow = ms >= snapshot::SLOW_MS);
+    res
+}
+
+/// The routes of a followed machine's listener: only what an agent's CLI over there needs.
+/// An allow-list: who it is, recording as that agent, asking, attachments, and reading the
+/// board. Nothing here is ever done as the user (no session, no token), and what the user
+/// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
+fn machine_router(app: Shared, via: Via) -> Router {
+    Router::new()
+        .route("/api/here", post(here))
+        .route("/api/append", post(append))
+        .route("/api/ask", post(ask_why))
+        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
+        .route("/api/attachments/inbox", post(inbox))
+        .route("/api/attachments/{id}", get(attachment))
+        .route("/api/workspace", get(workspace))
+        .route("/api/state", get(state))
+        .route("/api/task", get(task_show))
+        .route("/api/status", get(status))
+        .route_layer(middleware::from_fn(timing))
+        .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
+        .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .layer(Extension(via))
         .with_state(app)
 }
 
 /// Only this machine's browser and CLI, by name: the Host must be 127.0.0.1 or localhost
 /// with our port (against DNS rebinding), and a POST from a page must come from our origin.
-async fn guard(State(app): State<Shared>, req: Request, next: Next) -> Response {
-    let ours = [format!("127.0.0.1:{}", app.port), format!("localhost:{}", app.port)];
-    let allowed = {
+/// On a followed machine's listener the port is the one its CLI uses over there.
+///
+/// Also works out whether the request is the user's: it carries the user token; or a
+/// session cookie, which counts only from our own page. Against a forged request from
+/// another site we rely on the cookie being SameSite=Strict (the browser does not send it
+/// along) and, for anything but a GET, on the Origin header being there and ours.
+async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut req: Request, next: Next) -> Response {
+    let ours = [via.port, via.local].map(|p| [format!("127.0.0.1:{p}"), format!("localhost:{p}")]).concat();
+    // Through a machine's tunnel the port over there is new with every connection: there,
+    // any port of 127.0.0.1 or localhost (a name that resolves elsewhere is still refused).
+    let fits = |h: &str| ours.iter().any(|o| o == h) || (via.machine.is_some() && h.rsplit_once(':').is_some_and(|(n, p)| matches!(n, "127.0.0.1" | "localhost") && p.parse::<u16>().is_ok()));
+    let (allowed, user) = {
         let header = |h| req.headers().get(h).map(|v| v.to_str().unwrap_or(""));
-        let host_ok = header(header::HOST).is_some_and(|h| ours.iter().any(|o| o == h));
-        let origin_ok = req.method() == Method::GET || header(header::ORIGIN).is_none_or(|o| ours.iter().any(|h| o == format!("http://{h}")));
-        host_ok && origin_ok
+        let host_ok = header(header::HOST).is_some_and(fits);
+        let our_origin = header(header::ORIGIN).map(|o| o.strip_prefix("http://").is_some_and(fits));
+        let get = req.method() == Method::GET;
+        let origin_ok = get || our_origin.unwrap_or(true);
+        let session = app.auth.session(header(header::COOKIE)) && (get || our_origin == Some(true));
+        (host_ok && origin_ok, via.machine.is_none() && (app.auth.bearer(header(header::AUTHORIZATION)) || session))
     };
-    if allowed {
-        next.run(req).await
-    } else {
-        (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response()
+    if !allowed {
+        return (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response();
     }
+    let place = req.headers().get("x-workriver-place").and_then(|v| v.to_str().ok()).filter(|p| !p.is_empty()).map(str::to_string);
+    req.extensions_mut().insert(Caller { machine: via.machine, user, place });
+    next.run(req).await
 }
 
 /// An error answered as plain text: a broken rule is the caller's (422), anything else ours (500).
@@ -398,51 +1119,267 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + S
     tokio::task::spawn_blocking(f).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
 }
 
-async fn workspace(State(app): State<Shared>) -> Result<Json<snapshot::Workspace>, ApiError> {
+/// Who reads: the caller's place in the runtime, as for what it records.
+#[derive(Deserialize)]
+struct Reader {
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+    /// Without file texts, uncommitted work or trees.
+    #[serde(default)]
+    light: bool,
+}
+
+impl App {
+    /// The records as the caller may see them: all of them for the user and for an agent,
+    /// except an agent on a blind task, which gets `State::blind_view` until it delivers.
+    /// Nobody else reads: a request that is neither the user's nor from an agent's place is
+    /// refused.
+    fn view(&self, caller: &Caller, r: &Reader) -> Result<core::State, ApiError> {
+        let who = self.who(caller, r.place.as_deref(), r.named.as_deref())?;
+        let store = self.store.lock().unwrap();
+        Ok(match &who {
+            Principal::Agent { session, .. } => store.state().blind_view(session).unwrap_or_else(|| store.state().clone()),
+            _ => store.state().clone(),
+        })
+    }
+}
+
+async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
-        let state = app.store.lock().unwrap().state().clone();
-        let mut cache = app.cache.lock().unwrap();
-        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref())))
+        let state = app.view(&caller, &r)?;
+        let ws = app.snapshot(&state, r.light, "workspace");
+        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+        app.record_merges(found);
+        Ok(Json(ws))
     })
     .await
 }
 
-async fn state(State(app): State<Shared>) -> Json<core::State> {
-    Json(app.store.lock().unwrap().state().clone())
+#[derive(Deserialize)]
+struct ShowQuery {
+    /// `u1#3`; none: the task the calling agent is on.
+    #[serde(default)]
+    task: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+}
+
+/// One task with everything its reader may see (`workriver task show`). Scoped like every
+/// read; attachments are paths on this machine and links through the tunnel on another.
+async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
+    blocking(move || {
+        let r = Reader { place: q.place.clone(), named: q.named, light: true };
+        let who = app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
+        let state = app.view(&caller, &r)?;
+        let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
+            Some(t) => core::parse_task_ref(t).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| bad(format!("{t:?} is not a task; write it as <unit>#<n>, e.g. u1#3")))?,
+            None => {
+                let Principal::Agent { session, .. } = &who else { return Err(bad("name the task: workriver task show <unit>#<n>".into())) };
+                // Started and not delivered: the task this agent is on.
+                let on = |owner: &str, ts: &[core::Task]| ts.iter().filter(|t| t.agent.as_deref() == Some(session.as_str()) && t.state == core::TaskState::Running).map(|t| (owner.to_string(), t.n, t.title.clone())).collect::<Vec<_>>();
+                let mine: Vec<(String, u32, String)> = state.units.iter().flat_map(|u| on(&u.id, &u.tasks)).chain(state.intents.iter().flat_map(|i| on(&i.id, &i.tasks))).collect();
+                match &mine[..] {
+                    [(u, n, _)] => (u.clone(), *n),
+                    [] => return Err(ApiError(StatusCode::NOT_FOUND, "you have no task in progress (none started and not delivered); name one: workriver task show <unit>#<n> (`workriver board` lists them)".into())),
+                    several => {
+                        let list: Vec<String> = several.iter().map(|(u, n, t)| format!("{u}#{n} \"{}\"", crate::quote::name(t))).collect();
+                        return Err(ApiError(StatusCode::CONFLICT, format!("you are on several tasks: {}; name one: workriver task show <unit>#<n>", list.join(", "))));
+                    }
+                }
+            }
+        };
+        let ws = serde_json::to_value(app.snapshot(&state, true, "task")).unwrap_or_default();
+        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+        app.record_merges(found);
+        // A reader on another machine cannot open this machine's files: it gets a link it
+        // can fetch through its tunnel, as the reader it is.
+        let remote = caller.machine.is_some();
+        let file = |id: &str| {
+            let a = state.attachments.iter().find(|a| a.id == id)?;
+            let path = attachments::path(&app.home, &a.id, &a.name);
+            Some(if remote {
+                format!("{}?place={}", crate::machines::attachment_url(&path.file_name()?.to_string_lossy()), q.place.as_deref().unwrap_or("$HERDR_PANE_ID"))
+            } else {
+                path.display().to_string()
+            })
+        };
+        Ok(Json(crate::show::task(&state, &ws, &unit, n, &file)?))
+    })
+    .await
+}
+
+async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<core::State>, ApiError> {
+    blocking(move || app.view(&caller, &r).map(Json)).await
 }
 
 async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     let store = app.store.lock().unwrap();
     let s = store.state();
+    let (files, bytes) = attachments::usage(&app.home);
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "commit": env!("WORKRIVER_COMMIT"),
+        "build": BUILD,
         "port": app.port,
         "db": store.path(),
         "events": store.count()?,
         "intents": s.intents.len(),
         "units": s.units.len(),
         "runtime": { "connected": app.live().is_some(), "warning": app.warning },
+        "machines": app.machines.as_ref().map(|m| m.states()).unwrap_or_default(),
+        "attachments": { "dir": attachments::dir(&app.home), "files": files, "bytes": bytes },
     })))
 }
 
-async fn events(State(app): State<Shared>) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+/// "Something changed", for the page: the user's.
+async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
+    app.user(&caller)?;
     // A lagging client missed some, which is still one change.
-    let stream = BroadcastStream::new(app.changed.subscribe()).map(|_| Ok(SseEvent::default().event("changed").data("changed")));
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    // It ends when the service stops, or it would hold the stopping up for good.
+    let stop = WatchStream::new(app.stopping.subscribe()).filter(|s| *s).map(|_| false);
+    let stream = BroadcastStream::new(app.changed.subscribe()).map(|_| true).merge(stop).take_while(|go| *go).map(|_| Ok(SseEvent::default().event("changed").data("changed")));
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+// ---- the user's session in the page ----
+
+/// Whether this request is the user's; the page shows nothing else until it is.
+async fn session(Extension(caller): Extension<Caller>) -> Json<serde_json::Value> {
+    Json(json!({ "user": caller.user }))
+}
+
+#[derive(Deserialize)]
+struct Code {
+    code: String,
+}
+
+/// A one-time code for a session: the cookie is the page's alone (HttpOnly) and is not
+/// sent along with requests from other sites (SameSite=Strict).
+async fn session_start(State(app): State<Shared>, Json(c): Json<Code>) -> Result<Response, ApiError> {
+    let value = app.auth.redeem(&c.code).ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "this link was used already or is older than 5 minutes; run `workriver open` for a new one".into()))?;
+    let cookie = format!("{}={value}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}", auth::COOKIE, auth::SESSION_DAYS * 24 * 3600);
+    Ok(([(header::SET_COOKIE, cookie)], Json(json!({ "user": true }))).into_response())
+}
+
+/// A new one-time code, for `workriver open`: the user's to ask for.
+#[derive(Deserialize, Default)]
+struct CodeFor {
+    /// The link will be printed in a terminal instead of handed to the browser.
+    #[serde(default)]
+    printed: bool,
+}
+
+async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<CodeFor>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.user(&caller)?;
+    let code = app.auth.code(c.printed).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({ "url": format!("http://127.0.0.1:{}/#k={code}", app.port) })))
 }
 
 #[derive(Deserialize)]
 struct Append {
-    actor: String,
+    /// The caller's place in the runtime (its Herdr pane), which says which agent it is.
+    #[serde(default)]
+    place: Option<String>,
+    /// `--as`: taken only where the daemon was started to allow it.
+    #[serde(default, rename = "as")]
+    named: Option<String>,
     kind: String,
     #[serde(default)]
     body: serde_json::Value,
 }
 
-/// Any event, as the CLI records it.
-async fn append(State(app): State<Shared>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
+/// Any event, as the CLI or the page records it, as whoever the caller is found to be.
+async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
-    blocking(move || app.record(&a.actor, body).map(Json)).await
+    blocking(move || {
+        let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
+        app.record(&who, body).map(Json)
+    })
+    .await
+}
+
+// ---- other machines ----
+
+/// Follows a machine: a listener of its own here (the far end of its tunnel), then its
+/// connection and the reading of its agents.
+async fn follow(app: &Shared, label: &str, setting: crate::machines::Setting) -> Result<(), ApiError> {
+    let Some(machines) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
+    let local_port = listen(app, label, 0).await?;
+    tracing::info!("machine {label}: its tunnel leads to 127.0.0.1:{local_port} here");
+    machines.start(label, setting, local_port);
+    Ok(())
+}
+
+/// A machine's own listener; returns its port here.
+async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let local_port = listener.local_addr().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.port();
+    let routes = machine_router(app.clone(), Via { machine: Some(label.to_string()), port, local: local_port });
+    let task = tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, routes).await {
+            tracing::warn!("a machine's listener ended: {e}");
+        }
+    });
+    if let Some(old) = app.listeners.lock().unwrap().insert(label.to_string(), task.abort_handle()) {
+        old.abort();
+    }
+    if let Some(m) = &app.machines {
+        m.listening(label, local_port);
+    }
+    Ok(local_port)
+}
+
+/// Read by the user and by agents of this machine (a refusal sends them here to see why a
+/// machine cannot be reached); changed by the user alone.
+async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+    app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
+    Ok(Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineSet {
+    label: String,
+    /// add, enable, disable or remove.
+    action: String,
+    #[serde(default)]
+    ssh: String,
+    #[serde(default)]
+    herdr_socket: Option<String>,
+}
+
+/// Adds, enables, disables or removes a machine; only from this machine.
+async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+    app.user(&caller)?;
+    let Some(all) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
+    let stop = |label: &str| {
+        all.stop(label);
+        if let Some(l) = app.listeners.lock().unwrap().remove(label) {
+            l.abort();
+        }
+    };
+    match m.action.as_str() {
+        "add" => all.add(&m.label, crate::machines::Setting { ssh: m.ssh, herdr_socket: m.herdr_socket, port: 0, enabled: false }).map_err(bad)?,
+        "enable" => {
+            let setting = all.enable(&m.label, true).map_err(bad)?;
+            follow(&app, &m.label, setting).await?;
+        }
+        "disable" => {
+            all.enable(&m.label, false).map_err(bad)?;
+            stop(&m.label);
+        }
+        "remove" => {
+            stop(&m.label);
+            all.remove(&m.label).map_err(bad)?;
+        }
+        other => return Err(bad(format!("unknown action {other:?}"))),
+    }
+    let _ = app.changed.send(());
+    Ok(Json(all.list()))
 }
 
 // ---- the user's inputs from the page; `App::record` delivers them to the agents ----
@@ -457,7 +1394,8 @@ struct Decide {
     note: String,
 }
 
-async fn decide(State(app): State<Shared>, Json(d): Json<Decide>) -> Result<Json<core::Event>, ApiError> {
+async fn decide(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<Decide>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
     let body = Body::FindingDecided {
         unit: d.unit,
         task: d.task,
@@ -465,8 +1403,9 @@ async fn decide(State(app): State<Shared>, Json(d): Json<Decide>) -> Result<Json
         decision: d.decision,
         note: d.note,
         by: core::Who::User,
+        was: None,
     };
-    blocking(move || app.record("user", body).map(Json)).await
+    blocking(move || app.record(&who, body).map(Json)).await
 }
 
 #[derive(Deserialize)]
@@ -478,11 +1417,14 @@ struct Gate {
     note: String,
     #[serde(default)]
     findings: Vec<core::NewFinding>,
+    #[serde(default)]
+    attachments: Vec<String>,
 }
 
-async fn gate(State(app): State<Shared>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
-    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings };
-    blocking(move || app.record("user", body).map(Json)).await
+async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments };
+    blocking(move || app.record(&who, body).map(Json)).await
 }
 
 #[derive(Deserialize)]
@@ -490,8 +1432,9 @@ struct ChoreDone {
     chore: String,
 }
 
-async fn chore_done(State(app): State<Shared>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
-    blocking(move || app.record("user", Body::ChoreDone { chore: c.chore }).map(Json)).await
+async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::ChoreDone { chore: c.chore }).map(Json)).await
 }
 
 #[derive(Deserialize)]
@@ -499,10 +1442,11 @@ struct Focus {
     agent: String,
 }
 
-async fn focus(State(app): State<Shared>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
+async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
+    app.user(&caller)?;
     blocking(move || {
         // The page knows agents by name.
-        app.runtime.focus(&app.session_of(&f.agent)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        app.runtime.focus(&app.session_of(&f.agent, None)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         Ok(StatusCode::NO_CONTENT)
     })
     .await
@@ -511,13 +1455,142 @@ async fn focus(State(app): State<Shared>, Json(f): Json<Focus>) -> Result<Status
 #[derive(Deserialize)]
 struct Here {
     place: String,
-    #[serde(default)]
-    intent: bool,
 }
 
 /// The CLI asks who and where it is: see `App::here`.
-async fn here(State(app): State<Shared>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
-    blocking(move || app.here(&h.place, h.intent).map(Json)).await
+#[derive(Deserialize)]
+struct Ask {
+    /// The asking agent's place in the runtime; none: the user asks (the page).
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+    unit: String,
+    task: u32,
+    text: String,
+    /// The thread it continues; none starts a new one.
+    #[serde(default)]
+    thread: Option<String>,
+    #[serde(default)]
+    context: Vec<core::AskContext>,
+    /// Ask the thread's agent for the conclusion instead.
+    #[serde(default)]
+    conclude: bool,
+}
+
+#[derive(Deserialize)]
+struct Upload {
+    name: String,
+    /// The uploading agent's place in the runtime; none: the user uploads (the page).
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    task: Option<u32>,
+    #[serde(default)]
+    finding: Option<String>,
+}
+
+/// A file into the store, its body raw (`?name=…`, the type from Content-Type), optionally
+/// linked to a task or a finding. Answers its id and path.
+async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
+    let given = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    blocking(move || {
+        let who = app.who(&via, u.place.as_deref(), u.named.as_deref())?;
+        // Only the last part of the name: it is shown, never used as a path.
+        let name = Path::new(&u.name).file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).ok_or_else(|| bad("an attachment needs a file name".into()))?;
+        let mime = attachments::mime(&name, given.as_deref());
+        let (id, path) = attachments::put(&app.home, &body, &name).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot store {name}: {e}")))?;
+        let size = body.len() as u64;
+        app.record(&who, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
+        // To a caller on another machine the file is where its tunnel shows it.
+        let path = match &via.machine {
+            Some(_) => json!(crate::machines::attachment_url(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+            None => json!(path),
+        };
+        Ok(Json(json!({ "id": id, "path": path, "name": name, "type": mime, "size": size })))
+    })
+    .await
+}
+
+/// A stored file. Only images show in the page; anything else downloads, and nothing is sniffed.
+async fn attachment(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Response, ApiError> {
+    // An agent on another machine is given the link with the file's extension.
+    let id = id.split('.').next().unwrap_or_default().to_string();
+    // Of what the caller may see: an agent on a blind task, only what it attached itself.
+    let viewer = app.clone();
+    let state = blocking(move || viewer.view(&caller, &r)).await?;
+    let found = state.attachments.iter().find(|a| a.id == id).cloned();
+    let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
+    let file = attachments::path(&app.home, &a.id, &a.name);
+    let bytes = blocking(move || std::fs::read(&file).map_err(|e| ApiError(StatusCode::NOT_FOUND, format!("attachment {id}: {e}")))).await?;
+    let image = a.mime.starts_with("image/") && a.mime != "image/svg+xml";
+    let disposition = if image { "inline".to_string() } else { format!("attachment; filename=\"{}\"", a.name.replace(['"', '\\', '\r', '\n'], "_")) };
+    let mime = if image { a.mime.clone() } else { "application/octet-stream".to_string() };
+    Ok(([(header::CONTENT_TYPE, mime), (header::CONTENT_DISPOSITION, disposition), (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string())], bytes).into_response())
+}
+
+#[derive(Deserialize)]
+struct Inbox {
+    unit: String,
+    task: u32,
+}
+
+/// A task's staging folder for screenshots and the like, made if needed.
+async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.store.lock().unwrap().state().task(&i.unit, i.task)?;
+    // A caller on another machine keeps the folder on its own disk; the CLI makes it there.
+    if via.machine.is_some() {
+        return Ok(Json(json!({ "elsewhere": true })));
+    }
+    let d = attachments::inbox(&app.home, &i.unit, i.task);
+    attachments::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
+    Ok(Json(json!({ "dir": d })))
+}
+
+#[derive(Deserialize)]
+struct EndThread {
+    thread: String,
+}
+
+async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::ThreadEnded { thread: t.thread }).map(Json)).await
+}
+
+/// The user asks why: recorded at once; the temporary agent starts in the background.
+async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
+    let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
+    let starter = app.clone();
+    let e = blocking(move || {
+        let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
+        app.record(&who, body)
+    })
+    .await?;
+    if let Body::QuestionAsked { id, .. } = &e.body {
+        let id = id.clone();
+        tokio::task::spawn_blocking(move || starter.start_question(&id));
+    }
+    Ok(Json(e))
+}
+
+/// A task's commits on its unit's branch, as (short id, subject).
+fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut snapshot::Cache) -> Vec<(String, String)> {
+    let repo = Path::new(&u.repo);
+    let hashes = if u.merged.is_some() && !u.merged_commits.is_empty() {
+        u.merged_commits.clone()
+    } else {
+        snapshot::unit_commits(at, u, cache).map(|(l, _)| l.into_iter().map(|c| c.hash).collect()).unwrap_or_default()
+    };
+    let want = format!("{}#{task}", u.id);
+    hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
+}
+
+async fn here(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || app.here(&h.place, via.machine.as_deref()).map(Json)).await
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----

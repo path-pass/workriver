@@ -52,14 +52,14 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
 }
 
 /** The repository a unit works in. */
-export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo)!
+export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo && r.machine === unit.machine)!
 
 /**
  * Self-check, in development: for every unit and every scope (nothing picked, each node
  * picked), each file's count in the tree equals the change the single-file view shows.
  */
 function checkCounts(ws: Workspace) {
-  for (const unit of unitsOf(ws))
+  for (const unit of unitsOf(ws).filter(u => !u.intentLevel))
     for (const pick of [null, ...unit.tasks.map(n => ({ kind: 'task', id: n.id }) as const)]) {
       const sel = selectionOf(unit, pick)
       for (const r of fileTree(repoOf(ws, unit).modules, unit, sel, true).rows.values()) {
@@ -95,7 +95,9 @@ export type Pick = { kind: 'task'; id: string; finding?: string } | null
 export const SEVERITIES: Severity[] = ['P1', 'P2', 'P3']
 export const findingsOf = (n: Task): Finding[] => n.output.findings ?? []
 /** Findings still waiting for the user's decision. */
-export const openCount = (n: Task) => findingsOf(n).filter(f => f.state === 'open').length
+/** Open findings that wait for the user: not those the user handed to the intent's manager. */
+const waits = (f: Finding) => f.state === 'open' && f.decider !== 'manager'
+export const openCount = (n: Task) => findingsOf(n).filter(waits).length
 /** Findings counted per severity, e.g. 'P1 2 · P2 3'. */
 export const severityCounts = (found: Finding[]) =>
   SEVERITIES.map(s => [s, found.filter(f => f.severity === s).length] as const)
@@ -120,7 +122,7 @@ export const askeeOf = (unit: Unit, n: Task): string | null =>
   n.kind === 'gate' ? unit.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null : n.agent
 
 /** Finished work handed in with no check run: shown on the graph, not counted anywhere. */
-export const untested = (n: Task) => n.kind === 'implement' && n.state === 'done' && !n.output.evidence?.length
+export const untested = (n: Task) => n.kind === 'implement' && !n.design && !n.research && n.state === 'done' && !n.output.evidence?.length
 
 /** The folder a path stands for: a file's folder, or the path itself when it is a folder. */
 const folderOf = (p: string) => (/\.[A-Za-z0-9]+$/.test(p) ? p.slice(0, p.lastIndexOf('/')) : p)
@@ -212,35 +214,64 @@ export function working(unit: Unit): Working[] {
  * idle     neither; its session is still there
  */
 export type AgentState = 'working' | 'queued' | 'idle'
-const AGENT_ORDER: AgentState[] = ['working', 'queued', 'idle']
 
 export interface AgentAt {
   agent: string
+  /** The session, when the data has one: what the terminal button reaches. */
+  session?: string
+  /** What the session is about, in the harness's words. */
+  topic?: string
   state: AgentState
+  /** Waiting at a question or approval in its terminal (the runtime says so). */
+  blocked: boolean
   /** The manager of its intent. */
   manager: boolean
+  /** The machine it runs on; absent: this one. */
+  machine?: string
+  /** Its machine cannot be reached: as last seen. */
+  unreachable?: boolean
   /** The node it is on; idle: the last one it finished (data order), or null if none. */
   at: { unit: Unit; node: Task } | null
 }
 
+/** Agents of one runtime workspace (or, in the sample, of no workspace). */
+export interface AgentGroup {
+  key: string
+  /** The intent's title when the workspace has one, else the workspace's label. */
+  label: string
+  /** A workspace of another machine that is not linked to one of this machine. */
+  machine?: string
+  intent: Intent | null
+  agents: AgentAt[]
+}
+
+/** Where every live agent is, worked out over the whole workspace (agents cross units). */
 export function agents(ws: Workspace): AgentAt[] {
-  const on = (agent: string, state: string) =>
-    unitsOf(ws).flatMap(unit => unit.tasks.filter(n => n.agent === agent && n.state === state).map(node => ({ unit, node })))
-  // Grouped by intent in the rail's order, its manager first; agents of no intent last.
-  const group = (s: { intent?: string }) => { const k = ws.intents.findIndex(i => i.id === s.intent); return k < 0 ? ws.intents.length : k }
-  return ws.sessions
-    .filter(s => !s.ended)
-    .map((s): AgentAt & { group: number } => {
-      const { agent } = s, manager = !!s.manager, g = group(s)
-      const running = on(agent, 'running')[0]
-      if (running) return { agent, manager, group: g, state: 'working', at: running }
-      // Working without a node of its own (a manager planning, say): working all the same.
-      if (s.state === 'working') return { agent, manager, group: g, state: 'working', at: on(agent, 'todo')[0] ?? on(agent, 'done').at(-1) ?? null }
-      const todo = on(agent, 'todo')[0]
-      if (todo) return { agent, manager, group: g, state: 'queued', at: todo }
-      return { agent, manager, group: g, state: 'idle', at: on(agent, 'done').at(-1) ?? null }
-    })
-    .sort((a, b) => a.group - b.group || Number(b.manager) - Number(a.manager) || AGENT_ORDER.indexOf(a.state) - AGENT_ORDER.indexOf(b.state))
+  return agentGroups(ws).flatMap(g => g.agents)
+}
+
+/**
+ * Live agents by runtime workspace: groups with someone working first, then by label;
+ * inside, the manager, then working, blocked, holding work, idle.
+ */
+export function agentGroups(ws: Workspace): AgentGroup[] {
+  const tasks = unitsOf(ws).flatMap(unit => unit.tasks.map(node => ({ unit, node })))
+  const groups = new Map<string, AgentGroup>()
+  for (const s of ws.sessions.filter(s => !s.ended)) {
+    const mine = (state: string) => tasks.filter(({ node }) => node.state === state && (s.session && node.agentSession ? node.agentSession === s.session : node.agent === s.agent))
+    const running = mine('running')[0], todo = mine('todo')[0], last = mine('done').at(-1) ?? null
+    // Working without a node of its own (a manager planning, say): working all the same.
+    const [state, at]: [AgentState, AgentAt['at']] = running ? ['working', running] : s.state === 'working' ? ['working', todo ?? last] : todo ? ['queued', todo] : ['idle', last]
+    const intent = ws.intents.find(i => i.id === s.intent) ?? null
+    const key = s.group?.id ?? intent?.id ?? ''
+    if (!groups.has(key)) groups.set(key, { key, label: s.group?.label ?? intent?.title ?? '', machine: s.group?.machine, intent, agents: [] })
+    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
+  }
+  const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
+  const list = [...groups.values()]
+  for (const g of list) g.agents.sort((a, b) => rank(a) - rank(b))
+  const busy = (g: AgentGroup) => (g.agents.some(a => a.state === 'working') ? 0 : 1)
+  return list.sort((a, b) => busy(a) - busy(b) || a.label.localeCompare(b.label))
 }
 
 export interface Attention {
@@ -289,8 +320,13 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'gate' | 'decision' | 'loose' | 'far' | 'chore'
-  intent: Intent
+  kind: 'agent' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
+  intent: Intent | null
+  /** A chore of no intent: its project's name, if it has a project. */
+  project?: string
+  /** agent: the agent waiting in its terminal, and where it runs. */
+  agent?: { name: string; session?: string; topic?: string; place: string }
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
   unit: Unit | null
   /** What a click opens; null for a chore. */
@@ -302,6 +338,9 @@ export interface InboxRow {
   /** Since when it has waited, in milliseconds. */
   since: number
 }
+
+/** Live agents waiting for a person in their terminal (a question, an approval). */
+export const blockedAgents = (ws: Workspace | null) => (ws?.sessions ?? []).filter(s => !s.ended && s.blockedSince)
 
 export interface Inbox {
   /** Gates: an agent cannot go on. */
@@ -316,7 +355,7 @@ export interface Inbox {
 
 /** The open findings of a node, the most severe first. */
 export const openFindings = (n: Task) =>
-  findingsOf(n).filter(f => f.state === 'open').sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
+  findingsOf(n).filter(waits).sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
 
 export function inbox(ws: Workspace): Inbox {
   const box: Inbox = { blocking: [], decisions: [], gaps: [], later: [] }
@@ -332,9 +371,21 @@ export function inbox(ws: Workspace): Inbox {
   for (const intent of ws.intents)
     for (const c of intent.chores.filter(c => c.state === 'open'))
       box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent, unit: intent.units.find(u => u.id === c.unit) ?? null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
+  // Chores of no intent: under their project's name, or under nothing.
+  for (const c of (ws.chores ?? []).filter(c => c.state === 'open'))
+    box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent: null, project: ws.projects?.find(p => p.id === c.project)?.title, unit: null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
   const oldest = (a: InboxRow, b: InboxRow) => a.since - b.since
   const top = (r: InboxRow) => SEVERITIES.indexOf(openFindings(r.node!)[0].severity)
+  // Agents waiting for a person in their terminal come first: nothing moves until someone looks.
+  const waiting = blockedAgents(ws).map((s): InboxRow => {
+    const intent = ws.intents.find(i => i.id === s.intent) ?? null
+    return {
+      key: `agent:${s.session ?? s.agent}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, far: [], since: ms(s.blockedSince),
+      agent: { name: s.agent, session: s.session, topic: s.topic, place: intent?.title ?? s.group?.label ?? '' },
+    }
+  }).sort(oldest)
   box.blocking.sort(oldest)
+  box.blocking.unshift(...waiting)
   box.decisions.sort((a, b) => top(a) - top(b) || oldest(a, b))
   box.gaps.sort(oldest)
   box.later.sort(oldest)
@@ -498,9 +549,33 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   return { rows, open: [...rows.values()].filter(r => r.folder && r.id !== ROOT && focus.some(f => f.startsWith(r.id + '/'))).map(r => r.id) }
 }
 
+/**
+ * The tree narrowed to files whose path holds `q` (any case), with the folders above them,
+ * all open; the tree as it is for an empty `q`.
+ */
+export function filterTree(ft: FileTree, q: string): FileTree {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return ft
+  const rows = new Map<string, TreeRow>()
+  const keep = (id: string): boolean => {
+    const r = ft.rows.get(id)
+    if (!r) return false
+    if (!r.folder) {
+      if (!id.toLowerCase().includes(needle)) return false
+      rows.set(id, r)
+      return true
+    }
+    const children = r.children.filter(keep)
+    rows.set(id, { ...r, children })
+    return children.length > 0
+  }
+  keep(ROOT)
+  return { rows, open: [...rows.values()].filter(r => r.folder && r.id !== ROOT).map(r => r.id) }
+}
+
 // ---- what the user puts in: gate results, decisions on findings, chores done ----
 
-export type Decision = 'accept' | 'reject' | 'defer'
+export type Decision = 'accept' | 'revise' | 'reject' | 'defer'
 
 export interface NewFinding {
   severity: Severity
@@ -529,7 +604,7 @@ export interface Edits {
 
 export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [] }
 
-const STATE = { accept: 'accepted', reject: 'rejected', defer: 'deferred' } as const
+const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
 /** The workspace as the user's inputs leave it. Nothing in `ws` is changed. */
 export function withEdits(ws: Workspace, edits: Edits): Workspace {
@@ -557,6 +632,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
   }
   return {
     ...ws,
+    chores: ws.chores?.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     intents: ws.intents.map(i => ({
       ...i,
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),

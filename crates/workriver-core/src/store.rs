@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, TransactionBehavior};
 
-use crate::model::{Body, Event, Rejected, State};
+use crate::model::{Body, Event, Principal, Rejected, State};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -96,8 +96,10 @@ impl Store {
     }
 
     /// Checks `body` against the rules, stores it and adds it to the state.
-    pub fn append(&mut self, actor: &str, body: Body) -> Result<Event, Error> {
-        let body = self.state.prepare(actor, body)?;
+    /// `who` is who the caller was found to be, never who it says it is.
+    pub fn append(&mut self, who: &Principal, body: Body) -> Result<Event, Error> {
+        let body = self.state.prepare(who, body)?;
+        let actor = who.actor();
         let (intent, unit, task) = body.refs();
         let json = serde_json::to_value(&body).expect("events serialize");
         let at = now();

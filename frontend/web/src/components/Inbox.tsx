@@ -8,13 +8,29 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/types'
-import { Icon, Steps, Tip, Who } from './bits'
+import { focusAgent } from '@/runtime'
+import { Icon, Mark, Steps, Tip, Who } from './bits'
 
 const GROUPS = ['blocking', 'decisions', 'gaps', 'later'] as const
 
 function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void }) {
   const { t, num, waited, when } = useT()
   const act = useAct()
+  // An agent waiting in its terminal: the row brings that terminal to the front.
+  if (r.agent) {
+    const a = r.agent
+    return (
+      <button type="button" className="irow" data-kind="agent" aria-label={t('inbox.blockedAgent', { agent: a.name })} onClick={() => focusAgent(a.session ?? a.name)}>
+        <Icon name="terminal" />
+        <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{a.name}</span></span>
+        <span className="meta">
+          {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
+          <span className="unit opacity-70">{a.place}</span>
+        </span>
+        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+      </button>
+    )
+  }
   const n = r.node
   const follows = n && r.unit?.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.taskId
   const open = n && r.kind === 'decision' ? openFindings(n) : []
@@ -31,6 +47,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
       <Icon name={icon} />
       <span className="title" lang={r.kind === 'decision' || r.kind === 'far' ? undefined : contentLang(title)}>{title}</span>
       <span className="meta">
+        {n?.blind && <Mark name="blind" label={t('task.blindHint')} />}
         {open.length > 0 && <span className="flex-none font-mono">{severityCounts(open)}</span>}
         {suggested > 0 && (
           <Tip text={t('inbox.suggested', { count: suggested })}>
@@ -44,7 +61,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
         {r.far.length > 0 && <span className="truncate font-mono">{r.far.map(baseName).join(' ')}</span>}
         {r.chore && <Who name={r.chore.by} />}
         {/* Where it is: the intent quietly, then the unit. */}
-        <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent.title)}>{r.intent.title}</span>{r.unit && ' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>
+        <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent?.title ?? r.project)}>{r.intent?.title ?? r.project}</span>{r.unit && ' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>
       </span>
       <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
     </>

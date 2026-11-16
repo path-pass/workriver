@@ -7,14 +7,16 @@ Keep track of many coding agents working in parallel.
 When twenty agent sessions are running, nobody can watch them all. workriver records the
 work as it happens and shows it as one picture:
 
-- **Intents and units** – an intent is a goal; it is split into units that can be built
-  on their own.
+- **Projects, intents and units** – a project is a folder of repositories; an intent is
+  a goal in it, planned in the project's roadmap until it is started, then split into
+  units that can be built on their own.
 - **Activity** – inside a unit, every task handed to an agent (or to you, as a manual
   step) is a node with an input and an output. Tasks connect into a flow that branches
   when a review raises findings and joins again.
 - **Code** – the files the unit touched, as a tree next to the diff.
 - **Needs you** – one queue across everything: manual steps an agent is waiting on,
   findings to accept, reject or defer, and gaps such as commits that name no task.
+- **Backlog** – deferred findings per project, done together in one batch or dropped.
 
 It runs on your machine as one service. Agents report their work by running the
 `workriver` CLI from their shell; who is running and where comes from
@@ -23,9 +25,11 @@ It runs on your machine as one service. Agents report their work by running the
 ## Status
 
 First version, usable. The service records intents, units, tasks, findings and chores, reads the units'
-commits from git, follows the agents running in Herdr (one intent per Herdr workspace, one
-manager agent per intent), delivers your decisions and gate results to the right agent, and
-serves the web UI on real data.
+commits from git, follows the agents running in Herdr (one
+manager agent per Herdr workspace, running one or more intents), keeps each project's
+roadmap and backlog, delivers your decisions and gate results to the right agent, and
+serves the web UI on real data. Agents on other machines (each with its own Herdr) can be
+followed over ssh; that part is new and has only been tested against stand-ins.
 
 ## Build and run
 
@@ -39,7 +43,11 @@ built into the binary, so build it first:
 cd frontend/web && npm install && npm run build && cd ../..
 cargo build --release
 ./target/release/workriver serve          # http://127.0.0.1:47820
+./target/release/workriver open           # the page, signed in as you (a one-time link)
 ```
+
+The page and the CLI act as you only with the user token on your machine; agents and
+other machines cannot. What that does and does not protect: [Security model](docs/security.md).
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
 `workriver --help` explains the commands; a commit belongs to a task through a trailer line

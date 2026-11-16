@@ -11,26 +11,33 @@ import { SEVERITIES, type Decision, type NewFinding } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
-import { CopyButton, Icon, Tip, Who } from './bits'
+import { CopyButton, Icon, Tip, Who, ChipName } from './bits'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
 
-/** Small pictures; a click shows one large. With `onRemove`, each has a ×. */
+/** Small pictures (a click shows one large) and other files as links. With `onRemove`, each has a ×. */
 export function Thumbs({ list, onRemove }: { list: Attachment[]; onRemove?: (a: Attachment) => void }) {
   const { t } = useT()
   const [big, setBig] = useState<Attachment | null>(null)
   if (!list.length) return null
+  const isImage = (a: Attachment) => !a.type || (a.type.startsWith('image/') && a.type !== 'image/svg+xml')
+  const files = list.filter(a => !isImage(a))
   return (
     <>
-      <div className="thumbs">
-        {list.map(a => (
+      {files.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {files.map(a => <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" /><ChipName name={a.name} /></a>)}
+        </div>
+      )}
+      {list.some(isImage) && <div className="thumbs">
+        {list.filter(isImage).map(a => (
           <span key={a.id} className="thumb">
             <button type="button" aria-label={t('attach.open', { name: a.name })} onClick={() => setBig(a)}><img src={a.url} alt="" /></button>
             {onRemove && <button type="button" className="x" aria-label={t('attach.remove', { name: a.name })} onClick={() => onRemove(a)}><Icon name="no" className="size-3" /></button>}
           </span>
         ))}
-      </div>
+      </div>}
       <Dialog open={!!big} onOpenChange={o => { if (!o) setBig(null) }}>
         <DialogContent closeLabel={t('settings.close')} aria-describedby={undefined} className="sm:max-w-[min(900px,calc(100%-2rem))]">
           <DialogTitle className="text-sm">{big?.name}</DialogTitle>
@@ -114,7 +121,7 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
   )
 }
 
-/** The three decisions on an open finding; the agent's suggestion, if any, stands out. */
+/** The four decisions on an open finding; the agent's suggestion, if any, stands out. */
 export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
   const { t } = useT()
   const act = useAct()
@@ -124,10 +131,12 @@ export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }
     <div className="mt-2 flex flex-col gap-1.5">
       <Input value={note} onChange={e => setNote(e.target.value)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />
       <div role="group" aria-label={t('decide.label', { id: f.id })} className="flex flex-wrap gap-1.5">
-        {(['accept', 'reject', 'defer'] as const).map(d => {
+        {(['accept', 'revise', 'reject', 'defer'] as const).map(d => {
           const suggested = f.recommendation?.decision === d
+          // Revise is fixing it the user's way: the note says how, so it needs one.
+          const needsNote = d === 'revise' && !note.trim()
           return (
-            <Button key={d} type="button" size="xs" variant={suggested ? 'default' : 'outline'} className="rounded-sm" onClick={() => decide(d)}>
+            <Button key={d} type="button" size="xs" variant={suggested ? 'default' : 'outline'} className="rounded-sm" disabled={needsNote} aria-describedby={needsNote ? `revise-${f.id}` : undefined} onClick={() => decide(d)}>
               {suggested && <Icon name="agent" className="size-3" />}
               {t(`decide.${d}`)}
               {suggested && <span className="sr-only">{t('decide.suggested')}</span>}
@@ -135,6 +144,7 @@ export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }
           )
         })}
       </div>
+      {!note.trim() && <p id={`revise-${f.id}`} className="text-xs text-ink-2">{t('decide.reviseNeedsNote')}</p>}
     </div>
   )
 }
@@ -158,7 +168,9 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const { t } = useT()
   const act = useAct()
   const [result, setResult] = useState<'done' | 'problem'>('done')
-  const [note, setNote] = useState('')
+  // A conclusion reached by asking about it starts the note; the user edits it.
+  const [note, setNote] = useState(gate.draft ?? '')
+  useEffect(() => { if (gate.draft) setNote(n => n || gate.draft!) }, [gate.draft])
   const [files, setFiles] = useState<Attachment[]>([])
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [error, setError] = useState(false)
