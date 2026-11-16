@@ -375,6 +375,15 @@ enum BacklogCmd {
         #[arg(long)]
         after: Option<String>,
     },
+    /// Merge planned intents into one (a roadmap split too finely): the others are dropped and
+    /// their title, goal, note and external id go into its note. The user's alone.
+    Merge {
+        /// The planned intent that stays.
+        into: String,
+        /// The planned intents merged into it, in the order their text is added.
+        #[arg(required = true)]
+        from: Vec<String>,
+    },
     /// Print a project's backlog as Markdown (a read-only copy; the records stay in workriver).
     Export {
         #[arg(long, default_value = ".")]
@@ -949,6 +958,7 @@ fn main() -> anyhow::Result<()> {
         Cmd::Backlog(BacklogCmd::List { project }) => return backlog::list(&d, project.as_deref().map(project_arg).transpose()?.as_deref()),
         Cmd::Backlog(BacklogCmd::Export { project }) => return backlog::export(&d, &project_arg(&project)?),
         Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
+        Cmd::Backlog(BacklogCmd::Merge { into, from }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from })))?,
         Cmd::Intent(IntentCmd::Start { intent }) => {
             let Some(g) = &group else { bail!("run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace") };
             d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?
@@ -1127,6 +1137,7 @@ fn main() -> anyhow::Result<()> {
         Some("workspace.linked") => "linked".into(),
         Some("workspace.unlinked") => "unlinked".into(),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
+        Some("intent.merged") => format!("merged {} into {}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?")),
         Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
         Some("task.amended") if b["add"].as_array().is_some_and(|a| !a.is_empty()) => {
             let ids: Vec<&str> = b["add"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();

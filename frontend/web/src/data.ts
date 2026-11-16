@@ -600,9 +600,11 @@ export interface Edits {
   /** By `unit:task:finding`. */
   decisions: Record<string, { decision: Decision; note: string }>
   chores: string[]
+  /** Planned intents merged into another (as the service records it: dropped, with this reason). */
+  merges: { into: string; from: string[] }[]
 }
 
-export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [] }
+export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [] }
 
 const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
@@ -630,11 +632,14 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
       }) } }
     return out
   }
+  // Only a still planned one: once the service has it, it is dropped there already.
+  const mergedInto = (i: Intent) => (i.state === 'planned' ? edits.merges.find(m => m.from.includes(i.id))?.into : undefined)
   return {
     ...ws,
     chores: ws.chores?.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     intents: ws.intents.map(i => ({
       ...i,
+      ...(mergedInto(i) && { state: 'dropped' as const, reason: `merged into ${mergedInto(i)}` }),
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),
       chores: i.chores.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     })),

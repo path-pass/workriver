@@ -2801,11 +2801,38 @@
    }
   },
   {
+   "id": "audit-search",
+   "title": "审计日志：按人和时间查询",
+   "state": "planned",
+   "project": "demo",
+   "order": 4,
+   "goal": "管理员能按操作人、操作类型和时间范围筛选审计记录。",
+   "note": "从需求文档导入时拆出来的一条，和“审计日志”是同一件事。",
+   "units": [],
+   "chores": [],
+   "external": {
+    "system": "jira",
+    "key": "SEC-89",
+    "url": "https://jira.example.com/browse/SEC-89"
+   }
+  },
+  {
+   "id": "audit-export",
+   "title": "审计日志：导出给合规",
+   "state": "planned",
+   "project": "demo",
+   "order": 5,
+   "goal": "把一段时间的审计记录导出成 CSV，交给合规检查。",
+   "note": "也是导入时拆出来的；格式等法务确认。",
+   "units": [],
+   "chores": []
+  },
+  {
    "id": "export",
    "title": "导出聊天记录",
    "state": "planned",
    "project": "demo",
-   "order": 4,
+   "order": 6,
    "goal": "用户能把自己参与过的频道导出成文件（HTML 或 JSON），用于备份或者迁移到别的工具。",
    "note": "暂时排在最后，有用户提但不急。\n导出时要注意：私聊里对方的消息能不能导出，需要先定规则。",
    "units": [],

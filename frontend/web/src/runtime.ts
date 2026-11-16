@@ -193,6 +193,12 @@ export async function record(kind: string, body: unknown) {
   await post('/api/append', { kind, body })
 }
 
+/** Merges planned intents into one: the user's alone, so it has a route of its own. */
+export async function mergeIntents(into: string, from: string[]) {
+  if (MOCK) return
+  await post('/api/backlog/merge', { into, from })
+}
+
 /** The machines the service knows, followed or not. */
 export async function machines(): Promise<Machine[]> {
   if (MOCK) return []

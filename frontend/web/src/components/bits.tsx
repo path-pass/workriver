@@ -1,6 +1,6 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
 import { Archive, ArrowLeft, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
-import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { createContext, Fragment, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { contentLang, useT } from '@/i18n'
@@ -62,13 +62,15 @@ export function Icon({ name, className }: { name: string; className?: string }) 
 export const Content = ({ text }: { text: string }) => <span lang={contentLang(text)}>{text}</span>
 
 /**
- * A UI sentence with content in it: translate with SLOT as the content's value, and the
- * content goes where SLOT landed, so it keeps its own language inside the UI's.
+ * A UI sentence with content in it: translate with slot(i) as the i-th content's value, and
+ * each content goes where its slot landed, in whatever order the language puts them, so it
+ * keeps its own language inside the UI's. SLOT is slot(0), for a sentence with one.
  */
-export const SLOT = ''
-export function Slot({ text, children }: { text: string; children: ReactNode }) {
-  const [before, after = ''] = text.split(SLOT)
-  return <>{before}{children}{after}</>
+export const slot = (i: number) => String.fromCharCode(0xe000 + i)
+export const SLOT = slot(0)
+export function Slot({ text, children }: { text: string; children: ReactNode | ReactNode[] }) {
+  const fill = Array.isArray(children) ? children : [children]
+  return <>{text.split(/([\uE000-\uE0FF])/).map((part, k) => (k % 2 ? <Fragment key={k}>{fill[part.charCodeAt(0) - 0xe000]}</Fragment> : part))}</>
 }
 
 export function Tip({ text, children }: { text: ReactNode; children: ReactElement }) {

@@ -11,7 +11,7 @@ import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
 import { contentLang, useT } from '@/i18n'
-import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, submitGate, type Delivery } from '@/runtime'
+import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, submitGate, type Delivery } from '@/runtime'
 import type { AskContext, Intent, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
@@ -220,6 +220,7 @@ export default function App() {
       setMessage(all => drop(all, key))
     },
     choreDone: id => { setEdits(e => ({ ...e, chores: [...e.chores, id] })); choreDone(id) },
+    merge: (into, from) => mergeIntents(into, from).then(() => setEdits(e => ({ ...e, merges: [...e.merges, { into, from }] }))),
     delivery,
     message,
   }

@@ -47,7 +47,11 @@ export function Choice({ value, onChange, options, label, tone = 'page', placeho
         )}
       >
         {options.map(o => (
-          <SelectItem key={o.value} value={o.value} className={rail ? 'focus:bg-rail-3 focus:text-rail-ink' : 'focus:bg-sunken focus:text-ink'}>
+          <SelectItem key={o.value} value={o.value} className={rail
+            // The menu is portalled out of the rail, so the base item's `**:text-accent-foreground`
+            // would be the page's dark ink here: override it for the item's text too.
+            ? 'focus:bg-rail-3 focus:text-rail-ink not-data-[variant=destructive]:focus:**:text-rail-ink'
+            : 'focus:bg-sunken focus:text-ink not-data-[variant=destructive]:focus:**:text-ink'}>
             <span lang={o.lang}>{o.label}</span>
           </SelectItem>
         ))}

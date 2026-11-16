@@ -29,7 +29,12 @@ export const ja: OneForm<typeof en> = {
     drag: 'ドラッグで並べ替え',
     start: '開始',
     intentWork: '調査と設計',
-    failed: '保存できませんでした：{{error}}'
+    failed: '保存できませんでした：{{error}}',
+    mergePick: '統合する対象に選ぶ：{{title}}',
+    mergeInto: '統合先',
+    mergeWhat: '{{from}} は取り下げられ、そのタイトル・目標・メモ・リンクは {{into}} のメモに入ります。',
+    merge: '統合',
+    mergeOneProject: '統合できるのは同じプロジェクトのインテントだけです。'
   },
   manager: {
     mark: 'このワークスペースのマネージャー',

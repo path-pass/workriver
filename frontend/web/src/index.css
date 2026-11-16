@@ -225,6 +225,7 @@
   .plan[data-over="after"] { box-shadow: inset 0 -2px 0 var(--rail-you); }
   .plan .grip { cursor: grab; color: var(--rail-ink-2); opacity: .5; padding-top: 2px; }
   .plan:hover .grip { opacity: 1; }
+  .plan .pick { margin-top: 4px; accent-color: var(--rail-you); }
   .rail-field { width: 100%; border-radius: 6px; background: var(--rail-2); color: var(--rail-ink); padding: 4px 8px; font-size: 13px; border: 1px solid var(--rail-line); }
   .rail-field::placeholder { color: var(--rail-ink-2); }
   /* A deferred finding in the backlog panel. */

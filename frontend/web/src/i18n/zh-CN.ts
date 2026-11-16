@@ -29,7 +29,12 @@ export const zhCN: OneForm<typeof en> = {
     drag: '拖动调整顺序',
     start: '开始',
     intentWork: '调研与设计',
-    failed: '没有保存：{{error}}'
+    failed: '没有保存：{{error}}',
+    mergePick: '选中以合并：{{title}}',
+    mergeInto: '合并到',
+    mergeWhat: '{{from}} 会被放弃；它们的标题、目标、备注和链接写进 {{into}} 的备注。',
+    merge: '合并',
+    mergeOneProject: '只能合并同一个项目的目标。'
   },
   manager: {
     mark: '这个工作区的管理者',
