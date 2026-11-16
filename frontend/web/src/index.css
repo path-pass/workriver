@@ -196,6 +196,13 @@
   .ext-chip[data-away] { border-style: dashed; }
   .agent-row[data-away] { opacity: .55; }
   .rail a.ext-chip:hover { color: var(--rail-ink); }
+  /* A panel's draggable edge: a thin hit area over the border, a line in the selection
+     colour while pointed at, focused or dragged. */
+  .edge { position: absolute; top: 0; bottom: 0; width: 6px; z-index: 5; cursor: col-resize; touch-action: none; outline: none; }
+  .edge[data-edge="right"] { right: -3px; }
+  .edge[data-edge="left"] { left: -3px; }
+  .edge::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: transparent; transition: background .12s; }
+  .edge:hover::after, .edge:focus-visible::after, .edge[data-dragging]::after { background: var(--you); }
   /* A planned intent in the rail; while dragged over, a line shows where it lands. */
   .plan { display: flex; align-items: flex-start; gap: 4px; padding: 6px 6px 6px 2px; border-radius: 6px; }
   .plan:hover { background: var(--rail-2); }

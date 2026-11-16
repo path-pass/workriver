@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
+import { useResize } from '@/lib/useResize'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
 import { ExternalChip, Icon, MachineChip, Tip } from './bits'
@@ -83,6 +84,8 @@ interface Props {
   onProject: (p: string | null) => void
   /** Show the steps to start a planned intent. */
   onStart: (i: Intent) => void
+  /** The rail's width settled anew (a drag ended): what fits itself to the room refits. */
+  onWidth?: (w: number) => void
 }
 
 /** How the intent's manager is: working, idle and so on, not running, or none registered. */
@@ -138,7 +141,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
     <Collapsible open={isOpen} onOpenChange={onOpen}>
       <CollapsibleTrigger className="group/intent flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
         <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
-        <span className="min-w-0 flex-1 truncate">{intent.title}</span>
+        <span className="min-w-0 flex-1 truncate" title={intent.title}>{intent.title}</span>
         {stateOf(intent) === 'active' && <ManagerState intent={intent} />}
         {/* Folded, the group still says what waits inside it. */}
         {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
@@ -273,8 +276,11 @@ function Roadmap({ list, all, addTo, onStart, onError }: { list: Intent[]; all: 
   )
 }
 
-export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, project, onProject, onStart }: Props) {
+export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, project, onProject, onStart, onWidth }: Props) {
   const { t } = useT()
+  // The right edge drags the width, between narrow and roomy; double-click: the default.
+  const size = useResize({ key: 'workriver.rail.width', variable: '--rail-w', def: 248, min: 200, max: 480, edge: 'right' })
+  useEffect(() => onWidth?.(size.width), [onWidth, size.width])
   const projects = ws?.projects ?? []
   const intents = (ws?.intents ?? []).filter(i => !project || i.project === project)
   const needle = q.trim().toLowerCase()
@@ -325,7 +331,9 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
     />
   )
   return (
-    <aside className="rail sticky top-0 flex h-screen w-[248px] flex-col gap-3 bg-rail px-3 pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto">
+    <aside className="rail sticky top-0 flex h-screen w-[var(--rail-w,248px)] flex-col gap-3 bg-rail px-3 pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto">
+      {/* Not on a narrow screen, where the rail is a row of its own. */}
+      <div {...size.handle} aria-label={t('rail.resize')} className="edge max-[860px]:hidden" data-edge="right" />
       <div className="flex items-center gap-2 pl-1 text-lg font-[650] tracking-[-0.01em]">
         <Waves aria-hidden size={20} strokeWidth={1.6} className="flex-none" />
         workriver
@@ -349,7 +357,8 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         className="rounded-md bg-rail-2 text-sm md:text-sm"
       />
 
-      <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh]">
+      {/* The viewport's inner box is a block, not Radix's table: titles then wrap or cut at the rail's width. */}
+      <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh] [&>[data-slot=scroll-area-viewport]>div]:block!">
       <div className="flex flex-col gap-1 px-1 py-0.5">
         {active.length > 0 && <section aria-label={t('rail.active')} className="flex flex-col gap-1"><Heading>{t('rail.active')}</Heading>{active.map(group)}</section>}
         {ws && (planned.length > 0 || addTo) && <Roadmap list={planned} all={intents} addTo={addTo} onStart={onStart} onError={setError} />}

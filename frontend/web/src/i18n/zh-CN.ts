@@ -9,6 +9,7 @@ export const zhCN: Same<typeof en> = {
     shortcut: '{{label}}（⌘B / Ctrl+B）',
     fold: '收起侧栏',
     unfold: '展开侧栏',
+    resize: '侧栏宽度（拖动，或用方向键；双击恢复默认）',
     search: '搜索单元',
     noMatch: '没有单元匹配「{{q}}」',
     clearSearch: '清除搜索',

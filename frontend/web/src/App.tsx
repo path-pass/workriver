@@ -31,6 +31,8 @@ export default function App() {
   const [q, setQ] = useState('')
   // The rail is open unless the user folded it; remembered.
   const [railOpen, setRailOpen] = useState(() => recall(RAIL) !== 'closed')
+  // The rail's width once a drag has ended: the graph refits then, not while dragging.
+  const [railWidth, setRailWidth] = useState(0)
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
   const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' || v === 'backlog' ? v : null })
@@ -226,7 +228,7 @@ export default function App() {
     <ActContext.Provider value={act}>
     <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
-      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} />
+      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {ws && !unitsOf(ws).length && <Start />}
@@ -243,7 +245,7 @@ export default function App() {
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
-            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={railOpen} />
+            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}`} />
             {!unit.intentLevel && <CodeLayer
               root={repoOf(ws, unit).modules}
               unit={unit}

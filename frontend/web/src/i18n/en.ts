@@ -5,6 +5,7 @@ export const en = {
     shortcut: '{{label}} (⌘B / Ctrl+B)',
     fold: 'Fold the rail',
     unfold: 'Open the rail',
+    resize: 'Rail width (drag, or arrow keys; double-click for the default)',
     search: 'Search units',
     noMatch: 'No units match “{{q}}”',
     clearSearch: 'Clear search',

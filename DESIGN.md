@@ -52,7 +52,16 @@ looked at now and then.
   runs in. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
   the product mark, the button, settings and, if any task anywhere is stuck on the user,
   the filled violet mark; on a narrow screen, to one header row. Folded or not is
-  remembered, and the graph refits to the room it gets.
+  remembered, and the graph refits to the room it gets. Open and on a wide screen, its
+  right edge drags its width (200 to 480 px, 248 by default; double-click resets): a 6 px
+  hit area with the column-resize cursor that shows a line in the selection colour when
+  pointed at, focused or dragged. It is a separator for the keyboard too (arrows move it
+  by 16 px, Home and End go to the ends). The width is remembered; the graph refits once
+  when the drag ends, not during it. With more width, unit and roadmap titles use it
+  (they wrap); an intent's title stays on one line and is cut with its full text on
+  hover. The handle is a small hook of ours (`lib/useResize.ts`), written so the side
+  panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
+  handle, which is the case the "prefer a library" rule excepts.
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
   **Agents**, **Commits** and **Backlog**, one at a time, never mixed. Its four buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
