@@ -80,7 +80,7 @@ looked at now and then.
   happens: the others are dropped and what they said goes into its note. Merge and Cancel;
   the service's refusal shows in the dialog. Escape closes it and focus goes back to "Merge…".
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents**, **Commits**, **Backlog** and **Ask why**, one at a time, never mixed. Its five buttons work as a
+  **Agents**, **Commits**, **Backlog**, **Machines** and **Ask why**, one at a time, never mixed. Its six buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
   already has them); open, it is about 340 px wide. Which section is open, if any, is
@@ -104,6 +104,17 @@ looked at now and then.
   as scheduled until the work they cause is delivered; it is disabled, saying to start the
   intent first, when that intent is not active. "Drop" asks for a reason. Planned intents
   are not repeated here; they are the rail's roadmap.
+- **Machines** shows CPU and memory of this machine ("This machine", first) and of every
+  followed one (by its machine chip), over the last ten minutes, read every 5 s while the
+  section is open. Per machine two lines, CPU and Memory: the label, a small line of the
+  ten minutes with the alert threshold dashed across it (inline SVG; a chart library is
+  not worth one line), and the value right-aligned in a fixed column ("97 %",
+  "25.4 / 32 GB"). Lines are neutral; a metric in alert takes the violet of waiting for
+  you, and a pill in the machine's header says which, its value and for how long ("CPU
+  97 % · 6m"). A machine that cannot be reached keeps its last values, faded, with the
+  dashed chip and "disconnected since …". Memory used is total minus available, the same
+  on every machine: one small sh probe reads them all through the runner git uses, here
+  or over the machine's ssh connection, and nothing is installed anywhere.
 - **Needs you** is the workspace's inbox. One person works one queue across all units, so
   what asks something of them is one list, not a row of chips per unit: a list keeps order
   and age and still reads with twenty agents, chips only pile up. One row per item: the
@@ -118,13 +129,18 @@ looked at now and then.
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
      Settings, a newly waiting agent raises a browser notification that opens its terminal.
-  2. **Decisions** – one row per review or gate with open findings, with the open ones
+  2. **Machines** – a machine past an alert threshold: "This machine: CPU 97 %", quietly
+     the threshold ("at or above 90 % for 5 min"), and since when. It counts in no mark and
+     not in the tab's title (those count work stuck on the user); a newly raised one sends
+     a browser notification under the same switch. The row opens the Machines section and
+     leaves by itself once the alert clears.
+  3. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
-  3. **Gaps** – commits that name no node, branches that grew beyond the original plan.
-  4. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
+  4. **Gaps** – commits that name no node, branches that grew beyond the original plan.
+  5. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
      its project where others name their intent, or nothing when it has none.
-  Within a group the oldest comes first. A row of the first three opens the unit at the
-  node (a review at its first open finding). With nothing to show, one short line says so.
+  Within a group the oldest comes first. A row of Blocking, Decisions or Gaps opens the
+  unit at the node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. One line per agent whose
   session has not ended, working first (on a node, or by the runtime's word when it has
   none, as a manager planning), then holding work that has not started (the mark faded),
@@ -199,6 +215,14 @@ looked at now and then.
   a follow switch, its state in a few words (connecting… until the first attempt ends,
   connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
   one; and, per workspace over there, a select that links it to a workspace here.
+- **Machine alerts.** Settings has "Machine alerts", before "Other machines": CPU and
+  Memory, each with a switch by its name, then "≥ [90] % for [5] min", the same for this
+  machine and every followed one (defaults 90 % for 5 min, both on). A value alerts once
+  every sample of that time is at or above it, so a spike never does, and clears after a
+  minute below; while a machine cannot be reached its alerts neither rise nor clear. A
+  field is saved when left or on Enter; out of range it goes back. On a narrow screen the
+  threshold wraps under the switch as one piece. The thresholds are kept with the list of
+  machines in the service's settings, not as events.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
   terminal) and in the header of running or waiting work. It is not on graph nodes. All

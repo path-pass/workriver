@@ -11,11 +11,24 @@ import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
 import { Icon, Mark, Steps, Tip, Who } from './bits'
 
-const GROUPS = ['blocking', 'decisions', 'gaps', 'later'] as const
+const GROUPS = ['blocking', 'machines', 'decisions', 'gaps', 'later'] as const
 
-function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void }) {
+function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
   const { t, num, waited, when } = useT()
   const act = useAct()
+  // A machine past an alert threshold: the row opens the Machines section.
+  if (r.alert) {
+    const a = r.alert
+    const metric = t(`metrics.${a.metric}`)
+    return (
+      <button type="button" className="irow" data-kind="machine" onClick={onMachines}>
+        <Icon name="machine" />
+        <span className="title">{t('inbox.machineAlert', { machine: a.here ? t('metrics.here') : a.machine, metric, value: t('metrics.percent', { value: Math.round(a.value) }) })}</span>
+        <span className="meta"><span className="truncate">{t('inbox.machineLimit', { percent: a.percent, minutes: a.minutes })}</span></span>
+        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+      </button>
+    )
+  }
   // An agent waiting in its terminal: the row brings that terminal to the front.
   if (r.agent) {
     const a = r.agent
@@ -82,7 +95,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
 }
 
 /** The inbox as a list in groups, an empty group not drawn; one short line when nothing waits. */
-export function InboxList({ ws, onOpen }: { ws: Workspace; onOpen: (unit: string, pick: Pick) => void }) {
+export function InboxList({ ws, onOpen, onMachines }: { ws: Workspace; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
   const { t, num } = useT()
   const box = useMemo(() => inbox(ws), [ws])
   if (!GROUPS.some(g => box[g].length)) return <p className="px-2.5 text-sm text-ink-2">{t('inbox.empty')}</p>
@@ -91,7 +104,7 @@ export function InboxList({ ws, onOpen }: { ws: Workspace; onOpen: (unit: string
       <h3 id={`inbox-${g}`} className="mb-1 flex items-baseline gap-1.5 px-2.5 text-xs font-semibold text-ink-2">
         {t(`inbox.${g}`)}<span className="font-normal">{num(box[g].length)}</span>
       </h3>
-      <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} /></li>)}</ul>
+      <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} /></li>)}</ul>
     </section>
   ))
 }

@@ -3,7 +3,7 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Machine, Task, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, MetricsReport, Task, Thresholds, Turn, Unit } from './types'
 
 /** Sent on the window when the service says this page is not the user (any more). */
 export const SIGNED_OUT = 'workriver:signed-out'
@@ -159,11 +159,14 @@ export async function wantNotify(on: boolean): Promise<boolean> {
   try { localStorage.setItem(NOTIFY, ok ? '1' : '0') } catch { /* not remembered; still applies now */ }
   return ok
 }
-/** One notification; clicking it brings this tab and then the agent's terminal forward. */
-export function notify(title: string, body: string | undefined, agent: string) {
+/**
+ * One notification; clicking it brings this tab forward and, for an agent, its terminal.
+ * `key` names what it is about (an agent, or a machine's alert), so one is not shown twice.
+ */
+export function notify(title: string, body: string | undefined, key: string, agent = true) {
   if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  const n = new Notification(title, { body, tag: `workriver:${agent}` })
-  n.onclick = () => { window.focus(); focusAgent(agent); n.close() }
+  const n = new Notification(title, { body, tag: `workriver:${key}` })
+  n.onclick = () => { window.focus(); if (agent) focusAgent(key); n.close() }
 }
 
 /** Asks the service a question about a task (live mode): it records it, and starts the
@@ -197,6 +200,26 @@ export async function record(kind: string, body: unknown) {
 export async function mergeIntents(into: string, from: string[], title?: string) {
   if (MOCK) return
   await post('/api/backlog/merge', { into, from, title })
+}
+
+/** CPU and memory of this machine and the followed ones, with the alert thresholds. */
+export async function metrics(): Promise<MetricsReport> {
+  if (MOCK) return (await import('./mock/metrics')).mockMetrics()
+  const res = await fetch('/api/metrics')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** Sets when a machine alerts (the same for every machine); answers the report after it. */
+export async function setThresholds(t: Thresholds): Promise<MetricsReport> {
+  if (MOCK) {
+    const mock = await import('./mock/metrics')
+    mock.setMockThresholds(t)
+    return mock.mockMetrics()
+  }
+  const res = await fetch('/api/metrics/thresholds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(t) })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }
 
 /** The machines the service knows, followed or not. */

@@ -12,7 +12,7 @@ import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
 import { useT } from '@/i18n'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, submitGate, type Delivery } from '@/runtime'
-import type { AskContext, Intent, Task, Turn, Unit, Workspace } from '@/types'
+import type { AskContext, Intent, MachineAlert, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -60,6 +60,20 @@ export default function App() {
     seen.current = new Set(now.map(s => s.session ?? s.agent))
     // The first data only sets what is known; it is not news.
     if (before) for (const s of now) if (!before.has(s.session ?? s.agent)) notify(t('agents.notice', { agent: s.agent }), s.topic, s.session ?? s.agent)
+  }, [data, t])
+  // A machine newly past an alert threshold: a notification too, once per alert.
+  const alerted = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const key = (a: MachineAlert) => `${a.machine}:${a.metric}:${a.since}`
+    const now = data.alerts ?? []
+    const before = alerted.current
+    alerted.current = new Set(now.map(key))
+    if (before)
+      for (const a of now.filter(a => !before.has(key(a)))) {
+        const value = t('metrics.percent', { value: Math.round(a.value) })
+        notify(t('metrics.notice', { machine: a.here ? t('metrics.here') : a.machine, metric: t(`metrics.${a.metric}`), value }), t('metrics.noticeBody', { percent: a.percent, minutes: a.minutes }), `alert:${key(a)}`, false)
+      }
   }, [data, t])
   const blocking = useMemo(() => (ws ? inbox(ws).blocking.length : 0), [ws])
   useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])

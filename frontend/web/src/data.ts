@@ -2,7 +2,7 @@
 // the views derive from it. Apart from the loading, pure functions only.
 import { diffLines, structuredPatch } from 'diff'
 import type { T } from './i18n'
-import type { Attachment, Chore, Commit, Intent, Finding, Unit, ModuleNode, Severity, Task, Workspace } from './types'
+import type { Attachment, Chore, Commit, Intent, Finding, MachineAlert, Unit, ModuleNode, Severity, Task, Workspace } from './types'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
@@ -25,6 +25,7 @@ async function loadWorkspace(): Promise<Workspace> {
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
   for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const f of n.output.findings ?? []) for (const a of f.attachments ?? []) a.url = pictures[a.url] ?? a.url
+  ws.alerts = (await import('./mock/metrics')).mockAlerts()
   return prepare(ws)
 }
 
@@ -326,13 +327,15 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  kind: 'agent' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
   project?: string
   /** agent: the agent waiting in its terminal, and where it runs. */
   agent?: { name: string; session?: string; topic?: string; place: string }
+  /** machine: a machine past an alert threshold. */
+  alert?: MachineAlert
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
   unit: Unit | null
   /** What a click opens; null for a chore. */
@@ -351,6 +354,8 @@ export const blockedAgents = (ws: Workspace | null) => (ws?.sessions ?? []).filt
 export interface Inbox {
   /** Gates: an agent cannot go on. */
   blocking: InboxRow[]
+  /** Machines past an alert threshold: they slow every agent there; they leave by themselves. */
+  machines: InboxRow[]
   /** Reviews and gates with open findings, the highest open severity first. */
   decisions: InboxRow[]
   /** Commits that name no node, branches that grew beyond the plan. */
@@ -364,7 +369,7 @@ export const openFindings = (n: Task) =>
   findingsOf(n).filter(waits).sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
 
 export function inbox(ws: Workspace): Inbox {
-  const box: Inbox = { blocking: [], decisions: [], gaps: [], later: [] }
+  const box: Inbox = { blocking: [], machines: [], decisions: [], gaps: [], later: [] }
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
       ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, far: [], since })
@@ -392,6 +397,9 @@ export function inbox(ws: Workspace): Inbox {
   }).sort(oldest)
   box.blocking.sort(oldest)
   box.blocking.unshift(...waiting)
+  box.machines = (ws.alerts ?? [])
+    .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, far: [], since: ms(a.since) }))
+    .sort(oldest)
   box.decisions.sort((a, b) => top(a) - top(b) || oldest(a, b))
   box.gaps.sort(oldest)
   box.later.sort(oldest)
