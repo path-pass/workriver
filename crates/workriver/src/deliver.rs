@@ -36,13 +36,13 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
             let to = target(state, live, &intent_of(unit)?, None);
             Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note, *was)?.text(&files(unit, *task, Some(finding)))))
         }
-        // A gate result goes to the agent waiting behind the gate, else the manager; a design
+        // A gate result goes to the agent waiting on the gate, else the manager; a design
         // decision always to the manager, who hands out what follows.
         Body::GateSubmitted { unit, task, .. } if e.actor == "user" => {
             let gate = state.task(unit, *task).ok();
             let decide = gate.is_some_and(|g| g.gate == Some(GateKind::Decide));
             // Never to an agent on a blind task: it is told nothing until it delivers.
-            let waiting = gate.filter(|_| !decide).and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone()).filter(|a| state.blind_tasks(a).is_empty());
+            let waiting = gate.filter(|_| !decide).and_then(|g| waiting_on(state, unit, g)).filter(|a| state.blind_tasks(a).is_empty());
             let to = target(state, live, &intent_of(unit)?, waiting.as_deref());
             Some(on(unit, *task, None, to, gate_message(state, unit, *task)?.text(&files(unit, *task, None))))
         }
@@ -288,6 +288,15 @@ fn details(owner: &str, n: u32) -> String {
 }
 
 /// The task `t` follows directly.
+/// Who waits on a gate: the agent of an unfinished task that comes after it; else the worker
+/// that asked for it after its own task (a deploy it needs, say). Not whoever did the task
+/// the gate follows: a reviewer done long ago waits on nothing.
+fn waiting_on(state: &State, unit: &str, g: &Task) -> Option<String> {
+    let n = g.n.to_string();
+    let behind = state.tasks_of(unit)?.iter().filter(|t| t.state != workriver_core::TaskState::Done && t.inputs.iter().any(|i| i.from == n)).find_map(|t| t.agent.clone());
+    behind.or_else(|| followed(state, unit, g).filter(|f| f.agent.as_deref() == Some(g.by.as_str())).map(|_| g.by.clone()))
+}
+
 fn followed<'a>(state: &'a State, unit: &str, t: &Task) -> Option<&'a Task> {
     let from = t.inputs.iter().find(|i| i.primary)?.from.parse().ok()?;
     state.task(unit, from).ok()
@@ -471,6 +480,10 @@ mod tests {
         // The manager's own records are not told back to it.
         let own_gate = at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "4"}]}}));
         assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &own_gate), None);
+        // The manager's gate after a worker's finished task: the worker waits on nothing, so
+        // the result goes to the manager (it once went to that worker, and nobody acted on it).
+        let tried = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 6, "result": "done"}}));
+        assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &tried).unwrap().to, Ok("boss".into()));
         // A revision is told as the user's way; a design decision as such.
         at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design it", "inputs": [{"from": "1"}]}}));
         at(&mut s, "worker", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 7, "note": "One table"}}));
