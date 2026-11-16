@@ -283,7 +283,10 @@ read each other); nothing is matched or merged automatically.
 
 Both are things an agent hands to the user; what separates them is whether an agent is
 stuck. A **gate** blocks: a manual deploy, a manual try-out. It is a node, placed where
-the flow stops, violet while it waits and water once done; the work behind it stays not
+the flow stops, violet while it waits and water once done. It waits only once every task
+it follows is done; before that it is drawn like any task not started and counts nowhere
+(not in Needs you, the marks, the tab's title or the unit's state), and its age in Needs
+you counts from the moment it opened. The work behind it stays not
 started, and the lines around a waiting gate do not flow, so a stuck branch is visible on
 the graph. Its input is the steps the agent prepared, each command with a copy button;
 its output is a short note and, for a try-out that went wrong, findings like a review's.

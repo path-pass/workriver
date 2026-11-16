@@ -430,6 +430,7 @@ mod tests {
             {"severity": "P2", "problem": "Twice", "impact": "Two notices", "where": ["a.ts"]},
             {"severity": "P3", "problem": "Emoji", "impact": "Missed", "where": ["a.ts"]}]}}));
         at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{"from": "1"}]}}));
+        at(&mut s, "worker", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "npm test", "result": "passed", "summary": "ok"}]}}));
 
         let live = [agent("worker"), agent("boss")];
         let accept = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}}));

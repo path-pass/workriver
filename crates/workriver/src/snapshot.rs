@@ -506,23 +506,63 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
 /// Commits never change and a tree only with its HEAD, so both are kept between snapshots.
 #[derive(Default)]
 pub struct Cache {
+    /// Commits with their files' texts, by hash: they never change.
+    // ponytail: unbounded; a commit's texts are kept for the life of the service.
     commits: HashMap<String, scan::Commit>,
     trees: HashMap<String, (String, scan::Module)>,
     /// The machines followed, for repositories that are on one of them.
     pub machines: Option<std::sync::Arc<crate::machines::Machines>>,
-    /// Patch ids of commits (`git patch-id --stable`), by hash: to find a commit linked to
-    /// a task again after a rebase gave it another hash.
-    patch: HashMap<String, String>,
-    /// What was last read of a remote unit, and when: read again only after `REMOTE`.
-    remote: HashMap<String, (std::time::Instant, Vec<scan::Commit>, Vec<scan::FileChange>)>,
-    /// When each remote repository's tree was last checked.
-    checked: HashMap<String, std::time::Instant>,
-    /// What each unit's branch held when last read, kept in a file across restarts: where
-    /// its commits start (to find them once merged) and the list (when the branch is gone).
-    seen: HashMap<String, Seen>,
-    seen_file: Option<std::path::PathBuf>,
+    /// What is kept across restarts (in `file`): where branches fork, which commits each
+    /// unit had for which tips, what commits say, patch ids.
+    stored: Stored,
+    file: Option<std::path::PathBuf>,
+    dirty: bool,
+    /// This build: no file texts, uncommitted work or trees (board, `task show`).
+    pub light: bool,
+    /// Whether this cache reads repositories on other machines (the background one does);
+    /// one that does not takes what the background read last, from `shared`.
+    pub remote_reads: bool,
+    pub shared: std::sync::Arc<std::sync::Mutex<Shared>>,
+    /// Each repository's refs and work trees, read once per build.
+    refs: HashMap<String, HashMap<String, String>>,
+    worktrees: HashMap<String, HashMap<String, std::path::PathBuf>>,
     /// Units found merged in git and not yet recorded so: (unit, its commits).
     pub merged_now: Vec<(String, Vec<String>)>,
+    /// This build: units whose commits were worked out again, and those reused.
+    pub recomputed: usize,
+    pub reused: usize,
+}
+
+/// What a cache keeps across restarts.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct Stored {
+    #[serde(default)]
+    seen: HashMap<String, Seen>,
+    #[serde(default)]
+    memo: HashMap<String, Memo>,
+    #[serde(default)]
+    meta: HashMap<String, scan::Named>,
+    #[serde(default)]
+    patch: HashMap<String, String>,
+}
+
+/// A unit's commits for one state of its branch and base (`key`).
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct Memo {
+    key: String,
+    hashes: Vec<String>,
+    merged: bool,
+}
+
+/// A unit on another machine as last read: its commits, its uncommitted work, the patch ids
+/// of its commits and of those of branches it left.
+pub type RemoteUnit = (Vec<scan::Commit>, Vec<scan::FileChange>, HashMap<String, String>);
+
+/// What the background read of other machines found last, for requests to show.
+#[derive(Default)]
+pub struct Shared {
+    pub units: HashMap<String, RemoteUnit>,
+    pub trees: HashMap<String, scan::Module>,
 }
 
 /// A unit's branch as last read.
@@ -543,11 +583,30 @@ impl Cache {
         Cache { machines, ..Default::default() }
     }
 
-    /// Keeps what units' branches held in `file`, and starts from what it holds.
-    pub fn remembering(mut self, file: std::path::PathBuf) -> Cache {
-        self.seen = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        self.seen_file = Some(file);
+    /// What the background read of other machines found goes through `shared`.
+    pub fn sharing(mut self, shared: std::sync::Arc<std::sync::Mutex<Shared>>) -> Cache {
+        self.shared = shared;
         self
+    }
+
+    /// Keeps what it learns in `file`, and starts from what it holds.
+    pub fn remembering(mut self, file: std::path::PathBuf) -> Cache {
+        self.stored = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        self.file = Some(file);
+        self
+    }
+
+    /// Writes what was learnt since the last time.
+    pub fn save(&mut self) {
+        let Some(file) = self.file.as_ref().filter(|_| self.dirty) else { return };
+        let written = file.parent().map(std::fs::create_dir_all).unwrap_or(Ok(())).and_then(|_| serde_json::to_vec(&self.stored).map_err(std::io::Error::other)).and_then(|b| {
+            let tmp = file.with_extension("tmp");
+            std::fs::write(&tmp, b).and_then(|_| std::fs::rename(&tmp, file))
+        });
+        match written {
+            Ok(()) => self.dirty = false,
+            Err(e) => tracing::warn!("cannot write {}: {e}", file.display()),
+        }
     }
 
     /// Where git runs for a repository: None while its machine cannot be reached.
@@ -556,6 +615,16 @@ impl Cache {
             None => Some(scan::Runner::Local),
             Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)),
         }
+    }
+
+    /// A repository's refs, read once per build.
+    fn refs(&mut self, at: &scan::Runner, u: &core::Unit) -> Option<HashMap<String, String>> {
+        let key = format!("{}\0{}", u.machine.as_deref().unwrap_or_default(), u.repo);
+        if !self.refs.contains_key(&key) {
+            let r = scan::refs(at, Path::new(&u.repo)).ok()?;
+            self.refs.insert(key.clone(), r);
+        }
+        self.refs.get(&key).cloned()
     }
 }
 
@@ -585,10 +654,14 @@ impl Names {
 /// `blocked`: when each blocked live agent (by session) was first seen blocked.
 pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
+    cache.refs.clear();
+    cache.worktrees.clear();
+    (cache.recomputed, cache.reused) = (0, 0);
     let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
     let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
     let repos = repos.into_iter().map(|(m, r)| repo(m, r, cache)).collect();
+    let repos: Vec<Repo> = repos;
     let intents = state
         .intents
         .iter()
@@ -778,18 +851,21 @@ fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
         None => path.to_string(),
     };
     let empty = || scan::Module { name: name.clone(), children: Some(vec![]), ..Default::default() };
-    // A remote tree is checked every `REMOTE` at most, and kept while its machine is away.
-    let recent = machine.is_some() && cache.checked.get(&key).is_some_and(|t| t.elapsed() < REMOTE);
-    let modules = match cache.runner(machine).filter(|_| !recent) {
+    let modules = match cache.runner(machine) {
+        // Not wanted (a light build), or on another machine and read in the background.
+        _ if cache.light => empty(),
+        _ if machine.is_some() && !cache.remote_reads => cache.shared.lock().unwrap().trees.get(&key).cloned().unwrap_or_else(empty),
         None => cache.trees.get(&key).map(|(_, m)| m.clone()).unwrap_or_else(empty),
         Some(at) => {
-            cache.checked.insert(key.clone(), std::time::Instant::now());
             let head = scan::head(&at, p).unwrap_or_default();
             match cache.trees.get(&key) {
                 Some((h, m)) if *h == head => m.clone(),
                 _ => match scan::tree(&at, p) {
                     Ok(m) => {
-                        cache.trees.insert(key, (head, m.clone()));
+                        cache.trees.insert(key.clone(), (head, m.clone()));
+                        if machine.is_some() {
+                            cache.shared.lock().unwrap().trees.insert(key, m.clone());
+                        }
                         m
                     }
                     Err(e) => {
@@ -808,7 +884,7 @@ fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
 /// shows it merged. What the branch held is kept, for when it is merged or gone.
 pub fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<scan::Named>, bool)> {
     let place = format!("{}|{}|{}", u.repo, u.branch, u.base);
-    let seen = cache.seen.get(&u.id).filter(|s| s.place == place).cloned();
+    let seen = cache.stored.seen.get(&u.id).filter(|s| s.place == place).cloned();
     let fork = seen.as_ref().and_then(|s| s.fork.clone());
     let ours = |c: &scan::Named| c.task.as_deref().and_then(parse_task_ref).is_some_and(|(x, _)| x == u.id) || u.links.iter().any(|l| l.hash == c.hash);
     let (commits, fork, merged) = match scan::branch(at, Path::new(&u.repo), &u.base, &u.branch, fork.as_deref(), &ours)? {
@@ -819,88 +895,182 @@ pub fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> sca
     };
     let now = Seen { place, fork, commits: commits.clone() };
     if seen.as_ref() != Some(&now) {
-        cache.seen.insert(u.id.clone(), now);
-        if let Some(file) = &cache.seen_file
-            && let Err(e) = serde_json::to_vec(&cache.seen).map_err(std::io::Error::other).and_then(|b| std::fs::write(file, b))
-        {
-            tracing::warn!("cannot write {}: {e}", file.display());
-        }
+        cache.stored.seen.insert(u.id.clone(), now);
+        cache.dirty = true;
     }
     Ok((commits, merged))
 }
 
+/// Which commits are the unit's: as worked out last time while its branch, its base and
+/// what is recorded about it stay as they were (one `git for-each-ref` per repository tells);
+/// else worked out again (`unit_commits`).
+fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<String>, bool)> {
+    if u.merged.is_some() && !u.merged_commits.is_empty() {
+        return Ok((u.merged_commits.clone(), false));
+    }
+    let fork = cache.stored.seen.get(&u.id).and_then(|s| s.fork.clone()).unwrap_or_default();
+    let key = cache.refs(at, u).and_then(|refs| {
+        let base = scan::tip(&refs, &u.base)?.to_string();
+        let tip = scan::tip(&refs, &u.branch).unwrap_or("-").to_string();
+        Some(format!("{}|{}={tip}|{}={base}|{fork}|{}|{}|{}", u.repo, u.branch, u.base, u.earlier.len(), u.links.len(), u.merged_commits.len()))
+    });
+    if let Some(m) = cache.stored.memo.get(&u.id).filter(|m| key.as_ref() == Some(&m.key)) {
+        cache.reused += 1;
+        return Ok((m.hashes.clone(), m.merged));
+    }
+    cache.recomputed += 1;
+    let (list, merged) = unit_commits(at, u, cache)?;
+    // Under the fork as now known: what the next read finds unchanged.
+    let fork = cache.stored.seen.get(&u.id).and_then(|s| s.fork.clone()).unwrap_or_default();
+    let key = key.map(|k| {
+        let mut parts: Vec<&str> = k.split('|').collect();
+        parts[3] = &fork;
+        parts.join("|")
+    });
+    let hashes: Vec<String> = list.iter().map(|c| c.hash.clone()).collect();
+    for c in list {
+        cache.stored.meta.insert(c.hash.clone(), c);
+    }
+    if let Some(key) = key {
+        cache.stored.memo.insert(u.id.clone(), Memo { key, hashes: hashes.clone(), merged });
+    }
+    cache.dirty = true;
+    Ok((hashes, merged))
+}
+
+/// The background read of repositories on other machines: each unit's commits and work,
+/// and each repository's tree, into `shared`. Whether anything changed, and whether a
+/// machine could not be read (then it is tried again soon).
+pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
+    cache.refs.clear();
+    cache.worktrees.clear();
+    (cache.recomputed, cache.reused) = (0, 0);
+    let (mut changed, mut skipped) = (false, false);
+    for u in state.units.iter().filter(|u| u.machine.is_some()) {
+        let Some(at) = cache.runner(u.machine.as_deref()) else {
+            skipped = true;
+            // Not reachable (yet): what was read before the last restart, without texts.
+            let known = cache.stored.memo.get(&u.id).map(|m| m.hashes.clone()).unwrap_or_else(|| u.merged_commits.clone());
+            let mut shared = cache.shared.lock().unwrap();
+            if !shared.units.contains_key(&u.id) && !known.is_empty() {
+                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), files: vec![] })).collect();
+                let patch = cache.stored.patch.iter().filter(|(h, _)| known.contains(h)).map(|(h, p)| (h.clone(), p.clone())).collect();
+                shared.units.insert(u.id.clone(), (commits, vec![], patch));
+                changed = true;
+            }
+            continue;
+        };
+        let (c, f) = read_unit(&at, u, cache);
+        let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
+        let mut shared = cache.shared.lock().unwrap();
+        let same = shared.units.get(&u.id).is_some_and(|(oc, of, op)| oc.iter().map(|x| &x.hash).eq(c.iter().map(|x| &x.hash)) && *of == f && *op == p);
+        if !same {
+            shared.units.insert(u.id.clone(), (c, f, p));
+            changed = true;
+        }
+    }
+    let repos: BTreeSet<(&str, &str)> = state.units.iter().filter_map(|u| Some((u.machine.as_deref()?, u.repo.as_str()))).collect();
+    for (m, r) in repos {
+        let key = format!("{m}\0{r}");
+        let before = cache.trees.get(&key).map(|(h, _)| h.clone());
+        repo(Some(m), r, cache);
+        changed |= cache.trees.get(&key).map(|(h, _)| h.clone()) != before;
+    }
+    (changed, skipped)
+}
+
+/// A unit's commits and its uncommitted work, read from git where its repository is: the
+/// commits' texts only for those not read before, all in one go; none in a light build.
 fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
+    let started = std::time::Instant::now();
+    let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
     let repo = Path::new(&u.repo);
-    // Recorded merged with its commits: those. Else (also merged with none recorded, as a
-    // merge recorded by hand after git had merged it could be) as git shows them now.
-    let recorded = u.merged.is_some() && !u.merged_commits.is_empty();
-    let hashes = if recorded {
-        Ok(u.merged_commits.clone())
-    } else {
-        unit_commits(at, u, cache).map(|(list, merged)| {
-            let hashes: Vec<String> = list.into_iter().map(|c| c.hash).collect();
+    let hashes = match unit_hashes(at, u, cache) {
+        Ok((hashes, merged)) => {
             if merged && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
                 cache.merged_now.push((u.id.clone(), hashes.clone()));
             }
             hashes
-        })
-    };
-    let merged = u.merged.is_some();
-    let mut commits = vec![];
-    match hashes {
-        Ok(hashes) => {
-            for h in &hashes {
-                let c = match cache.commits.get(h) {
-                    Some(c) => c.clone(),
-                    None => match scan::commit(at, repo, h) {
-                        Ok(c) => cache.commits.entry(h.clone()).or_insert(c).clone(),
-                        Err(e) => {
-                            tracing::warn!("{e}");
-                            continue;
-                        }
-                    },
-                };
-                commits.push(c);
-            }
         }
-        Err(e) => tracing::warn!("unit {}: {e}", u.id),
+        Err(e) => {
+            tracing::warn!("unit {}: {e}", u.id);
+            vec![]
+        }
+    };
+    // Light: what each commit says is enough. Else their texts, those not read yet at once.
+    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), files: vec![] });
+    let missing: Vec<String> = hashes.iter().filter(|h| !cache.commits.contains_key(*h) && (!cache.light || !cache.stored.meta.contains_key(*h))).cloned().collect();
+    if !missing.is_empty() {
+        match scan::commits(at, repo, &missing) {
+            Ok(read) => {
+                for c in read {
+                    cache.stored.meta.entry(c.hash.clone()).or_insert_with(|| scan::Named { hash: c.hash.clone(), subject: c.subject.clone(), author: c.author.clone(), date: c.date.clone(), task: c.task.clone() });
+                    cache.commits.insert(c.hash.clone(), c);
+                }
+                cache.dirty = true;
+            }
+            Err(e) => tracing::warn!("unit {}: {e}", u.id),
+        }
     }
+    let commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).cloned().or_else(|| named(h, cache))).collect();
     // Links whose commit is not here any more, and commits of a branch the unit left (a
     // rebase gave them other hashes): told by patch ids, worked out once each (none: "").
     let stale = u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash));
     if stale || !u.earlier.is_empty() {
-        let old = u.earlier.iter().flat_map(|e| &e.commits).map(|c| &c.hash);
-        for h in commits.iter().map(|c| &c.hash).chain(old) {
-            if !cache.patch.contains_key(h) {
-                let id = scan::patch_id(at, repo, h).unwrap_or_default();
-                cache.patch.insert(h.clone(), id);
+        let old = u.earlier.iter().flat_map(|e| &e.commits).filter(|c| c.patch_id.is_empty()).map(|c| &c.hash);
+        let want: Vec<String> = commits.iter().map(|c| &c.hash).chain(old).filter(|h| !cache.stored.patch.contains_key(*h)).cloned().collect::<BTreeSet<_>>().into_iter().collect();
+        if !want.is_empty() {
+            let found = scan::patch_ids(at, repo, &want).unwrap_or_default();
+            for h in want {
+                let id = found.get(&h).cloned().unwrap_or_default();
+                cache.stored.patch.insert(h, id);
             }
+            cache.dirty = true;
         }
     }
-    let files = if merged {
+    let files = if u.merged.is_some() || cache.light {
         vec![]
     } else {
-        scan::live(at, repo, &u.branch).unwrap_or_else(|e| {
-            tracing::warn!("unit {}: {e}", u.id);
-            vec![]
-        })
+        let key = format!("{}\0{}", u.machine.as_deref().unwrap_or_default(), u.repo);
+        if !cache.worktrees.contains_key(&key) {
+            let w = scan::worktrees(at, repo).unwrap_or_default();
+            cache.worktrees.insert(key.clone(), w);
+        }
+        match cache.worktrees.get(&key).and_then(|w| w.get(&u.branch)).cloned() {
+            None => vec![],
+            Some(dir) => scan::live_in(at, &dir).unwrap_or_else(|e| {
+                tracing::warn!("unit {}: {e}", u.id);
+                vec![]
+            }),
+        }
     };
+    let ms = started.elapsed().as_millis() as u64;
+    tracing::info!(target: "perf", kind = "unit", unit = %u.id, machine = u.machine.as_deref().unwrap_or("local"), ms, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, commits = commits.len(), light = cache.light, slow = ms >= SLOW_MS);
     (commits, files)
 }
 
+/// Anything slower than this is marked so in the timing log.
+pub const SLOW_MS: u64 = 500;
+
 fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
     let merged = u.merged.is_some();
-    // On another machine: read every `REMOTE` at most; what was last read stays while the
-    // machine cannot be reached.
-    let recent = u.machine.is_some() && cache.remote.get(&u.id).is_some_and(|(t, _, _)| t.elapsed() < REMOTE);
-    let (commits, files) = match cache.runner(u.machine.as_deref()).filter(|_| !recent) {
-        None => cache.remote.get(&u.id).map(|(_, c, f)| (c.clone(), f.clone())).unwrap_or_default(),
-        Some(at) => {
-            let read = read_unit(&at, u, cache);
-            if u.machine.is_some() {
-                cache.remote.insert(u.id.clone(), (std::time::Instant::now(), read.0.clone(), read.1.clone()));
+    // On another machine: as the background read it last (it never waits on ssh here); what
+    // was read stays while the machine cannot be reached.
+    let (commits, files, patch) = if u.machine.is_some() && !cache.remote_reads {
+        let shared = cache.shared.lock().unwrap();
+        let (c, f, p) = shared.units.get(&u.id).cloned().unwrap_or_default();
+        (c, if cache.light { vec![] } else { f }, p)
+    } else {
+        match cache.runner(u.machine.as_deref()) {
+            None => Default::default(),
+            Some(at) => {
+                let (c, f) = read_unit(&at, u, cache);
+                let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
+                if u.machine.is_some() {
+                    cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone()));
+                }
+                (c, f, p)
             }
-            read
         }
     };
 
@@ -912,7 +1082,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         u.links
             .iter()
             .find(|l| l.hash == c.hash)
-            .or_else(|| cache.patch.get(&c.hash).filter(|p| !p.is_empty()).and_then(|p| stale().find(|l| &l.patch_id == p)))
+            .or_else(|| patch.get(&c.hash).filter(|p| !p.is_empty()).and_then(|p| stale().find(|l| &l.patch_id == p)))
             .or_else(|| stale().find(|l| !l.subject.is_empty() && l.subject == c.subject && l.date == c.date))
             .filter(|l| u.tasks.iter().any(|t| t.n == l.task))
     };
@@ -924,7 +1094,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(state, live, u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
     // Commits of branches the unit left, each once: found again here (the same hash, the same
     // patch id, or the same subject and author date) or not on the current branch.
-    let (again, gone) = earlier_commits(u, &commits, &cache.patch);
+    let (again, gone) = earlier_commits(u, &commits, &patch);
     for t in &mut tasks {
         let n: Option<u32> = t.id.parse().ok();
         t.lost_commits = gone.iter().filter(|c| c.task.is_some() && c.task == n).map(|c| c.hash.chars().take(9).collect()).collect();
@@ -997,8 +1167,9 @@ fn earlier_commits(u: &core::Unit, now: &[scan::Commit], patch: &HashMap<String,
         if now.iter().any(|c| c.hash == old.hash) {
             continue;
         }
+        let old_patch = if old.patch_id.is_empty() { patch.get(&old.hash).cloned().unwrap_or_default() } else { old.patch_id.clone() };
         let same = |c: &&scan::Commit| {
-            patch.get(&old.hash).filter(|p| !p.is_empty()).is_some_and(|p| patch.get(&c.hash) == Some(p))
+            (!old_patch.is_empty() && patch.get(&c.hash) == Some(&old_patch))
                 || (!old.subject.is_empty() && c.subject == old.subject && (old.date.is_empty() || c.date == old.date))
         };
         match now.iter().find(same) {
@@ -1035,7 +1206,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
     let manager_runs = manager.is_some_and(|m| live.iter().any(|a| a.session == m));
     let open = t.findings.iter().any(|f| f.state == FindingState::Open);
     let since = match t.state {
-        TaskState::Waiting => Some(t.at.clone()),
+        TaskState::Waiting => Some(t.waiting_since.clone().unwrap_or_else(|| t.at.clone())),
         TaskState::Done if open => t.done.clone(),
         _ => None,
     };

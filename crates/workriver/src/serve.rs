@@ -18,8 +18,8 @@ use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::broadcast;
-use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
+use tokio::sync::{broadcast, watch};
+use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode, Store};
 use workriver_scan as scan;
@@ -32,6 +32,8 @@ use crate::snapshot::{self, Cache};
 pub struct App {
     store: Mutex<Store>,
     cache: Mutex<Cache>,
+    /// Wakes the background read of repositories on other machines.
+    remote_kick: std::sync::mpsc::Sender<()>,
     runtime: Arc<dyn Runtime>,
     /// What was wrong with the runtime at start, if anything.
     warning: Option<String>,
@@ -48,6 +50,8 @@ pub struct App {
     // ponytail: in memory; a restart makes a blocked agent's wait start again.
     blocked: Mutex<std::collections::HashMap<String, String>>,
     changed: broadcast::Sender<()>,
+    /// Set once the service is stopping: open event streams end, so nothing holds it up.
+    stopping: watch::Sender<bool>,
     port: u16,
     /// The data directory: the database's folder, which holds the attachment store too.
     home: PathBuf,
@@ -155,6 +159,8 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
+    let shared = Arc::new(Mutex::new(snapshot::Shared::default()));
+    let (kick, kicked) = std::sync::mpsc::channel::<()>();
     let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
     if allow_as {
         tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
@@ -164,7 +170,8 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         allow_as,
         told: Mutex::default(),
         store: Mutex::new(store),
-        cache: Mutex::new(Cache::following(machines.clone()).remembering(store_home.join("units-seen.json"))),
+        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join("scan-cache").join("local.json"))),
+        remote_kick: kick,
         machines,
         listeners: Mutex::default(),
         groups: Mutex::default(),
@@ -178,6 +185,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         waits,
         blocked: Mutex::default(),
         changed: changed.clone(),
+        stopping: watch::channel(false).0,
         port,
         home: store_home,
         watcher: Mutex::new(None),
@@ -216,17 +224,41 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     for m in app.machines.iter().flat_map(|m| m.states()) {
         let _ = listen(&app, &m.label, 0).await;
     }
-    // Repositories on other machines cannot be watched: the page asks again now and then.
+    // Repositories on other machines cannot be watched: they are read in the background,
+    // every `REMOTE` and whenever a record touches one of their units, never while a request
+    // waits; the page hears when something there changed.
     let remote = app.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(snapshot::REMOTE);
+    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join("scan-cache").join("remote.json"));
+    bg.remote_reads = true;
+    std::thread::spawn(move || {
+        let mut wait = snapshot::REMOTE;
         loop {
-            tick.tick().await;
-            if remote.store.lock().unwrap().state().units.iter().any(|u| u.machine.is_some() && u.merged.is_none()) {
+            match kicked.recv_timeout(wait) {
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                _ => while kicked.try_recv().is_ok() {},
+            }
+            if *remote.stopping.borrow() {
+                break;
+            }
+            let state = remote.store.lock().unwrap().state().clone();
+            if !state.units.iter().any(|u| u.machine.is_some()) {
+                continue;
+            }
+            let started = std::time::Instant::now();
+            let (changed, skipped) = snapshot::refresh_remote(&state, &mut bg);
+            // A machine not reachable yet (just started, reconnecting): looked at again soon.
+            wait = if skipped { Duration::from_secs(1) } else { snapshot::REMOTE };
+            bg.save();
+            let found = std::mem::take(&mut bg.merged_now);
+            remote.record_merges(found);
+            let ms = started.elapsed().as_millis() as u64;
+            tracing::info!(target: "perf", kind = "remote_read", ms, recomputed = bg.recomputed, reused = bg.reused, changed, slow = ms >= snapshot::SLOW_MS);
+            if changed {
                 let _ = remote.changed.send(());
             }
         }
     });
+    let _ = app.remote_kick.send(());
     // Messages delivered before a restart are watched again; whether their receiver was seen
     // idle since is lost, so it must be seen not working first.
     let pending: Vec<Pending> = {
@@ -268,8 +300,48 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     // Nothing that signs anyone in is ever written here: this output is on a screen (a
     // Herdr pane) that agents can read. The user opens the page with `workriver open`.
     tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");
-    axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
+    let stop = {
+        let app = app.clone();
+        async move {
+            stop_signal().await;
+            tracing::info!("stopping: open requests get {} s", GRACE.as_secs());
+            let _ = app.stopping.send(true);
+            if let Some(m) = &app.machines {
+                m.stop_all();
+            }
+        }
+    };
+    let mut stopping = app.stopping.subscribe();
+    let server = axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(stop);
+    tokio::select! {
+        r = server => r?,
+        _ = async { let _ = stopping.wait_for(|s| *s).await; tokio::time::sleep(GRACE).await } => tracing::warn!("requests still open after {} s; stopping anyway", GRACE.as_secs()),
+    }
     Ok(())
+}
+
+/// How long open requests may finish once the service is told to stop.
+const GRACE: Duration = Duration::from_secs(2);
+
+/// Returns at the first Ctrl-C or SIGTERM; a second one ends the process at once.
+async fn stop_signal() {
+    let term = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term => {}
+    }
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            std::process::exit(130);
+        }
+    });
 }
 
 /// The git changes that can change what is shown: work-tree files, refs and HEAD.
@@ -460,21 +532,28 @@ impl App {
     }
 
     /// What the page reads, of `state` as the reader may see it.
-    fn snapshot(&self, state: &core::State) -> snapshot::Workspace {
-        let mut cache = self.cache.lock().unwrap();
+    /// `light`: without file texts, uncommitted work or trees (board, `task show`).
+    fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> snapshot::Workspace {
+        let started = std::time::Instant::now();
+        let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
         let blocked = self.blocked.lock().unwrap().clone();
         let groups = self.groups.lock().unwrap().clone();
-        let mut ws = snapshot::build(state, &mut cache, self.live().as_deref(), &blocked, &groups);
+        let live = self.live();
+        let mut cache = self.cache.lock().unwrap();
+        cache.light = light;
+        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &groups);
+        cache.save();
         if state.reduced {
             snapshot::hide(&mut ws);
         }
+        let ms = started.elapsed().as_millis() as u64;
+        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= snapshot::SLOW_MS);
         ws
     }
 
     /// Units git shows merged (a fast-forward, a merge commit) are recorded merged, with the
     /// commits they had, as `workriver unit merged` would.
-    fn record_merges(&self) {
-        let found = std::mem::take(&mut self.cache.lock().unwrap().merged_now);
+    fn record_merges(&self, found: Vec<(String, Vec<String>)>) {
         for (unit, commits) in found {
             if let Err(e) = self.record(&Principal::Service, Body::UnitMerged { unit: unit.clone(), commits }) {
                 tracing::warn!("cannot record unit {unit} merged: {}", e.1);
@@ -528,10 +607,15 @@ impl App {
             _ => {}
         }
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
+        // One on another machine is read again in the background.
         if let (_, Some(unit), _) = e.body.refs() {
-            let found = self.store.lock().unwrap().state().unit(&unit).ok().filter(|u| u.machine.is_none()).map(|u| (u.repo.clone(), u.branch.clone()));
-            if let Some((repo, branch)) = found {
-                self.watch(Path::new(&repo), &branch);
+            let found = self.store.lock().unwrap().state().unit(&unit).ok().map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
+            match found {
+                Some((false, repo, branch)) => self.watch(Path::new(&repo), &branch),
+                Some((true, ..)) => {
+                    let _ = self.remote_kick.send(());
+                }
+                None => {}
             }
         }
         let _ = self.changed.send(());
@@ -572,17 +656,20 @@ impl App {
                 let top = self.repository(machine.as_deref(), &repo, &base)?;
                 // What is on the place it leaves is read once, now: the old branch is not
                 // read again, and what only it had would otherwise vanish without a word.
+                // Their patch ids are taken too, all at once, so that their rebased copies are
+                // told without reading the old branch again.
                 let previous = match self.runner(u.machine.as_deref()) {
-                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap())
-                        .map(|(list, _)| list)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|c| {
-                            let linked = u.links.iter().find(|l| l.hash == c.hash).map(|l| l.task);
-                            let named = c.task.as_deref().and_then(core::parse_task_ref).filter(|(x, _)| *x == u.id).map(|(_, n)| n);
-                            core::SeenCommit { task: linked.or(named), hash: c.hash, subject: c.subject, date: c.date }
-                        })
-                        .collect(),
+                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => {
+                        let list = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map(|(list, _)| list).unwrap_or_default();
+                        let ids = scan::patch_ids(&at, Path::new(&u.repo), &list.iter().map(|c| c.hash.clone()).collect::<Vec<_>>()).unwrap_or_default();
+                        list.into_iter()
+                            .map(|c| {
+                                let linked = u.links.iter().find(|l| l.hash == c.hash).map(|l| l.task);
+                                let named = c.task.as_deref().and_then(core::parse_task_ref).filter(|(x, _)| *x == u.id).map(|(_, n)| n);
+                                core::SeenCommit { task: linked.or(named), patch_id: ids.get(&c.hash).cloned().unwrap_or_default(), hash: c.hash, subject: c.subject, date: c.date }
+                            })
+                            .collect()
+                    }
                     _ => vec![],
                 };
                 Body::UnitRelocated { unit, machine, repo: top, branch, base, previous }
@@ -920,10 +1007,30 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
+        .route_layer(middleware::from_fn(timing))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .layer(Extension(via))
         .with_state(app)
+}
+
+/// One line of the timing log per request: its route (the template, never the path or the
+/// query), status, time, size and what kind of caller; nothing that names anyone.
+async fn timing(req: Request, next: Next) -> Response {
+    let started = std::time::Instant::now();
+    let route = req.extensions().get::<axum::extract::MatchedPath>().map(|p| p.as_str().to_string()).unwrap_or_default();
+    let method = req.method().to_string();
+    let who = req.extensions().get::<Caller>().map_or("none", |c| match (&c.machine, &c.place, c.user) {
+        (Some(_), ..) => "machine",
+        (None, Some(_), _) => "pane",
+        (None, None, true) => "user",
+        _ => "none",
+    });
+    let res = next.run(req).await;
+    let ms = started.elapsed().as_millis() as u64;
+    let bytes = axum::body::HttpBody::size_hint(res.body()).exact().unwrap_or(0);
+    tracing::info!(target: "perf", kind = "http", method, route, status = res.status().as_u16(), ms, bytes, who, slow = ms >= snapshot::SLOW_MS);
+    res
 }
 
 /// The routes of a followed machine's listener: only what an agent's CLI over there needs.
@@ -942,6 +1049,7 @@ fn machine_router(app: Shared, via: Via) -> Router {
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
         .route("/api/status", get(status))
+        .route_layer(middleware::from_fn(timing))
         .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .layer(Extension(via))
@@ -1018,6 +1126,9 @@ struct Reader {
     place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
+    /// Without file texts, uncommitted work or trees.
+    #[serde(default)]
+    light: bool,
 }
 
 impl App {
@@ -1038,8 +1149,9 @@ impl App {
 async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
-        let ws = app.snapshot(&state);
-        app.record_merges();
+        let ws = app.snapshot(&state, r.light, "workspace");
+        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+        app.record_merges(found);
         Ok(Json(ws))
     })
     .await
@@ -1060,7 +1172,7 @@ struct ShowQuery {
 /// read; attachments are paths on this machine and links through the tunnel on another.
 async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
     blocking(move || {
-        let r = Reader { place: q.place.clone(), named: q.named };
+        let r = Reader { place: q.place.clone(), named: q.named, light: true };
         let who = app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
         let state = app.view(&caller, &r)?;
         let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
@@ -1080,8 +1192,9 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
                 }
             }
         };
-        let ws = serde_json::to_value(app.snapshot(&state)).unwrap_or_default();
-        app.record_merges();
+        let ws = serde_json::to_value(app.snapshot(&state, true, "task")).unwrap_or_default();
+        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+        app.record_merges(found);
         // A reader on another machine cannot open this machine's files: it gets a link it
         // can fetch through its tunnel, as the reader it is.
         let remote = caller.machine.is_some();
@@ -1126,7 +1239,9 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
 async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
     app.user(&caller)?;
     // A lagging client missed some, which is still one change.
-    let stream = BroadcastStream::new(app.changed.subscribe()).map(|_| Ok(SseEvent::default().event("changed").data("changed")));
+    // It ends when the service stops, or it would hold the stopping up for good.
+    let stop = WatchStream::new(app.stopping.subscribe()).filter(|s| *s).map(|_| false);
+    let stream = BroadcastStream::new(app.changed.subscribe()).map(|_| true).merge(stop).take_while(|go| *go).map(|_| Ok(SseEvent::default().event("changed").data("changed")));
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 

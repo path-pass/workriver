@@ -4,6 +4,13 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-16 (later)
 
+- **A gate waits only once what it follows is done.** Planned ahead, it is `todo` and asks
+  the user for nothing; `workriver gate submit` on it is refused, naming the tasks still
+  open. It does not make a unit "waiting".
+- **Reading is fast again**: commits are cached by what changed (branch and base tips);
+  repositories on other machines are read in the background, never while a command waits.
+  `workriver perf` shows where time went (the user's; for sending back when something is
+  slow).
 - **Other machines reconnect by themselves**: the port over there is a new one per
   connection, written to `~/.config/workriver/port`, which the CLI there reads; do not set
   `WORKRIVER_PORT` there. While a machine is disconnected the board says "box is

@@ -206,3 +206,52 @@ fn a_units_commits_survive_merges() {
     let fork = branch(&at, &repo, "main", "main", Some("main"), &ours).unwrap();
     assert_eq!(fork, Found::Fresh, "its tip is its fork");
 }
+
+/// Many commits read at once are what reading them one by one gives: additions, deletions,
+/// a merge (against its first parent), the root commit, a binary file.
+#[test]
+fn commits_read_at_once_as_one_by_one() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "a.txt", "one\n");
+    write(repo, "b.txt", "bee\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "root"]);
+    sh(repo, &["switch", "-q", "-c", "f"]);
+    write(repo, "a.txt", "one\ntwo\n");
+    std::fs::remove_file(repo.join("b.txt")).unwrap();
+    std::fs::write(repo.join("bin.dat"), [0u8, 1, 2, 0]).unwrap();
+    write(repo, "dir/c.txt", "new\n");
+    sh(repo, &["add", "-A"]);
+    sh(repo, &["commit", "-q", "-m", "Change things\n\nTask: u1#2"]);
+    sh(repo, &["switch", "-q", "main"]);
+    write(repo, "m.txt", "main\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "On main"]);
+    sh(repo, &["switch", "-q", "f"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Merge main", "main"]);
+    let at = Runner::Local;
+    let all: Vec<String> = String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["rev-list", "--reverse", "f"]).output().unwrap().stdout).unwrap().lines().map(str::to_string).collect();
+    assert_eq!(all.len(), 4);
+    let one_by_one: Vec<Commit> = all.iter().map(|h| commit(&at, repo, h).unwrap()).collect();
+    let at_once = commits(&at, repo, &all).unwrap();
+    for (a, b) in one_by_one.iter().zip(&at_once) {
+        assert_eq!((&a.hash, &a.subject, &a.author, &a.date, &a.task), (&b.hash, &b.subject, &b.author, &b.date, &b.task));
+        assert!(b.id.len() >= 9 && a.hash.starts_with(&b.id));
+        let paths = |c: &Commit| c.files.iter().map(|f| (f.path.clone(), f.status.clone(), f.before.clone(), f.after.clone())).collect::<Vec<_>>();
+        assert_eq!(paths(a), paths(b), "{}", a.subject);
+    }
+    let mut sizes: Vec<usize> = at_once.iter().map(|c| c.files.len()).collect();
+    sizes.sort();
+    assert_eq!(sizes, [1, 1, 2, 3], "root: two; change: a, b, c (the binary left out); main: m; merge: m against its first parent");
+    // Patch ids at once are the ones one by one.
+    let ids = patch_ids(&at, repo, &all).unwrap();
+    for h in &all {
+        assert_eq!(ids.get(h).cloned().unwrap_or_default(), patch_id(&at, repo, h).unwrap(), "{h}");
+    }
+    let r = refs(&at, repo).unwrap();
+    assert_eq!(tip(&r, "f"), Some(all[3].as_str()));
+    assert_eq!(tip(&r, &all[0]), Some(all[0].as_str()));
+    assert_eq!(tip(&r, "nope"), None);
+}

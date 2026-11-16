@@ -113,14 +113,38 @@ impl Runner {
     }
 }
 
+/// How many git processes were run, here and over ssh: for the timing log.
+pub static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Runs git in `dir`; exit codes in `ok` besides 0 count as success. Optional locks are off
 /// so reading never rewrites the index, which the watcher would take for a change.
 fn run(at: &Runner, dir: &Path, args: &[&str], ok: &[i32]) -> Result<Vec<u8>> {
+    run_with(at, dir, args, ok, None)
+}
+
+/// The same, with `input` on git's stdin.
+fn run_with(at: &Runner, dir: &Path, args: &[&str], ok: &[i32], input: Option<Vec<u8>>) -> Result<Vec<u8>> {
     let dir_s = dir.to_string_lossy();
     let mut words = vec!["git", "--no-optional-locks", "-C", &dir_s];
     words.extend_from_slice(args);
-    let out = at.command(&words).output()?;
+    let started = std::time::Instant::now();
+    CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut cmd = at.command(&words);
+    let out = match input {
+        None => cmd.output()?,
+        Some(bytes) => {
+            let mut child = cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn()?;
+            let mut stdin = child.stdin.take().expect("piped");
+            let writer = std::thread::spawn(move || std::io::Write::write_all(&mut stdin, &bytes));
+            let out = child.wait_with_output()?;
+            let _ = writer.join();
+            out
+        }
+    };
     let code = out.status.code().unwrap_or(-1);
+    // What git was asked, without where (a path names the user's folders) or which files.
+    let said: Vec<&str> = args.iter().map(|a| if a.contains('/') { "…" } else { *a }).take(8).collect();
+    tracing::debug!(target: "perf", kind = "git", via = if matches!(at, Runner::Local) { "local" } else { "ssh" }, args = %said.join(" "), ms = started.elapsed().as_millis() as u64, code, bytes = out.stdout.len());
     if code != 0 && !ok.contains(&code) {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(Error::Git(format!("git {} in {}: {}", args.join(" "), dir.display(), err.trim())));
@@ -157,6 +181,8 @@ pub fn has_rev(at: &Runner, repo: &Path, rev: &str) -> bool {
 pub struct Named {
     pub hash: String,
     pub subject: String,
+    #[serde(default)]
+    pub author: String,
     /// ISO 8601 with offset: the author's date, which a rebase keeps.
     pub date: String,
     /// The value of a `Task:` trailer.
@@ -173,15 +199,15 @@ pub fn names(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<N
 
 /// `git log --first-parent` with `args`, by name only.
 fn log(at: &Runner, repo: &Path, args: &[&str]) -> Result<Vec<Named>> {
-    let fmt = "--format=%H%x00%aI%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
+    let fmt = "--format=%H%x00%aI%x00%an%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
     let out = git(at, repo, &[&["log", "--first-parent", fmt][..], args, &["--"]].concat())?;
     Ok(out
         .lines()
         .filter_map(|l| {
-            let f: Vec<&str> = l.splitn(4, '\0').collect();
-            let [hash, date, task, subject] = f[..] else { return None };
+            let f: Vec<&str> = l.splitn(5, '\0').collect();
+            let [hash, date, author, task, subject] = f[..] else { return None };
             let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
-            Some(Named { hash: hash.into(), subject: subject.into(), date: date.into(), task })
+            Some(Named { hash: hash.into(), subject: subject.into(), author: author.into(), date: date.into(), task })
         })
         .collect())
 }
@@ -253,6 +279,118 @@ pub fn patch_id(at: &Runner, repo: &Path, hash: &str) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or_default().to_string())
 }
 
+/// Every branch, tag and remote ref of a repository with the commit it points at: one call
+/// tells which units' branches moved.
+pub fn refs(at: &Runner, repo: &Path) -> Result<HashMap<String, String>> {
+    let out = git(at, repo, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
+    Ok(out.lines().filter_map(|l| l.split_once(' ')).map(|(h, r)| (r.to_string(), h.to_string())).collect())
+}
+
+/// The commit `name` (a branch, a remote branch, a tag, or a full hash) points at in `refs`.
+pub fn tip<'a>(refs: &'a HashMap<String, String>, name: &'a str) -> Option<&'a str> {
+    ["refs/heads/", "refs/remotes/", "refs/tags/", ""].iter().find_map(|p| refs.get(&format!("{p}{name}")).map(String::as_str)).or_else(|| (name.len() == 40 && name.bytes().all(|b| b.is_ascii_hexdigit())).then_some(name))
+}
+
+/// Patch ids of many commits at once (`git patch-id --stable` on their patches), by hash;
+/// a commit that changes nothing has none.
+pub fn patch_ids(at: &Runner, repo: &Path, hashes: &[String]) -> Result<HashMap<String, String>> {
+    if hashes.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let list: Vec<String> = hashes.iter().map(|h| quote(h)).collect();
+    let script = format!("git --no-optional-locks -C {} log --no-walk=unsorted -p --no-color --format='commit %H' {} -- | git patch-id --stable", quote(&repo.to_string_lossy()), list.join(" "));
+    CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let out = at.command(&["sh", "-c", &script]).output()?;
+    if !out.status.success() {
+        return Err(Error::Git(format!("git patch-id in {}: {}", repo.display(), String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.split_once(' ')).map(|(p, h)| (h.to_string(), p.to_string())).collect())
+}
+
+/// The contents of many objects at once (`git cat-file --batch`): each spec (a blob hash, or
+/// `rev:path`) gives its bytes, or None when there is no such object.
+fn blobs(at: &Runner, dir: &Path, specs: &[String]) -> Result<Vec<Option<Vec<u8>>>> {
+    if specs.is_empty() {
+        return Ok(vec![]);
+    }
+    let input = specs.iter().map(|s| format!("{s}\n")).collect::<String>().into_bytes();
+    let out = run_with(at, dir, &["cat-file", "--batch"], &[], Some(input))?;
+    let mut found = Vec::with_capacity(specs.len());
+    let mut rest = &out[..];
+    for _ in specs {
+        let Some(nl) = rest.iter().position(|b| *b == b'\n') else { break };
+        let head = String::from_utf8_lossy(&rest[..nl]).into_owned();
+        rest = &rest[nl + 1..];
+        match head.rsplit(' ').next().and_then(|n| n.parse::<usize>().ok()).filter(|_| !head.ends_with(" missing")) {
+            Some(size) if rest.len() > size => {
+                found.push(Some(rest[..size].to_vec()));
+                rest = &rest[size + 1..];
+            }
+            _ => found.push(None),
+        }
+    }
+    found.resize(specs.len(), None);
+    Ok(found)
+}
+
+/// Many commits with their files' texts before and after, in two git calls whatever their
+/// number (`git log --raw` for what changed, `git cat-file --batch` for the texts); a merge
+/// against its first parent. Falls back to one at a time where git is too old for that.
+pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit>> {
+    if hashes.is_empty() {
+        return Ok(vec![]);
+    }
+    let fmt = "--format=%x01%H%x02%an%x02%aI%x02%(trailers:key=Task,valueonly,separator=%x2C)%x02%s%x02";
+    let args: Vec<&str> = ["log", "--no-walk=unsorted", "--diff-merges=first-parent", "--root", "--no-renames", "--raw", "-z", "--no-abbrev", fmt].into_iter().chain(hashes.iter().map(String::as_str)).chain(["--"]).collect();
+    let out = match run(at, repo, &args, &[]) {
+        Ok(o) => o,
+        Err(_) => return hashes.iter().map(|h| commit(at, repo, h)).collect(),
+    };
+    const NULL: &str = "0000000000000000000000000000000000000000";
+    struct Raw {
+        head: Vec<String>,
+        files: Vec<(String, String, String, String)>, // status, path, before blob, after blob
+    }
+    let mut raws = vec![];
+    for chunk in out.split(|b| *b == 1).filter(|c| !c.is_empty()) {
+        let text = String::from_utf8_lossy(chunk);
+        let mut parts = text.splitn(6, '\u{2}');
+        let head: Vec<String> = (0..5).filter_map(|_| parts.next().map(str::to_string)).collect();
+        if head.len() < 5 {
+            continue;
+        }
+        let mut files = vec![];
+        let mut tokens = parts.next().unwrap_or_default().split('\0').map(|t| t.trim_start_matches('\n'));
+        while let Some(t) = tokens.next() {
+            let Some(meta) = t.strip_prefix(':') else { continue };
+            let Some(path) = tokens.next() else { break };
+            let m: Vec<&str> = meta.split(' ').collect();
+            if m.len() >= 5 {
+                let status = if m[4].starts_with('A') || m[4].starts_with('D') { m[4][..1].to_string() } else { "M".into() };
+                files.push((status, path.to_string(), m[2].to_string(), m[3].to_string()));
+            }
+        }
+        raws.push(Raw { head, files });
+    }
+    // Every text needed, in one call.
+    let specs: Vec<String> = raws.iter().flat_map(|r| r.files.iter().flat_map(|f| [f.2.clone(), f.3.clone()])).filter(|b| b != NULL).collect();
+    let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
+    let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
+    Ok(raws
+        .into_iter()
+        .map(|r| {
+            let [hash, author, date, task, subject] = <[String; 5]>::try_from(r.head).expect("five fields");
+            let id = hash.chars().take(9).collect();
+            let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+            let files = r.files.into_iter().filter_map(|(status, path, before, after)| {
+                let (b, a) = (if status == "A" { None } else { Some(text(&before).unwrap_or_default()) }, if status == "D" { None } else { Some(text(&after).unwrap_or_default()) });
+                change(path, status, b, a)
+            });
+            Commit { id, hash, subject, date, author, task, files: files.collect() }
+        })
+        .collect())
+}
+
 /// One commit with its files' text before and after. Binary and very large files are left out.
 pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
     let fmt = "--format=%h%x00%an%x00%aI%x00%P%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
@@ -278,12 +416,34 @@ pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
 /// commit; untracked files count as added. Empty when the branch is checked out nowhere.
 pub fn live(at: &Runner, repo: &Path, branch: &str) -> Result<Vec<FileChange>> {
     let Some(dir) = worktree_of(at, repo, branch)? else { return Ok(vec![]) };
+    live_in(at, &dir)
+}
+
+/// Every work tree of a repository, by the branch checked out there: one call.
+pub fn worktrees(at: &Runner, repo: &Path) -> Result<HashMap<String, PathBuf>> {
+    let list = git(at, repo, &["worktree", "list", "--porcelain"])?;
+    Ok(list
+        .split("\n\n")
+        .filter_map(|b| {
+            let dir = b.lines().next()?.strip_prefix("worktree ")?;
+            let branch = b.lines().find_map(|l| l.strip_prefix("branch refs/heads/"))?;
+            Some((branch.to_string(), PathBuf::from(dir)))
+        })
+        .collect())
+}
+
+/// Uncommitted changes in the work tree `dir`, against its last commit.
+pub fn live_in(at: &Runner, dir: &Path) -> Result<Vec<FileChange>> {
+    let dir = dir.to_path_buf();
     let mut changed = name_status(&run(at, &dir, &["diff", "HEAD", "--no-renames", "-z", "--name-status"], &[])?);
     let untracked = run(at, &dir, &["ls-files", "--others", "--exclude-standard", "-z"], &[])?;
     changed.extend(split0(&untracked).map(|p| ("A".to_string(), p)));
+    // What was committed, for every changed file in one call; what is there now, from disk.
+    let specs: Vec<String> = changed.iter().filter(|(s, _)| s != "A").map(|(_, p)| format!("HEAD:{p}")).collect();
+    let mut before = blobs(at, &dir, &specs)?.into_iter();
     let mut files = vec![];
     for (status, path) in changed {
-        let before = if status == "A" { None } else { Some(blob(at, &dir, "HEAD", &path)?) };
+        let before = if status == "A" { None } else { Some(before.next().flatten().unwrap_or_default()) };
         let after = if status == "D" { None } else { at.read(&dir.join(&path)) };
         if let Some(c) = change(path, status, before, after) {
             files.push(c);

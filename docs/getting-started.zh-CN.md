@@ -208,6 +208,13 @@ cargo build --release
   能成功。*remote port forwarding failed*：你的 ssh 配置里给这台主机设的端口转发让 workriver 的
   连接失败了；给 workriver 一个不带这些转发的 Host 别名。*connected, but its Herdr does not
   answer*：那边没有运行 Herdr，或者 socket 在别处（`--herdr-socket`）。
+- **有东西很慢**：服务在 `~/workriver-data/logs/` 里记一份计时日志（`perf.jsonl`，最多 5 个文件、
+  每个 5 MB）。`workriver perf [--since 1h]` 给出汇总：最慢的请求、每次快照和每个单元花了多久、
+  其他机器断开了多久。要连每一次 git 和 ssh 调用也记下来，用 `workriver serve --perf-detail`
+  （或者 `WORKRIVER_PERF=detail`）启动服务。`workriver perf --bundle` 把汇总和最新的几行写进一个
+  文件并打印路径：要发的就是这个文件。里面只有时间、次数、路由模板（`/api/task`，从不含查询参数）、
+  单元 id 和机器名；从不包含提交说明、文件内容、任务文本、发现、补充说明、提示词、令牌、cookie 或
+  路径（git 调用里路径的位置写成 `…`）。发之前先看一眼。
 - **电脑睡眠或换了网络之后，某台机器变成"断开"**：这是预期的，会自己恢复。ssh 大约 30 秒内会
   发现连接已死（睡眠醒来后立刻发现），workriver 随即重连：先等 2 秒，之后越等越久，最多一分钟；
   电脑醒来时立刻重连。这期间不会有任何操作卡在那台机器上：它的单元和 agent 显示为上次看到的

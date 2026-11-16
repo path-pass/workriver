@@ -352,6 +352,10 @@ pub struct SeenCommit {
     /// Its author date, which a rebase keeps: with the subject, it is found again.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub date: String,
+    /// Its patch id (`git patch-id --stable`), taken when the unit moved: a rebased copy of
+    /// it has the same one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub patch_id: String,
 }
 
 /// Where a unit's work was before it was moved (rebased onto a new branch, say).
@@ -1110,6 +1114,9 @@ pub struct Task {
     /// When it was last corrected after delivery.
     #[serde(default)]
     pub amended: Option<String>,
+    /// A gate: since when it waits for the user (every task it follows was done then).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<String>,
     /// Stored attachments of its output (a gate's note, a task's screenshots).
     #[serde(default)]
     pub attachments: Vec<String>,
@@ -1372,7 +1379,6 @@ impl State {
         let answered = |t: &Task, f: &Finding| !self.follow_ups(&u.id, t.n, &f.found.id).is_empty();
         let waits = u.tasks.iter().any(|t| {
             t.state == TaskState::Waiting
-                || (t.kind == TaskKind::Gate && t.state == TaskState::Todo)
                 || t.findings.iter().any(|f| f.state == FindingState::Open || (matches!(f.state, FindingState::Accepted | FindingState::Revised) && !answered(t, f)))
         });
         if waits {
@@ -1828,6 +1834,9 @@ impl State {
             GateSubmitted { unit, task, result, note, findings, attachments } => {
                 self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
                 let t = self.task(&unit, task)?;
+                if t.kind == TaskKind::Gate && t.state == TaskState::Todo {
+                    return no(format!("gate {unit}#{task} is not open yet: it follows {}, not done yet", self.unfinished_inputs(&unit, t).join(", ")));
+                }
                 if t.kind != TaskKind::Gate || t.state != TaskState::Waiting {
                     return no(format!("{unit}#{task} is not a waiting gate"));
                 }
@@ -2292,7 +2301,8 @@ impl State {
                         steps: t.steps.clone(),
                         plans: t.plans.clone(),
                         blind: t.blind,
-                        state: if t.kind == TaskKind::Gate { TaskState::Waiting } else { TaskState::Todo },
+                        // A gate opens (waits for the user) once what it follows is done.
+                        state: TaskState::Todo,
                         by: e.actor.clone(),
                         at: at.clone(),
                         started: None,
@@ -2303,6 +2313,7 @@ impl State {
                         result: None,
                         delivery: None,
                         amended: None,
+                        waiting_since: None,
                         attachments: vec![],
                     })
                 }
@@ -2497,6 +2508,33 @@ impl State {
             ChoreDone { chore } => {
                 if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
                     c.done = true;
+                }
+            }
+        }
+        self.open_gates(at);
+    }
+
+    /// The tasks a task follows that are not done yet (`start` is always done).
+    pub fn unfinished_inputs(&self, owner: &str, t: &Task) -> Vec<String> {
+        t.inputs
+            .iter()
+            .filter(|i| i.from != "start")
+            .filter(|i| i.from.parse().ok().and_then(|n| self.task(owner, n).ok()).is_none_or(|x| x.state != TaskState::Done))
+            .map(|i| format!("{owner}#{}", i.from))
+            .collect()
+    }
+
+    /// A gate waits for the user only once every task it follows is done; until then it is
+    /// still to do, asks nobody for anything, and counts nowhere. It waits from then on.
+    fn open_gates(&mut self, at: &str) {
+        let todo = |ts: &[Task]| ts.iter().filter(|t| t.kind == TaskKind::Gate && t.state == TaskState::Todo).map(|t| t.n).collect::<Vec<_>>();
+        let owners: Vec<(String, Vec<u32>)> = self.units.iter().map(|u| (u.id.clone(), todo(&u.tasks))).chain(self.intents.iter().map(|i| (i.id.clone(), todo(&i.tasks)))).filter(|(_, g)| !g.is_empty()).collect();
+        for (owner, gates) in owners {
+            for n in gates {
+                let ready = self.task(&owner, n).is_ok_and(|t| self.unfinished_inputs(&owner, t).is_empty());
+                if ready && let Some(t) = self.task_mut(&owner, n) {
+                    t.state = TaskState::Waiting;
+                    t.waiting_since = Some(at.to_string());
                 }
             }
         }

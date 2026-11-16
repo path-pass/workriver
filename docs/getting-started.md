@@ -241,6 +241,16 @@ service and says so when the command it was run with is another build.
   for that host fails workriver's connection; give workriver a Host alias without it.
   *connected, but its Herdr does not answer*: Herdr is not running there, or its socket is
   elsewhere (`--herdr-socket`).
+- **Something is slow**: the service keeps a timing log in `~/workriver-data/logs/`
+  (`perf.jsonl`, five files of 5 MB at most). `workriver perf [--since 1h]` sums it up:
+  the slowest requests, how long snapshots and each unit took, how long other machines
+  were disconnected. For each git and ssh call too, start the service with `workriver
+  serve --perf-detail` (or `WORKRIVER_PERF=detail`). `workriver perf --bundle` writes the
+  summary and the newest lines into one file and prints its path: that is the file to
+  send. It holds times, counts, route templates (`/api/task`, never the query), unit ids
+  and machine names; never commit messages, file texts, task texts, findings, notes,
+  prompts, tokens, cookies or paths (git calls show `…` where a path was). Look at it
+  before you send it.
 - **A machine goes "disconnected" after this computer slept or changed networks**: that
   is expected and mends itself. ssh notices a dead line within about 30 seconds (and at
   once after a sleep), workriver connects again, first after 2 seconds and then waiting

@@ -559,3 +559,34 @@ fn findings_grow_after_they_are_decided() {
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "1"}], "agent": "sec", "blind": true}})).unwrap();
     assert!(!serde_json::to_string(&s.state().blind_view("sec").unwrap()).unwrap().contains("expired token"));
 }
+
+/// A gate planned ahead is still to do until every task it follows is done: it asks nobody
+/// for anything, holds up no unit, cannot be submitted; then it waits, from that moment.
+/// Records made before replay the same way.
+#[test]
+fn a_gate_waits_only_once_what_it_follows_is_done() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "1"}, {"from": "2", "primary": false}]}})).unwrap();
+    let gate = |s: &Store| s.state().task("u1", 3).unwrap().clone();
+    assert_eq!((gate(&s).state, gate(&s).waiting_since.clone()), (TaskState::Todo, None));
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Working, "a gate to do holds nothing up");
+    let e = add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "done"}})).unwrap_err();
+    assert!(e.contains("gate u1#3 is not open yet: it follows u1#1, u1#2, not done yet"), "{e}");
+    for n in [1, 2] {
+        add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": n}})).unwrap();
+    }
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    assert_eq!(gate(&s).state, TaskState::Todo, "one of the two is done");
+    let last = add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 2, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    assert_eq!((gate(&s).state, gate(&s).waiting_since.clone()), (TaskState::Waiting, Some(last.at.clone())), "it waits from when the last one was done");
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Waiting);
+    assert_eq!(replayed(&s).task("u1", 3).unwrap().state, TaskState::Waiting);
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "done"}})).unwrap();
+    // A gate whose inputs are done when it is made waits at once.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "1"}]}})).unwrap();
+    assert_eq!(s.state().task("u1", 4).unwrap().state, TaskState::Waiting);
+}

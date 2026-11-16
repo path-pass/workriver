@@ -319,6 +319,13 @@ impl Machines {
         });
     }
 
+    /// Stops following every machine: their connections end (the service stops).
+    pub fn stop_all(&self) {
+        for e in self.entries.lock().unwrap().iter() {
+            e.stop.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// Stops following a machine; its agents leave the list.
     pub fn stop(&self, label: &str) {
         self.entries.lock().unwrap().retain(|e| {
@@ -436,7 +443,9 @@ pub fn publish(program: &str, target: &str, port: u16, host: &str) -> Result<(),
         cmd.args(["-o", o]);
     }
     cmd.args(["-o", "ClearAllForwardings=yes", "--", target, &script]);
+    let started = Instant::now();
     let out = herdr::output_within(cmd, Duration::from_secs(15)).map_err(|e| format!("cannot run ssh: {e}"))?;
+    tracing::debug!(target: "perf", kind = "ssh", purpose = "publish", ms = started.elapsed().as_millis() as u64, code = out.status.code().unwrap_or(-1));
     if out.status.success() {
         Ok(())
     } else {
@@ -451,7 +460,9 @@ fn ask_socket(program: &str, ssh: &str) -> Result<String, String> {
     }
     // This one sets up no forward, so the config's are cleared.
     cmd.args(["-o", "ClearAllForwardings=yes", "--", ssh, ASK_SOCKET]);
+    let started = Instant::now();
     let out = herdr::output_within(cmd, Duration::from_secs(20)).map_err(|e| format!("cannot run ssh: {e}"))?;
+    tracing::debug!(target: "perf", kind = "ssh", purpose = "herdr_socket", ms = started.elapsed().as_millis() as u64, code = out.status.code().unwrap_or(-1));
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if out.status.success() && path.starts_with('/') {
         Ok(path)
@@ -503,7 +514,13 @@ fn their_agent(a: RuntimeAgent, machine: &str) -> RuntimeAgent {
 /// One read of a machine's agents and groups; what was last seen stays while it cannot be reached.
 /// `quiet`: a failure is not news (the connection is not up yet).
 fn poll_once(e: &Entry, quiet: bool) -> bool {
+    let started = Instant::now();
     let read = e.runtime.agents().and_then(|a| Ok((a, e.runtime.groups()?)));
+    let ms = started.elapsed().as_millis() as u64;
+    match &read {
+        Ok((a, _)) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, agents = a.len(), ok = true, slow = ms >= crate::snapshot::SLOW_MS),
+        Err(err) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, ok = false, error = crate::perf::kind_of(&err.to_string()), slow = ms >= crate::snapshot::SLOW_MS),
+    }
     let mut seen = e.seen.lock().unwrap();
     match read {
         Ok((agents, groups)) => {
@@ -678,6 +695,9 @@ impl Default for Pace {
 /// ends; after the computer slept it is started again at once, since its old connection is
 /// most likely dead without knowing it.
 pub fn supervise(words: &[String], tunnel: &Mutex<Tunnel>, stop: &AtomicBool, pace: Pace, publish: &dyn Fn(u16) -> Result<(), String>) {
+    // For the timing log: which machine (ssh's destination is the last word), since when down.
+    let machine = words.last().cloned().unwrap_or_default();
+    let mut down_at = Instant::now();
     // The command runs under a shell that ends it when our end of its stdin closes, so it
     // does not outlive the daemon however the daemon ends.
     const WRAP: &str = r#"exec 3<&0; "$@" </dev/null & pid=$!; (cat <&3 >/dev/null 2>&1; kill $pid 2>/dev/null) 2>/dev/null & wait $pid"#;
@@ -707,7 +727,10 @@ pub fn supervise(words: &[String], tunnel: &Mutex<Tunnel>, stop: &AtomicBool, pa
                     while let Ok(line) = rx.try_recv() {
                         match allocated(&line) {
                             Some(port) if failed.is_none() => match publish(port) {
-                                Ok(()) => *tunnel.lock().unwrap() = Tunnel { up: true, port: Some(port), ..Tunnel::default() },
+                                Ok(()) => {
+                                    *tunnel.lock().unwrap() = Tunnel { up: true, port: Some(port), ..Tunnel::default() };
+                                    tracing::info!(target: "perf", kind = "tunnel", event = "up", machine = %machine, connect_ms = started.elapsed().as_millis() as u64, down_ms = down_at.elapsed().as_millis() as u64);
+                                }
                                 Err(why) => failed = Some(why),
                             },
                             _ => said.push(line),
@@ -748,6 +771,10 @@ pub fn supervise(words: &[String], tunnel: &Mutex<Tunnel>, stop: &AtomicBool, pa
             let mut t = tunnel.lock().unwrap();
             if t.up || t.error.as_deref() != Some(why.as_str()) {
                 tracing::warn!("tunnel `{}`: {why}", words.join(" "));
+            }
+            if t.up {
+                tracing::info!(target: "perf", kind = "tunnel", event = "down", machine = %machine, up_ms = started.elapsed().as_millis() as u64, error = crate::perf::kind_of(&why));
+                down_at = Instant::now();
             }
             *t = Tunnel { up: false, error: Some(why), port: None, since: Some(workriver_core::now()), retry: Some(Instant::now() + wait) };
         }

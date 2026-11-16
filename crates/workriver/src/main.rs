@@ -8,6 +8,7 @@ mod herdr;
 mod machines;
 mod quote;
 mod serve;
+mod perf;
 mod show;
 mod snapshot;
 
@@ -76,6 +77,23 @@ enum Cmd {
         /// empty for none.
         #[arg(long, env = "WORKRIVER_TERMINAL_APP", default_value = "Ghostty")]
         terminal_app: String,
+        /// The timing log (`<home>/logs/perf.jsonl`) also takes each git and ssh call (also:
+        /// WORKRIVER_PERF=detail).
+        #[arg(long)]
+        perf_detail: bool,
+    },
+    /// Where time went, from the service's timing log: slowest requests, snapshots, units,
+    /// git and ssh calls, time other machines were disconnected. `--bundle` writes it with
+    /// the newest raw lines into one file you can send (no content, no secrets, no paths).
+    Perf {
+        /// Only this recent: 30m, 1h, 2d.
+        #[arg(long)]
+        since: Option<String>,
+        /// Rows per table.
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+        #[arg(long)]
+        bundle: bool,
     },
     /// Check that the daemon is running and show what it holds.
     Status,
@@ -698,8 +716,8 @@ fn stub(skill: &str) -> String {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match &cli.cmd {
-        Cmd::Serve { terminal_app } => {
-            tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+        Cmd::Serve { terminal_app, perf_detail } => {
+            perf::init(&core::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
             let store = core::Store::open_default().context("cannot open the workriver database")?;
             let runtime = herdr::Herdr::new(herdr::socket_path(), terminal_app.clone());
             // Without Herdr the daemon still records and shows; it just sees no agents.
@@ -715,6 +733,17 @@ fn main() -> anyhow::Result<()> {
                 let listener = serve::bind(cli.port.unwrap_or(DEFAULT_PORT)).await?;
                 serve::serve_with(listener, store, all, options).await
             });
+        }
+        Cmd::Perf { since, top, bundle } => {
+            let home = core::data_dir();
+            if *bundle {
+                let path = perf::bundle(&home, 2 * 1024 * 1024)?;
+                println!("{}", path.display());
+                eprintln!("It holds times, counts, route templates, unit ids and machine names; no commit messages, file texts, task texts, findings, notes, prompts, tokens, cookies or paths. Look before you send it.");
+            } else {
+                print!("{}", perf::summary(&home, since.as_deref().map(perf::parse_since).transpose()?, *top));
+            }
+            return Ok(());
         }
         Cmd::Guide { what, topic } => {
             print!("{}", guide(what, topic.as_deref())?);
@@ -760,7 +789,7 @@ fn main() -> anyhow::Result<()> {
         })
     };
     let out = match cli.cmd {
-        Cmd::Serve { .. } | Cmd::Guide { .. } => unreachable!(),
+        Cmd::Serve { .. } | Cmd::Guide { .. } | Cmd::Perf { .. } => unreachable!(),
         Cmd::Status => {
             let s = d.get("/api/status")?;
             let theirs = format!("{} ({})", s["version"].as_str().unwrap_or("?"), s["commit"].as_str().unwrap_or("unknown"));
@@ -1622,7 +1651,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         out
     };
     // What git shows (commits, where each unit stands), as the page shows it.
-    let ws = d.get("/api/workspace").unwrap_or_default();
+    let ws = d.get("/api/workspace?light=true").unwrap_or_default();
     let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
     for i in &state.intents {
         let units: Vec<_> = state.units.iter().filter(|u| u.intent == i.id && wanted(&i.id, Some(&u.id))).collect();
