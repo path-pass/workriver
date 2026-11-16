@@ -161,3 +161,13 @@ export async function endThread(thread: string) {
 export function choreDone(id: string) {
   if (!MOCK) post('/api/chore-done', { chore: id }).catch(e => console.warn(e))
 }
+
+/**
+ * Records a change the user makes to the roadmap or backlog (adding or moving an intent,
+ * batching or dropping findings); the service delivers what goes to an agent. Nothing is
+ * recorded with the sample.
+ */
+export async function record(kind: string, body: unknown) {
+  if (MOCK) return
+  await post('/api/append', { actor: 'user', kind, body })
+}

@@ -9,10 +9,25 @@ export const en = {
     noMatch: 'No units match “{{q}}”',
     clearSearch: 'Clear search',
     none: 'No units recorded yet.',
-    noUnits: 'No units yet'
+    noUnits: 'No units yet',
+    project: 'Project',
+    allProjects: 'All projects',
+    active: 'Active',
+    roadmap: 'Roadmap',
+    done: 'Done',
+    add: 'Add',
+    addTitle: 'Title',
+    addGoal: 'Goal, in one sentence',
+    addSave: 'Add to the roadmap',
+    addCancel: 'Cancel',
+    addPick: 'Pick a project above to add to its roadmap',
+    drag: 'Drag to reorder',
+    start: 'Start',
+    intentWork: 'Research and design',
+    failed: 'Not saved: {{error}}'
   },
   manager: {
-    mark: 'Manager of its intent',
+    mark: 'Manager of its workspace',
     of: 'Manager {{name}}: {{state}}',
     state: { working: 'working', idle: 'idle', done: 'idle', blocked: 'blocked', unknown: 'unknown', gone: 'not running', none: 'no manager' }
   },
@@ -21,7 +36,9 @@ export const en = {
     lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
     agent: 'In a Herdr workspace, start a coding agent to be its manager.',
     skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
-    register: 'Have it register, with the goal of the workspace in one sentence:',
+    register: 'Have it register as the manager of the workspace:',
+    begin: 'Then it starts a goal from the roadmap on the left (or adds one first with `workriver backlog add`):',
+    import: 'Have an existing backlog file? Ask an agent to import it with the import skill:',
     work: 'It splits the goal into units and tasks and hands them to worker agents; their work shows up here.',
     trailer: 'A commit belongs to a task through a line in its message:'
   },
@@ -53,8 +70,40 @@ export const en = {
     title: 'Agents',
     idle: 'Idle'
   },
+  plan: {
+    title: 'Start “{{title}}”',
+    lead: 'workriver does not start agents. These are the steps, in Herdr:',
+    workspace: 'Open a Herdr workspace for it, or pick one whose manager has room for another intent.',
+    agent: 'If the workspace has no manager yet, start a coding agent there and give it the manager skill:',
+    register: 'In the manager’s pane, register it:',
+    start: 'Then start this intent there; new units and tasks in that workspace go to it:'
+  },
+  backlog: {
+    title: 'Backlog',
+    lead: 'Deferred findings, waiting to be done.',
+    none: 'Nothing deferred here.',
+    every: 'Every project; pick one in the rail to narrow.',
+    together: 'Do together',
+    drop: 'Drop',
+    dropReason: 'Why drop them?',
+    dropConfirm_one: 'Drop {{count, number}}',
+    dropConfirm_other: 'Drop {{count, number}}',
+    cancel: 'Cancel',
+    selected_one: '{{count, number}} selected',
+    selected_other: '{{count, number}} selected',
+    for: 'For',
+    startFirst: 'Start {{intent}} first: its manager runs `workriver intent start {{intent}}`.',
+    oneIntent: 'Pick findings of one intent.',
+    noIntent: 'No active intent in this project to do them in.',
+    sent: 'Sent to {{to}} as one message.',
+    scheduled: 'scheduled',
+    fromSource: 'From {{source}}',
+    added: 'Added to the backlog',
+    missing: 'no impact or place given',
+    unit: '{{intent}} · {{unit}}'
+  },
   side: {
-    title: 'Needs you, agents and commits',
+    title: 'Needs you, agents, commits and backlog',
     close: 'Fold the panel'
   },
   terminal: {
@@ -124,6 +173,7 @@ export const en = {
   kind: {
     implement: 'Implement',
     design: 'Design',
+    research: 'Research',
     gate: 'Manual step',
     review: 'Review'
   },
@@ -207,6 +257,9 @@ export const en = {
     open: 'Waiting for you',
     rejected: 'Rejected',
     deferred: 'Deferred',
+    scheduled: 'Scheduled',
+    done: 'Done',
+    dropped: 'Dropped',
     revised: 'Revise',
     acceptedHere: 'Accepted',
     suggests: 'Suggests {{decision}}',

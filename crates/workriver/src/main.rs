@@ -1,6 +1,7 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
 mod ask;
 mod attachments;
+mod backlog;
 mod deliver;
 mod herdr;
 mod serve;
@@ -66,7 +67,13 @@ enum Cmd {
     },
     /// Check that the daemon is running and show what it holds.
     Status,
-    /// Intents: goals that group units.
+    /// Projects: folders holding one or more repositories.
+    #[command(subcommand)]
+    Project(ProjectCmd),
+    /// The backlog: planned intents in order (the roadmap) and deferred findings, per project.
+    #[command(subcommand)]
+    Backlog(BacklogCmd),
+    /// Intents: goals in a project, planned → active → done (or dropped).
     #[command(subcommand)]
     Intent(IntentCmd),
     /// Units: pieces of an intent, each on its own branch.
@@ -84,7 +91,7 @@ enum Cmd {
     /// Chores: things asked of the user that block nobody.
     #[command(subcommand)]
     Chore(ChoreCmd),
-    /// The manager: the one agent per intent that splits work and hands it out.
+    /// The manager: the one agent per Herdr workspace that splits work and hands it out.
     #[command(subcommand)]
     Manager(ManagerCmd),
     /// Ask about another task, for an agent: the task's own agent answers if it is free, else
@@ -142,8 +149,9 @@ enum Cmd {
     },
     /// Print the instructions for an agent working with workriver.
     Guide {
-        /// `worker` (short; goes into every task message) or `manager` (the manager's skill).
-        #[arg(value_parser = ["worker", "manager"])]
+        /// `worker` (short; goes into every task message), `manager` (the manager's skill) or
+        /// `import` (the skill for importing an existing backlog file).
+        #[arg(value_parser = ["worker", "manager", "import"])]
         role: String,
     },
     /// Print an intent or unit as text: its tasks, open findings, waiting gates and open
@@ -156,12 +164,26 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum IntentCmd {
-    /// Record a new intent; prints its id.
+    /// Record a new planned intent (as `backlog add`); prints its id.
     Add {
         title: String,
         /// One sentence on what it is for.
         #[arg(long, default_value = "")]
         goal: String,
+        /// The project (p1, or a folder); default: the current directory's.
+        #[arg(long, default_value = ".")]
+        project: String,
+    },
+    /// Start a planned intent in this Herdr workspace (run by its manager, in its pane): it
+    /// becomes active and the workspace's current intent, where new units and tasks go.
+    Start { intent: String },
+    /// Mark an active intent done.
+    Done { intent: String },
+    /// Drop a planned or active intent.
+    Drop {
+        intent: String,
+        #[arg(long)]
+        reason: String,
     },
     /// Change an intent's title or goal (its manager or the user only).
     Set {
@@ -176,10 +198,95 @@ enum IntentCmd {
 }
 
 #[derive(Subcommand)]
+enum ProjectCmd {
+    /// Register a folder as a project: its repositories are its direct subfolders with a
+    /// .git, or the folder itself. A repository outside every project is a project of its own.
+    Add {
+        folder: String,
+        /// Default: the folder's name.
+        #[arg(long, default_value = "")]
+        title: String,
+    },
+    /// List the projects and their repositories.
+    List,
+}
+
+#[derive(Subcommand)]
+enum BacklogCmd {
+    /// Add a planned intent at the end of a project's roadmap; prints its id.
+    Add {
+        title: String,
+        /// One sentence on what it is for.
+        #[arg(long)]
+        goal: String,
+        /// The project (p1, or a folder); default: the current directory's.
+        #[arg(long, default_value = ".")]
+        project: String,
+        /// More about it; may span lines and hold links.
+        #[arg(long, default_value = "")]
+        note: String,
+        /// Where it is tracked elsewhere: `SYSTEM:KEY`, e.g. `jira:ABC-12`.
+        #[arg(long, value_name = "SYSTEM:KEY")]
+        external: Option<String>,
+        /// The link to it there.
+        #[arg(long, requires = "external")]
+        url: Option<String>,
+    },
+    /// Add a deferred finding that came from outside workriver (an earlier review, a notes
+    /// file); prints its id (f1…).
+    AddFinding {
+        #[arg(long, default_value = ".")]
+        project: String,
+        #[arg(long, value_parser = ["P1", "P2", "P3"])]
+        severity: String,
+        #[arg(long)]
+        problem: String,
+        /// What happens if it is left.
+        #[arg(long, default_value = "")]
+        impact: String,
+        /// A path that shows it. Repeatable.
+        #[arg(long = "where", value_name = "PATH")]
+        r#where: Vec<String>,
+        /// Where it came from, in words: which review, branch, date.
+        #[arg(long, default_value = "")]
+        source: String,
+        /// How to fix it, or anything else; may span lines.
+        #[arg(long, default_value = "")]
+        note: String,
+        /// The intent it is meant for.
+        #[arg(long)]
+        intent: Option<String>,
+        #[arg(long, value_name = "SYSTEM:KEY")]
+        external: Option<String>,
+        #[arg(long, requires = "external")]
+        url: Option<String>,
+    },
+    /// Print a project's roadmap and deferred findings.
+    List {
+        /// Default: every project.
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Move a planned intent before or after another in the roadmap.
+    Move {
+        intent: String,
+        #[arg(long, conflicts_with = "after", required_unless_present = "after")]
+        before: Option<String>,
+        #[arg(long)]
+        after: Option<String>,
+    },
+    /// Print a project's backlog as Markdown (a read-only copy; the records stay in workriver).
+    Export {
+        #[arg(long, default_value = ".")]
+        project: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum UnitCmd {
     /// Record a unit of an intent; prints its id (u1…).
     Add {
-        /// The intent it serves (i1…); default: the intent of this Herdr workspace.
+        /// The intent it serves (i1…); default: the current intent of this Herdr workspace.
         intent: Option<String>,
         #[arg(long)]
         title: String,
@@ -202,17 +309,22 @@ enum UnitCmd {
 
 #[derive(Subcommand)]
 enum TaskCmd {
-    /// Record a task in a unit; prints its ref (u1#3).
+    /// Record a task in a unit, or (research, design, their reviews and gates) in an intent;
+    /// prints its ref (u1#3, i2#1).
     ///
     /// Without --after or --cause the task starts from the unit itself. With --cause and
     /// no --after it follows the tasks whose findings it answers. A cause must name
-    /// accepted findings.
+    /// accepted, revised or scheduled findings.
     Add {
-        /// The unit (u1…).
-        unit: String,
-        #[arg(long, value_parser = ["implement", "design", "review", "tests", "gate"], default_value = "implement")]
+        /// The unit (u1…); without it, the task belongs to the intent itself (--intent, or
+        /// this Herdr workspace's current intent).
+        unit: Option<String>,
+        /// The intent, for intent-level work.
+        #[arg(long, conflicts_with = "unit")]
+        intent: Option<String>,
+        #[arg(long, value_parser = ["implement", "design", "research", "review", "tests", "gate"], default_value = "implement")]
         kind: String,
-        /// What the work is (needed for implement and gate).
+        /// What the work is (needed for implement, design, research and gate).
         #[arg(long, default_value = "")]
         title: String,
         /// The full ask, as handed to the agent; default: the title.
@@ -222,7 +334,8 @@ enum TaskCmd {
         /// rest are merely involved.
         #[arg(long, value_name = "N")]
         after: Vec<String>,
-        /// Findings this task answers: `N:ID[,ID…]`, e.g. `4:P2-1,P3-1`. Repeatable.
+        /// Findings this task answers: `N:ID[,ID…]` in this unit (`4:P2-1,P3-1`),
+        /// `u1#4:P2-1` in another, or backlog findings `f3[,f4…]`. Repeatable.
         #[arg(long, value_name = "N:IDS")]
         cause: Vec<String>,
         /// The agent it is handed to.
@@ -291,6 +404,15 @@ enum FindingCmd {
         #[arg(long, default_value = "")]
         note: String,
     },
+    /// Drop a deferred or scheduled finding: it will not be done.
+    Drop {
+        /// The task that found it (u1#4), or a backlog finding (f3).
+        target: String,
+        /// The finding (P2-1); not for a backlog finding.
+        finding: Option<String>,
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -329,13 +451,15 @@ enum ChoreCmd {
 
 #[derive(Subcommand)]
 enum ManagerCmd {
-    /// Register the agent of this Herdr pane as the manager of its workspace's intent.
-    /// Accepted findings and gate results without a waiting agent are delivered to it.
+    /// Register the agent of this Herdr pane as the manager of its workspace. Decisions,
+    /// gate results and batches of deferred findings for the intents active there are
+    /// delivered to it.
     Here {
-        /// The intent, when not run inside a Herdr workspace.
-        #[arg(long)]
+        /// Before 0.2: the intent to manage, when not run inside a Herdr workspace.
+        #[arg(long, hide = true)]
         intent: Option<String>,
-        /// One sentence on what the intent is for (also `workriver intent set --goal`).
+        /// Deprecated: creates and starts an intent with this goal. Use `backlog add` and
+        /// `intent start`.
         #[arg(long)]
         goal: Option<String>,
     },
@@ -343,6 +467,7 @@ enum ManagerCmd {
 
 const GUIDE_WORKER: &str = include_str!("../../../skills/workriver-manager/references/worker.md");
 const GUIDE_MANAGER: &str = include_str!("../../../skills/workriver-manager/SKILL.md");
+const GUIDE_IMPORT: &str = include_str!("../../../skills/workriver-backlog-import/SKILL.md");
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -363,28 +488,45 @@ fn main() -> anyhow::Result<()> {
             });
         }
         Cmd::Guide { role } => {
-            print!("{}", if role == "worker" { GUIDE_WORKER } else { GUIDE_MANAGER });
+            print!("{}", match role.as_str() {
+                "worker" => GUIDE_WORKER,
+                "import" => GUIDE_IMPORT,
+                _ => GUIDE_MANAGER,
+            });
             return Ok(());
         }
         _ => {}
     }
     let d = Daemon { port: cli.port };
     // Who records, and in which intent, from the runtime place the CLI runs in.
-    let needs_intent = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, .. }) | Cmd::Manager(ManagerCmd::Here { intent: None, .. }));
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. });
+    // Where it runs matters to these: the workspace's current intent, or the workspace itself.
+    let needs_place = matches!(
+        cli.cmd,
+        Cmd::Unit(UnitCmd::Add { intent: None, .. })
+            | Cmd::Chore(ChoreCmd::Add { intent: None, .. })
+            | Cmd::Task(TaskCmd::Add { unit: None, intent: None, .. })
+            | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
+            | Cmd::Intent(IntentCmd::Start { .. })
+    );
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     let place = herdr::place_from_env();
     let here = match &place {
-        Some(place) if records && (cli.actor.is_none() || needs_intent) => Some(
-            d.call("/api/here", Some(json!({ "place": place, "intent": needs_intent }))).map_err(|e| anyhow!(herdr::cannot_ask(place, &e.to_string())))?,
-        ),
+        Some(place) if records && (cli.actor.is_none() || needs_place) => {
+            Some(d.call("/api/here", Some(json!({ "place": place }))).map_err(|e| anyhow!(herdr::cannot_ask(place, &e.to_string())))?)
+        }
         _ => None,
     };
+    let group = here.as_ref().map(|h| h["group"].clone()).filter(|g| !g.is_null());
     let actor = if records { actor_of(cli.actor.clone(), place.as_deref(), here.as_ref())? } else { "user".into() };
     let actor = actor.as_str();
     let here_intent = |given: Option<String>| {
-        given
-            .or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string)))
-            .ok_or_else(|| anyhow!("no intent given, and not inside a Herdr workspace; name one (see `workriver intent add`)"))
+        given.or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string))).ok_or_else(|| match &group {
+            Some(g) => anyhow!(
+                "no intent given, and Herdr workspace {} has no current intent; its manager starts one: `workriver backlog list`, then `workriver intent start <intent>`",
+                g["label"].as_str().unwrap_or("?")
+            ),
+            None => anyhow!("no intent given, and not inside a Herdr workspace; name one (see `workriver backlog list`)"),
+        })
     };
     let by = if actor == "user" { "user" } else { "agent" };
     let out = match cli.cmd {
@@ -413,15 +555,70 @@ fn main() -> anyhow::Result<()> {
             if actor == "user" {
                 bail!("run this from the manager agent's Herdr pane (or pass --as <agent>)");
             }
-            let intent = here_intent(intent)?;
-            let out = d.append(actor, "manager.registered", json!({ "intent": intent, "agent": actor }))?;
-            if let Some(goal) = goal {
-                d.append(actor, "intent.updated", json!({ "intent": intent, "goal": goal }))?;
+            if group.is_none() && intent.is_none() {
+                bail!("not inside a Herdr workspace: run `workriver manager here` in the manager's Herdr pane");
             }
-            out
+            d.append(actor, "manager.registered", json!({ "intent": intent, "agent": actor, "workspace": group }))?;
+            println!("manager of workspace {}", group.as_ref().and_then(|g| g["label"].as_str()).or(intent.as_deref()).unwrap_or("?"));
+            if let Some(goal) = goal {
+                // ponytail: kept one release for old prompts; remove with --goal.
+                eprintln!("--goal is deprecated: add intents with `workriver backlog add` and start them with `workriver intent start <intent>`.");
+                let current = here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string));
+                match current {
+                    Some(i) => {
+                        d.append(actor, "intent.updated", json!({ "intent": i, "goal": goal }))?;
+                    }
+                    None => {
+                        let title = group.as_ref().and_then(|g| g["label"].as_str()).unwrap_or("intent").to_string();
+                        let made = d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": cwd_folder()?, "state": "planned" }))?;
+                        let i = made["body"]["id"].as_str().unwrap_or_default().to_string();
+                        d.append(actor, "intent.state_changed", json!({ "intent": i, "state": "active", "workspace": group }))?;
+                        println!("started {i}");
+                    }
+                }
+            }
+            return Ok(());
         }
+        Cmd::Project(ProjectCmd::Add { folder, title }) => {
+            let folder = std::fs::canonicalize(&folder).with_context(|| format!("no folder {folder}"))?;
+            d.append(actor, "project.added", json!({ "path": folder, "title": title }))?
+        }
+        Cmd::Project(ProjectCmd::List) => {
+            let w = d.get("/api/workspace")?;
+            for p in w["projects"].as_array().into_iter().flatten() {
+                let kind = if p["registered"] == true { "" } else { "  (a repository outside every project)" };
+                let key = p["key"].as_str().map(|k| format!("{k} ")).unwrap_or_default();
+                println!("{key}{}  {}{kind}", p["title"].as_str().unwrap_or("?"), p["id"].as_str().unwrap_or("?"));
+                for r in p["repos"].as_array().into_iter().flatten() {
+                    println!("  {}", r.as_str().unwrap_or("?"));
+                }
+            }
+            return Ok(());
+        }
+        Cmd::Backlog(BacklogCmd::Add { title, goal, project, note, external, url }) => d.append(
+            actor,
+            "intent.created",
+            json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned", "note": note, "external": parse_external(external, url)? }),
+        )?,
+        Cmd::Backlog(BacklogCmd::AddFinding { project, severity, problem, impact, r#where, source, note, intent, external, url }) => d.append(
+            actor,
+            "finding.added",
+            json!({
+                "project": project_arg(&project)?, "intent": intent, "source": source, "note": note,
+                "finding": { "severity": severity, "problem": problem, "impact": impact, "where": r#where, "external": parse_external(external, url)? },
+            }),
+        )?,
+        Cmd::Backlog(BacklogCmd::List { project }) => return backlog::list(&d, project.as_deref().map(project_arg).transpose()?.as_deref()),
+        Cmd::Backlog(BacklogCmd::Export { project }) => return backlog::export(&d, &project_arg(&project)?),
+        Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
+        Cmd::Intent(IntentCmd::Start { intent }) => {
+            let Some(g) = &group else { bail!("run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace") };
+            d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?
+        }
+        Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
+        Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Board { target } => return board(&d, target.as_deref()),
-        Cmd::Intent(IntentCmd::Add { title, goal }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal }))?,
+        Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
         Cmd::Intent(IntentCmd::Set { intent, title, goal }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal }))?,
         Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base }) => {
             let intent = here_intent(intent)?;
@@ -429,7 +626,11 @@ fn main() -> anyhow::Result<()> {
             d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base }))?
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
-        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan }) => {
+        Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan }) => {
+            let unit = match unit {
+                Some(u) => u,
+                None => here_intent(intent)?,
+            };
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
@@ -462,6 +663,16 @@ fn main() -> anyhow::Result<()> {
                 println!("{}", up["path"].as_str().unwrap_or_default());
             }
             return Ok(());
+        }
+        Cmd::Finding(FindingCmd::Drop { target, finding, reason }) => {
+            let (unit, n, finding) = match finding {
+                Some(f) => {
+                    let (u, n) = task_ref(&target)?;
+                    (u, n, f)
+                }
+                None => (String::new(), 0, target),
+            };
+            d.append(actor, "finding.dropped", json!({ "unit": unit, "task": n, "finding": finding, "reason": reason }))?
         }
         Cmd::Finding(FindingCmd::Decide { task, finding, decision, note }) => {
             let (unit, n) = task_ref(&task)?;
@@ -507,7 +718,9 @@ fn main() -> anyhow::Result<()> {
     let made = match out["kind"].as_str() {
         Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
-        Some("manager.registered") => format!("manager of {}", b["intent"].as_str().unwrap_or("?")),
+        Some("finding.added") => b["finding"]["id"].as_str().unwrap_or("?").to_string(),
+        Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
+        Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
         Some("task.amended") => "amended".into(),
         Some("question.answered") => "answered".into(),
         Some("task.delivered") => {
@@ -626,11 +839,39 @@ fn task_ref(s: &str) -> anyhow::Result<(String, u32)> {
     parse_task_ref(s).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| anyhow!("{s:?} is not a task; write it as <unit>#<n>, e.g. u1#3"))
 }
 
-/// `4:P2-1,P3-1`
+/// `4:P2-1,P3-1` (this unit), `u1#4:P2-1` (another unit or intent), `f3,f4` (backlog findings).
 fn parse_cause(s: &str) -> anyhow::Result<Value> {
-    let (n, ids) = s.split_once(':').ok_or_else(|| anyhow!("--cause {s:?}: write N:ID[,ID…], e.g. 4:P2-1"))?;
+    let ids = |x: &str| x.split(',').map(str::trim).filter(|i| !i.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let Some((n, list)) = s.split_once(':') else {
+        if s.split(',').all(|f| f.trim().strip_prefix('f').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))) {
+            return Ok(json!({ "task": 0, "findings": ids(s) }));
+        }
+        bail!("--cause {s:?}: write N:ID[,ID…] (4:P2-1), UNIT#N:ID (u1#4:P2-1), or backlog findings (f3,f4)");
+    };
+    if let Some((unit, n)) = parse_task_ref(n.trim()) {
+        return Ok(json!({ "unit": unit, "task": n, "findings": ids(list) }));
+    }
     let n: u32 = n.trim().trim_start_matches('#').parse().map_err(|_| anyhow!("--cause {s:?}: {n:?} is not a task number"))?;
-    Ok(json!({ "task": n, "findings": ids.split(',').map(str::trim).filter(|i| !i.is_empty()).collect::<Vec<_>>() }))
+    Ok(json!({ "task": n, "findings": ids(list) }))
+}
+
+/// `SYSTEM:KEY` and an optional link.
+fn parse_external(external: Option<String>, url: Option<String>) -> anyhow::Result<Option<Value>> {
+    let Some(e) = external else { return Ok(None) };
+    let (system, key) = e.split_once(':').filter(|(s, k)| !s.trim().is_empty() && !k.trim().is_empty()).ok_or_else(|| anyhow!("--external {e:?}: write SYSTEM:KEY, e.g. jira:ABC-12"))?;
+    Ok(Some(json!({ "system": system.trim(), "key": key.trim(), "url": url })))
+}
+
+/// A project as the daemon takes it: an id (p1) as is, a folder as its full path.
+fn project_arg(p: &str) -> anyhow::Result<String> {
+    if p.strip_prefix('p').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())) && !Path::new(p).exists() {
+        return Ok(p.to_string());
+    }
+    Ok(std::fs::canonicalize(p).with_context(|| format!("project {p:?}: no such id or folder"))?.to_string_lossy().into_owned())
+}
+
+fn cwd_folder() -> anyhow::Result<String> {
+    project_arg(".")
 }
 
 /// `TEXT` or `TEXT => COMMAND`

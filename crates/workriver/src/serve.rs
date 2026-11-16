@@ -21,7 +21,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
-use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, RuntimeRef, Store};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, Store};
 use workriver_scan as scan;
 
 use crate::{ask, attachments, deliver};
@@ -307,6 +307,16 @@ impl App {
     /// What only git can check or fill in before an event is recorded.
     fn complete(&self, actor: &str, body: Body) -> Result<Body, ApiError> {
         Ok(match body {
+            Body::ProjectAdded { id, path, title } => {
+                let folder = std::fs::canonicalize(&path).map_err(|e| bad(format!("{path}: {e}")))?;
+                let title = if title.trim().is_empty() { folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { title };
+                Body::ProjectAdded { id, path: folder.to_string_lossy().into_owned(), title }
+            }
+            Body::FindingAdded { project, intent, finding, source, note } => Body::FindingAdded { project: self.project_folder(&project)?, intent, finding, source, note },
+            Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
+                let project = if project.is_empty() { project } else { self.project_folder(&project)? };
+                Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external }
+            }
             Body::UnitCreated { id, intent, title, purpose, repo, branch, base } => {
                 let top = scan::toplevel(Path::new(&repo)).map_err(|e| bad(format!("{repo} is not a git repository: {e}")))?;
                 if !scan::has_rev(&top, &base) {
@@ -396,11 +406,11 @@ impl App {
             let store = self.store.lock().unwrap();
             let s = store.state();
             let Ok(q) = s.question(id).cloned() else { return };
-            let Ok(u) = s.unit(&q.unit).cloned() else { return };
+            let Some(u) = s.unit_or_intent(&q.unit) else { return };
             let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
             let intent = s.intents.iter().find(|i| i.id == u.intent);
-            let manager = intent.and_then(|i| i.manager.clone());
-            let group = intent.and_then(|i| i.runtime_ref.clone());
+            let manager = intent.and_then(|i| s.manager_of(&i.id)).map(str::to_string);
+            let group = intent.and_then(|i| i.workspace.clone());
             (q, u, task_agent, manager, group)
         };
         let live_one = |s: &Option<String>| s.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).cloned();
@@ -412,8 +422,9 @@ impl App {
         // Which harness: the task's agent's, else the manager's, else claude.
         let known = |s: &Option<String>| s.as_ref().and_then(|s| self.store.lock().unwrap().state().agents.iter().find(|a| &a.session == s).map(|a| a.harness.clone()));
         let harness = worker.map(|a| a.harness).or_else(|| known(&task_agent)).or_else(|| boss.map(|a| a.harness)).or_else(|| known(&manager)).unwrap_or_else(|| "claude".into());
-        let dir = scan::worktree_of(Path::new(&unit.repo), &unit.branch).ok().flatten().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
-        let commits = task_commits(&unit, q.task);
+        // Intent-level work has no branch: its project folder is where to read.
+        let dir = if unit.branch.is_empty() { unit.repo.clone() } else { scan::worktree_of(Path::new(&unit.repo), &unit.branch).ok().flatten().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone()) };
+        let commits = if unit.branch.is_empty() { vec![] } else { task_commits(&unit, q.task) };
         let name = ask::agent_name(id);
         let agent = match self.runtime.start_temporary(&group.id, &harness, &name, &dir) {
             Ok(a) => a,
@@ -525,7 +536,9 @@ impl App {
 
     /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
     /// time), and with `intent`, the intent following its group (created on first use).
-    fn here(&self, place: &str, intent: bool) -> Result<serde_json::Value, ApiError> {
+    /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
+    /// time), its runtime group, and that group's current intent, if any.
+    fn here(&self, place: &str) -> Result<serde_json::Value, ApiError> {
         let at = self.runtime.locate(place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         if let Some(a) = &at.agent {
             let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
@@ -533,29 +546,29 @@ impl App {
                 self.record("workriver", Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
             }
         }
-        let intent = match (&at.group, intent) {
-            (Some(g), true) => Some(self.intent_here(g)?),
-            _ => None,
-        };
-        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "intent": intent }))
+        let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
+        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
     }
 
-    fn intent_here(&self, g: &RuntimeRef) -> Result<String, ApiError> {
-        let found = self.store.lock().unwrap().state().intent_for(g).map(|i| (i.id.clone(), i.runtime_ref.clone()));
-        match found {
-            Some((id, r)) if r.as_ref() == Some(g) => Ok(id),
-            // Found by its label: the group's id (or label) changed; follow it.
-            Some((id, _)) => {
-                self.record("workriver", Body::IntentLinked { intent: id.clone(), runtime_ref: g.clone() })?;
-                Ok(id)
-            }
-            None => {
-                let e = self.record("workriver", Body::IntentCreated { id: String::new(), title: g.label.clone(), goal: String::new(), runtime_ref: Some(g.clone()) })?;
-                let (Some(id), _, _) = e.body.refs() else { unreachable!("an intent has an id") };
-                Ok(id)
-            }
+    /// A project as given (`p1`, or a folder) as its folder: a registered project's, or the
+    /// repository's top folder for a repository outside every registered project.
+    fn project_folder(&self, given: &str) -> Result<String, ApiError> {
+        let state = self.store.lock().unwrap().state().clone();
+        if let Some(p) = state.projects.iter().find(|p| p.id == given) {
+            return Ok(p.path.clone());
         }
+        let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
+        let path = path.to_string_lossy().into_owned();
+        if let Some(p) = project_of(&state, &path) {
+            return Ok(p.path.clone());
+        }
+        scan::toplevel(Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))
     }
+}
+
+/// The registered project whose folder holds `path`, the deepest one.
+pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Project> {
+    state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
 }
 
 pub fn router(app: Shared) -> Router {
@@ -748,8 +761,6 @@ async fn focus(State(app): State<Shared>, Json(f): Json<Focus>) -> Result<Status
 #[derive(Deserialize)]
 struct Here {
     place: String,
-    #[serde(default)]
-    intent: bool,
 }
 
 /// The CLI asks who and where it is: see `App::here`.
@@ -858,7 +869,7 @@ fn task_commits(u: &core::Unit, task: u32) -> Vec<(String, String)> {
 }
 
 async fn here(State(app): State<Shared>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
-    blocking(move || app.here(&h.place, h.intent).map(Json)).await
+    blocking(move || app.here(&h.place).map(Json)).await
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----

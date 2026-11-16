@@ -13,7 +13,7 @@ import type { Finding, Unit, Task } from '@/types'
 import { Ask, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
-import { CopyButton, Icon, Mark, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
+import { CopyButton, ExternalChip, Icon, Mark, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
 
 const W = 176, H = 48, R = 18
 
@@ -73,6 +73,7 @@ const glyph = (n: Task) =>
   n.kind === 'review' ? n.reviewer ?? 'ring'
   : n.kind === 'gate' ? `gate-${n.gate}`
   : n.design && (n.state === 'done' || n.state === 'todo') ? 'design'
+  : n.research && (n.state === 'done' || n.state === 'todo') ? 'research'
   : ({ done: 'check', running: 'pen', unregistered: 'no', todo: 'ring', waiting: 'ring' })[n.state]
 
 const ports = (
@@ -314,7 +315,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
   const row = useRef<HTMLDivElement>(null)
   // Arriving from the work a finding caused, the finding may sit below the fold of the list.
   useEffect(() => { if (picked) row.current?.scrollIntoView({ block: 'nearest' }) }, [picked])
-  const quiet = f.state === 'rejected' || f.state === 'deferred'
+  const quiet = f.state !== 'open' && f.state !== 'accepted' && f.state !== 'revised'
   const suggests = f.state === 'open' && f.recommendation ? t('finding.suggests', { decision: t(`finding.decision.${f.recommendation.decision}`) }) : ''
   return (
     <Collapsible ref={row} className="frow group" data-picked={picked || undefined}>
@@ -345,7 +346,8 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
           </span>
         ) : (
           <span className={cn('flex flex-none items-center gap-1 py-1 text-xs', f.state === 'open' ? 'text-you-ink' : 'text-ink-2')}>
-            {f.state === 'deferred' && <Icon name="later" className="size-3.5" />}
+            <ExternalChip ext={f.external} />
+            {(f.state === 'deferred' || f.state === 'scheduled') && <Icon name="later" className="size-3.5" />}
             {suggests && <span className="text-ink-2 max-[700px]:hidden">{suggests} ·</span>}
             {t(`finding.${f.state}`)}
           </span>
@@ -353,6 +355,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
       </div>
       <CollapsibleContent className="pb-1.5 pl-6 text-xs">
         {suggests && <div><span className="text-ink-2">{t('io.field', { name: suggests })}</span>{f.recommendation?.reason}</div>}
+        {f.reason && <div><span className="text-ink-2">{t('io.field', { name: t('finding.dropped') })}</span>{f.reason}</div>}
         {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span>{f.impact}</div>}
         {f.evidence.length > 0 && <div><span className="text-ink-2">{t('io.field', { name: t('io.evidence') })}</span><span className="font-mono">{f.evidence.join(t('list.sep'))}</span></div>}
         <Thumbs list={f.attachments ?? []} />
@@ -447,7 +450,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
       const by = byId(c.review)
       return by ? findingsOf(by).filter(f => c.findings.includes(f.id)).map(f => ({ by, f })) : []
     })
-    head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t(n.design ? 'kind.design' : 'kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
+    head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t(n.design ? 'kind.design' : n.research ? 'kind.research' : 'kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
     input = <>
       <div>{n.input.text || n.title}</div>
       {n.state === 'unregistered' && quiet(t('io.unknownInput'))}

@@ -1,38 +1,48 @@
 ---
 name: workriver-manager
-description: Run one intent's work as its manager agent under workriver - register for the Herdr workspace, split the goal into units and tasks, hand tasks to worker agents through Herdr, and act on what the user decides (accepted findings, gate results). Use when you are, or are asked to be, the manager of a Herdr workspace that workriver tracks, or when a message starting with "[workriver]" arrives.
+description: Run a Herdr workspace's work as its manager agent under workriver - register for the workspace, start intents from the project's backlog, split each goal into units and tasks, hand tasks to worker agents through Herdr, and act on what the user decides (accepted findings, gate results). Use when you are, or are asked to be, the manager of a Herdr workspace that workriver tracks, or when a message starting with "[workriver]" arrives.
 ---
 
 # workriver manager
 
 workriver records what many coding agents do (intents, units, tasks, findings, evidence,
 commits) and shows it to the user in a browser. It records and delivers; it never starts or
-schedules agents. **You schedule**: you are the manager of one intent, which is your Herdr
-workspace. There is one manager per intent.
+schedules agents. **You schedule**: you are the manager of your Herdr workspace, one manager
+per workspace. An **intent** is a goal in a project (a folder of one or more repositories);
+it waits in the project's backlog (planned) until you start it in your workspace (active),
+and ends done or dropped. Your workspace may run several active intents; the one you started
+last is its current intent, where new units and tasks go unless you name another.
 
-Your job: split the intent into units and tasks, record them, hand each task to a worker
+Your job: split each intent into units and tasks, record them, hand each task to a worker
 agent, follow up, and turn the user's decisions into new tasks. Do not do the workers' work
 yourself (no implementing, reviewing or testing in your own pane); if no worker is free,
 start one.
 
-Run every `workriver` command from your own pane: it knows who you are and which intent
-your workspace is, so intent arguments can be left out. `workriver <cmd> --help` has the
+Run every `workriver` command from your own pane: it knows who you are and your workspace's
+current intent, so intent arguments can be left out for that one. `workriver <cmd> --help` has the
 details of every command.
 
 ## First steps
 
 1. `workriver status` - the service must answer and say "agent runtime: connected".
    If it cannot be reached, ask the user to start `workriver serve`.
-2. `workriver manager here --goal "<the intent's goal in one sentence>"` - registers you;
-   prints `manager of i1`. Change title or goal later with `workriver intent set i1 --goal "..."`.
-3. `workriver board` - what is already recorded: units, tasks, open findings, waiting gates.
+2. `workriver manager here` - registers you as the manager of this workspace.
+3. `workriver backlog list` - the project's roadmap (planned intents, in the user's order),
+   the intents already active and the deferred findings. Start the one the user asked for,
+   else the first: `workriver intent start i3`. If what you are asked to do is not there,
+   add it first: `workriver backlog add "<title>" --goal "<one sentence>"`, then start it.
+   Change title or goal later with `workriver intent set i3 --goal "..."`.
+4. `workriver board` - what is already recorded: units, tasks, open findings, waiting gates.
+
+When an intent's work is merged and nothing is left: `workriver intent done i3`. If the user
+gives one up: `workriver intent drop i3 --reason "..."`.
 
 ## Units
 
 A unit is a piece of the intent that can be built, reviewed and merged on its own, on its
 own branch. Split by what can land independently, not by layer; a small intent is one unit.
 
-    workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch mention [--base main] [--repo PATH]
+    workriver unit add [i3] --title "Mentions" --purpose "Let people @ each other" --branch mention [--base main] [--repo PATH]
 
 `--repo` defaults to the current directory; the branch may not exist yet. Name branches
 after the unit (`mention`, `login-rate-limit`). Prints the unit id (`u1`). When the branch
@@ -53,6 +63,14 @@ twice"), not activities ("Work on notifications").
 - `--kind review` (with `--reviewer code-review|security-review`) and `--kind tests` look at
   other tasks' work; give them to a different agent than the one that did the work.
 - `--plan`: files or folders the work expects to change; shown on the user's file tree.
+
+**Research and design that belong to the intent, not to one unit** (comparing approaches
+before there is a branch, a design spanning repositories) are intent-level tasks: leave out
+the unit, `workriver task add --kind research --title "Compare sync engines" --agent <name>`
+(numbered `i3#1`; `--intent i3` for an intent other than the current one). Research hands in
+a note and its report attached (`workriver attach --dir i3#1`); it has no findings and needs
+no evidence. Design, review and gate tasks may be intent-level too; implement and tests
+tasks always belong to a unit.
 
 **Design first when the user has choices to make.** If the goal leaves choices the user has
 not made (how it should look, which approach, what to give up), start with a `--kind design`
@@ -143,7 +161,11 @@ what the workers need to hear. Four outcomes:
   put the note in the task's text.
 - **rejected** - no work. To have something redone, the user accepts or revises the finding
   and writes how in the note; the note comes with the message.
-- **deferred** - nothing now; it comes up again later (`workriver board` lists them).
+- **deferred** - nothing now; it waits in the project's backlog (`workriver backlog list`).
+- **"The user picked N deferred findings of intent i3 ... to do together: ..."** - one
+  cleanup unit for all of them (`workriver unit add i3 --title "Cleanup: ..." --branch ...`),
+  then a task with every one of them as a cause, as the message spells out (`--cause
+  u1#4:P2-1 --cause f3`); hand it to a worker. Delivering it marks them done.
 - **"The user finished gate u1#5 ...: done."** - goes to the worker waiting behind the gate;
   you get it only when that worker is not running: tell a worker to go on.
 - **"... gate ...: found a problem. Findings: ..."** - wait: the user decides each finding,
@@ -169,10 +191,13 @@ when two attempts at a task failed the same way.
 ## Commands
 
     workriver status | board [i1|u1]
-    workriver manager here [--goal G] | intent set i1 [--title T] [--goal G]
-    workriver unit add --title T --branch B [--base main] [--purpose P] [--repo PATH]
+    workriver manager here | intent start i3 | intent done i3 | intent drop i3 --reason R
+    workriver intent set i3 [--title T] [--goal G]
+    workriver backlog list | backlog add "T" --goal G [--note N] | backlog move i4 --before i2
+    workriver unit add [i3] --title T --branch B [--base main] [--purpose P] [--repo PATH]
     workriver unit merged u1
-    workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID] [--agent NAME] [--plan P]
+    workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID | u2#4:ID | f3] [--agent NAME] [--plan P]
+    workriver task add [--intent i3] --kind research|design --title T [--agent NAME]
     workriver task start u1#3 | task deliver u1#3 [--evidence 'CMD => passed: SUMMARY'] [--findings FILE|-] [--note N] [--amend]
     workriver finding decide u1#4 P2-1 accept|revise|reject|defer [--note N]   (revise needs a note)
     workriver gate submit u1#5 done|problem [--note N] [--findings FILE]

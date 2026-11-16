@@ -15,18 +15,30 @@ so the dark theme is composed on its own, not an inversion of the light one.
 
 ## Structure
 
-Terms (after AWS AI-DLC where it fits): an **intent** is a high-level goal; it groups the
-**units** that serve it, each a piece that can be implemented on its own, on its own branch;
-a unit's work is a graph of **tasks**, each one piece of work handed to one agent
-(implement, review) or to the user (a gate). A task is drawn as a node. In the runtime one
-intent is one Herdr workspace; the UI only says intent.
+Terms (after AWS AI-DLC where it fits): a **project** is a folder holding one or more
+repositories (or one repository outside every registered folder); an **intent** is a goal in
+it, which may span its repositories; it groups the **units** that serve it, each a piece
+that can be implemented on its own, on its own branch; a unit's work is a graph of
+**tasks**, each one piece of work handed to one agent (implement, design, research, review)
+or to the user (a gate). A task is drawn as a node. An intent is planned (in its project's
+roadmap), active (started in a Herdr workspace by that workspace's manager), done or
+dropped. A workspace may run several active intents; the one started last is its current
+intent, where new work goes. Research and design that belong to the intent rather than to
+one unit are intent-level tasks, shown as a unit of their own named "Research and design",
+first under the intent, with no branch and no code layer.
 
 Three columns: the rail picks a unit, the main area shows it, the side panel holds what is
 looked at now and then.
 
-- A dark rail on the left picks units and nothing else: product name, search, the units
-  grouped under their intents, settings. It is the only large field of colour in the
-  interface. Each intent is a group that folds; open, it starts with the intent's goal in
+- A dark rail on the left picks units and nothing else: product name, the project switch
+  (a plain select, "All projects" first; remembered), search, then the intents in three
+  groups under quiet headings: **Active** (with their units), **Roadmap** (planned intents
+  in order, each with its goal, a link chip when it is tracked elsewhere, and "Start", which
+  shows the steps to start it in Herdr with the commands to copy – workriver never starts an
+  agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
+  "+" adds one inline, title and one-sentence goal, to the project shown), and **Done**,
+  folded; dropped intents are not shown. Settings at the bottom. It is the only large field
+  of colour in the interface. Each active or done intent is a group that folds; open, it starts with the intent's goal in
   one or two quiet lines (when its manager or the user gave one). The intent of the open
   unit is open, the others folded, and a folded group still shows the sum of its units' violet marks, so
   nothing waiting is hidden. A search looks through every unit and opens the groups with a
@@ -34,14 +46,15 @@ looked at now and then.
   stuck on behind the user (filled violet, a hand, the count), everything else waiting for
   the user – open findings and commits that name no task – (an outlined violet count), and
   "beyond plan" (amber). A merged unit shows its date instead. Who is working is not shown
-  here, with one exception: each intent's header names its manager's state quietly (a
-  crown, then working, idle, not running, or "no manager"), since a missing manager means
-  accepted findings reach no one. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
+  here, with one exception: each active intent's header names its manager's state quietly
+  (a crown, then working, idle, not running, or "no manager"), since a missing manager means
+  accepted findings reach no one; opened, its goal line also names the Herdr workspace it
+  runs in. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
   the product mark, the button, settings and, if any task anywhere is stuck on the user,
   the filled violet mark; on a narrow screen, to one header row. Folded or not is
   remembered, and the graph refits to the room it gets.
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents** and **Commits**, one at a time, never mixed. Its three buttons work as a
+  **Agents**, **Commits** and **Backlog**, one at a time, never mixed. Its four buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
   already has them); open, it is about 340 px wide. Which section is open, if any, is
@@ -55,6 +68,16 @@ looked at now and then.
   while any agent has uncommitted work, "Writing now": each such agent with its amber ring
   and the files it is writing. A row opens its unit and task and brings that commit into
   view in the code layer; it stays picked.
+- **Backlog** lists the deferred findings of the project picked in the rail (or of all):
+  those from reviews, tests and gates, grouped by intent and unit, and those added to the
+  backlog from outside (an earlier review, a notes file), grouped by where they came from;
+  highest severity first, each with its id, age, note and link chip, and a quiet "no impact
+  or place given" when an added one lacks them. A row's problem opens the task that found
+  it. Checkboxes pick deferred ones; "Do together" sends them as one message to the manager
+  of the intent they belong to (or of an active intent picked from a select) and they show
+  as scheduled until the work they cause is delivered; it is disabled, saying to start the
+  intent first, when that intent is not active. "Drop" asks for a reason. Planned intents
+  are not repeated here; they are the rail's roadmap.
 - **Needs you** is the workspace's inbox. One person works one queue across all units, so
   what asks something of them is one list, not a row of chips per unit: a list keeps order
   and age and still reads with twenty agents, chips only pile up. One row per item: the
@@ -84,8 +107,8 @@ looked at now and then.
   line that led to what is open shows as picked. Whether a session has ended is the only
   thing recorded about agents; everything else comes from the nodes. Inside a unit, who
   is on which node is the mark on the node. The list is grouped by the Herdr workspace each
-  agent runs in, headed by the intent's title when the workspace has one, else by the
-  workspace's label with a quiet "no manager"; groups with someone working come first, then
+  agent runs in, headed by the workspace's label and, quietly, the title of its current
+  intent, with a quiet "no manager" when none is registered; groups with someone working come first, then
   by name. In a group an agent waiting for a person in its terminal comes first, with a
   violet hand (the Blocking meaning, not the amber writing ring), then the manager (with a
   small crown), then working, holding work, idle. Under each name, quietly, what the session is about (its terminal
@@ -187,8 +210,11 @@ A decision is not a node. Each finding gets one of four outcomes: accepted (work
 handed out for it: one finding may lead to several nodes, several findings to one node),
 revised (the same, but fixed the user's way: a note is required and travels to the manager;
 shown like accepted with a small pencil), rejected (struck through), or deferred (quiet,
-with a clock); until then it is open. The buttons read Accept, Revise, Reject, Defer;
-Revise waits for the note. Every decision goes to the intent's manager.
+with a clock; it waits in the project's backlog, becomes scheduled with a clock when picked
+to be done together, done when the work it caused is delivered, or dropped with a reason,
+all quiet); until then it is open. The buttons read Accept, Revise, Reject, Defer;
+Revise waits for the note. Every decision goes to the manager of the workspace the intent
+runs in.
 An agent may decide on its own: such a finding carries a small neutral robot mark, a
 decision by the user none. An open finding may carry the agent's suggestion, and its
 reason once the row is opened.
@@ -311,7 +337,11 @@ Everything that can be picked has: default, hover, keyboard focus (violet ring),
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
 - No loading state. The one empty state: with no units recorded, the main area is a short
-  start guide (start a manager agent per Herdr workspace, give it the skill, register with
-  a goal; the commands copyable; the commit trailer). An intent with no units yet keeps its
+  start guide (start a manager agent per Herdr workspace, give it the skill, register, start
+  an intent from the roadmap; the commands copyable; the commit trailer; the import skill
+  for an existing backlog file). An intent with no units yet keeps its
   rail group, open, with a quiet "No units yet".
 - No syntax highlighting in the diff.
+- Trackers: intents and findings carry an optional external id (`system`, `key`, `url`),
+  shown as a link chip. Later a tracker adapter (a trait like the runtime one) imports items
+  into the backlog and pushes status and links back; agents never talk to trackers directly.

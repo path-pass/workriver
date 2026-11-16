@@ -1,12 +1,12 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { ArrowLeft, ArrowUp, Bot, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
 import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE } from '@/runtime'
-import type { Step } from '@/types'
+import type { External, Step } from '@/types'
 
 // Who raised it is an icon; so is the state of a piece of work. All from lucide, one size, one stroke.
 const ICONS: Record<string, LucideIcon> = {
@@ -21,6 +21,11 @@ const ICONS: Record<string, LucideIcon> = {
   'gate-test': Hand,
   'gate-decide': Scale,
   design: DraftingCompass,
+  research: Telescope,
+  backlog: Archive,
+  grip: GripVertical,
+  play: Play,
+  link: ExternalLink,
   blocked: Hand,
   chore: ListTodo,
   inbox: Inbox,
@@ -184,4 +189,13 @@ export function Notes() {
       {agent && <div className="rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{t('terminal.note', { agent })}</div>}
     </div>
   )
+}
+
+/** Where an item is tracked elsewhere (jira:ABC-12), as a small chip; a link when there is one. */
+export function ExternalChip({ ext }: { ext?: External }) {
+  if (!ext) return null
+  const text = `${ext.system}:${ext.key}`
+  return ext.url
+    ? <a className="ext-chip" href={ext.url} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()}><Icon name="link" className="size-3" />{text}</a>
+    : <span className="ext-chip">{text}</span>
 }

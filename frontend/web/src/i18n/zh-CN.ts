@@ -13,10 +13,25 @@ export const zhCN: Same<typeof en> = {
     noMatch: '没有单元匹配「{{q}}」',
     clearSearch: '清除搜索',
     none: '还没有记录任何单元。',
-    noUnits: '还没有单元'
+    noUnits: '还没有单元',
+    project: '项目',
+    allProjects: '全部项目',
+    active: '进行中',
+    roadmap: '路线图',
+    done: '已完成',
+    add: '添加',
+    addTitle: '标题',
+    addGoal: '目标，一句话',
+    addSave: '加入路线图',
+    addCancel: '取消',
+    addPick: '先在上面选一个项目，才能加到它的路线图',
+    drag: '拖动调整顺序',
+    start: '开始',
+    intentWork: '调研与设计',
+    failed: '没有保存：{{error}}'
   },
   manager: {
-    mark: '这个意图的管理者',
+    mark: '这个工作区的管理者',
     of: '管理者 {{name}}：{{state}}',
     state: { working: '工作中', idle: '空闲', done: '空闲', blocked: '卡住了', unknown: '状态不明', gone: '没在运行', none: '没有管理者' }
   },
@@ -25,7 +40,9 @@ export const zhCN: Same<typeof en> = {
     lead: '还没有任何记录。agent 自己记录自己的工作；每个 Herdr 工作区有一个管理者 agent 负责规划。',
     agent: '在一个 Herdr 工作区里，启动一个 coding agent 当它的管理者。',
     skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
-    register: '让它登记自己，并用一句话写下这个工作区的目标：',
+    register: '让它登记为这个工作区的管理者：',
+    begin: '然后它从左边的路线图里开始一个目标（或者先用 `workriver backlog add` 加一个）：',
+    import: '已经有一份待办文件？让一个 agent 用导入 skill 把它导进来：',
     work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
     trailer: '提交信息里写这样一行，这个提交就归到对应的任务：'
   },
@@ -55,8 +72,38 @@ export const zhCN: Same<typeof en> = {
     title: 'Agent',
     idle: '空闲'
   },
+  plan: {
+    title: '开始「{{title}}」',
+    lead: 'workriver 不会启动 agent。在 Herdr 里按这几步做：',
+    workspace: '为它开一个 Herdr 工作区，或者选一个管理者还能再管一个意图的工作区。',
+    agent: '如果这个工作区还没有管理者，在里面启动一个 coding agent，并把管理者 skill 给它：',
+    register: '在管理者的窗格里登记：',
+    start: '然后在那里开始这个意图；这个工作区里新建的单元和任务都归它：'
+  },
+  backlog: {
+    title: '待办',
+    lead: '延后的发现，等着去做。',
+    none: '这里没有延后的发现。',
+    every: '显示全部项目；在左栏选一个项目可以缩小范围。',
+    together: '一起做',
+    drop: '放弃',
+    dropReason: '为什么放弃？',
+    dropConfirm_other: '放弃 {{count, number}} 条',
+    cancel: '取消',
+    selected_other: '已选 {{count, number}} 条',
+    for: '归入',
+    startFirst: '先开始 {{intent}}：由它的管理者运行 `workriver intent start {{intent}}`。',
+    oneIntent: '请只选同一个意图的发现。',
+    noIntent: '这个项目里没有进行中的意图可以做它们。',
+    sent: '已作为一条消息发给 {{to}}。',
+    scheduled: '已排期',
+    fromSource: '来自 {{source}}',
+    added: '直接加入待办',
+    missing: '没有写影响或位置',
+    unit: '{{intent}} · {{unit}}'
+  },
   side: {
-    title: '需要你、Agent 和提交',
+    title: '需要你、Agent、提交和待办',
     close: '收起面板'
   },
   terminal: {
@@ -124,6 +171,7 @@ export const zhCN: Same<typeof en> = {
   kind: {
     implement: '实现',
     design: '设计',
+    research: '调研',
     gate: '要你动手',
     review: '审查'
   },
@@ -206,6 +254,9 @@ export const zhCN: Same<typeof en> = {
     open: '等你决定',
     rejected: '已驳回',
     deferred: '延后',
+    scheduled: '已排期',
+    done: '已完成',
+    dropped: '已放弃',
     revised: '修改',
     acceptedHere: '已接受',
     suggests: '建议{{decision}}',

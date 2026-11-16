@@ -5,17 +5,18 @@ import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
 import { SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
 import { Notes, Topics } from '@/components/bits'
-import { Start } from '@/components/Start'
+import { Start, StartIntent } from '@/components/Start'
 import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
 import { useT } from '@/i18n'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, submitGate, type Delivery } from '@/runtime'
-import type { AskContext, Task, Turn, Unit, Workspace } from '@/types'
+import type { AskContext, Intent, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
+const PROJECT = 'workriver.project'
 const remember = (key: string, value: string) => { try { localStorage.setItem(key, value) } catch { /* not remembered, still shown */ } }
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
@@ -32,7 +33,12 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(() => recall(RAIL) !== 'closed')
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
-  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' ? v : null })
+  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE); return v === 'inbox' || v === 'agents' || v === 'commits' || v === 'backlog' ? v : null })
+  // The project the rail and the backlog show, or all; remembered.
+  const [project, setProject] = useState<string | null>(() => recall(PROJECT) || null)
+  const pickProject = (p: string | null) => { setProject(p); remember(PROJECT, p ?? '') }
+  // A planned intent whose start steps are shown.
+  const [starting, setStarting] = useState<Intent | null>(null)
   const showSide = (next: Section | null) => { setSide(next); remember(SIDE, next ?? 'closed') }
   // Narrow screens: the same content as a sheet over the page; not remembered.
   const [sheet, setSheet] = useState<Section | null>(null)
@@ -137,7 +143,7 @@ export default function App() {
   // A commit opened from the panel: its unit and task, and the code block brings it into view.
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit }
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project }
 
   const onAsk = (node: Task, question: string, context: AskContext[], thread: string | null, conclude = false) => {
     if (!ws || !unit) return
@@ -216,7 +222,7 @@ export default function App() {
     <ActContext.Provider value={act}>
     <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
-      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} />
+      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {ws && !unitsOf(ws).length && <Start />}
@@ -225,7 +231,7 @@ export default function App() {
             <header className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
-                  {unit.title}
+                  {unit.intentLevel ? `${unit.title} · ${t('rail.intentWork')}` : unit.title}
                   {unit.branch && <span className="font-mono text-xs font-normal tracking-normal text-ink-2">{unit.branch}</span>}
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}
@@ -233,7 +239,7 @@ export default function App() {
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
             <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={railOpen} />
-            <CodeLayer
+            {!unit.intentLevel && <CodeLayer
               root={repoOf(ws, unit).modules}
               unit={unit}
               sel={sel}
@@ -246,7 +252,7 @@ export default function App() {
               onLines={setLines}
               onAsk={askAbout}
               commit={commit?.unit === unit.id ? commit : null}
-            />
+            />}
           </>
         )}
       </main>
@@ -256,6 +262,7 @@ export default function App() {
           <SideSheet {...panel} section={sheet} onSection={s => setSheet(now => (now === s ? null : s))} onClose={() => setSheet(null)} />
         </>
       )}
+      <StartIntent intent={starting} onClose={() => setStarting(null)} />
       <Notes />
     </div>
     </Topics.Provider>

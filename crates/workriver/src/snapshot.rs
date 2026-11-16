@@ -12,6 +12,8 @@ use workriver_scan as scan;
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     repos: Vec<Repo>,
+    projects: Vec<ProjectOut>,
+    backlog: Vec<BacklogOut>,
     built_at: String,
     intents: Vec<Intent>,
     sessions: Vec<Session>,
@@ -42,10 +44,24 @@ struct Session {
     /// The runtime's state of the agent, while it lives.
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<String>,
-    /// The intent it works in.
+    /// The current intent of the runtime group it works in.
     #[serde(skip_serializing_if = "Option::is_none")]
     intent: Option<String>,
+    /// It manages its runtime group.
     manager: bool,
+}
+
+/// A project: a registered folder of repositories, or a repository outside all of them.
+#[derive(Serialize)]
+struct ProjectOut {
+    /// Its folder, which is what intents name.
+    id: String,
+    /// A registered project's short id (p1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
+    title: String,
+    registered: bool,
+    repos: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -55,6 +71,22 @@ struct Intent {
     title: String,
     /// One sentence on what it is for; may be empty.
     goal: String,
+    state: core::IntentState,
+    /// Its project's folder; empty when nothing says.
+    project: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    note: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external: Option<core::External>,
+    /// The runtime group it runs (or last ran) in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace: Option<core::RuntimeRef>,
+    /// Planned: its place in its project's roadmap, from 0.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    order: Option<usize>,
+    /// Dropped: why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
     units: Vec<Unit>,
     chores: Vec<Chore>,
     /// The manager's name.
@@ -95,6 +127,9 @@ struct Chore {
 #[derive(Serialize)]
 struct Unit {
     id: String,
+    /// The intent's own work (research, design) shown as a unit without a repository.
+    #[serde(rename = "intentLevel", skip_serializing_if = "std::ops::Not::not")]
+    intent_level: bool,
     title: String,
     purpose: String,
     repo: String,
@@ -137,6 +172,9 @@ struct Task {
     /// A design task (shown like implement work; its output is its note).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     design: bool,
+    /// A research task (shown like implement work; its output is its note and attachments).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    research: bool,
     /// Conversations about it ("ask why"), oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     threads: Vec<ThreadOut>,
@@ -224,6 +262,25 @@ struct Finding {
     delivery: Option<Sent>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     attachments: Vec<AttachmentOut>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external: Option<core::External>,
+    /// Since when it is known: when its task was delivered, or it was added to the backlog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
+    /// Dropped: why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+/// A deferred finding from outside workriver's tasks, in its project's backlog.
+#[derive(Serialize)]
+struct BacklogOut {
+    project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    intent: Option<String>,
+    source: String,
+    by: String,
+    finding: Finding,
 }
 
 #[derive(Serialize)]
@@ -361,7 +418,20 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             id: i.id.clone(),
             title: i.title.clone(),
             goal: i.goal.clone(),
-            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(state, live, u, cache, &names, i.manager.as_deref())).collect(),
+            state: i.state,
+            project: project_folder(state, i),
+            note: i.note.clone(),
+            external: i.external.clone(),
+            workspace: i.workspace.clone(),
+            order: (i.state == core::IntentState::Planned).then(|| {
+                let mine = project_folder(state, i);
+                state.roadmap.iter().filter_map(|id| state.intents.iter().find(|x| &x.id == id)).filter(|x| project_folder(state, x) == mine).position(|x| x.id == i.id)
+            }).flatten(),
+            reason: i.reason.clone(),
+            units: intent_unit(state, live, i, &names)
+                .into_iter()
+                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(state, live, u, cache, &names, state.manager_of(&i.id))))
+                .collect(),
             chores: state
                 .chores
                 .iter()
@@ -376,8 +446,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                     unit: c.unit.clone(),
                 })
                 .collect(),
-            manager: i.manager.as_deref().map(|m| names.of(m)),
-            manager_state: i.manager.as_ref().map(|m| live.iter().find(|a| &a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
+            manager: state.manager_of(&i.id).map(|m| names.of(m)),
+            manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
         })
         .collect();
     // Live agents, then those the records name that are gone.
@@ -385,6 +455,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .iter()
         .map(|a| {
             let intent = a.group.as_ref().and_then(|g| state.intent_for(g));
+            let manages = a.group.as_ref().and_then(|g| state.workspace_of(g)).and_then(|w| w.manager.as_deref()) == Some(a.session.as_str());
             Session {
                 agent: a.name.clone(),
                 session: a.session.clone(),
@@ -394,7 +465,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                 ended: false,
                 state: Some(name(&a.state)),
                 intent: intent.map(|i| i.id.clone()),
-                manager: intent.is_some_and(|i| i.manager.as_ref() == Some(&a.session)),
+                manager: manages,
             }
         })
         .collect();
@@ -405,7 +476,102 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             sessions.push(Session { agent, session, topic: None, blocked_since: None, group: None, ended: true, state: None, intent: None, manager: false });
         }
     }
-    Workspace { repos, built_at: core::now(), intents, sessions }
+    let backlog = state
+        .backlog
+        .iter()
+        .map(|b| {
+            let f = &b.finding;
+            BacklogOut {
+                project: crate::serve::project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone()),
+                intent: b.intent.clone(),
+                source: b.source.clone(),
+                by: names.of(&b.by),
+                finding: Finding {
+                    id: f.found.id.clone(),
+                    severity: f.found.severity,
+                    problem: f.found.problem.clone(),
+                    impact: f.found.impact.clone(),
+                    evidence: f.found.r#where.clone(),
+                    state: f.state,
+                    leads_to: vec![],
+                    decided_by: None,
+                    recommendation: None,
+                    note: f.note.clone(),
+                    delivery: names.sent(&f.delivery, b.intent.as_deref().and_then(|i| state.manager_of(i))),
+                    attachments: attachments_of(state, &f.found.attachments),
+                    external: f.found.external.clone(),
+                    since: Some(b.at.clone()),
+                    reason: f.reason.clone(),
+                },
+            }
+        })
+        .collect();
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions }
+}
+
+/// An intent's project folder: as recorded, else where its first unit's repository is.
+fn project_folder(state: &core::State, i: &core::Intent) -> String {
+    let path = if i.project.is_empty() { state.units.iter().find(|u| u.intent == i.id).map(|u| u.repo.clone()).unwrap_or_default() } else { i.project.clone() };
+    if path.is_empty() {
+        return path;
+    }
+    crate::serve::project_of(state, &path).map(|p| p.path.clone()).unwrap_or(path)
+}
+
+/// Registered projects with the repositories in them, and one implicit project per
+/// repository that intents use outside all of them.
+fn projects(state: &core::State) -> Vec<ProjectOut> {
+    let repos_in = |folder: &str| {
+        let f = Path::new(folder);
+        if f.join(".git").exists() {
+            return vec![folder.to_string()];
+        }
+        let mut list: Vec<String> = std::fs::read_dir(f).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.join(".git").exists()).map(|p| p.to_string_lossy().into_owned()).collect();
+        list.sort();
+        list
+    };
+    let mut out: Vec<ProjectOut> = state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), registered: true, repos: repos_in(&p.path) }).collect();
+    let folders = state.intents.iter().map(|i| project_folder(state, i)).chain(state.backlog.iter().map(|b| crate::serve::project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
+    for folder in folders {
+        if !folder.is_empty() && !out.iter().any(|p| p.id == folder) {
+            let title = Path::new(&folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.clone());
+            out.push(ProjectOut { id: folder.clone(), key: None, title, registered: false, repos: vec![folder] });
+        }
+    }
+    out
+}
+
+/// An intent's own tasks (research, design and their reviews and gates) as a unit without a
+/// repository, listed first under the intent; none when it has none.
+fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, names: &Names) -> Option<Unit> {
+    if i.tasks.is_empty() {
+        return None;
+    }
+    let u = core::Unit {
+        id: i.id.clone(),
+        intent: i.id.clone(),
+        title: i.title.clone(),
+        purpose: i.goal.clone(),
+        repo: String::new(),
+        branch: String::new(),
+        base: String::new(),
+        at: i.at.clone(),
+        merged: None,
+        merged_commits: vec![],
+        tasks: i.tasks.clone(),
+    };
+    let manager = state.manager_of(&i.id);
+    Some(Unit {
+        id: i.id.clone(),
+        intent_level: true,
+        title: i.title.clone(),
+        purpose: i.goal.clone(),
+        repo: String::new(),
+        branch: None,
+        status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
+        tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
+        commits: vec![],
+    })
 }
 
 fn repo(path: &str, cache: &mut Cache) -> Repo {
@@ -490,6 +656,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let started = u.tasks.iter().any(|t| t.state != TaskState::Todo && t.kind != TaskKind::Gate) || !shown.is_empty();
     Unit {
         id: u.id.clone(),
+        intent_level: false,
         title: u.title.clone(),
         purpose: u.purpose.clone(),
         repo: u.repo.clone(),
@@ -503,7 +670,8 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
 #[allow(clippy::too_many_arguments)]
 fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Task, names: &Names, manager: Option<&str>, commits: Vec<String>) -> Task {
     let design = t.kind == TaskKind::Design;
-    let finder = !matches!(t.kind, TaskKind::Implement | TaskKind::Design);
+    let research = t.kind == TaskKind::Research;
+    let finder = !matches!(t.kind, TaskKind::Implement | TaskKind::Design | TaskKind::Research);
     let reviewer = match t.kind {
         TaskKind::Tests => Some("test".to_string()),
         TaskKind::Review => t.reviewer.map(|r| name(&r)),
@@ -537,7 +705,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             leads_to: u
                 .tasks
                 .iter()
-                .filter(|x| x.causes.iter().any(|c| c.task == t.n && c.findings.contains(&f.found.id)))
+                .filter(|x| x.causes.iter().any(|c| c.unit.is_none() && c.task == t.n && c.findings.contains(&f.found.id)))
                 .map(|x| x.n.to_string())
                 .collect(),
             decided_by: f.decided_by,
@@ -545,10 +713,13 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             note: f.note.clone(),
             delivery: names.sent(&f.delivery, manager),
             attachments: attachments_of(state, &f.found.attachments),
+            external: f.found.external.clone(),
+            since: t.done.clone(),
+            reason: f.reason.clone(),
         })
         .collect();
     let kind = match t.kind {
-        TaskKind::Implement | TaskKind::Design => "implement",
+        TaskKind::Implement | TaskKind::Design | TaskKind::Research => "implement",
         TaskKind::Review | TaskKind::Tests => "review",
         TaskKind::Gate => "gate",
     };
@@ -596,6 +767,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
         // Only a gate's own message is shown on the page; the others went to the manager.
         design,
+        research,
         threads: threads(state, live, names, &u.id, t.n),
         // The latest conclusion about the gate or the work it follows starts the user's note.
         draft: (t.state == TaskState::Waiting).then(|| {
@@ -629,6 +801,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         plans: vec![],
         delivery: None,
         design: false,
+        research: false,
         threads: vec![],
         draft: None,
         amended: None,

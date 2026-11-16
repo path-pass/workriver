@@ -21,6 +21,56 @@ pub enum TaskKind {
     Gate,
     /// Working out how, when the user has choices to make: its output is a design note.
     Design,
+    /// Finding out (a survey, a spike, a comparison): its output is a note and attachments.
+    Research,
+}
+
+/// Where an intent is: in the backlog, being worked on, finished, or given up.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum IntentState {
+    Planned,
+    Active,
+    Done,
+    Dropped,
+}
+
+fn active() -> IntentState {
+    IntentState::Active
+}
+
+/// The same item in an outside tracker (Jira, Linear, GitHub Issues); only kept and shown.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct External {
+    pub system: String,
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// One finding of one task; or (`task` 0, `unit` empty) a backlog finding by its id (`f3`).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct FindingRef {
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub task: u32,
+    pub finding: String,
+}
+
+/// A deferred finding that came from outside workriver's tasks (an earlier review, a
+/// notes file): it waits in its project's backlog.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct BacklogFinding {
+    pub finding: Finding,
+    /// The project's folder.
+    pub project: String,
+    /// The intent it is meant for, if any (set when it is batched).
+    pub intent: Option<String>,
+    /// Where it came from, in words: which review, branch, date.
+    pub source: String,
+    pub by: String,
+    pub at: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -96,12 +146,18 @@ pub enum FindingState {
     Revised,
     Rejected,
     Deferred,
+    /// A deferred one picked into a batch to be done now.
+    Scheduled,
+    /// A scheduled one whose work was delivered.
+    Done,
+    /// A deferred or scheduled one given up.
+    Dropped,
 }
 
 impl FindingState {
     /// Accepted or revised: work is handed out for it, and it can be a cause.
     pub fn leads_to_work(self) -> bool {
-        matches!(self, FindingState::Accepted | FindingState::Revised)
+        matches!(self, FindingState::Accepted | FindingState::Revised | FindingState::Scheduled)
     }
 }
 
@@ -136,6 +192,9 @@ fn user() -> String {
 /// Findings of a review, tests task or gate (by task number) that a task answers.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Cause {
+    /// The unit (or intent) of that task, when it is not this task's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
     pub task: u32,
     pub findings: Vec<String>,
 }
@@ -172,6 +231,8 @@ pub struct NewFinding {
     pub r#where: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<Suggestion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external: Option<External>,
     /// Stored attachments that show it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<String>,
@@ -179,7 +240,11 @@ pub struct NewFinding {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct NewTask {
+    /// The unit it is in, or an intent for intent-level work (research, design).
     pub unit: String,
+    /// The intent it serves; assigned when recorded.
+    #[serde(default)]
+    pub intent: String,
     /// Assigned when recorded.
     #[serde(default)]
     pub n: u32,
@@ -289,8 +354,75 @@ pub enum Body {
         /// One sentence on what the intent is for.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         goal: String,
+        /// Before 0.2, an intent followed one runtime group; kept for replay.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         runtime_ref: Option<RuntimeRef>,
+        /// The project's folder; empty before projects existed.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        project: String,
+        /// Records before 0.2 have none: those intents were being worked on.
+        #[serde(default = "active")]
+        state: IntentState,
+        /// More about it; may hold links.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        note: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        external: Option<External>,
+    },
+    /// A project: a folder holding one or more repositories.
+    #[serde(rename = "project.added")]
+    ProjectAdded {
+        #[serde(default)]
+        id: String,
+        path: String,
+        title: String,
+    },
+    /// Planned → active (started in a runtime group) → done; or dropped; or back to planned.
+    #[serde(rename = "intent.state_changed")]
+    IntentStateChanged {
+        intent: String,
+        state: IntentState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        /// Where it is started: the runtime group whose manager runs it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace: Option<RuntimeRef>,
+    },
+    /// A planned intent's place in its project's roadmap.
+    #[serde(rename = "intent.moved")]
+    IntentMoved {
+        intent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+    },
+    /// The user picked deferred findings to do together: they go to the intent's manager.
+    #[serde(rename = "findings.batched")]
+    FindingsBatched { intent: String, findings: Vec<FindingRef> },
+    #[serde(rename = "finding.dropped")]
+    FindingDropped {
+        /// Empty, with `task` 0, for a backlog finding.
+        #[serde(default)]
+        unit: String,
+        #[serde(default)]
+        task: u32,
+        finding: String,
+        reason: String,
+    },
+    /// A deferred finding from outside workriver's tasks, into a project's backlog.
+    #[serde(rename = "finding.added")]
+    FindingAdded {
+        /// The project's folder.
+        project: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intent: Option<String>,
+        /// Its fields; the id (`f3`) is assigned here.
+        finding: NewFinding,
+        #[serde(default)]
+        source: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        note: String,
     },
     /// The intent now follows another runtime group (its id changed, say).
     #[serde(rename = "intent.linked")]
@@ -298,7 +430,15 @@ pub enum Body {
     #[serde(rename = "agent.seen")]
     AgentSeen { session: String, name: String, harness: String },
     #[serde(rename = "manager.registered")]
-    ManagerRegistered { intent: String, agent: String },
+    ManagerRegistered {
+        /// Before 0.2: the intent it managed (whose runtime group it ran in).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intent: Option<String>,
+        agent: String,
+        /// The runtime group it manages.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace: Option<RuntimeRef>,
+    },
     /// A new title or goal; only the intent's manager or the user may change them.
     #[serde(rename = "intent.updated")]
     IntentUpdated {
@@ -488,11 +628,15 @@ impl Body {
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
-            ManagerRegistered { intent, .. } | IntentUpdated { intent, .. } => (Some(intent.clone()), None, None),
+            ManagerRegistered { intent, .. } => (intent.clone(), None, None),
+            IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
+            ProjectAdded { .. } => (None, None, None),
+            FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
+            FindingAdded { intent, .. } => (intent.clone(), None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } => (None, Some(unit.clone()), None),
-            TaskCreated(t) => (None, Some(t.unit.clone()), task(&t.unit, t.n)),
+            TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }
@@ -531,6 +675,15 @@ pub struct State {
     pub threads: Vec<Thread>,
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    #[serde(default)]
+    pub projects: Vec<Project>,
+    #[serde(default)]
+    pub workspaces: Vec<Workspace>,
+    /// Planned intents in roadmap order (each project's roadmap is its part of this list).
+    #[serde(default)]
+    pub roadmap: Vec<String>,
+    #[serde(default)]
+    pub backlog: Vec<BacklogFinding>,
 }
 
 /// A stored file. Never deleted, like the records.
@@ -594,13 +747,48 @@ impl Question {
 pub struct Intent {
     pub id: String,
     pub title: String,
-    /// The manager's session.
+    /// Before 0.2: the manager registered for it. Now the manager is the workspace's.
     pub manager: Option<String>,
     #[serde(default)]
     pub goal: String,
+    /// Before 0.2: the runtime group it followed.
     #[serde(default)]
     pub runtime_ref: Option<RuntimeRef>,
     pub at: String,
+    /// The project folder ("" when not known: then its units' repositories say).
+    #[serde(default)]
+    pub project: String,
+    #[serde(default = "active")]
+    pub state: IntentState,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub external: Option<External>,
+    /// Where it runs while active (and last ran).
+    #[serde(default)]
+    pub workspace: Option<RuntimeRef>,
+    /// Why it was dropped.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Intent-level work (research, design), numbered `i3#1`…
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+}
+
+/// A registered project folder.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Project {
+    pub id: String,
+    pub path: String,
+    pub title: String,
+}
+
+/// A runtime group (a Herdr workspace): its manager and the intent new work goes to.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Workspace {
+    pub group: RuntimeRef,
+    pub manager: Option<String>,
+    pub current: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -622,6 +810,9 @@ pub struct Unit {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Task {
     pub n: u32,
+    /// The intent it serves.
+    #[serde(default)]
+    pub intent: String,
     pub kind: TaskKind,
     pub title: String,
     pub text: String,
@@ -665,6 +856,9 @@ pub struct Finding {
     /// Where the message with the user's decision is.
     #[serde(default)]
     pub delivery: Option<Delivery>,
+    /// Dropped: why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -705,18 +899,78 @@ impl State {
         }
     }
 
+    /// The tasks of a unit, or an intent's intent-level tasks.
+    pub fn tasks_of(&self, owner: &str) -> Option<&Vec<Task>> {
+        self.units.iter().find(|u| u.id == owner).map(|u| &u.tasks).or_else(|| self.intents.iter().find(|i| i.id == owner).map(|i| &i.tasks))
+    }
+
+    /// A task by its owner (a unit, or an intent for intent-level work) and number.
     pub fn task(&self, unit: &str, n: u32) -> Result<&Task, Rejected> {
-        match self.unit(unit)?.tasks.iter().find(|t| t.n == n) {
+        let Some(tasks) = self.tasks_of(unit) else { return no(format!("no unit or intent {unit}")) };
+        match tasks.iter().find(|t| t.n == n) {
             Some(t) => Ok(t),
             None => no(format!("no task {unit}#{n}")),
         }
     }
 
-    /// The intent following a runtime group: by its id, or else by its label, since a
-    /// runtime may give its groups new ids when it restarts.
+    /// A unit, or an intent seen as a unit for its intent-level tasks (no branch; its
+    /// project folder as the repository).
+    pub fn unit_or_intent(&self, id: &str) -> Option<Unit> {
+        if let Ok(u) = self.unit(id) {
+            return Some(u.clone());
+        }
+        let i = self.intents.iter().find(|i| i.id == id)?;
+        Some(Unit {
+            id: i.id.clone(),
+            intent: i.id.clone(),
+            title: i.title.clone(),
+            purpose: i.goal.clone(),
+            repo: i.project.clone(),
+            branch: String::new(),
+            base: String::new(),
+            at: i.at.clone(),
+            merged: None,
+            merged_commits: vec![],
+            tasks: i.tasks.clone(),
+        })
+    }
+
+    /// A finding by reference: a task's, or a backlog one.
+    pub fn finding(&self, r: &FindingRef) -> Result<&Finding, Rejected> {
+        if r.task == 0 {
+            return match self.backlog.iter().find(|b| b.finding.found.id == r.finding) {
+                Some(b) => Ok(&b.finding),
+                None => no(format!("no backlog finding {}", r.finding)),
+            };
+        }
+        match self.task(&r.unit, r.task)?.findings.iter().find(|f| f.found.id == r.finding) {
+            Some(f) => Ok(f),
+            None => no(format!("{}#{} has no finding {}", r.unit, r.task, r.finding)),
+        }
+    }
+
+    /// The intent a unit (or intent) belongs to.
+    pub fn intent_of(&self, owner: &str) -> Option<&str> {
+        self.units.iter().find(|u| u.id == owner).map(|u| u.intent.as_str()).or_else(|| self.intents.iter().find(|i| i.id == owner).map(|i| i.id.as_str()))
+    }
+
+    /// A runtime group's record: by its id, or else by its label, since a runtime may give
+    /// its groups new ids when it restarts.
+    pub fn workspace_of(&self, r: &RuntimeRef) -> Option<&Workspace> {
+        self.workspaces.iter().find(|w| w.group.id == r.id).or_else(|| self.workspaces.iter().find(|w| w.group.label == r.label))
+    }
+
+    /// The intent new work in a runtime group goes to: the group's current intent.
     pub fn intent_for(&self, r: &RuntimeRef) -> Option<&Intent> {
-        let by = |f: &dyn Fn(&RuntimeRef) -> bool| self.intents.iter().find(|i| i.runtime_ref.as_ref().is_some_and(f));
-        by(&|x| x.id == r.id).or_else(|| by(&|x| x.label == r.label))
+        let id = self.workspace_of(r)?.current.as_deref()?;
+        self.intents.iter().find(|i| i.id == id)
+    }
+
+    /// The manager of an intent: the manager of the runtime group it runs in (before 0.2,
+    /// the one registered for the intent itself).
+    pub fn manager_of(&self, intent: &str) -> Option<&str> {
+        let i = self.intents.iter().find(|i| i.id == intent)?;
+        i.workspace.as_ref().and_then(|g| self.workspace_of(g)).and_then(|w| w.manager.as_deref()).or(i.manager.as_deref())
     }
 
     /// The name last seen for an agent session.
@@ -741,7 +995,7 @@ impl State {
         Ok(())
     }
 
-    fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
+    pub fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
         match self.intents.iter().find(|i| i.id == id) {
             Some(i) => Ok(i),
             None => no(format!("no intent {id}")),
@@ -756,14 +1010,111 @@ impl State {
             return no("the actor is empty");
         }
         Ok(match body {
-            IntentCreated { title, goal, runtime_ref, .. } => {
+            IntentCreated { title, goal, runtime_ref, project, state, note, external, .. } => {
                 if blank(&title) {
                     return no("an intent needs a title");
                 }
                 if runtime_ref.as_ref().is_some_and(|r| blank(&r.id)) {
                     return no("a runtime group needs an id");
                 }
-                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref }
+                if !matches!(state, IntentState::Planned | IntentState::Active) {
+                    return no("a new intent is planned (in the backlog) or active");
+                }
+                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external }
+            }
+            ProjectAdded { path, title, .. } => {
+                if blank(&path) || blank(&title) {
+                    return no("a project needs its folder and a title");
+                }
+                if self.projects.iter().any(|p| p.path == path) {
+                    return no(format!("{path} is already a project"));
+                }
+                ProjectAdded { id: format!("p{}", self.projects.len() + 1), path, title }
+            }
+            IntentStateChanged { intent, state, reason, workspace } => {
+                let i = self.intent(&intent)?;
+                use IntentState::*;
+                match (i.state, state) {
+                    (Planned, Active) => {
+                        let Some(g) = &workspace else { return no(format!("start {intent} from its manager's pane: workriver intent start {intent}")) };
+                        let manager = self.workspace_of(g).and_then(|w| w.manager.as_deref());
+                        if actor != "user" && manager != Some(actor) {
+                            return no(format!("only the manager of workspace {} starts intents there; register with `workriver manager here` first", g.label));
+                        }
+                    }
+                    (Active, Done) | (Active, Planned) => {}
+                    (Planned, Dropped) | (Active, Dropped) => {
+                        if reason.as_deref().is_none_or(blank) {
+                            return no("dropping an intent needs a reason: --reason \"...\"");
+                        }
+                    }
+                    (from, to) => return no(format!("intent {intent} is {}; it cannot become {}", name(&from), name(&to))),
+                }
+                IntentStateChanged { intent, state, reason, workspace }
+            }
+            IntentMoved { intent, before, after } => {
+                let i = self.intent(&intent)?;
+                if i.state != IntentState::Planned {
+                    return no(format!("intent {intent} is not in the roadmap (it is {})", name(&i.state)));
+                }
+                let Some(other) = before.as_ref().or(after.as_ref()).filter(|_| before.is_none() || after.is_none()) else {
+                    return no("move it --before or --after one other planned intent");
+                };
+                let o = self.intent(other)?;
+                if o.state != IntentState::Planned || other == &intent {
+                    return no(format!("{other} is not another planned intent"));
+                }
+                IntentMoved { intent, before, after }
+            }
+            FindingsBatched { intent, findings } => {
+                let i = self.intent(&intent)?;
+                if i.state != IntentState::Active {
+                    return no(format!("intent {intent} is {}; start it first (workriver intent start {intent} in its manager's pane)", name(&i.state)));
+                }
+                if findings.is_empty() {
+                    return no("a batch needs at least one finding");
+                }
+                for r in &findings {
+                    let f = self.finding(r)?;
+                    // A task's finding belongs to its intent; a backlog one to its intent, if any, or the project.
+                    let fits = if r.task == 0 {
+                        let b = self.backlog.iter().find(|b| b.finding.found.id == r.finding);
+                        b.is_some_and(|b| b.intent.as_deref().is_none_or(|x| x == intent))
+                    } else {
+                        self.intent_of(&r.unit) == Some(intent.as_str())
+                    };
+                    if !fits {
+                        return no(format!("finding {} is not part of intent {intent}", r.finding));
+                    }
+                    if f.state != FindingState::Deferred {
+                        return no(format!("finding {} is {}, not deferred", r.finding, name(&f.state)));
+                    }
+                }
+                FindingsBatched { intent, findings }
+            }
+            FindingAdded { project, intent, finding, source, note } => {
+                if blank(&project) {
+                    return no("a backlog finding needs its project (--project)");
+                }
+                if blank(&finding.problem) {
+                    return no("a finding needs its problem");
+                }
+                if let Some(i) = &intent {
+                    self.intent(i)?;
+                }
+                let mut finding = finding;
+                finding.id = format!("f{}", self.backlog.len() + 1);
+                FindingAdded { project, intent, finding, source, note }
+            }
+            FindingDropped { unit, task, finding, reason } => {
+                let f = self.finding(&FindingRef { unit: unit.clone(), task, finding: finding.clone() })?;
+                if !matches!(f.state, FindingState::Deferred | FindingState::Scheduled) {
+                    return no(format!("finding {finding} is {}; only deferred or scheduled ones are dropped", name(&f.state)));
+                }
+                if blank(&reason) {
+                    return no("dropping a finding needs a reason: --reason \"...\"");
+                }
+                FindingDropped { unit, task, finding, reason }
             }
             IntentLinked { intent, runtime_ref } => {
                 self.intent(&intent)?;
@@ -779,8 +1130,8 @@ impl State {
                 AgentSeen { session, name, harness }
             }
             IntentUpdated { intent, title, goal } => {
-                let i = self.intent(&intent)?;
-                if actor != "user" && i.manager.as_deref() != Some(actor) {
+                self.intent(&intent)?;
+                if actor != "user" && self.manager_of(&intent) != Some(actor) {
                     return no(format!("only the user or the manager of intent {intent} may change it"));
                 }
                 if title.as_deref().is_some_and(blank) {
@@ -791,15 +1142,23 @@ impl State {
                 }
                 IntentUpdated { intent, title, goal }
             }
-            ManagerRegistered { intent, agent } => {
-                self.intent(&intent)?;
+            ManagerRegistered { intent, agent, workspace } => {
+                if let Some(i) = &intent {
+                    self.intent(i)?;
+                }
+                if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
+                    return no("a manager manages a runtime workspace: run `workriver manager here` in its pane");
+                }
                 if blank(&agent) {
                     return no("a manager needs an agent");
                 }
-                ManagerRegistered { intent, agent }
+                ManagerRegistered { intent, agent, workspace }
             }
             UnitCreated { intent, title, purpose, repo, branch, base, .. } => {
-                self.intent(&intent)?;
+                let i = self.intent(&intent)?;
+                if matches!(i.state, IntentState::Done | IntentState::Dropped) {
+                    return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
+                }
                 for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
                     if blank(v) {
                         return no(format!("a unit needs a {field}"));
@@ -837,6 +1196,9 @@ impl State {
                 self.stored(evidence.iter().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flat_map(|f| &f.attachments)).chain(&attachments))?;
                 if t.kind == TaskKind::Design && blank(&note) {
                     return no("a design task delivers its design as the note: --note \"...\"");
+                }
+                if t.kind == TaskKind::Research && blank(&note) && attachments.is_empty() {
+                    return no("a research task delivers what it found: a --note, and its report attached (workriver attach --dir)");
                 }
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
             }
@@ -913,6 +1275,9 @@ impl State {
                     if !self.chores.iter().any(|x| &x.id == c) {
                         return no(format!("no chore {c}"));
                     }
+                } else if task == 0 {
+                    // A backlog finding's (a batch's message is recorded on its first finding).
+                    self.finding(&FindingRef { unit: String::new(), task: 0, finding: finding.clone().unwrap_or_default() })?;
                 } else {
                     let t = self.task(&unit, task)?;
                     if let Some(id) = &finding
@@ -1007,12 +1372,28 @@ impl State {
     }
 
     fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
-        let unit = self.unit(&t.unit)?;
-        if unit.merged.is_some() {
-            return no(format!("unit {} is merged; record new work in a new unit", unit.id));
+        // A task is in a unit, or (research, design and their reviews and gates) in an intent.
+        let (owner, intent, count) = if let Ok(u) = self.unit(&t.unit) {
+            if u.merged.is_some() {
+                return no(format!("unit {} is merged; record new work in a new unit", u.id));
+            }
+            (u.id.clone(), u.intent.clone(), u.tasks.len())
+        } else {
+            let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit or intent {}", t.unit)))?;
+            if matches!(t.kind, TaskKind::Implement | TaskKind::Tests) {
+                return no(format!("implement and tests tasks belong to a unit; {} takes research, design, review and gate tasks", i.id));
+            }
+            (i.id.clone(), i.id.clone(), i.tasks.len())
+        };
+        if let Some(i) = self.intents.iter().find(|i| i.id == intent)
+            && matches!(i.state, IntentState::Done | IntentState::Dropped)
+        {
+            return no(format!("intent {intent} is {}; it takes no new tasks", name(&i.state)));
         }
         match t.kind {
-            TaskKind::Implement | TaskKind::Gate | TaskKind::Design if blank(&t.title) => return no("an implement or design task, or a gate, needs a title"),
+            TaskKind::Implement | TaskKind::Gate | TaskKind::Design | TaskKind::Research if blank(&t.title) => {
+                return no("an implement, design or research task, or a gate, needs a title");
+            }
             TaskKind::Gate if t.gate.is_none() => return no("a gate needs its kind: deploy or test"),
             TaskKind::Review if t.reviewer.is_none() => t.reviewer = Some(Reviewer::CodeReview),
             _ => {}
@@ -1023,30 +1404,44 @@ impl State {
         if t.kind != TaskKind::Gate {
             t.gate = None;
         }
-        for c in &t.causes {
-            let by = self.task(&unit.id, c.task)?;
-            if matches!(by.kind, TaskKind::Implement | TaskKind::Design) {
-                return no(format!("{}#{} is an implement or design task; causes are findings of reviews, tests or gates", unit.id, c.task));
+        for c in &mut t.causes {
+            if c.unit.as_deref() == Some(owner.as_str()) {
+                c.unit = None;
+            }
+            // Task 0: findings of the project's backlog (`f3`).
+            if c.task == 0 {
+                for id in &c.findings {
+                    let f = self.finding(&FindingRef { unit: String::new(), task: 0, finding: id.clone() })?;
+                    if !f.state.leads_to_work() {
+                        return no(format!("backlog finding {id} is {}; batch it first (Do together in the Backlog)", name(&f.state)));
+                    }
+                }
+                continue;
+            }
+            let at = c.unit.clone().unwrap_or_else(|| owner.clone());
+            let by = self.task(&at, c.task)?;
+            if matches!(by.kind, TaskKind::Implement | TaskKind::Design | TaskKind::Research) {
+                return no(format!("{at}#{} is an implement, design or research task; causes are findings of reviews, tests or gates", c.task));
             }
             if c.findings.is_empty() {
-                return no(format!("the cause {}#{} names no finding", unit.id, c.task));
+                return no(format!("the cause {at}#{} names no finding", c.task));
             }
             for id in &c.findings {
                 match by.findings.iter().find(|f| &f.found.id == id) {
-                    None => return no(format!("{}#{} has no finding {id}", unit.id, c.task)),
+                    None => return no(format!("{at}#{} has no finding {id}", c.task)),
                     Some(f) if !f.state.leads_to_work() => {
                         return no(format!(
-                            "finding {id} of {}#{} is neither accepted nor revised; decide it first (workriver finding decide {}#{} {id} accept)",
-                            unit.id, c.task, unit.id, c.task
+                            "finding {id} of {at}#{} is neither accepted, revised nor scheduled; decide it first (workriver finding decide {at}#{} {id} accept)",
+                            c.task, c.task
                         ));
                     }
                     Some(_) => {}
                 }
             }
         }
-        // Inputs default to the causes (the first one primary), or to the start.
+        // Inputs default to the causes in the same unit (the first one primary), or to the start.
         if t.inputs.is_empty() {
-            t.inputs = t.causes.iter().enumerate().map(|(k, c)| Input { from: c.task.to_string(), primary: k == 0 }).collect();
+            t.inputs = t.causes.iter().filter(|c| c.unit.is_none() && c.task != 0).enumerate().map(|(k, c)| Input { from: c.task.to_string(), primary: k == 0 }).collect();
         }
         if t.inputs.is_empty() {
             t.inputs.push(Input { from: "start".into(), primary: true });
@@ -1055,14 +1450,15 @@ impl State {
             let from = i.from.trim().trim_start_matches('#').to_string();
             if from != "start" {
                 let n: u32 = from.parse().map_err(|_| Rejected(format!("input {:?} is neither \"start\" nor a task number", i.from)))?;
-                self.task(&unit.id, n)?;
+                self.task(&owner, n)?;
             }
             i.from = from;
         }
         if !t.inputs.iter().any(|i| i.primary) {
             t.inputs[0].primary = true;
         }
-        t.n = unit.tasks.len() as u32 + 1;
+        t.n = count as u32 + 1;
+        t.intent = intent;
         Ok(t)
     }
 
@@ -1072,14 +1468,106 @@ impl State {
         let at = &e.at;
         let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
         match &e.body {
-            IntentCreated { id, title, goal, runtime_ref } => self.intents.push(Intent {
-                id: id.clone(),
-                title: title.clone(),
-                manager: None,
-                goal: goal.clone(),
-                runtime_ref: runtime_ref.clone(),
-                at: at.clone(),
-            }),
+            IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
+                self.intents.push(Intent {
+                    id: id.clone(),
+                    title: title.clone(),
+                    manager: None,
+                    goal: goal.clone(),
+                    runtime_ref: runtime_ref.clone(),
+                    at: at.clone(),
+                    project: project.clone(),
+                    state: *state,
+                    note: note.clone(),
+                    external: external.clone(),
+                    workspace: runtime_ref.clone(),
+                    reason: None,
+                    tasks: vec![],
+                });
+                if *state == IntentState::Planned {
+                    self.roadmap.push(id.clone());
+                }
+                // Before 0.2 an intent was its runtime group's: it is that group's current intent.
+                if let Some(g) = runtime_ref
+                    && *state == IntentState::Active
+                {
+                    self.workspace_mut(g).current = Some(id.clone());
+                }
+            }
+            ProjectAdded { id, path, title } => self.projects.push(Project { id: id.clone(), path: path.clone(), title: title.clone() }),
+            IntentStateChanged { intent, state, reason, workspace } => {
+                let Some(k) = self.intents.iter().position(|i| &i.id == intent) else { return };
+                let before = self.intents[k].workspace.clone();
+                {
+                    let i = &mut self.intents[k];
+                    i.state = *state;
+                    if reason.is_some() {
+                        i.reason = reason.clone();
+                    }
+                    if let Some(g) = workspace {
+                        i.workspace = Some(g.clone());
+                    }
+                }
+                self.roadmap.retain(|x| x != intent);
+                match state {
+                    IntentState::Active => {
+                        if let Some(g) = workspace {
+                            self.workspace_mut(g).current = Some(intent.clone());
+                        }
+                    }
+                    _ => {
+                        // No longer worked on: no longer where new work goes.
+                        if let Some(g) = before {
+                            let w = self.workspace_mut(&g);
+                            if w.current.as_deref() == Some(intent.as_str()) {
+                                w.current = None;
+                            }
+                        }
+                        if *state == IntentState::Planned {
+                            self.roadmap.push(intent.clone());
+                        }
+                    }
+                }
+            }
+            IntentMoved { intent, before, after } => {
+                self.roadmap.retain(|x| x != intent);
+                let at = before.as_ref().or(after.as_ref()).and_then(|o| self.roadmap.iter().position(|x| x == o));
+                let k = match (at, before.is_some()) {
+                    (Some(k), true) => k,
+                    (Some(k), false) => k + 1,
+                    (None, _) => self.roadmap.len(),
+                };
+                self.roadmap.insert(k, intent.clone());
+            }
+            FindingsBatched { intent, findings } => {
+                for r in findings {
+                    if let Some(f) = self.finding_mut(r) {
+                        f.state = FindingState::Scheduled;
+                    }
+                    if r.task == 0
+                        && let Some(b) = self.backlog.iter_mut().find(|b| b.finding.found.id == r.finding)
+                    {
+                        b.intent = Some(intent.clone());
+                    }
+                }
+            }
+            FindingAdded { project, intent, finding, source, note } => {
+                let found = finding.clone();
+                self.backlog.push(BacklogFinding {
+                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None },
+                    project: project.clone(),
+                    intent: intent.clone(),
+                    source: source.clone(),
+                    by: e.actor.clone(),
+                    at: at.clone(),
+                });
+            }
+            FindingDropped { unit, task, finding, reason } => {
+                if let Some(f) = self.finding_mut(&FindingRef { unit: unit.clone(), task: *task, finding: finding.clone() }) {
+                    f.state = FindingState::Dropped;
+                    f.reason = Some(reason.clone());
+                }
+            }
             IntentUpdated { intent, title, goal } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
                     if let Some(t) = title {
@@ -1091,8 +1579,14 @@ impl State {
                 }
             }
             IntentLinked { intent, runtime_ref } => {
+                let mut active = false;
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
                     i.runtime_ref = Some(runtime_ref.clone());
+                    i.workspace = Some(runtime_ref.clone());
+                    active = i.state == IntentState::Active;
+                }
+                if active {
+                    self.workspace_mut(runtime_ref).current = Some(intent.clone());
                 }
             }
             AgentSeen { session, name, harness } => {
@@ -1102,9 +1596,15 @@ impl State {
                     None => self.agents.push(seen),
                 }
             }
-            ManagerRegistered { intent, agent } => {
-                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+            ManagerRegistered { intent, agent, workspace } => {
+                // Before 0.2: the intent's manager, which is the manager of its runtime group.
+                let mut group = workspace.clone();
+                if let Some(i) = intent.as_ref().and_then(|id| self.intents.iter_mut().find(|i| &i.id == id)) {
                     i.manager = Some(agent.clone());
+                    group = group.or(i.workspace.clone());
+                }
+                if let Some(g) = group {
+                    self.workspace_mut(&g).manager = Some(agent.clone());
                 }
             }
             UnitCreated { id, intent, title, purpose, repo, branch, base } => self.units.push(Unit {
@@ -1127,9 +1627,16 @@ impl State {
                 }
             }
             TaskCreated(t) => {
-                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit) {
-                    u.tasks.push(Task {
+                // Before 0.2 a task named no intent: its unit's.
+                let intent = if t.intent.is_empty() { self.intent_of(&t.unit).unwrap_or_default().to_string() } else { t.intent.clone() };
+                let tasks = match self.units.iter_mut().find(|u| u.id == t.unit) {
+                    Some(u) => Some(&mut u.tasks),
+                    None => self.intents.iter_mut().find(|i| i.id == t.unit).map(|i| &mut i.tasks),
+                };
+                if let Some(tasks) = tasks {
+                    tasks.push(Task {
                         n: t.n,
+                        intent,
                         kind: t.kind,
                         title: t.title.clone(),
                         text: t.text.clone(),
@@ -1172,6 +1679,24 @@ impl State {
                     t.findings = findings.iter().cloned().map(open).collect();
                     if t.agent.is_none() {
                         t.agent = agent_of(&e.actor);
+                    }
+                }
+                // Scheduled findings this work answers are done with.
+                let causes: Vec<FindingRef> = self
+                    .task(unit, *task)
+                    .map(|t| {
+                        t.causes
+                            .iter()
+                            .flat_map(|c| {
+                                let at = if c.task == 0 { String::new() } else { c.unit.clone().unwrap_or_else(|| unit.clone()) };
+                                c.findings.iter().map(move |f| FindingRef { unit: at.clone(), task: c.task, finding: f.clone() })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for r in causes {
+                    if let Some(f) = self.finding_mut(&r).filter(|f| f.state == FindingState::Scheduled) {
+                        f.state = FindingState::Done;
                     }
                 }
             }
@@ -1231,6 +1756,11 @@ impl State {
                         t.findings = f.iter().cloned().map(open).collect();
                     }
                     t.amended = Some(at.clone());
+                }
+            }
+            DeliveryUpdated { task: 0, finding: Some(f), delivery, .. } => {
+                if let Some(x) = self.finding_mut(&FindingRef { unit: String::new(), task: 0, finding: f.clone() }) {
+                    x.delivery = Some(delivery.clone());
                 }
             }
             DeliveryUpdated { unit, task, finding, delivery, .. } => {
@@ -1320,13 +1850,39 @@ impl State {
     }
 
     fn task_mut(&mut self, unit: &str, n: u32) -> Option<&mut Task> {
-        self.units.iter_mut().find(|u| u.id == unit)?.tasks.iter_mut().find(|t| t.n == n)
+        let tasks = match self.units.iter_mut().find(|u| u.id == unit) {
+            Some(u) => &mut u.tasks,
+            None => &mut self.intents.iter_mut().find(|i| i.id == unit)?.tasks,
+        };
+        tasks.iter_mut().find(|t| t.n == n)
+    }
+
+    /// A runtime group's record, made when first needed; it follows the group's latest id and label.
+    fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
+        let k = self.workspaces.iter().position(|w| w.group.id == g.id).or_else(|| self.workspaces.iter().position(|w| w.group.label == g.label));
+        match k {
+            Some(k) => {
+                self.workspaces[k].group = g.clone();
+                &mut self.workspaces[k]
+            }
+            None => {
+                self.workspaces.push(Workspace { group: g.clone(), manager: None, current: None });
+                self.workspaces.last_mut().unwrap()
+            }
+        }
+    }
+
+    fn finding_mut(&mut self, r: &FindingRef) -> Option<&mut Finding> {
+        if r.task == 0 {
+            return self.backlog.iter_mut().find(|b| b.finding.found.id == r.finding).map(|b| &mut b.finding);
+        }
+        self.task_mut(&r.unit, r.task)?.findings.iter_mut().find(|f| f.found.id == r.finding)
     }
 }
 
 /// What a delivery or its correction may carry.
 fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Result<(), Rejected> {
-    if !findings.is_empty() && matches!(t.kind, TaskKind::Implement | TaskKind::Design) {
+    if !findings.is_empty() && matches!(t.kind, TaskKind::Implement | TaskKind::Design | TaskKind::Research) {
         return no("findings belong to a review or tests task; record a review task and deliver them there");
     }
     if evidence.iter().any(|e| blank(&e.command)) {
@@ -1341,7 +1897,7 @@ fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Res
 }
 
 fn open(found: NewFinding) -> Finding {
-    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None }
+    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None, reason: None }
 }
 
 /// Ids per severity, as a reviewer numbers them: P1-1, P2-1, P2-2…

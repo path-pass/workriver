@@ -45,10 +45,34 @@ Open <http://127.0.0.1:47820>. `workriver status` should say `agent runtime: con
 - The page's terminal button brings the agent's pane to the front in Herdr, then the
   terminal app (Ghostty by default; `workriver serve --terminal-app iTerm`, or `''` for none).
 
-## 3. Give each workspace a manager
+## 3. Projects and the backlog
 
-One Herdr workspace is one intent (a goal). In each, start a coding agent as its manager
-and give it the manager skill from `skills/workriver-manager/`:
+A **project** is a folder with one or more repositories. Register one that holds several:
+`workriver project add ~/code/shop` (its repositories are its direct subfolders with a
+`.git`). A repository outside every registered folder is a project of its own; nothing to do.
+
+Each project has a **backlog**: its **roadmap** (planned intents, goals in the order you
+want them) and its **deferred findings** (problems put off for later). Add to the roadmap
+in the rail of the page ("+" under Roadmap; drag to reorder), or:
+
+```sh
+workriver backlog add "Offline sync" --goal "Notes can be taken offline and merge later." --project ~/code/shop
+workriver backlog list
+```
+
+**Importing an existing list.** Notes files differ every time, so there is no importer
+that parses them; an agent does it with the import skill (`skills/workriver-backlog-import/`,
+or paste what `workriver guide import` prints). Tell it which file and which project; it
+reads the file, works out which items are goals and which are leftover findings, shows you a
+preview table and waits for your yes, then adds them in the file's order with
+`workriver backlog add` and `workriver backlog add-finding`. It never changes the file.
+`workriver backlog export --project P` prints the backlog back as Markdown.
+
+## 4. Give each workspace a manager
+
+A Herdr workspace runs one or more intents; its manager agent plans and hands out their
+work. In each workspace, start a coding agent as its manager and give it the manager skill
+from `skills/workriver-manager/`:
 
 - **Claude Code**: link the folder into your skills, for one project or for all:
   `ln -s "$PWD/skills/workriver-manager" <project>/.claude/skills/workriver-manager`, or
@@ -57,8 +81,9 @@ and give it the manager skill from `skills/workriver-manager/`:
 - **Any other harness**: run `workriver guide manager` and paste the text into its first
   message.
 
-Then tell it, for example: "You are the workriver manager of this workspace. Goal: let
-people mention each other in chat. Plan units and tasks, and hand them to worker agents."
+Then tell it, for example: "You are the workriver manager of this workspace. Start the
+first intent of the roadmap, plan units and tasks, and hand them to worker agents." On the
+page, "Start" next to a planned intent shows the same steps with the commands to copy.
 
 Optional, if agents take screenshots with the Playwright MCP: by default its files land in
 the project (`.playwright-mcp/`). Give it workriver's folder for files it names itself,
@@ -68,12 +93,14 @@ e.g. for Claude Code
 a file name an agent gives is still taken relative to the project. Agents then attach what
 they need with `workriver attach <file> --task u1#3 --move`.
 
-## 4. What happens next
+## 5. What happens next
 
 The manager, from its pane:
 
 ```sh
-workriver manager here                 # registers it; the intent is named after the workspace
+workriver manager here                 # registers it as the workspace's manager
+workriver backlog list                 # the roadmap: i1 "Mentions" ...
+workriver intent start i1              # active here; the workspace's current intent
 workriver unit add --title "Mentions" --branch mention
 workriver task add u1 --title "Find the people mentioned in a message" --agent finder
 herdr agent start finder --kind claude --pane <pane id>   # see `herdr --skill`
@@ -90,12 +117,14 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 
 A commit on the unit's branch without a `Task:` line shows as unregistered, a gap to close.
 Reviews and tests are tasks of their own; their findings wait in **Needs you** on the page.
-Accept, reject or defer each one there. Your decision and your gate results go to the right
+Accept, revise, reject or defer each one there. Deferred ones wait in the **Backlog**
+panel; tick several and "Do together" sends them to the intent's manager as one message,
+which turns them into one cleanup unit. Your decision and your gate results go to the right
 agent through Herdr (an accepted finding to the manager, which hands out the work); the
 line under it shows whether it was delivered and picked up, and "Copy message" gives you
 the same text to paste by hand.
 
-## 5. Update
+## 6. Update
 
 ```sh
 git pull
@@ -119,7 +148,8 @@ Then stop `workriver serve` (Ctrl-C) and start it again. The data is kept.
 - **"cannot tell which agent this is"** from the CLI in a pane: the service cannot reach
   Herdr (see above). `--as <name>` records under a name you give.
 - **"Not delivered: …"** on the page (hover for the details):
-  - *the intent has no manager*: run `workriver manager here` in the manager's pane;
+  - *the intent has no manager*: run `workriver manager here` in the manager's pane of
+    the workspace the intent was started in;
   - *the manager is not running*: start it again and register it;
   - *Herdr is not reachable*: see above;
   - *Herdr refused it*: usually `agent_not_ready` (the agent is still starting, or is not

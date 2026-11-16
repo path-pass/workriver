@@ -56,8 +56,9 @@ pub fn agent_name(q: &str) -> String {
 /// `dir` is where the unit's branch is checked out (or the repository); `commits` are the
 /// task's commits as (short id, subject).
 pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String)], home: &std::path::Path) -> Option<String> {
-    let u = state.unit(&q.unit).ok()?;
+    let u = state.unit_or_intent(&q.unit)?;
     let t = state.task(&q.unit, q.task).ok()?;
+    let code = if u.branch.is_empty() { format!("The code is in {dir}; read it there.") } else { format!("The code is in {dir} on branch {} (from {}); read it there.", u.branch, u.base) };
     let r = format!("{}#{}", q.unit, q.task);
     let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
     let mut m = vec![
@@ -71,16 +72,15 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
             (false, by) => format!("Question {} from the agent {}: \"{}\"", q.id, named(by), q.text),
         },
         format!(
-            "It is about task {r} \"{}\" ({}{}, {}) in unit {} \"{}\"{}. The code is in {dir} on branch {} (from {}); read it there.",
+            "It is about task {r} \"{}\" ({}{}, {}) in {} {} \"{}\"{}. {code}",
             t.title,
             name(&t.kind),
             t.agent.as_deref().map(|a| format!(", by {}", named(a))).unwrap_or_default(),
             name(&t.state),
+            if u.branch.is_empty() { "intent" } else { "unit" },
             q.unit,
             u.title,
             if u.purpose.is_empty() { String::new() } else { format!(" ({})", u.purpose) },
-            u.branch,
-            u.base,
         ),
     ];
     if !t.text.is_empty() && t.text != t.title {

@@ -59,7 +59,7 @@ export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path =
  * picked), each file's count in the tree equals the change the single-file view shows.
  */
 function checkCounts(ws: Workspace) {
-  for (const unit of unitsOf(ws))
+  for (const unit of unitsOf(ws).filter(u => !u.intentLevel))
     for (const pick of [null, ...unit.tasks.map(n => ({ kind: 'task', id: n.id }) as const)]) {
       const sel = selectionOf(unit, pick)
       for (const r of fileTree(repoOf(ws, unit).modules, unit, sel, true).rows.values()) {
@@ -120,7 +120,7 @@ export const askeeOf = (unit: Unit, n: Task): string | null =>
   n.kind === 'gate' ? unit.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null : n.agent
 
 /** Finished work handed in with no check run: shown on the graph, not counted anywhere. */
-export const untested = (n: Task) => n.kind === 'implement' && !n.design && n.state === 'done' && !n.output.evidence?.length
+export const untested = (n: Task) => n.kind === 'implement' && !n.design && !n.research && n.state === 'done' && !n.output.evidence?.length
 
 export function nodeLabel(t: T, n: Task): string {
   if (n.kind === 'review') return reviewLabel(t, n)
@@ -262,7 +262,7 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
     const [state, at]: [AgentState, AgentAt['at']] = running ? ['working', running] : s.state === 'working' ? ['working', todo ?? last] : todo ? ['queued', todo] : ['idle', last]
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     const key = s.group?.id ?? intent?.id ?? ''
-    if (!groups.has(key)) groups.set(key, { key, label: intent?.title ?? s.group?.label ?? '', intent, agents: [] })
+    if (!groups.has(key)) groups.set(key, { key, label: s.group?.label ?? intent?.title ?? '', intent, agents: [] })
     groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, at })
   }
   const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)

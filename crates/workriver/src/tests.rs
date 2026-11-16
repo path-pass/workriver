@@ -139,14 +139,15 @@ fn identity_intents_and_delivery() {
     let runtime = fake.clone();
     std::thread::spawn(move || rt.block_on(crate::serve::serve(listener, store, runtime, None, Default::default())));
 
-    let here = d.call("/api/here", Some(json!({ "place": "p1", "intent": true }))).unwrap();
-    assert_eq!((here["actor"].as_str(), here["intent"].as_str()), (Some("s-boss"), Some("i1")), "{here}");
-    // The workspace got a new id but kept its label: the same intent follows it.
+    // A workspace has no intent until its manager starts one.
+    let here = d.call("/api/here", Some(json!({ "place": "p1" }))).unwrap();
+    assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["group"]["id"].as_str()), (Some("s-boss"), None, Some("w1")), "{here}");
+    manage(&d, "p1", "s-boss");
+    // The workspace got a new id but kept its label: its current intent follows it.
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w9", Idle)), ("p2".into(), live("s-rev", "rev", "w9", Idle))];
-    let again = d.call("/api/here", Some(json!({ "place": "p2", "intent": true }))).unwrap();
+    let again = d.call("/api/here", Some(json!({ "place": "p2" }))).unwrap();
     assert_eq!((again["actor"].as_str(), again["intent"].as_str()), (Some("s-rev"), Some("i1")));
 
-    d.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "agent": "rev" })).unwrap();
     d.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
@@ -232,6 +233,17 @@ fn identity_is_explicit_about_a_pane_without_an_agent() {
     assert_eq!(actor_of(None, None, None).unwrap(), "user");
 }
 
+/// The agent at `place` becomes the manager of its workspace and starts a new intent there
+/// (the next id, i1 for the first).
+fn manage(d: &Daemon, place: &str, agent: &str) -> String {
+    let here = d.call("/api/here", Some(json!({ "place": place }))).unwrap();
+    let made = d.append("user", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
+    let id = made["body"]["id"].as_str().unwrap().to_string();
+    d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
+    d.append(agent, "intent.state_changed", json!({ "intent": id, "state": "active", "workspace": here["group"] })).unwrap();
+    id
+}
+
 /// Starts a daemon on a free port over a fake runtime with short waits; returns its client.
 fn daemon_with(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::serve::Waits) -> Daemon {
     let store = workriver_core::Store::open(db).unwrap();
@@ -264,8 +276,7 @@ fn asking_why() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), worker)];
     let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1) };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
-    d.call("/api/here", Some(json!({ "place": "p1", "intent": true }))).unwrap();
-    d.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the mentions", "agent": "s-w" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm the design", "inputs": [{ "from": "1" }] })).unwrap();
@@ -382,9 +393,8 @@ fn agents_ask_each_other() {
         ("p3".into(), live("s-front", "front", "w1", Working)),
     ];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
-    d.call("/api/here", Some(json!({ "place": "p1", "intent": true }))).unwrap();
-    d.call("/api/here", Some(json!({ "place": "p3", "intent": false }))).unwrap();
-    d.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    manage(&d, "p1", "s-boss");
+    d.call("/api/here", Some(json!({ "place": "p3" }))).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API", "agent": "s-back" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
@@ -436,8 +446,7 @@ fn attachments_round_trip() {
     let home = tmp.path().join("home");
     std::fs::create_dir(&home).unwrap();
     let d = daemon_with(fake.clone(), &home.join("w.db"), Default::default());
-    d.call("/api/here", Some(json!({ "place": "p1", "intent": true }))).unwrap();
-    d.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "tests", "agent": "s-t" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
@@ -493,4 +502,124 @@ fn attachments_round_trip() {
     assert!(out["attachments"][1]["url"].as_str().unwrap().starts_with("/api/attachments/"));
     assert_eq!(out["findings"][0]["attachments"][1]["name"], "P2-1-login.png");
     assert_eq!(out["evidence"][0]["attachment"]["name"], "report.html");
+}
+
+/// Projects (a registered folder of repositories, and a repository outside it), several
+/// intents in one workspace, each delivery to the manager of the workspace its intent is
+/// active in, and a batch of deferred findings sent as one message.
+#[test]
+fn projects_workspaces_and_batches() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("proj");
+    for r in [proj.join("api"), proj.join("web"), tmp.path().join("solo")] {
+        std::fs::create_dir_all(&r).unwrap();
+        git(&r, &["init", "-q", "-b", "main"]);
+        git(&r, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    }
+    let at = |s: &str, n: &str, g: &str| {
+        let mut a = live(s, n, g, Idle);
+        a.group.as_mut().unwrap().label = format!("ws-{g}");
+        a
+    };
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), at("s-b1", "boss1", "w1")), ("p2".into(), at("s-b2", "boss2", "w2")), ("p3".into(), at("s-rev", "rev", "w1"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let path = |p: &std::path::Path| std::fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
+
+    d.append("user", "project.added", json!({ "path": path(&proj), "title": "" })).unwrap();
+    // A repository in the project names the project; one outside is a project of its own.
+    for (title, p) in [("Login", path(&proj.join("api"))), ("Search", path(&proj)), ("Solo work", path(&tmp.path().join("solo")))] {
+        d.append("user", "intent.created", json!({ "title": title, "goal": "g", "project": p, "state": "planned" })).unwrap();
+    }
+    let ws = d.get("/api/workspace").unwrap();
+    let projects: Vec<(String, bool, usize)> = ws["projects"].as_array().unwrap().iter().map(|p| (p["title"].as_str().unwrap().to_string(), p["registered"] == true, p["repos"].as_array().unwrap().len())).collect();
+    assert_eq!(projects, [("proj".to_string(), true, 2), ("solo".to_string(), false, 1)]);
+    assert_eq!(ws["intents"][0]["project"], path(&proj));
+    assert_eq!((ws["intents"][0]["order"].as_u64(), ws["intents"][1]["order"].as_u64(), ws["intents"][2]["order"].as_u64()), (Some(0), Some(1), Some(0)), "a roadmap per project");
+
+    // Two intents active in w1, one in w2.
+    let start = |place: &str, agent: &str, intent: &str| {
+        let here = d.call("/api/here", Some(json!({ "place": place }))).unwrap();
+        d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
+        d.append(agent, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": here["group"] })).unwrap();
+    };
+    start("p1", "s-b1", "i1");
+    start("p1", "s-b1", "i2");
+    start("p2", "s-b2", "i3");
+    let here = d.call("/api/here", Some(json!({ "place": "p3" }))).unwrap();
+    assert_eq!(here["intent"], "i2", "the last one started is the workspace's current intent");
+    let e = d.append("s-b2", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w2", "label": "ws-w2" } })).unwrap_err().to_string();
+    assert!(e.contains("cannot become active"), "{e}");
+
+    // Reviews in i1 (w1) and i3 (w2): each delivery goes to its own workspace's manager.
+    d.append("s-b1", "unit.created", json!({ "intent": "i1", "title": "Tokens", "repo": path(&proj.join("api")), "branch": "t", "base": "main" })).unwrap();
+    d.append("s-b2", "unit.created", json!({ "intent": "i3", "title": "Solo", "repo": path(&tmp.path().join("solo")), "branch": "s", "base": "main" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    for u in ["u1", "u2"] {
+        d.append("s-rev", "task.created", json!({ "unit": u, "kind": "review" })).unwrap();
+        d.append("s-rev", "task.delivered", json!({ "unit": u, "task": 1, "findings": [{ "severity": "P3", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
+    }
+    let sent = fake.sent.lock().unwrap().clone();
+    assert_eq!(sent.iter().map(|(to, _)| to.as_str()).collect::<Vec<_>>(), ["s-b1", "s-b2"], "{sent:?}");
+
+    // A deferred finding and an imported one, done together in i1: one message to boss1.
+    d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P3-1", "decision": "defer" }))).unwrap();
+    let f = d.append("user", "finding.added", json!({ "project": path(&proj), "finding": { "severity": "P2", "problem": "Old token leak" }, "source": "## login 遗留", "note": "修法: rotate" })).unwrap();
+    assert_eq!(f["body"]["finding"]["id"], "f1");
+    let before = fake.sent.lock().unwrap().len();
+    d.append("user", "findings.batched", json!({ "intent": "i1", "findings": [{ "unit": "u1", "task": 1, "finding": "P3-1" }, { "finding": "f1" }] })).unwrap();
+    let sent = fake.sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), before + 1, "the batch, one message");
+    let (to, msg) = sent.last().unwrap();
+    assert_eq!(to, "s-b1");
+    assert!(msg.contains("2 deferred findings of intent i1") && msg.contains("workriver unit add i1 ") && msg.contains("--cause u1#1:P3-1 --cause f1") && msg.contains("from ## login 遗留") && !msg.contains('\n'), "{msg}");
+    let ws = d.get("/api/workspace").unwrap();
+    assert_eq!((ws["backlog"][0]["finding"]["state"].as_str(), ws["backlog"][0]["intent"].as_str()), (Some("scheduled"), Some("i1")));
+    // The batch's message is recorded on its first finding.
+    assert_eq!(ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0]["delivery"]["to"], "boss1");
+    let rev = ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == "rev").unwrap();
+    assert_eq!((rev["intent"].as_str(), rev["manager"].as_bool()), (Some("i2"), Some(false)));
+}
+
+/// A copy of a real database (WORKRIVER_REPLAY_DB) replays onto the current model. The
+/// copy is made into a temp folder; the given file is only read.
+#[test]
+#[ignore = "needs WORKRIVER_REPLAY_DB"]
+fn replays_a_copied_database() {
+    let from = std::env::var("WORKRIVER_REPLAY_DB").expect("WORKRIVER_REPLAY_DB");
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    std::fs::copy(&from, &db).unwrap();
+    let store = workriver_core::Store::open(&db).unwrap();
+    let s = store.state();
+    for i in &s.intents {
+        println!("{} {:?} {:?} project={:?} workspace={:?} manager={:?}", i.id, i.title, i.state, i.project, i.workspace.as_ref().map(|g| &g.label), s.manager_of(&i.id));
+    }
+    for w in &s.workspaces {
+        println!("workspace {} ({}) manager={:?} current={:?}", w.group.label, w.group.id, w.manager, w.current);
+    }
+    for u in &s.units {
+        for t in &u.tasks {
+            assert!(!t.intent.is_empty(), "{}#{} has its intent", u.id, t.n);
+            let f: Vec<String> = t.findings.iter().map(|f| format!("{}={}", f.found.id, workriver_core::name(&f.state))).collect();
+            println!("{}#{} {} {:?} intent={} findings={f:?} delivery={:?}", u.id, t.n, workriver_core::name(&t.kind), t.title, t.intent, t.delivery.as_ref().map(|d| workriver_core::name(&d.step)));
+        }
+    }
+    let mut cache = crate::snapshot::Cache::default();
+    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default())).unwrap();
+    println!("projects: {}", snap["projects"]);
+    println!("events: {}", store.count().unwrap());
+}
+
+/// The cause forms the CLI takes, and the external id.
+#[test]
+fn cli_causes_and_external_ids() {
+    use crate::{parse_cause, parse_external};
+    assert_eq!(parse_cause("4:P2-1,P3-1").unwrap(), json!({ "task": 4, "findings": ["P2-1", "P3-1"] }));
+    assert_eq!(parse_cause("u1#4:P2-1").unwrap(), json!({ "unit": "u1", "task": 4, "findings": ["P2-1"] }));
+    assert_eq!(parse_cause("f3,f12").unwrap(), json!({ "task": 0, "findings": ["f3", "f12"] }));
+    assert!(parse_cause("P2-1").is_err());
+    assert_eq!(parse_external(Some("jira:ABC-12".into()), Some("https://x/ABC-12".into())).unwrap(), Some(json!({ "system": "jira", "key": "ABC-12", "url": "https://x/ABC-12" })));
+    assert!(parse_external(Some("ABC-12".into()), None).is_err());
 }

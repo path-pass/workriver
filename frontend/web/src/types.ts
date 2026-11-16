@@ -8,17 +8,68 @@ export interface Workspace {
   intents: Intent[];
   /** One per agent. What it is working on comes from the tasks; only this does not. */
   sessions: Session[];
+  /** Registered folders of repositories, and repositories outside all of them. Absent in the sample. */
+  projects?: Project[];
+  /** Deferred findings that came from outside workriver's tasks (an earlier review, a notes file). */
+  backlog?: BacklogFinding[];
+}
+
+/** A folder holding one or more repositories; or a repository outside every registered one. */
+export interface Project {
+  /** Its folder, which is what intents and backlog findings name. */
+  id: string;
+  title: string;
+  registered: boolean;
+  repos: string[];
+}
+
+/** Where an item is tracked elsewhere (Jira, Linear, GitHub). Only shown, never synced yet. */
+export interface External {
+  system: string;
+  key: string;
+  url?: string | null;
+}
+
+export interface BacklogFinding {
+  /** The project's folder. */
+  project: string;
+  /** The intent it was batched into, or is meant for. */
+  intent?: string;
+  /** Where it came from, in words: which review, branch, date. */
+  source: string;
+  by: string;
+  finding: Finding;
 }
 
 /**
- * A high-level goal and the units that serve it. (In the runtime one intent is one Herdr
- * workspace; the UI only says intent.)
+ * planned  in its project's roadmap, not started
+ * active   started in a runtime workspace, whose manager runs it
+ * done / dropped
+ */
+export type IntentState = 'planned' | 'active' | 'done' | 'dropped';
+
+/**
+ * A goal in a project and the units that serve it. It runs in a runtime (Herdr) workspace
+ * once its manager starts it; a workspace may run several.
  */
 export interface Intent {
   id: string;
   title: string;
   /** One sentence on what it is for, set by its manager or the user; may be empty or absent. */
   goal?: string;
+  /** Absent in the sample: active. */
+  state?: IntentState;
+  /** Its project's folder (a `Project.id`); empty when nothing says. */
+  project?: string;
+  /** More about it; may hold links. */
+  note?: string;
+  external?: External;
+  /** The runtime workspace it runs (or last ran) in. */
+  workspace?: { id: string; label: string };
+  /** Planned: its place in its project's roadmap, from 0. */
+  order?: number;
+  /** Dropped: why. */
+  reason?: string;
   units: Unit[];
   /** Things agents left for the user that block nobody. Never on a graph. */
   chores: Chore[];
@@ -54,9 +105,9 @@ export interface Session {
   ended: boolean;
   /** While it lives: its state in the runtime. */
   state?: RuntimeState;
-  /** Id of the intent it works in. */
+  /** Id of the current intent of the workspace it runs in. */
   intent?: string;
-  /** It is the manager of that intent. */
+  /** It is the manager of its workspace. */
   manager?: boolean;
 }
 
@@ -113,6 +164,8 @@ export type UnitStatus = 'active' | 'planned' | 'merged';
 /** A piece of an intent that can be implemented on its own, on its own branch. */
 export interface Unit {
   id: string;
+  /** The intent's own work (research, design) shown as a unit with no repository or branch. */
+  intentLevel?: boolean;
   title: string;
   /** One sentence on what the unit is for; may be empty. */
   purpose: string;
@@ -152,9 +205,11 @@ export type Severity = 'P1' | 'P2' | 'P3';
 /**
  * open: waiting for the user's decision. accepted: work was handed out for it. revised: to
  * be fixed the user's way (their note says how), work handed out like accepted.
- * rejected: decided against. deferred: put off, to be raised again later.
+ * rejected: decided against. deferred: put off, waiting in the project's backlog.
+ * scheduled: picked with others to be done together. done: the work it caused was
+ * delivered. dropped: taken out of the backlog; it will not be done.
  */
-export type FindingState = 'open' | 'accepted' | 'revised' | 'rejected' | 'deferred';
+export type FindingState = 'open' | 'accepted' | 'revised' | 'rejected' | 'deferred' | 'scheduled' | 'done' | 'dropped';
 
 /**
  * One problem a review, or the user at a test gate, found. A decision on it is not a node:
@@ -182,6 +237,11 @@ export interface Finding {
   attachments?: Attachment[];
   /** Where the message with the user's decision is. */
   delivery?: Sent;
+  external?: External;
+  /** Since when it is known: its task's delivery, or when it was added to the backlog. */
+  since?: string;
+  /** Dropped: why. */
+  reason?: string;
 }
 
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */
@@ -241,6 +301,8 @@ export interface Task {
   threads?: Thread[];
   /** A design task: implement work whose output is its design note. */
   design?: boolean;
+  /** A research task: implement work whose output is its note and attached report. */
+  research?: boolean;
   /** Waiting gates: the latest conclusion about it or the work it follows, to start the note from. */
   draft?: string;
   /** Review nodes only. */

@@ -43,10 +43,30 @@ workriver serve              # http://127.0.0.1:47820
 - 页面上的终端按钮会在 Herdr 里把 agent 的窗格切到前面，再把终端应用切到前台（默认
   Ghostty；用 `workriver serve --terminal-app iTerm` 改，传 `''` 表示不切）。
 
-## 3. 给每个工作区一个管理者
+## 3. 项目和待办
 
-一个 Herdr 工作区就是一个意图（一个目标）。在每个工作区里启动一个 coding agent 当管理者，
-并把 `skills/workriver-manager/` 里的管理者 skill 给它：
+**项目**是一个装着一个或多个仓库的目录。装了好几个仓库的目录要登记一下：
+`workriver project add ~/code/shop`（它的仓库就是下一层带 `.git` 的子目录）。不在任何已登记
+目录里的仓库自己就是一个项目，不用做什么。
+
+每个项目有一份**待办**：它的**路线图**（计划中的意图，按你想要的顺序排的目标）和**延后的发现**
+（先放一放的问题）。在页面左栏往路线图里加（Roadmap 旁的"+"，拖动调整顺序），或者：
+
+```sh
+workriver backlog add "Offline sync" --goal "Notes can be taken offline and merge later." --project ~/code/shop
+workriver backlog list
+```
+
+**导入已有的清单。** 每份笔记文件的写法都不一样，所以没有固定的解析器；由一个 agent 用导入
+skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide import` 的输出贴给它）。
+告诉它哪个文件、导进哪个项目；它读文件，分清哪些是目标、哪些是遗留的发现，先给你看一张预览表，
+等你同意，再按文件里的顺序用 `workriver backlog add` 和 `workriver backlog add-finding` 加进去。
+它不会改动原文件。`workriver backlog export --project P` 把待办再打印成 Markdown。
+
+## 4. 给每个工作区一个管理者
+
+一个 Herdr 工作区跑一个或多个意图，由它的管理者 agent 规划和派活。在每个工作区里启动一个
+coding agent 当管理者，并把 `skills/workriver-manager/` 里的管理者 skill 给它：
 
 - **Claude Code**：把这个目录链接进 skills 目录，只给一个项目或给所有项目：
   `ln -s "$PWD/skills/workriver-manager" <项目>/.claude/skills/workriver-manager`，或
@@ -54,8 +74,8 @@ workriver serve              # http://127.0.0.1:47820
 - **Codex**：同样链接到 `<项目>/.agents/skills/` 或 `~/.agents/skills/`。
 - **其他工具**：运行 `workriver guide manager`，把输出贴进给它的第一条消息。
 
-然后告诉它，例如："你是这个工作区的 workriver 管理者。目标：让聊天里的人能互相 @。
-规划单元和任务，交给 worker agent 去做。"
+然后告诉它，例如："你是这个工作区的 workriver 管理者。开始路线图里的第一个意图，规划单元和
+任务，交给 worker agent 去做。"页面上计划中的意图旁边的"开始"会列出同样的步骤和可复制的命令。
 
 可选：如果 agent 用 Playwright MCP 截图，它的文件默认会落在项目里（`.playwright-mcp/`）。
 可以把它自己命名的文件指到 workriver 的目录，例如 Claude Code：
@@ -63,12 +83,14 @@ workriver serve              # http://127.0.0.1:47820
 （或者设 `PLAYWRIGHT_MCP_OUTPUT_DIR`）。这只管没有指定文件名的截图；agent 自己给了文件名的，
 仍然相对项目目录保存。之后 agent 用 `workriver attach <文件> --task u1#3 --move` 把需要的附上。
 
-## 4. 接下来会发生什么
+## 5. 接下来会发生什么
 
 管理者在自己的窗格里：
 
 ```sh
-workriver manager here                 # 登记自己；意图以工作区的名字命名
+workriver manager here                 # 登记为这个工作区的管理者
+workriver backlog list                 # 路线图：i1 "Mentions" ……
+workriver intent start i1              # 在这里开始；成为这个工作区的当前意图
 workriver unit add --title "Mentions" --branch mention
 workriver task add u1 --title "Find the people mentioned in a message" --agent finder
 herdr agent start finder --kind claude --pane <窗格 id>   # 见 `herdr --skill`
@@ -84,11 +106,12 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
 单元分支上没有 `Task:` 这一行的提交会显示为未登记，是一个要补上的缺口。审查和测试是单独的
-任务；它们找出的问题在页面的 **需要你** 里等着。在那里对每一个接受、驳回或延后。你的决定和
+任务；它们找出的问题在页面的 **需要你** 里等着。在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，
+"一起做"会把它们作为一条消息发给这个意图的管理者，由它合成一个清理单元。你的决定和
 手工步骤的结果会通过 Herdr 送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行
 显示有没有送到、有没有被接手，"复制消息"能拿到同样的文字，用来手动粘贴。
 
-## 5. 更新
+## 6. 更新
 
 ```sh
 git pull
@@ -110,7 +133,7 @@ cargo build --release
 - 在窗格里用命令行时报 **"cannot tell which agent this is"**：服务连不上 Herdr（见上一条）。
   `--as <名字>` 可以用你给的名字记录。
 - 页面上显示 **"没送出：…"**（鼠标停上去能看到细节）：
-  - *这个意图还没有管理者*：在管理者的窗格里运行 `workriver manager here`；
+  - *这个意图还没有管理者*：在这个意图开始时所在工作区的管理者窗格里运行 `workriver manager here`；
   - *管理者没在运行*：重新启动它，再登记一次；
   - *连不上 Herdr*：见上面；
   - *Herdr 没有接收*：通常是 `agent_not_ready`（agent 还在启动，或者不是窗格的前台程序）或

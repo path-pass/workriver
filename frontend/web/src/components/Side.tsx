@@ -1,5 +1,5 @@
 // The side panel, right of the main area: what asks something of the user (the inbox),
-// where the agents are, or what was committed lately – one at a time. Neither is looked at all the time, so the panel folds
+// where the agents are, what was committed lately, or the backlog – one at a time. Neither is looked at all the time, so the panel folds
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -7,10 +7,11 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { agentGroups, baseName, commitStats, feed, ms, writingNow, type Pick } from '@/data'
 import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
+import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { Icon, Mark, TerminalButton, Tip, Who } from './bits'
 
-export type Section = 'inbox' | 'agents' | 'commits'
+export type Section = 'inbox' | 'agents' | 'commits' | 'backlog'
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }
@@ -23,13 +24,15 @@ interface ContentProps {
   section: Section
   onCommit: (unit: string, task: string, commit: string) => void
   commit: CommitFocus | null
+  /** The project picked in the rail, or null for all: the backlog shows its findings. */
+  project: string | null
 }
 
 /**
  * Every live agent on one line, by the runtime workspace it runs in: where it works, holds
  * work, or that it is idle, with what its session is about underneath.
  */
-function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit'>) {
+function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project'>) {
   const { t } = useT()
   return (
     <div className="flex flex-col">
@@ -38,7 +41,9 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
           {g.label && (
             <h3 className="flex items-center gap-1.5 px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-2">
               <span className="min-w-0 truncate">{g.label}</span>
-              {!g.intent?.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
+              {/* Where the workspace's new work goes: its current intent. */}
+              {g.intent && g.intent.title !== g.label && <span className="min-w-0 truncate font-normal">· {g.intent.title}</span>}
+              {!g.agents.some(a => a.manager) && !g.intent?.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
             </h3>
           )}
           {g.agents.map(({ agent, session, topic, state, at, manager, blocked }) => (
@@ -78,7 +83,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
 }
 
 /** Commits across every unit, newest first, by day; on top, who is writing right now. */
-function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen'>) {
+function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen' | 'project'>) {
   const { t, num, waited, date } = useT()
   const rows = feed(ws)
   const now = writingNow(ws)
@@ -144,7 +149,7 @@ function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'sect
   )
 }
 
-function Content({ ws, here, onOpen, section, onCommit, commit }: ContentProps) {
+function Content({ ws, here, onOpen, section, onCommit, commit, project }: ContentProps) {
   const { t, num } = useT()
   const live = ws.sessions.filter(s => !s.ended).length
   return (
@@ -153,6 +158,11 @@ function Content({ ws, here, onOpen, section, onCommit, commit }: ContentProps) 
         <section aria-labelledby="side-inbox">
           <h2 id="side-inbox" className="mb-2 px-2.5 text-sm font-[650]">{t('inbox.title')}</h2>
           <InboxList ws={ws} onOpen={onOpen} />
+        </section>
+      ) : section === 'backlog' ? (
+        <section aria-labelledby="side-backlog">
+          <h2 id="side-backlog" className="mb-2 px-2.5 text-sm font-[650]">{t('backlog.title')}</h2>
+          <BacklogList ws={ws} project={project} onOpen={onOpen} />
         </section>
       ) : section === 'commits' ? (
         <section aria-labelledby="side-commits">
@@ -171,7 +181,7 @@ function Content({ ws, here, onOpen, section, onCommit, commit }: ContentProps) 
   )
 }
 
-/** The three buttons work as a switch: one section at a time; the open one again folds it. */
+/** The four buttons work as a switch: one section at a time; the open one again folds it. */
 export function SideButtons({ active, onPick }: { active: Section | null; onPick: (s: Section) => void }) {
   const { t } = useT()
   const button = (s: Section, icon: string, label: string) => (
@@ -181,7 +191,7 @@ export function SideButtons({ active, onPick }: { active: Section | null; onPick
       </Button>
     </Tip>
   )
-  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}</>
+  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}</>
 }
 
 interface PanelProps extends Omit<ContentProps, 'section'> {

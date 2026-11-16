@@ -21,9 +21,9 @@ pub struct Plan {
 pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Option<Plan> {
     let files = |unit: &str, n: u32, finding: Option<&str>| files(state, home, unit, n, finding);
     let on = |unit: &str, task: u32, finding: Option<String>, to, message| Plan { unit: unit.into(), task, finding, chore: None, to, message };
-    let intent_of = |unit: &str| state.unit(unit).ok().map(|u| u.intent.clone());
+    let intent_of = |unit: &str| state.intent_of(unit).map(str::to_string);
     // Whether the actor is someone other than the intent's manager (a worker, or the user).
-    let not_manager = |intent: &str| state.intents.iter().find(|i| i.id == intent).is_none_or(|i| i.manager.as_deref() != Some(e.actor.as_str()));
+    let not_manager = |intent: &str| state.manager_of(intent) != Some(e.actor.as_str());
     match &e.body {
         // Every decision goes to the manager, who decides what the workers hear of it.
         Body::FindingDecided { unit, task, finding, decision, note, by: Who::User } => {
@@ -55,6 +55,12 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
             );
             Some(on(&t.unit, t.n, None, to, message))
         }
+        // Deferred findings the user picked to do together: one message to the manager.
+        Body::FindingsBatched { intent, findings } => {
+            let first = findings.first()?;
+            let to = target(state, live, intent, None);
+            Some(Plan { unit: first.unit.clone(), task: first.task, finding: Some(first.finding.clone()), chore: None, to, message: batch_message(state, intent, findings)? })
+        }
         Body::ChoreCreated { id, intent, title, .. } if e.actor != "user" && not_manager(intent) => Some(Plan {
             unit: String::new(),
             task: 0,
@@ -65,6 +71,39 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
         }),
         _ => None,
     }
+}
+
+fn batch_message(state: &State, intent: &str, refs: &[workriver_core::FindingRef]) -> Option<String> {
+    let i = state.intents.iter().find(|i| i.id == intent)?;
+    let mut m = vec![format!("[workriver] The user picked {} deferred findings of intent {intent} \"{}\" to do together:", refs.len(), i.title)];
+    let mut causes = vec![];
+    for r in refs {
+        let f = state.finding(r).ok()?;
+        let at = if r.task == 0 {
+            let src = state.backlog.iter().find(|b| b.finding.found.id == r.finding).map(|b| b.source.clone()).unwrap_or_default();
+            causes.push(format!("--cause {}", r.finding));
+            if src.is_empty() { format!("{} (backlog)", r.finding) } else { format!("{} (backlog, from {src})", r.finding) }
+        } else {
+            causes.push(format!("--cause {}#{}:{}", r.unit, r.task, r.finding));
+            format!("{}#{} {}", r.unit, r.task, r.finding)
+        };
+        let mut line = format!("{at} ({}): {}", name(&f.found.severity), sentence(&f.found.problem));
+        if !f.found.impact.is_empty() {
+            line += &format!(" If left: {}", sentence(&f.found.impact));
+        }
+        if !f.found.r#where.is_empty() {
+            line += &format!(" Where: {}.", f.found.r#where.join(", "));
+        }
+        if let Some(n) = f.note.as_deref().filter(|n| !n.is_empty()) {
+            line += &format!(" Note: {}", sentence(n));
+        }
+        m.push(line);
+    }
+    m.push(format!(
+        "Next: one cleanup unit for all of them (`workriver unit add {intent} --title \"Cleanup: <what>\" --branch <branch>`), then a task with every finding as a cause: `workriver task add <unit> --title \"<outcome>\" {} --agent <agent>`.",
+        causes.join(" ")
+    ));
+    Some(paragraph(m))
 }
 
 /// " Attachments: <paths>." for a finding, or for a task (its own, its checks' and its
@@ -90,7 +129,7 @@ fn target(state: &State, live: Option<&[RuntimeAgent]>, intent: &str, first: Opt
     if let Some(a) = first.filter(|a| is_live(a)) {
         return Ok(a.to_string());
     }
-    match state.intents.iter().find(|i| i.id == intent).and_then(|i| i.manager.clone()) {
+    match state.manager_of(intent).map(str::to_string) {
         Some(m) if is_live(&m) => Ok(m),
         Some(m) => Err((ReasonCode::ManagerGone, format!("the manager of intent {intent} ({}) is not running", state.name_of(&m).unwrap_or(&m)))),
         None => Err((ReasonCode::NoManager, format!("intent {intent} has no manager; the manager registers with `workriver manager here`"))),
@@ -143,10 +182,10 @@ fn label(state: &State, unit: &str, t: &Task) -> String {
 }
 
 fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: Decision, note: &str) -> Option<String> {
-    let u = state.unit(unit).ok()?;
+    let u = state.unit_or_intent(unit)?;
     let t = state.task(unit, n).ok()?;
     let f = t.findings.iter().find(|f| f.found.id == finding)?;
-    let from = format!("from {} in unit {unit} \"{}\"", label(state, unit, t), u.title);
+    let from = format!("from {} in {} {unit} \"{}\"", label(state, unit, t), if u.branch.is_empty() { "intent" } else { "unit" }, u.title);
     let mut m = vec![match decision {
         Decision::Revise => format!("[workriver] The user wants finding {finding} {from} changed their way: {} Follow the note, not the finding's suggestion.", sentence(note)),
         Decision::Accept => format!("[workriver] The user accepted finding {finding} {from}."),
@@ -173,7 +212,7 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
             "Next: hand out work for it, e.g. `workriver task add {unit} --title \"<what to do>\" --cause {n}:{finding} --agent <agent>`, then give that task to an agent with the worker instructions (`workriver guide worker`)."
         ),
         Decision::Reject => "No work is needed for it; tell whoever waits on it if anyone does.".into(),
-        Decision::Defer => "Leave it for now; it will come up again later.".into(),
+        Decision::Defer => "Leave it for now; it waits in the project's backlog until the user picks it.".into(),
     });
     Some(paragraph(m))
 }
