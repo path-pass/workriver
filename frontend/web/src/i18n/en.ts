@@ -285,7 +285,10 @@ export const en = {
     add: 'Attach',
     hint: 'or paste / drop images',
     open: 'Show {{name}} large',
-    remove: 'Remove {{name}}'
+    remove: 'Remove {{name}}',
+    zoomIn: 'Full width (click the picture too)',
+    zoomOut: 'Whole picture (click the picture too)',
+    original: 'Open the original in a new tab'
   },
   deliver: {
     pending: 'Not delivered yet',

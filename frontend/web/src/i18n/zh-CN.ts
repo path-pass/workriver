@@ -278,7 +278,10 @@ export const zhCN: Same<typeof en> = {
     add: '添加图片',
     hint: '也可以粘贴或拖进来',
     open: '放大查看 {{name}}',
-    remove: '移除 {{name}}'
+    remove: '移除 {{name}}',
+    zoomIn: '按宽度放大（也可以点图片）',
+    zoomOut: '看整张图（也可以点图片）',
+    original: '在新标签页打开原图'
   },
   deliver: {
     pending: '还没送出',
