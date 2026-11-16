@@ -82,7 +82,7 @@ fn client(port: u16, home: &std::path::Path) -> Daemon {
 
 /// A runtime of our own: agents by place, every send kept, states set by the test.
 #[derive(Default)]
-struct Fake {
+pub(crate) struct Fake {
     agents: std::sync::Mutex<Vec<(String, workriver_core::runtime::RuntimeAgent)>>,
     sent: std::sync::Mutex<Vec<(String, String)>>,
     /// Temporary agents started: (group, harness, name, cwd); and those closed.
@@ -705,7 +705,7 @@ fn machines_are_separate_until_linked() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let d = client(listener.local_addr().unwrap().port(), tmp.path());
     let (runtime, machines) = (all.clone(), all.clone());
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: true })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: true, sample: false })));
     wait_until("the machine's listener", || all.local_port("box").is_some());
     // A caller over there has no user token.
     let via_box = Daemon { port: all.local_port("box").unwrap(), place: None, home: None };
@@ -938,7 +938,7 @@ fn only_the_user_is_the_user() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str, token: bool| Daemon { port, place: Some(place.into()), home: token.then(|| tmp.path().to_path_buf()) };
     let (boss, rev) = (at("w1:p1", true), at("w1:p2", false));
@@ -1002,6 +1002,7 @@ fn only_the_user_is_the_user() {
         ("/api/focus", json!({ "agent": "boss" })),
         ("/api/thread/end", json!({ "thread": "q1" })),
         ("/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),
+        ("/api/metrics/thresholds", json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } })),
         ("/api/session/code", json!({})),
         ("/api/ask", json!({ "unit": "u1", "task": 1, "text": "Why?" })),
         ("/api/append", json!({ "kind": "intent.created", "body": { "title": "x" } })),
@@ -1021,9 +1022,22 @@ fn only_the_user_is_the_user() {
     let (code, said) = http(port, "POST", "/api/machines", &from_pane, Some(&json!({ "label": "x", "action": "add", "ssh": "x" }).to_string()));
     assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
     assert_eq!(http(port, "GET", "/api/machines?place=w1:p2", &from_pane, None).0, 200);
+    // CPU, memory and their thresholds are the user's alone, to read and to set.
+    let (code, said) = http(port, "POST", "/api/metrics/thresholds", &from_pane, Some(&json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }).to_string()));
+    assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
+    assert_eq!(http(port, "GET", "/api/metrics?place=w1:p2", &from_pane, None).0, 403);
+    let report = user.get("/api/metrics").unwrap();
+    assert_eq!((report["machines"][0]["label"].as_str(), report["machines"][0]["here"].as_bool()), (Some("local"), Some(true)), "this machine first: {report}");
+    assert_eq!(report["thresholds"]["cpu"], json!({ "on": true, "percent": 90, "minutes": 5 }), "the defaults");
+    let set = user.call("/api/metrics/thresholds", Some(json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }))).unwrap();
+    assert_eq!(set["thresholds"]["memory"]["on"], false);
+    assert_eq!(user.get("/api/metrics").unwrap()["thresholds"]["cpu"]["percent"], 80, "kept");
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(tmp.path().join("settings.json")).unwrap()).unwrap();
+    assert_eq!(saved["alerts"]["cpu"]["minutes"], 2, "in settings.json: {saved}");
+    assert!(user.call("/api/metrics/thresholds", Some(json!({ "cpu": { "on": true, "percent": 0, "minutes": 2 }, "memory": { "on": true, "percent": 90, "minutes": 5 } }))).unwrap_err().to_string().contains("1 to 100"));
     assert_eq!(http(port, "POST", "/api/session/code", &from_pane, Some("{}")).0, 403, "nor a way into the browser");
     // Reading needs someone too: the user, or an agent at its place. Nobody reads as nobody.
-    for path in ["/api/state", "/api/workspace", "/api/machines", "/api/events", "/api/attachments/0123456789abcdef"] {
+    for path in ["/api/state", "/api/workspace", "/api/machines", "/api/metrics", "/api/events", "/api/attachments/0123456789abcdef"] {
         assert_eq!(http(port, "GET", path, &[], None).0, 401, "{path}");
     }
     for path in ["/api/state", "/api/workspace"] {
@@ -1081,7 +1095,7 @@ fn a_machines_listener_serves_only_agents() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let (runtime, machines) = (all.clone(), all.clone());
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     wait_until("the machine's listener", || all.local_port("box").is_some());
     let box_port = all.local_port("box").unwrap();
@@ -1106,6 +1120,8 @@ fn a_machines_listener_serves_only_agents() {
         ("POST", "/api/thread/end", json!({ "thread": "q1" })),
         ("POST", "/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),
         ("GET", "/api/machines", json!(null)),
+        ("GET", "/api/metrics", json!(null)),
+        ("POST", "/api/metrics/thresholds", json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } })),
         ("POST", "/api/session", json!({ "code": "x" })),
         ("GET", "/api/session", json!(null)),
         ("POST", "/api/session/code", json!({})),
@@ -1180,7 +1196,7 @@ fn blind_reviews() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
     let (boss, imp, sec) = (at("p1"), at("p2"), at("p3"));
@@ -1291,7 +1307,7 @@ fn units_on_another_machine() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let (runtime, machines) = (all.clone(), all.clone());
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let boss = Daemon { port, place: Some("p1".into()), home: None };
     let group = json!({ "id": "w1", "label": "chat" });
@@ -1391,7 +1407,7 @@ fn findings_after_the_fact() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
     let (boss, rev, fix) = (at("p1"), at("p2"), at("p3"));
@@ -1480,7 +1496,7 @@ fn linked_commits_and_rebased_branches() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
     let (boss, w, x) = (at("p1"), at("p2"), at("p3"));
@@ -1558,7 +1574,7 @@ fn a_manager_is_told_of_an_update_once() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
     let (boss, w) = (at("p1"), at("p2"));
@@ -1623,7 +1639,7 @@ fn a_task_shown_in_full() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
     let (boss, rev, fix, sec) = (at("p1"), at("p2"), at("p3"), at("p4"));
@@ -1716,7 +1732,7 @@ fn units_finish() {
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
     let user = client(port, tmp.path());
     let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
     let (boss, w, rev) = (at("p1"), at("p2"), at("p3"));

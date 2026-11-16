@@ -28,6 +28,9 @@ pub struct Workspace {
     /// Chores that belong to no intent: a project's, or (no project) nobody's.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     chores: Vec<Chore>,
+    /// Machines past an alert threshold now: for the user only (Needs you).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alerts: Vec<crate::metrics::Alert>,
 }
 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
@@ -778,7 +781,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .filter(|c| c.intent.is_empty())
         .map(|c| chore(c, &names, Some(crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![] }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.

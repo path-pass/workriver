@@ -25,6 +25,7 @@ use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, Reas
 use workriver_scan as scan;
 
 use crate::machines::Machines;
+use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
 use crate::{ask, attachments, deliver};
 use crate::snapshot::{self, Cache};
@@ -59,6 +60,8 @@ pub struct App {
     watched: Mutex<HashSet<PathBuf>>,
     /// The other machines, when the runtime follows any.
     machines: Option<Arc<Machines>>,
+    /// CPU and memory of this machine and the followed ones, and their alerts.
+    metrics: Arc<Metrics>,
     /// Each followed machine's own listener, to end it when the machine is no longer followed.
     listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
     /// The runtime's groups as last polled, with or without agents.
@@ -95,6 +98,8 @@ pub struct Options {
     pub waits: Waits,
     pub machines: Option<Arc<Machines>>,
     pub allow_as: bool,
+    /// Read the machines' CPU and memory (the service; tests that do not look at it do not).
+    pub sample: bool,
 }
 
 /// Which listener a request came in on: this machine's, or a followed machine's own (the
@@ -150,12 +155,12 @@ impl Default for Waits {
 /// As the tests start it: callers may say which agent they are.
 #[cfg(test)]
 pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
-    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true }).await
+    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true, sample: false }).await
 }
 
 /// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
 pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as } = options;
+    let Options { warning, waits, machines, allow_as, sample } = options;
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
@@ -165,7 +170,12 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     if allow_as {
         tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
     }
+    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), changed.clone(), crate::metrics::STEP);
+    if sample {
+        metrics.start();
+    }
     let app = Arc::new(App {
+        metrics,
         auth,
         allow_as,
         told: Mutex::default(),
@@ -306,6 +316,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
             stop_signal().await;
             tracing::info!("stopping: open requests get {} s", GRACE.as_secs());
             let _ = app.stopping.send(true);
+            app.metrics.stop();
             if let Some(m) = &app.machines {
                 m.stop_all();
             }
@@ -991,6 +1002,8 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/session", get(session).post(session_start))
         .route("/api/session/code", post(session_code))
         .route("/api/machines", get(machines).post(machine_set))
+        .route("/api/metrics", get(metrics))
+        .route("/api/metrics/thresholds", post(metrics_thresholds))
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
@@ -1150,7 +1163,11 @@ impl App {
 async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
-        let ws = app.snapshot(&state, r.light, "workspace");
+        let mut ws = app.snapshot(&state, r.light, "workspace");
+        // Machines in alert are the user's to see (Needs you), like their CPU and memory.
+        if app.user(&caller).is_ok() {
+            ws.alerts = app.metrics.alerts();
+        }
         let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
         app.record_merges(found);
         Ok(Json(ws))
@@ -1351,6 +1368,21 @@ struct MachineSet {
     ssh: String,
     #[serde(default)]
     herdr_socket: Option<String>,
+}
+
+/// CPU and memory of this machine and the followed ones, with the thresholds: the user's
+/// to read (the page), never an agent's, and not on a machine's listener.
+async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<crate::metrics::Report>, ApiError> {
+    app.user(&caller)?;
+    Ok(Json(app.metrics.report()))
+}
+
+/// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a
+/// preference like the list of machines, not a record of work.
+async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::metrics::Thresholds>) -> Result<Json<crate::metrics::Report>, ApiError> {
+    app.user(&caller)?;
+    app.metrics.set_thresholds(t).map_err(bad)?;
+    Ok(Json(app.metrics.report()))
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.
