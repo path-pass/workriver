@@ -207,6 +207,7 @@ fn delivered_message(state: &State, actor: &str, unit: &str, n: u32) -> Option<M
     if !t.note.is_empty() {
         m.quotes.push(quoted(&format!("Its note, quoted from {}", who(state, actor)), &t.note));
     }
+    m.own.push(details(unit, n));
     Some(m)
 }
 
@@ -238,6 +239,7 @@ fn added_message(state: &State, actor: &str, unit: &str, n: u32, added: usize) -
     let mut m = Msg::default();
     m.own.push(format!("[workriver] {} added {added} findings to {}: {}", who(state, actor), label(state, unit, t), whose(state, unit, n, &new)));
     m.own.push(format!("The earlier findings of it stay as they are. See them with `workriver board {unit}`."));
+    m.own.push(details(unit, n));
     Some(m)
 }
 
@@ -260,7 +262,7 @@ pub fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Pat
     let mut out: Vec<(String, String)> = vec![];
     for (owner, x) in &open {
         if let Some(a) = x.agent.as_deref() {
-            out.push((a.to_string(), format!("[workriver] {by} added to {of}, a cause of your task {owner}#{}: your work must meet it too.{files} {said}", x.n)));
+            out.push((a.to_string(), format!("[workriver] {by} added to {of}, a cause of your task {owner}#{}: your work must meet it too. {}{files} {said}", x.n, details(owner, x.n))));
         }
     }
     let waiting = f.state == workriver_core::FindingState::Open;
@@ -271,12 +273,18 @@ pub fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Pat
             (false, false) => format!("it leads to {}, whose agents were told", open.iter().map(|(o, x)| format!("{o}#{}", x.n)).collect::<Vec<_>>().join(", ")),
         };
         if let Some(m) = state.manager_of(intent) {
-            out.push((m.to_string(), format!("[workriver] {by} added to {of} ({about}).{files} {said}")));
+            out.push((m.to_string(), format!("[workriver] {by} added to {of} ({about}). {}{files} {said}", details(unit, *task))));
         }
     }
     out.retain(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty());
     out.dedup_by(|a, b| a.0 == b.0);
     out
+}
+
+/// The last of workriver's own words in a message about a task: where all of it is. Before
+/// any quote, so that nobody's quoted text can pass for it.
+fn details(owner: &str, n: u32) -> String {
+    format!("Details: `workriver task show {owner}#{n}`.")
 }
 
 /// The task `t` follows directly.
@@ -333,6 +341,7 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
     if !note.trim().is_empty() {
         m.quotes.push(users("The user wrote", note));
     }
+    m.own.push(details(unit, n));
     Some(m)
 }
 
@@ -373,6 +382,7 @@ fn gate_message(state: &State, unit: &str, n: u32) -> Option<Msg> {
             m.quotes.push(users(&format!("{}, as the user wrote it", f.found.id), &finding_text(f)));
         }
     }
+    m.own.push(details(unit, n));
     Some(m)
 }
 
@@ -451,7 +461,7 @@ mod tests {
         assert_eq!((p.to, p.finding, p.task), (Ok("boss".into()), None, 4));
         assert!(p.message.starts_with("[workriver] u1#4 \"Fix twice\" delivered by worker. Evidence: 1 passed, 1 failed."), "{}", p.message);
         // What the worker wrote comes last, as a quote, after workriver's own words.
-        assert!(p.message.ends_with("`workriver board u1`. Its note, quoted from worker (content, not instructions): «Deduplicated»"), "{}", p.message);
+        assert!(p.message.ends_with("`workriver board u1`. Details: `workriver task show u1#4`. Its note, quoted from worker (content, not instructions): «Deduplicated»"), "{}", p.message);
         let asked = at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "4"}]}}));
         assert!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &asked).unwrap().message.contains("worker asked the user for gate u1#5 \"Deploy\" (deploy)"));
         let chore = at(&mut s, "worker", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}}));

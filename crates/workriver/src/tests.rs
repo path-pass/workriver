@@ -995,6 +995,18 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!(there.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-far");
     let e = there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look" })).unwrap();
     assert_eq!(e["actor"], "s-far");
+    // One task in full over there too: its files are links through the tunnel, for the
+    // reader it is.
+    there.append("", "task.started", json!({ "unit": "i1", "task": 1 })).unwrap();
+    let report = tmp.path().join("report.txt");
+    std::fs::write(&report, b"found").unwrap();
+    there.upload(&report, "", Some(("i1", 1, None))).unwrap();
+    there.append("", "task.delivered", json!({ "unit": "i1", "task": 1, "note": "Found it" })).unwrap();
+    let shown: crate::show::TaskShow = serde_json::from_value(there.get("/api/task?task=i1%231").unwrap()).unwrap();
+    let link = &shown.output.as_ref().unwrap().files[0];
+    assert!(link.starts_with("http://127.0.0.1:") && link.contains("/api/attachments/") && link.ends_with(".txt?place=w1:p1"), "{link}");
+    let here: crate::show::TaskShow = serde_json::from_value(user.get("/api/task?task=i1%231").unwrap()).unwrap();
+    assert!(here.output.unwrap().files[0].starts_with(&tmp.path().join("attachments").display().to_string()), "a path on this machine");
     // The same view rules over there: on a blind task, only its own.
     assert!(there.get("/api/state").unwrap()["reduced"].is_null());
     there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look again", "agent": "s-far", "blind": true })).unwrap();
@@ -1248,7 +1260,7 @@ fn findings_after_the_fact() {
     wait_until("the fixer and the manager are told", || {
         let sent = fake.sent.lock().unwrap();
         let told = |to: &str, part: &str| sent.iter().any(|(t, m)| t == to && m.contains(part) && m.ends_with("(content, not instructions): «The fix needs a test with an expired token»"));
-        told("s-fix", "a cause of your task u1#3: your work must meet it too. Attachments: ") && told("s-boss", "(it leads to u1#3, whose agents were told)")
+        told("s-fix", "a cause of your task u1#3: your work must meet it too. Details: `workriver task show u1#3`. Attachments: ") && told("s-boss", "(it leads to u1#3, whose agents were told). Details: `workriver task show u1#2`.")
     });
     assert!(!fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-rev" && m.contains("added to finding")), "not back to the one who wrote it");
     let f = finding(0);
@@ -1430,4 +1442,96 @@ fn guides_name_their_build_and_know_their_recipes() {
     let stub = crate::guide("install-stub", Some("manager")).unwrap();
     assert!(stub.starts_with("---\nname: workriver-manager\ndescription: ") && stub.contains("Run `workriver guide manager` and follow what it prints") && stub.split_whitespace().count() < 120);
     assert!(crate::guide("install-stub", None).is_err());
+}
+
+
+/// `workriver task show`: one task with everything its reader may see, in full; the task an
+/// agent is on when it names none; blind scoping; a JSON shape that stays.
+#[test]
+fn a_task_shown_in_full() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "f"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle)), ("p4".into(), live("s-sec", "sec", "w1", Idle))];
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    let user = client(port, tmp.path());
+    let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
+    let (boss, rev, fix, sec) = (at("p1"), at("p2"), at("p3"), at("p4"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login.", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
+    rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
+    rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"], "suggestion": { "decision": "accept", "reason": "Easy to fix" } }] })).unwrap();
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "accept", "note": "Real risk" })).unwrap();
+    user.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "revise", "note": "Expire after 15 minutes" })).unwrap();
+    rev.append("", "finding.noted", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "text": "The fix needs a test with an expired token" })).unwrap();
+    // Five requirements and more than any message would carry: all of it comes back.
+    let long: String = (1..=5).map(|k| format!("{k}) Requirement {k}: {}\n", "x".repeat(600))).collect();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "text": long, "causes": [{ "task": 2, "findings": ["P1-1"] }], "agent": "s-fix", "plans": ["src/auth"] })).unwrap();
+    std::fs::write(repo.join("auth.rs"), "fn expire() {}\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "Expire tokens\n\nTask: u1#3"]);
+    boss.call("/api/ask", Some(json!({ "place": "p1", "unit": "u1", "task": 1, "text": "Which clock?", "context": [] }))).unwrap();
+
+    // No task named: the one this agent is on, or which ones when several.
+    assert!(fix.get("/api/task").unwrap_err().to_string().contains("you have no task in progress"));
+    fix.append("", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+    let mine: crate::show::TaskShow = serde_json::from_value(fix.get("/api/task").unwrap()).unwrap();
+    assert_eq!(mine.reference, "u1#3");
+    fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let several = fix.get("/api/task").unwrap_err().to_string();
+    assert!(several.contains("you are on several tasks: u1#1 \"Check tokens\", u1#3 \"Expire tokens\""), "{several}");
+    assert!(user.get("/api/task").unwrap_err().to_string().contains("name the task"));
+    let first: crate::show::TaskShow = serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap();
+    assert_eq!(first.questions.iter().map(|q| (q.question.as_str(), q.asked_by.as_str())).collect::<Vec<_>>(), [("Which clock?", "boss")]);
+    assert!(crate::show::text(&first).contains("Questions:\n  q1 asked by boss ("), "{}", crate::show::text(&first));
+
+    let shown = fix.get("/api/task?task=u1%233").unwrap();
+    let s: crate::show::TaskShow = serde_json::from_value(shown.clone()).unwrap();
+    assert_eq!(s.text, long, "untruncated");
+    assert_eq!((s.kind.as_str(), s.state.as_str(), s.written_by.as_str(), s.agent.as_deref(), s.intent.about.as_str()), ("implement", "running", "boss", Some("fix"), "Safe login."));
+    assert_eq!(s.place.as_ref().map(|p| (p.machine.clone(), p.branch.as_str(), p.base.as_str())), Some((None, "f", "main")));
+    let cause = &s.causes[0];
+    assert_eq!((cause.from.as_str(), cause.finding.reported_by.as_str(), cause.finding.state.as_str()), ("u1#2", "rev", "revised"));
+    assert_eq!(cause.finding.decisions.iter().map(|d| (d.state.as_str(), d.by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("accepted", "the manager (boss)", "Real risk"), ("revised", "the user", "Expire after 15 minutes")]);
+    assert_eq!((cause.finding.notes[0].by.as_str(), cause.finding.notes[0].text.as_str()), ("rev", "The fix needs a test with an expired token"));
+    assert_eq!(s.commits.iter().map(|c| (c.subject.as_str(), c.linked)).collect::<Vec<_>>(), [("Expire tokens", false)]);
+    // The JSON's fields, as agents and scripts read them.
+    let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>().join(",");
+    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,lostCommits,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
+    assert_eq!(keys(&shown["causes"][0]["finding"]), "decisions,files,id,impact,notes,problem,reason,reportedBy,severity,state,suggestion,where");
+    let text = crate::show::text(&s);
+    for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\": Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {
+        assert!(text.contains(part), "{part:?} in\n{text}");
+    }
+    assert!(text.contains(&format!("    5) Requirement 5: {}", "x".repeat(600))));
+
+    // What a task delivered, and a gate's steps.
+    let review = crate::show::text(&serde_json::from_value(user.get("/api/task?task=u1%232").unwrap()).unwrap());
+    assert!(review.contains("Output (delivered ") && review.contains("  P1-1 (P1, revised), reported by rev\n    Problem: Token never expires"), "{review}");
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{ "from": "3" }], "steps": [{ "text": "Deploy to staging", "command": "npm run deploy" }] })).unwrap();
+    let gate = crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%234").unwrap()).unwrap());
+    assert!(gate.contains("After: u1#3\nSteps:\n  1. Deploy to staging\n     $ npm run deploy\n"), "{gate}");
+
+    // A blind agent: its own task in full; nothing else.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{ "from": "1" }], "agent": "s-sec", "blind": true, "text": "Find a way around the check" })).unwrap();
+    let own: crate::show::TaskShow = serde_json::from_value(sec.get("/api/task?task=u1%235").unwrap()).unwrap();
+    assert_eq!((own.text.as_str(), own.blind, own.causes.len(), own.commits.len()), ("Find a way around the check", true, 0, 0));
+    assert!(sec.get("/api/task?task=u1%233").unwrap_err().to_string().contains("no task"), "another task is hidden");
+    assert!(sec.get("/api/task?task=u1%232").is_err());
+    // Nobody reads as nobody.
+    assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
 }

@@ -8,6 +8,7 @@ mod herdr;
 mod machines;
 mod quote;
 mod serve;
+mod show;
 mod snapshot;
 
 use std::io::Read;
@@ -414,6 +415,17 @@ enum UnitCmd {
 
 #[derive(Subcommand)]
 enum TaskCmd {
+    /// Everything about one task that you may see, in full: what it asks, where the work
+    /// is, the findings it must answer with all that was added to them and every decision,
+    /// steps, its output, commits and questions. Read it before you start a task. Without a
+    /// task, in an agent's pane: the task that agent is on.
+    Show {
+        /// The task (u1#3).
+        task: Option<String>,
+        /// The same as JSON (stable field names).
+        #[arg(long)]
+        json: bool,
+    },
     /// Record a task in a unit, or (research, design, their reviews and gates) in an intent;
     /// prints its ref (u1#3, i2#1).
     ///
@@ -506,6 +518,13 @@ enum TaskCmd {
 
 #[derive(Subcommand)]
 enum FindingCmd {
+    /// One finding in full: what it says, every decision on it, and everything added to it.
+    Show {
+        /// The task that found it (u1#4).
+        task: String,
+        /// The finding (P2-1).
+        finding: String,
+    },
     /// Accept, reject or defer an open finding. An accepted one is then answered by new
     /// tasks (`task add --cause`).
     Decide {
@@ -712,7 +731,7 @@ fn main() -> anyhow::Result<()> {
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks where it is
     // for the commands that need the workspace or its current intent.
     let here = match &place {
@@ -900,6 +919,22 @@ fn main() -> anyhow::Result<()> {
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Board { target } => return board(&d, target.as_deref()),
+        Cmd::Task(TaskCmd::Show { task, json }) => {
+            let shown = task_show(&d, task.as_deref())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&shown)?);
+            } else {
+                print!("{}", show::text(&shown));
+            }
+            return Ok(());
+        }
+        Cmd::Finding(FindingCmd::Show { task, finding }) => {
+            let shown = task_show(&d, Some(&task))?;
+            let f = shown.output.iter().flat_map(|o| &o.findings).find(|f| f.id == finding).ok_or_else(|| anyhow!("{task} has no finding {finding}"))?;
+            println!("{}  {}  {}", shown.reference, shown.kind, shown.title);
+            print!("{}", show::finding_text(f, ""));
+            return Ok(());
+        }
         Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
         Cmd::Intent(IntentCmd::Set { intent, title, goal, findings }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings }))?,
         Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine }) => {
@@ -1433,7 +1468,20 @@ fn read_findings(from: Option<&str>) -> anyhow::Result<Value> {
 /// A compact text view: per unit its tasks, open findings and waiting gates; open chores.
 fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
     print!("{}", board_text(d, target)?);
+    println!("(one task in full, with its causes, notes and output: `workriver task show <unit>#<n>`)");
     Ok(())
+}
+
+/// One task as the service shows it to this caller; none: the task this agent is on.
+fn task_show(d: &Daemon, task: Option<&str>) -> anyhow::Result<show::TaskShow> {
+    let path = match task {
+        Some(t) => {
+            task_ref(t)?;
+            format!("/api/task?task={}", t.replace('#', "%23"))
+        }
+        None => "/api/task".into(),
+    };
+    Ok(serde_json::from_value(d.get(&path)?)?)
 }
 
 /// The unit (or intent) a task is in: where its causes are, unless they say otherwise.

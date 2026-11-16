@@ -27,7 +27,9 @@ is free, start one.
 ## The loop
 
 1. **Split** the intent into units (what can land on its own) and tasks (outcomes as titles).
-2. **Hand off** each task to a worker through Herdr, with `workriver guide worker` pasted whole.
+2. **Hand off** through Herdr, briefly: the ref, its goal in a line, machine, repository and
+   branch, "run `workriver task show <ref>`", and `workriver guide worker` pasted whole.
+   Requirements belong in the task's text.
 3. **Follow up**: you are told when a task is delivered, a gate or chore is asked for, or
    the user decides something.
 4. **Decide findings** of reviews and tests (yours by default); hand out work for what you accept.
@@ -40,7 +42,7 @@ without its trailer, blind reviews, design gates, deferred batches, "not deliver
     workriver guide how <topic>    # one recipe
     workriver guide changes        # what changed; read it when told workriver was updated
 
-Use the recipe rather than memory; `workriver <cmd> --help` has every option.
+`workriver <cmd> --help` has every option.
 
 ## Hard rules
 

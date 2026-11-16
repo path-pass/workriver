@@ -875,6 +875,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/machines", get(machines).post(machine_set))
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
+        .route("/api/task", get(task_show))
         .route("/api/status", get(status))
         .route("/api/events", get(events))
         .route("/api/append", post(append))
@@ -908,6 +909,7 @@ fn machine_router(app: Shared, via: Via) -> Router {
         .route("/api/attachments/{id}", get(attachment))
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
+        .route("/api/task", get(task_show))
         .route("/api/status", get(status))
         .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
         .layer(middleware::from_fn_with_state(app.clone(), guard))
@@ -1010,6 +1012,71 @@ async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Calle
             snapshot::hide(&mut ws);
         }
         Ok(Json(ws))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct ShowQuery {
+    /// `u1#3`; none: the task the calling agent is on.
+    #[serde(default)]
+    task: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+}
+
+/// One task with everything its reader may see (`workriver task show`). Scoped like every
+/// read; attachments are paths on this machine and links through the tunnel on another.
+async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
+    blocking(move || {
+        let r = Reader { place: q.place.clone(), named: q.named };
+        let who = app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
+        let state = app.view(&caller, &r)?;
+        let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
+            Some(t) => core::parse_task_ref(t).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| bad(format!("{t:?} is not a task; write it as <unit>#<n>, e.g. u1#3")))?,
+            None => {
+                let Principal::Agent { session, .. } = &who else { return Err(bad("name the task: workriver task show <unit>#<n>".into())) };
+                // Started and not delivered: the task this agent is on.
+                let on = |owner: &str, ts: &[core::Task]| ts.iter().filter(|t| t.agent.as_deref() == Some(session.as_str()) && t.state == core::TaskState::Running).map(|t| (owner.to_string(), t.n, t.title.clone())).collect::<Vec<_>>();
+                let mine: Vec<(String, u32, String)> = state.units.iter().flat_map(|u| on(&u.id, &u.tasks)).chain(state.intents.iter().flat_map(|i| on(&i.id, &i.tasks))).collect();
+                match &mine[..] {
+                    [(u, n, _)] => (u.clone(), *n),
+                    [] => return Err(ApiError(StatusCode::NOT_FOUND, "you have no task in progress (none started and not delivered); name one: workriver task show <unit>#<n> (`workriver board` lists them)".into())),
+                    several => {
+                        let list: Vec<String> = several.iter().map(|(u, n, t)| format!("{u}#{n} \"{}\"", crate::quote::name(t))).collect();
+                        return Err(ApiError(StatusCode::CONFLICT, format!("you are on several tasks: {}; name one: workriver task show <unit>#<n>", list.join(", "))));
+                    }
+                }
+            }
+        };
+        let ws = {
+            let mut cache = app.cache.lock().unwrap();
+            let blocked = app.blocked.lock().unwrap().clone();
+            let groups = app.groups.lock().unwrap().clone();
+            let mut ws = snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked, &groups);
+            if state.reduced {
+                snapshot::hide(&mut ws);
+            }
+            serde_json::to_value(ws).unwrap_or_default()
+        };
+        // A reader on another machine cannot open this machine's files: it gets a link it
+        // can fetch through its tunnel, as the reader it is.
+        let port = caller.machine.as_deref().and_then(|m| app.machines.as_ref()?.port(m));
+        let file = |id: &str| {
+            let a = state.attachments.iter().find(|a| a.id == id)?;
+            let path = attachments::path(&app.home, &a.id, &a.name);
+            Some(match port {
+                Some(p) => format!(
+                    "{}?place={}",
+                    crate::machines::attachment_url(p, &path.file_name()?.to_string_lossy()),
+                    q.place.as_deref().unwrap_or("$HERDR_PANE_ID")
+                ),
+                None => path.display().to_string(),
+            })
+        };
+        Ok(Json(crate::show::task(&state, &ws, &unit, n, &file)?))
     })
     .await
 }

@@ -1094,6 +1094,23 @@ pub struct Finding {
     /// What was added to it since it was reported, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<FindingNote>,
+    /// Every decision on it, oldest first (the last is its state): a decision changed by the
+    /// user stays readable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decisions: Vec<Decided>,
+}
+
+/// One decision on a finding.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Decided {
+    pub state: FindingState,
+    pub by: Who,
+    /// The agent that decided it (the manager); none: the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    pub at: String,
 }
 
 /// An addition to a finding: by whom, when, what.
@@ -2066,7 +2083,7 @@ impl State {
             FindingAdded { project, intent, finding, source, note } => {
                 let found = finding.clone();
                 self.backlog.push(BacklogFinding {
-                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None, notes: vec![] },
+                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None, notes: vec![], decisions: vec![] },
                     project: project.clone(),
                     intent: intent.clone(),
                     source: source.clone(),
@@ -2253,6 +2270,7 @@ impl State {
                     };
                     f.decided_by = Some(*by);
                     f.note = (!note.is_empty()).then(|| note.clone());
+                    f.decisions.push(Decided { state: f.state, by: *by, agent: agent_of(&e.actor), note: note.clone(), at: at.clone() });
                 }
             }
             GateSubmitted { unit, task, result, note, findings, attachments } => {
@@ -2450,7 +2468,7 @@ fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Res
 }
 
 fn open(found: NewFinding) -> Finding {
-    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None, reason: None, notes: vec![] }
+    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None, reason: None, notes: vec![], decisions: vec![] }
 }
 
 /// Ids for findings added later: per severity, after the highest there is.

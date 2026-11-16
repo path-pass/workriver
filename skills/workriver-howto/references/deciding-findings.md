@@ -4,6 +4,7 @@
 intent's manager decides**; the delivery message lists them.
 
     workriver board u1
+    workriver finding show u1#4 P2-1                                          # one in full
     workriver finding decide u1#4 P2-1 accept --note "Real risk"
     workriver finding decide u1#4 P3-1 revise --note "Do it in the client instead"
     workriver finding decide u1#4 P3-2 reject --note "Not a risk here"       # or: defer

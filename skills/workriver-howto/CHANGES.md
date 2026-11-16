@@ -2,6 +2,15 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-16 (later)
+
+- **`workriver task show <task>`** prints one task in full: what it asks (untruncated), where
+  to work, the findings it answers with every decision and everything added to them,
+  steps, output, commits, questions; `--json` for the same as data. Without a task, in an
+  agent's pane: the task that agent is on. `workriver finding show <task> <id>`: one finding.
+  Workers run it first; hand-off messages stay short and point to it; workriver's
+  messages about a task end with "Details: `workriver task show <ref>`". (`hand-off`)
+
 ## 2026-11-16
 
 - **Findings are decided by the intent's manager by default.** Decide them with

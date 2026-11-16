@@ -123,12 +123,13 @@ workriver intent start i1              # active here; the workspace's current in
 workriver unit add --title "Mentions" --branch mention
 workriver task add u1 --title "Find the people mentioned in a message" --agent finder
 herdr agent start finder --kind claude --pane <pane id>   # see `herdr --skill`
-herdr agent prompt finder "<task u1#1, its goal, and the text of: workriver guide worker>"
+herdr agent prompt finder "<task u1#1, its goal in a line, where to work, \"run workriver task show u1#1\", and the text of: workriver guide worker>"
 ```
 
 The worker records its own work:
 
 ```sh
+workriver task show u1#1                          # the task in full: what it asks, its causes, notes
 workriver task start u1#1
 git commit -m "Find mentions" -m "Task: u1#1"     # the trailer links the commit to the task
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'

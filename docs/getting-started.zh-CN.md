@@ -112,12 +112,13 @@ workriver intent start i1              # 在这里开始；成为这个工作区
 workriver unit add --title "Mentions" --branch mention
 workriver task add u1 --title "Find the people mentioned in a message" --agent finder
 herdr agent start finder --kind claude --pane <窗格 id>   # 见 `herdr --skill`
-herdr agent prompt finder "<任务 u1#1、它的目标，以及 workriver guide worker 的全文>"
+herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运行 workriver task show u1#1\"，以及 workriver guide worker 的全文>"
 ```
 
 worker 自己记录工作：
 
 ```sh
+workriver task show u1#1                          # 任务全文：要求、起因、补充说明
 workriver task start u1#1
 git commit -m "Find mentions" -m "Task: u1#1"     # 这一行 trailer 把提交和任务连起来
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
