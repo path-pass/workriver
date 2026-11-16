@@ -44,7 +44,7 @@ that work does not wait for you. The trade-off, plainly: a manager that is compr
 simply wrong can accept or reject findings. What limits it: only the manager of that intent
 can (no other agent ever), its decisions are recorded as an agent's and shown with a robot
 mark, never told to anyone as yours, and you can change any of them, which the manager is
-told. To decide everything yourself for an intent, set "Findings decided by: only me"
+told. To decide everything yourself for an intent, set "Findings: Manual"
 (`workriver intent set <intent> --findings user`). There is no rule by severity: a
 finding's severity is its reviewer's own rating, not a control.
 

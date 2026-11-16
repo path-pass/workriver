@@ -9,7 +9,7 @@ import { Start, StartIntent } from '@/components/Start'
 import { Ask, isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { Rail } from '@/components/Rail'
-import { agents, askeeOf, blame, blockedAgents, inbox, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withEdits, type Edits, type Lines, type Pick } from '@/data'
+import { agents, askeeOf, blame, blockedAgents, inbox, loadCode, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
 import { useT } from '@/i18n'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, submitGate, type Delivery } from '@/runtime'
 import type { AskContext, Intent, MachineAlert, Task, Turn, Unit, Workspace } from '@/types'
@@ -17,6 +17,43 @@ import type { AskContext, Intent, MachineAlert, Task, Turn, Unit, Workspace } fr
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
 const PROJECT = 'workriver.project'
+
+/**
+ * The unit with its files' texts, for the code layer: read when it is shown, and again only
+ * when its `code` changes. Until the new texts are there, the unit as they were read for.
+ * Null until the first arrive. The sample has them inline.
+ */
+function useCode(unit: Unit | null): Unit | null {
+  const [got, setGot] = useState<{ unit: Unit; code: UnitCode } | null>(null)
+  const want = unit && !MOCK && !unit.intentLevel ? `${unit.id}\0${unit.code ?? ''}` : null
+  const latest = useRef(unit)
+  latest.current = unit
+  useEffect(() => {
+    const u = latest.current
+    if (!want || !u) return
+    let gone = false
+    loadCode(u).then(code => { if (!gone) setGot({ unit: u, code }) }, e => console.warn(e))
+    return () => { gone = true }
+  }, [want])
+  return useMemo(() => {
+    if (!unit || MOCK || unit.intentLevel) return unit
+    if (got?.unit.id !== unit.id) return null
+    return withCode(got.code.code === (unit.code ?? '') ? unit : got.unit, got.code)
+  }, [unit, got])
+}
+
+/**
+ * The same object as long as its content is the same: a new snapshot that did not change the
+ * unit on screen does not make its graph and code be worked out and drawn again (about 0.4 s
+ * for a unit with a few megabytes of code).
+ */
+function useSame<T>(value: T): T {
+  // Uncommitted work is dated "now" in every snapshot; that alone is no change.
+  const json = JSON.stringify(value, function (this: { live?: boolean }, k, v) { return k === 'date' && this.live ? undefined : v })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => value, [json])
+}
+
 const remember = (key: string, value: string) => { try { localStorage.setItem(key, value) } catch { /* not remembered, still shown */ } }
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
@@ -98,8 +135,12 @@ export default function App() {
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
 
-  const unit = unitsOf(ws).find(i => i.id === unitId) ?? null
+  const unit = useSame(unitsOf(ws).find(i => i.id === unitId) ?? null)
   const sel = useMemo(() => (unit ? selectionOf(unit, pick) : null), [unit, pick])
+  // The same unit with its files' texts, for the code and the lines picked in it.
+  const coded = useCode(unit)
+  const codeSel = useMemo(() => (coded ? selectionOf(coded, pick) : null), [coded, pick])
+  const tree = useSame(ws && unit && !unit.intentLevel ? repoOf(ws, unit).modules : null)
 
   // Whatever opens a unit (the rail, the inbox, an agent) sets the pick the same way, so the
   // file tree opens on what is picked wherever the user came from.
@@ -132,6 +173,7 @@ export default function App() {
   // Ask why about picked lines: the task that last changed them is picked, with the others
   // that changed them as more context, and its box takes the cursor.
   const askAbout = (l: Lines) => {
+    const unit = coded, sel = codeSel
     if (!unit || !sel) return
     const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.touched.at(-1)
     if (upTo === undefined) return
@@ -279,10 +321,10 @@ export default function App() {
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
             <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}`} />
-            {!unit.intentLevel && <CodeLayer
-              root={repoOf(ws, unit).modules}
-              unit={unit}
-              sel={sel}
+            {tree && coded && codeSel && <CodeLayer
+              root={tree}
+              unit={coded}
+              sel={codeSel}
               onlyChanged={onlyChanged}
               onOnlyChanged={setOnlyChanged}
               onPick={onPick}

@@ -513,6 +513,8 @@
 
 /* One focus ring everywhere, unlayered so it also wins over component classes. */
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* Menu options: inside, or the menu's edge cuts the outline off. */
+[role=option]:focus-visible { outline-offset: -2px; }
 .field:focus-visible { outline: none; border-color: var(--you); box-shadow: 0 0 0 1px var(--you); }
 /* The ask box draws its own ring around the field. */
 .askbox textarea:focus-visible { outline: none; }

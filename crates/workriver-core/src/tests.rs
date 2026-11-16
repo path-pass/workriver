@@ -331,9 +331,15 @@ fn planned_intents_merge() {
         let e = add(&mut s, "user", merge(into, from)).unwrap_err();
         assert!(e.contains(says), "{into} <- {from:?}: {e}");
     }
-    // The user's alone: not even a workspace's manager merges.
+    // What the user added, only the user merges; what agents added (an import), agents may tidy.
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": {"id": "w1", "label": "chat"}}})).unwrap();
-    assert!(add(&mut s, "boss", merge("i1", &["i2"])).unwrap_err().contains("only the user does this"));
+    assert!(add(&mut s, "boss", merge("i1", &["i2"])).unwrap_err().contains("i1 was added by the user"));
+    add(&mut s, "importer", plan("Import a", "/p")).unwrap(); // i10
+    add(&mut s, "importer", plan("Import b", "/p")).unwrap(); // i11
+    assert!(add(&mut s, "boss", merge("i10", &["i11", "i2"])).unwrap_err().contains("i2 was added by the user"));
+    assert_eq!(s.state().intent("i10").unwrap().by, "importer");
+    add(&mut s, "boss", merge("i10", &["i11"])).unwrap();
+    assert_eq!(s.state().intent("i11").unwrap().reason.as_deref(), Some("merged into i10"));
 
     let before = s.state().roadmap.clone();
     add(&mut s, "user", merge("i1", &["i3", "i2"])).unwrap();

@@ -13,8 +13,9 @@ intent of its own: it goes into that intent, as a task of its unit or a line in 
 text (`units`).
 Finished: `workriver intent done i3`. Given up: `workriver intent drop i3 --reason "..."`
 (an intent you started; one still in the roadmap is the user's to drop). Planned intents that
-are one goal are the user's to merge too (`workriver backlog merge <into> <from>... [--title
-"<new title>"]`, or "Merge…" in the roadmap): ask them; the merged ones are dropped, "merged
+are one goal merge into one (`workriver backlog merge <into> <from>... [--title
+"<new title>"]`): you may merge intents agents added (an import); ones the user added are the
+user's to merge (ask them; "Merge…" in the roadmap). The merged ones are dropped, "merged
 into i3", their text in i3's note; `--title` renames i3. `workriver board i3` prints the note.
 
 **You will see:** `i3 active`. New units and tasks here go to the intent started last,

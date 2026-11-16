@@ -70,7 +70,8 @@ skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide i
 它不会改动原文件。`workriver backlog export --project P` 把待办再打印成 Markdown。
 拆得太碎？点路线图标题旁的"合并…"打开对话框：勾选几个意图，选出保留的那个，需要的话给它一个新标题。
 或者 `workriver backlog merge i3 i4 i5 --title "搜索"`：i4 和 i5 被放弃，它们写的内容进到 i3 的
-备注里，显示在它的目标下面。
+备注里，显示在它的目标下面。agent 加的意图（比如导入的 agent 收拾自己导入的）agent 可以合并；
+你自己加的意图只有你能合并。
 
 ## 4. 给每个工作区一个管理者
 
@@ -136,7 +137,7 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 （`workriver unit done u1 --reason "……"`，用于不经合并就结束的工作）。一个意图的单元都已合并或
 结束时，由管理者用 `workriver intent done i1` 结束这个意图。审查和测试是单独的
 任务。它们找出的问题默认由这个意图的管理者决定（带机器人标记；你可以在页面上改掉任何一个决定，
-也可以按意图把决定权留给自己：左栏的"发现由谁决定"，或者 `workriver intent set i1 --findings user`）。
+也可以按意图把决定权留给自己：左栏的"发现：自动 / 手动"（选手动），或者 `workriver intent set i1 --findings user`）。
 归你决定的问题在页面的 **需要你** 里等着：在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，
 "一起做"会把它们作为一条消息发给这个意图的管理者，由它合成一个清理单元。你的决定和
 手工步骤的结果会通过 Herdr 送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行

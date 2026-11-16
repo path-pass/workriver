@@ -302,6 +302,8 @@ export interface Unit {
   tasks: Task[];
   /** Oldest first. The last one may be uncommitted work (`live`). */
   commits: Commit[];
+  /** Which texts its files have: their texts are read again (`loadCode`) only when it changes. */
+  code?: string;
 }
 
 /**
@@ -542,13 +544,16 @@ export interface Commit {
 export interface FileChange {
   path: string;
   status: 'A' | 'M' | 'D';
-  /** The whole file before this commit; null when the commit adds it. */
+  /**
+   * The whole file before this commit; null when the commit adds it. The service's snapshot
+   * leaves the texts out (null here, `lines` empty): a unit's come with its code (`loadCode`).
+   */
   before: string | null;
   /** The whole file after this commit; null when the commit deletes it. */
   after: string | null;
-  /** Derived on load from before and after: */
+  /** Lines added and removed: from the service, or worked out from the texts. */
   add: number;
   del: number;
-  /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers. */
+  /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers; from the texts. */
   lines: string[];
 }
