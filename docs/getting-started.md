@@ -68,7 +68,8 @@ workriver backlog list
 **Importing an existing list.** Notes files differ every time, so there is no importer
 that parses them; an agent does it with the import skill (`skills/workriver-backlog-import/`,
 or paste what `workriver guide import` prints). Tell it which file and which project; it
-reads the file, works out which items are goals and which are leftover findings, shows you a
+reads the file, works out which items are goals and which are leftover findings (the steps
+of one goal become one intent, with them as a checklist in its note), shows you a
 preview table and waits for your yes, then adds them in the file's order with
 `workriver backlog add` and `workriver backlog add-finding`. It never changes the file.
 `workriver backlog export --project P` prints the backlog back as Markdown.
@@ -121,7 +122,7 @@ workriver manager here                 # registers it as the workspace's manager
 workriver backlog list                 # the roadmap: i1 "Mentions" ...
 workriver intent start i1              # active here; the workspace's current intent
 workriver unit add --title "Mentions" --branch feat/mention   # its own branch: feat/, fix/ or chore/
-workriver task add u1 --title "Find the people mentioned in a message" --agent finder
+workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
 herdr agent start finder --kind claude --pane <pane id>   # see `herdr --skill`
 herdr agent prompt finder "<task u1#1, its goal in a line, where to work, \"run workriver task show u1#1\", and the text of: workriver guide worker>"
 ```
@@ -135,6 +136,9 @@ git commit -m "Find mentions" -m "Task: u1#1"     # the trailer links the commit
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
+The manager splits little: an intent is one unit unless work must land separately (another
+repository, another machine, a merge of its own), and a task is one complete outcome for
+one agent, not one per step.
 A commit on the unit's branch without a `Task:` line shows as unregistered, a gap to close.
 Each unit says where it stands: working, waiting (an open finding, a gate), ready to merge,
 merged (workriver sees a fast-forward or merge commit itself; after a squash merge run

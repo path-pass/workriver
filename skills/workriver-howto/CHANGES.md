@@ -4,6 +4,15 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Split little**: an intent is a goal the user would name (a feature, one or a few related
+  PRs); a step of the goal you are on is never an intent of its own (no `backlog add` for
+  it). An intent has one unit by default; another only for work that must land separately
+  (another repository, another machine, a merge of its own). A task is one complete outcome
+  for one agent ("implement X with its unit tests"), not one per step. (`units`,
+  `start-intent`)
+- **Importing a backlog groups steps into goals**: the steps, sub-bullets and parts of one
+  goal under the same heading become one planned intent with them as a checklist in its
+  note; the preview shows which source items went into each row. (`workriver guide import`)
 - **A unit's branch is its own and says what it holds**: `--branch` of `workriver unit add`
   (and a new name in `workriver unit move`) starts with `feat/`, `fix/` or `chore/` and a
   name, and is not the base. Committing straight on `main` is not a unit: make the unit's

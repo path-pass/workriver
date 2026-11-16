@@ -64,7 +64,8 @@ workriver backlog list
 
 **导入已有的清单。** 每份笔记文件的写法都不一样，所以没有固定的解析器；由一个 agent 用导入
 skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide import` 的输出贴给它）。
-告诉它哪个文件、导进哪个项目；它读文件，分清哪些是目标、哪些是遗留的发现，先给你看一张预览表，
+告诉它哪个文件、导进哪个项目；它读文件，分清哪些是目标、哪些是遗留的发现（同一个目标的各个步骤
+合成一个意图，作为清单放进它的备注），先给你看一张预览表，
 等你同意，再按文件里的顺序用 `workriver backlog add` 和 `workriver backlog add-finding` 加进去。
 它不会改动原文件。`workriver backlog export --project P` 把待办再打印成 Markdown。
 
@@ -110,7 +111,7 @@ workriver manager here                 # 登记为这个工作区的管理者
 workriver backlog list                 # 路线图：i1 "Mentions" ……
 workriver intent start i1              # 在这里开始；成为这个工作区的当前意图
 workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
-workriver task add u1 --title "Find the people mentioned in a message" --agent finder
+workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
 herdr agent start finder --kind claude --pane <窗格 id>   # 见 `herdr --skill`
 herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运行 workriver task show u1#1\"，以及 workriver guide worker 的全文>"
 ```
@@ -124,6 +125,8 @@ git commit -m "Find mentions" -m "Task: u1#1"     # 这一行 trailer 把提交�
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
+管理者尽量少拆：一个意图默认就是一个单元，除非有工作必须分开落地（另一个仓库、另一台机器、
+必须单独进行的一次合并）；一个任务是交给一个 agent 的一个完整结果，而不是每一步一个任务。
 单元分支上没有 `Task:` 这一行的提交会显示为未登记，是一个要补上的缺口。
 每个单元都标出自己的状态：进行中、等待中（有未决定的发现或 gate）、可以合并、已合并（快进或
 合并提交 workriver 自己能看到；squash 合并之后要运行 `workriver unit merged u1`）、已结束

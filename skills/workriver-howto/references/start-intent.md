@@ -8,6 +8,9 @@
     workriver board i3
 
 Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>"`, then start it.
+Only for a goal the user named. A step or part of a goal you are already on is never an
+intent of its own: it goes into that intent, as a task of its unit or a line in a task's
+text (`units`).
 Finished: `workriver intent done i3`. Given up: `workriver intent drop i3 --reason "..."`
 (an intent you started; one still in the roadmap is the user's to drop).
 

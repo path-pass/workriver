@@ -26,8 +26,11 @@ confirm.
 
 Go through the file in order. Each item is one of:
 
-- **Planned intent** - a goal: something to build or change. Needs a title and a
-  one-sentence goal (write one from the text if the file has none).
+- **Planned intent** - a goal the user would name themselves: usually a feature, one or a
+  few related PRs. Needs a title and a one-sentence goal (write one if the file has none).
+  Steps, sub-bullets and parts of one goal under the same heading or parent item are
+  **one** intent: their text goes into its note as a checklist (`- [ ] …`). When unsure,
+  group rather than split.
 - **Deferred finding** - a problem with a severity, usually left over from a review or a
   test run ("P2", "should fix", "Codex flagged"). Needs a severity (P1, P2 or P3) and the
   problem. P0 or "critical" becomes P1; tell the user you did that.
@@ -35,7 +38,7 @@ Go through the file in order. Each item is one of:
   in the code (renew a certificate, answer a vendor, decide a budget). Needs a title; steps
   if the file gives them.
 
-For both, keep:
+For each, keep:
 
 - **notes**: the rest of the item - fix ideas ("修法", "fix:"), context, links - as the
   note. Keep links as they are.
@@ -49,12 +52,15 @@ Skip, and list as skipped: checked items (`- [x]`), sections marked done, archiv
 cleared ("已清除", "archived", "resolved"), dropped items, and preamble that is not an item
 (triage history, how-to text). Import them only if the user asks.
 
+**Check the count** before the preview: roughly one intent per top-level goal or heading of
+the file. If you have many more intents than that, regroup.
+
 ## 3. Preview and wait
 
 Show the user, before adding anything:
 
 - the target project (title and folder);
-- one table in file order: `# | kind (intent/finding/chore) | severity | title or problem | source | external`;
+- one table in file order: `# | kind (intent/finding/chore) | severity | title or problem | from (its source items: "L12-18, 5 bullets") | source | external`;
 - what you will skip and why, and any severity you mapped.
 
 Then stop and wait for an explicit yes. Apply the user's corrections and show the table
@@ -62,7 +68,7 @@ again if they changed much.
 
 ## 4. Add, in file order
 
-One command per item, in the table's order (that order becomes the roadmap's order).
+One command per row, in the table's order (that order becomes the roadmap's order).
 Pass multi-line notes as one quoted argument.
 
     workriver backlog add "<title>" --goal "<one sentence>" --project <P> [--note "<note>"] [--external <system>:<KEY> --url <link>]
