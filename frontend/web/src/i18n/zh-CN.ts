@@ -165,7 +165,8 @@ export const zhCN: Same<typeof en> = {
   },
   side: {
     title: '需要你、Agent、提交、待办和问为什么',
-    close: '收起面板'
+    close: '收起面板',
+    resize: '面板宽度（拖动，或用方向键；双击恢复默认）'
   },
   terminal: {
     open: '在终端里打开',

@@ -2,12 +2,13 @@
 // where the agents are, what was committed lately, the backlog, or asking why about the
 // picked task – one at a time. Neither is looked at all the time, so the panel folds
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
-import { useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { agentGroups, baseName, commitStats, feed, ms, writingNow, type Pick } from '@/data'
 import { useT } from '@/i18n'
+import { useResize } from '@/lib/useResize'
 import type { Workspace } from '@/types'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
@@ -213,11 +214,16 @@ interface PanelProps extends Omit<ContentProps, 'section'> {
   section: Section | null
   onSection: (s: Section) => void
   onClose: () => void
+  /** Its width once a drag settles, so a graph beside it can refit. */
+  onWidth?: (w: number) => void
 }
 
 /** Wide screens: a column of its own that folds to a strip of two buttons. */
-export function SidePanel({ section, onSection, onClose, ...content }: PanelProps) {
+export function SidePanel({ section, onSection, onClose, onWidth, ...content }: PanelProps) {
   const { t } = useT()
+  // The left edge drags the width; double-click: the default.
+  const size = useResize({ key: 'workriver.side.width', variable: '--side-w', def: 340, min: 280, max: 720, edge: 'left' })
+  useEffect(() => onWidth?.(size.width), [onWidth, size.width])
   if (!section)
     return (
       <aside className="sticky top-0 flex h-screen w-11 flex-col items-center gap-1 border-l border-line bg-surface pt-3 max-[860px]:hidden">
@@ -225,7 +231,8 @@ export function SidePanel({ section, onSection, onClose, ...content }: PanelProp
       </aside>
     )
   return (
-    <aside className="sticky top-0 flex h-screen w-[340px] flex-col border-l border-line bg-surface max-[860px]:hidden">
+    <aside className="sticky top-0 flex h-screen w-[var(--side-w,340px)] flex-col border-l border-line bg-surface max-[860px]:hidden">
+      <div {...size.handle} aria-label={t('side.resize')} className="edge" data-edge="left" />
       <div className="flex items-center gap-1 px-2 pt-3 pb-2">
         <SideButtons active={section} onPick={onSection} />
         <Tip text={t('side.close')}>
