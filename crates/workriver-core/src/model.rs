@@ -324,7 +324,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | IntentMerged { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. }
         )
     }
 }
@@ -1009,6 +1009,10 @@ pub struct Intent {
     pub note: String,
     #[serde(default)]
     pub external: Option<External>,
+    /// Who added it: "user", or the agent (session) that did. Only the user merges what the
+    /// user added; agents may tidy what agents added (an import split too finely).
+    #[serde(default)]
+    pub by: String,
     /// Where it runs while active (and last ran).
     #[serde(default)]
     pub workspace: Option<RuntimeRef>,
@@ -1569,6 +1573,10 @@ impl State {
                 }
                 if from.is_empty() {
                     return no(format!("name the planned intents to merge into {intent}"));
+                }
+                // The user's own goals are the user's to merge; what agents added, agents may tidy.
+                if !user && let Some(mine) = std::iter::once(&intent).chain(&from).find(|x| self.intents.iter().any(|i| &i.id == *x && i.by == "user")) {
+                    return no(format!("{mine} was added by the user: only the user merges it (in the roadmap, or `workriver backlog merge` from the user's terminal)"));
                 }
                 for (k, f) in from.iter().enumerate() {
                     if f == &intent || from[..k].contains(f) {
@@ -2164,6 +2172,7 @@ impl State {
                     reason: None,
                     findings: FindingsPolicy::default(),
                     tasks: vec![],
+                    by: e.actor.clone(),
                 });
                 if *state == IntentState::Planned {
                     self.roadmap.push(id.clone());

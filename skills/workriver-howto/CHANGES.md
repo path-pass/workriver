@@ -4,6 +4,9 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Agents may merge planned intents that agents added** (an import split too finely):
+  `workriver backlog merge <into> <from>...`. Intents the user added stay the user's to
+  merge; the service refuses with "… was added by the user". (`start-intent`)
 - **Ask the user through Needs you, not your pane**: before merging, deploying, changing
   the goal or agreed units, anything destructive, or after a task failed the same way
   twice, add a decide gate on the unit (or the intent) and wait for the answer. The user

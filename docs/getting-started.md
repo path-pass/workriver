@@ -76,7 +76,8 @@ preview table and waits for your yes, then adds them in the file's order with
 Split too finely? "Merge…" in the roadmap's heading opens a dialog: tick the intents, pick the
 one that stays and, if you like, give it a new title. Or `workriver backlog merge i3 i4 i5
 --title "Search"`: i4 and i5 are dropped and what they said goes into i3's note, shown under
-its goal.
+its goal. An agent may merge intents that agents added (the import agent tidying its own
+import); intents you added only you merge.
 
 ## 4. Give each workspace a manager
 

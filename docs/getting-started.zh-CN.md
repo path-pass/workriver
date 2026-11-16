@@ -70,7 +70,8 @@ skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide i
 它不会改动原文件。`workriver backlog export --project P` 把待办再打印成 Markdown。
 拆得太碎？点路线图标题旁的"合并…"打开对话框：勾选几个意图，选出保留的那个，需要的话给它一个新标题。
 或者 `workriver backlog merge i3 i4 i5 --title "搜索"`：i4 和 i5 被放弃，它们写的内容进到 i3 的
-备注里，显示在它的目标下面。
+备注里，显示在它的目标下面。agent 加的意图（比如导入的 agent 收拾自己导入的）agent 可以合并；
+你自己加的意图只有你能合并。
 
 ## 4. 给每个工作区一个管理者
 

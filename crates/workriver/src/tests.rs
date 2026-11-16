@@ -984,10 +984,11 @@ fn only_the_user_is_the_user() {
     // A plain shell pane (no agent there): the user with the token, nobody without.
     assert!(at("w1:p9", false).append("", "intent.created", json!({ "title": "x" })).unwrap_err().to_string().contains("Herdr lists no agent in pane w1:p9"));
     assert_eq!(at("w1:p9", true).append("", "intent.created", json!({ "title": "From a shell", "state": "planned" })).unwrap()["actor"], "user");
-    // Merging planned intents is the user's route: an agent's pane is refused, token and all.
+    // Merging planned intents: an agent (at its pane, token and all) may not merge what the
+    // user added; the user may.
     user.append("", "intent.created", json!({ "title": "Split off", "state": "planned" })).unwrap();
     let merge = json!({ "into": "i2", "from": ["i3"] });
-    assert!(boss.call("/api/backlog/merge", Some(merge.clone())).unwrap_err().to_string().contains("only the user does this"));
+    assert!(boss.call("/api/backlog/merge", Some(merge.clone())).unwrap_err().to_string().contains("was added by the user"));
     assert_eq!(user.call("/api/backlog/merge", Some(merge)).unwrap()["kind"], "intent.merged");
     assert!(user.get("/api/state").unwrap()["intents"][2]["reason"] == "merged into i2");
     // The manager sees what was merged: the note, line by line, under the goal on the board.
@@ -998,7 +999,6 @@ fn only_the_user_is_the_user() {
         ("/api/decide", json!({ "unit": "u1", "task": 3, "finding": "P1-1", "decision": "accept" })),
         ("/api/gate", json!({ "unit": "u1", "task": 2, "result": "done" })),
         ("/api/chore-done", json!({ "chore": "c1" })),
-        ("/api/backlog/merge", json!({ "into": "i2", "from": ["i3"] })),
         ("/api/focus", json!({ "agent": "boss" })),
         ("/api/thread/end", json!({ "thread": "q1" })),
         ("/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),

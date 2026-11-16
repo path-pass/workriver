@@ -1449,7 +1449,8 @@ struct Merge {
 
 /// Planned intents folded into one (`workriver backlog merge`, or the roadmap in the page).
 async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
-    let who = app.user(&caller)?;
+    // The user, or an agent at its pane: the event rules keep the user's own intents the user's.
+    let who = app.who(&caller, caller.place.as_deref(), None)?;
     blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from, title: m.title }).map(Json)).await
 }
 
