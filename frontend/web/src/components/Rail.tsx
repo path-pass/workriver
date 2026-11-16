@@ -14,6 +14,10 @@ import { useResize } from '@/lib/useResize'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
 import { ExternalChip, Icon, MachineChip, Progress, Tip } from './bits'
+import { Choice } from './Choice'
+
+/** All projects, in the project switch (Radix takes no empty value). */
+const ALL = '*'
 import { Settings } from './Settings'
 
 /** What waits for the user in some units: gates an agent is stuck on, and everything else. */
@@ -162,14 +166,14 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
         {stateOf(intent) === 'active' && intent.findings && (
           <label className="flex items-center gap-1.5 px-2.5 pb-1 text-xs text-rail-ink-2">
             {t('rail.findings')}
-            <select
-              className="min-w-0 flex-1 rounded-sm border border-rail-line bg-rail-2 px-1 py-0.5 text-rail-ink"
+            <Choice
+              tone="rail"
+              label={t('rail.findings')}
               value={intent.findings}
-              onChange={e => { record('intent.updated', { intent: intent.id, findings: e.target.value }).catch(err => console.warn(err)) }}
-            >
-              <option value="manager">{t('rail.findingsBy.manager')}</option>
-              <option value="user">{t('rail.findingsBy.user')}</option>
-            </select>
+              onChange={v => { record('intent.updated', { intent: intent.id, findings: v }).catch(err => console.warn(err)) }}
+              options={[{ value: 'manager', label: t('rail.findingsBy.manager') }, { value: 'user', label: t('rail.findingsBy.user') }]}
+              className="h-6 flex-1 text-xs"
+            />
           </label>
         )}
         {!intent.units.length && <p className="px-2.5 pb-1 text-xs text-rail-ink-2 italic">{t('rail.noUnits')}</p>}
@@ -359,10 +363,14 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       </div>
 
       {projects.length > 0 && (
-        <select className="rail-field" aria-label={t('rail.project')} value={project ?? ''} onChange={e => onProject(e.target.value || null)}>
-          <option value="">{t('rail.allProjects')}</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-        </select>
+        <Choice
+          tone="rail"
+          label={t('rail.project')}
+          value={project ?? ALL}
+          onChange={v => onProject(v === ALL ? null : v)}
+          options={[{ value: ALL, label: t('rail.allProjects') }, ...projects.map(p => ({ value: p.id, label: p.title }))]}
+          className="h-8"
+        />
       )}
 
       <Input

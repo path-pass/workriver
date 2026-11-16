@@ -195,7 +195,11 @@
   .tag[data-progress="waiting"] { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
   .tag[data-progress="merged"]::before, .tag[data-progress="done"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
   /* Where an item is tracked elsewhere: quiet, mono, a link when there is one. */
-  .ext-chip { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 4px; font: 500 10px/1 var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+  .ext-chip { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; min-width: 0; height: 16px; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 4px; font: 500 10px/1 var(--font-mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+  /* A chip is one line and never wider than what holds it; its icons keep their size and its
+     name gives way, cut at the end if even the shortened name does not fit. */
+  .ext-chip > svg, .ctx > svg, .ctx > button { flex: none; }
+  .chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rail .ext-chip { border-color: var(--rail-line); color: var(--rail-ink-2); }
   a.ext-chip:hover { color: var(--ink); text-decoration: underline; }
   /* Its machine cannot be reached: what shows is as last seen. */
@@ -235,10 +239,24 @@
      the panel's scroll area would otherwise cut. */
   .agent-row { display: flex; align-items: center; gap: 2px; padding-right: 4px; }
   .agent-row .agent { flex: 1; min-width: 0; }
-  .agent { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 2px 10px 2px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
+  /* A grid, so nothing is drawn over anything: the mark; the name (with its marks and
+     machine chip, which never shrink) over the topic; where it works, in a column of its
+     own that truncates. */
+  .agent { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 45%); align-items: center; column-gap: 6px; width: 100%; min-height: 30px; padding: 2px 10px 2px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
+  .agent .agent-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .agent .agent-name > :not(:first-child) { flex: none; }
+  /* A narrow panel: where it works goes to a third line, under the topic. */
+  .agents { container-type: inline-size; }
+  @container (max-width: 340px) {
+    .agent { grid-template-columns: auto minmax(0, 1fr) auto; }
+    .agent .at { grid-column: 2 / 4; margin-left: 0; }
+    /* Idle says so with a mark only: it stays at the end of the first line. */
+    .agent .at[data-idle] { grid-column: 3; grid-row: 1; }
+  }
   .agent:not(:disabled):hover { background: var(--sunken); }
   .agent[aria-pressed="true"] { background: var(--you-bg); color: var(--you-ink); }
-  .agent .at { display: flex; align-items: center; gap: 4px; min-width: 0; margin-left: auto; color: var(--ink-2); }
+  .agent .at { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; overflow: hidden; color: var(--ink-2); }
+  @container (max-width: 340px) { .agent .at { justify-content: flex-start; } }
   .agent[data-place="queued"] { color: var(--ink-2); }
   .agent[data-place="queued"] .who { opacity: .55; }
   .agent[data-place="idle"] { color: var(--ink-2); }
@@ -252,8 +270,8 @@
   .irow:hover { background: var(--sunken); }
   .irow .ic { color: var(--ink-2); }
   .irow .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .irow .meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink-2); font-size: 12px; }
-  .irow .unit { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .irow .meta { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; color: var(--ink-2); font-size: 12px; }
+  .irow .unit { min-width: 0; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .irow .age { color: var(--ink-2); font-size: 12px; text-align: right; }
   /* An agent cannot go on: the strongest row. */
   .irow[data-kind="gate"] { background: var(--you-bg); color: var(--you-ink); font-weight: 600; }
@@ -322,8 +340,17 @@
   .flow .react-flow__handle { opacity: 0; pointer-events: none; }
   /* The library's own credit: kept, small and quiet, in its corner. */
   .flow .react-flow__attribution { margin: 0 16px 10px 0; background: transparent; color: var(--ink-2); font-size: 10px; }
-  /* The legend shares the bottom row of the graph with that credit and leaves it room. */
-  .flow .legend-row { margin: 0 0 8px 16px; max-width: calc(100% - 120px); }
+
+  /* ---- asking why: conversations folded to a line each, one open at a time ---- */
+  .thread + .thread { border-top: 1px solid var(--line); }
+  .thread-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; font-size: 13px; text-align: left; }
+  .thread-row:hover { background: var(--sunken); }
+  .thread-row[aria-expanded="true"] > .ic:first-child { transform: rotate(90deg); }
+  .thread-row .thread-state { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--sunken); color: var(--ink-2); }
+  .thread-row .thread-state[data-state="waiting"] { background: var(--amber-bg); color: var(--amber-ink); }
+  .thread-row .thread-state[data-state="failed"] { color: var(--del); }
+  /* An open one scrolls on its own: the detail never grows past it. */
+  .thread-scroll { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; }
 
   /* ---- the findings of the picked review ---- */
   .fgroup + .fgroup { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
@@ -363,17 +390,23 @@
   .key .stroke[data-state="also"] { border-top-style: dashed; }
 
   /* ---- layer 2: the code. The file tree on the left, the diff on the right. ---- */
-  .code-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+  /* Its bar stays in view while the diff scrolls past: the tree's toggle and the title. */
+  .code-bar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 6px; margin: -6px -6px 8px; padding: 6px; background: var(--surface); }
+  /* With its tree as a pane (a wide block): beside the diff, as wide as dragged. Without:
+     the diff alone, and a drawer over it on demand. */
+  .code-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+  .code-grid[data-tree="pane"] { grid-template-columns: var(--code-tree-w, 280px) minmax(0, 1fr); }
   /* The tree stays in view while the changes scroll past, with a scroll of its own. It is a
      plain wrapper that sticks: the scroll area inside carries a `relative` utility, which
      would win over a sticky position set on it from this layer. */
-  .code-side { position: sticky; top: 12px; }
-  .code-tree > [data-slot=scroll-area-viewport] { max-height: calc(100vh - 64px); }
-  @media (max-width: 720px) {
-    .code-grid { grid-template-columns: minmax(0, 1fr); }
-    .code-side { position: static; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
-    .code-tree > [data-slot=scroll-area-viewport] { max-height: 40vh; }
-  }
+  .code-side { position: sticky; top: 48px; }
+  .code-tree > [data-slot=scroll-area-viewport] { max-height: calc(100vh - 120px); }
+  .code-tree-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 2px 8px; }
+  .code-filter { min-width: 0; flex: 1 1 8em; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12px; }
+  .code-filter:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .code-drawer { position: absolute; z-index: 7; top: 0; left: -6px; width: min(340px, calc(100% + 12px)); max-height: calc(100vh - 80px); display: flex; flex-direction: column; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+  .code-drawer .code-tree { min-height: 0; }
+  .code-drawer .code-tree > [data-slot=scroll-area-viewport] { max-height: calc(100vh - 160px); }
   .ftree { display: flex; flex-direction: column; padding: 2px; }
   .trow { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 26px; padding-right: 6px; border-radius: 6px; font-size: 12px; text-align: left; white-space: nowrap; }
   .trow:hover { background: var(--sunken); }
@@ -395,7 +428,7 @@
   .trow[data-ghost] .nm { color: var(--ink-2); text-decoration: underline dashed var(--line-2); text-underline-offset: 3px; }
 
   /* ---- asking why: chips for what a question is about, the box, the pending dot ---- */
-  .ctx { display: inline-flex; align-items: center; gap: 2px; height: 20px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--sunken); color: var(--ink-2); font: 500 11px/1 var(--font-mono); }
+  .ctx { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; height: 20px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--sunken); color: var(--ink-2); font: 500 11px/1 var(--font-mono); }
   .ctx button { display: inline-flex; border-radius: 3px; color: var(--ink-2); }
   .ctx button:hover { color: var(--ink); }
   .askbox { display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); }

@@ -1,7 +1,7 @@
 // Layer 1, activity: the pieces of work handed to agents as a flow. Each is a node with
 // something going in and something coming out; a line is one handing over to the next.
 // It starts in one circle and has no end: a finished branch simply stops, in water colour.
-import { applyNodeChanges, Controls, getBezierPath, Handle, Panel, Position, ReactFlow, useNodes, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, type FitViewOptions } from '@xyflow/react'
+import { applyNodeChanges, Controls, getBezierPath, Handle, Position, ReactFlow, useNodes, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, type FitViewOptions } from '@xyflow/react'
 import { AntVDagreLayout } from '@antv/layout'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -15,6 +15,7 @@ import { Ask, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
 import { CopyButton, ExternalChip, Icon, Mark, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
+import { Choice } from './Choice'
 
 const W = 176, H = 48, R = 18
 
@@ -197,7 +198,8 @@ const edgeTypes = { river: River }
 
 // ---- the graph ----
 
-const FIT: FitViewOptions = { padding: { top: '16px', right: '24px', bottom: '56px', left: '16px' }, maxZoom: 1 }
+// Room at the bottom for the library's credit only: the legend is a row below the canvas.
+const FIT: FitViewOptions = { padding: { top: '16px', right: '24px', bottom: '32px', left: '16px' }, maxZoom: 1 }
 
 function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; picked: string | null; finding?: string; onPick: (id: string | null) => void; talk: Talk; fitKey: unknown }) {
   const { t } = useT()
@@ -268,7 +270,8 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
   // the buttons to zoom. The wheel is left alone so the page still scrolls.
   const ready = layout && layout.unitId === unit.id
   return (
-    <div className="flow -mx-4" style={{ height: ready ? `min(${layout.h + 56}px, 70vh)` : 240 }}>
+    <>
+    <div className="flow -mx-4" style={{ height: ready ? `min(${layout.h + 48}px, 70vh)` : 240 }}>
       {ready && (
         <ReactFlow
           key={unit.id}
@@ -289,7 +292,6 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
           preventScrolling={false}
           fitView
           onInit={inst => { flow.current = inst }}
-          // Room at the bottom for the row that holds the legend and the library's credit.
           fitViewOptions={FIT}
           minZoom={0.3}
           maxZoom={1.5}
@@ -301,10 +303,12 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
           }}
         >
           <Controls showInteractive={false} position="top-right" />
-          <Panel position="bottom-left" className="legend-row"><Legend /></Panel>
         </ReactFlow>
       )}
     </div>
+    {/* Below the canvas, never over it: no node can hide behind it. */}
+    <Legend />
+    </>
   )
 }
 
@@ -497,14 +501,14 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
       {n.state === 'unregistered' && n.output.commits?.[0] && (
         <label className="mt-2 flex items-center gap-2 text-xs">
           {t('io.linkTo')}
-          <select
-            className="min-w-0 rounded-sm border border-line bg-surface px-1 py-0.5"
+          <Choice
+            label={t('io.linkTo')}
             value=""
-            onChange={e => { if (e.target.value) record('commit.linked', { unit: unit.id, hash: n.output.commits![0], task: Number(e.target.value) }).catch(err => console.warn(err)) }}
-          >
-            <option value="" disabled>…</option>
-            {unit.tasks.filter(x => x.taskId && x.kind !== 'gate').map(x => <option key={x.id} value={x.id}>#{x.taskId} {x.title || finderLabel(t, x)}</option>)}
-          </select>
+            placeholder="…"
+            onChange={v => { record('commit.linked', { unit: unit.id, hash: n.output.commits![0], task: Number(v) }).catch(err => console.warn(err)) }}
+            options={unit.tasks.filter(x => x.taskId && x.kind !== 'gate').map(x => ({ value: x.id, label: `#${x.taskId} ${x.title || finderLabel(t, x)}` }))}
+            className="h-7 w-auto max-w-[60%] text-xs"
+          />
         </label>
       )}
       {causes.length > 0 && (

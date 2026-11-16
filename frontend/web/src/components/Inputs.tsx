@@ -11,7 +11,7 @@ import { SEVERITIES, type Decision, type NewFinding } from '@/data'
 import { useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
-import { CopyButton, Icon, Tip, Who } from './bits'
+import { CopyButton, Icon, Tip, Who, ChipName } from './bits'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
@@ -27,7 +27,7 @@ export function Thumbs({ list, onRemove }: { list: Attachment[]; onRemove?: (a: 
     <>
       {files.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {files.map(a => <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" />{a.name}</a>)}
+          {files.map(a => <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" /><ChipName name={a.name} /></a>)}
         </div>
       )}
       {list.some(isImage) && <div className="thumbs">

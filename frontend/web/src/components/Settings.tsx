@@ -10,6 +10,10 @@ import { machines as loadMachines, notifyWanted, record, setMachine, wantNotify 
 import type { Machine, Workspace } from '@/types'
 import { LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
+import { Choice } from './Choice'
+
+/** Not linked, in the link picker (Radix takes no empty value). */
+const NONE = '-'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -71,11 +75,14 @@ function Machines({ ws }: { ws: Workspace | null }) {
           {there.map(g => (
             <label key={g.id} className="flex items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate"><span className="font-mono text-xs text-ink-2">{g.machine}:</span>{g.label}</span>
-              <select className="max-w-[45%] rounded-sm border border-line bg-surface px-1 py-0.5 text-sm" aria-label={t('machines.linkTo', { machine: g.machine, workspace: g.label })} value={g.linkedTo ?? ''} onChange={e => link(g.machine!, g.label, e.target.value, g.linkedTo)}>
-                <option value="">{t('machines.notLinked')}</option>
-                {/* A linked workspace that is not open here now still shows what it is linked to. */}
-                {[...new Set([...here.map(h => h.label), ...(g.linkedTo ? [g.linkedTo] : [])])].map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
+              {/* A linked workspace that is not open here now still shows what it is linked to. */}
+              <Choice
+                label={t('machines.linkTo', { machine: g.machine, workspace: g.label })}
+                value={g.linkedTo ?? NONE}
+                onChange={v => link(g.machine!, g.label, v === NONE ? '' : v, g.linkedTo)}
+                options={[{ value: NONE, label: t('machines.notLinked') }, ...[...new Set([...here.map(h => h.label), ...(g.linkedTo ? [g.linkedTo] : [])])].map(l => ({ value: l, label: l }))]}
+                className="h-7 max-w-[45%]"
+              />
             </label>
           ))}
         </>

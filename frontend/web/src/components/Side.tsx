@@ -35,7 +35,7 @@ interface ContentProps {
 function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project'>) {
   const { t } = useT()
   return (
-    <div className="flex flex-col">
+    <div className="agents flex flex-col">
       {agentGroups(ws).map(g => (
         <section key={g.key} aria-label={g.label || undefined} className="flex flex-col">
           {g.label && (
@@ -61,8 +61,8 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
             >
               <Who name={agent} topic={topic} live={state === 'working' && !!at?.node.writing} />
               <span className="flex min-w-0 flex-col">
-                <span className="flex items-center gap-1.5">
-                  {agent}
+                <span className="agent-name">
+                  <span className="min-w-0 truncate">{agent}</span>
                   {manager && <Mark name="manager" label={t('manager.mark')} />}
                   <MachineChip machine={machine} away={unreachable} />
                   {/* Waiting for a person in its terminal: the Blocking meaning, in violet. */}
@@ -70,7 +70,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
                 </span>
                 {topic && <span className="truncate text-[11px] text-ink-2">{topic}</span>}
               </span>
-              <span className="at">
+              <span className="at" data-idle={state === 'idle' || undefined}>
                 {state === 'idle'
                   ? <Mark name="idle" label={t('agents.idle')} />
                   : <><span className="truncate">{at?.unit.title}</span>{at?.node.taskId && <span className="flex-none font-mono">#{at.node.taskId}</span>}</>}

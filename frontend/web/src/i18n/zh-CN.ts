@@ -186,6 +186,14 @@ export const zhCN: Same<typeof en> = {
     conclude: '起草结论',
     concludeAsked: '请它写结论',
     conclusion: '结论',
+    exchanges_other: '{{n}} 轮',
+    earlier_other: '更早的 {{count, number}} 段对话',
+    state: {
+      answered: '已回答',
+      waiting: '等待中',
+      failed: '失败',
+      ended: '已结束'
+    },
     fresh: '新问题',
     count_other: '{{count, number}} 个提问'
   },
@@ -381,6 +389,11 @@ export const zhCN: Same<typeof en> = {
   tree: {
     label: '文件',
     onlyChanged: '只显示改过的',
+    filter: '筛选文件…',
+    noMatch: '没有匹配的文件',
+    collapse: '收起文件树',
+    expand: '展开文件树',
+    resize: '文件树的宽度',
     planned: '计划会改，还没动',
     ghost: '计划新增，还不存在'
   },

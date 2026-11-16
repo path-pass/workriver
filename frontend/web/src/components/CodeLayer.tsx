@@ -5,16 +5,23 @@
 import { hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from '@headless-tree/core'
 import { useTree } from '@headless-tree/react'
 import { html } from 'diff2html'
-import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
-import { changeOf, fileTree, ROOT, shownDelta, type Lines, type FileTree, type Pick, type Selection, type TreeRow } from '@/data'
+import { changeOf, fileTree, filterTree, ROOT, shownDelta, type Lines, type FileTree, type Pick, type Selection, type TreeRow } from '@/data'
 import { useT } from '@/i18n'
 import type { FileChange, Unit, ModuleNode } from '@/types'
 import { Icon, Tip, Who } from './bits'
 import type { CommitFocus } from './Side'
+import { useResize } from '@/lib/useResize'
+
+/** Narrower than this, the code block shows its tree as a drawer over the diff, not beside it. */
+const WIDE = 768
+const TREE_OPEN = 'workriver.code.tree'
+const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
+const remember = (key: string, v: string) => { try { localStorage.setItem(key, v) } catch { /* not remembered, still shown */ } }
 
 type Change = Omit<FileChange, 'before' | 'after'>
 
@@ -124,6 +131,21 @@ function Files({ ft, file, onFile }: { ft: FileTree; file: string | null; onFile
       })}
     </div>
   )
+}
+
+/** The tree over the diff on a narrow block: focus goes into it and back; Escape or a press
+ *  outside closes it. */
+function Drawer({ id, label, onClose, children }: { id: string; label: string; onClose: () => void; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    box.current?.querySelector<HTMLElement>('input, button')?.focus()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+    const onDown = (e: PointerEvent) => { if (box.current && !box.current.contains(e.target as Node) && !(e.target as Element).closest?.('[aria-controls="' + id + '"]')) onClose() }
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onDown, true)
+    return () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('pointerdown', onDown, true) }
+  }, [id, onClose])
+  return <div ref={box} id={id} className="code-drawer" role="dialog" aria-label={label}>{children}</div>
 }
 
 /** The picked file whole: every line, its change over the pick (or the whole unit) marked. */
@@ -241,9 +263,31 @@ interface Props {
 
 export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick, file, onFile: setFile, lines, onLines, onAsk, commit }: Props) {
   const { t, date } = useT()
-  // Where the tree stacks above the diff, it opens on the pick's files only.
-  const narrow = window.matchMedia('(max-width: 720px)').matches
-  const ft = useMemo(() => fileTree(root, unit, sel, onlyChanged, narrow), [root, unit, sel, onlyChanged, narrow])
+  // The block's own width decides (the rails and the side panel change it, not the window):
+  // wide, the tree is a pane beside the diff; narrow, a drawer over it, closed at first.
+  const block = useRef<HTMLElement>(null)
+  const [width, setWidth] = useState(1200)
+  useEffect(() => {
+    const el = block.current
+    if (!el) return
+    const seen = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)))
+    seen.observe(el)
+    return () => seen.disconnect()
+  }, [])
+  const narrow = width < WIDE
+  const [pane, setPane] = useState(() => recall(TREE_OPEN) !== 'closed')
+  const [drawer, setDrawer] = useState(false)
+  useEffect(() => { if (!narrow) setDrawer(false) }, [narrow])
+  const shown = narrow ? drawer : pane
+  const toggle = () => {
+    if (narrow) setDrawer(d => !d)
+    else setPane(p => { remember(TREE_OPEN, p ? 'closed' : 'open'); return !p })
+  }
+  const size = useResize({ key: 'workriver.code.tree.width', variable: '--code-tree-w', def: 280, min: 220, max: Math.max(220, Math.round(width / 2)), edge: 'right' })
+  const treeId = useId()
+  const toggler = useRef<HTMLButtonElement>(null)
+  const [q, setQ] = useState('')
+  const ft = useMemo(() => filterTree(fileTree(root, unit, sel, onlyChanged, narrow), q), [root, unit, sel, onlyChanged, narrow, q])
   // ponytail: 30 files per commit in the list; the tree still reaches the rest, one file at a time.
   const limit = 30
   const blocks = unit.commits.flatMap((c, k) => (sel.commits.length && !sel.commits.includes(k) ? [] : c.files.length ? [{ c, k, files: c.files }] : []))
@@ -272,22 +316,53 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
     return () => window.removeEventListener('keydown', onKey, true)
   }, [file, setFile])
 
+  const tree = (
+    <>
+      {/* What narrows the tree: a filter by path, and changed files only. */}
+      <div className="code-tree-head">
+        <input
+          className="code-filter"
+          value={q}
+          placeholder={t('tree.filter')}
+          aria-label={t('tree.filter')}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ('') } }}
+        />
+        <label className="flex flex-none items-center gap-1.5 text-xs">
+          <Switch size="sm" checked={onlyChanged} onCheckedChange={onOnlyChanged} />
+          {t('tree.onlyChanged')}
+        </label>
+      </div>
+      <ScrollArea className="code-tree">
+        {ft.rows.get(ROOT)!.children.length
+          ? <Files key={`${unit.id}:${onlyChanged}:${q}`} ft={ft} file={file} onFile={p => { setFile(f => (f === p ? null : p)); if (narrow) setDrawer(false) }} />
+          : <p className="p-2 text-sm text-ink-2">{t(q ? 'tree.noMatch' : 'code.none')}</p>}
+      </ScrollArea>
+    </>
+  )
   return (
-    <section className="block-box">
-      <h2 className="mb-3 text-lg font-[650]">{t('block.code')}</h2>
-      <div className="code-grid">
-        {/* The tree keeps its place while the changes scroll past it; its switch goes with it. */}
-        <div className="code-side">
-          <label className="flex items-center gap-2 px-1.5 pb-2 text-xs">
-            <Switch size="sm" checked={onlyChanged} onCheckedChange={onOnlyChanged} />
-            {t('tree.onlyChanged')}
-          </label>
-          <ScrollArea className="code-tree">
-            {ft.rows.get(ROOT)!.children.length
-              ? <Files key={`${unit.id}:${onlyChanged}`} ft={ft} file={file} onFile={p => setFile(f => (f === p ? null : p))} />
-              : <p className="p-2 text-sm text-ink-2">{t('code.none')}</p>}
-          </ScrollArea>
-        </div>
+    <section className="block-box" ref={block}>
+      {/* Stays in view while the diff scrolls: the switch for the tree, and the title. */}
+      <div className="code-bar">
+        <Tip text={t(shown ? 'tree.collapse' : 'tree.expand')}>
+          <Button ref={toggler} variant="ghost" size="icon-sm" aria-label={t(shown ? 'tree.collapse' : 'tree.expand')} aria-expanded={shown} aria-controls={treeId} onClick={toggle}>
+            <Icon name={shown ? 'rail' : 'rail-open'} />
+          </Button>
+        </Tip>
+        <h2 className="text-lg font-[650]">{t('block.code')}</h2>
+      </div>
+      <div className="code-grid" data-tree={!narrow && pane ? 'pane' : undefined}>
+        {/* Wide: the tree keeps its place beside the changes, with an edge to widen it. */}
+        {!narrow && pane && (
+          <div className="code-side" id={treeId}>
+            {tree}
+            <div {...size.handle} aria-label={t('tree.resize')} className="edge" data-edge="right" />
+          </div>
+        )}
+        {/* Narrow: a drawer over the diff from the left; Escape or a click outside closes it. */}
+        {narrow && drawer && (
+          <Drawer id={treeId} label={t('tree.label')} onClose={() => { setDrawer(false); toggler.current?.focus() }}>{tree}</Drawer>
+        )}
         <div className="min-w-0">
           {file ? (
             <WholeFile unit={unit} sel={sel} path={file} onPick={onPick} onBack={() => setFile(null)} lines={lines} onLines={onLines} onAsk={onAsk} />

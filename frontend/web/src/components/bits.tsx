@@ -198,8 +198,8 @@ export function ExternalChip({ ext }: { ext?: External }) {
   if (!ext) return null
   const text = `${ext.system}:${ext.key}`
   return ext.url
-    ? <a className="ext-chip" href={ext.url} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()}><Icon name="link" className="size-3" />{text}</a>
-    : <span className="ext-chip">{text}</span>
+    ? <a className="ext-chip" href={ext.url} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()}><Icon name="link" className="size-3" /><ChipName name={text} /></a>
+    : <span className="ext-chip"><ChipName name={text} /></span>
 }
 
 /** The machine something is on, when it is not this one: a small chip with its name. */
@@ -224,4 +224,27 @@ export function Progress({ unit }: { unit: Unit }) {
   if (!p) return null
   const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(`unit.progress.${p}`)}</span>
   return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
+}
+
+/** Longer than this, a name in a chip is shortened in the middle. */
+const CHIP_CHARS = 30
+
+/**
+ * A name or path inside a chip: on one line, shortened in the middle when long so its start
+ * and its extension stay ("2026-11-16-new-acc…source.md"), and cut at the end by the chip's
+ * width as a last resort. The whole name is in the tooltip and read out by screen readers.
+ */
+export function ChipName({ name }: { name: string }) {
+  if (name.length <= CHIP_CHARS) return <span className="chip-name">{name}</span>
+  const ext = /\.[A-Za-z0-9]{1,8}$/.exec(name)?.[0] ?? ''
+  const tail = name.slice(-Math.max(ext.length + 6, 10))
+  const shown = `${name.slice(0, CHIP_CHARS - tail.length - 1)}…${tail}`
+  return (
+    <Tip text={name}>
+      <span className="chip-name">
+        <span aria-hidden>{shown}</span>
+        <span className="sr-only">{name}</span>
+      </span>
+    </Tip>
+  )
 }

@@ -555,6 +555,30 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   return { rows, open: [...rows.values()].filter(r => r.folder && r.id !== ROOT && focus.some(f => f.startsWith(r.id + '/'))).map(r => r.id) }
 }
 
+/**
+ * The tree narrowed to files whose path holds `q` (any case), with the folders above them,
+ * all open; the tree as it is for an empty `q`.
+ */
+export function filterTree(ft: FileTree, q: string): FileTree {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return ft
+  const rows = new Map<string, TreeRow>()
+  const keep = (id: string): boolean => {
+    const r = ft.rows.get(id)
+    if (!r) return false
+    if (!r.folder) {
+      if (!id.toLowerCase().includes(needle)) return false
+      rows.set(id, r)
+      return true
+    }
+    const children = r.children.filter(keep)
+    rows.set(id, { ...r, children })
+    return children.length > 0
+  }
+  keep(ROOT)
+  return { rows, open: [...rows.values()].filter(r => r.folder && r.id !== ROOT).map(r => r.id) }
+}
+
 // ---- what the user puts in: gate results, decisions on findings, chores done ----
 
 export type Decision = 'accept' | 'revise' | 'reject' | 'defer'

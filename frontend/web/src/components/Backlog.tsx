@@ -10,6 +10,7 @@ import { useT } from '@/i18n'
 import { record } from '@/runtime'
 import type { Finding, Intent, Workspace } from '@/types'
 import { ExternalChip, Icon } from './bits'
+import { Choice } from './Choice'
 
 interface Item {
   key: string
@@ -131,10 +132,14 @@ export function BacklogList({ ws, project, onOpen }: { ws: Workspace; project: s
           {!theirs.length && actives.length > 1 && (
             <label className="flex items-center gap-2 text-xs">
               {t('backlog.for')}
-              <select className="min-w-0 flex-1 rounded-sm border border-line bg-surface px-1 py-0.5" value={intent?.id ?? ''} onChange={e => setTarget(e.target.value)}>
-                <option value="" disabled>…</option>
-                {actives.map(a => <option key={a.id} value={a.id}>{a.id} {a.title}</option>)}
-              </select>
+              <Choice
+                label={t('backlog.for')}
+                value={intent?.id ?? ''}
+                placeholder="…"
+                onChange={setTarget}
+                options={actives.map(a => ({ value: a.id, label: `${a.id} ${a.title}` }))}
+                className="h-7 flex-1 text-xs"
+              />
             </label>
           )}
           {blocked && <p className="text-xs text-you-ink">{blocked}</p>}

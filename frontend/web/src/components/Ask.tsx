@@ -2,12 +2,12 @@
 // question is about is the current selection, shown as chips above it. A temporary agent
 // answers from the records and the code, and asks the agent that did the work only when it
 // is idle, so an agent at work is never interrupted.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { askeeOf, baseName, finderLabel, findingsOf, type Lines } from '@/data'
+import { askeeOf, baseName, finderLabel, findingsOf, ms, type Lines } from '@/data'
 import { useT } from '@/i18n'
 import type { AskContext, Session, Thread, Turn, Task, Unit } from '@/types'
-import { Icon, Tip, Who } from './bits'
+import { ChipName, Icon, Tip, Who } from './bits'
 
 /** What a conclusion request says to the agent; content, not UI text. */
 const CONCLUDE = 'Draft a conclusion of this discussion.'
@@ -45,7 +45,8 @@ function Answer({ text, onFile }: { text: string; onFile: (path: string) => void
     last = m.index + m[0].length
   }
   parts.push(text.slice(last))
-  return <p className="whitespace-pre-wrap">{parts}</p>
+  // A long path or word breaks where it must rather than run out of the answer.
+  return <p className="whitespace-pre-wrap wrap-anywhere">{parts}</p>
 }
 
 function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext) => void }) {
@@ -54,7 +55,7 @@ function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext
     <span className="flex flex-wrap gap-1">
       {chips.map(c => (
         <span key={c.kind + c.label} className="ctx">
-          {c.label}
+          <ChipName name={c.label} />
           {onDrop && c.kind !== 'task' && (
             <button type="button" aria-label={t('ask.remove', { label: c.label })} onClick={() => onDrop(c)}><Icon name="no" className="size-3" /></button>
           )}
@@ -111,6 +112,74 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
   )
 }
 
+/** How far a conversation has got, from its last exchange. */
+function stateOf(th: Thread): 'ended' | 'failed' | 'waiting' | 'answered' {
+  const last = th.turns.at(-1)
+  return th.ended ? 'ended' : last?.failed ? 'failed' : last && last.answer === null ? 'waiting' : 'answered'
+}
+
+/** A conversation folded to one line: its first question, who asked, how many exchanges,
+ *  how far it has got, when last. */
+function ThreadRow({ th, open, onToggle }: { th: Thread; open: boolean; onToggle: () => void }) {
+  const { t, num, waited, when } = useT()
+  const first = th.turns[0]
+  const last = th.turns.at(-1)
+  const state = stateOf(th)
+  const at = last ? ms(last.at) : NaN
+  return (
+    <button type="button" className="thread-row" aria-expanded={open} onClick={onToggle}>
+      <Icon name="chev" className="size-3.5 flex-none transition-transform" />
+      {first?.by ? <Who name={first.by} /> : null}
+      <span className="min-w-0 flex-1 truncate">{first?.question}</span>
+      <span className="flex-none text-ink-2">{t('ask.exchanges', { count: th.turns.length, n: num(th.turns.length) })}</span>
+      <span className="thread-state flex-none" data-state={state}>{t(`ask.state.${state}`)}</span>
+      {Number.isFinite(at) && <Tip text={when(at)}><span className="w-8 flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
+    </button>
+  )
+}
+
+/** An open conversation: its own scroll area, at the latest exchange; it follows new answers
+ *  only while the reader is at the bottom. */
+function ThreadBody({ th, n, talk, chips }: { th: Thread; n: Task; talk: Talk; chips: AskContext[] }) {
+  const { t } = useT()
+  const box = useRef<HTMLDivElement>(null)
+  const atBottom = useRef(true)
+  const size = th.turns.length + ':' + th.turns.map(x => x.answer?.length ?? 0).join(',') + ':' + (th.conclusion?.length ?? 0)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight
+  }, [size])
+  return (
+    <>
+      <div ref={box} className="thread-scroll" onScroll={e => { const el = e.currentTarget; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24 }}>
+        <ol className="flex flex-col gap-3">
+          {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={n.agent} onFile={talk.onFile} />)}
+        </ol>
+        {th.conclusion && (
+          <div className="mt-2 rounded-md bg-sunken p-2">
+            <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
+            <Answer text={th.conclusion} onFile={talk.onFile} />
+          </div>
+        )}
+      </div>
+      {/* With the service: ask for a conclusion, or end the conversation (its agent closes). */}
+      {talk.live && th.id && (
+        th.ended
+          ? <p className="mt-2 text-xs text-ink-2">{t('ask.threadEnded')}</p>
+          : (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <Button variant="outline" size="xs" className="rounded-sm" onClick={() => talk.onAsk(n, CONCLUDE, [chips[0]], th.id, true)}>{t('ask.conclude')}</Button>
+              <Tip text={t('ask.endHint')}><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => talk.onEnd(th.id)}>{t('ask.end')}</Button></Tip>
+            </div>
+          )
+      )}
+    </>
+  )
+}
+
+/** Conversations shown before "earlier" is opened. */
+const LATEST = 3
+
 export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?: string; talk: Talk }) {
   const { t } = useT()
   const threads = threadsOf(n, talk)
@@ -156,40 +225,45 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit; n: Task; finding?:
     const el = box.current
     if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` }
   }, [text])
+  // One conversation open at a time; the one just asked in stays open. At first, one that
+  // still waits for its answer.
+  const keyOf = (th: Thread, k: number) => th.id || `#${k}`
+  const waiting = threads.findLastIndex(th => stateOf(th) === 'waiting')
+  const waitingKey = waiting >= 0 ? keyOf(threads[waiting], waiting) : null
+  const [open, setOpen] = useState<string | null>(waitingKey)
+  const [openLast, setOpenLast] = useState(false)
+  const [all, setAll] = useState(false)
+  // Another piece of work: its waiting conversation open, if any, the rest folded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setOpen(waitingKey); setOpenLast(false); setAll(false) }, [n.id])
+  const openKey = openLast && threads.length ? keyOf(threads[threads.length - 1], threads.length - 1) : open
   const send = () => {
     const q = text.trim()
     if (!q) return
     talk.onAsk(n, q, context, current?.id || null)
     setText('')
     setFresh(false)
+    // The conversation asked in: the current one, or the new one it starts (the last).
+    if (current) { setOpen(keyOf(current, threads.indexOf(current))); setOpenLast(false) } else setOpenLast(true)
   }
+  const earlier = all ? 0 : Math.max(0, threads.length - LATEST)
 
   return (
     <div className="border-t border-line p-3 text-sm">
-      {threads.map((th, k) => (
-        <section key={th.id || k} className={k > 0 ? 'mt-3 border-t border-line pt-3' : undefined}>
-          <ol className="flex flex-col gap-3">
-            {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={n.agent} onFile={talk.onFile} />)}
-          </ol>
-          {th.conclusion && (
-            <div className="mt-2 rounded-md bg-sunken p-2">
-              <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
-              <Answer text={th.conclusion} onFile={talk.onFile} />
-            </div>
-          )}
-          {/* With the service: ask for a conclusion, or end the conversation (its agent closes). */}
-          {talk.live && th.id && (
-            th.ended
-              ? <p className="mt-2 text-xs text-ink-2">{t('ask.threadEnded')}</p>
-              : (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Button variant="outline" size="xs" className="rounded-sm" onClick={() => talk.onAsk(n, CONCLUDE, [chips[0]], th.id, true)}>{t('ask.conclude')}</Button>
-                  <Tip text={t('ask.endHint')}><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => talk.onEnd(th.id)}>{t('ask.end')}</Button></Tip>
-                </div>
-              )
-          )}
-        </section>
-      ))}
+      {earlier > 0 && (
+        <button type="button" className="mb-1 text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
+      )}
+      {threads.map((th, k) => {
+        if (k < earlier) return null
+        const key = keyOf(th, k)
+        const isOpen = openKey === key
+        return (
+          <section key={key} className="thread" data-open={isOpen || undefined}>
+            <ThreadRow th={th} open={isOpen} onToggle={() => { setOpenLast(false); setOpen(isOpen ? null : key) }} />
+            {isOpen && <ThreadBody th={th} n={n} talk={talk} chips={chips} />}
+          </section>
+        )
+      })}
       {current && (
         <div className="mt-3"><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button></div>
       )}

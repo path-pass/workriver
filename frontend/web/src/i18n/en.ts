@@ -189,6 +189,16 @@ export const en = {
     concludeAsked: 'Conclusion asked for',
     conclusion: 'Conclusion',
     fresh: 'New question',
+    exchanges_one: '{{n}} exchange',
+    exchanges_other: '{{n}} exchanges',
+    earlier_one: '{{count, number}} earlier conversation',
+    earlier_other: '{{count, number}} earlier conversations',
+    state: {
+      answered: 'answered',
+      waiting: 'waiting',
+      failed: 'failed',
+      ended: 'ended'
+    },
     count_one: '{{count, number}} question asked',
     count_other: '{{count, number}} questions asked'
   },
@@ -389,6 +399,11 @@ export const en = {
   tree: {
     label: 'Files',
     onlyChanged: 'Only show changed',
+    filter: 'Filter files…',
+    noMatch: 'No file matches',
+    collapse: 'Collapse file tree',
+    expand: 'Expand file tree',
+    resize: 'Width of the file tree',
     planned: 'Planned, not changed yet',
     ghost: 'Planned, not there yet'
   },

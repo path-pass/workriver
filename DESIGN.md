@@ -31,7 +31,7 @@ Three columns: the rail picks a unit, the main area shows it, the side panel hol
 looked at now and then.
 
 - A dark rail on the left picks units and nothing else: product name, the project switch
-  (a plain select, "All projects" first; remembered), search, then the intents in three
+  (a select in the rail's colours, "All projects" first; remembered), search, then the intents in three
   groups under quiet headings: **Active** (with their units), **Roadmap** (planned intents
   in order, each with its goal, a link chip when it is tracked elsewhere, and "Start", which
   shows the steps to start it in Herdr with the commands to copy – workriver never starts an
@@ -128,15 +128,28 @@ looked at now and then.
   small crown), then working, holding work, idle. Under each name, quietly, what the session is about (its terminal
   title); the agent's mark shows it on hover wherever the name is unique. An agent Herdr
   knows by no name is called by its harness and a number within its workspace ("claude
-  2"); its mark reads "C2".
+  2"); its mark reads "C2". A line is a grid, so nothing is drawn over anything: the mark;
+  the name (truncated; its marks and machine chip never shrink) over the topic; where it
+  works, in a column of its own that truncates; the terminal button. In a panel narrower
+  than about 340 px, where it works moves to a third line (an idle moon stays on the first).
 - The main area shows the picked unit: its name and one-line purpose, nothing else (the
   graph already shows what waits: violet gates, violet counts on reviews), then two
   layers stacked top to bottom, each one block:
-  1. **Activity** – the flow of work: how the nodes changed.
+  1. **Activity** – the flow of work: how the nodes changed. Its key (what the colours,
+     marks and lines mean) is a row under the graph's canvas, wrapping as it needs, never
+     over it: no node can hide behind it. Only React Flow's credit stays inside the canvas,
+     in its own bottom-right corner, with room left for it when the graph is fitted.
   2. **Code** – the file tree on the left and the changes on the right, as in a pull
-     request's "Files changed". The tree pane, with its "only show changed" switch on
-     top, sticks to the top of the window and scrolls by itself, so a long diff never
-     hides it. The tree is there to keep attention on where agents are changing things:
+     request's "Files changed". A bar at the block's top (it stays in view while the diff
+     scrolls) holds a toggle that hides or shows the tree (remembered). Where the block is
+     wide (768 px or more, measured on the block, since the rails and the side panel change
+     it) the tree is a pane beside the diff, as wide as its right edge is dragged (between
+     220 px and half the block; remembered; a double click resets); narrower, the tree
+     starts hidden and the toggle shows it as a drawer over the diff from the left (Escape
+     or a press outside closes it; focus goes in and back), never squeezing the diff. The
+     tree has "Filter files…" (by path; folders above a match stay; Escape clears) and its
+     "only show changed" switch on top, sticks below the bar and scrolls by itself, so a
+     long diff never hides it. The tree is there to keep attention on where agents are changing things:
      "only show changed" is on by default and hides every file and folder the unit did not
      touch; turned off, the whole repository shows where the changes sit. A chain of
      folders with one child each is one row. A changed file shows how it changed (A, M or
@@ -202,6 +215,12 @@ looked at now and then.
   (its agent writes what was decided, what changes, what stays open; shown at the end, and
   it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
   "New question" starts another conversation. File paths in an answer open the file.
+  The detail stays compact however long the talk gets: each conversation folds to one row
+  (its first question, who asked, how many exchanges, answered / waiting / failed / ended,
+  when last), and one opens at a time, as its own scroll area of at most 360 px kept at
+  the latest exchange (it follows a new answer only while the reader is at the bottom);
+  the one just asked in, or one still waiting, is open. Past three conversations only the
+  latest three show, with "N earlier" above them. The box stays under them, outside.
   Agents ask each other the same way, through workriver (never in each other's terminals):
   their conversations show on the task asked about like the user's, with the asking agent's
   mark before the question, and count in the node's speech-bubble mark; they never appear in
@@ -359,6 +378,14 @@ never name a raw colour.
   review nodes, 3 for gates.
 - Shadow appears only on hover and selection, meaning "this can be picked" or "this is
   picked".
+- A chip (a file, a context, a link, a machine) is one line and never wider than what holds
+  it; a list of chips wraps whole chips. A long name in it is shortened in the middle,
+  keeping its start and its extension ("2026-11-16-new-acc…source.md"), and cut at the end
+  only if even that does not fit; the whole name is in its tooltip and read out by screen
+  readers. A long path inside running text (an answer) breaks where it must.
+- Pickers (the project switch, who decides findings, a workspace link, the task a commit
+  belongs to, the intent of a batch) are Radix Select in our colours, never the system's
+  menu: on the rail in the rail's colours, elsewhere on the page's.
 
 ## The signature: lines are a river
 
