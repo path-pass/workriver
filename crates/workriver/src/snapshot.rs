@@ -22,6 +22,29 @@ pub struct Workspace {
     /// The other machines followed, with whether each can be reached.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     machines: Vec<crate::machines::MachineState>,
+    /// A part only: what an agent on a blind task may see.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    reduced: bool,
+}
+
+/// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
+/// on a blind task is not to be told: other commits' subjects and authors (the range to
+/// review is the hashes; the code is read from git), tasks made up from unregistered
+/// commits, uncommitted work, and what other sessions are about.
+pub fn hide(ws: &mut Workspace) {
+    ws.reduced = true;
+    for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
+        u.tasks.retain(|t| t.state != "unregistered");
+        u.commits.retain(|c| !c.live);
+        for c in &mut u.commits {
+            c.subject.clear();
+            c.author.clear();
+            c.files.clear();
+        }
+    }
+    for s in &mut ws.sessions {
+        s.topic = None;
+    }
 }
 
 /// A runtime workspace: of this machine, or of another with the local one it is linked to.
@@ -209,6 +232,9 @@ struct Task {
     /// A design task (shown like implement work; its output is its note).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     design: bool,
+    /// Done without seeing other work: its findings are its own view.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    blind: bool,
     /// A research task (shown like implement work; its output is its note and attachments).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     research: bool,
@@ -575,7 +601,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         })
         .collect();
     let workspaces = groups.iter().map(|g| Group { id: g.id.clone(), label: g.label.clone(), machine: g.machine.clone(), linked_to: state.link_of(g).map(|l| l.local.clone()) }).collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
@@ -876,6 +902,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         // Only a gate's own message is shown on the page; the others went to the manager.
         design,
         research,
+        blind: t.blind,
         threads: threads(state, live, names, &u.id, t.n),
         // The latest conclusion about the gate or the work it follows starts the user's note.
         draft: (t.state == TaskState::Waiting).then(|| {
@@ -910,6 +937,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         delivery: None,
         design: false,
         research: false,
+        blind: false,
         threads: vec![],
         draft: None,
         amended: None,

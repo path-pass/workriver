@@ -415,3 +415,44 @@ fn only_the_user_does_what_is_the_users() {
         add(&mut s, "user", v).unwrap();
     }
 }
+
+/// An agent on a blind task sees its own task, its unit and its intent, nothing of anyone
+/// else's work, and neither asks nor is asked; delivering ends it.
+#[test]
+fn a_blind_task_sees_only_its_own() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "blind": true}})).unwrap_err().contains("--blind is for"));
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "text": "Look for ways around the mention check", "inputs": [{"from": "1"}], "agent": "sec", "blind": true}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Other unit", "repo": "/r2", "branch": "o", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "finding.added", "body": {"project": "/r", "finding": {"severity": "P2", "problem": "Old leak"}}})).unwrap();
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "note": "Yes, fix"}})).unwrap();
+    for (who, id) in [("sec", "aaaaaaaaaaaaaaaa"), ("agent-a", "bbbbbbbbbbbbbbbb")] {
+        add(&mut s, who, json!({"kind": "attachment.added", "body": {"id": id, "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
+    }
+
+    assert_eq!(s.state().blind_tasks("sec"), [("u1".to_string(), 3)]);
+    assert!(s.state().blind_view("agent-a").is_none() && s.state().blind_view("boss").is_none(), "only the agent on the blind task");
+    let v = s.state().blind_view("sec").unwrap();
+    assert!(v.reduced);
+    assert_eq!(v.units.iter().map(|u| (u.id.as_str(), u.title.as_str(), u.branch.as_str(), u.tasks.len())).collect::<Vec<_>>(), [("u1", "Mentions", "mention", 1)]);
+    assert_eq!((v.units[0].tasks[0].n, v.units[0].tasks[0].text.as_str()), (3, "Look for ways around the mention check"));
+    assert_eq!((v.intents.len(), v.intents[0].title.as_str()), (1, "Chat v2"));
+    assert!(v.chores.is_empty() && v.questions.is_empty() && v.threads.is_empty() && v.backlog.is_empty() && v.roadmap.is_empty());
+    assert_eq!(v.attachments.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["aaaaaaaaaaaaaaaa"], "only what it attached itself");
+    let text = serde_json::to_string(&v).unwrap();
+    for hidden in ["Find mentions", "npm test", "6 passed", "Duplicates", "Emoji names", "Two notices", "Yes, fix", "Other unit", "Rotate the key", "Why a regex", "Old leak"] {
+        assert!(!text.contains(hidden), "{hidden} is hidden: {text}");
+    }
+    // It neither asks, nor is asked by another agent; the user may ask.
+    assert!(add(&mut s, "sec", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "What did the author intend?"}})).unwrap_err().contains("tell your manager"));
+    assert!(add(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "Seen my note?"}})).unwrap_err().contains("blind task in progress"));
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "How far are you?"}})).unwrap();
+    // Delivered: everything is back, and the task stays marked.
+    add(&mut s, "sec", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "findings": [{"severity": "P1", "problem": "Bypass", "impact": "i", "where": ["a"]}]}})).unwrap();
+    assert!(s.state().blind_view("sec").is_none());
+    assert!(s.state().task("u1", 3).unwrap().blind);
+    assert!(replayed(&s).task("u1", 3).unwrap().blind);
+}

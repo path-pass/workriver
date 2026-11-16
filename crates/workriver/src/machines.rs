@@ -568,3 +568,21 @@ pub fn supervise(words: &[String], tunnel: &Mutex<Tunnel>, stop: &AtomicBool, pa
 pub fn attachment_url(port: u16, id: &str) -> String {
     format!("http://127.0.0.1:{port}/api/attachments/{id}")
 }
+
+/// A message for an agent on another machine: every path into the attachment store
+/// (`dir` + `<id>.<ext>`) becomes a link through its tunnel. The link carries the reader's
+/// place as the shell fills it in, since the service answers no reader that is nobody.
+pub fn links(text: &str, dir: &str, port: u16) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(k) = rest.find(dir) {
+        out += &rest[..k];
+        let after = &rest[k + dir.len()..];
+        // The file's name: its id, a dot, its extension.
+        let id = after.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(after.len());
+        let ext = after[id..].strip_prefix('.').map(|e| 1 + e.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(e.len())).unwrap_or(0);
+        out += &format!("\"{}?place=$HERDR_PANE_ID\" (fetch it with curl -fsSO)", attachment_url(port, &after[..id + ext]));
+        rest = &after[id + ext..];
+    }
+    out + rest
+}

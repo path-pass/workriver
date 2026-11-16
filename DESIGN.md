@@ -235,6 +235,12 @@ as a violet count on the review node, in the unit's outlined count in the rail, 
 row of the inbox. Picking a
 finding lights the review and the nodes it led to.
 
+A review done blind (its agent saw nothing of other work until it delivered) carries a small
+neutral "eye crossed out" mark: at the top left of its node, in its detail header with the
+word "Blind", and in its row in Needs you. It is information for weighing agreement between
+reviews (two reviews finding the same thing, one of them blind, is stronger than two that
+read each other); nothing is matched or merged automatically.
+
 ## Gates and chores
 
 Both are things an agent hands to the user; what separates them is whether an agent is

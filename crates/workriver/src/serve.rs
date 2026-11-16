@@ -384,7 +384,7 @@ impl App {
     fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
         match machine.and_then(|m| self.machines.as_ref()?.port(&m)) {
-            Some(port) => self.runtime.send(to, &text.replace(&format!("{}/", attachments::dir(&self.home).display()), &crate::machines::attachment_url(port, ""))),
+            Some(port) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", attachments::dir(&self.home).display()), port)),
             None => self.runtime.send(to, text),
         }
     }
@@ -745,12 +745,14 @@ pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Pr
     state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
 }
 
-/// What a caller that is not the user is told when it asks for what only the user does.
-const NOT_THE_USER: &str = "this is the user's to do, and this request does not show it comes from the user. In the browser: open workriver with `workriver open`. With the CLI: run it from a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
+/// What a caller that is nobody is told.
+const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
 
-/// Every route, on this machine's listener. Reading is open to any local caller (agents need
-/// the board); what acts as the user or changes where workriver reaches asks for the user in
-/// its handler (`App::user`, `App::who`).
+/// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
+/// acts as the user or changes where workriver reaches asks for the user in its handler
+/// (`App::user`); recording and reading ask who the caller is (`App::who`, `App::view`: the
+/// user, or the agent at the caller's place, which on a blind task sees only its own). Only
+/// `status`, `here` and the session routes answer anyone local.
 fn router(app: Shared, via: Via) -> Router {
     Router::new()
         .route("/api/session", get(session).post(session_start))
@@ -857,19 +859,47 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + S
     tokio::task::spawn_blocking(f).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
 }
 
-async fn workspace(State(app): State<Shared>) -> Result<Json<snapshot::Workspace>, ApiError> {
+/// Who reads: the caller's place in the runtime, as for what it records.
+#[derive(Deserialize)]
+struct Reader {
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+}
+
+impl App {
+    /// The records as the caller may see them: all of them for the user and for an agent,
+    /// except an agent on a blind task, which gets `State::blind_view` until it delivers.
+    /// Nobody else reads: a request that is neither the user's nor from an agent's place is
+    /// refused.
+    fn view(&self, caller: &Caller, r: &Reader) -> Result<core::State, ApiError> {
+        let who = self.who(caller, r.place.as_deref(), r.named.as_deref())?;
+        let store = self.store.lock().unwrap();
+        Ok(match &who {
+            Principal::Agent { session, .. } => store.state().blind_view(session).unwrap_or_else(|| store.state().clone()),
+            _ => store.state().clone(),
+        })
+    }
+}
+
+async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
-        let state = app.store.lock().unwrap().state().clone();
+        let state = app.view(&caller, &r)?;
         let mut cache = app.cache.lock().unwrap();
         let blocked = app.blocked.lock().unwrap().clone();
         let groups = app.groups.lock().unwrap().clone();
-        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked, &groups)))
+        let mut ws = snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked, &groups);
+        if state.reduced {
+            snapshot::hide(&mut ws);
+        }
+        Ok(Json(ws))
     })
     .await
 }
 
-async fn state(State(app): State<Shared>) -> Json<core::State> {
-    Json(app.store.lock().unwrap().state().clone())
+async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<core::State>, ApiError> {
+    blocking(move || app.view(&caller, &r).map(Json)).await
 }
 
 async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -889,10 +919,12 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
     })))
 }
 
-async fn events(State(app): State<Shared>) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+/// "Something changed", for the page: the user's.
+async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
+    app.user(&caller)?;
     // A lagging client missed some, which is still one change.
     let stream = BroadcastStream::new(app.changed.subscribe()).map(|_| Ok(SseEvent::default().event("changed").data("changed")));
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // ---- the user's session in the page ----
@@ -976,8 +1008,9 @@ async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
     Ok(local_port)
 }
 
-async fn machines(State(app): State<Shared>) -> Json<Vec<crate::machines::MachineState>> {
-    Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default())
+async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+    app.user(&caller)?;
+    Ok(Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default()))
 }
 
 #[derive(Deserialize)]
@@ -1158,10 +1191,13 @@ async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Qu
 }
 
 /// A stored file. Only images show in the page; anything else downloads, and nothing is sniffed.
-async fn attachment(State(app): State<Shared>, UrlPath(id): UrlPath<String>) -> Result<Response, ApiError> {
+async fn attachment(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Response, ApiError> {
     // An agent on another machine is given the link with the file's extension.
     let id = id.split('.').next().unwrap_or_default().to_string();
-    let found = app.store.lock().unwrap().state().attachments.iter().find(|a| a.id == id).cloned();
+    // Of what the caller may see: an agent on a blind task, only what it attached itself.
+    let viewer = app.clone();
+    let state = blocking(move || viewer.view(&caller, &r)).await?;
+    let found = state.attachments.iter().find(|a| a.id == id).cloned();
     let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
     let file = attachments::path(&app.home, &a.id, &a.name);
     let bytes = blocking(move || std::fs::read(&file).map_err(|e| ApiError(StatusCode::NOT_FOUND, format!("attachment {id}: {e}")))).await?;

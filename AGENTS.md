@@ -99,7 +99,10 @@ outer crate with the daemon, the CLI and the Herdr runtime implementation.
   such a route on a machine's listener (`machine_router` is an allow-list; add to it only
   what an agent's CLI on another machine needs); never pass an actor string taken from a
   request into `record` (it takes a `Principal`). Text written by agents or the user goes
-  into messages only through `quote.rs`.
+  into messages only through `quote.rs`. Reading is scoped the same way: a route that
+  returns records goes through `App::view` (the user sees all; an agent sees all unless it
+  is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new
+  read route that skips it breaks blind reviews.
 - Read `DESIGN.md` before changing anything in `frontend/`.
 - Runtimes come from mise (node, rust). Do not install tools globally; keep dependencies
   inside the project.

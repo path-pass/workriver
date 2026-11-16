@@ -72,6 +72,18 @@ a note and its report attached (`workriver attach --dir i3#1`); it has no findin
 no evidence. Design, review and gate tasks may be intent-level too; implement and tests
 tasks always belong to a unit.
 
+**Blind reviews.** Add `--blind` to a review (or tests, research, design) task when the
+reviewer must form its own view: an independent security review, a second opinion on a
+finding people disagree about. Until it delivers, workriver shows that agent only its own
+task, the unit and the intent: no notes, evidence, findings, decisions or questions of
+anyone else, and it can neither ask nor be asked. Your hand-off message for a blind task
+carries only: the task ref and its goal or requirements, the repository, the branch and the
+range to review (`git diff <base>...<branch>`), and the worker instructions. Leave out the
+implementer's note, the evidence, other reviews' findings and your own opinion. Tell the
+reviewer to read the diff, not the commit messages: workriver cannot hide what git holds.
+Give a blind task to an agent that has not worked on the unit, and do not assign it other
+work until it delivers.
+
 **Design first when the user has choices to make.** If the goal leaves choices the user has
 not made (how it should look, which approach, what to give up), start with a `--kind design`
 task (its output is a design note: `task deliver --note`), then a gate
@@ -205,7 +217,7 @@ when two attempts at a task failed the same way.
     workriver backlog list | backlog add "T" --goal G [--note N] | backlog move i4 --before i2
     workriver unit add [i3] --title T --branch B [--base main] [--purpose P] [--repo PATH]
     workriver unit merged u1
-    workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID | u2#4:ID | f3] [--agent NAME] [--plan P]
+    workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID | u2#4:ID | f3] [--agent NAME] [--plan P] [--blind]
     workriver task add [--intent i3] --kind research|design --title T [--agent NAME]
     workriver task start u1#3 | task deliver u1#3 [--evidence 'CMD => passed: SUMMARY'] [--findings FILE|-] [--note N] [--amend]
     workriver finding decide u1#4 P2-1 accept|revise|reject|defer [--note N]   (revise needs a note)

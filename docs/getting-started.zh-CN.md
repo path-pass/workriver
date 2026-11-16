@@ -181,7 +181,7 @@ cargo build --release
   `HERDR_SOCKET_PATH`。协议警告表示 Herdr 不是 0.9；可能还能用，但没测过。
 - 在窗格里用命令行时报 **"cannot tell which agent this is"**：服务连不上 Herdr（见上一条）。
   这期间要以你自己的身份运行命令，请用 Herdr 之外的终端。
-- **"this is the user's to do…"（401）**：服务不确定这个命令或页面是你。页面：运行
+- **"workriver answers the user, and agents from their own Herdr pane…"（401）**：服务不确定这个命令或页面是你。页面：运行
   `workriver open`。命令行：在 workriver 所在的机器上，用一个不是 agent 窗格的终端运行。决定、
   手工步骤、杂事、项目、机器和工作区关联只有你能做；见[安全模型](security.zh-CN.md)。
 - 页面上显示 **"没送出：…"**（鼠标停上去能看到细节）：

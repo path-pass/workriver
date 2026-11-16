@@ -296,6 +296,8 @@ export const zhCN: Same<typeof en> = {
     waiting_other: '{{count, number}} 个问题等你决定'
   },
   task: {
+    blind: '盲审',
+    blindHint: '盲审：没有看到其他工作就做的，所以它的发现是独立的看法',
     unregistered: '未登记：{{title}}'
   },
   who: {

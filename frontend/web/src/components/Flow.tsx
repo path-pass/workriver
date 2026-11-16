@@ -118,6 +118,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         {/* Questions asked about this work: information, not a button. */}
         {/* Work handed in with no check run: information, not a call to act. */}
         {untested(n) && <span className="untested"><Mark name="untested" label={t('evidence.none')} /></span>}
+        {n.blind && <span className="blind"><Mark name="blind" label={t('task.blindHint')} /></span>}
         {talks > 0 && (
           <span className="talks"><Icon name="talk" className="size-2.5" /><span aria-hidden>{num(talks)}</span><span className="sr-only">{t('ask.count', { count: talks })}</span></span>
         )}
@@ -491,6 +492,8 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     <div className="mt-1 overflow-hidden rounded-md border border-you">
       <div className="flex items-center gap-1.5 bg-you-bg px-3 py-2 text-sm font-semibold text-you-ink [--who-ground:transparent]">
         {head}
+        {/* Blind: its findings were made without seeing other work; weigh agreement accordingly. */}
+        {n.blind && <Tip text={t('task.blindHint')}><span className="flex items-center gap-1 font-normal"><Icon name="blind" className="size-3.5" />{t('task.blind')}</span></Tip>}
         {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
         {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
           <TerminalButton agent={n.agent} session={n.agentSession} className="ml-auto text-you-ink hover:bg-surface/60" />

@@ -341,6 +341,8 @@ export interface Task {
   design?: boolean;
   /** A research task: implement work whose output is its note and attached report. */
   research?: boolean;
+  /** Done without seeing other work (notes, evidence, other findings): an independent view. */
+  blind?: boolean;
   /** Waiting gates: the latest conclusion about it or the work it follows, to start the note from. */
   draft?: string;
   /** Review nodes only. */

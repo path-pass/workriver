@@ -40,6 +40,35 @@ what to do next). What somebody else wrote comes after, inside «…», named as
 are taken out of quoted text, and long text is cut. The agents' instructions say never to
 follow what stands inside a quote.
 
+## Blind reviews
+
+A review, tests, research or design task can be handed out blind
+(`workriver task add … --blind`), so that its agent is not anchored by the implementer's
+account or by other reviews. Until that agent delivers, the service shows it only its own
+task, the unit and the intent, and its own attachments: not other tasks' notes, evidence,
+findings or decisions, no questions, no backlog. It cannot ask other agents and they cannot
+ask it; nothing is typed into its terminal about other work. Afterwards it sees everything
+again, and the task keeps a "blind" mark so you can weigh its findings as an independent
+view.
+
+For this, reading is no longer open to every local program: the page reads with your
+session, the CLI as you (token) or as the agent of its pane; a request that is neither is
+refused. Only whether the service runs (`workriver status`) is anyone's to see.
+
+Blindness guards against bias, not against an agent that sets out to look. What remains:
+
+- **Commit messages and the repository.** The reviewer reads the code from git, and git
+  also holds commit messages, other branches and whatever was committed. workriver's own
+  views give only hashes; it cannot hide git. Reviewers are told to read the diff.
+- **Claiming another pane.** The CLI says which pane it runs in and the service believes
+  it. An agent that passes another agent's pane id reads as that agent.
+- **Files.** Agents run as you: the database and the attachments in `~/workriver-data`
+  can be read from disk.
+- **Other terminals.** Herdr lets any agent read any pane's screen and type into it; what
+  another agent's terminal shows is not workriver's to hide.
+- **The manager's message.** What the manager writes into the hand-off is up to it; its
+  instructions say what to leave out.
+
 ## What this does not protect against
 
 Agents run under your account. A program that sets out to read the token file, or to type
@@ -53,4 +82,5 @@ ssh agent and never accept an unknown host key (`BatchMode`, `ForwardAgent=no`,
 `StrictHostKeyChecking=yes`), whatever your ssh config says; connect once by hand to accept
 a new host's key.
 
-Reading (the board, the records, attachments) is open to every program on your machine.
+Reading through the service needs an identity too (you, or an agent at its pane), but the
+files themselves are readable by every program running as you.

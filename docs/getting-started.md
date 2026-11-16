@@ -201,7 +201,7 @@ Then stop `workriver serve` (Ctrl-C) and start it again. The data is kept.
   socket is elsewhere (`--herdr-socket`).
 - **"cannot tell which agent this is"** from the CLI in a pane: the service cannot reach
   Herdr (see above). To run a command as yourself meanwhile, use a terminal outside Herdr.
-- **"this is the user's to do…" (401)**: the command or the page is not known to be you.
+- **"workriver answers the user, and agents from their own Herdr pane…" (401)**: the command or the page is not known to be you.
   The page: `workriver open`. The CLI: run it from a terminal that is not an agent's pane,
   on the machine workriver runs on. Decisions, gates, chores, projects, machines and
   workspace links are yours alone; see [Security model](security.md).

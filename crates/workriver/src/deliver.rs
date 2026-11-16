@@ -41,7 +41,8 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
         Body::GateSubmitted { unit, task, .. } if e.actor == "user" => {
             let gate = state.task(unit, *task).ok();
             let decide = gate.is_some_and(|g| g.gate == Some(GateKind::Decide));
-            let waiting = gate.filter(|_| !decide).and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone());
+            // Never to an agent on a blind task: it is told nothing until it delivers.
+            let waiting = gate.filter(|_| !decide).and_then(|t| followed(state, unit, t)).and_then(|t| t.agent.clone()).filter(|a| state.blind_tasks(a).is_empty());
             let to = target(state, live, &intent_of(unit)?, waiting.as_deref());
             Some(on(unit, *task, None, to, gate_message(state, unit, *task)?.text(&files(unit, *task, None))))
         }

@@ -301,6 +301,8 @@ export const en = {
     waiting_other: '{{count, number}} findings waiting for you'
   },
   task: {
+    blind: 'Blind',
+    blindHint: 'Blind: done without seeing other work, so its findings are its own view',
     unregistered: 'Unregistered: {{title}}'
   },
   who: {

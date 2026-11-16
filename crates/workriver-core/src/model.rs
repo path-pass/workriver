@@ -269,6 +269,10 @@ pub struct NewTask {
     /// Paths the work expects to change.
     #[serde(default)]
     pub plans: Vec<String>,
+    /// A review (tests, research, design) done without seeing other work: until it is
+    /// delivered, its agent is shown only this task, its unit and its intent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub blind: bool,
 }
 
 /// Who a request was found to come from. The daemon works this out (a session of the web
@@ -767,6 +771,9 @@ pub struct State {
     pub backlog: Vec<BacklogFinding>,
     #[serde(default)]
     pub links: Vec<Link>,
+    /// Not the records but a part of them: what an agent on a blind task may see.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reduced: bool,
 }
 
 /// A stored file. Never deleted, like the records.
@@ -909,6 +916,9 @@ pub struct Task {
     pub gate: Option<GateKind>,
     pub steps: Vec<Step>,
     pub plans: Vec<String>,
+    /// Done without seeing other work (see `State::blind_view`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub blind: bool,
     pub state: TaskState,
     /// Who recorded it.
     pub by: String,
@@ -1054,6 +1064,52 @@ impl State {
     /// its groups new ids when it restarts.
     pub fn workspace_of(&self, r: &RuntimeRef) -> Option<&Workspace> {
         self.workspace_at(r).map(|k| &self.workspaces[k])
+    }
+
+    /// The blind tasks an agent is on: assigned to it or started by it, not delivered yet.
+    pub fn blind_tasks(&self, session: &str) -> Vec<(String, u32)> {
+        let name = self.name_of(session);
+        let mine = |t: &&Task| t.blind && t.state != TaskState::Done && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
+        let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(mine).map(|t| (u.id.clone(), t.n)));
+        units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(mine).map(|t| (i.id.clone(), t.n)))).collect()
+    }
+
+    /// What an agent on a blind task may see until it delivers: its task (as handed out),
+    /// the task's unit and intent, what it attached itself. None for anyone else.
+    ///
+    /// Everything else is left out: other tasks with their output, notes, evidence, findings
+    /// and decisions, questions, deliveries, the backlog, other units and intents.
+    pub fn blind_view(&self, session: &str) -> Option<State> {
+        let mine = self.blind_tasks(session);
+        if mine.is_empty() {
+            return None;
+        }
+        let own = |owner: &str, tasks: &[Task]| -> Vec<Task> {
+            tasks
+                .iter()
+                .filter(|t| mine.iter().any(|(o, n)| o == owner && *n == t.n))
+                // What the task follows and answers would name other work.
+                .map(|t| Task { causes: vec![], delivery: None, ..t.clone() })
+                .collect()
+        };
+        let units: Vec<Unit> = self.units.iter().filter(|u| mine.iter().any(|(o, _)| o == &u.id)).map(|u| Unit { tasks: own(&u.id, &u.tasks), ..u.clone() }).collect();
+        let intents = self
+            .intents
+            .iter()
+            .filter(|i| mine.iter().any(|(o, _)| o == &i.id) || units.iter().any(|u| u.intent == i.id))
+            .map(|i| Intent { note: String::new(), reason: None, tasks: own(&i.id, &i.tasks), ..i.clone() })
+            .collect();
+        Some(State {
+            intents,
+            units,
+            agents: self.agents.clone(),
+            attachments: self.attachments.iter().filter(|a| a.by == session).cloned().collect(),
+            projects: self.projects.clone(),
+            workspaces: self.workspaces.clone(),
+            links: self.links.clone(),
+            reduced: true,
+            ..State::default()
+        })
     }
 
     /// The link of a group of another machine, if it has one.
@@ -1444,7 +1500,14 @@ impl State {
                 ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, unit, title, steps }
             }
             QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
-                self.task(&unit, task)?;
+                let about = self.task(&unit, task)?;
+                // Blind work neither asks nor is asked by other agents: both would tell it things.
+                if !self.blind_tasks(actor).is_empty() {
+                    return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead");
+                }
+                if about.blind && about.state != TaskState::Done && !user {
+                    return no(format!("{unit}#{task} is a blind task in progress: its agent is not to be told about other work. Ask once it is delivered"));
+                }
                 if blank(&text) {
                     return no("a question needs its text");
                 }
@@ -1538,6 +1601,7 @@ impl State {
                 return no("an implement, design or research task, or a gate, needs a title");
             }
             TaskKind::Gate if t.gate.is_none() => return no("a gate needs its kind: deploy or test"),
+            TaskKind::Implement | TaskKind::Gate if t.blind => return no("--blind is for looking at work without being told about it: a review, tests, research or design task"),
             TaskKind::Review if t.reviewer.is_none() => t.reviewer = Some(Reviewer::CodeReview),
             _ => {}
         }
@@ -1793,6 +1857,7 @@ impl State {
                         gate: t.gate,
                         steps: t.steps.clone(),
                         plans: t.plans.clone(),
+                        blind: t.blind,
                         state: if t.kind == TaskKind::Gate { TaskState::Waiting } else { TaskState::Todo },
                         by: e.actor.clone(),
                         at: at.clone(),

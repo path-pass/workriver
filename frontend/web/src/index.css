@@ -283,6 +283,9 @@
   /* Finished work handed in with no check run: a small neutral mark at the bottom left. */
   .wnode .untested { position: absolute; left: -6px; bottom: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
   .wnode .untested .ic { width: 11px; height: 11px; }
+  /* A blind review: a neutral mark at the top left, information like the others. */
+  .wnode .blind { position: absolute; left: -6px; top: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
+  .wnode .blind .ic { width: 11px; height: 11px; }
   /* A check run on the work: passed in the done tone, failed in the diff's red. */
   .check { display: flex; align-items: center; gap: 6px; font-size: 12px; }
   .check code { font-family: var(--font-mono); font-size: 11.5px; }

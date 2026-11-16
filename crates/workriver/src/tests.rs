@@ -462,7 +462,8 @@ fn attachments_round_trip() {
     assert!(png["path"].as_str().unwrap().starts_with(home.join("attachments").to_str().unwrap()));
     let get = |id: &str, host: &str| {
         let mut s = std::net::TcpStream::connect(("127.0.0.1", d.port)).unwrap();
-        write!(s, "GET /api/attachments/{id} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").unwrap();
+        let token = crate::auth::read_token(&home).unwrap();
+        write!(s, "GET /api/attachments/{id} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n").unwrap();
         let mut answer = vec![];
         s.read_to_end(&mut answer).unwrap();
         String::from_utf8_lossy(&answer).to_lowercase()
@@ -823,7 +824,7 @@ fn only_the_user_is_the_user() {
     // --as is off, and "user" is never a name to take.
     let e = user.append("s-boss", "intent.created", json!({ "title": "x" })).unwrap_err().to_string();
     assert!(e.contains("--as is off"), "{e}");
-    assert!(nobody.append("user", "intent.created", json!({ "title": "x" })).unwrap_err().to_string().contains("does not show it comes from the user"));
+    assert!(nobody.append("user", "intent.created", json!({ "title": "x" })).unwrap_err().to_string().contains("does not show it comes from either"));
 
     // The user (token, no agent's place) sets things up; agents record as themselves by place.
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
@@ -871,10 +872,17 @@ fn only_the_user_is_the_user() {
         assert_eq!(http(port, "POST", path, &[("Authorization", "Bearer 00"), ("Cookie", "workriver_session=0.0"), ("Origin", &format!("http://127.0.0.1:{port}"))], Some(&body.to_string())).0, 401, "{path}");
     }
     assert_eq!(http(port, "POST", "/api/attachments?name=a.png", &[], Some("x")).0, 401);
-    // Reading stays open to local callers: agents need the board.
-    for path in ["/api/state", "/api/workspace", "/api/status", "/api/machines"] {
-        assert_eq!(http(port, "GET", path, &[], None).0, 200, "{path}");
+    // Reading needs someone too: the user, or an agent at its place. Nobody reads as nobody.
+    for path in ["/api/state", "/api/workspace", "/api/machines", "/api/events", "/api/attachments/0123456789abcdef"] {
+        assert_eq!(http(port, "GET", path, &[], None).0, 401, "{path}");
     }
+    for path in ["/api/state", "/api/workspace"] {
+        assert_eq!(http(port, "GET", &format!("{path}?place=w1:p9"), &[], None).0, 401, "{path} from a pane without an agent");
+        assert_eq!(http(port, "GET", &format!("{path}?place=w1:p2"), &[], None).0, 200, "{path} as the agent of its pane");
+    }
+    assert!(user.get("/api/state").is_ok() && rev.get("/api/workspace").is_ok() && nobody.get("/api/state").is_err());
+    // Only whether the service runs is anyone's to see.
+    assert_eq!(http(port, "GET", "/api/status", &[], None).0, 200);
     assert!(fake.sent.lock().unwrap().iter().all(|(_, m)| !m.starts_with("[workriver] The user")), "nothing was delivered as the user's");
 
     // The page: a one-time code makes its session.
@@ -959,14 +967,22 @@ fn a_machines_listener_serves_only_agents() {
         let (status, text) = http(box_port, method, path, &creds, body.as_deref());
         assert_eq!(status, 403, "{method} {path}: {text}");
     }
-    // What is allowed: reading the board, and recording as the agent of the pane over there.
-    for path in ["/api/state", "/api/workspace", "/api/status"] {
-        assert_eq!(http(box_port, "GET", path, &[], None).0, 200, "{path}");
+    // What is allowed: reading the board and recording, as the agent of the pane over there.
+    for path in ["/api/state", "/api/workspace"] {
+        assert_eq!(http(box_port, "GET", path, &creds, None).0, 403, "{path} as nobody, token and all");
+        assert_eq!(http(box_port, "GET", &format!("{path}?place=w1:p1"), &[], None).0, 200, "{path}");
     }
+    assert_eq!(http(box_port, "GET", "/api/status", &[], None).0, 200);
     let there = Daemon { port: box_port, place: Some("w1:p1".into()), home: Some(tmp.path().to_path_buf()) };
     assert_eq!(there.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-far");
     let e = there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look" })).unwrap();
     assert_eq!(e["actor"], "s-far");
+    // The same view rules over there: on a blind task, only its own.
+    assert!(there.get("/api/state").unwrap()["reduced"].is_null());
+    there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look again", "agent": "s-far", "blind": true })).unwrap();
+    let view = there.get("/api/state").unwrap();
+    assert_eq!((view["reduced"].as_bool(), view["intents"][0]["tasks"].as_array().unwrap().len()), (Some(true), 1), "{view}");
+    assert_eq!(there.get("/api/workspace").unwrap()["reduced"], true);
     // Not the user's events, with or without a place, token and all.
     for d in [&there, &Daemon { port: box_port, place: None, home: Some(tmp.path().to_path_buf()) }, &Daemon { port: box_port, place: Some("w1:p9".into()), home: Some(tmp.path().to_path_buf()) }] {
         for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 1, "result": "done" })), ("workspace.linked", json!({ "machine": "box", "workspace": "a", "local": "a" })), ("project.added", json!({ "path": "/p", "title": "P" })), ("intent.created", json!({ "title": "As the user?" }))] {
@@ -978,4 +994,100 @@ fn a_machines_listener_serves_only_agents() {
     }
     let state: workriver_core::State = serde_json::from_value(user.get("/api/state").unwrap()).unwrap();
     assert!(state.links.is_empty() && state.projects.is_empty() && state.intents.len() == 1);
+}
+
+/// A blind review: its agent reads and is told nothing of other work until it delivers;
+/// everyone else sees everything, and afterwards so does it.
+#[test]
+fn blind_reviews() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "f"]);
+    std::fs::write(repo.join("auth.rs"), "fn check() {}\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "SECRET-SUBJECT trust me, it is safe\n\nTask: u1#1"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-imp", "imp", "w1", Idle)), ("p3".into(), live("s-sec", "sec", "w1", Idle))];
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    let user = client(port, tmp.path());
+    let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
+    let (boss, imp, sec) = (at("p1"), at("p2"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
+    imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let shot = tmp.path().join("shot.png");
+    std::fs::write(&shot, b"\x89PNG imp").unwrap();
+    let theirs = imp.upload(&shot, "", Some(("u1", 1, None))).unwrap()["id"].as_str().unwrap().to_string();
+    imp.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SECRET-NOTE nothing to see", "evidence": [{ "command": "cargo test", "result": "passed", "summary": "SECRET-EVIDENCE" }] })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "text": "Find ways around the token check", "inputs": [{ "from": "1" }], "agent": "s-sec", "blind": true })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{ "from": "2" }] })).unwrap();
+    sec.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+
+    // What the blind reviewer reads: its task, the unit, the intent, the commits to review by hash.
+    let state = sec.get("/api/state").unwrap();
+    let text = state.to_string();
+    assert_eq!(state["reduced"], true);
+    assert_eq!((state["units"][0]["tasks"].as_array().unwrap().len(), state["units"][0]["tasks"][0]["text"].as_str()), (1, Some("Find ways around the token check")));
+    assert_eq!((state["units"][0]["branch"].as_str(), state["units"][0]["base"].as_str(), state["intents"][0]["goal"].as_str()), (Some("f"), Some("main"), Some("Safe login")));
+    let ws = sec.get("/api/workspace").unwrap();
+    let unit = &ws["intents"][0]["units"][0];
+    assert_eq!((ws["reduced"].as_bool(), unit["tasks"].as_array().unwrap().len(), unit["commits"].as_array().unwrap().len()), (Some(true), 1, 1));
+    assert!(unit["commits"][0]["id"].as_str().unwrap().len() >= 7 && unit["commits"][0]["subject"] == "" && unit["commits"][0]["files"].as_array().unwrap().is_empty(), "{}", unit["commits"]);
+    assert_eq!(unit["tasks"][0]["blind"], true);
+    for hidden in ["SECRET-NOTE", "SECRET-EVIDENCE", "SECRET-SUBJECT", "Try it", theirs.as_str()] {
+        assert!(!text.contains(hidden) && !ws.to_string().contains(hidden), "{hidden} is hidden");
+    }
+    let board = crate::board_text(&sec, None).unwrap();
+    assert!(board.starts_with("blind review: other work is hidden until you deliver.") && board.contains("#2 running  review (security-review) [blind]") && board.contains("Find ways around the token check") && board.contains("diff main...f") && !board.contains("#1 ") && !board.contains("Check tokens\n"), "{board}");
+    // Files: its own, not others'.
+    let mine = sec.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
+    assert_eq!(theirs, mine, "the same bytes are one stored file");
+    std::fs::write(&shot, b"\x89PNG sec").unwrap();
+    let mine = sec.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
+    assert_eq!(http(port, "GET", &format!("/api/attachments/{mine}?place=p3"), &[], None).0, 200);
+    assert_eq!(http(port, "GET", &format!("/api/attachments/{theirs}?place=p3"), &[], None).0, 404);
+    assert_eq!(http(port, "GET", &format!("/api/attachments/{theirs}?place=p2"), &[], None).0, 200);
+
+    // Everyone else sees everything, the blind task with its mark.
+    for d in [&user, &boss, &imp] {
+        let all = d.get("/api/state").unwrap();
+        assert!(all["reduced"].is_null() && all.to_string().contains("SECRET-NOTE") && all["units"][0]["tasks"][1]["blind"] == true);
+        assert!(d.get("/api/workspace").unwrap().to_string().contains("SECRET-SUBJECT"));
+    }
+    assert!(crate::board_text(&boss, None).unwrap().contains("#1 done"));
+
+    // It asks nobody and is asked by no agent.
+    let ask = |d: &Daemon, task: u32| {
+        let mut q = d.me("");
+        q["unit"] = json!("u1");
+        q["task"] = json!(task);
+        q["text"] = json!("Why?");
+        d.call("/api/ask", Some(q))
+    };
+    assert!(ask(&sec, 1).unwrap_err().to_string().contains("tell your manager"));
+    assert!(ask(&imp, 2).unwrap_err().to_string().contains("blind task in progress"));
+    // Nor is it told: the result of the gate behind its review goes to the manager instead.
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    user.call("/api/gate", Some(json!({ "unit": "u1", "task": 3, "result": "done", "note": "Works" }))).unwrap();
+    wait_until("the gate's result is delivered", || fake.sent.lock().unwrap().iter().any(|(_, m)| m.contains("finished gate")));
+    assert!(fake.sent.lock().unwrap().iter().all(|(to, _)| to != "s-sec"), "nothing is typed into the blind reviewer's terminal");
+
+    // Delivered: the normal view is back.
+    sec.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"] }] })).unwrap();
+    let after = sec.get("/api/state").unwrap();
+    assert!(after["reduced"].is_null() && after.to_string().contains("SECRET-NOTE"));
+    assert!(ask(&sec, 1).is_ok());
 }

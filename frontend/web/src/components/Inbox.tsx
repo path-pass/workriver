@@ -9,7 +9,7 @@ import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxR
 import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
-import { Icon, Steps, Tip, Who } from './bits'
+import { Icon, Mark, Steps, Tip, Who } from './bits'
 
 const GROUPS = ['blocking', 'decisions', 'gaps', 'later'] as const
 
@@ -47,6 +47,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
       <Icon name={icon} />
       <span className="title">{title}</span>
       <span className="meta">
+        {n?.blind && <Mark name="blind" label={t('task.blindHint')} />}
         {open.length > 0 && <span className="flex-none font-mono">{severityCounts(open)}</span>}
         {suggested > 0 && (
           <Tip text={t('inbox.suggested', { count: suggested })}>

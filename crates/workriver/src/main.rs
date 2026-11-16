@@ -420,6 +420,12 @@ enum TaskCmd {
         /// A path the work expects to change (file or folder). Repeatable.
         #[arg(long)]
         plan: Vec<String>,
+        /// For a review, tests, research or design task: its agent sees nothing of other
+        /// work (notes, evidence, findings, decisions, questions) until it delivers, so its
+        /// view is its own. Blindness guards against bias, not against an agent that sets
+        /// out to look (commit messages, files on disk).
+        #[arg(long)]
+        blind: bool,
     },
     /// Mark a task as started (by the calling agent unless --agent is given).
     Start {
@@ -756,7 +762,7 @@ fn main() -> anyhow::Result<()> {
             d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base }))?
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
-        Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan }) => {
+        Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
             let unit = match unit {
                 Some(u) => u,
                 None => here_intent(intent)?,
@@ -766,7 +772,7 @@ fn main() -> anyhow::Result<()> {
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
             d.append(actor, "task.created", json!({
                 "unit": unit, "kind": kind, "title": title, "text": text, "inputs": inputs, "causes": causes,
-                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan,
+                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind,
             }))?
         }
         Cmd::Task(TaskCmd::Start { task, agent }) => {
@@ -888,7 +894,11 @@ impl Daemon {
         let token = self.token().map(|t| format!("Bearer {t}")).unwrap_or_default();
         let res = match body {
             Some(b) => agent.post(&url).header("authorization", &token).send_json(b),
-            None => agent.get(&url).header("authorization", &token).call(),
+            // Reading is as whoever this is, too: the place goes along.
+            None => match &self.place {
+                Some(p) => agent.get(&url).query("place", p).header("authorization", &token).call(),
+                None => agent.get(&url).header("authorization", &token).call(),
+            },
         };
         let mut res = res.map_err(|e| anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port))?;
         let ok = res.status().is_success();
@@ -1222,6 +1232,14 @@ fn read_findings(from: Option<&str>) -> anyhow::Result<Value> {
 
 /// A compact text view: per unit its tasks, open findings and waiting gates; open chores.
 fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
+    print!("{}", board_text(d, target)?);
+    Ok(())
+}
+
+/// The board as text, as the caller may see it.
+fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
+    use std::fmt::Write as _;
+    let mut out = String::new();
     let state: core::State = serde_json::from_value(d.get("/api/state")?)?;
     let wanted = |intent: &str, unit: Option<&str>| match target {
         None => true,
@@ -1233,53 +1251,72 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
     {
         bail!("no intent or unit {t}");
     }
+    if state.reduced {
+        let _ = writeln!(out, "blind review: other work is hidden until you deliver. Read the code from git (the diff, not the commit messages); what you need beyond your task, ask your manager for.");
+    }
+    let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
+    let line = |t: &core::Task| {
+        let mut out = String::new();
+        let what = match t.kind {
+            TaskKind::Review => format!("review ({})", t.reviewer.map(|r| name(&r)).unwrap_or_default()),
+            TaskKind::Gate => format!("gate ({})", t.gate.map(|g| name(&g)).unwrap_or_default()),
+            k => name(&k),
+        };
+        let after: Vec<String> = t.inputs.iter().map(|i| if i.from == "start" { "start".into() } else { format!("#{}", i.from) }).collect();
+        let agent = t.agent.as_ref().map(|a| format!(" @{}", named(a))).unwrap_or_default();
+        let blind = if t.blind { " [blind]" } else { "" };
+        let _ = writeln!(out, "    #{} {:<8} {what}{blind} {}{agent}  after {}", t.n, name(&t.state), t.title, after.join(","));
+        // On a blind task the board is the hand-out: the whole ask.
+        if state.reduced && !t.text.is_empty() && t.text != t.title {
+            let _ = writeln!(out, "       {}", t.text);
+        }
+        for f in t.findings.iter().filter(|f| f.state == FindingState::Open) {
+            let _ = writeln!(out, "       open {}: {}  ({})", f.found.id, f.found.problem, f.found.r#where.join(", "));
+        }
+        if t.state == TaskState::Waiting {
+            let _ = writeln!(out, "       waiting for the user");
+        }
+        out
+    };
     for i in &state.intents {
         let units: Vec<_> = state.units.iter().filter(|u| u.intent == i.id && wanted(&i.id, Some(&u.id))).collect();
         let chores: Vec<_> = state.chores.iter().filter(|c| c.intent == i.id && !c.done && wanted(&i.id, c.unit.as_deref())).collect();
         if units.is_empty() && chores.is_empty() && !wanted(&i.id, None) {
             continue;
         }
-        let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
-        println!("{} {}{}", i.id, i.title, i.manager.as_ref().map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
         if !i.goal.is_empty() {
-            println!("  goal: {}", i.goal);
+            let _ = writeln!(out, "  goal: {}", i.goal);
+        }
+        // The intent's own work: research and design that belong to no unit.
+        if wanted(&i.id, None) {
+            i.tasks.iter().for_each(|t| out += &line(t));
         }
         for u in units {
             let merged = if u.merged.is_some() { "  merged" } else { "" };
-            println!("  {} {}  [branch {} from {}, in {}]{merged}", u.id, u.title, u.branch, u.base, u.repo);
-            for t in &u.tasks {
-                let what = match t.kind {
-                    TaskKind::Review => format!("review ({})", t.reviewer.map(|r| name(&r)).unwrap_or_default()),
-                    TaskKind::Gate => format!("gate ({})", t.gate.map(|g| name(&g)).unwrap_or_default()),
-                    k => name(&k),
-                };
-                let after: Vec<String> = t.inputs.iter().map(|i| if i.from == "start" { "start".into() } else { format!("#{}", i.from) }).collect();
-                let agent = t.agent.as_ref().map(|a| format!(" @{}", named(a))).unwrap_or_default();
-                println!("    #{} {:<8} {what} {}{agent}  after {}", t.n, name(&t.state), t.title, after.join(","));
-                for f in t.findings.iter().filter(|f| f.state == FindingState::Open) {
-                    println!("       open {}: {}  ({})", f.found.id, f.found.problem, f.found.r#where.join(", "));
-                }
-                if t.state == TaskState::Waiting {
-                    println!("       waiting for the user");
-                }
+            let on = u.machine.as_ref().map(|m| format!(" on {m}")).unwrap_or_default();
+            let _ = writeln!(out, "  {} {}  [branch {} from {}, in {}{on}]{merged}", u.id, u.title, u.branch, u.base, u.repo);
+            if state.reduced {
+                let _ = writeln!(out, "    to review: `git -C {} diff {}...{}` (commits: `git rev-list {}..{}`)", u.repo, u.base, u.branch, u.base, u.branch);
             }
+            u.tasks.iter().for_each(|t| out += &line(t));
             let deferred: Vec<String> = u
                 .tasks
                 .iter()
                 .flat_map(|t| t.findings.iter().filter(|f| f.state == FindingState::Deferred).map(move |f| format!("#{} {}: {}", t.n, f.found.id, f.found.problem)))
                 .collect();
             if !deferred.is_empty() {
-                println!("    deferred:");
+                let _ = writeln!(out, "    deferred:");
                 for d in deferred {
-                    println!("      {d}");
+                    let _ = writeln!(out, "      {d}");
                 }
             }
         }
         for c in chores {
-            println!("  chore {} {} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
+            let _ = writeln!(out, "  chore {} {} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
         }
     }
-    Ok(())
+    Ok(out)
 }
 
 #[cfg(test)]
