@@ -71,13 +71,26 @@ skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide i
 ## 4. 给每个工作区一个管理者
 
 一个 Herdr 工作区跑一个或多个意图，由它的管理者 agent 规划和派活。在每个工作区里启动一个
-coding agent 当管理者，并把 `skills/workriver-manager/` 里的管理者 skill 给它：
+coding agent 当管理者，并把 skill 给它。
 
-- **Claude Code**：把这个目录链接进 skills 目录，只给一个项目或给所有项目：
-  `ln -s "$PWD/skills/workriver-manager" <项目>/.claude/skills/workriver-manager`，或
-  `ln -s "$PWD/skills/workriver-manager" ~/.claude/skills/workriver-manager`。
-- **Codex**：同样链接到 `<项目>/.agents/skills/` 或 `~/.agents/skills/`。
-- **其他工具**：运行 `workriver guide manager`，把输出贴进给它的第一条消息。
+装**存根**，只装一次：存根是很小的 skill 文件，只让 agent 去运行 `workriver guide …`，而后者永远和
+已安装的 `workriver` 一致。把真正的 skill 文件拷过去，每次更新后就过期了；照着旧拷贝做事的管理者
+不知道已经有了哪些命令。
+
+```sh
+for s in manager howto import; do
+  mkdir -p ~/.claude/skills/workriver-$s          # Codex: ~/.agents/skills/workriver-$s
+  workriver guide install-stub $s > ~/.claude/skills/workriver-$s/SKILL.md
+done
+```
+
+（只给一个项目：`<项目>/.claude/skills/` 或 `<项目>/.agents/skills/`。有这个仓库的机器上也可以用
+链接，`git pull` 之后自动是新的：`ln -s "$PWD/skills/workriver-manager" ~/.claude/skills/workriver-manager`，
+`workriver-howto` 和 `workriver-backlog-import` 同理。）其他工具：让 agent 先运行 `workriver guide manager`。
+
+skill 有三个：管理者的角色（`workriver guide manager`，很短）、各种情况的做法（`workriver guide how`
+是目录，`workriver guide how <主题>` 是一条做法）、导入待办（`workriver guide import`）。更新之后，
+已经在运行的管理者会收到一次提示，让它读 `workriver guide changes`。
 
 然后告诉它，例如："你是这个工作区的 workriver 管理者。开始路线图里的第一个意图，规划单元和
 任务，交给 worker agent 去做。"页面上计划中的意图旁边的"开始"会列出同样的步骤和可复制的命令。
@@ -111,7 +124,9 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
 单元分支上没有 `Task:` 这一行的提交会显示为未登记，是一个要补上的缺口。审查和测试是单独的
-任务；它们找出的问题在页面的 **需要你** 里等着。在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，
+任务。它们找出的问题默认由这个意图的管理者决定（带机器人标记；你可以在页面上改掉任何一个决定，
+也可以按意图把决定权留给自己：左栏的"发现由谁决定"，或者 `workriver intent set i1 --findings user`）。
+归你决定的问题在页面的 **需要你** 里等着：在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，
 "一起做"会把它们作为一条消息发给这个意图的管理者，由它合成一个清理单元。你的决定和
 手工步骤的结果会通过 Herdr 送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行
 显示有没有送到、有没有被接手，"复制消息"能拿到同样的文字，用来手动粘贴。
@@ -154,7 +169,11 @@ workriver workspace link box:chat chat
 
 或者在设置里选。单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
 并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch queue`）；
-登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
+登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。分支改了名、
+或者变基到了新分支，也用这条命令（`workriver unit move u1 --branch queue-2 [--base main-2]`）：单元、
+任务和发现都留着，提交从新分支读，页面上写"之前在 queue"，提交留在旧分支上的任务会如实标出来。
+没写 `Task:` 尾注的提交可以事后关联到任务，由做这个任务的 agent、管理者或你来做：
+`workriver commit link <hash> u1#3`，或者在未登记节点上的"它属于任务"里选；变基之后关联仍然有效。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
 每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
 （`http://127.0.0.1:47820/api/attachments/…`）。终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；
 在 Herdr 侧栏里切到那台机器要你自己来。

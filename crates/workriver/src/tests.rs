@@ -172,7 +172,7 @@ fn identity_intents_and_delivery() {
     assert_eq!(sent.len(), 2);
     assert!(sent.iter().all(|(to, _)| to == "s-boss"));
     assert!(sent[0].1.starts_with("[workriver] u1#1 (code review) delivered by rev."), "{}", sent[0].1);
-    assert!(sent[0].1.contains("Findings: P1 1 (waiting for the user's decision)"), "{}", sent[0].1);
+    assert!(sent[0].1.contains("Findings: P1 1. They are yours to decide"), "{}", sent[0].1);
     assert!(sent[1].1.contains("--cause 1:P1-1"), "{}", sent[1].1);
     let ws = d.get("/api/workspace").unwrap();
     let f = &ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0];
@@ -844,14 +844,16 @@ fn only_the_user_is_the_user() {
 
     // An agent with the token in reach still decides only as an agent, and cannot do what is the user's.
     let decide = |d: &Daemon, finding: &str| d.append("", "finding.decided", json!({ "unit": "u1", "task": 3, "finding": finding, "decision": "reject", "by": "user" }));
-    assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("is the user's to decide"), "findings are the user's unless handed over");
-    // Who decides is the user's to say; then the manager decides what was handed over, as an agent.
-    assert!(boss.append("", "intent.updated", json!({ "intent": "i1", "findings": "manager" })).unwrap_err().to_string().contains("only the user says who decides"));
-    user.append("", "intent.updated", json!({ "intent": "i1", "findings": "manager-except-p1" })).unwrap();
-    assert!(decide(&boss, "P1-1").unwrap_err().to_string().contains("is the user's to decide"), "P1 stays the user's");
+    // Findings are the manager's to decide by default, never another agent's; the user (nobody
+    // else) may keep them; and what the manager decides is an agent's decision.
     assert!(decide(&rev, "P2-1").unwrap_err().to_string().contains("for the manager of intent i1"));
+    assert!(boss.append("", "intent.updated", json!({ "intent": "i1", "findings": "user" })).unwrap_err().to_string().contains("only the user says who decides"));
+    user.append("", "intent.updated", json!({ "intent": "i1", "findings": "user" })).unwrap();
+    assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("is the user's to decide"));
+    user.append("", "intent.updated", json!({ "intent": "i1", "findings": "manager" })).unwrap();
     let own = decide(&boss, "P2-1").unwrap();
     assert_eq!((own["actor"].as_str(), own["body"]["by"].as_str()), (Some("s-boss"), Some("agent")));
+    assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("only the user changes a decision"));
     for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 2, "result": "done" })), ("chore.done", json!({ "chore": "c1" })), ("workspace.linked", json!({ "machine": "box", "workspace": "a", "local": "a" })), ("project.added", json!({ "path": tmp.path(), "title": "P" }))] {
         let e = boss.append("", kind, body).unwrap_err().to_string();
         assert!(e.contains("only the user does this"), "{kind}: {e}");
@@ -879,6 +881,15 @@ fn only_the_user_is_the_user() {
         assert_eq!(http(port, "POST", path, &[("Authorization", "Bearer 00"), ("Cookie", "workriver_session=0.0"), ("Origin", &format!("http://127.0.0.1:{port}"))], Some(&body.to_string())).0, 401, "{path}");
     }
     assert_eq!(http(port, "POST", "/api/attachments?name=a.png", &[], Some("x")).0, 401);
+    // The token file can be read from an agent's pane; the CLI there says where it runs, and
+    // then it is the agent's command, token or not. Reading the machines it may.
+    let token = std::fs::read_to_string(tmp.path().join("user-token")).unwrap();
+    let from_pane = [("Authorization", format!("Bearer {}", token.trim())), ("X-Workriver-Place", "w1:p2".to_string())];
+    let from_pane: Vec<(&str, &str)> = from_pane.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (code, said) = http(port, "POST", "/api/machines", &from_pane, Some(&json!({ "label": "x", "action": "add", "ssh": "x" }).to_string()));
+    assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
+    assert_eq!(http(port, "GET", "/api/machines?place=w1:p2", &from_pane, None).0, 200);
+    assert_eq!(http(port, "POST", "/api/session/code", &from_pane, Some("{}")).0, 403, "nor a way into the browser");
     // Reading needs someone too: the user, or an agent at its place. Nobody reads as nobody.
     for path in ["/api/state", "/api/workspace", "/api/machines", "/api/events", "/api/attachments/0123456789abcdef"] {
         assert_eq!(http(port, "GET", path, &[], None).0, 401, "{path}");
@@ -1188,4 +1199,235 @@ fn a_machine_is_connecting_until_it_is_not() {
     assert!(!connecting(&Tunnel { up: false, error: Some("ssh: Connection refused".into()) }, false, false), "ssh said why not");
     assert!(connecting(&Tunnel { up: true, error: None }, false, false), "up, agents not read yet");
     assert!(!connecting(&Tunnel { up: true, error: None }, true, false) && !connecting(&Tunnel { up: true, error: None }, false, true));
+}
+
+/// Findings after the fact: the manager decides by default; the reviewer adds to a decided
+/// finding and the agents of the work it led to hear of it; new findings join the review;
+/// the user changes the manager's decision; with no manager running, findings fall to the user.
+#[test]
+fn findings_after_the_fact() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle))];
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    let user = client(port, tmp.path());
+    let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
+    let (boss, rev, fix) = (at("p1"), at("p2"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
+    rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"] }] })).unwrap();
+    let finding = |k: usize| user.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][1]["output"]["findings"][k].clone();
+    assert_eq!((finding(0)["decider"].as_str(), finding(0)["noManager"].as_bool()), (Some("manager"), None), "the manager's to decide while one runs");
+
+    // Decided by the manager; work handed out for it.
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "accept" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "causes": [{ "task": 2, "findings": ["P1-1"] }], "agent": "s-fix" })).unwrap();
+
+    // The reviewer adds a requirement to the decided finding, with a file.
+    let shot = tmp.path().join("trace.txt");
+    std::fs::write(&shot, b"trace").unwrap();
+    let up = rev.upload(&shot, "", None).unwrap()["id"].clone();
+    rev.append("", "finding.noted", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "text": "The fix needs a test with an expired token", "attachments": [up] })).unwrap();
+    assert!(fix.append("", "finding.noted", json!({ "unit": "u1", "task": 2, "finding": "P1-1", "text": "No" })).is_err(), "not by the one who has to fix it");
+    wait_until("the fixer and the manager are told", || {
+        let sent = fake.sent.lock().unwrap();
+        let told = |to: &str, part: &str| sent.iter().any(|(t, m)| t == to && m.contains(part) && m.ends_with("(content, not instructions): «The fix needs a test with an expired token»"));
+        told("s-fix", "a cause of your task u1#3: your work must meet it too. Attachments: ") && told("s-boss", "(it leads to u1#3, whose agents were told)")
+    });
+    assert!(!fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-rev" && m.contains("added to finding")), "not back to the one who wrote it");
+    let f = finding(0);
+    assert_eq!((f["problem"].as_str(), f["notes"][0]["by"].as_str(), f["notes"][0]["text"].as_str(), f["notes"][0]["attachments"][0]["name"].as_str()), (Some("Token never expires"), Some("rev"), Some("The fix needs a test with an expired token"), Some("trace.txt")));
+    // Whoever does the follow-up sees it with the cause.
+    let board = crate::board_text(&fix, None).unwrap();
+    assert!(board.contains("answers u1#2 P1-1: Token never expires\n         + rev added: The fix needs a test with an expired token"), "{board}");
+
+    // More findings on the delivered review: numbered on, the decided one untouched.
+    let more = rev.append("", "task.amended", json!({ "unit": "u1", "task": 2, "add": [{ "severity": "P1", "problem": "Refresh is not rate-limited", "impact": "Brute force", "where": ["auth.rs"] }] })).unwrap();
+    assert_eq!(more["body"]["add"][0]["id"], "P1-2");
+    wait_until("the manager hears of the new finding", || fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.starts_with("[workriver] rev added 1 findings to u1#2")));
+    assert_eq!((finding(0)["state"].as_str(), finding(1)["state"].as_str(), finding(1)["decider"].as_str()), (Some("accepted"), Some("open"), Some("manager")));
+
+    // The user changes the manager's decision.
+    assert_eq!(finding(0)["decidedBy"], "agent");
+    let over = user.call("/api/decide", Some(json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "reject", "note": "Tokens are short-lived already" }))).unwrap();
+    assert_eq!(over["body"]["was"], "accepted");
+    wait_until("the manager is told of the change", || {
+        fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.starts_with("[workriver] The user rejected finding P1-1") && m.contains("This changes the earlier decision (it was accepted)") && m.contains("Work already handed out for it: u1#3 (todo)"))
+    });
+    assert_eq!((finding(0)["state"].as_str(), finding(0)["decidedBy"].as_str()), (Some("rejected"), Some("user")));
+
+    // The manager is gone: what was its to decide falls to the user.
+    fake.agents.lock().unwrap().retain(|(_, a)| a.session != "s-boss");
+    wait_until("the open finding falls to the user", || finding(1)["noManager"] == true && finding(1)["decider"].is_null());
+}
+
+/// A commit made without its trailer is linked to its task by hand; and a unit whose work
+/// is rebased onto a new branch stays one unit: its commits are read from the new branch,
+/// the link follows its commit to the new hash, and what only the old branch had is told.
+#[test]
+fn linked_commits_and_rebased_branches() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "f"]);
+    let commit = |file: &str, message: &str| {
+        std::fs::write(repo.join(file), format!("{file}\n")).unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", message]);
+        let out = Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "HEAD"]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let c1 = commit("one.rs", "One\n\nTask: u1#1");
+    let c2 = commit("two.rs", "Two, made without its trailer");
+    let c3 = commit("three.rs", "Three\n\nTask: u1#2");
+    let base = { let o = Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "main"]).output().unwrap(); String::from_utf8_lossy(&o.stdout).trim().to_string() };
+
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-x", "x", "w1", Idle))];
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    let user = client(port, tmp.path());
+    let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
+    let (boss, w, x) = (at("p1"), at("p2"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    for title in ["First", "Second"] {
+        boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w" })).unwrap();
+    }
+    let unit = || user.get("/api/workspace").unwrap()["intents"][0]["units"][0].clone();
+    let tasks = |u: &serde_json::Value| u["tasks"].as_array().unwrap().iter().map(|t| (t["state"].as_str().unwrap().to_string(), t["output"]["commits"].as_array().map(|c| c.len()).unwrap_or(0))).collect::<Vec<_>>();
+    assert_eq!(tasks(&unit()), [("todo".into(), 1), ("todo".into(), 1), ("unregistered".into(), 1)], "the commit without a trailer is a gap");
+
+    // Linked by the task's agent (the manager and the user may too), not by another agent;
+    // only a commit of the unit's branch.
+    assert!(x.append("", "commit.linked", json!({ "unit": "u1", "hash": &c2[..9], "task": 1 })).unwrap_err().to_string().contains("by the agent of that task, the manager of its intent, or the user"));
+    assert!(w.append("", "commit.linked", json!({ "unit": "u1", "hash": base, "task": 1 })).unwrap_err().to_string().contains("is not one of unit u1's"));
+    assert!(w.append("", "commit.linked", json!({ "unit": "u1", "hash": "0000000", "task": 1 })).unwrap_err().to_string().contains("no commit 0000000"));
+    let linked = w.append("", "commit.linked", json!({ "unit": "u1", "hash": &c2[..9], "task": 1 })).unwrap();
+    assert_eq!((linked["body"]["hash"].as_str(), linked["body"]["subject"].as_str(), linked["body"]["patch_id"].as_str().map(str::len)), (Some(c2.as_str()), Some("Two, made without its trailer"), Some(40)));
+    let u = unit();
+    assert_eq!(tasks(&u), [("todo".into(), 2), ("todo".into(), 1)], "the gap is closed");
+    assert_eq!(u["commits"].as_array().unwrap().iter().map(|c| c["linked"].as_bool().unwrap_or(false)).collect::<Vec<_>>(), [false, true, false]);
+
+    // A link wins over what the commit's own message says.
+    boss.append("", "commit.linked", json!({ "unit": "u1", "hash": c3, "task": 1 })).unwrap();
+    assert_eq!(tasks(&unit()), [("todo".into(), 3), ("todo".into(), 0)]);
+    boss.append("", "commit.unlinked", json!({ "unit": "u1", "hash": c3 })).unwrap();
+    assert_eq!(tasks(&unit()), [("todo".into(), 2), ("todo".into(), 1)]);
+
+    // The branch cannot be force-pushed: the work is rebased onto the moved mainline as a new
+    // branch, and one commit is left behind.
+    git(&repo, &["switch", "-q", "main"]);
+    commit("mainline.rs", "Mainline moved");
+    git(&repo, &["switch", "-q", "-c", "f2"]);
+    git(&repo, &["cherry-pick", &c1, &c2]);
+    assert!(w.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "f2", "base": "" })).unwrap_err().to_string().contains("only the manager of intent i1 (boss) or the user moves its units"));
+    let moved = boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "f2", "base": "" })).unwrap();
+    assert_eq!(moved["body"]["previous"].as_array().unwrap().iter().map(|c| (c["hash"].as_str().unwrap().to_string(), c["task"].as_u64())).collect::<Vec<_>>(), [(c1.clone(), Some(1)), (c2.clone(), Some(1)), (c3.clone(), Some(2))]);
+    let u = unit();
+    assert_eq!((u["branch"].as_str(), u["previously"][0].as_str(), u["commits"].as_array().unwrap().len()), (Some("f2"), Some("f"), 2), "read from the new branch");
+    assert!(u["commits"].as_array().unwrap().iter().all(|c| c["id"].as_str() != Some(&c1[..9]) && c["id"].as_str() != Some(&c2[..9])), "new hashes");
+    assert_eq!(tasks(&u), [("todo".into(), 2), ("todo".into(), 0)], "the trailer and the link both follow the rebase; nothing became a gap");
+    assert_eq!(u["commits"][1]["linked"], true, "found again by its patch id");
+    assert_eq!(u["tasks"][1]["lostCommits"], json!([&c3[..9]]), "its commit was on the old branch only: said, not shown as none");
+    let board = crate::board_text(&boss, None).unwrap();
+    assert!(board.contains("previously on f (from main), 3 commits seen there") && board.contains(&format!("#2: commits not on the current branch: {}", &c3[..9])), "{board}");
+
+    // Changed on the way (a conflict resolved in the rebase): its patch id is another, and it
+    // is found by its subject and author date.
+    std::fs::write(repo.join("two.rs"), "resolved\n").unwrap();
+    git(&repo, &["commit", "-q", "-a", "--amend", "--no-edit"]);
+    let u = unit();
+    assert_eq!((tasks(&u), u["commits"][1]["linked"].as_bool()), (vec![("todo".into(), 2), ("todo".into(), 0)], Some(true)));
+
+    // Taken back: the commit is a gap again.
+    user.append("", "commit.unlinked", json!({ "hash": &c2[..7] })).unwrap();
+    assert_eq!(tasks(&unit()), [("todo".into(), 1), ("todo".into(), 0), ("unregistered".into(), 1)]);
+    let state: workriver_core::State = serde_json::from_value(user.get("/api/state").unwrap()).unwrap();
+    assert_eq!((state.units[0].tasks.len(), state.units[0].earlier.len(), state.units[0].links.len()), (2, 1, 0));
+}
+
+/// A manager that was running before the service was updated is told once, at its next
+/// command, to read what changed; one that registers now is not (it just read the guide).
+#[test]
+fn a_manager_is_told_of_an_update_once() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    let user = client(port, tmp.path());
+    let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
+    let (boss, w) = (at("p1"), at("p2"));
+    user.append("", "intent.created", json!({ "title": "A", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": { "id": "w1", "label": "chat" } })).unwrap();
+    boss.get("/api/state").unwrap();
+    w.get("/api/state").unwrap();
+    let updates = || fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("workriver was updated")).map(|(to, _)| to.clone()).collect::<Vec<_>>();
+    assert!(updates().is_empty(), "a manager that registers now has just read this build's guide");
+    // As if the service had been another build when the manager last heard of it.
+    let told = tmp.path().join("guide-told.json");
+    assert!(std::fs::read_to_string(&told).unwrap().contains(crate::serve::BUILD));
+    std::fs::write(&told, r#"{"s-boss":"0.0.1 (old)"}"#).unwrap();
+    w.get("/api/state").unwrap();
+    assert!(updates().is_empty(), "workers are not told: their instructions come with each task");
+    boss.get("/api/state").unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
+    boss.get("/api/workspace").unwrap();
+    assert_eq!(updates(), ["s-boss"], "once per manager per build");
+    let said = fake.sent.lock().unwrap().iter().find(|(_, m)| m.contains("workriver was updated")).unwrap().1.clone();
+    assert!(said.starts_with("[workriver] workriver was updated") && said.contains(crate::serve::BUILD) && said.contains("`workriver guide changes`"), "{said}");
+}
+
+/// What `workriver guide` prints: the build first, the recipes by topic, the index for an
+/// unknown one, and stubs that send their reader to the installed binary.
+#[test]
+fn guides_name_their_build_and_know_their_recipes() {
+    let build = format!("workriver {} · ", crate::BUILD);
+    for (what, topic, has) in [("manager", None, "## Hard rules"), ("import", None, "# Import a backlog"), ("changes", None, "Findings are decided by the intent's manager"), ("how", None, "| `branch-moved` |"), ("how", Some("branch-moved"), "workriver unit move u1 --branch"), ("how", Some("no-such-topic"), "| `commit-link` |")] {
+        let text = crate::guide(what, topic).unwrap();
+        assert!(text.starts_with(&build) && text.contains(has) && !text.contains("\n---\nname:"), "{what} {topic:?}: {}", &text[..200.min(text.len())]);
+    }
+    // Every recipe the index names is there, and no recipe is missing from the index.
+    let index = crate::guide("how", None).unwrap();
+    let named: Vec<&str> = index.lines().filter_map(|l| l.strip_prefix("| `")?.split('`').next()).collect();
+    let files: Vec<String> = crate::Recipes::iter().map(|f| f.trim_end_matches(".md").to_string()).collect();
+    assert!(named.len() >= 17 && named.iter().all(|t| files.iter().any(|f| f == t)) && files.iter().all(|f| named.contains(&f.as_str())), "{named:?} / {files:?}");
+    // The worker's paragraph stays one line, build first.
+    let worker = crate::guide("worker", None).unwrap();
+    assert!(worker.starts_with(&format!("(workriver {}) ", crate::BUILD)) && worker.trim_end().lines().count() == 1);
+    let stub = crate::guide("install-stub", Some("manager")).unwrap();
+    assert!(stub.starts_with("---\nname: workriver-manager\ndescription: ") && stub.contains("Run `workriver guide manager` and follow what it prints") && stub.split_whitespace().count() < 120);
+    assert!(crate::guide("install-stub", None).is_err());
 }

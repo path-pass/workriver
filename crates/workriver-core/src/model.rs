@@ -340,27 +340,62 @@ pub struct RuntimeRef {
     pub machine: Option<String>,
 }
 
+/// A commit as it was seen on a branch a unit has left.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct SeenCommit {
+    pub hash: String,
+    #[serde(default)]
+    pub subject: String,
+    /// The task it carried out there (by its trailer or a link), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<u32>,
+}
+
+/// Where a unit's work was before it was moved (rebased onto a new branch, say).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Earlier {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    pub repo: String,
+    pub branch: String,
+    pub base: String,
+    /// When it was left.
+    pub until: String,
+    pub commits: Vec<SeenCommit>,
+}
+
+/// A commit said to belong to a task (`workriver commit link`).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct CommitLink {
+    pub hash: String,
+    pub patch_id: String,
+    pub subject: String,
+    pub date: String,
+    pub task: u32,
+    pub by: String,
+}
+
 /// Who decides an intent's open findings; set by the user alone.
+///
+/// There is no policy by severity: a finding's severity is its reviewer's own rating, so a
+/// rule that kept "P1" for the user would look like a control and be none.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum FindingsPolicy {
-    /// The user decides every finding.
-    #[default]
+    /// The user decides every finding. (Also what a record of the withdrawn
+    /// "manager-except-p1" replays as: the stricter of the two.)
+    #[serde(alias = "manager-except-p1")]
     User,
-    /// The user handed them to the intent's manager.
+    /// The intent's manager decides them: the default. The user can still decide any
+    /// finding, and change what the manager decided.
+    #[default]
     Manager,
-    /// The manager decides, except P1 findings, which stay the user's.
-    ManagerExceptP1,
 }
 
 impl FindingsPolicy {
-    /// Whether the intent's manager decides a finding of this severity.
-    pub fn managers(self, severity: Severity) -> bool {
-        match self {
-            FindingsPolicy::User => false,
-            FindingsPolicy::Manager => true,
-            FindingsPolicy::ManagerExceptP1 => severity != Severity::P1,
-        }
+    /// Whether the intent's manager decides its findings.
+    pub fn managers(self) -> bool {
+        self == FindingsPolicy::Manager
     }
 }
 
@@ -564,6 +599,35 @@ pub enum Body {
         repo: String,
         branch: String,
         base: String,
+        /// The commits on the place it leaves, read once now: what was there is remembered,
+        /// since the old branch is not read again.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        previous: Vec<SeenCommit>,
+    },
+    /// A commit belongs to a task because someone says so: for one made without the
+    /// `Task:` trailer, without rewriting history.
+    #[serde(rename = "commit.linked")]
+    CommitLinked {
+        unit: String,
+        /// The commit's full hash, as resolved in the unit's repository.
+        hash: String,
+        /// Its `git patch-id --stable`: what a rebased copy of it is known by.
+        #[serde(default)]
+        patch_id: String,
+        #[serde(default)]
+        subject: String,
+        /// The author's date, which a rebase keeps too.
+        #[serde(default)]
+        date: String,
+        task: u32,
+    },
+    #[serde(rename = "commit.unlinked")]
+    CommitUnlinked {
+        /// Empty when recorded: the unit that has the link.
+        #[serde(default)]
+        unit: String,
+        /// The hash, or its beginning.
+        hash: String,
     },
     #[serde(rename = "unit.created")]
     UnitCreated {
@@ -625,6 +689,21 @@ pub enum Body {
         /// More stored attachments of the output (added to those it has).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<String>,
+        /// More findings, after those it has (which stay, decided or not).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        add: Vec<NewFinding>,
+    },
+    /// Something added to a finding after it was reported: a requirement for its fix, a
+    /// detail. The finding itself is never rewritten.
+    #[serde(rename = "finding.noted")]
+    FindingNoted {
+        unit: String,
+        task: u32,
+        finding: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
     },
     #[serde(rename = "finding.decided")]
     FindingDecided {
@@ -637,6 +716,9 @@ pub enum Body {
         /// Whose decision; set from who records it.
         #[serde(default = "an_agent")]
         by: Who,
+        /// The user changing a decision already made: what it was before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        was: Option<FindingState>,
     },
     #[serde(rename = "gate.submitted")]
     GateSubmitted {
@@ -763,11 +845,13 @@ impl Body {
             WorkspaceLinked(_) | WorkspaceUnlinked { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
-            UnitMerged { unit, .. } | UnitRelocated { unit, .. } => (None, Some(unit.clone()), None),
+            UnitMerged { unit, .. } | UnitRelocated { unit, .. } | CommitUnlinked { unit, .. } => (None, Some(unit.clone()), None),
+            CommitLinked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }
+            | FindingNoted { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
             | GateSubmitted { unit, task: n, .. }
             | DeliveryUpdated { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
@@ -944,6 +1028,12 @@ pub struct Unit {
     pub merged: Option<String>,
     pub merged_commits: Vec<String>,
     pub tasks: Vec<Task>,
+    /// Where its work was before, oldest first, with the commits seen there.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier: Vec<Earlier>,
+    /// Commits linked to its tasks by hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<CommitLink>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1001,6 +1091,19 @@ pub struct Finding {
     /// Dropped: why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// What was added to it since it was reported, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<FindingNote>,
+}
+
+/// An addition to a finding: by whom, when, what.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct FindingNote {
+    pub by: String,
+    pub at: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1087,6 +1190,8 @@ impl State {
             merged: None,
             merged_commits: vec![],
             tasks: i.tasks.clone(),
+            earlier: vec![],
+            links: vec![],
         })
     }
 
@@ -1141,7 +1246,8 @@ impl State {
                 .map(|t| Task { causes: vec![], delivery: None, ..t.clone() })
                 .collect()
         };
-        let units: Vec<Unit> = self.units.iter().filter(|u| mine.iter().any(|(o, _)| o == &u.id)).map(|u| Unit { tasks: own(&u.id, &u.tasks), ..u.clone() }).collect();
+        // Not where the unit was before, nor what was linked: both carry others' words.
+        let units: Vec<Unit> = self.units.iter().filter(|u| mine.iter().any(|(o, _)| o == &u.id)).map(|u| Unit { tasks: own(&u.id, &u.tasks), earlier: vec![], links: vec![], ..u.clone() }).collect();
         let intents = self
             .intents
             .iter()
@@ -1184,6 +1290,19 @@ impl State {
             ));
         }
         Ok(())
+    }
+
+    /// Whether `actor` is the agent a task is assigned to or was done by (by session, or by
+    /// the name it was assigned under).
+    fn is_agent_of(&self, t: &Task, actor: &str) -> bool {
+        t.agent.as_deref().is_some_and(|a| a == actor || Some(a) == self.name_of(actor))
+    }
+
+    /// The tasks handed out for a finding: those naming it as a cause, with their owner.
+    pub fn follow_ups(&self, unit: &str, task: u32, finding: &str) -> Vec<(String, &Task)> {
+        let hit = |owner: &str, t: &&Task| t.causes.iter().any(|c| c.task == task && c.unit.as_deref().unwrap_or(owner) == unit && c.findings.iter().any(|f| f == finding));
+        let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(move |t| hit(&u.id, t)).map(move |t| (u.id.clone(), t)));
+        units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(move |t| hit(&i.id, t)).map(move |t| (i.id.clone(), t)))).collect()
     }
 
     /// The link of a group of another machine, if it has one.
@@ -1414,13 +1533,17 @@ impl State {
                 }
                 IntentUpdated { intent, title, goal, findings }
             }
-            UnitRelocated { unit, machine, repo, branch, base } => {
+            UnitRelocated { unit, machine, repo, branch, base, previous } => {
                 let u = self.unit(&unit)?;
                 if u.merged.is_some() {
                     return no(format!("unit {unit} is merged; its place no longer matters"));
                 }
                 if !user && self.manager_of(&u.intent) != Some(actor) {
-                    return no(format!("only the user or the manager of intent {} moves its units", u.intent));
+                    let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
+                    return no(format!(
+                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch: workriver unit move {unit} --branch <new> [--base <new base>]",
+                        u.intent
+                    ));
                 }
                 self.may_place(who, &u.intent, machine.as_deref())?;
                 for (field, v) in [("repo", &repo), ("branch", &branch), ("base", &base)] {
@@ -1428,7 +1551,37 @@ impl State {
                         return no(format!("a unit needs a {field}"));
                     }
                 }
-                UnitRelocated { unit, machine, repo, branch, base }
+                UnitRelocated { unit, machine, repo, branch, base, previous }
+            }
+            CommitLinked { unit, hash, patch_id, subject, date, task } => {
+                let u = self.unit(&unit)?;
+                let t = match u.tasks.iter().find(|t| t.n == task) {
+                    Some(t) => t,
+                    None => return no(format!("no task {unit}#{task}")),
+                };
+                if blank(&hash) {
+                    return no("which commit? give its hash");
+                }
+                // By whoever did the task, the intent's manager, or the user.
+                if !user && self.manager_of(&u.intent) != Some(actor) && !self.is_agent_of(t, actor) {
+                    return no(format!("a commit is linked to {unit}#{task} by the agent of that task, the manager of its intent, or the user"));
+                }
+                CommitLinked { unit, hash, patch_id, subject, date, task }
+            }
+            CommitUnlinked { unit, hash } => {
+                if blank(&hash) {
+                    return no("which commit? give its hash");
+                }
+                let found: Vec<&Unit> = self.units.iter().filter(|u| (unit.is_empty() || u.id == unit) && u.links.iter().any(|l| l.hash.starts_with(&hash))).collect();
+                let [u] = found[..] else {
+                    return no(if found.is_empty() { format!("no commit {hash} is linked to a task") } else { format!("commit {hash} is linked in several units; name one: workriver commit unlink {hash} <unit>") });
+                };
+                let l = u.links.iter().find(|l| l.hash.starts_with(&hash)).expect("found above");
+                let own = u.tasks.iter().find(|t| t.n == l.task).is_some_and(|t| self.is_agent_of(t, actor));
+                if !user && self.manager_of(&u.intent) != Some(actor) && !own {
+                    return no("a link is taken back by the agent of its task, the manager of its intent, or the user");
+                }
+                CommitUnlinked { unit: u.id.clone(), hash: l.hash.clone() }
             }
             ManagerRegistered { intent, agent, workspace } => {
                 if let Some(i) = &intent {
@@ -1494,56 +1647,87 @@ impl State {
                 }
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
             }
-            TaskAmended { unit, task, note, evidence, findings, attachments } => {
+            TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
                 let t = self.task(&unit, task)?;
                 if t.kind == TaskKind::Gate || t.state != TaskState::Done {
                     return no(format!("{unit}#{task} is not a delivered task; only a delivered task can be amended"));
                 }
-                if note.is_none() && evidence.is_none() && findings.is_none() && attachments.is_empty() {
+                if note.is_none() && evidence.is_none() && findings.is_none() && attachments.is_empty() && add.is_empty() {
                     return no("nothing to amend: give a note, evidence or findings");
+                }
+                if findings.is_some() && !add.is_empty() {
+                    return no("either replace the findings (--findings) or add to them (--add-findings), not both");
                 }
                 if findings.is_some() && t.findings.iter().any(|f| f.state != FindingState::Open) {
                     return no(format!(
-                        "some findings of {unit}#{task} are already decided, so they cannot be replaced; record the new findings in a new review or tests task"
+                        "some findings of {unit}#{task} are already decided, so they cannot be replaced; add new ones with `workriver task deliver {unit}#{task} --amend --add-findings FILE`, or add to a finding with `workriver finding note {unit}#{task} <id> --text \"...\"`"
                     ));
                 }
-                check_output(t, evidence.as_deref().unwrap_or_default(), findings.as_deref().unwrap_or_default())?;
-                self.stored(
-                    evidence.iter().flatten().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flatten().flat_map(|f| &f.attachments)).chain(&attachments),
-                )?;
-                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered), attachments }
-            }
-            FindingDecided { unit, task, finding, decision, note, by } => {
-                let t = self.task(&unit, task)?;
-                match t.findings.iter().find(|f| f.found.id == finding) {
-                    None => return no(format!("{unit}#{task} has no finding {finding}")),
-                    Some(f) if f.state != FindingState::Open => {
-                        return no(format!("finding {finding} of {unit}#{task} is already {}", name(&f.state)));
-                    }
-                    Some(_) => {}
+                // New findings are the reviewer's to report (or the user's), as the first were.
+                if !add.is_empty() && !user && !self.is_agent_of(t, actor) {
+                    return no(format!("findings of {unit}#{task} are added by the agent that delivered it"));
                 }
+                check_output(t, evidence.as_deref().unwrap_or_default(), findings.as_deref().unwrap_or(&add))?;
+                self.stored(
+                    evidence.iter().flatten().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flatten().chain(&add).flat_map(|f| &f.attachments)).chain(&attachments),
+                )?;
+                let add = numbered_after(add, &t.findings);
+                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered), attachments, add }
+            }
+            FindingNoted { unit, task, finding, text, attachments } => {
+                let t = self.task(&unit, task)?;
+                if !t.findings.iter().any(|f| f.found.id == finding) {
+                    return no(format!("{unit}#{task} has no finding {finding}"));
+                }
+                // By whoever reported it, the intent's manager, or the user.
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager && !self.is_agent_of(t, actor) {
+                    return no(format!("a finding of {unit}#{task} is added to by the agent that delivered it, the manager of its intent, or the user"));
+                }
+                if blank(&text) && attachments.is_empty() {
+                    return no("a note needs its text: --text \"...\" (or a file: --attach FILE)");
+                }
+                self.stored(attachments.iter())?;
+                FindingNoted { unit, task, finding, text, attachments }
+            }
+            FindingDecided { unit, task, finding, decision, note, .. } => {
+                let t = self.task(&unit, task)?;
+                let Some(f) = t.findings.iter().find(|f| f.found.id == finding) else { return no(format!("{unit}#{task} has no finding {finding}")) };
+                let to = match decision {
+                    Decision::Accept => FindingState::Accepted,
+                    Decision::Revise => FindingState::Revised,
+                    Decision::Reject => FindingState::Rejected,
+                    Decision::Defer => FindingState::Deferred,
+                };
+                // A decision is made once; only the user changes one afterwards (the manager's,
+                // or their own), and only while nothing was built on its being put off.
+                let was = match f.state {
+                    FindingState::Open => None,
+                    FindingState::Accepted | FindingState::Revised | FindingState::Rejected | FindingState::Deferred if user && f.state != to => Some(f.state),
+                    _ if user && f.state == to && decision != Decision::Revise => return no(format!("finding {finding} of {unit}#{task} is already {}", name(&f.state))),
+                    _ if user && f.state == to => Some(f.state),
+                    _ if user => return no(format!("finding {finding} of {unit}#{task} is {}; that is no longer changed here", name(&f.state))),
+                    _ => return no(format!("finding {finding} of {unit}#{task} is already {}; only the user changes a decision", name(&f.state))),
+                };
                 if decision == Decision::Revise && blank(&note) {
                     return no("revise needs a note saying how it is to be fixed: --note \"...\"");
                 }
-                // Whose decision it is follows from who records it, whatever the event says.
-                let _ = by;
-                // An agent decides only what the user handed to the intent's manager.
+                // An agent decides only what is the intent's manager's to decide, and only as
+                // that manager; whose decision it is follows from who records it.
                 if !user {
                     let intent = self.intent_of(&unit).unwrap_or_default();
                     let policy = self.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
-                    let severity = t.findings.iter().find(|f| f.found.id == finding).map(|f| f.found.severity);
-                    let managers = severity.is_some_and(|s| policy.managers(s));
-                    if !managers {
+                    if !policy.managers() {
                         return no(format!(
-                            "finding {finding} of {unit}#{task} is the user's to decide (intent {intent}: findings {}). The user decides it in the web UI, or hands findings to the manager with `workriver intent set {intent} --findings manager`",
+                            "finding {finding} of {unit}#{task} is the user's to decide (intent {intent}: findings {}); the user decides it in the web UI",
                             name(&policy)
                         ));
                     }
                     if self.manager_of(intent) != Some(actor) {
-                        return no(format!("finding {finding} of {unit}#{task} is for the manager of intent {intent} to decide, not for other agents"));
+                        return no(format!("finding {finding} of {unit}#{task} is for the manager of intent {intent} to decide (or the user), not for other agents"));
                     }
                 }
-                FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent } }
+                FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent }, was }
             }
             GateSubmitted { unit, task, result, note, findings, attachments } => {
                 self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
@@ -1804,7 +1988,7 @@ impl State {
                     external: external.clone(),
                     workspace: runtime_ref.clone(),
                     reason: None,
-                    findings: FindingsPolicy::User,
+                    findings: FindingsPolicy::default(),
                     tasks: vec![],
                 });
                 if *state == IntentState::Planned {
@@ -1839,11 +2023,14 @@ impl State {
                         }
                     }
                     _ => {
-                        // No longer worked on: no longer where new work goes.
+                        // No longer worked on: no longer where new work goes. New work then
+                        // goes to the intent started last among those still active there.
                         if let Some(g) = before {
+                            let at = self.workspace_at(&g);
+                            let next = self.intents.iter().rev().find(|i| i.state == IntentState::Active && &i.id != intent && i.workspace.as_ref().is_some_and(|x| self.workspace_at(x) == at && at.is_some())).map(|i| i.id.clone());
                             let w = self.workspace_mut(&g);
                             if w.current.as_deref() == Some(intent.as_str()) {
-                                w.current = None;
+                                w.current = next;
                             }
                         }
                         if *state == IntentState::Planned {
@@ -1879,7 +2066,7 @@ impl State {
             FindingAdded { project, intent, finding, source, note } => {
                 let found = finding.clone();
                 self.backlog.push(BacklogFinding {
-                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None },
+                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None, notes: vec![] },
                     project: project.clone(),
                     intent: intent.clone(),
                     source: source.clone(),
@@ -1906,8 +2093,24 @@ impl State {
                     }
                 }
             }
-            UnitRelocated { unit, machine, repo, branch, base } => {
+            CommitLinked { unit, hash, patch_id, subject, date, task } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    // One link per commit: the later one stands.
+                    u.links.retain(|l| &l.hash != hash);
+                    u.links.push(CommitLink { hash: hash.clone(), patch_id: patch_id.clone(), subject: subject.clone(), date: date.clone(), task: *task, by: e.actor.clone() });
+                }
+            }
+            CommitUnlinked { unit, hash } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.links.retain(|l| &l.hash != hash);
+                }
+            }
+            UnitRelocated { unit, machine, repo, branch, base, previous } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    // Where it was is kept, with what was seen there.
+                    if (&u.machine, &u.repo, &u.branch, &u.base) != (machine, repo, branch, base) {
+                        u.earlier.push(Earlier { machine: u.machine.clone(), repo: u.repo.clone(), branch: u.branch.clone(), base: u.base.clone(), until: at.clone(), commits: previous.clone() });
+                    }
                     u.machine = machine.clone();
                     u.repo = repo.clone();
                     u.branch = branch.clone();
@@ -1956,6 +2159,8 @@ impl State {
                 merged: None,
                 merged_commits: vec![],
                 tasks: vec![],
+                earlier: vec![],
+                links: vec![],
             }),
             UnitMerged { unit, commits } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
@@ -2081,8 +2286,14 @@ impl State {
                     x.delivery = Some(delivery.clone());
                 }
             }
-            TaskAmended { unit, task, note, evidence, findings, attachments } => {
+            FindingNoted { unit, task, finding, text, attachments } => {
+                if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
+                    f.notes.push(FindingNote { by: e.actor.clone(), at: at.clone(), text: text.clone(), attachments: attachments.clone() });
+                }
+            }
+            TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
                 if let Some(t) = self.task_mut(unit, *task) {
+                    t.findings.extend(add.iter().cloned().map(open));
                     t.attachments.extend(attachments.iter().cloned());
                     if let Some(n) = note {
                         t.note = n.clone();
@@ -2239,7 +2450,23 @@ fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Res
 }
 
 fn open(found: NewFinding) -> Finding {
-    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None, reason: None }
+    Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None, reason: None, notes: vec![] }
+}
+
+/// Ids for findings added later: per severity, after the highest there is.
+fn numbered_after(mut add: Vec<NewFinding>, have: &[Finding]) -> Vec<NewFinding> {
+    let mut seen = [0u32; 3];
+    for f in have {
+        let n = f.found.id.rsplit_once('-').and_then(|(_, n)| n.parse().ok()).unwrap_or(0);
+        let k = f.found.severity as usize;
+        seen[k] = seen[k].max(n);
+    }
+    for f in &mut add {
+        let k = f.severity as usize;
+        seen[k] += 1;
+        f.id = format!("{:?}-{}", f.severity, seen[k]);
+    }
+    add
 }
 
 /// Ids per severity, as a reviewer numbers them: P1-1, P2-1, P2-2…

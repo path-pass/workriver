@@ -112,6 +112,9 @@ enum Cmd {
     /// Gates: steps only the user can do (a manual deploy or try-out).
     #[command(subcommand)]
     Gate(GateCmd),
+    /// Commits: say which task one belongs to, when its message has no `Task:` trailer.
+    #[command(subcommand)]
+    Commit(CommitCmd),
     /// Chores: things asked of the user that block nobody.
     #[command(subcommand)]
     Chore(ChoreCmd),
@@ -172,11 +175,17 @@ enum Cmd {
         conclusion: bool,
     },
     /// Print the instructions for an agent working with workriver.
+    ///
+    /// What it prints matches this binary, which a copied skill file may not: `manager` (the
+    /// manager's role), `worker` (one paragraph, goes into every task message), `import`
+    /// (importing a backlog file), `how [TOPIC]` (the recipes: the index, or one),
+    /// `changes` (what changed lately), `install-stub manager|howto|import` (a small skill
+    /// file to install once, which sends its reader here).
     Guide {
-        /// `worker` (short; goes into every task message), `manager` (the manager's skill) or
-        /// `import` (the skill for importing an existing backlog file).
-        #[arg(value_parser = ["worker", "manager", "import"])]
-        role: String,
+        #[arg(value_parser = ["worker", "manager", "import", "how", "changes", "install-stub"])]
+        what: String,
+        /// `how`: the recipe; `install-stub`: which skill.
+        topic: Option<String>,
     },
     /// Print an intent or unit as text: its tasks, open findings, waiting gates and open
     /// chores. Without a target, everything.
@@ -219,9 +228,9 @@ enum IntentCmd {
         /// One sentence on what it is for.
         #[arg(long)]
         goal: Option<String>,
-        /// Who decides its open findings: you; its manager; or its manager except P1
-        /// findings, which stay yours. Only the user sets this.
-        #[arg(long, value_parser = ["user", "manager", "manager-except-p1"])]
+        /// Who decides its open findings: its manager (the default), or only you. You can
+        /// always decide any finding yourself. Only the user sets this.
+        #[arg(long, value_parser = ["manager", "user"])]
         findings: Option<String>,
     },
 }
@@ -488,6 +497,10 @@ enum TaskCmd {
         /// replaces what was delivered. Findings only while none of them is decided.
         #[arg(long)]
         amend: bool,
+        /// With --amend: more findings (JSON as --findings), numbered after those the task
+        /// has, which stay as they are, decided or not.
+        #[arg(long, value_name = "FILE", requires = "amend", conflicts_with = "findings")]
+        add_findings: Option<String>,
     },
 }
 
@@ -506,6 +519,20 @@ enum FindingCmd {
         #[arg(long, default_value = "")]
         note: String,
     },
+    /// Add to a finding after it was reported, decided or not: a requirement for its fix, a
+    /// detail, a file. By the agent that reported it, the intent's manager, or the user. The
+    /// finding itself is not rewritten; the agents of the work it led to are told.
+    Note {
+        /// The task that found it (u1#4).
+        task: String,
+        /// The finding (P2-1).
+        finding: String,
+        #[arg(long, default_value = "")]
+        text: String,
+        /// A file that goes with it. Repeatable.
+        #[arg(long, value_name = "FILE")]
+        attach: Vec<String>,
+    },
     /// Drop a deferred or scheduled finding: it will not be done.
     Drop {
         /// The task that found it (u1#4), or a backlog finding (f3).
@@ -514,6 +541,25 @@ enum FindingCmd {
         finding: Option<String>,
         #[arg(long)]
         reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CommitCmd {
+    /// Link a commit of a unit's branch to a task, without rewriting it: for a commit made
+    /// without the `Task: u1#3` trailer (or with a wrong one; the link wins). It follows the
+    /// commit through a rebase. By the task's agent, the intent's manager, or the user.
+    Link {
+        /// The commit (a hash or its beginning, as in the unit's repository).
+        hash: String,
+        /// The task (u1#3).
+        task: String,
+    },
+    /// Take a link back.
+    Unlink {
+        hash: String,
+        /// The unit, when the same commit is linked in several.
+        unit: Option<String>,
     },
 }
 
@@ -576,6 +622,53 @@ enum ManagerCmd {
 const GUIDE_WORKER: &str = include_str!("../../../skills/workriver-manager/references/worker.md");
 const GUIDE_MANAGER: &str = include_str!("../../../skills/workriver-manager/SKILL.md");
 const GUIDE_IMPORT: &str = include_str!("../../../skills/workriver-backlog-import/SKILL.md");
+const GUIDE_HOW: &str = include_str!("../../../skills/workriver-howto/SKILL.md");
+const GUIDE_CHANGES: &str = include_str!("../../../skills/workriver-howto/CHANGES.md");
+
+/// The recipes of `workriver guide how <topic>`, one file each.
+#[derive(rust_embed::Embed)]
+#[folder = "../../skills/workriver-howto/references/"]
+struct Recipes;
+
+/// A skill file without its front matter (the part between the two `---` lines).
+fn body(skill: &str) -> &str {
+    skill.strip_prefix("---").and_then(|s| s.split_once("\n---\n")).map(|(_, b)| b.trim_start()).unwrap_or(skill)
+}
+
+/// What `workriver guide …` prints. Everything but the worker's paragraph starts with a line
+/// naming the build, so a reader can tell which version it read; the worker's paragraph
+/// stays one line (it goes into a terminal message) and names the build at its start.
+fn guide(what: &str, topic: Option<&str>) -> anyhow::Result<String> {
+    let head = |name: &str| format!("workriver {BUILD} · {name}\n\n");
+    let recipe = |t: &str| Recipes::get(&format!("{t}.md")).map(|f| String::from_utf8_lossy(&f.data).into_owned());
+    Ok(match (what, topic) {
+        ("worker", _) => format!("(workriver {BUILD}) {}", GUIDE_WORKER),
+        ("manager", _) => head("guide manager") + body(GUIDE_MANAGER),
+        ("import", _) => head("guide import") + body(GUIDE_IMPORT),
+        ("changes", _) => head("guide changes") + GUIDE_CHANGES,
+        // An unknown topic gets the index, which lists the ones there are.
+        ("how", Some(t)) if recipe(t).is_some() => head(&format!("guide how {t}")) + &recipe(t).unwrap_or_default(),
+        ("how", _) => head("guide how") + body(GUIDE_HOW),
+        ("install-stub", Some(skill @ ("manager" | "howto" | "import"))) => stub(skill),
+        ("install-stub", _) => bail!("which skill? workriver guide install-stub manager|howto|import > <skills folder>/workriver-<name>/SKILL.md"),
+        _ => unreachable!("clap checks the values"),
+    })
+}
+
+/// A skill file to install once into a harness's skills folder: the real skill's name and
+/// description (so it is found when needed), and a body that sends its reader to the
+/// installed `workriver`, which is never older than itself.
+fn stub(skill: &str) -> String {
+    let (source, command, name) = match skill {
+        "manager" => (GUIDE_MANAGER, "workriver guide manager", "workriver manager"),
+        "howto" => (GUIDE_HOW, "workriver guide how", "workriver how-to"),
+        _ => (GUIDE_IMPORT, "workriver guide import", "workriver backlog import"),
+    };
+    let front = source.strip_prefix("---").and_then(|s| s.split_once("\n---\n")).map(|(f, _)| f.trim()).unwrap_or_default();
+    format!(
+        "---\n{front}\n---\n\n# {name}\n\nRun `{command}` and follow what it prints: it is this skill, and it matches the installed\nworkriver (a copy kept here would go stale with every update).\n\nIf the command is not found, workriver is not installed on this machine: tell the user.\n"
+    )
+}
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -598,12 +691,8 @@ fn main() -> anyhow::Result<()> {
                 serve::serve_with(listener, store, all, options).await
             });
         }
-        Cmd::Guide { role } => {
-            print!("{}", match role.as_str() {
-                "worker" => GUIDE_WORKER,
-                "import" => GUIDE_IMPORT,
-                _ => GUIDE_MANAGER,
-            });
+        Cmd::Guide { what, topic } => {
+            print!("{}", guide(what, topic.as_deref())?);
             return Ok(());
         }
         _ => {}
@@ -847,7 +936,19 @@ fn main() -> anyhow::Result<()> {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
         }
-        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings, amend }) => deliver(&d, actor, &task, note, &evidence, findings, amend)?,
+        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings: None, amend: true, add_findings: Some(file) }) => {
+            // More findings on a delivered review: the others are not touched.
+            if !note.is_empty() || !evidence.is_empty() {
+                bail!("--add-findings adds findings only; correct the note or the evidence with a separate --amend");
+            }
+            let (unit, n) = task_ref(&task)?;
+            let mut add = read_findings(Some(&file))?;
+            if let Some(list) = add.as_array_mut() {
+                upload_finding_files(&d, actor, list)?;
+            }
+            d.append(actor, "task.amended", json!({ "unit": unit, "task": n, "add": add }))?
+        }
+        Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings, amend, .. }) => deliver(&d, actor, &task, note, &evidence, findings, amend)?,
         Cmd::Attach { files, task, finding, r#move, dir } => {
             if let Some(t) = dir {
                 let (unit, n) = task_ref(&t)?;
@@ -867,6 +968,19 @@ fn main() -> anyhow::Result<()> {
                 println!("{}", up["path"].as_str().unwrap_or_default());
             }
             return Ok(());
+        }
+        Cmd::Commit(CommitCmd::Link { hash, task }) => {
+            let (unit, n) = task_ref(&task)?;
+            d.append(actor, "commit.linked", json!({ "unit": unit, "hash": hash, "task": n }))?
+        }
+        Cmd::Commit(CommitCmd::Unlink { hash, unit }) => d.append(actor, "commit.unlinked", json!({ "unit": unit.unwrap_or_default(), "hash": hash }))?,
+        Cmd::Finding(FindingCmd::Note { task, finding, text, attach }) => {
+            let (unit, n) = task_ref(&task)?;
+            let mut files = vec![];
+            for f in &attach {
+                files.push(d.upload(Path::new(f), actor, None)?["id"].clone());
+            }
+            d.append(actor, "finding.noted", json!({ "unit": unit, "task": n, "finding": finding, "text": text, "attachments": files }))?
         }
         Cmd::Finding(FindingCmd::Drop { target, finding, reason }) => {
             let (unit, n, finding) = match finding {
@@ -935,10 +1049,16 @@ fn main() -> anyhow::Result<()> {
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("finding.added") => b["finding"]["id"].as_str().unwrap_or("?").to_string(),
         Some("unit.relocated") => format!("{} is now {}{}, branch {} from {}", b["unit"].as_str().unwrap_or("?"), b["machine"].as_str().map(|m| format!("on {m}: ")).unwrap_or_default(), b["repo"].as_str().unwrap_or("?"), b["branch"].as_str().unwrap_or("?"), b["base"].as_str().unwrap_or("?")),
+        Some("commit.linked") => format!("{} is now part of {}#{}", b["hash"].as_str().unwrap_or("?").chars().take(9).collect::<String>(), b["unit"].as_str().unwrap_or("?"), b["task"]),
+        Some("commit.unlinked") => "unlinked".into(),
         Some("workspace.linked") => "linked".into(),
         Some("workspace.unlinked") => "unlinked".into(),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
         Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
+        Some("task.amended") if b["add"].as_array().is_some_and(|a| !a.is_empty()) => {
+            let ids: Vec<&str> = b["add"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
+            format!("added findings {}", ids.join(" "))
+        }
         Some("task.amended") => "amended".into(),
         Some("question.answered") => "answered".into(),
         Some("task.delivered") => {
@@ -967,11 +1087,14 @@ impl Daemon {
         // The token goes along whenever this machine has it. It makes this the user only
         // where the service finds no agent at this place; in an agent's pane it changes nothing.
         let token = self.token().map(|t| format!("Bearer {t}")).unwrap_or_default();
+        // The place goes along with everything, so that the token never makes a command run
+        // in an agent's pane the user's.
+        let at = self.place.as_deref().unwrap_or_default();
         let res = match body {
-            Some(b) => agent.post(&url).header("authorization", &token).send_json(b),
-            // Reading is as whoever this is, too: the place goes along.
+            Some(b) => agent.post(&url).header("authorization", &token).header("x-workriver-place", at).send_json(b),
+            // Reading is as whoever this is, too.
             None => match &self.place {
-                Some(p) => agent.get(&url).query("place", p).header("authorization", &token).call(),
+                Some(p) => agent.get(&url).query("place", p).header("authorization", &token).header("x-workriver-place", at).call(),
                 None => agent.get(&url).header("authorization", &token).call(),
             },
         };
@@ -1313,6 +1436,12 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The unit (or intent) a task is in: where its causes are, unless they say otherwise.
+fn t_owner(state: &core::State, t: &core::Task) -> String {
+    let has = |tasks: &[core::Task]| tasks.iter().any(|x| std::ptr::eq(x, t));
+    state.units.iter().find(|u| has(&u.tasks)).map(|u| u.id.clone()).or_else(|| state.intents.iter().find(|i| has(&i.tasks)).map(|i| i.id.clone())).unwrap_or_default()
+}
+
 /// The board as text, as the caller may see it.
 fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     use std::fmt::Write as _;
@@ -1349,6 +1478,21 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         }
         for f in t.findings.iter().filter(|f| f.state == FindingState::Open) {
             let _ = writeln!(out, "       open {}: {}  ({})", f.found.id, f.found.problem, f.found.r#where.join(", "));
+            for n in &f.notes {
+                let _ = writeln!(out, "         + {} added: {}", named(&n.by), n.text);
+            }
+        }
+        // Work still to do: what it answers, with what was added to those findings since.
+        if t.state != TaskState::Done {
+            for c in &t.causes {
+                let at = c.unit.clone().unwrap_or_else(|| t_owner(&state, t));
+                for f in state.task(&at, c.task).iter().flat_map(|x| x.findings.iter()).filter(|f| c.findings.contains(&f.found.id)) {
+                    let _ = writeln!(out, "       answers {at}#{} {}: {}", c.task, f.found.id, f.found.problem);
+                    for n in &f.notes {
+                        let _ = writeln!(out, "         + {} added: {}", named(&n.by), n.text);
+                    }
+                }
+            }
         }
         if t.state == TaskState::Waiting {
             let _ = writeln!(out, "       waiting for the user");
@@ -1365,10 +1509,10 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         if !i.goal.is_empty() {
             let _ = writeln!(out, "  goal: {}", i.goal);
         }
+        // The default is not said: the manager decides findings (the user may always).
         match i.findings {
-            core::FindingsPolicy::User => {}
-            core::FindingsPolicy::Manager => { let _ = writeln!(out, "  findings: the manager decides them (handed over by the user)"); }
-            core::FindingsPolicy::ManagerExceptP1 => { let _ = writeln!(out, "  findings: the manager decides them, except P1, which wait for the user"); }
+            core::FindingsPolicy::Manager => {}
+            core::FindingsPolicy::User => { let _ = writeln!(out, "  findings: the user decides them, not the manager"); }
         }
         // The intent's own work: research and design that belong to no unit.
         if wanted(&i.id, None) {
@@ -1379,6 +1523,22 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
             let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]{merged}", u.id, u.title, u.repo, u.branch, u.base);
+            // Where it was before (a rebase onto a new branch): its work is the same unit's.
+            for e in &u.earlier {
+                let _ = writeln!(out, "    previously on {} (from {}), {} commits seen there", e.branch, e.base, e.commits.len());
+            }
+            // What only the branch it left had (read from git by the service, so asked for
+            // only where a unit moved): said, where the browser would show a task without commits.
+            if !u.earlier.is_empty() && !state.reduced {
+                let seen = d.get("/api/workspace").unwrap_or_default();
+                let units = seen["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten());
+                for t in units.filter(|x| x["id"] == u.id.as_str()).flat_map(|x| x["tasks"].as_array().into_iter().flatten()) {
+                    let lost: Vec<&str> = t["lostCommits"].as_array().into_iter().flatten().filter_map(|c| c.as_str()).collect();
+                    if !lost.is_empty() {
+                        let _ = writeln!(out, "    #{}: commits not on the current branch: {}", t["taskId"].as_str().unwrap_or("?"), lost.join(", "));
+                    }
+                }
+            }
             if state.reduced {
                 let _ = writeln!(out, "    to review: `git -C {} diff {}...{}` (commits: `git rev-list {}..{}`)", u.repo, u.base, u.branch, u.base, u.branch);
             }

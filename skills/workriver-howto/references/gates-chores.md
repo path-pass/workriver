@@ -1,0 +1,20 @@
+# Gates and chores
+
+**A gate** is a step only the user can do and that work waits on (a manual deploy, a
+try-out, confirming a design):
+
+    workriver task add u1 --kind gate --gate deploy --title "Deploy to staging" --after 3 --step "Deploy => npm run deploy -- --env staging"
+    workriver task add u1 --kind gate --gate test --title "Try it on a phone" --after 3 --step "Open the app, mention someone"
+
+The user submits the result in the browser. **You will see:** "… finished gate …: done" (to
+the agent waiting behind it, or you): go on. "found a problem": its findings are decided first.
+
+**A chore** is something the user should do that blocks nobody:
+
+    workriver chore add --title "Rotate the staging key" [--unit u1] --step "Open the console => open https://example.com"
+    workriver chore add --project <path or name> --title "Renew the certificate"    # no intent
+
+It prints the chore's id (`c1`).
+
+**Refusals:** "only the user does this (gate.submitted)" / "(chore.done)": results and
+ticking off are the user's.

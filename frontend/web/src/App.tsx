@@ -242,6 +242,8 @@ export default function App() {
                   <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} />
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}
+                {/* Rebased onto a new branch, or renamed: the same unit, said quietly. */}
+                {(unit.previously?.length ?? 0) > 0 && <p className="mt-0.5 font-mono text-xs text-ink-2">{t('unit.previously', { branches: unit.previously!.join(t('list.sep')) })}</p>}
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>

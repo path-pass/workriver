@@ -76,15 +76,29 @@ preview table and waits for your yes, then adds them in the file's order with
 ## 4. Give each workspace a manager
 
 A Herdr workspace runs one or more intents; its manager agent plans and hands out their
-work. In each workspace, start a coding agent as its manager and give it the manager skill
-from `skills/workriver-manager/`:
+work. In each workspace, start a coding agent as its manager and give it the skills.
 
-- **Claude Code**: link the folder into your skills, for one project or for all:
-  `ln -s "$PWD/skills/workriver-manager" <project>/.claude/skills/workriver-manager`, or
-  `ln -s "$PWD/skills/workriver-manager" ~/.claude/skills/workriver-manager`.
-- **Codex**: the same into `<project>/.agents/skills/` or `~/.agents/skills/`.
-- **Any other harness**: run `workriver guide manager` and paste the text into its first
-  message.
+Install **stubs**, once: small skill files that send the agent to `workriver guide …`, which
+always matches the installed `workriver`. A copy of the real skill files goes stale with
+every update, and a manager following an old copy does not know the commands that exist.
+
+```sh
+for s in manager howto import; do
+  mkdir -p ~/.claude/skills/workriver-$s          # Codex: ~/.agents/skills/workriver-$s
+  workriver guide install-stub $s > ~/.claude/skills/workriver-$s/SKILL.md
+done
+```
+
+(Per project: `<project>/.claude/skills/` or `<project>/.agents/skills/`. On a machine that
+has this repository, linking works too and stays current with `git pull`:
+`ln -s "$PWD/skills/workriver-manager" ~/.claude/skills/workriver-manager`, and the same for
+`workriver-howto` and `workriver-backlog-import`.) Any other harness: have the agent run
+`workriver guide manager` first.
+
+The skills are three: the manager's role (`workriver guide manager`, short), recipes for
+each situation (`workriver guide how`, an index, and `workriver guide how <topic>`), and
+importing a backlog (`workriver guide import`). After an update, a manager that was already
+running is told once to read `workriver guide changes`.
 
 Then tell it, for example: "You are the workriver manager of this workspace. Start the
 first intent of the roadmap, plan units and tasks, and hand them to worker agents." On the
@@ -121,8 +135,11 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
 A commit on the unit's branch without a `Task:` line shows as unregistered, a gap to close.
-Reviews and tests are tasks of their own; their findings wait in **Needs you** on the page.
-Accept, revise, reject or defer each one there. Deferred ones wait in the **Backlog**
+Reviews and tests are tasks of their own. Their findings are decided by the intent's
+manager by default (shown with a robot mark; you can change any decision on the page, or
+keep the deciding to yourself per intent: "Findings decided by" in the rail, or `workriver
+intent set i1 --findings user`). Findings that are yours wait in **Needs you**: accept,
+revise, reject or defer each one there. Deferred ones wait in the **Backlog**
 panel; tick several and "Do together" sends them to the intent's manager as one message,
 which turns them into one cleanup unit. Your decision and your gate results go to the right
 agent through Herdr (an accepted finding to the manager, which hands out the work); the
@@ -172,7 +189,13 @@ or pick it in Settings. A unit is recorded where its work happens: an agent over
 records it there as usual; a manager on this machine names the machine, with the path and
 branch as they are there (`workriver unit add --machine box --repo /home/me/app --branch
 queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
---machine box --repo … --branch …`. For a unit over there,
+--machine box --repo … --branch …`. The same command follows a branch that was renamed, or
+rebased onto a new branch (`workriver unit move u1 --branch queue-2 [--base main-2]`): the
+unit, its tasks and findings stay, its commits are read from the new branch, the page says
+"previously on queue", and a task whose commits stayed on the old branch says so. A commit
+made without its `Task:` trailer is linked to its task afterwards, by its agent, the
+manager or you: `workriver commit link <hash> u1#3`, or the "It belongs to task" select on
+the unregistered node; the link follows the commit through a rebase. For a unit over there,
 workriver reads its commits with git over ssh, every 15 seconds. Screenshots attached
 there are uploaded through the connection; messages to agents there link to them
 (`http://127.0.0.1:47820/api/attachments/…`). The terminal button focuses the pane in that

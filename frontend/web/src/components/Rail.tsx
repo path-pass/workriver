@@ -164,9 +164,8 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
               value={intent.findings}
               onChange={e => { record('intent.updated', { intent: intent.id, findings: e.target.value }).catch(err => console.warn(err)) }}
             >
-              <option value="user">{t('rail.findingsBy.user')}</option>
               <option value="manager">{t('rail.findingsBy.manager')}</option>
-              <option value="manager-except-p1">{t('rail.findingsBy.managerExceptP1')}</option>
+              <option value="user">{t('rail.findingsBy.user')}</option>
             </select>
           </label>
         )}

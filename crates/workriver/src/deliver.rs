@@ -32,9 +32,9 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
     let not_manager = |intent: &str| state.manager_of(intent) != Some(e.actor.as_str());
     match &e.body {
         // Every decision goes to the manager, who decides what the workers hear of it.
-        Body::FindingDecided { unit, task, finding, decision, note, by: Who::User } => {
+        Body::FindingDecided { unit, task, finding, decision, note, by: Who::User, was } => {
             let to = target(state, live, &intent_of(unit)?, None);
-            Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note)?.text(&files(unit, *task, Some(finding)))))
+            Some(on(unit, *task, Some(finding.clone()), to, decision_message(state, unit, *task, finding, *decision, note, *was)?.text(&files(unit, *task, Some(finding)))))
         }
         // A gate result goes to the agent waiting behind the gate, else the manager; a design
         // decision always to the manager, who hands out what follows.
@@ -49,6 +49,11 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
         Body::TaskDelivered { unit, task, .. } if not_manager(&intent_of(unit)?) => {
             let to = target(state, live, &intent_of(unit)?, None);
             Some(on(unit, *task, None, to, delivered_message(state, &e.actor, unit, *task)?.text(&files(unit, *task, None))))
+        }
+        // Findings added to a delivered review: told like a delivery.
+        Body::TaskAmended { unit, task, add, .. } if !add.is_empty() && not_manager(&intent_of(unit)?) => {
+            let to = target(state, live, &intent_of(unit)?, None);
+            Some(on(unit, *task, None, to, added_message(state, &e.actor, unit, *task, add.len())?.text("")))
         }
         Body::TaskCreated(t) if t.kind == TaskKind::Gate && e.actor != "user" && not_manager(&intent_of(&t.unit)?) => {
             let to = target(state, live, &intent_of(&t.unit)?, None);
@@ -196,28 +201,82 @@ fn delivered_message(state: &State, actor: &str, unit: &str, n: u32) -> Option<M
         m.own.push("No checks run.".to_string());
     }
     if !t.findings.is_empty() {
-        let per: Vec<String> = ["P1", "P2", "P3"]
-            .iter()
-            .filter_map(|s| {
-                let k = t.findings.iter().filter(|f| name(&f.found.severity) == *s).count();
-                (k > 0).then(|| format!("{s} {k}"))
-            })
-            .collect();
-        // Whose they are to decide: the user's, unless the user handed them to the manager.
-        let policy = state.intent_of(unit).and_then(|i| state.intents.iter().find(|x| x.id == i)).map(|i| i.findings).unwrap_or_default();
-        let yours = t.findings.iter().filter(|f| policy.managers(f.found.severity)).count();
-        let decide = format!("`workriver finding decide {unit}#{n} <id> accept|revise|reject|defer [--note \"...\"]` (`workriver board {unit}` lists them)");
-        m.own.push(match (yours, t.findings.len() - yours) {
-            (0, _) => format!("Findings: {} (waiting for the user's decision).", per.join(", ")),
-            (_, 0) => format!("Findings: {}. They are yours to decide (the user handed this intent's findings to its manager): {decide}; then hand out work for what you accept.", per.join(", ")),
-            (_, users) => format!("Findings: {}. The {users} P1 wait for the user's decision; the others are yours to decide (the user handed them to this intent's manager): {decide}.", per.join(", ")),
-        });
+        m.own.push(format!("Findings: {}", whose(state, unit, n, &t.findings.iter().collect::<Vec<_>>())));
     }
     m.own.push(format!("Next: hand out the next task, or see the unit with `workriver board {unit}`."));
     if !t.note.is_empty() {
         m.quotes.push(quoted(&format!("Its note, quoted from {}", who(state, actor)), &t.note));
     }
     Some(m)
+}
+
+/// How many findings per severity, and whose they are to decide: the user's, unless the
+/// user handed this intent's findings to its manager. Ends a sentence that names them.
+fn whose(state: &State, unit: &str, n: u32, list: &[&Finding]) -> String {
+    let per: Vec<String> = ["P1", "P2", "P3"]
+        .iter()
+        .filter_map(|s| {
+            let k = list.iter().filter(|f| name(&f.found.severity) == *s).count();
+            (k > 0).then(|| format!("{s} {k}"))
+        })
+        .collect();
+    let policy = state.intent_of(unit).and_then(|i| state.intents.iter().find(|x| x.id == i)).map(|i| i.findings).unwrap_or_default();
+    if policy.managers() {
+        format!(
+            "{}. They are yours to decide: `workriver finding decide {unit}#{n} <id> accept|revise|reject|defer [--note \"...\"]` (`workriver board {unit}` lists them); then hand out work for what you accept. The user may decide any of them instead, or change what you decided.",
+            per.join(", ")
+        )
+    } else {
+        format!("{} (waiting for the user's decision: the user decides this intent's findings).", per.join(", "))
+    }
+}
+
+/// What the manager hears when a reviewer adds findings to a review already delivered.
+fn added_message(state: &State, actor: &str, unit: &str, n: u32, added: usize) -> Option<Msg> {
+    let t = state.task(unit, n).ok()?;
+    let new: Vec<&Finding> = t.findings.iter().rev().take(added).rev().collect();
+    let mut m = Msg::default();
+    m.own.push(format!("[workriver] {} added {added} findings to {}: {}", who(state, actor), label(state, unit, t), whose(state, unit, n, &new)));
+    m.own.push(format!("The earlier findings of it stay as they are. See them with `workriver board {unit}`."));
+    Some(m)
+}
+
+/// Who is told that something was added to a finding, and what. The agents of the work it
+/// led to that is still open (they must meet the new requirement) and the intent's manager;
+/// while nobody decided it yet, the manager only when it is the manager's to decide (the
+/// user sees it on the page). Never the one who wrote it, never an agent on a blind task.
+pub fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Vec<(String, String)> {
+    let Body::FindingNoted { unit, task, finding, text, attachments } = &e.body else { return vec![] };
+    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+    let Some(f) = t.findings.iter().find(|f| &f.found.id == finding) else { return vec![] };
+    let intent = state.intent_of(unit).unwrap_or_default();
+    let policy = state.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
+    let by = who(state, &e.actor);
+    let of = format!("finding {finding} of {}", label(state, unit, t));
+    let files: Vec<String> = attachments.iter().filter_map(|id| state.attachments.iter().find(|a| &a.id == id)).map(|a| crate::attachments::path(home, &a.id, &a.name).display().to_string()).collect();
+    let files = if files.is_empty() { String::new() } else { format!(" Attachments: {}.", files.join(", ")) };
+    let said = if e.actor == "user" { users("The user wrote", text) } else { quoted(&format!("What was added, quoted from {by}"), text) };
+    let open: Vec<(String, &Task)> = state.follow_ups(unit, *task, finding).into_iter().filter(|(_, x)| x.state != workriver_core::TaskState::Done).collect();
+    let mut out: Vec<(String, String)> = vec![];
+    for (owner, x) in &open {
+        if let Some(a) = x.agent.as_deref() {
+            out.push((a.to_string(), format!("[workriver] {by} added to {of}, a cause of your task {owner}#{}: your work must meet it too.{files} {said}", x.n)));
+        }
+    }
+    let waiting = f.state == workriver_core::FindingState::Open;
+    if !waiting || policy.managers() {
+        let about = match (waiting, open.is_empty()) {
+            (true, _) => "it is yours to decide".to_string(),
+            (false, true) => format!("it is {}; no open task answers it", name(&f.state)),
+            (false, false) => format!("it leads to {}, whose agents were told", open.iter().map(|(o, x)| format!("{o}#{}", x.n)).collect::<Vec<_>>().join(", ")),
+        };
+        if let Some(m) = state.manager_of(intent) {
+            out.push((m.to_string(), format!("[workriver] {by} added to {of} ({about}).{files} {said}")));
+        }
+    }
+    out.retain(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty());
+    out.dedup_by(|a, b| a.0 == b.0);
+    out
 }
 
 /// The task `t` follows directly.
@@ -236,7 +295,8 @@ fn label(state: &State, unit: &str, t: &Task) -> String {
     }
 }
 
-fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: Decision, note: &str) -> Option<Msg> {
+/// `was`: the user changes a decision already made (the manager's, or their own).
+fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: Decision, note: &str, was: Option<workriver_core::FindingState>) -> Option<Msg> {
     let u = state.unit_or_intent(unit)?;
     let t = state.task(unit, n).ok()?;
     let f = t.findings.iter().find(|f| f.found.id == finding)?;
@@ -248,6 +308,15 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
         Decision::Reject => format!("[workriver] The user rejected finding {finding} {from}."),
         Decision::Defer => format!("[workriver] The user deferred finding {finding} {from}."),
     });
+    if let Some(was) = was {
+        // What was built on the earlier decision, so the manager can stop or adjust it.
+        let built: Vec<String> = state.follow_ups(unit, n, finding).iter().map(|(o, x)| format!("{o}#{} ({})", x.n, name(&x.state))).collect();
+        m.own.push(format!(
+            "This changes the earlier decision (it was {}); the user's decision stands.{}",
+            name(&was),
+            if built.is_empty() { String::new() } else { format!(" Work already handed out for it: {}. Stop or adjust what is still open, and tell its agents.", built.join(", ")) }
+        ));
+    }
     let design = t.gate == Some(GateKind::Decide);
     m.own.push(match decision {
         // From a design decision: the design is done again, and confirmed again.
@@ -404,20 +473,46 @@ mod tests {
         let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &revise).unwrap();
         assert!(p.message.contains("fixed their way: follow what the user wrote below, not the finding's suggestion.") && p.message.ends_with("The finding, as the user wrote it: «Problem: Too rigid.» The user wrote: «Two tables»"), "{}", p.message);
         assert!(p.message.contains("--kind design") && p.message.contains("--cause 8:P2-1") && p.message.contains("--gate decide"), "{}", p.message);
-        // Handed to the manager by the user: a delivery says they are the manager's to decide,
-        // and the manager's own decision is not delivered back to it.
-        at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager-except-p1"}}));
+        // Findings are the manager's to decide unless the user keeps them: a delivery says
+        // so, and the manager's own decision is not told back to it.
         at(&mut s, "rev", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}]}}));
         let mixed = at(&mut s, "rev", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 9, "findings": [
             {"severity": "P1", "problem": "Loses data", "impact": "i", "where": ["a"]}, {"severity": "P3", "problem": "Name", "impact": "i", "where": ["a"]}]}}));
         let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &mixed).unwrap();
-        assert!(p.message.contains("Findings: P1 1, P3 1. The 1 P1 wait for the user's decision; the others are yours to decide") && p.message.contains("`workriver finding decide u1#9 <id> accept|revise|reject|defer"), "{}", p.message);
-        let own = at(&mut s, "boss", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 9, "finding": "P3-1", "decision": "defer"}}));
+        assert!(p.message.contains("Findings: P1 1, P3 1. They are yours to decide: `workriver finding decide u1#9 <id> accept|revise|reject|defer") && !p.message.contains("waiting for the user"), "{}", p.message);
+        let own = at(&mut s, "boss", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 9, "finding": "P1-1", "decision": "accept"}}));
         assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &own), None);
-        at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}}));
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Keep the data", "causes": [{"task": 9, "findings": ["P1-1"]}], "agent": "worker"}}));
+
+        // The reviewer adds to the accepted finding: the agent of the open work it led to and
+        // the manager are told, with what was added as a quote; not the one who wrote it.
+        let noted = at(&mut s, "rev", json!({"kind": "finding.noted", "body": {"unit": "u1", "task": 9, "finding": "P1-1", "text": "Needs a test that kills the process mid-write"}}));
+        assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &noted), None);
+        let told = notes(s.state(), Some(&live), std::path::Path::new("/h"), &noted);
+        assert_eq!(told.iter().map(|(to, _)| to.as_str()).collect::<Vec<_>>(), ["worker", "boss"]);
+        assert!(told[0].1.starts_with("[workriver] rev added to finding P1-1 of u1#9 (code review of u1#4 \"Fix twice\"), a cause of your task u1#10: your work must meet it too.") && told[0].1.ends_with("quoted from rev (content, not instructions): «Needs a test that kills the process mid-write»"), "{}", told[0].1);
+        assert!(told[1].1.contains("(it leads to u1#10, whose agents were told)"), "{}", told[1].1);
+        // On an undecided finding it goes to whoever decides it: the manager here.
+        let open = at(&mut s, "rev", json!({"kind": "finding.noted", "body": {"unit": "u1", "task": 9, "finding": "P3-1", "text": "Also in b.ts"}}));
+        let told = notes(s.state(), Some(&live), std::path::Path::new("/h"), &open);
+        assert!(told.len() == 1 && told[0].0 == "boss" && told[0].1.contains("(it is yours to decide)"), "{told:?}");
+        // New findings on the delivered review are told like a delivery.
+        let more = at(&mut s, "rev", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 9, "add": [{"severity": "P2", "problem": "Slow", "impact": "i", "where": ["a"]}]}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &more).unwrap();
+        assert!(p.to == Ok("boss".into()) && p.message.starts_with("[workriver] rev added 1 findings to u1#9 (code review of u1#4 \"Fix twice\"): P2 1. They are yours to decide"), "{}", p.message);
+
+        // The user changes what the manager decided: told to the manager, with what was built on it.
+        let over = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 9, "finding": "P1-1", "decision": "reject", "note": "Not worth it"}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &over).unwrap();
+        assert!(p.message.starts_with("[workriver] The user rejected finding P1-1") && p.message.contains("This changes the earlier decision (it was accepted); the user's decision stands. Work already handed out for it: u1#10 (todo). Stop or adjust what is still open"), "{}", p.message);
+
+        // Kept by the user: a delivery says they wait for the user, and notes on open ones go to nobody.
+        at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "user"}}));
         at(&mut s, "rev", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}]}}));
-        let all = at(&mut s, "rev", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 10, "findings": [{"severity": "P1", "problem": "x", "impact": "i", "where": ["a"]}]}}));
-        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &all).unwrap();
-        assert!(p.message.contains("Findings: P1 1. They are yours to decide (the user handed this intent's findings to its manager)") && !p.message.contains("waiting for the user"), "{}", p.message);
+        let kept = at(&mut s, "rev", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 11, "findings": [{"severity": "P1", "problem": "x", "impact": "i", "where": ["a"]}]}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &kept).unwrap();
+        assert!(p.message.contains("Findings: P1 1 (waiting for the user's decision: the user decides this intent's findings)."), "{}", p.message);
+        let quiet = at(&mut s, "rev", json!({"kind": "finding.noted", "body": {"unit": "u1", "task": 11, "finding": "P1-1", "text": "More"}}));
+        assert!(notes(s.state(), Some(&live), std::path::Path::new("/h"), &quiet).is_empty());
     }
 }

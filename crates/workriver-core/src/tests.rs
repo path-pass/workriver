@@ -67,7 +67,7 @@ fn rules_reject_bad_input() {
     rejects(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}), "is done, not todo");
     // Decisions only on open findings.
     s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "by": "user"}}))).unwrap();
-    let err = s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}})));
+    let err = s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "by": "user"}})));
     assert!(err.unwrap_err().to_string().contains("already rejected"));
     let err = s.append(&"user".into(), body(json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "done"}}))).unwrap_err().to_string();
     assert!(err.contains("not a waiting gate"), "{err}");
@@ -128,7 +128,7 @@ fn corrections_after_delivery() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.id, "P1-1");
     s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
     let late = s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
-    assert!(late.contains("already decided") && late.contains("new review or tests task"), "{late}");
+    assert!(late.contains("already decided") && late.contains("--amend --add-findings"), "{late}");
     // The goal: the user or the intent's manager only.
     let other = s.append(&"agent-b".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
     assert!(other.contains("only the user or the manager"), "{other}");
@@ -230,7 +230,7 @@ fn intent_states_and_workspaces() {
     assert_eq!((st.manager_of("i1"), st.manager_of("i2")), (Some("boss"), Some("boss")), "both active intents have the workspace's manager");
     // Done: no longer current, no new units; done cannot start again; dropping needs a reason.
     add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "done"}})).unwrap();
-    assert!(s.state().intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).is_none());
+    assert_eq!(s.state().intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).map(|i| i.id.as_str()), Some("i1"), "the other active intent there is current again");
     let e = add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "x", "repo": "/r", "branch": "b", "base": "main"}})).unwrap_err();
     assert!(e.contains("is done"), "{e}");
     let e = add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": w1}})).unwrap_err();
@@ -408,16 +408,27 @@ fn only_the_user_does_what_is_the_users() {
     let e = add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
     assert_eq!(e.body, body(json!({"kind": "manager.registered", "body": {"agent": "agent-a", "workspace": w}})));
     add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
-    // Findings are the user's to decide, until the user (nobody else) hands them to the
-    // intent's manager; its decisions are an agent's, whatever it claims.
-    let decide = json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}});
-    assert!(add(&mut s, "agent-a", decide.clone()).unwrap_err().contains("is the user's to decide (intent i1: findings user)"));
-    assert!(add(&mut s, "agent-a", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}})).unwrap_err().contains("only the user says who decides"));
+    // The intent's manager decides findings unless the user keeps them (nobody else says
+    // which); no other agent ever does; and what an agent decides is an agent's decision.
+    let decide = |d: &str| json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": d, "by": "user"}});
+    assert_eq!(s.state().intent("i1").unwrap().findings, FindingsPolicy::Manager, "the default, for records from before too");
+    assert!(add(&mut s, "agent-b", decide("accept")).unwrap_err().contains("for the manager of intent i1"));
+    assert!(add(&mut s, "agent-a", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "user"}})).unwrap_err().contains("only the user says who decides"));
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "user"}})).unwrap();
+    assert!(add(&mut s, "agent-a", decide("accept")).unwrap_err().contains("is the user's to decide (intent i1: findings user)"));
+    // The policy by severity is gone (severity is the reviewer's own word): its records are the stricter one.
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager-except-p1"}})).unwrap();
+    assert_eq!(replayed(&s).intent("i1").unwrap().findings, FindingsPolicy::User);
     add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}})).unwrap();
-    assert!(add(&mut s, "agent-b", decide.clone()).unwrap_err().contains("for the manager of intent i1"));
-    let e = add(&mut s, "agent-a", decide).unwrap();
-    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "agent"}})));
-    assert_eq!(replayed(&s).intent("i1").unwrap().findings, FindingsPolicy::Manager);
+    let e = add(&mut s, "agent-a", decide("reject")).unwrap();
+    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "reject", "by": "agent"}})));
+    // A decision is made once, except by the user, who may change the manager's (or their own).
+    assert!(add(&mut s, "agent-a", decide("accept")).unwrap_err().contains("only the user changes a decision"));
+    let over = add(&mut s, "user", decide("accept")).unwrap();
+    assert_eq!(over.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user", "was": "rejected"}})));
+    assert!(add(&mut s, "user", decide("accept")).unwrap_err().contains("already accepted"));
+    let f = replayed(&s).task("u1", 2).unwrap().findings[0].clone();
+    assert_eq!((f.state, f.decided_by), (FindingState::Accepted, Some(Who::User)));
     // The user does all of it.
     for v in theirs {
         add(&mut s, "user", v).unwrap();
@@ -505,4 +516,46 @@ fn units_are_where_the_work_is() {
     assert!(add(&mut s, "boss", json!({"kind": "chore.created", "body": {"project": "/p", "unit": "u1", "title": "x"}})).is_err(), "a unit's chore is its intent's");
     let c = &replayed(&s).chores;
     assert_eq!(c.iter().map(|c| (c.intent.as_str(), c.project.as_str())).collect::<Vec<_>>(), [("i1", ""), ("", "/p"), ("", "")]);
+}
+
+/// After a review is delivered and its findings decided, its reviewer can still add to a
+/// finding (never rewriting it) and add new findings, numbered after the ones there.
+#[test]
+fn findings_grow_after_they_are_decided() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    add(&mut s, "agent-b", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "agent-b", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "findings": [{"severity": "P1", "problem": "Bypass", "impact": "Anyone gets in", "where": ["auth.rs"]}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "accept"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Close the bypass", "causes": [{"task": 3, "findings": ["P1-1"]}], "agent": "fixer"}})).unwrap();
+
+    // A note: by its reviewer, the manager or the user; not by anyone else; never empty.
+    let note = |text: &str| json!({"kind": "finding.noted", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "text": text}});
+    assert!(add(&mut s, "fixer", note("I would rather not")).unwrap_err().contains("the agent that delivered it, the manager of its intent, or the user"));
+    assert!(add(&mut s, "agent-b", note(" ")).unwrap_err().contains("a note needs its text"));
+    assert!(add(&mut s, "agent-b", json!({"kind": "finding.noted", "body": {"unit": "u1", "task": 3, "finding": "P9-9", "text": "x"}})).unwrap_err().contains("no finding P9-9"));
+    add(&mut s, "agent-b", note("The fix needs a test with an expired token")).unwrap();
+    add(&mut s, "boss", note("Agreed, and one for a revoked token")).unwrap();
+    add(&mut s, "user", note("Do both")).unwrap();
+    let st = replayed(&s);
+    let f = &st.task("u1", 3).unwrap().findings[0];
+    assert_eq!((f.found.problem.as_str(), f.state), ("Bypass", FindingState::Accepted), "the finding itself is as reported");
+    assert_eq!(f.notes.iter().map(|n| (n.by.as_str(), n.text.as_str())).collect::<Vec<_>>(), [("agent-b", "The fix needs a test with an expired token"), ("boss", "Agreed, and one for a revoked token"), ("user", "Do both")]);
+    assert_eq!(st.follow_ups("u1", 3, "P1-1").iter().map(|(u, t)| (u.as_str(), t.n)).collect::<Vec<_>>(), [("u1", 4)]);
+
+    // More findings: replacing is refused once any is decided, adding is not, and they are
+    // numbered after the ones there, per severity; by the reviewer or the user only.
+    let more = json!({"kind": "task.amended", "body": {"unit": "u1", "task": 3, "add": [
+        {"severity": "P1", "problem": "Second bypass", "impact": "i", "where": ["a"]}, {"severity": "P3", "problem": "Name", "impact": "i", "where": ["a"]}, {"severity": "P1", "problem": "Third", "impact": "i", "where": ["a"]}]}});
+    assert!(add(&mut s, "boss", more.clone()).unwrap_err().contains("added by the agent that delivered it"));
+    assert!(add(&mut s, "agent-b", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 3, "add": [{"severity": "P2", "problem": "No where"}]}})).is_err());
+    add(&mut s, "agent-b", more).unwrap();
+    let st = replayed(&s);
+    let t = st.task("u1", 3).unwrap();
+    assert_eq!(t.findings.iter().map(|f| (f.found.id.as_str(), f.state)).collect::<Vec<_>>(), [("P1-1", FindingState::Accepted), ("P1-2", FindingState::Open), ("P3-1", FindingState::Open), ("P1-3", FindingState::Open)]);
+    assert_eq!(t.findings[0].notes.len(), 3, "what was there is untouched");
+    // A blind agent sees none of it.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "1"}], "agent": "sec", "blind": true}})).unwrap();
+    assert!(!serde_json::to_string(&s.state().blind_view("sec").unwrap()).unwrap().contains("expired token"));
 }

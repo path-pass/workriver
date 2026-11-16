@@ -161,6 +161,52 @@ pub fn commit_list(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result
     Ok(git(at, repo, &["rev-list", "--reverse", "--first-parent", &range, "--"])?.lines().map(str::to_string).collect())
 }
 
+/// A commit as it is named and what it says, without its content.
+#[derive(Serialize, Clone, PartialEq, Debug)]
+pub struct Named {
+    pub hash: String,
+    pub subject: String,
+    /// ISO 8601 with offset: the author's date, which a rebase keeps.
+    pub date: String,
+    /// The value of a `Task:` trailer.
+    pub task: Option<String>,
+}
+
+/// The commits on `branch` since `base`, oldest first, by name only: one git call.
+pub fn names(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<Named>> {
+    if !has_rev(at, repo, branch) {
+        return Ok(vec![]);
+    }
+    let fmt = "--format=%H%x00%aI%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
+    let out = git(at, repo, &["log", "--reverse", "--first-parent", fmt, &format!("{base}..{branch}"), "--"])?;
+    Ok(out
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.splitn(4, '\0').collect();
+            let [hash, date, task, subject] = f[..] else { return None };
+            let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+            Some(Named { hash: hash.into(), subject: subject.into(), date: date.into(), task })
+        })
+        .collect())
+}
+
+/// The full hash `rev` names in `repo`; an error if it names no commit.
+pub fn resolve(at: &Runner, repo: &Path, rev: &str) -> Result<String> {
+    Ok(git(at, repo, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])?.trim().to_string())
+}
+
+/// A commit's patch id (`git patch-id --stable`): the same for the same change after a
+/// rebase, when its hash is another. Empty for a commit that changes nothing.
+pub fn patch_id(at: &Runner, repo: &Path, hash: &str) -> Result<String> {
+    // Two gits and a pipe: through a shell, here as over ssh. The arguments are quoted.
+    let script = format!("git --no-optional-locks -C {} show --format= {} -- | git patch-id --stable", quote(&repo.to_string_lossy()), quote(hash));
+    let out = at.command(&["sh", "-c", &script]).output()?;
+    if !out.status.success() {
+        return Err(Error::Git(format!("git patch-id of {hash} in {}: {}", repo.display(), String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or_default().to_string())
+}
+
 /// One commit with its files' text before and after. Binary and very large files are left out.
 pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
     let fmt = "--format=%h%x00%an%x00%aI%x00%P%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";

@@ -93,8 +93,8 @@ export interface Intent {
   goal?: string;
   /** Absent in the sample: active. */
   state?: IntentState;
-  /** Who decides its open findings: the user (default), or its manager, handed over by the user. */
-  findings?: 'user' | 'manager' | 'manager-except-p1';
+  /** Who decides its open findings: its manager (the default), or only the user. */
+  findings?: 'user' | 'manager';
   /** Its project's folder (a `Project.id`); empty when nothing says. */
   project?: string;
   /** More about it; may hold links. */
@@ -219,6 +219,8 @@ export interface Unit {
   machine?: string;
   /** The branch the work happens on; null once merged. */
   branch: string | null;
+  /** The branches its work was on before (a rebase onto a new branch, a rename). */
+  previously?: string[];
   status: UnitStatus;
   /** The work handed out, as a graph. Empty for units that predate recording. */
   tasks: Task[];
@@ -288,8 +290,12 @@ export interface Finding {
   since?: string;
   /** Dropped: why. */
   reason?: string;
-  /** While open: 'manager' when the user handed it to the intent's manager to decide. */
+  /** While open: 'manager' when it is the intent's manager's to decide (and one is running). */
   decider?: 'manager';
+  /** While open: it would be the manager's, but none is registered or running: it falls to the user. */
+  noManager?: boolean;
+  /** What was added to it since it was reported, oldest first. */
+  notes?: { by: string; at: string; text: string; attachments?: Attachment[] }[];
 }
 
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */
@@ -353,6 +359,8 @@ export interface Task {
   research?: boolean;
   /** Done without seeing other work (notes, evidence, other findings): an independent view. */
   blind?: boolean;
+  /** It has no commits on the unit's branch now, but had these on a branch the unit left. */
+  lostCommits?: string[];
   /** Waiting gates: the latest conclusion about it or the work it follows, to start the note from. */
   draft?: string;
   /** Review nodes only. */
@@ -448,6 +456,8 @@ export interface Commit {
   date: string;
   author: string;
   live: boolean;
+  /** It belongs to its task because someone linked it, not by its own `Task:` trailer. */
+  linked?: boolean;
   files: FileChange[];
 }
 

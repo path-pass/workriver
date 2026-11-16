@@ -246,10 +246,27 @@ row of the inbox. Picking a
 finding lights the review and the nodes it led to.
 
 Who decides an intent's findings is the user's choice: a small select in the intent's open
-group in the rail ("Findings decided by: me / the manager / the manager, P1 by me"). A
-finding handed to the manager stays open on its review, in quiet ink with a small crown and
-"The manager decides", and does not count in the violet marks or in Needs you: violet means
-waiting for the user. The user can still decide it.
+group in the rail ("Findings decided by: the manager / only me"; the manager by default).
+There is no choice by severity: severity is the reviewer's own rating, so it would only look
+like a control. A finding that is the manager's to decide stays open on its review, in quiet
+ink with a small crown and "The manager decides", and does not count in the violet marks or
+in Needs you: violet means waiting for the user. With no manager running it falls to the
+user: it reads "No manager running: yours to decide" in violet and counts. The user can
+always decide it, and can change what the manager decided: under a finding with the robot
+mark, the details offer the decision again ("Decided by the manager. You can decide
+differently").
+
+A unit whose branch was renamed or rebased onto a new one is the same unit: under its name
+the header says, quietly and in mono, "previously on <branch>". A task whose commits were
+only on a branch the unit left says "Its commits are not on the current branch: <hashes>"
+where it would say it has none. A commit that names no task is a gap (an unregistered node);
+its detail has a small select, "It belongs to task", that links it by hand; a commit linked
+that way says "linked by hand" after its stats.
+
+What is added to a finding after it was reported (a requirement for the fix, a detail) is
+never merged into its text: the row shows a small "+n", and its details list each addition
+with its author's mark and time. The same list shows with the finding where it is a cause
+of other work, since that work must meet it.
 
 A review done blind (its agent saw nothing of other work until it delivered) carries a small
 neutral "eye crossed out" mark: at the top left of its node, in its detail header with the

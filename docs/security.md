@@ -8,6 +8,10 @@ decisions into their terminals, so the question it must answer is: **was that re
 - **You** are whoever holds the *user token*: a file only your account can read,
   `~/workriver-data/user-token` (made at the first start, mode 600).
   - The CLI sends it when you run a command from a terminal that is not an agent's pane.
+    In an agent's pane the CLI says which pane it runs in, and the service then treats the
+    command as that agent's, token or not: a manager that runs `workriver machine add` is
+    refused. (This holds for the `workriver` CLI; see the limits below for a program that
+    sets out to get around it.)
   - The web UI gets a session for it: `workriver open` hands the browser a link that
     works once and for five minutes, without showing it (nothing that signs in is ever
     printed by the service either: Herdr panes can be read by agents; run `workriver open`,
@@ -31,8 +35,16 @@ Decide findings as the user, submit gates, finish chores, do deferred findings t
 drop them, end a conversation, focus a terminal from the page, add projects, add or enable
 machines, link workspaces. The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
-defence. An agent may still decide a finding where it could before; it is recorded as the
-agent's decision and is never told to anyone as yours.
+defence.
+
+Findings are the exception by design: by default the intent's **manager decides them**, so
+that work does not wait for you. The trade-off, plainly: a manager that is compromised or
+simply wrong can accept or reject findings. What limits it: only the manager of that intent
+can (no other agent ever), its decisions are recorded as an agent's and shown with a robot
+mark, never told to anyone as yours, and you can change any of them, which the manager is
+told. To decide everything yourself for an intent, set "Findings decided by: only me"
+(`workriver intent set <intent> --findings user`). There is no rule by severity: a
+finding's severity is its reviewer's own rating, not a control.
 
 ## What agents are told
 

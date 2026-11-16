@@ -138,6 +138,9 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
         for id in &c.findings {
             if let Some(f) = state.task(&q.unit, c.task).ok().and_then(|x| x.findings.iter().find(|f| &f.found.id == id)) {
                 records.push(format!("It answers finding {id} of {}#{}: {} If left: {} Where: {}.", q.unit, c.task, f.found.problem, f.found.impact, f.found.r#where.join(", ")));
+                for n in &f.notes {
+                    records.push(format!("Added to finding {id} by {} later: {}", named(state, &n.by), n.text));
+                }
             }
         }
     }
@@ -149,6 +152,9 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
     }
     for f in &t.findings {
         records.push(format!("Finding {} ({}, {}): {} If left: {} Where: {}.", f.found.id, name(&f.found.severity), name(&f.state), f.found.problem, f.found.impact, f.found.r#where.join(", ")));
+        for n in &f.notes {
+            records.push(format!("Added to finding {} by {} later: {}", f.found.id, named(state, &n.by), n.text));
+        }
     }
     for (id, subject) in commits {
         records.push(format!("Commit {id}: {subject}"));

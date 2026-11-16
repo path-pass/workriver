@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
+import { record } from '@/runtime'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
@@ -309,6 +310,26 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
 
 // ---- what went into the picked piece of work and what came out of it ----
 
+/** What was added to a finding after it was reported: who, when, what; oldest first. */
+function FindingNotes({ f, id = false }: { f: Finding; id?: boolean }) {
+  const { t, when } = useT()
+  if (!f.notes?.length) return null
+  return (
+    <ul className="mt-1.5 flex flex-col gap-1 text-xs">
+      {f.notes.map((n, k) => (
+        <li key={k} className="flex items-start gap-1.5">
+          <Who name={n.by} />
+          <span className="min-w-0">
+            <span className="text-ink-2">{id && <span className="font-mono font-semibold">{f.id} </span>}{t('finding.noted', { by: n.by })} · {when(ms(n.at))}</span>
+            <span className="block whitespace-pre-line wrap-anywhere">{n.text}</span>
+            <Thumbs list={n.attachments ?? []} />
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /** One finding of the picked review: a line to scan, its details behind the chevron. */
 function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: Task; f: Finding; picked: boolean; onSelect: () => void; onPick: (id: string) => void }) {
   const { t } = useT()
@@ -326,6 +347,12 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
           <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
           <span className={cn('truncate group-data-[state=open]:whitespace-normal', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')}>{f.problem}</span>
         </button>
+        {/* What was added to it since: a small count; the additions are in its details. */}
+        {(f.notes?.length ?? 0) > 0 && (
+          <Tip text={t('finding.notes', { count: f.notes!.length })}>
+            <span className="flex h-7 flex-none items-center gap-0.5 text-xs text-ink-2"><Icon name="plus" className="size-3" /><span aria-hidden>{f.notes!.length}</span><span className="sr-only">{t('finding.notes', { count: f.notes!.length })}</span></span>
+          </Tip>
+        )}
         {f.decidedBy === 'agent' && (
           <span className="flex h-7 items-center text-ink-2"><Mark name="agent" label={t('finding.byAgent')} /></span>
         )}
@@ -351,7 +378,9 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
             {(f.state === 'deferred' || f.state === 'scheduled') && <Icon name="later" className="size-3.5" />}
             {suggests && <span className="text-ink-2 max-[700px]:hidden">{suggests} ·</span>}
             {/* Handed to the intent's manager by the user: open, but not waiting for the user. */}
-            {f.state === 'open' && f.decider === 'manager' ? <><Icon name="manager" className="size-3.5" />{t('finding.managerDecides')}</> : t(`finding.${f.state}`)}
+            {f.state === 'open' && f.decider === 'manager' ? <><Icon name="manager" className="size-3.5" />{t('finding.managerDecides')}</>
+              : f.state === 'open' && f.noManager ? t('finding.noManager')
+              : t(`finding.${f.state}`)}
           </span>
         )}
       </div>
@@ -361,7 +390,15 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span>{f.impact}</div>}
         {f.evidence.length > 0 && <div><span className="text-ink-2">{t('io.field', { name: t('io.evidence') })}</span><span className="font-mono">{f.evidence.join(t('list.sep'))}</span></div>}
         <Thumbs list={f.attachments ?? []} />
+        <FindingNotes f={f} />
         {f.state === 'open' ? <Decide unit={unit} task={n} f={f} /> : act.delivery[findingKey(unit, n, f)] || f.delivery ? <Decided unit={unit} task={n} f={f} /> : null}
+        {/* The manager's decision stands until the user makes another: theirs overrides it. */}
+        {f.decidedBy === 'agent' && ['accepted', 'revised', 'rejected', 'deferred'].includes(f.state) && (
+          <div className="mt-2">
+            <span className="text-ink-2">{t('finding.override')}</span>
+            <Decide unit={unit} task={n} f={f} />
+          </div>
+        )}
       </CollapsibleContent>
     </Collapsible>
   )
@@ -456,6 +493,20 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     input = <>
       <div>{n.input.text || n.title}</div>
       {n.state === 'unregistered' && quiet(t('io.unknownInput'))}
+      {/* The gap is closed by saying which task the commit belongs to; nothing is rewritten. */}
+      {n.state === 'unregistered' && n.output.commits?.[0] && (
+        <label className="mt-2 flex items-center gap-2 text-xs">
+          {t('io.linkTo')}
+          <select
+            className="min-w-0 rounded-sm border border-line bg-surface px-1 py-0.5"
+            value=""
+            onChange={e => { if (e.target.value) record('commit.linked', { unit: unit.id, hash: n.output.commits![0], task: Number(e.target.value) }).catch(err => console.warn(err)) }}
+          >
+            <option value="" disabled>…</option>
+            {unit.tasks.filter(x => x.taskId && x.kind !== 'gate').map(x => <option key={x.id} value={x.id}>#{x.taskId} {x.title || finderLabel(t, x)}</option>)}
+          </select>
+        </label>
+      )}
       {causes.length > 0 && (
         <div className="mt-2">
           <h4 className="text-xs text-ink-2">{t('finding.causes')}</h4>
@@ -467,6 +518,8 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
               <span className="min-w-0">{f.problem}</span>
             </button>
           ))}
+          {/* What was added to those findings later is part of what this work must meet. */}
+          {causes.map(({ by, f }) => <FindingNotes key={by.id + f.id} f={f} id />)}
           <Thumbs list={causes.flatMap(c => c.f.attachments ?? [])} />
         </div>
       )}
@@ -479,10 +532,11 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             return (
               <div key={c.id}>
                 {c.live ? t('io.uncommitted') : c.subject}
-                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}</span>
+                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}{c.linked && ` · ${t('io.linked')}`}</span>
               </div>
             )
           })
+        : (n.lostCommits?.length ?? 0) > 0 ? quiet(t('io.lostCommits', { commits: n.lostCommits!.join(t('list.sep')) }))
         : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
       {n.output.note && <div className="mt-1">{n.output.note}</div>}
       <Thumbs list={n.output.attachments ?? []} />

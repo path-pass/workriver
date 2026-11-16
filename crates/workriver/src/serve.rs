@@ -63,7 +63,12 @@ pub struct App {
     auth: Auth,
     /// A caller may name the agent it records as (`--as`): for tests and development only.
     allow_as: bool,
+    /// Held while the list of managers told of this build is read and written.
+    told: Mutex<()>,
 }
+
+/// This build of the service, as `workriver status` and the guides name it.
+pub const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER_COMMIT"), ")");
 
 /// What a request was found to be, before any handler sees it.
 #[derive(Clone)]
@@ -74,6 +79,9 @@ struct Caller {
     /// It carries the user token, or a session of the page from our own origin. Never on a
     /// machine's listener: a caller on another machine is never the user.
     user: bool,
+    /// The Herdr pane the CLI says it runs in, if any: with an agent there it is that
+    /// agent's command and never the user's, token or not.
+    place: Option<String>,
 }
 
 /// What else the daemon is started with.
@@ -153,6 +161,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     let app = Arc::new(App {
         auth,
         allow_as,
+        told: Mutex::default(),
         store: Mutex::new(store),
         cache: Mutex::new(Cache::following(machines.clone())),
         machines,
@@ -417,6 +426,7 @@ impl App {
             let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(place, &e.to_string())))?;
             if let Some(a) = at.agent {
                 self.seen(&a)?;
+                self.tell_of_update(&a.session, false);
                 return Ok(Principal::Agent { session: a.session, machine: a.machine });
             }
             if machine.is_some() || !caller.user {
@@ -428,10 +438,41 @@ impl App {
 
     /// The user, or a refusal that says how to be the user.
     fn user(&self, caller: &Caller) -> Result<Principal, ApiError> {
+        // The token file can be read from an agent's pane on this machine; the CLI there says
+        // where it runs, and what runs in an agent's pane is the agent's doing.
+        if let Some(place) = caller.place.as_deref().filter(|_| caller.machine.is_none())
+            && self.runtime.locate(None, place).is_ok_and(|at| at.agent.is_some())
+        {
+            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's".into()));
+        }
         match (&caller.machine, caller.user) {
             (None, true) => Ok(Principal::User),
             (Some(m), _) => Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} is an agent of that machine, never the user"))),
             (None, false) => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
+        }
+    }
+
+    /// A manager that was at work before this build of the service is told, once, to read
+    /// what changed: the skill it follows was read from an older workriver, and nothing else
+    /// would tell it. `fresh`: it registers now, having just read this build's guide.
+    // Which manager was told of which build is kept in a small file next to the database.
+    fn tell_of_update(&self, session: &str, fresh: bool) {
+        if !fresh && !self.store.lock().unwrap().state().workspaces.iter().any(|w| w.manager.as_deref() == Some(session)) {
+            return;
+        }
+        let _one = self.told.lock().unwrap();
+        let path = self.home.join("guide-told.json");
+        let mut told: std::collections::BTreeMap<String, String> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        if told.get(session).map(String::as_str) == Some(BUILD) {
+            return;
+        }
+        let text = format!("[workriver] workriver was updated (it is now {BUILD}). Some things behave differently: run `workriver guide changes`, read it, then go on with what you were doing.");
+        // Not reached now (not running, busy at a prompt): told at its next command instead.
+        if fresh || self.send(session, &text).is_ok() {
+            told.insert(session.to_string(), BUILD.to_string());
+            if let Err(e) = serde_json::to_vec_pretty(&told).map_err(std::io::Error::other).and_then(|b| std::fs::write(&path, b)) {
+                tracing::warn!("cannot write {}: {e}", path.display());
+            }
         }
     }
 
@@ -451,6 +492,7 @@ impl App {
         let e = self.store.lock().unwrap().append(who, body)?;
         self.deliver(&e);
         match &e.body {
+            Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
             Body::QuestionAnswered { question, .. } => self.answered(question),
             Body::ThreadEnded { thread } => self.end_thread(thread),
             _ => {}
@@ -490,15 +532,43 @@ impl App {
                 Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine }
             }
             // What is not given stays as it is; `machine` is always said (the CLI sends it).
-            Body::UnitRelocated { unit, machine: named, repo, branch, base } => {
+            Body::UnitRelocated { unit, machine: named, repo, branch, base, .. } => {
                 let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
                 let machine = match named.as_deref() {
                     None => u.machine.clone(),
                     named => place(named, None),
                 };
-                let (repo, branch, base) = (if repo.is_empty() { u.repo } else { repo }, if branch.is_empty() { u.branch } else { branch }, if base.is_empty() { u.base } else { base });
+                let (repo, branch, base) = (if repo.is_empty() { u.repo.clone() } else { repo }, if branch.is_empty() { u.branch.clone() } else { branch }, if base.is_empty() { u.base.clone() } else { base });
                 let top = self.repository(machine.as_deref(), &repo, &base)?;
-                Body::UnitRelocated { unit, machine, repo: top, branch, base }
+                // What is on the place it leaves is read once, now: the old branch is not
+                // read again, and what only it had would otherwise vanish without a word.
+                let previous = match self.runner(u.machine.as_deref()) {
+                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => scan::names(&at, Path::new(&u.repo), &u.base, &u.branch)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|c| {
+                            let linked = u.links.iter().find(|l| l.hash == c.hash).map(|l| l.task);
+                            let named = c.task.as_deref().and_then(core::parse_task_ref).filter(|(x, _)| *x == u.id).map(|(_, n)| n);
+                            core::SeenCommit { task: linked.or(named), hash: c.hash, subject: c.subject }
+                        })
+                        .collect(),
+                    _ => vec![],
+                };
+                Body::UnitRelocated { unit, machine, repo: top, branch, base, previous }
+            }
+            // The commit is looked up where the unit is: it must be one of the unit's, and
+            // what a rebased copy of it will be known by is taken down.
+            Body::CommitLinked { unit, hash, task, .. } => {
+                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
+                let at = self.runner(u.machine.as_deref())?;
+                let repo = Path::new(&u.repo);
+                let full = scan::resolve(&at, repo, &hash).map_err(|_| bad(format!("no commit {hash} in {}", u.repo)))?;
+                let named = scan::names(&at, repo, &u.base, &u.branch).map_err(|e| bad(e.to_string()))?;
+                let Some(c) = named.into_iter().find(|c| c.hash == full) else {
+                    return Err(bad(format!("commit {hash} is not one of unit {unit}'s: not on branch {} since {}", u.branch, u.base)));
+                };
+                let patch_id = scan::patch_id(&at, repo, &full).unwrap_or_default();
+                Body::CommitLinked { unit, hash: full, patch_id, subject: c.subject, date: c.date, task }
             }
             // A chore of no intent belongs to a project, if one is given or can be told.
             Body::ChoreCreated { id, intent, project, unit, title, steps } if intent.is_empty() && !project.is_empty() => {
@@ -699,6 +769,18 @@ impl App {
     /// Sends the message a user's input calls for, and records how far it got.
     fn deliver(&self, e: &core::Event) {
         let live = self.live();
+        // An addition to a finding goes to several at once; it is on the page either way, so
+        // what does not arrive is only logged.
+        // ponytail: these are not followed up as "delivered / picked up" like decisions are.
+        if matches!(e.body, Body::FindingNoted { .. }) {
+            let to = deliver::notes(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
+            for (agent, message) in to {
+                if let Err(err) = self.send(&agent, &message) {
+                    tracing::warn!("cannot tell {agent} of a note on a finding: {err}");
+                }
+            }
+            return;
+        }
         let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
         let Some(plan) = plan else { return };
         let delivery = match &plan.to {
@@ -855,7 +937,8 @@ async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut re
     if !allowed {
         return (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response();
     }
-    req.extensions_mut().insert(Caller { machine: via.machine, port: via.port, user });
+    let place = req.headers().get("x-workriver-place").and_then(|v| v.to_str().ok()).filter(|p| !p.is_empty()).map(str::to_string);
+    req.extensions_mut().insert(Caller { machine: via.machine, port: via.port, user, place });
     next.run(req).await
 }
 
@@ -942,6 +1025,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "commit": env!("WORKRIVER_COMMIT"),
+        "build": BUILD,
         "port": app.port,
         "db": store.path(),
         "events": store.count()?,
@@ -1049,8 +1133,10 @@ async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
     Ok(local_port)
 }
 
-async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
-    app.user(&caller)?;
+/// Read by the user and by agents of this machine (a refusal sends them here to see why a
+/// machine cannot be reached); changed by the user alone.
+async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+    app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
     Ok(Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default()))
 }
 
@@ -1119,6 +1205,7 @@ async fn decide(State(app): State<Shared>, Extension(caller): Extension<Caller>,
         decision: d.decision,
         note: d.note,
         by: core::Who::User,
+        was: None,
     };
     blocking(move || app.record(&who, body).map(Json)).await
 }

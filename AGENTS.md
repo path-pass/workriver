@@ -62,7 +62,10 @@ frontend/web/       the web UI; everything a user sees is built here
 frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
 crates/             Rust workspace: workriver-core, workriver-scan, workriver
-skills/             the manager agent's skill; the binary embeds it (`workriver guide`)
+skills/             what agents read; the binary embeds all of it (`workriver guide …`):
+                    workriver-manager (the role, kept under 600 words), workriver-howto (one
+                    recipe per situation in references/, and CHANGES.md), workriver-backlog-import.
+                    A change in what agents must do goes into the recipe and CHANGES.md.
 .local/             local-only working material; ignored by git, never commit it
 ```
 
@@ -98,7 +101,8 @@ outer crate with the daemon, the CLI and the Herdr runtime implementation.
   (`Body::user_only`). Never add a route that acts as the user without that; never serve
   such a route on a machine's listener (`machine_router` is an allow-list; add to it only
   what an agent's CLI on another machine needs); never pass an actor string taken from a
-  request into `record` (it takes a `Principal`). Text written by agents or the user goes
+  request into `record` (it takes a `Principal`). The CLI sends its pane with every
+  request (`x-workriver-place`); `App::user` refuses a caller whose pane holds an agent. Text written by agents or the user goes
   into messages only through `quote.rs`. Reading is scoped the same way: a route that
   returns records goes through `App::view` (the user sees all; an agent sees all unless it
   is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new

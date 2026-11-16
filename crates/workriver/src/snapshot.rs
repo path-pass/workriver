@@ -215,6 +215,9 @@ struct Unit {
     #[serde(skip_serializing_if = "Option::is_none")]
     machine: Option<String>,
     branch: Option<String>,
+    /// The branches its work was on before (a rebase onto a new branch, a rename).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    previously: Vec<String>,
     status: &'static str,
     tasks: Vec<Task>,
     commits: Vec<Commit>,
@@ -256,6 +259,9 @@ struct Task {
     /// Done without seeing other work: its findings are its own view.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     blind: bool,
+    /// It has no commits on the unit's branch now, but had these on a branch the unit left.
+    #[serde(rename = "lostCommits", skip_serializing_if = "Vec::is_empty")]
+    lost_commits: Vec<String>,
     /// A research task (shown like implement work; its output is its note and attachments).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     research: bool,
@@ -348,15 +354,37 @@ struct Finding {
     attachments: Vec<AttachmentOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     external: Option<core::External>,
-    /// While open: "manager" when the user handed it to the intent's manager to decide.
+    /// While open: "manager" when it is the intent's manager's to decide (and there is one
+    /// running); absent: it waits for the user.
     #[serde(skip_serializing_if = "Option::is_none")]
     decider: Option<&'static str>,
+    /// While open: it would be the manager's, but none is registered or running, so it
+    /// falls to the user.
+    #[serde(rename = "noManager", skip_serializing_if = "std::ops::Not::not")]
+    no_manager: bool,
+    /// What was added to it since it was reported, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<NoteOut>,
     /// Since when it is known: when its task was delivered, or it was added to the backlog.
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
     /// Dropped: why.
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
+}
+
+/// An addition to a finding.
+#[derive(Serialize)]
+struct NoteOut {
+    by: String,
+    at: String,
+    text: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<AttachmentOut>,
+}
+
+fn notes_of(state: &core::State, names: &Names, f: &core::Finding) -> Vec<NoteOut> {
+    f.notes.iter().map(|n| NoteOut { by: names.of(&n.by), at: n.at.clone(), text: n.text.clone(), attachments: attachments_of(state, &n.attachments) }).collect()
 }
 
 /// A deferred finding from outside workriver's tasks, in its project's backlog.
@@ -378,6 +406,10 @@ struct Commit {
     author: String,
     live: bool,
     files: Vec<scan::FileChange>,
+    /// It belongs to its task because someone linked it (`workriver commit link`), not by
+    /// its own `Task:` trailer.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    linked: bool,
 }
 
 #[derive(Serialize)]
@@ -467,6 +499,9 @@ pub struct Cache {
     trees: HashMap<String, (String, scan::Module)>,
     /// The machines followed, for repositories that are on one of them.
     pub machines: Option<std::sync::Arc<crate::machines::Machines>>,
+    /// Patch ids of commits (`git patch-id --stable`), by hash: to find a commit linked to
+    /// a task again after a rebase gave it another hash.
+    patch: HashMap<String, String>,
     /// What was last read of a remote unit, and when: read again only after `REMOTE`.
     remote: HashMap<String, (std::time::Instant, Vec<scan::Commit>, Vec<scan::FileChange>)>,
     /// When each remote repository's tree was last checked.
@@ -614,6 +649,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                     since: Some(b.at.clone()),
                     reason: f.reason.clone(),
                     decider: None,
+                    no_manager: false,
+                    notes: vec![],
                 },
             }
         })
@@ -679,6 +716,8 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         merged: None,
         merged_commits: vec![],
         tasks: i.tasks.clone(),
+        earlier: vec![],
+        links: vec![],
     };
     let manager = state.manager_of(&i.id);
     Some(Unit {
@@ -689,6 +728,7 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         repo: String::new(),
         machine: None,
         branch: None,
+        previously: vec![],
         status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
         tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
         commits: vec![],
@@ -755,6 +795,17 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
         }
         Err(e) => tracing::warn!("unit {}: {e}", u.id),
     }
+    // Links whose commit is not here any more (a rebase gave it another hash): the commits
+    // here are told by their patch ids, which are worked out once each.
+    if u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash)) {
+        for c in &commits {
+            if !cache.patch.contains_key(&c.hash)
+                && let Ok(id) = scan::patch_id(at, repo, &c.hash)
+            {
+                cache.patch.insert(c.hash.clone(), id);
+            }
+        }
+    }
     let files = if merged {
         vec![]
     } else {
@@ -782,18 +833,41 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         }
     };
 
-    // Which task each commit carries out; a commit naming no task of this unit is a gap.
+    // A commit linked to a task by hand: by its hash; or, for a link whose commit is gone (a
+    // rebase), by the same patch id, else by the same subject and author date.
+    let here = |hash: &str| commits.iter().any(|c| c.hash == hash);
+    let link = |c: &scan::Commit| {
+        let stale = || u.links.iter().filter(|l| !here(&l.hash));
+        u.links
+            .iter()
+            .find(|l| l.hash == c.hash)
+            .or_else(|| cache.patch.get(&c.hash).filter(|p| !p.is_empty()).and_then(|p| stale().find(|l| &l.patch_id == p)))
+            .or_else(|| stale().find(|l| !l.subject.is_empty() && l.subject == c.subject && l.date == c.date))
+            .filter(|l| u.tasks.iter().any(|t| t.n == l.task))
+    };
+    // Which task each commit carries out: a link wins over what its message says; a commit
+    // naming no task of this unit is a gap.
     let owner = |c: &scan::Commit| {
-        c.task.as_deref().and_then(parse_task_ref).filter(|(unit, n)| *unit == u.id && u.tasks.iter().any(|t| t.n == *n)).map(|(_, n)| n)
+        link(c).map(|l| l.task).or_else(|| c.task.as_deref().and_then(parse_task_ref).filter(|(unit, n)| *unit == u.id && u.tasks.iter().any(|t| t.n == *n)).map(|(_, n)| n))
     };
     let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(state, live, u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
+    // A task whose commits were on a branch the unit has left and are not on this one: said,
+    // rather than shown as having none.
+    for t in &mut tasks {
+        if t.output.commits.as_ref().is_none_or(|c| c.is_empty()) {
+            let n: Option<u32> = t.id.parse().ok();
+            t.lost_commits = u.earlier.iter().flat_map(|e| &e.commits).filter(|c| c.task.is_some() && c.task == n).map(|c| c.hash.chars().take(9).collect()).collect();
+        }
+    }
     for c in commits.iter().filter(|c| owner(c).is_none()) {
         tasks.push(unregistered(c));
     }
 
+    let linked: Vec<bool> = commits.iter().map(|c| link(c).is_some()).collect();
     let mut shown: Vec<Commit> = commits
         .into_iter()
-        .map(|c| Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, files: c.files })
+        .zip(linked)
+        .map(|(c, linked)| Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, files: c.files, linked })
         .collect();
     // Uncommitted work belongs to the running implement task started last.
     // ponytail: a guess when several run in one unit; ask the runtime whose cwd it is (stage 2).
@@ -806,7 +880,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
                 t.writing = true;
                 t.output.commits.get_or_insert_with(Vec::new).push(LIVE.into());
             }
-            shown.push(Commit { id: LIVE.into(), subject: String::new(), date: core::now(), author, live: true, files });
+            shown.push(Commit { id: LIVE.into(), subject: String::new(), date: core::now(), author, live: true, files, linked: false });
         }
     }
 
@@ -819,6 +893,15 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         repo: u.repo.clone(),
         machine: u.machine.clone(),
         branch: (!merged).then(|| u.branch.clone()),
+        previously: {
+            let mut b: Vec<String> = vec![];
+            for e in u.earlier.iter().filter(|e| e.branch != u.branch) {
+                if !b.contains(&e.branch) {
+                    b.push(e.branch.clone());
+                }
+            }
+            b
+        },
         status: if merged { "merged" } else if started { "active" } else { "planned" },
         tasks,
         commits: shown,
@@ -845,6 +928,8 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         None => "plan".into(),
     });
     let policy = state.intents.iter().find(|i| i.id == u.intent).map(|i| i.findings).unwrap_or_default();
+    // The manager decides only while there is one running; else its findings fall to the user.
+    let manager_runs = manager.is_some_and(|m| live.iter().any(|a| a.session == m));
     let open = t.findings.iter().any(|f| f.state == FindingState::Open);
     let since = match t.state {
         TaskState::Waiting => Some(t.at.clone()),
@@ -875,7 +960,9 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             external: f.found.external.clone(),
             since: t.done.clone(),
             reason: f.reason.clone(),
-            decider: (f.state == FindingState::Open && policy.managers(f.found.severity)).then_some("manager"),
+            decider: (f.state == FindingState::Open && policy.managers() && manager_runs).then_some("manager"),
+            no_manager: f.state == FindingState::Open && policy.managers() && !manager_runs,
+            notes: notes_of(state, names, f),
         })
         .collect();
     let kind = match t.kind {
@@ -929,6 +1016,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         design,
         research,
         blind: t.blind,
+        lost_commits: vec![],
         threads: threads(state, live, names, &u.id, t.n),
         // The latest conclusion about the gate or the work it follows starts the user's note.
         draft: (t.state == TaskState::Waiting).then(|| {
@@ -964,6 +1052,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         design: false,
         research: false,
         blind: false,
+        lost_commits: vec![],
         threads: vec![],
         draft: None,
         amended: None,
