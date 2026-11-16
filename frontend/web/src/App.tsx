@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
 import { SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
-import { Notes, Topics } from '@/components/bits'
+import { MachineChip, Notes, Topics } from '@/components/bits'
 import { Start, StartIntent } from '@/components/Start'
 import { isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
@@ -64,7 +64,9 @@ export default function App() {
   const topics = useMemo(() => {
     const live = (data?.sessions ?? []).filter(s => !s.ended)
     const once = (name: string) => live.filter(s => s.agent === name).length === 1
-    return new Map(live.flatMap(s => (s.topic && once(s.agent) ? [[s.agent, s.topic] as const] : [])))
+    // An agent on another machine says so there too.
+    const about = (s: (typeof live)[number]) => [s.topic, s.machine && `@${s.machine}`].filter(Boolean).join(' · ')
+    return new Map(live.flatMap(s => (about(s) && once(s.agent) ? [[s.agent, about(s)] as const] : [])))
   }, [data])
 
   // The file picked in the code layer and lines picked in a diff; a question takes them as context.
@@ -233,6 +235,7 @@ export default function App() {
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
                   {unit.intentLevel ? `${unit.title} · ${t('rail.intentWork')}` : unit.title}
                   {unit.branch && <span className="font-mono text-xs font-normal tracking-normal text-ink-2">{unit.branch}</span>}
+                  <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} />
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}
               </div>

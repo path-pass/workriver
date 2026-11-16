@@ -174,6 +174,11 @@ what the workers need to hear. Four outcomes:
   implementation `--after 5`, citing the decision. **"... did not confirm the design ...:
   revise the design"** - wait for the decisions, then revise as above.
 
+Other machines: workers may run on another machine the user connected (`workriver machine
+list`); they use the same commands there. A unit you or they record from that machine has
+its repository there. A workspace on another machine is yours only if the user linked it
+to yours (`workriver workspace list`); do not hand work to agents in unlinked ones.
+
 Temporary agents named `why-q…` may appear in your workspace: workriver starts them to answer
 the user's questions and closes them itself. Leave them alone.
 

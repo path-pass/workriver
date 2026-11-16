@@ -13,7 +13,7 @@ use axum::middleware::{self, Next};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use serde::Deserialize;
@@ -24,6 +24,7 @@ use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, ReasonCode, Store};
 use workriver_scan as scan;
 
+use crate::machines::Machines;
 use crate::{ask, attachments, deliver};
 use crate::snapshot::{self, Cache};
 
@@ -51,6 +52,23 @@ pub struct App {
     home: PathBuf,
     watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
     watched: Mutex<HashSet<PathBuf>>,
+    /// The other machines, when the runtime follows any.
+    machines: Option<Arc<Machines>>,
+    /// Each followed machine's own listener, to end it when the machine is no longer followed.
+    listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
+    /// The runtime's groups as last polled, with or without agents.
+    groups: Mutex<Vec<core::RuntimeRef>>,
+}
+
+/// Which listener a request came in on: this machine's, or a followed machine's own (the
+/// far end of its tunnel), which is how the daemon knows where a caller is, whatever it says.
+#[derive(Clone)]
+struct Via {
+    machine: Option<String>,
+    /// The port the caller used: ours, or the machine's port that leads here.
+    port: u16,
+    /// The listener's own port.
+    local: u16,
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -92,13 +110,22 @@ impl Default for Waits {
     }
 }
 
+#[cfg(test)]
 pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
+    serve_with(listener, store, runtime, warning, waits, None).await
+}
+
+/// The same, following other machines too (`runtime` is then `machines` itself).
+pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits, machines: Option<Arc<Machines>>) -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
     let app = Arc::new(App {
         store: Mutex::new(store),
-        cache: Mutex::default(),
+        cache: Mutex::new(Cache::following(machines.clone())),
+        machines,
+        listeners: Mutex::default(),
+        groups: Mutex::default(),
         runtime,
         warning,
         live: Mutex::new(None),
@@ -132,10 +159,31 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         Ok(d) => *app.watcher.lock().unwrap() = Some(d),
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
-    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().map(|u| (u.repo.clone(), u.branch.clone())).collect();
+    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().filter(|u| u.machine.is_none()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }
+    for (label, setting) in app.machines.iter().flat_map(|m| m.wanted()) {
+        if let Err(e) = follow(&app, &label, setting).await {
+            tracing::warn!("machine {label}: {}", e.1);
+        }
+    }
+    // Machines already there (stand-ins in tests) get their listener only.
+    #[cfg(test)]
+    for m in app.machines.iter().flat_map(|m| m.states()) {
+        let _ = listen(&app, &m.label, m.port).await;
+    }
+    // Repositories on other machines cannot be watched: the page asks again now and then.
+    let remote = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(snapshot::REMOTE);
+        loop {
+            tick.tick().await;
+            if remote.store.lock().unwrap().state().units.iter().any(|u| u.machine.is_some() && u.merged.is_none()) {
+                let _ = remote.changed.send(());
+            }
+        }
+    });
     // Messages delivered before a restart are watched again; whether their receiver was seen
     // idle since is lost, so it must be seen not working first.
     let pending: Vec<Pending> = {
@@ -175,7 +223,7 @@ pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc
         let _ = app.runtime.close(&name);
     }
     tracing::info!("workriver on http://127.0.0.1:{port}");
-    axum::serve(listener, router(app)).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
+    axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
     Ok(())
 }
 
@@ -196,9 +244,10 @@ impl App {
     /// Watches a unit's repository: its work tree, the work tree of its branch, and the
     /// git folder where refs move.
     fn watch(&self, repo: &Path, branch: &str) {
+        let here = scan::Runner::Local;
         let mut paths = vec![repo.to_path_buf()];
-        paths.extend(scan::common_dir(repo).ok());
-        paths.extend(scan::worktree_of(repo, branch).ok().flatten());
+        paths.extend(scan::common_dir(&here, repo).ok());
+        paths.extend(scan::worktree_of(&here, repo, branch).ok().flatten());
         let mut watcher = self.watcher.lock().unwrap();
         let Some(w) = watcher.as_mut() else { return };
         let mut seen = self.watched.lock().unwrap();
@@ -215,6 +264,8 @@ impl App {
     /// messages picked up when their receiver starts working.
     fn poll(&self) {
         let now = self.runtime.agents().ok();
+        let groups = self.runtime.groups().unwrap_or_default();
+        let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
         {
             let mut blocked = self.blocked.lock().unwrap();
             let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();
@@ -275,7 +326,7 @@ impl App {
                 tracing::warn!("cannot close {name}: {e}");
             }
         }
-        if differs || recorded {
+        if differs || recorded || regrouped {
             let _ = self.changed.send(());
         }
     }
@@ -284,8 +335,31 @@ impl App {
         self.live.lock().unwrap().clone()
     }
 
+    /// Where git runs for a repository on `machine`; an error while it cannot be reached.
+    fn runner(&self, machine: Option<&str>) -> Result<scan::Runner, ApiError> {
+        match machine {
+            None => Ok(scan::Runner::Local),
+            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)).ok_or_else(|| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} cannot be reached now; see `workriver machine list`"))),
+        }
+    }
+
+    /// Sends a message to an agent. One on another machine cannot open files of this
+    /// machine: paths into the attachment store become links through its tunnel.
+    fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
+        let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
+        match machine.and_then(|m| self.machines.as_ref()?.port(&m)) {
+            Some(port) => self.runtime.send(to, &text.replace(&format!("{}/", attachments::dir(&self.home).display()), &crate::machines::attachment_url(port, ""))),
+            None => self.runtime.send(to, text),
+        }
+    }
+
     fn record(&self, actor: &str, body: Body) -> Result<core::Event, ApiError> {
-        let body = self.complete(actor, body)?;
+        self.record_via(actor, body, None)
+    }
+
+    /// Records what came in from `machine` (none: this one).
+    fn record_via(&self, actor: &str, body: Body, machine: Option<&str>) -> Result<core::Event, ApiError> {
+        let body = self.complete(actor, body, machine)?;
         let e = self.store.lock().unwrap().append(actor, body)?;
         self.deliver(&e);
         match &e.body {
@@ -295,8 +369,8 @@ impl App {
         }
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
         if let (_, Some(unit), _) = e.body.refs() {
-            let found = self.store.lock().unwrap().state().unit(&unit).map(|u| (u.repo.clone(), u.branch.clone()));
-            if let Ok((repo, branch)) = found {
+            let found = self.store.lock().unwrap().state().unit(&unit).ok().filter(|u| u.machine.is_none()).map(|u| (u.repo.clone(), u.branch.clone()));
+            if let Some((repo, branch)) = found {
                 self.watch(Path::new(&repo), &branch);
             }
         }
@@ -305,30 +379,34 @@ impl App {
     }
 
     /// What only git can check or fill in before an event is recorded.
-    fn complete(&self, actor: &str, body: Body) -> Result<Body, ApiError> {
+    fn complete(&self, actor: &str, body: Body, machine: Option<&str>) -> Result<Body, ApiError> {
         Ok(match body {
+            // ponytail: a project is a folder of this machine; a repository on another
+            // machine is a project of its own. Give projects a machine when that is not enough.
+            Body::ProjectAdded { .. } if machine.is_some() => return Err(bad("register project folders on the machine workriver runs on; a repository on another machine is a project of its own".into())),
             Body::ProjectAdded { id, path, title } => {
                 let folder = std::fs::canonicalize(&path).map_err(|e| bad(format!("{path}: {e}")))?;
                 let title = if title.trim().is_empty() { folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { title };
                 Body::ProjectAdded { id, path: folder.to_string_lossy().into_owned(), title }
             }
-            Body::FindingAdded { project, intent, finding, source, note } => Body::FindingAdded { project: self.project_folder(&project)?, intent, finding, source, note },
+            Body::FindingAdded { project, intent, finding, source, note } => Body::FindingAdded { project: self.project_folder(&project, machine)?, intent, finding, source, note },
             Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
-                let project = if project.is_empty() { project } else { self.project_folder(&project)? };
+                let project = if project.is_empty() { project } else { self.project_folder(&project, machine)? };
                 Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external }
             }
-            Body::UnitCreated { id, intent, title, purpose, repo, branch, base } => {
-                let top = scan::toplevel(Path::new(&repo)).map_err(|e| bad(format!("{repo} is not a git repository: {e}")))?;
-                if !scan::has_rev(&top, &base) {
+            // The repository is on the machine the unit was recorded from.
+            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, .. } => {
+                let at = self.runner(machine)?;
+                let top = scan::toplevel(&at, Path::new(&repo)).map_err(|e| bad(format!("{repo} is not a git repository: {e}")))?;
+                if !scan::has_rev(&at, &top, &base) {
                     return Err(bad(format!("base {base:?} is not a commit or branch in {}", top.display())));
                 }
-                Body::UnitCreated { id, intent, title, purpose, repo: top.to_string_lossy().into_owned(), branch, base }
+                Body::UnitCreated { id, intent, title, purpose, repo: top.to_string_lossy().into_owned(), branch, base, machine: machine.map(str::to_string) }
             }
             Body::UnitMerged { unit, commits } if commits.is_empty() => {
                 // The branch's commits now, or as last seen if they are already merged away.
-                let state = self.store.lock().unwrap();
-                let u = state.state().unit(&unit)?;
-                let now = scan::commit_list(Path::new(&u.repo), &u.base, &u.branch).unwrap_or_default();
+                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
+                let now = self.runner(u.machine.as_deref()).ok().and_then(|at| scan::commit_list(&at, Path::new(&u.repo), &u.base, &u.branch).ok()).unwrap_or_default();
                 let commits = if now.is_empty() { self.cache.lock().unwrap().last.get(&unit).cloned().unwrap_or_default() } else { now };
                 Body::UnitMerged { unit, commits }
             }
@@ -379,7 +457,7 @@ impl App {
                 let s = store.state();
                 s.question(id).ok().and_then(|q| ask::direct(s, q))
             };
-            if let Err(e) = self.runtime.send(&own.session, &text.unwrap_or_default()) {
+            if let Err(e) = self.send(&own.session, &text.unwrap_or_default()) {
                 fail(ReasonCode::RuntimeError, format!("cannot give {} the question: {e}", own.name));
             }
             return;
@@ -397,7 +475,7 @@ impl App {
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
             let text = self.store.lock().unwrap().state().question(id).ok().map(ask::follow_up).unwrap_or_default();
-            if let Err(e) = self.runtime.send(&name, &text) {
+            if let Err(e) = self.send(&name, &text) {
                 fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
             }
             return;
@@ -415,7 +493,18 @@ impl App {
         };
         let live_one = |s: &Option<String>| s.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).cloned();
         let (worker, boss) = (live_one(&task_agent), live_one(&manager));
-        // Where: the intent's workspace, else where its agents run.
+        // Work on another machine is read there: the group of that machine that is the
+        // intent's workspace (linked to it), else where the task's agent runs.
+        let group = match &unit.machine {
+            None => group,
+            Some(m) => {
+                let state = self.store.lock().unwrap().state().clone();
+                let same = |g: &core::RuntimeRef| group.as_ref().is_some_and(|w| state.workspace_of(g).is_some_and(|a| state.workspace_of(w).is_some_and(|b| a.group == b.group)));
+                let there = |g: &&core::RuntimeRef| g.machine.as_ref() == Some(m);
+                let groups = self.groups.lock().unwrap().clone();
+                groups.iter().filter(there).find(|g| same(g)).cloned().or_else(|| worker.as_ref().and_then(|a| a.group.clone()).filter(|g| there(&g)))
+            }
+        };
         let Some(group) = group.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
             return fail(ReasonCode::NoWorkspace, format!("intent {} follows no Herdr workspace and none of its agents runs", unit.intent));
         };
@@ -423,8 +512,9 @@ impl App {
         let known = |s: &Option<String>| s.as_ref().and_then(|s| self.store.lock().unwrap().state().agents.iter().find(|a| &a.session == s).map(|a| a.harness.clone()));
         let harness = worker.map(|a| a.harness).or_else(|| known(&task_agent)).or_else(|| boss.map(|a| a.harness)).or_else(|| known(&manager)).unwrap_or_else(|| "claude".into());
         // Intent-level work has no branch: its project folder is where to read.
-        let dir = if unit.branch.is_empty() { unit.repo.clone() } else { scan::worktree_of(Path::new(&unit.repo), &unit.branch).ok().flatten().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone()) };
-        let commits = if unit.branch.is_empty() { vec![] } else { task_commits(&unit, q.task) };
+        let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
+        let dir = at.as_ref().and_then(|at| scan::worktree_of(at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
+        let commits = at.map(|at| task_commits(&at, &unit, q.task)).unwrap_or_default();
         let name = ask::agent_name(id);
         let agent = match self.runtime.start_temporary(&group.id, &harness, &name, &dir) {
             Ok(a) => a,
@@ -435,7 +525,7 @@ impl App {
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
         let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits, &self.home).unwrap_or_default();
-        if let Err(e) = self.runtime.send(&agent.name, &prompt) {
+        if let Err(e) = self.send(&agent.name, &prompt) {
             fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
         }
     }
@@ -465,7 +555,7 @@ impl App {
             s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), ask::answer_back(s, q)))
         };
         if let Some((asker, text)) = back
-            && let Err(e) = self.runtime.send(&asker, &text)
+            && let Err(e) = self.send(&asker, &text)
         {
             tracing::warn!("cannot give {asker} the answer to {id}: {e}");
         }
@@ -508,7 +598,7 @@ impl App {
         let Some(plan) = plan else { return };
         let delivery = match &plan.to {
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
-            Ok(to) => match self.runtime.send(to, &plan.message) {
+            Ok(to) => match self.send(to, &plan.message) {
                 Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason_code: None, reason: None, message: plan.message.clone() },
                 Err(err) => {
                     let code = if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError };
@@ -538,8 +628,8 @@ impl App {
     /// time), and with `intent`, the intent following its group (created on first use).
     /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
     /// time), its runtime group, and that group's current intent, if any.
-    fn here(&self, place: &str) -> Result<serde_json::Value, ApiError> {
-        let at = self.runtime.locate(place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+    fn here(&self, place: &str, machine: Option<&str>) -> Result<serde_json::Value, ApiError> {
+        let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         if let Some(a) = &at.agent {
             let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
             if !known {
@@ -552,17 +642,22 @@ impl App {
 
     /// A project as given (`p1`, or a folder) as its folder: a registered project's, or the
     /// repository's top folder for a repository outside every registered project.
-    fn project_folder(&self, given: &str) -> Result<String, ApiError> {
+    fn project_folder(&self, given: &str, machine: Option<&str>) -> Result<String, ApiError> {
         let state = self.store.lock().unwrap().state().clone();
         if let Some(p) = state.projects.iter().find(|p| p.id == given) {
             return Ok(p.path.clone());
+        }
+        // On another machine: the repository's top folder there.
+        if machine.is_some() {
+            let at = self.runner(machine)?;
+            return scan::toplevel(&at, Path::new(given)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{given} is not a git repository on that machine; name a project of this machine by its id (p1)")));
         }
         let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
         let path = path.to_string_lossy().into_owned();
         if let Some(p) = project_of(&state, &path) {
             return Ok(p.path.clone());
         }
-        scan::toplevel(Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))
+        scan::toplevel(&scan::Runner::Local, Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))
     }
 }
 
@@ -571,8 +666,9 @@ pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Pr
     state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
 }
 
-pub fn router(app: Shared) -> Router {
+fn router(app: Shared, via: Via) -> Router {
     Router::new()
+        .route("/api/machines", get(machines).post(machine_set))
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
         .route("/api/status", get(status))
@@ -590,13 +686,15 @@ pub fn router(app: Shared) -> Router {
         .route("/api/attachments/{id}", get(attachment))
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
+        .layer(Extension(via))
         .with_state(app)
 }
 
 /// Only this machine's browser and CLI, by name: the Host must be 127.0.0.1 or localhost
 /// with our port (against DNS rebinding), and a POST from a page must come from our origin.
-async fn guard(State(app): State<Shared>, req: Request, next: Next) -> Response {
-    let ours = [format!("127.0.0.1:{}", app.port), format!("localhost:{}", app.port)];
+/// On a followed machine's listener the port is the one its CLI uses over there.
+async fn guard(Extension(via): Extension<Via>, req: Request, next: Next) -> Response {
+    let ours = [via.port, via.local].map(|p| [format!("127.0.0.1:{p}"), format!("localhost:{p}")]).concat();
     let allowed = {
         let header = |h| req.headers().get(h).map(|v| v.to_str().unwrap_or(""));
         let host_ok = header(header::HOST).is_some_and(|h| ours.iter().any(|o| o == h));
@@ -648,7 +746,8 @@ async fn workspace(State(app): State<Shared>) -> Result<Json<snapshot::Workspace
         let state = app.store.lock().unwrap().state().clone();
         let mut cache = app.cache.lock().unwrap();
         let blocked = app.blocked.lock().unwrap().clone();
-        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked)))
+        let groups = app.groups.lock().unwrap().clone();
+        Ok(Json(snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked, &groups)))
     })
     .await
 }
@@ -669,6 +768,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
         "intents": s.intents.len(),
         "units": s.units.len(),
         "runtime": { "connected": app.live().is_some(), "warning": app.warning },
+        "machines": app.machines.as_ref().map(|m| m.states()).unwrap_or_default(),
         "attachments": { "dir": attachments::dir(&app.home), "files": files, "bytes": bytes },
     })))
 }
@@ -688,9 +788,90 @@ struct Append {
 }
 
 /// Any event, as the CLI records it.
-async fn append(State(app): State<Shared>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
+async fn append(State(app): State<Shared>, Extension(via): Extension<Via>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
-    blocking(move || app.record(&a.actor, body).map(Json)).await
+    blocking(move || app.record_via(&a.actor, body, via.machine.as_deref()).map(Json)).await
+}
+
+// ---- other machines ----
+
+/// Follows a machine: a listener of its own here (the far end of its tunnel), then its
+/// connection and the reading of its agents.
+async fn follow(app: &Shared, label: &str, setting: crate::machines::Setting) -> Result<(), ApiError> {
+    let Some(machines) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
+    let local_port = listen(app, label, setting.port).await?;
+    tracing::info!("machine {label}: its port {} leads to 127.0.0.1:{local_port} here", setting.port);
+    machines.start(label, setting, local_port);
+    Ok(())
+}
+
+/// A machine's own listener; returns its port here.
+async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let local_port = listener.local_addr().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.port();
+    let routes = router(app.clone(), Via { machine: Some(label.to_string()), port, local: local_port });
+    let task = tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, routes).await {
+            tracing::warn!("a machine's listener ended: {e}");
+        }
+    });
+    if let Some(old) = app.listeners.lock().unwrap().insert(label.to_string(), task.abort_handle()) {
+        old.abort();
+    }
+    if let Some(m) = &app.machines {
+        m.listening(label, local_port);
+    }
+    Ok(local_port)
+}
+
+async fn machines(State(app): State<Shared>) -> Json<Vec<crate::machines::MachineState>> {
+    Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineSet {
+    label: String,
+    /// add, enable, disable or remove.
+    action: String,
+    #[serde(default)]
+    ssh: String,
+    #[serde(default)]
+    herdr_socket: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
+}
+
+/// Adds, enables, disables or removes a machine; only from this machine.
+async fn machine_set(State(app): State<Shared>, Extension(via): Extension<Via>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+    if via.machine.is_some() {
+        return Err(ApiError(StatusCode::FORBIDDEN, "machines are managed on the machine workriver runs on".into()));
+    }
+    let Some(all) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
+    let stop = |label: &str| {
+        all.stop(label);
+        if let Some(l) = app.listeners.lock().unwrap().remove(label) {
+            l.abort();
+        }
+    };
+    match m.action.as_str() {
+        "add" => all.add(&m.label, crate::machines::Setting { ssh: m.ssh, herdr_socket: m.herdr_socket, port: m.port.unwrap_or(app.port), enabled: false }).map_err(bad)?,
+        "enable" => {
+            let setting = all.enable(&m.label, true).map_err(bad)?;
+            follow(&app, &m.label, setting).await?;
+        }
+        "disable" => {
+            all.enable(&m.label, false).map_err(bad)?;
+            stop(&m.label);
+        }
+        "remove" => {
+            stop(&m.label);
+            all.remove(&m.label).map_err(bad)?;
+        }
+        other => return Err(bad(format!("unknown action {other:?}"))),
+    }
+    let _ = app.changed.send(());
+    Ok(Json(all.list()))
 }
 
 // ---- the user's inputs from the page; `App::record` delivers them to the agents ----
@@ -797,7 +978,7 @@ struct Upload {
 
 /// A file into the store, its body raw (`?name=…`, the type from Content-Type), optionally
 /// linked to a task or a finding. Answers its id and path.
-async fn attach(State(app): State<Shared>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
+async fn attach(State(app): State<Shared>, Extension(via): Extension<Via>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
     let given = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
     blocking(move || {
         // Only the last part of the name: it is shown, never used as a path.
@@ -807,6 +988,11 @@ async fn attach(State(app): State<Shared>, Query(u): Query<Upload>, headers: axu
         let by = u.by.unwrap_or_else(|| "user".into());
         let size = body.len() as u64;
         app.record(&by, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
+        // To a caller on another machine the file is where its tunnel shows it.
+        let path = match &via.machine {
+            Some(_) => json!(crate::machines::attachment_url(via.port, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+            None => json!(path),
+        };
         Ok(Json(json!({ "id": id, "path": path, "name": name, "type": mime, "size": size })))
     })
     .await
@@ -814,6 +1000,8 @@ async fn attach(State(app): State<Shared>, Query(u): Query<Upload>, headers: axu
 
 /// A stored file. Only images show in the page; anything else downloads, and nothing is sniffed.
 async fn attachment(State(app): State<Shared>, UrlPath(id): UrlPath<String>) -> Result<Response, ApiError> {
+    // An agent on another machine is given the link with the file's extension.
+    let id = id.split('.').next().unwrap_or_default().to_string();
     let found = app.store.lock().unwrap().state().attachments.iter().find(|a| a.id == id).cloned();
     let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
     let file = attachments::path(&app.home, &a.id, &a.name);
@@ -831,8 +1019,12 @@ struct Inbox {
 }
 
 /// A task's staging folder for screenshots and the like, made if needed.
-async fn inbox(State(app): State<Shared>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn inbox(State(app): State<Shared>, Extension(via): Extension<Via>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
     app.store.lock().unwrap().state().task(&i.unit, i.task)?;
+    // A caller on another machine keeps the folder on its own disk; the CLI makes it there.
+    if via.machine.is_some() {
+        return Ok(Json(json!({ "elsewhere": true })));
+    }
     let d = attachments::inbox(&app.home, &i.unit, i.task);
     attachments::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
     Ok(Json(json!({ "dir": d })))
@@ -861,15 +1053,15 @@ async fn ask_why(State(app): State<Shared>, Json(a): Json<Ask>) -> Result<Json<c
 }
 
 /// A task's commits on its unit's branch, as (short id, subject).
-fn task_commits(u: &core::Unit, task: u32) -> Vec<(String, String)> {
+fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32) -> Vec<(String, String)> {
     let repo = Path::new(&u.repo);
-    let hashes = if u.merged.is_some() { u.merged_commits.clone() } else { scan::commit_list(repo, &u.base, &u.branch).unwrap_or_default() };
+    let hashes = if u.merged.is_some() { u.merged_commits.clone() } else { scan::commit_list(at, repo, &u.base, &u.branch).unwrap_or_default() };
     let want = format!("{}#{task}", u.id);
-    hashes.iter().filter_map(|h| scan::commit(repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
+    hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
 }
 
-async fn here(State(app): State<Shared>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
-    blocking(move || app.here(&h.place).map(Json)).await
+async fn here(State(app): State<Shared>, Extension(via): Extension<Via>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || app.here(&h.place, via.machine.as_deref()).map(Json)).await
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----

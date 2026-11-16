@@ -223,11 +223,11 @@ fn intent_states_and_workspaces() {
     add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": w1}})).unwrap();
     let st = s.state();
     assert!(st.roadmap.is_empty());
-    assert_eq!(st.intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into() }).map(|i| i.id.as_str()), Some("i2"), "the last started is current");
+    assert_eq!(st.intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).map(|i| i.id.as_str()), Some("i2"), "the last started is current");
     assert_eq!((st.manager_of("i1"), st.manager_of("i2")), (Some("boss"), Some("boss")), "both active intents have the workspace's manager");
     // Done: no longer current, no new units; done cannot start again; dropping needs a reason.
     add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "done"}})).unwrap();
-    assert!(s.state().intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into() }).is_none());
+    assert!(s.state().intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).is_none());
     let e = add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "x", "repo": "/r", "branch": "b", "base": "main"}})).unwrap_err();
     assert!(e.contains("is done"), "{e}");
     let e = add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": w1}})).unwrap_err();
@@ -343,4 +343,30 @@ fn old_records_map_onto_workspaces() {
     assert_eq!((st.workspaces[0].manager.as_deref(), st.workspaces[0].current.as_deref()), (Some("boss"), Some("i1")));
     assert_eq!(st.manager_of("i1"), Some("boss"));
     assert_eq!(st.task("u1", 1).unwrap().intent, "i1");
+}
+
+/// Workspaces of two machines are never one by their labels alone: only a recorded link
+/// makes a remote workspace the local one (one manager, the same current intent).
+#[test]
+fn remote_workspaces_are_linked_explicitly() {
+    let (_dir, mut s) = temp_store();
+    let local = json!({"id": "w1", "label": "chat"});
+    let remote = RuntimeRef { id: "w1@box".into(), label: "chat".into(), machine: Some("box".into()) };
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": local}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": local}})).unwrap();
+    assert!(s.state().workspace_of(&remote).is_none(), "the same label on another machine is another workspace");
+    assert!(s.state().intent_for(&remote).is_none());
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "chat", "local": "chat"}})).unwrap();
+    assert!(add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "chat", "local": "other"}})).is_err());
+    let st = replayed(&s);
+    assert_eq!(st.intent_for(&remote).map(|i| i.id.as_str()), Some("i1"));
+    assert_eq!(st.workspace_of(&remote).and_then(|w| w.manager.as_deref()), Some("boss"));
+    // A manager on the other machine registers for the linked workspace: the one record, which stays the local one.
+    add(&mut s, "far", json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": remote}})).unwrap();
+    let st = s.state();
+    assert_eq!((st.workspaces.len(), st.workspaces[0].manager.as_deref(), st.workspaces[0].group.id.as_str()), (1, Some("far"), "w1"));
+    assert_eq!(st.manager_of("i1"), Some("far"));
+    add(&mut s, "user", json!({"kind": "workspace.unlinked", "body": {"machine": "box", "workspace": "chat"}})).unwrap();
+    assert!(s.state().workspace_of(&remote).is_none());
 }

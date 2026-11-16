@@ -274,8 +274,22 @@ pub struct NewTask {
 /// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct RuntimeRef {
+    /// Unique across machines: another machine's carries its name.
     pub id: String,
     pub label: String,
+    /// The machine it is on; none: this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+}
+
+/// A workspace of another machine made one with a workspace of this machine: one manager,
+/// the same intents. Workspaces are named by their labels, which outlive their ids.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Link {
+    pub machine: String,
+    pub workspace: String,
+    /// The label of the workspace on this machine.
+    pub local: String,
 }
 
 /// An agent session as last seen: the name shown for it, and its harness.
@@ -410,6 +424,11 @@ pub enum Body {
         finding: String,
         reason: String,
     },
+    /// A workspace of another machine becomes one with a workspace of this machine.
+    #[serde(rename = "workspace.linked")]
+    WorkspaceLinked(Link),
+    #[serde(rename = "workspace.unlinked")]
+    WorkspaceUnlinked { machine: String, workspace: String },
     /// A deferred finding from outside workriver's tasks, into a project's backlog.
     #[serde(rename = "finding.added")]
     FindingAdded {
@@ -460,6 +479,9 @@ pub enum Body {
         repo: String,
         branch: String,
         base: String,
+        /// The machine the repository is on; none: this one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
     },
     #[serde(rename = "unit.merged")]
     UnitMerged {
@@ -633,6 +655,7 @@ impl Body {
             ProjectAdded { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
+            WorkspaceLinked(_) | WorkspaceUnlinked { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } => (None, Some(unit.clone()), None),
@@ -684,6 +707,8 @@ pub struct State {
     pub roadmap: Vec<String>,
     #[serde(default)]
     pub backlog: Vec<BacklogFinding>,
+    #[serde(default)]
+    pub links: Vec<Link>,
 }
 
 /// A stored file. Never deleted, like the records.
@@ -800,6 +825,9 @@ pub struct Unit {
     pub repo: String,
     pub branch: String,
     pub base: String,
+    /// The machine its repository is on; none: this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
     pub at: String,
     /// When it was recorded as merged.
     pub merged: Option<String>,
@@ -928,6 +956,7 @@ impl State {
             repo: i.project.clone(),
             branch: String::new(),
             base: String::new(),
+            machine: None,
             at: i.at.clone(),
             merged: None,
             merged_commits: vec![],
@@ -957,7 +986,24 @@ impl State {
     /// A runtime group's record: by its id, or else by its label, since a runtime may give
     /// its groups new ids when it restarts.
     pub fn workspace_of(&self, r: &RuntimeRef) -> Option<&Workspace> {
-        self.workspaces.iter().find(|w| w.group.id == r.id).or_else(|| self.workspaces.iter().find(|w| w.group.label == r.label))
+        self.workspace_at(r).map(|k| &self.workspaces[k])
+    }
+
+    /// The link of a group of another machine, if it has one.
+    pub fn link_of(&self, r: &RuntimeRef) -> Option<&Link> {
+        let m = r.machine.as_ref()?;
+        self.links.iter().find(|l| &l.machine == m && l.workspace == r.label)
+    }
+
+    /// Where a group's record is. A linked group of another machine is the workspace of this
+    /// machine it is linked to; nothing else is ever matched across machines.
+    fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
+        if let Some(l) = self.link_of(r) {
+            return self.workspaces.iter().position(|w| w.group.machine.is_none() && w.group.label == l.local);
+        }
+        let here = |w: &&Workspace| w.group.machine == r.machine;
+        let at = |f: &dyn Fn(&Workspace) -> bool| self.workspaces.iter().position(|w| here(&w) && f(w));
+        at(&|w| w.group.id == r.id).or_else(|| at(&|w| w.group.label == r.label))
     }
 
     /// The intent new work in a runtime group goes to: the group's current intent.
@@ -1092,6 +1138,21 @@ impl State {
                 }
                 FindingsBatched { intent, findings }
             }
+            WorkspaceLinked(l) => {
+                if blank(&l.machine) || blank(&l.workspace) || blank(&l.local) {
+                    return no("a link names a machine, its workspace and a workspace of this machine");
+                }
+                if let Some(old) = self.links.iter().find(|x| x.machine == l.machine && x.workspace == l.workspace) {
+                    return no(format!("{}:{} is already linked to {}; unlink it first", l.machine, l.workspace, old.local));
+                }
+                WorkspaceLinked(l)
+            }
+            WorkspaceUnlinked { machine, workspace } => {
+                if !self.links.iter().any(|x| x.machine == machine && x.workspace == workspace) {
+                    return no(format!("{machine}:{workspace} is not linked"));
+                }
+                WorkspaceUnlinked { machine, workspace }
+            }
             FindingAdded { project, intent, finding, source, note } => {
                 if blank(&project) {
                     return no("a backlog finding needs its project (--project)");
@@ -1154,7 +1215,7 @@ impl State {
                 }
                 ManagerRegistered { intent, agent, workspace }
             }
-            UnitCreated { intent, title, purpose, repo, branch, base, .. } => {
+            UnitCreated { intent, title, purpose, repo, branch, base, machine, .. } => {
                 let i = self.intent(&intent)?;
                 if matches!(i.state, IntentState::Done | IntentState::Dropped) {
                     return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
@@ -1165,7 +1226,7 @@ impl State {
                     }
                 }
                 let id = format!("u{}", self.units.len() + 1);
-                UnitCreated { id, intent, title, purpose, repo, branch, base }
+                UnitCreated { id, intent, title, purpose, repo, branch, base, machine }
             }
             UnitMerged { unit, commits } => {
                 if self.unit(&unit)?.merged.is_some() {
@@ -1551,6 +1612,8 @@ impl State {
                     }
                 }
             }
+            WorkspaceLinked(l) => self.links.push(l.clone()),
+            WorkspaceUnlinked { machine, workspace } => self.links.retain(|x| !(&x.machine == machine && &x.workspace == workspace)),
             FindingAdded { project, intent, finding, source, note } => {
                 let found = finding.clone();
                 self.backlog.push(BacklogFinding {
@@ -1607,7 +1670,8 @@ impl State {
                     self.workspace_mut(&g).manager = Some(agent.clone());
                 }
             }
-            UnitCreated { id, intent, title, purpose, repo, branch, base } => self.units.push(Unit {
+            UnitCreated { id, intent, title, purpose, repo, branch, base, machine } => self.units.push(Unit {
+                machine: machine.clone(),
                 id: id.clone(),
                 intent: intent.clone(),
                 title: title.clone(),
@@ -1859,14 +1923,17 @@ impl State {
 
     /// A runtime group's record, made when first needed; it follows the group's latest id and label.
     fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
-        let k = self.workspaces.iter().position(|w| w.group.id == g.id).or_else(|| self.workspaces.iter().position(|w| w.group.label == g.label));
-        match k {
+        // A linked group's record is the local workspace's, which keeps its own id and label.
+        let local = self.link_of(g).map(|l| RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None });
+        match self.workspace_at(g) {
             Some(k) => {
-                self.workspaces[k].group = g.clone();
+                if local.is_none() {
+                    self.workspaces[k].group = g.clone();
+                }
                 &mut self.workspaces[k]
             }
             None => {
-                self.workspaces.push(Workspace { group: g.clone(), manager: None, current: None });
+                self.workspaces.push(Workspace { group: local.unwrap_or_else(|| g.clone()), manager: None, current: None });
                 self.workspaces.last_mut().unwrap()
             }
         }

@@ -58,6 +58,28 @@ export const zhCN: Same<typeof en> = {
     notify: 'agent 需要我时通知我',
     notifyDenied: '浏览器不允许这个页面发通知。'
   },
+  machines: {
+    title: '其他机器',
+    lead: '其他机器上的 agent，通过 ssh 跟踪（每台机器跑自己的 Herdr）。',
+    none: '还没有。加一台：一个名字，加上 `ssh` 能用的目标（必须不用输密码就能连上）。',
+    on: '在 {{machine}} 上',
+    unreachable: '连不上 {{machine}}；显示的是上次看到的状态',
+    follow: '跟踪 {{machine}}',
+    connected_other: '已连接，{{count, number}} 个 agent',
+    noHerdr: '已连接，但那边的 Herdr 没有应答',
+    down: '没连上',
+    off: '未跟踪',
+    port: '那边的 agent 需要设置 WORKRIVER_PORT={{port}}',
+    name: '名字',
+    ssh: 'ssh 目标（主机名或 user@host）',
+    add: '添加',
+    remove: '移除 {{machine}}',
+    links: '那边的工作区',
+    linkLead: '那边的工作区只有在你把它和这边的工作区关联之后才算同一个：一个管理者，同一批意图。',
+    notLinked: '未关联',
+    linkTo: '把 {{machine}} 上的 {{workspace}} 关联到这边的一个工作区',
+    failed: '没有完成：{{error}}'
+  },
   unit: {
     blocking_other: '{{count, number}} 个手动步骤卡住了 agent',
     active: '进行中',

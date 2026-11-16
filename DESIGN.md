@@ -147,6 +147,17 @@ looked at now and then.
   running or still to do, the header names its agent and, while the session lives, a
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
+- **Other machines.** Agents may run on other machines, each with its own Herdr. Whatever is
+  on another machine carries a small chip with the machine's name (a server glyph): an
+  agent's line in Agents, a unit's header and its line in the rail; an agent mark's tooltip
+  ends with "@machine". When the machine cannot be reached, its agents stay as last seen,
+  faded, the chip dashed, and they raise nothing in Needs you. A workspace of another
+  machine is its own group in Agents, with the chip in its heading, until the user links it
+  to a workspace of this machine; then its agents sit in that group (one manager, the same
+  intents). Nothing is ever merged by name alone. Settings has "Other machines": each with
+  a follow switch, its state in a few words (connected and how many agents, not connected,
+  connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
+  one; and, per workspace over there, a select that links it to a workspace here.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
   terminal) and in the header of running or waiting work. It is not on graph nodes. All

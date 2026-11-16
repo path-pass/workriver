@@ -1,5 +1,5 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { Archive, ArrowLeft, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
+import { Archive, ArrowLeft, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
 import { createContext, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,6 +23,7 @@ const ICONS: Record<string, LucideIcon> = {
   design: DraftingCompass,
   research: Telescope,
   backlog: Archive,
+  machine: Server,
   grip: GripVertical,
   play: Play,
   link: ExternalLink,
@@ -198,4 +199,15 @@ export function ExternalChip({ ext }: { ext?: External }) {
   return ext.url
     ? <a className="ext-chip" href={ext.url} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()}><Icon name="link" className="size-3" />{text}</a>
     : <span className="ext-chip">{text}</span>
+}
+
+/** The machine something is on, when it is not this one: a small chip with its name. */
+export function MachineChip({ machine, away = false }: { machine?: string; away?: boolean }) {
+  const { t } = useT()
+  if (!machine) return null
+  return (
+    <Tip text={away ? t('machines.unreachable', { machine }) : t('machines.on', { machine })}>
+      <span className="ext-chip" data-away={away || undefined}><Icon name="machine" className="size-3" />{machine}</span>
+    </Tip>
+  )
 }

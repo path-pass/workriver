@@ -12,7 +12,7 @@ import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
-import { ExternalChip, Icon, Tip } from './bits'
+import { ExternalChip, Icon, MachineChip, Tip } from './bits'
 import { Settings } from './Settings'
 
 /** What waits for the user in some units: gates an agent is stuck on, and everything else. */
@@ -162,6 +162,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
             className="block w-full rounded-md px-2.5 py-2 text-left transition-colors hover:bg-rail-2 aria-pressed:bg-rail-3"
           >
             <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere">{unit.intentLevel ? t('rail.intentWork') : unit.title}</span>
+            {unit.machine && <span className="mt-0.5 flex"><MachineChip machine={unit.machine} /></span>}
             <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden"><Signals unit={unit} /></span>
           </button>
         ))}
@@ -307,7 +308,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         <span className="text-lg font-[650] tracking-[-0.01em] min-[861px]:hidden">workriver</span>
         <Fold open={false} onToggle={onToggle} />
         <Blocked ws={ws} />
-        <div className="mt-auto max-[860px]:hidden"><Settings compact /></div>
+        <div className="mt-auto max-[860px]:hidden"><Settings compact ws={ws} /></div>
       </aside>
     )
   const group = ({ intent, units }: { intent: Intent; units: Unit[] }) => (
@@ -372,7 +373,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       </ScrollArea>
 
       <div className="flex flex-col border-t border-rail-line pt-2">
-        <Settings />
+        <Settings ws={ws} />
       </div>
     </aside>
   )

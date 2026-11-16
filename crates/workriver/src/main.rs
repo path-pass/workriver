@@ -4,6 +4,7 @@ mod attachments;
 mod backlog;
 mod deliver;
 mod herdr;
+mod machines;
 mod serve;
 mod snapshot;
 
@@ -67,6 +68,13 @@ enum Cmd {
     },
     /// Check that the daemon is running and show what it holds.
     Status,
+    /// Other machines whose agents (in their own Herdr) are followed over ssh.
+    #[command(subcommand)]
+    Machine(MachineCmd),
+    /// Runtime workspaces (Herdr's) on this and other machines, and the links that make a
+    /// workspace of another machine one with a workspace of this machine.
+    #[command(subcommand)]
+    Workspace(WorkspaceCmd),
     /// Projects: folders holding one or more repositories.
     #[command(subcommand)]
     Project(ProjectCmd),
@@ -194,6 +202,52 @@ enum IntentCmd {
         /// One sentence on what it is for.
         #[arg(long)]
         goal: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MachineCmd {
+    /// Add a machine (not followed until enabled). workriver connects with
+    /// `ssh -o BatchMode=yes <target>`: it must work without a password prompt.
+    Add {
+        /// workriver's name for it: letters, digits, '-', '_', '.'.
+        label: String,
+        /// What ssh takes: a Host of your ssh config, or user@host.
+        #[arg(long)]
+        ssh: String,
+        /// Herdr's socket over there; default: asked of the machine
+        /// ($HERDR_SOCKET_PATH, else ~/.config/herdr/herdr.sock).
+        #[arg(long, value_name = "PATH")]
+        herdr_socket: Option<String>,
+        /// The port over there that leads back to this service; default: this service's
+        /// port. With another, agents there need WORKRIVER_PORT set to it.
+        #[arg(long, value_name = "N")]
+        remote_port: Option<u16>,
+    },
+    /// The machines, whether each can be reached, and why not.
+    List,
+    /// Follow a machine: its agents show up, and its `workriver` CLI reaches this service.
+    Enable { label: String },
+    /// Stop following a machine; nothing over there is stopped.
+    Disable { label: String },
+    Remove { label: String },
+}
+
+#[derive(Subcommand)]
+enum WorkspaceCmd {
+    /// Every workspace per machine, with its link.
+    List,
+    /// Make a workspace of another machine one with a workspace of this machine: one
+    /// manager (wherever it runs), the same intents.
+    Link {
+        /// `<machine>:<workspace label>`.
+        remote: String,
+        /// The label of the workspace on this machine.
+        local: String,
+    },
+    Unlink {
+        /// `<machine>:<workspace label>`.
+        remote: String,
     },
 }
 
@@ -478,13 +532,15 @@ fn main() -> anyhow::Result<()> {
             let runtime = herdr::Herdr::new(herdr::socket_path(), terminal_app.clone());
             // Without Herdr the daemon still records and shows; it just sees no agents.
             let warning = runtime.check();
+            let home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
+            let all = machines::Machines::new(std::sync::Arc::new(runtime), home, terminal_app.clone());
             if let Some(w) = &warning {
                 tracing::warn!("{w}");
             }
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port).await?;
-                serve::serve(listener, store, std::sync::Arc::new(runtime), warning, serve::Waits::default()).await
+                serve::serve_with(listener, store, all.clone(), warning, serve::Waits::default(), Some(all)).await
             });
         }
         Cmd::Guide { role } => {
@@ -508,7 +564,7 @@ fn main() -> anyhow::Result<()> {
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     let place = herdr::place_from_env();
     let here = match &place {
         Some(place) if records && (cli.actor.is_none() || needs_place) => {
@@ -542,6 +598,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = rt["warning"].as_str() {
                 println!("  at start: {w}");
             }
+            print_machines(&s["machines"], s["port"].as_u64().unwrap_or(0) as u16);
             let at = &s["attachments"];
             println!(
                 "attachments: {} files, {:.1} MB in {} (kept for good, like the records)",
@@ -578,6 +635,48 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             return Ok(());
+        }
+        Cmd::Machine(cmd) => {
+            let (label, action, extra) = match cmd {
+                MachineCmd::List => (String::new(), "", json!({})),
+                MachineCmd::Add { label, ssh, herdr_socket, remote_port } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket, "port": remote_port })),
+                MachineCmd::Enable { label } => (label, "enable", json!({})),
+                MachineCmd::Disable { label } => (label, "disable", json!({})),
+                MachineCmd::Remove { label } => (label, "remove", json!({})),
+            };
+            let list = if action.is_empty() {
+                d.get("/api/machines")?
+            } else {
+                let mut body = extra;
+                body["label"] = json!(label);
+                body["action"] = json!(action);
+                d.call("/api/machines", Some(body))?
+            };
+            print_machines(&list, d.port);
+            if action == "enable" {
+                println!("It connects in the background; `workriver machine list` shows whether it is up. On {label}, `workriver status` must answer through it.");
+            }
+            return Ok(());
+        }
+        Cmd::Workspace(WorkspaceCmd::List) => {
+            let w = d.get("/api/workspace")?;
+            for g in w["workspaces"].as_array().into_iter().flatten() {
+                let label = g["label"].as_str().unwrap_or("?");
+                match (g["machine"].as_str(), g["linkedTo"].as_str()) {
+                    (None, _) => println!("{label}"),
+                    (Some(m), Some(to)) => println!("{m}:{label}  linked to {to}"),
+                    (Some(m), None) => println!("{m}:{label}  not linked"),
+                }
+            }
+            return Ok(());
+        }
+        Cmd::Workspace(WorkspaceCmd::Link { remote, local }) => {
+            let (machine, workspace) = remote.split_once(':').ok_or_else(|| anyhow!("write the remote workspace as <machine>:<workspace>, as `workriver workspace list` shows it"))?;
+            d.append(actor, "workspace.linked", json!({ "machine": machine, "workspace": workspace, "local": local }))?
+        }
+        Cmd::Workspace(WorkspaceCmd::Unlink { remote }) => {
+            let (machine, workspace) = remote.split_once(':').ok_or_else(|| anyhow!("write the remote workspace as <machine>:<workspace>"))?;
+            d.append(actor, "workspace.unlinked", json!({ "machine": machine, "workspace": workspace }))?
         }
         Cmd::Project(ProjectCmd::Add { folder, title }) => {
             let folder = std::fs::canonicalize(&folder).with_context(|| format!("no folder {folder}"))?;
@@ -719,6 +818,8 @@ fn main() -> anyhow::Result<()> {
         Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("finding.added") => b["finding"]["id"].as_str().unwrap_or("?").to_string(),
+        Some("workspace.linked") => "linked".into(),
+        Some("workspace.unlinked") => "unlinked".into(),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
         Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
         Some("task.amended") => "amended".into(),
@@ -789,6 +890,12 @@ impl Daemon {
     /// A task's staging folder for screenshots, made if needed.
     fn inbox(&self, unit: &str, task: u32) -> anyhow::Result<PathBuf> {
         let v = self.call("/api/attachments/inbox", Some(json!({ "unit": unit, "task": task })))?;
+        // The service is on another machine: the folder is on this one's disk, made here.
+        if v["elsewhere"] == true {
+            let d = attachments::inbox(&core::data_dir(), unit, task);
+            attachments::mkdir(&d).with_context(|| format!("cannot make {}", d.display()))?;
+            return Ok(d);
+        }
         Ok(PathBuf::from(v["dir"].as_str().unwrap_or_default()))
     }
 
@@ -853,6 +960,30 @@ fn parse_cause(s: &str) -> anyhow::Result<Value> {
     }
     let n: u32 = n.trim().trim_start_matches('#').parse().map_err(|_| anyhow!("--cause {s:?}: {n:?} is not a task number"))?;
     Ok(json!({ "task": n, "findings": ids(list) }))
+}
+
+/// One line per machine: whether it is followed and can be reached, and why not.
+fn print_machines(list: &Value, port: u16) {
+    for m in list.as_array().into_iter().flatten() {
+        let label = m["label"].as_str().unwrap_or("?");
+        let state = if m["enabled"] != true {
+            "disabled".to_string()
+        } else if m["reachable"] == true && m["tunnel"] == true {
+            format!("connected, {} agents", m["agents"])
+        } else if m["tunnel"] == true {
+            "connected, but its Herdr does not answer".to_string()
+        } else {
+            "not connected".to_string()
+        };
+        println!("machine {label} ({}): {state}", m["ssh"].as_str().unwrap_or("?"));
+        for why in [&m["tunnelError"], &m["error"]].into_iter().filter_map(|e| e.as_str()) {
+            println!("  {why}");
+        }
+        let rport = m["port"].as_u64().unwrap_or(0) as u16;
+        if rport != port && m["enabled"] == true {
+            println!("  agents there need WORKRIVER_PORT={rport}");
+        }
+    }
 }
 
 /// `SYSTEM:KEY` and an optional link.

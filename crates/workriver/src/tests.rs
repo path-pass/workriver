@@ -76,13 +76,15 @@ struct Fake {
     /// Temporary agents started: (group, harness, name, cwd); and those closed.
     started: std::sync::Mutex<Vec<(String, String, String, String)>>,
     closed: std::sync::Mutex<Vec<String>>,
+    /// As Herdr does: a message to an agent it does not have is an error.
+    strict: std::sync::atomic::AtomicBool,
 }
 
 impl workriver_core::runtime::Runtime for Fake {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
         Ok(self.agents.lock().unwrap().iter().map(|(_, a)| a.clone()).collect())
     }
-    fn locate(&self, place: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
+    fn locate(&self, _: Option<&str>, place: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
         let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
         Ok(workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent })
     }
@@ -90,6 +92,9 @@ impl workriver_core::runtime::Runtime for Fake {
         Ok(())
     }
     fn send(&self, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        if self.strict.load(std::sync::atomic::Ordering::Relaxed) && !self.agents.lock().unwrap().iter().any(|(_, a)| a.session == session || a.name == session) {
+            return Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()));
+        }
         self.sent.lock().unwrap().push((session.into(), text.into()));
         Ok(())
     }
@@ -113,9 +118,10 @@ fn live(session: &str, name: &str, group: &str, state: workriver_core::runtime::
         harness: "claude".into(),
         state,
         cwd: String::new(),
-        group: Some(workriver_core::RuntimeRef { id: group.into(), label: "chat".into() }),
+        group: Some(workriver_core::RuntimeRef { id: group.into(), label: "chat".into(), machine: None }),
         name: name.into(),
         topic: None,
+        machine: None,
     }
 }
 
@@ -607,7 +613,7 @@ fn replays_a_copied_database() {
         }
     }
     let mut cache = crate::snapshot::Cache::default();
-    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default())).unwrap();
+    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default(), &[])).unwrap();
     println!("projects: {}", snap["projects"]);
     println!("events: {}", store.count().unwrap());
 }
@@ -622,4 +628,155 @@ fn cli_causes_and_external_ids() {
     assert!(parse_cause("P2-1").is_err());
     assert_eq!(parse_external(Some("jira:ABC-12".into()), Some("https://x/ABC-12".into())).unwrap(), Some(json!({ "system": "jira", "key": "ABC-12", "url": "https://x/ABC-12" })));
     assert!(parse_external(Some("ABC-12".into()), None).is_err());
+}
+
+/// A runtime that cannot be reached.
+struct Broken;
+
+impl workriver_core::runtime::Runtime for Broken {
+    fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::Failed("ssh: connect to host gone: Operation timed out".into()))
+    }
+    fn locate(&self, _: Option<&str>, _: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn send(&self, _: &str, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn close(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+}
+
+/// Two machines with the same pane, workspace id and workspace label: everything from the
+/// other machine carries its name, messages go where the agent is, a machine that cannot be
+/// reached leaves the rest working, and the two workspaces are one only once linked. A
+/// caller on the other machine's listener is an agent of that machine, whatever it says.
+#[test]
+fn machines_are_separate_until_linked() {
+    use workriver_core::runtime::{AgentState::*, Runtime};
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    local.strict.store(true, std::sync::atomic::Ordering::Relaxed);
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone()), ("gone", std::sync::Arc::new(Broken))]);
+
+    let agents = all.agents().unwrap();
+    assert_eq!(agents.len(), 2, "the machine that cannot be reached does not take the others with it");
+    let a = agents.iter().find(|a| a.session == "s-far").unwrap();
+    let g = a.group.clone().unwrap();
+    assert_eq!((a.machine.as_deref(), g.id.as_str(), g.machine.as_deref()), (Some("box"), "w1@box", Some("box")));
+    let states = all.states();
+    assert_eq!(states.iter().map(|m| (m.label.as_str(), m.reachable)).collect::<Vec<_>>(), [("box", true), ("gone", false)]);
+    assert!(states[1].error.as_deref().unwrap().contains("timed out"));
+    // The same pane id on each machine is a different agent.
+    assert_eq!(all.locate(None, "w1:p1").unwrap().agent.unwrap().session, "s-boss");
+    assert_eq!(all.locate(Some("box"), "w1:p1").unwrap().agent.unwrap().session, "s-far");
+    // Messages and new agents go to the agent's own machine, with that machine's own ids.
+    all.send("s-far", "hi").unwrap();
+    all.send("s-boss", "ho").unwrap();
+    assert_eq!((far.sent.lock().unwrap().len(), local.sent.lock().unwrap().len()), (1, 1));
+    all.start_temporary("w1@box", "claude", "why-q9", "/srv/x").unwrap();
+    assert_eq!(far.started.lock().unwrap()[0].0, "w1");
+    all.send("why-q9", "by name, before the next read").unwrap();
+    assert_eq!(far.sent.lock().unwrap().len(), 2);
+    all.close("why-q9").unwrap();
+    all.poll_all();
+
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let d = Daemon { port: listener.local_addr().unwrap().port() };
+    let (runtime, machines) = (all.clone(), all.clone());
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, None, Default::default(), Some(machines))));
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let via_box = Daemon { port: all.local_port("box").unwrap() };
+
+    // Who a caller is depends on the listener it came in on, not on what it claims.
+    manage(&d, "w1:p1", "s-boss");
+    assert_eq!(d.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-boss");
+    let there = via_box.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap();
+    assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str()), (Some("s-far"), Some("w1@box"), None), "same label, not the same workspace");
+    assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
+
+    d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
+    assert_eq!(via_box.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
+
+    // A unit recorded from the other machine has its repository there.
+    let unit = via_box.append("s-far", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    assert_eq!(unit["body"]["machine"], "box");
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    // A review delivered there reaches the manager here; a file it attached is, for an agent
+    // over there, a link through its tunnel, never a path on this machine.
+    via_box.append("s-far", "task.created", json!({ "unit": "u1", "kind": "review" })).unwrap();
+    let shot = tmp.path().join("shot.png");
+    std::fs::write(&shot, b"\x89PNG far").unwrap();
+    let up = via_box.upload(&shot, "s-far", None).unwrap();
+    assert!(up["path"].as_str().unwrap().starts_with("http://127.0.0.1:47820/api/attachments/"), "{up}");
+    via_box.append("s-far", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P2", "problem": "p", "impact": "i", "where": ["a"], "attachments": [up["id"]] }] })).unwrap();
+    let told = local.sent.lock().unwrap().last().unwrap().clone();
+    assert!(told.0 == "s-boss" && told.1.contains("delivered by far") && told.1.contains(&tmp.path().join("attachments").display().to_string()), "{told:?}");
+    // The far agent becomes the linked workspace's manager: decisions go to its machine.
+    via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
+    d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
+    let got = far.sent.lock().unwrap().last().unwrap().clone();
+    assert!(got.0 == "s-far" && got.1.contains("http://127.0.0.1:47820/api/attachments/") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
+
+    let ws = d.get("/api/workspace").unwrap();
+    assert_eq!(ws["intents"][0]["units"][0]["machine"], "box");
+    let s = ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == "far").unwrap();
+    assert_eq!((s["machine"].as_str(), s["group"]["id"].as_str(), s["manager"].as_bool()), (Some("box"), Some("w1"), Some(true)), "shown in the local workspace it is linked to");
+    let linked: Vec<_> = ws["workspaces"].as_array().unwrap().iter().map(|g| (g["machine"].as_str(), g["label"].as_str(), g["linkedTo"].as_str())).collect();
+    assert_eq!(linked, [(None, Some("chat"), None), (Some("box"), Some("chat"), Some("chat"))]);
+    assert_eq!(ws["machines"].as_array().unwrap().len(), 2);
+}
+
+/// The connection to a machine: what ssh is asked for, and the supervisor that restarts it
+/// with growing waits, says whether it is up and why it ended, and ends it when told.
+#[test]
+fn a_machines_connection_is_kept_up() {
+    use crate::machines::{Pace, Tunnel, supervise, tunnel_words};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let w = tunnel_words("me@box", "/data/herdr-box.sock", "/home/me/.config/herdr/herdr.sock", 47820, 51234);
+    assert_eq!(&w[..2], ["ssh", "-N"]);
+    for o in ["BatchMode=yes", "ExitOnForwardFailure=yes", "ServerAliveInterval=30", "StreamLocalBindUnlink=yes"] {
+        assert!(w.windows(2).any(|p| p == ["-o", o]), "{o} in {w:?}");
+    }
+    let n = w.len();
+    assert_eq!(&w[n - 6..], ["-L", "/data/herdr-box.sock:/home/me/.config/herdr/herdr.sock", "-R", "127.0.0.1:47820:127.0.0.1:51234", "--", "me@box"]);
+
+    // A stand-in that fails twice, then stays up.
+    let tmp = tempfile::tempdir().unwrap();
+    let count = tmp.path().join("runs");
+    let script = format!("echo x >> {c}; if [ $(wc -l < {c}) -lt 3 ]; then echo 'remote port forwarding failed for listen port 47820' >&2; exit 255; fi; exec sleep 30", c = count.display());
+    let words: Vec<String> = ["sh", "-c", &script].iter().map(|s| s.to_string()).collect();
+    let tunnel = std::sync::Arc::new(std::sync::Mutex::new(Tunnel::default()));
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let pace = Pace { settle: std::time::Duration::from_millis(300), min: std::time::Duration::from_millis(50), max: std::time::Duration::from_millis(200), healthy: std::time::Duration::from_secs(60) };
+    let (t, s) = (tunnel.clone(), stop.clone());
+    let run = std::thread::spawn(move || supervise(&words, &t, &s, pace));
+    wait_until("the failure is told", || tunnel.lock().unwrap().error.as_deref() == Some("remote port forwarding failed for listen port 47820"));
+    wait_until("it is up after the restarts", || tunnel.lock().unwrap().up);
+    assert_eq!(std::fs::read_to_string(&count).unwrap().lines().count(), 3);
+    assert_eq!(tunnel.lock().unwrap().error, None);
+    stop.store(true, Ordering::Relaxed);
+    run.join().unwrap();
+    assert_eq!(*tunnel.lock().unwrap(), Tunnel::default());
+    // The stand-in itself is gone too, not left running.
+    wait_until("the command ended with its supervisor", || {
+        let out = std::process::Command::new("pgrep").args(["-f", &count.display().to_string()]).output().unwrap();
+        out.stdout.is_empty()
+    });
 }

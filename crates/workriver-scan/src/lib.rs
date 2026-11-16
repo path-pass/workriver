@@ -55,10 +55,69 @@ pub struct Module {
     pub children: Option<Vec<Module>>,
 }
 
+/// Where git runs: on this machine, or on another one over ssh (the same commands).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub enum Runner {
+    #[default]
+    Local,
+    Ssh {
+        /// `ssh`, or a stand-in in tests.
+        program: String,
+        /// Options before the target.
+        options: Vec<String>,
+        /// Anything ssh takes as a destination: a Host of the user's config, `user@host`.
+        target: String,
+    },
+}
+
+/// One argument as a POSIX shell word: ssh hands the remote shell one string.
+fn quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+impl Runner {
+    /// git over ssh to `target`, never asking for anything (BatchMode), sharing one
+    /// connection through a control socket in `control` (a folder only the user can read).
+    pub fn ssh(target: &str, control: &Path) -> Runner {
+        let opts = ["BatchMode=yes", "ConnectTimeout=10", "ControlMaster=auto", "ControlPersist=120"];
+        let mut options: Vec<String> = opts.iter().flat_map(|o| ["-o".to_string(), o.to_string()]).collect();
+        options.extend(["-o".to_string(), format!("ControlPath={}", control.join("ssh-%C").display())]);
+        Runner::Ssh { program: "ssh".into(), options, target: target.into() }
+    }
+
+    /// The process that runs `words` (a program and its arguments) there.
+    pub fn command(&self, words: &[&str]) -> Command {
+        match self {
+            Runner::Local => {
+                let mut c = Command::new(words[0]);
+                c.args(&words[1..]);
+                c
+            }
+            Runner::Ssh { program, options, target } => {
+                let mut c = Command::new(program);
+                c.args(options).arg("--").arg(target).arg(words.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" "));
+                c.stdin(std::process::Stdio::null());
+                c
+            }
+        }
+    }
+
+    /// A file's bytes there; None if it cannot be read.
+    fn read(&self, path: &Path) -> Option<Vec<u8>> {
+        match self {
+            Runner::Local => std::fs::read(path).ok(),
+            Runner::Ssh { .. } => self.command(&["cat", "--", &path.to_string_lossy()]).output().ok().filter(|o| o.status.success()).map(|o| o.stdout),
+        }
+    }
+}
+
 /// Runs git in `dir`; exit codes in `ok` besides 0 count as success. Optional locks are off
 /// so reading never rewrites the index, which the watcher would take for a change.
-fn run(dir: &Path, args: &[&str], ok: &[i32]) -> Result<Vec<u8>> {
-    let out = Command::new("git").arg("--no-optional-locks").arg("-C").arg(dir).args(args).output()?;
+fn run(at: &Runner, dir: &Path, args: &[&str], ok: &[i32]) -> Result<Vec<u8>> {
+    let dir_s = dir.to_string_lossy();
+    let mut words = vec!["git", "--no-optional-locks", "-C", &dir_s];
+    words.extend_from_slice(args);
+    let out = at.command(&words).output()?;
     let code = out.status.code().unwrap_or(-1);
     if code != 0 && !ok.contains(&code) {
         let err = String::from_utf8_lossy(&out.stderr);
@@ -67,43 +126,43 @@ fn run(dir: &Path, args: &[&str], ok: &[i32]) -> Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    Ok(String::from_utf8_lossy(&run(dir, args, &[])?).into_owned())
+fn git(at: &Runner, dir: &Path, args: &[&str]) -> Result<String> {
+    Ok(String::from_utf8_lossy(&run(at, dir, args, &[])?).into_owned())
 }
 
 /// The top folder of the work tree `path` is in; an error if it is not in one.
-pub fn toplevel(path: &Path) -> Result<PathBuf> {
-    Ok(PathBuf::from(git(path, &["rev-parse", "--show-toplevel"])?.trim()))
+pub fn toplevel(at: &Runner, path: &Path) -> Result<PathBuf> {
+    Ok(PathBuf::from(git(at, path, &["rev-parse", "--show-toplevel"])?.trim()))
 }
 
 /// The commit HEAD points at.
-pub fn head(repo: &Path) -> Result<String> {
-    Ok(git(repo, &["rev-parse", "HEAD"])?.trim().to_string())
+pub fn head(at: &Runner, repo: &Path) -> Result<String> {
+    Ok(git(at, repo, &["rev-parse", "HEAD"])?.trim().to_string())
 }
 
 /// The git folder shared by all work trees of the repository, where refs live.
-pub fn common_dir(repo: &Path) -> Result<PathBuf> {
-    Ok(PathBuf::from(git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim()))
+pub fn common_dir(at: &Runner, repo: &Path) -> Result<PathBuf> {
+    Ok(PathBuf::from(git(at, repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim()))
 }
 
 /// Whether `rev` names a commit in `repo`.
-pub fn has_rev(repo: &Path, rev: &str) -> bool {
-    run(repo, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")], &[]).is_ok()
+pub fn has_rev(at: &Runner, repo: &Path, rev: &str) -> bool {
+    run(at, repo, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")], &[]).is_ok()
 }
 
 /// Full hashes of the commits on `branch` since `base`, oldest first; none if the branch is not there yet.
-pub fn commit_list(repo: &Path, base: &str, branch: &str) -> Result<Vec<String>> {
-    if !has_rev(repo, branch) {
+pub fn commit_list(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<String>> {
+    if !has_rev(at, repo, branch) {
         return Ok(vec![]);
     }
     let range = format!("{base}..{branch}");
-    Ok(git(repo, &["rev-list", "--reverse", "--first-parent", &range, "--"])?.lines().map(str::to_string).collect())
+    Ok(git(at, repo, &["rev-list", "--reverse", "--first-parent", &range, "--"])?.lines().map(str::to_string).collect())
 }
 
 /// One commit with its files' text before and after. Binary and very large files are left out.
-pub fn commit(repo: &Path, hash: &str) -> Result<Commit> {
+pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
     let fmt = "--format=%h%x00%an%x00%aI%x00%P%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
-    let out = git(repo, &["log", "-1", "--abbrev=9", fmt, hash, "--"])?;
+    let out = git(at, repo, &["log", "-1", "--abbrev=9", fmt, hash, "--"])?;
     let f: Vec<&str> = out.trim_end_matches('\n').splitn(6, '\0').collect();
     let [id, author, date, parents, task, subject] = f[..] else {
         return Err(Error::Git(format!("unexpected git log output for {hash}")));
@@ -111,9 +170,9 @@ pub fn commit(repo: &Path, hash: &str) -> Result<Commit> {
     let parent = parents.split(' ').next().filter(|p| !p.is_empty()).unwrap_or(EMPTY_TREE);
     let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
     let mut files = vec![];
-    for (status, path) in name_status(&run(repo, &["diff-tree", "-r", "--no-renames", "-z", "--name-status", parent, hash], &[])?) {
-        let before = if status == "A" { None } else { Some(blob(repo, parent, &path)?) };
-        let after = if status == "D" { None } else { Some(blob(repo, hash, &path)?) };
+    for (status, path) in name_status(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--name-status", parent, hash], &[])?) {
+        let before = if status == "A" { None } else { Some(blob(at, repo, parent, &path)?) };
+        let after = if status == "D" { None } else { Some(blob(at, repo, hash, &path)?) };
         if let Some(c) = change(path, status, before, after) {
             files.push(c);
         }
@@ -123,15 +182,15 @@ pub fn commit(repo: &Path, hash: &str) -> Result<Commit> {
 
 /// Uncommitted changes in the work tree where `branch` is checked out, against its last
 /// commit; untracked files count as added. Empty when the branch is checked out nowhere.
-pub fn live(repo: &Path, branch: &str) -> Result<Vec<FileChange>> {
-    let Some(dir) = worktree_of(repo, branch)? else { return Ok(vec![]) };
-    let mut changed = name_status(&run(&dir, &["diff", "HEAD", "--no-renames", "-z", "--name-status"], &[])?);
-    let untracked = run(&dir, &["ls-files", "--others", "--exclude-standard", "-z"], &[])?;
+pub fn live(at: &Runner, repo: &Path, branch: &str) -> Result<Vec<FileChange>> {
+    let Some(dir) = worktree_of(at, repo, branch)? else { return Ok(vec![]) };
+    let mut changed = name_status(&run(at, &dir, &["diff", "HEAD", "--no-renames", "-z", "--name-status"], &[])?);
+    let untracked = run(at, &dir, &["ls-files", "--others", "--exclude-standard", "-z"], &[])?;
     changed.extend(split0(&untracked).map(|p| ("A".to_string(), p)));
     let mut files = vec![];
     for (status, path) in changed {
-        let before = if status == "A" { None } else { Some(blob(&dir, "HEAD", &path)?) };
-        let after = if status == "D" { None } else { std::fs::read(dir.join(&path)).ok() };
+        let before = if status == "A" { None } else { Some(blob(at, &dir, "HEAD", &path)?) };
+        let after = if status == "D" { None } else { at.read(&dir.join(&path)) };
         if let Some(c) = change(path, status, before, after) {
             files.push(c);
         }
@@ -140,28 +199,28 @@ pub fn live(repo: &Path, branch: &str) -> Result<Vec<FileChange>> {
 }
 
 /// The work tree (main or linked) that has `branch` checked out.
-pub fn worktree_of(repo: &Path, branch: &str) -> Result<Option<PathBuf>> {
+pub fn worktree_of(at: &Runner, repo: &Path, branch: &str) -> Result<Option<PathBuf>> {
     let want = format!("branch refs/heads/{branch}");
-    let list = git(repo, &["worktree", "list", "--porcelain"])?;
+    let list = git(at, repo, &["worktree", "list", "--porcelain"])?;
     Ok(list.split("\n\n").find(|b| b.lines().any(|l| l == want)).and_then(|b| b.lines().next()?.strip_prefix("worktree ").map(PathBuf::from)))
 }
 
 /// The repository's files at HEAD as a tree of folders, with line counts.
-pub fn tree(repo: &Path) -> Result<Module> {
-    let top = toplevel(repo)?;
+pub fn tree(at: &Runner, repo: &Path) -> Result<Module> {
+    let top = toplevel(at, repo)?;
     let name = top.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut root = Module { name, children: Some(vec![]), ..Default::default() };
-    if !has_rev(&top, "HEAD") {
+    if !has_rev(at, &top, "HEAD") {
         return Ok(root);
     }
     // `git grep -c ''` counts lines of every text file at HEAD in one go: "HEAD:path\0count".
     let mut loc = HashMap::new();
-    for line in String::from_utf8_lossy(&run(&top, &["grep", "-I", "-z", "-c", "", "HEAD", "--"], &[1])?).lines() {
+    for line in String::from_utf8_lossy(&run(at, &top, &["grep", "-I", "-z", "-c", "", "HEAD", "--"], &[1])?).lines() {
         if let Some((path, n)) = line.split_once('\0') {
             loc.insert(path.trim_start_matches("HEAD:").to_string(), n.parse().unwrap_or(0));
         }
     }
-    for path in split0(&run(&top, &["ls-tree", "-r", "--name-only", "-z", "HEAD"], &[])?) {
+    for path in split0(&run(at, &top, &["ls-tree", "-r", "--name-only", "-z", "HEAD"], &[])?) {
         let n = loc.get(&path).copied().unwrap_or(0);
         insert(&mut root, &path, n);
     }
@@ -191,8 +250,8 @@ fn insert(root: &mut Module, path: &str, loc: u64) {
     node.files += 1;
 }
 
-fn blob(dir: &Path, rev: &str, path: &str) -> Result<Vec<u8>> {
-    run(dir, &["cat-file", "blob", &format!("{rev}:{path}")], &[])
+fn blob(at: &Runner, dir: &Path, rev: &str, path: &str) -> Result<Vec<u8>> {
+    run(at, dir, &["cat-file", "blob", &format!("{rev}:{path}")], &[])
 }
 
 /// A file change with its texts; None for binary or very large files.

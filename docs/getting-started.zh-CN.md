@@ -111,7 +111,48 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 手工步骤的结果会通过 Herdr 送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行
 显示有没有送到、有没有被接手，"复制消息"能拿到同样的文字，用来手动粘贴。
 
-## 6. 更新
+## 6. 其他机器
+
+一个 workriver 也能跟踪其他机器上的 agent。每台机器跑自己的 Herdr；workriver 和每台机器之间保持
+一条 ssh 连接，把那台机器的 Herdr socket 带到这边，同时给那边的 `workriver` 命令行一条回到这个
+服务的路。
+
+要求：两边的 Herdr 都是 0.9.1 或更新（同一套 socket 协议），那台机器上的 Herdr 正在运行；
+在这边 `ssh -o BatchMode=yes <目标> true` 不用任何输入就能成功（密钥在 ssh-agent 里，或者你自己
+在 `~/.ssh/config` 里配了 ControlMaster）；那台机器的 sshd 允许转发（默认允许）；那边有 `git`。
+
+```sh
+workriver machine add box --ssh me@box        # 你起的名字，加上 ssh 能用的目标
+workriver machine enable box
+workriver machine list                        # "connected, 3 agents"，或者连不上的原因
+```
+
+页面的设置里也能做同样的事。然后在那台机器上构建命令行，并确认它能通过这条连接找到这个服务：
+
+```sh
+git clone <这个仓库> && cd workriver && cargo build --release
+ln -s "$PWD/target/release/workriver" ~/.local/bin/workriver    # PATH 里的任何位置
+workriver status                              # 回答来自你这台机器上的服务
+```
+
+如果那边的 47820 端口被占了，添加机器时加 `--remote-port 47821`，并在那边的 shell 配置里写
+`export WORKRIVER_PORT=47821`。如果那边 Herdr 的 socket 不在 `~/.config/herdr/herdr.sock`
+（用了命名 session），用 `--herdr-socket <路径>` 指明。
+
+那边的 agent 会带着机器名显示。workriver 不假定任何 id 跨机器唯一；那边的工作区是独立的，即使和
+这边的同名。要把两个工作区合成一个（一个管理者，同一批意图），就关联它们：
+
+```sh
+workriver workspace list                      # box:chat  not linked
+workriver workspace link box:chat chat
+```
+
+或者在设置里选。由那边的 agent 登记的单元，仓库就在那边；workriver 通过 ssh 跑 git 读它的提交，
+每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
+（`http://127.0.0.1:47820/api/attachments/…`）。终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；
+在 Herdr 侧栏里切到那台机器要你自己来。
+
+## 7. 更新
 
 ```sh
 git pull
@@ -126,6 +167,10 @@ cargo build --release
 - **"cannot listen on 127.0.0.1:47820"**：端口被另一个 workriver（或别的程序）占了。停掉它，
   或者用 `workriver serve --port 47821`，命令行也用同一个端口（`--port 47821` 或
   `WORKRIVER_PORT=47821`）。
+- **某台机器显示 "not connected"**：`workriver machine list` 会原样打印 ssh 的报错。
+  *Permission denied* 或 *Host key verification failed*：先让 `ssh -o BatchMode=yes <目标> true`
+  能成功。*remote port forwarding failed*：那边端口被占，见上。*connected, but its Herdr does
+  not answer*：那边没有运行 Herdr，或者 socket 在别处（`--herdr-socket`）。
 - **页面说连不上服务**：`workriver serve` 没在运行，或者跑在别的端口上。
 - **`agent runtime: not connected`**，或者启动时有关于 Herdr 的警告（`workriver status`
   会显示）：Herdr 没在运行，或者服务看的是另一个 socket。在 Herdr 窗格里启动服务，或者设

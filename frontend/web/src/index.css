@@ -192,6 +192,9 @@
   .ext-chip { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 4px; font: 500 10px/1 var(--font-mono); color: var(--ink-2); white-space: nowrap; }
   .rail .ext-chip { border-color: var(--rail-line); color: var(--rail-ink-2); }
   a.ext-chip:hover { color: var(--ink); text-decoration: underline; }
+  /* Its machine cannot be reached: what shows is as last seen. */
+  .ext-chip[data-away] { border-style: dashed; }
+  .agent-row[data-away] { opacity: .55; }
   .rail a.ext-chip:hover { color: var(--rail-ink); }
   /* A planned intent in the rail; while dragged over, a line shows where it lands. */
   .plan { display: flex; align-items: flex-start; gap: 4px; padding: 6px 6px 6px 2px; border-radius: 6px; }

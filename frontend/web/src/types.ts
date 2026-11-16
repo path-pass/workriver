@@ -12,6 +12,36 @@ export interface Workspace {
   projects?: Project[];
   /** Deferred findings that came from outside workriver's tasks (an earlier review, a notes file). */
   backlog?: BacklogFinding[];
+  /** Every runtime workspace per machine, with the local one a remote one is linked to. */
+  workspaces?: RuntimeWorkspace[];
+  /** The other machines followed. */
+  machines?: Machine[];
+}
+
+/** A runtime (Herdr) workspace, of this machine or of another. */
+export interface RuntimeWorkspace {
+  id: string;
+  label: string;
+  /** Absent: this machine. */
+  machine?: string;
+  /** A remote one: the label of the workspace of this machine it is one with. */
+  linkedTo?: string;
+}
+
+/** Another machine whose agents are followed over ssh. */
+export interface Machine {
+  label: string;
+  ssh: string;
+  enabled: boolean;
+  /** The port over there that leads back to the service. */
+  port: number;
+  /** Its agents can be read now. */
+  reachable: boolean;
+  error?: string;
+  /** The connection is up. */
+  tunnel: boolean;
+  tunnelError?: string;
+  agents: number;
 }
 
 /** A folder holding one or more repositories; or a repository outside every registered one. */
@@ -85,6 +115,8 @@ export type RuntimeState = 'working' | 'idle' | 'done' | 'blocked' | 'unknown';
 export interface Repo {
   /** Where it is on disk; a unit names its repository by this. */
   path: string;
+  /** The machine it is on; absent: this one. */
+  machine?: string;
   name: string;
   /** The code as a tree of folders and files. The root has an empty path. */
   modules: ModuleNode;
@@ -99,8 +131,12 @@ export interface Session {
   topic?: string;
   /** Waiting for a person in its terminal (a question, an approval) since then. */
   blockedSince?: string;
-  /** The runtime workspace (in Herdr) it runs in. */
-  group?: { id: string; label: string };
+  /** The runtime workspace (in Herdr) it runs in; a remote one not linked names its machine. */
+  group?: { id: string; label: string; machine?: string };
+  /** The machine it runs on; absent: this one. */
+  machine?: string;
+  /** Its machine cannot be reached: shown as last seen. */
+  unreachable?: boolean;
   /** The session is gone: the agent is not shown anywhere any more. */
   ended: boolean;
   /** While it lives: its state in the runtime. */
@@ -171,6 +207,8 @@ export interface Unit {
   purpose: string;
   /** Path of its repository, one of `Workspace.repos`. */
   repo: string;
+  /** The machine its repository is on; absent: this one. */
+  machine?: string;
   /** The branch the work happens on; null once merged. */
   branch: string | null;
   status: UnitStatus;

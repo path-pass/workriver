@@ -52,7 +52,7 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
 }
 
 /** The repository a unit works in. */
-export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo)!
+export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo && r.machine === unit.machine)!
 
 /**
  * Self-check, in development: for every unit and every scope (nothing picked, each node
@@ -230,6 +230,10 @@ export interface AgentAt {
   blocked: boolean
   /** The manager of its intent. */
   manager: boolean
+  /** The machine it runs on; absent: this one. */
+  machine?: string
+  /** Its machine cannot be reached: as last seen. */
+  unreachable?: boolean
   /** The node it is on; idle: the last one it finished (data order), or null if none. */
   at: { unit: Unit; node: Task } | null
 }
@@ -239,6 +243,8 @@ export interface AgentGroup {
   key: string
   /** The intent's title when the workspace has one, else the workspace's label. */
   label: string
+  /** A workspace of another machine that is not linked to one of this machine. */
+  machine?: string
   intent: Intent | null
   agents: AgentAt[]
 }
@@ -262,8 +268,8 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
     const [state, at]: [AgentState, AgentAt['at']] = running ? ['working', running] : s.state === 'working' ? ['working', todo ?? last] : todo ? ['queued', todo] : ['idle', last]
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     const key = s.group?.id ?? intent?.id ?? ''
-    if (!groups.has(key)) groups.set(key, { key, label: s.group?.label ?? intent?.title ?? '', intent, agents: [] })
-    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, at })
+    if (!groups.has(key)) groups.set(key, { key, label: s.group?.label ?? intent?.title ?? '', machine: s.group?.machine, intent, agents: [] })
+    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
   }
   const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
   const list = [...groups.values()]

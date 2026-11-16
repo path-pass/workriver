@@ -30,6 +30,9 @@ pub struct RuntimeAgent {
     pub name: String,
     /// What the session is about, in the harness's words (its terminal title), if known.
     pub topic: Option<String>,
+    /// The machine it runs on; none: this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// What is at a place the CLI found in its environment (a runtime-specific string).
@@ -54,8 +57,8 @@ pub enum RuntimeError {
 pub trait Runtime: Send + Sync {
     /// The live agents, read fresh.
     fn agents(&self) -> Result<Vec<RuntimeAgent>, RuntimeError>;
-    /// What is at `place`, read fresh.
-    fn locate(&self, place: &str) -> Result<Place, RuntimeError>;
+    /// What is at `place` on `machine` (none: this one), read fresh.
+    fn locate(&self, machine: Option<&str>, place: &str) -> Result<Place, RuntimeError>;
     /// Bring the agent's terminal to the front.
     fn focus(&self, session: &str) -> Result<(), RuntimeError>;
     /// Type a message into the agent's terminal and submit it; does not wait for an answer.
@@ -66,6 +69,16 @@ pub trait Runtime: Send + Sync {
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError>;
     /// Close an agent started with `start_temporary`, and its place (session or name).
     fn close(&self, agent: &str) -> Result<(), RuntimeError>;
+    /// Every group there is, with or without agents; by default, those of the agents.
+    fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
+        let mut all: Vec<RuntimeRef> = vec![];
+        for g in self.agents()?.into_iter().filter_map(|a| a.group) {
+            if !all.contains(&g) {
+                all.push(g);
+            }
+        }
+        Ok(all)
+    }
 }
 
 /// Used when no runtime is configured: no agents are known and none can be reached.
@@ -75,7 +88,7 @@ impl Runtime for NoRuntime {
     fn agents(&self) -> Result<Vec<RuntimeAgent>, RuntimeError> {
         Err(RuntimeError::None)
     }
-    fn locate(&self, _: &str) -> Result<Place, RuntimeError> {
+    fn locate(&self, _: Option<&str>, _: &str) -> Result<Place, RuntimeError> {
         Err(RuntimeError::None)
     }
     fn focus(&self, _: &str) -> Result<(), RuntimeError> {

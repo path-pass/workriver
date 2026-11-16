@@ -17,11 +17,39 @@ pub struct Workspace {
     built_at: String,
     intents: Vec<Intent>,
     sessions: Vec<Session>,
+    /// Every workspace the runtime has, per machine, with what it is linked to.
+    workspaces: Vec<Group>,
+    /// The other machines followed, with whether each can be reached.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    machines: Vec<crate::machines::MachineState>,
+}
+
+/// A runtime workspace: of this machine, or of another with the local one it is linked to.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Group {
+    id: String,
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    linked_to: Option<String>,
+}
+
+/// The group a linked group of another machine stands for: this machine's, by the link.
+fn canon(state: &core::State, groups: &[core::RuntimeRef], g: &core::RuntimeRef) -> core::RuntimeRef {
+    match state.link_of(g) {
+        None => g.clone(),
+        Some(l) => groups.iter().find(|x| x.machine.is_none() && x.label == l.local).cloned().unwrap_or_else(|| core::RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None }),
+    }
 }
 
 #[derive(Serialize)]
 struct Repo {
     path: String,
+    /// The machine it is on; none: this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine: Option<String>,
     name: String,
     modules: scan::Module,
 }
@@ -49,6 +77,12 @@ struct Session {
     intent: Option<String>,
     /// It manages its runtime group.
     manager: bool,
+    /// The machine it runs on; none: this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine: Option<String>,
+    /// Its machine cannot be reached: what is shown is as last seen.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unreachable: bool,
 }
 
 /// A project: a registered folder of repositories, or a repository outside all of them.
@@ -133,6 +167,9 @@ struct Unit {
     title: String,
     purpose: String,
     repo: String,
+    /// The machine its repository is on; none: this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine: Option<String>,
     branch: Option<String>,
     status: &'static str,
     tasks: Vec<Task>,
@@ -378,8 +415,32 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
 pub struct Cache {
     commits: HashMap<String, scan::Commit>,
     trees: HashMap<String, (String, scan::Module)>,
+    /// The machines followed, for repositories that are on one of them.
+    pub machines: Option<std::sync::Arc<crate::machines::Machines>>,
+    /// What was last read of a remote unit, and when: read again only after `REMOTE`.
+    remote: HashMap<String, (std::time::Instant, Vec<scan::Commit>, Vec<scan::FileChange>)>,
+    /// When each remote repository's tree was last checked.
+    checked: HashMap<String, std::time::Instant>,
     /// Each unit's commits as last seen, for recording a merge after the branch is gone.
     pub last: HashMap<String, Vec<String>>,
+}
+
+/// How often a repository on another machine is read again.
+// ponytail: polled, since files there cannot be watched; a watcher on the machine could tell.
+pub const REMOTE: std::time::Duration = std::time::Duration::from_secs(15);
+
+impl Cache {
+    pub fn following(machines: Option<std::sync::Arc<crate::machines::Machines>>) -> Cache {
+        Cache { machines, ..Default::default() }
+    }
+
+    /// Where git runs for a repository: None while its machine cannot be reached.
+    fn runner(&self, machine: Option<&str>) -> Option<scan::Runner> {
+        match machine {
+            None => Some(scan::Runner::Local),
+            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)),
+        }
+    }
 }
 
 /// The id of the live commit, as in the UI's data.
@@ -406,11 +467,12 @@ impl Names {
 }
 
 /// `blocked`: when each blocked live agent (by session) was first seen blocked.
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>) -> Workspace {
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
+    let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
-    let repos: BTreeSet<&str> = state.units.iter().map(|u| u.repo.as_str()).collect();
-    let repos = repos.into_iter().map(|r| repo(r, cache)).collect();
+    let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
+    let repos = repos.into_iter().map(|(m, r)| repo(m, r, cache)).collect();
     let intents = state
         .intents
         .iter()
@@ -456,14 +518,20 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .map(|a| {
             let intent = a.group.as_ref().and_then(|g| state.intent_for(g));
             let manages = a.group.as_ref().and_then(|g| state.workspace_of(g)).and_then(|w| w.manager.as_deref()) == Some(a.session.as_str());
+            let away = a.machine.as_ref().is_some_and(|m| machines.iter().any(|x| &x.label == m && !x.reachable));
+            // A linked workspace of another machine is shown as the workspace of this machine.
+            let group = a.group.as_ref().map(|g| canon(state, groups, g));
             Session {
+                machine: a.machine.clone(),
+                unreachable: away,
                 agent: a.name.clone(),
                 session: a.session.clone(),
                 topic: a.topic.clone(),
-                blocked_since: (a.state == AgentState::Blocked).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
-                group: a.group.clone(),
+                // An agent that cannot be seen now is not known to wait.
+                blocked_since: (a.state == AgentState::Blocked && !away).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
+                group,
                 ended: false,
-                state: Some(name(&a.state)),
+                state: Some(if away { "unknown".into() } else { name(&a.state) }),
                 intent: intent.map(|i| i.id.clone()),
                 manager: manages,
             }
@@ -473,7 +541,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     for session in recorded {
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
-            sessions.push(Session { agent, session, topic: None, blocked_since: None, group: None, ended: true, state: None, intent: None, manager: false });
+            sessions.push(Session { agent, session, topic: None, blocked_since: None, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
         }
     }
     let backlog = state
@@ -506,7 +574,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             }
         })
         .collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions }
+    let workspaces = groups.iter().map(|g| Group { id: g.id.clone(), label: g.label.clone(), machine: g.machine.clone(), linked_to: state.link_of(g).map(|l| l.local.clone()) }).collect();
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
@@ -555,6 +624,7 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         repo: String::new(),
         branch: String::new(),
         base: String::new(),
+        machine: None,
         at: i.at.clone(),
         merged: None,
         merged_commits: vec![],
@@ -567,6 +637,7 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         title: i.title.clone(),
         purpose: i.goal.clone(),
         repo: String::new(),
+        machine: None,
         branch: None,
         status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
         tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
@@ -574,37 +645,51 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
     })
 }
 
-fn repo(path: &str, cache: &mut Cache) -> Repo {
+fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
     let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let p = Path::new(path);
-    let head = scan::head(p).unwrap_or_default();
-    let modules = match cache.trees.get(path) {
-        Some((h, m)) if *h == head => m.clone(),
-        _ => match scan::tree(p) {
-            Ok(m) => {
-                cache.trees.insert(path.to_string(), (head, m.clone()));
-                m
-            }
-            Err(e) => {
-                tracing::warn!("{e}");
-                scan::Module { name: name.clone(), children: Some(vec![]), ..Default::default() }
-            }
-        },
+    let key = match machine {
+        Some(m) => format!("{m}\0{path}"),
+        None => path.to_string(),
     };
-    Repo { path: path.to_string(), name, modules }
+    let empty = || scan::Module { name: name.clone(), children: Some(vec![]), ..Default::default() };
+    // A remote tree is checked every `REMOTE` at most, and kept while its machine is away.
+    let recent = machine.is_some() && cache.checked.get(&key).is_some_and(|t| t.elapsed() < REMOTE);
+    let modules = match cache.runner(machine).filter(|_| !recent) {
+        None => cache.trees.get(&key).map(|(_, m)| m.clone()).unwrap_or_else(empty),
+        Some(at) => {
+            cache.checked.insert(key.clone(), std::time::Instant::now());
+            let head = scan::head(&at, p).unwrap_or_default();
+            match cache.trees.get(&key) {
+                Some((h, m)) if *h == head => m.clone(),
+                _ => match scan::tree(&at, p) {
+                    Ok(m) => {
+                        cache.trees.insert(key, (head, m.clone()));
+                        m
+                    }
+                    Err(e) => {
+                        tracing::warn!("{e}");
+                        empty()
+                    }
+                },
+            }
+        }
+    };
+    Repo { path: path.to_string(), machine: machine.map(str::to_string), name, modules }
 }
 
-fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
+/// A unit's commits and its uncommitted files, read from git where its repository is.
+fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
     let repo = Path::new(&u.repo);
     let merged = u.merged.is_some();
-    let hashes = if merged { Ok(u.merged_commits.clone()) } else { scan::commit_list(repo, &u.base, &u.branch) };
+    let hashes = if merged { Ok(u.merged_commits.clone()) } else { scan::commit_list(at, repo, &u.base, &u.branch) };
     let mut commits = vec![];
     match hashes {
         Ok(hashes) => {
             for h in &hashes {
                 let c = match cache.commits.get(h) {
                     Some(c) => c.clone(),
-                    None => match scan::commit(repo, h) {
+                    None => match scan::commit(at, repo, h) {
                         Ok(c) => cache.commits.entry(h.clone()).or_insert(c).clone(),
                         Err(e) => {
                             tracing::warn!("{e}");
@@ -620,6 +705,32 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         }
         Err(e) => tracing::warn!("unit {}: {e}", u.id),
     }
+    let files = if merged {
+        vec![]
+    } else {
+        scan::live(at, repo, &u.branch).unwrap_or_else(|e| {
+            tracing::warn!("unit {}: {e}", u.id);
+            vec![]
+        })
+    };
+    (commits, files)
+}
+
+fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
+    let merged = u.merged.is_some();
+    // On another machine: read every `REMOTE` at most; what was last read stays while the
+    // machine cannot be reached.
+    let recent = u.machine.is_some() && cache.remote.get(&u.id).is_some_and(|(t, _, _)| t.elapsed() < REMOTE);
+    let (commits, files) = match cache.runner(u.machine.as_deref()).filter(|_| !recent) {
+        None => cache.remote.get(&u.id).map(|(_, c, f)| (c.clone(), f.clone())).unwrap_or_default(),
+        Some(at) => {
+            let read = read_unit(&at, u, cache);
+            if u.machine.is_some() {
+                cache.remote.insert(u.id.clone(), (std::time::Instant::now(), read.0.clone(), read.1.clone()));
+            }
+            read
+        }
+    };
 
     // Which task each commit carries out; a commit naming no task of this unit is a gap.
     let owner = |c: &scan::Commit| {
@@ -637,11 +748,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     // Uncommitted work belongs to the running implement task started last.
     // ponytail: a guess when several run in one unit; ask the runtime whose cwd it is (stage 2).
     let writer = u.tasks.iter().filter(|t| t.kind == TaskKind::Implement && t.state == TaskState::Running).max_by_key(|t| &t.started).map(|t| t.n.to_string());
-    if !merged {
-        let files = scan::live(repo, &u.branch).unwrap_or_else(|e| {
-            tracing::warn!("unit {}: {e}", u.id);
-            vec![]
-        });
+    {
         if !files.is_empty() {
             let at = tasks.iter_mut().find(|t| Some(&t.id) == writer.as_ref());
             let author = at.as_ref().and_then(|t| t.agent.clone()).unwrap_or_default();
@@ -660,6 +767,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         title: u.title.clone(),
         purpose: u.purpose.clone(),
         repo: u.repo.clone(),
+        machine: u.machine.clone(),
         branch: (!merged).then(|| u.branch.clone()),
         status: if merged { "merged" } else if started { "active" } else { "planned" },
         tasks,

@@ -9,7 +9,7 @@ import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
-import { Icon, Mark, TerminalButton, Tip, Who } from './bits'
+import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
 
 export type Section = 'inbox' | 'agents' | 'commits' | 'backlog'
 
@@ -41,14 +41,16 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
           {g.label && (
             <h3 className="flex items-center gap-1.5 px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-2">
               <span className="min-w-0 truncate">{g.label}</span>
+              {/* A workspace of another machine, not linked to one here: its own group. */}
+              <MachineChip machine={g.machine} />
               {/* Where the workspace's new work goes: its current intent. */}
               {g.intent && g.intent.title !== g.label && <span className="min-w-0 truncate font-normal">· {g.intent.title}</span>}
               {!g.agents.some(a => a.manager) && !g.intent?.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
             </h3>
           )}
-          {g.agents.map(({ agent, session, topic, state, at, manager, blocked }) => (
+          {g.agents.map(({ agent, session, topic, state, at, manager, blocked, machine, unreachable }) => (
             // The line opens the agent's work; the icon at its end, its terminal.
-            <div key={session ?? agent} className="agent-row">
+            <div key={session ?? agent} className="agent-row" data-away={unreachable || undefined}>
             <button
               type="button"
               className="agent"
@@ -62,6 +64,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
                 <span className="flex items-center gap-1.5">
                   {agent}
                   {manager && <Mark name="manager" label={t('manager.mark')} />}
+                  <MachineChip machine={machine} away={unreachable} />
                   {/* Waiting for a person in its terminal: the Blocking meaning, in violet. */}
                   {blocked && <span className="text-you-ink"><Mark name="blocked" label={t('agents.blocked')} /></span>}
                 </span>

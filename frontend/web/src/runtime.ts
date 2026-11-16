@@ -3,7 +3,7 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Task, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, Task, Turn, Unit } from './types'
 
 async function post(path: string, body: unknown) {
   const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -170,4 +170,19 @@ export function choreDone(id: string) {
 export async function record(kind: string, body: unknown) {
   if (MOCK) return
   await post('/api/append', { actor: 'user', kind, body })
+}
+
+/** The machines the service knows, followed or not. */
+export async function machines(): Promise<Machine[]> {
+  if (MOCK) return []
+  const res = await fetch('/api/machines')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** Adds, enables, disables or removes a machine; answers the list after it. */
+export async function setMachine(label: string, action: 'add' | 'enable' | 'disable' | 'remove', ssh = ''): Promise<Machine[]> {
+  const res = await fetch('/api/machines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, action, ssh }) })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

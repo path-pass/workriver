@@ -124,7 +124,52 @@ agent through Herdr (an accepted finding to the manager, which hands out the wor
 line under it shows whether it was delivered and picked up, and "Copy message" gives you
 the same text to paste by hand.
 
-## 6. Update
+## 6. Other machines
+
+One workriver can follow agents on other machines too. Each machine runs its own Herdr;
+workriver keeps one ssh connection to each, which brings that machine's Herdr socket here
+and gives the `workriver` CLI over there a way back to this service.
+
+Requirements: Herdr 0.9.1 or later on both sides (same socket protocol), running on the
+other machine; `ssh -o BatchMode=yes <target> true` works from here without a prompt (a
+key in ssh-agent, or your own ControlMaster in `~/.ssh/config`); the other machine's sshd
+allows forwarding (the default); `git` there.
+
+```sh
+workriver machine add box --ssh me@box        # a name of yours, and what ssh takes
+workriver machine enable box
+workriver machine list                        # "connected, 3 agents", or why not
+```
+
+The same is in Settings on the page. Then, on the other machine, build the CLI and check
+that it reaches this service through the connection:
+
+```sh
+git clone <this repository> && cd workriver && cargo build --release
+ln -s "$PWD/target/release/workriver" ~/.local/bin/workriver    # anywhere on PATH
+workriver status                              # answers from the service on your machine
+```
+
+If port 47820 is taken over there, add the machine with `--remote-port 47821` and put
+`export WORKRIVER_PORT=47821` into the shell profile there. If Herdr's socket is not at
+`~/.config/herdr/herdr.sock` there (a named session), give it: `--herdr-socket <path>`.
+
+Agents over there show up with the machine's name. Ids are never assumed to be the same
+across machines, and a workspace there is its own, even with the same name as one here.
+To make one workspace of the two (one manager, the same intents), link them:
+
+```sh
+workriver workspace list                      # box:chat  not linked
+workriver workspace link box:chat chat
+```
+
+or pick it in Settings. A unit recorded by an agent over there has its repository there;
+workriver reads its commits with git over ssh, every 15 seconds. Screenshots attached
+there are uploaded through the connection; messages to agents there link to them
+(`http://127.0.0.1:47820/api/attachments/…`). The terminal button focuses the pane in that
+machine's Herdr; switch to the machine in Herdr's sidebar yourself.
+
+## 7. Update
 
 ```sh
 git pull
@@ -145,6 +190,11 @@ Then stop `workriver serve` (Ctrl-C) and start it again. The data is kept.
   status` shows it): Herdr is not running, or the service looks at another socket. Start
   the service in a Herdr pane, or set `HERDR_SOCKET_PATH`. A protocol warning means a Herdr
   other than 0.9; workriver may still work, but it is untested.
+- **A machine shows "not connected"**: `workriver machine list` prints ssh's own words.
+  *Permission denied* or *Host key verification failed*: make `ssh -o BatchMode=yes
+  <target> true` work first. *remote port forwarding failed*: the port is taken there, see
+  above. *connected, but its Herdr does not answer*: Herdr is not running there, or its
+  socket is elsewhere (`--herdr-socket`).
 - **"cannot tell which agent this is"** from the CLI in a pane: the service cannot reach
   Herdr (see above). `--as <name>` records under a name you give.
 - **"Not delivered: …"** on the page (hover for the details):

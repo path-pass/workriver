@@ -28,7 +28,8 @@ First version, usable. The service records intents, units, tasks, findings and c
 commits from git, follows the agents running in Herdr (one
 manager agent per Herdr workspace, running one or more intents), keeps each project's
 roadmap and backlog, delivers your decisions and gate results to the right agent, and
-serves the web UI on real data.
+serves the web UI on real data. Agents on other machines (each with its own Herdr) can be
+followed over ssh; that part is new and has only been tested against stand-ins.
 
 ## Build and run
 

@@ -4,6 +4,10 @@
 //
 // Protocol: newline-delimited JSON over a Unix socket, one request per connection
 // (`{"id","method","params"}` -> `{"id","result"}` or `{"id","error":{"code","message"}}`).
+//
+// Another machine has its own Herdr server; its socket, forwarded here over SSH (see
+// machines.rs), speaks the same protocol, so the same client talks to it. Ids are per
+// server: everything read from another machine carries the machine's name.
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -57,6 +61,37 @@ pub struct Herdr {
     ids: AtomicU64,
     /// Session -> pane, as last read.
     panes: Mutex<HashMap<String, String>>,
+    /// Set for another machine's Herdr: its name, carried by every id read from it.
+    machine: Option<String>,
+}
+
+/// A workspace id of a machine, told apart from this machine's: `w1@label`.
+pub fn remote_ref(id: &str, machine: &str) -> String {
+    format!("{id}@{machine}")
+}
+
+/// Runs a command to its end, or kills it after `wait`.
+pub fn output_within(mut cmd: std::process::Command, wait: Duration) -> std::io::Result<std::process::Output> {
+    use std::process::Stdio;
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let until = std::time::Instant::now() + wait;
+    // ponytail: output is read after exit, fine for answers that fit a pipe buffer only if
+    // drained; so drain on threads.
+    let (mut out, mut err) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
+    let o = std::thread::spawn(move || { let mut b = vec![]; let _ = std::io::Read::read_to_end(&mut out, &mut b); b });
+    let e = std::thread::spawn(move || { let mut b = vec![]; let _ = std::io::Read::read_to_end(&mut err, &mut b); b });
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        if std::time::Instant::now() > until {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("no answer within {}s", wait.as_secs())));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Ok(std::process::Output { status, stdout: o.join().unwrap_or_default(), stderr: e.join().unwrap_or_default() })
 }
 
 #[derive(Deserialize)]
@@ -112,7 +147,12 @@ struct Session {
 
 impl Herdr {
     pub fn new(socket: PathBuf, terminal_app: String) -> Herdr {
-        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default() }
+        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default(), machine: None }
+    }
+
+    /// The Herdr of another machine, behind a socket forwarded from it.
+    pub fn on(socket: PathBuf, machine: &str, terminal_app: String) -> Herdr {
+        Herdr { socket, terminal_app, ids: AtomicU64::new(1), panes: Mutex::default(), machine: Some(machine.into()) }
     }
 
     /// One request on its own connection. A missing socket means Herdr is not running.
@@ -157,9 +197,13 @@ impl Herdr {
     /// The live agents with the pane each sits in; also remembers session -> pane.
     fn read(&self) -> Result<(Snap, Vec<(String, RuntimeAgent)>), RuntimeError> {
         let snap = self.snapshot()?;
-        let list = agents_of(&snap);
+        let list = agents_of(&snap, self.label());
         *self.panes.lock().unwrap() = list.iter().map(|(p, a)| (a.session.clone(), p.clone())).collect();
         Ok((snap, list))
+    }
+
+    fn label(&self) -> Option<&str> {
+        self.machine.as_deref()
     }
 
     /// The pane of an agent given by session or by name.
@@ -172,14 +216,16 @@ impl Herdr {
     }
 }
 
-fn group(snap: &Snap, workspace: &str) -> Option<RuntimeRef> {
-    snap.workspaces.iter().find(|w| w.workspace_id == workspace).map(|w| RuntimeRef { id: w.workspace_id.clone(), label: w.label.clone() })
+/// A workspace as a runtime group. Ids are per Herdr server, so another machine's carry its name.
+fn group(snap: &Snap, workspace: &str, machine: Option<&str>) -> Option<RuntimeRef> {
+    let id = |w: &str| machine.map(|m| remote_ref(w, m)).unwrap_or_else(|| w.to_string());
+    snap.workspaces.iter().find(|w| w.workspace_id == workspace).map(|w| RuntimeRef { id: id(&w.workspace_id), label: w.label.clone(), machine: machine.map(str::to_string) })
 }
 
 /// Panes with an agent in them, as workriver's agents. The name is the agent's name in Herdr
 /// (`herdr agent start <name>` / `herdr agent rename`), else the pane's label, else
 /// `<harness> <n>`, numbered within its workspace in pane order.
-fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
+fn agents_of(snap: &Snap, machine: Option<&str>) -> Vec<(String, RuntimeAgent)> {
     let set = |s: &Option<String>| s.clone().filter(|s| !s.trim().is_empty());
     let pane_no = |p: &str| p.rsplit_once(":p").and_then(|(_, n)| n.parse::<u64>().ok()).unwrap_or(u64::MAX);
     let mut list: Vec<(&AgentInfo, String, Option<String>)> = snap
@@ -201,7 +247,13 @@ fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
                 format!("{harness} {n}")
             });
             let agent = RuntimeAgent {
-                session: a.agent_session.as_ref().map(|s| s.value.clone()).unwrap_or_else(|| format!("herdr:{}", a.pane_id)),
+                // Without a session id of the harness's own, the pane is the ref; a machine's
+                // pane ids repeat this machine's, so they carry its label.
+                session: a.agent_session.as_ref().map(|s| s.value.clone()).unwrap_or_else(|| match machine {
+                    Some(m) => format!("herdr:{}", remote_ref(&a.pane_id, m)),
+                    None => format!("herdr:{}", a.pane_id),
+                }),
+                machine: machine.map(str::to_string),
                 state: match a.agent_status.as_str() {
                     "working" => AgentState::Working,
                     "idle" => AgentState::Idle,
@@ -210,7 +262,7 @@ fn agents_of(snap: &Snap) -> Vec<(String, RuntimeAgent)> {
                     _ => AgentState::Unknown,
                 },
                 cwd: set(&a.foreground_cwd).or_else(|| set(&a.cwd)).unwrap_or_default(),
-                group: group(snap, &a.workspace_id),
+                group: group(snap, &a.workspace_id, machine),
                 topic: set(&a.terminal_title_stripped),
                 harness,
                 name,
@@ -225,15 +277,17 @@ impl Runtime for Herdr {
         Ok(self.read()?.1.into_iter().map(|(_, a)| a).collect())
     }
 
-    fn locate(&self, place: &str) -> Result<Place, RuntimeError> {
+    fn locate(&self, _: Option<&str>, place: &str) -> Result<Place, RuntimeError> {
         let (snap, list) = self.read()?;
         let agent = list.into_iter().find(|(p, _)| p == place).map(|(_, a)| a);
-        let group = snap.panes.iter().find(|p| p.pane_id == place).and_then(|p| group(&snap, &p.workspace_id));
+        let group = snap.panes.iter().find(|p| p.pane_id == place).and_then(|p| group(&snap, &p.workspace_id, self.label()));
         Ok(Place { agent, group })
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {
         let pane = self.pane_of(session)?;
+        // On another machine this focuses the pane in that machine's Herdr; nothing in Herdr's
+        // API makes this machine's window switch to it, so the user picks it in the sidebar.
         self.call("agent.focus", json!({ "target": pane }))?;
         // Herdr focuses the pane inside its window; the window's app is brought forward here.
         // A failure only means the user switches to it by hand.
@@ -275,6 +329,11 @@ impl Runtime for Herdr {
         let pane = self.pane_of(agent)?;
         self.call("pane.close", json!({ "pane_id": pane }))?;
         Ok(())
+    }
+
+    fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
+        let snap = self.snapshot()?;
+        Ok(snap.workspaces.iter().filter_map(|w| group(&snap, &w.workspace_id, self.label())).collect())
     }
 }
 
@@ -342,11 +401,11 @@ mod tests {
         let a = &list[0];
         assert_eq!((a.session.as_str(), a.name.as_str(), a.harness.as_str(), a.cwd.as_str()), ("s-1", "lead", "claude", "/r/sub"));
         assert_eq!(a.state, AgentState::Working);
-        assert_eq!(a.group, Some(RuntimeRef { id: "w5".into(), label: "chat".into() }));
+        assert_eq!(a.group, Some(RuntimeRef { id: "w5".into(), label: "chat".into(), machine: None }));
         let b = &list[1];
         assert_eq!((b.session.as_str(), b.name.as_str(), b.state), ("herdr:w5:p2", "reviewer", AgentState::Done), "the Herdr name before the pane label");
         // A shell pane: its workspace, no agent.
-        let shell = herdr.locate("w5:p3").unwrap();
+        let shell = herdr.locate(None, "w5:p3").unwrap();
         assert_eq!((shell.agent, shell.group.map(|g| g.label)), (None, Some("chat".into())));
         let seen = server.join().unwrap();
         assert_eq!(seen.len(), 2);
