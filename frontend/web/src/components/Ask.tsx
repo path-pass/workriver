@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { askeeOf, baseName, finderLabel, findingsOf, type Lines } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import type { AskContext, Session, Turn, Task, Unit } from '@/types'
-import { Icon, Who } from './bits'
+import { Content, Icon, Who } from './bits'
 
 export interface Talk {
   sessions: Session[]
@@ -46,7 +46,7 @@ function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext
     <span className="flex flex-wrap gap-1">
       {chips.map(c => (
         <span key={c.kind + c.label} className="ctx">
-          {c.label}
+          <Content text={c.label} />
           {onDrop && c.kind !== 'task' && (
             <button type="button" aria-label={t('ask.remove', { label: c.label })} onClick={() => onDrop(c)}><Icon name="no" className="size-3" /></button>
           )}

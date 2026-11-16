@@ -6,14 +6,14 @@ import { AntVDagreLayout } from '@antv/layout'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
+import { commitStats, ms, untested, finderLabel, findingsOf, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
 import { Ask, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
-import { CopyButton, Icon, Mark, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
+import { Content, CopyButton, Icon, Mark, Slot, SLOT, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
 
 const W = 176, H = 48, R = 18
 
@@ -81,6 +81,15 @@ const ports = (
   </>
 )
 
+/** A task's name: a review's label is UI text; a task's title is content, in its own language. */
+function NodeName({ n }: { n: Task }) {
+  const { t } = useT()
+  if (n.kind === 'review') return reviewLabel(t, n)
+  const title = <Content text={n.title} />
+  if (n.state === 'unregistered') return <Slot text={t('task.unregistered', { title: SLOT })}>{title}</Slot>
+  return <>{n.taskId && `#${n.taskId} `}{title}</>
+}
+
 /** A review's label with the reviewer's name, and punctuation right after it (「：」 may not start a line), kept whole. */
 function ReviewLabel({ n }: { n: Task }) {
   const { t } = useT()
@@ -99,7 +108,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
   const open = openCount(n)
   return (
     <>
-      <Tip text={nodeLabel(t, n)}>
+      <Tip text={<span><NodeName n={n} /></span>}>
       <button
         type="button"
         className="wnode"
@@ -115,11 +124,10 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
           name={glyph(n)}
           className={n.kind === 'review' ? (n.result === 'running' ? 'text-amber!' : 'text-water!') : ''}
         />
-        {/* A task's own title is content; a review's or an unregistered commit's label is UI text. */}
-        <span className="lb" lang={n.kind === 'review' || n.state === 'unregistered' ? undefined : contentLang(n.title)}>
+        <span className="lb">
           {n.kind === 'review'
             ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
-            : n.state === 'unregistered' || !n.taskId ? nodeLabel(t, n) : <><b>#{n.taskId}</b> {n.title}</>}
+            : n.state === 'unregistered' || !n.taskId ? <NodeName n={n} /> : <><b>#{n.taskId}</b> <Content text={n.title} /></>}
         </span>
         {n.agent && (n.state === 'running' || n.state === 'todo') && <Who name={n.agent} live={n.writing} />}
         {open > 0 && <Waiting count={open} />}
@@ -344,8 +352,8 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
             {f.leadsTo.map(id => {
               const to = unit.tasks.find(n => n.id === id)
               return to && (
-                <Tip key={id} text={nodeLabel(t, to)}>
-                  <button type="button" className="chip" data-state={to.state} onClick={() => onPick(id)}>{to.taskId ? `#${to.taskId}` : to.title}</button>
+                <Tip key={id} text={<span><NodeName n={to} /></span>}>
+                  <button type="button" className="chip" data-state={to.state} onClick={() => onPick(id)}>{to.taskId ? `#${to.taskId}` : <Content text={to.title} />}</button>
                 </Tip>
               )
             })}
@@ -434,7 +442,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.result === 'running' ? 'state.running' : 'state.done')}</>
-    input = <>{of && <div>{t('io.changesOf', { label: nodeLabel(t, of) })}</div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
+    input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>

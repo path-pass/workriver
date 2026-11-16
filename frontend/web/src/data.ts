@@ -122,12 +122,6 @@ export const askeeOf = (unit: Unit, n: Task): string | null =>
 /** Finished work handed in with no check run: shown on the graph, not counted anywhere. */
 export const untested = (n: Task) => n.kind === 'implement' && n.state === 'done' && !n.output.evidence?.length
 
-export function nodeLabel(t: T, n: Task): string {
-  if (n.kind === 'review') return reviewLabel(t, n)
-  if (n.state === 'unregistered') return t('task.unregistered', { title: n.title })
-  return n.taskId ? `#${n.taskId} ${n.title}` : n.title
-}
-
 /** The folder a path stands for: a file's folder, or the path itself when it is a folder. */
 const folderOf = (p: string) => (/\.[A-Za-z0-9]+$/.test(p) ? p.slice(0, p.lastIndexOf('/')) : p)
 

@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, repoOf, unitsOf } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import type { Intent, Unit, Workspace } from '@/types'
-import { Icon, Tip } from './bits'
+import { Content, Icon, Slot, SLOT, Tip } from './bits'
 import { Settings } from './Settings'
 
 /** What waits for the user in some units: gates an agent is stuck on, and everything else. */
@@ -195,7 +195,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle }: P
         })}
         {ws && !groups.length && (
           <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-sm text-rail-ink-2">
-            {unitsOf(ws).length ? t('rail.noMatch', { q: q.trim() }) : t('rail.none')}
+            {unitsOf(ws).length ? <span><Slot text={t('rail.noMatch', { q: SLOT })}><Content text={q.trim()} /></Slot></span> : t('rail.none')}
             {unitsOf(ws).length > 0 && <Button variant="outline" size="sm" className="rounded-sm bg-transparent text-rail-ink" onClick={() => onQ('')}>{t('rail.clearSearch')}</Button>}
           </div>
         )}

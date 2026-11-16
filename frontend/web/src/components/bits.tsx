@@ -48,6 +48,19 @@ export function Icon({ name, className }: { name: string; className?: string }) 
   return <Glyph aria-hidden size={16} strokeWidth={1.5} className={cn('ic', className)} />
 }
 
+/** Content (a title, what someone typed) in its own element, marked with its guessed language. */
+export const Content = ({ text }: { text: string }) => <span lang={contentLang(text)}>{text}</span>
+
+/**
+ * A UI sentence with content in it: translate with SLOT as the content's value, and the
+ * content goes where SLOT landed, so it keeps its own language inside the UI's.
+ */
+export const SLOT = ''
+export function Slot({ text, children }: { text: string; children: ReactNode }) {
+  const [before, after = ''] = text.split(SLOT)
+  return <>{before}{children}{after}</>
+}
+
 export function Tip({ text, children }: { text: ReactNode; children: ReactElement }) {
   return (
     <Tooltip>
