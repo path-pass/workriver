@@ -80,10 +80,10 @@ looked at now and then.
   happens: the others are dropped and what they said goes into its note. Merge and Cancel;
   the service's refusal shows in the dialog. Escape closes it and focus goes back to "Merge…".
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents**, **Commits**, **Backlog** and **Ask why**, one at a time, never mixed. Its five buttons work as a
+  **Agents**, **Commits**, **Backlog**, **Machines** and **Ask why**, one at a time, never mixed. Its six buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
-  already has them); open, it is about 340 px wide. Which section is open, if any, is
+  already has them); open, it is 340 px wide by default and its left edge drags it between 280 and 720 px (remembered; double-click for the default; arrow keys too). Which section is open, if any, is
   remembered. The panel spans every intent. A row in it opens its unit and task in the
   main area and the panel stays open; a row names its unit (the inbox also its intent,
   quietly). On a narrow screen the same content is a sheet over the page, opened from the
@@ -104,6 +104,17 @@ looked at now and then.
   as scheduled until the work they cause is delivered; it is disabled, saying to start the
   intent first, when that intent is not active. "Drop" asks for a reason. Planned intents
   are not repeated here; they are the rail's roadmap.
+- **Machines** shows CPU and memory of this machine ("This machine", first) and of every
+  followed one (by its machine chip), over the last ten minutes, read every 5 s while the
+  section is open. Per machine two lines, CPU and Memory: the label, a small line of the
+  ten minutes with the alert threshold dashed across it (inline SVG; a chart library is
+  not worth one line), and the value right-aligned in a fixed column ("97 %",
+  "25.4 / 32 GB"). Lines are neutral; a metric in alert takes the violet of waiting for
+  you, and a pill in the machine's header says which, its value and for how long ("CPU
+  97 % · 6m"). A machine that cannot be reached keeps its last values, faded, with the
+  dashed chip and "disconnected since …". Memory used is total minus available, the same
+  on every machine: one small sh probe reads them all through the runner git uses, here
+  or over the machine's ssh connection, and nothing is installed anywhere.
 - **Needs you** is the workspace's inbox. One person works one queue across all units, so
   what asks something of them is one list, not a row of chips per unit: a list keeps order
   and age and still reads with twenty agents, chips only pile up. One row per item: the
@@ -118,13 +129,18 @@ looked at now and then.
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
      Settings, a newly waiting agent raises a browser notification that opens its terminal.
-  2. **Decisions** – one row per review or gate with open findings, with the open ones
+  2. **Machines** – a machine past an alert threshold: "This machine: CPU 97 %", quietly
+     the threshold ("at or above 90 % for 5 min"), and since when. It counts in no mark and
+     not in the tab's title (those count work stuck on the user); a newly raised one sends
+     a browser notification under the same switch. The row opens the Machines section and
+     leaves by itself once the alert clears.
+  3. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
-  3. **Gaps** – commits that name no node, branches that grew beyond the original plan.
-  4. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
+  4. **Gaps** – commits that name no node, branches that grew beyond the original plan.
+  5. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
      its project where others name their intent, or nothing when it has none.
-  Within a group the oldest comes first. A row of the first three opens the unit at the
-  node (a review at its first open finding). With nothing to show, one short line says so.
+  Within a group the oldest comes first. A row of Blocking, Decisions or Gaps opens the
+  unit at the node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. One line per agent whose
   session has not ended, working first (on a node, or by the runtime's word when it has
   none, as a manager planning), then holding work that has not started (the mark faded),
@@ -199,6 +215,14 @@ looked at now and then.
   a follow switch, its state in a few words (connecting… until the first attempt ends,
   connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
   one; and, per workspace over there, a select that links it to a workspace here.
+- **Machine alerts.** Settings has "Machine alerts", before "Other machines": CPU and
+  Memory, each with a switch by its name, then "≥ [90] % for [5] min", the same for this
+  machine and every followed one (defaults 90 % for 5 min, both on). A value alerts once
+  every sample of that time is at or above it, so a spike never does, and clears after a
+  minute below; while a machine cannot be reached its alerts neither rise nor clear. A
+  field is saved when left or on Enter; out of range it goes back. On a narrow screen the
+  threshold wraps under the switch as one piece. The thresholds are kept with the list of
+  machines in the service's settings, not as events.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
   terminal) and in the header of running or waiting work. It is not on graph nodes. All
@@ -289,7 +313,7 @@ row of the inbox. Picking a
 finding lights the review and the nodes it led to.
 
 Who decides an intent's findings is the user's choice: a small select in the intent's open
-group in the rail ("Findings decided by: the manager / only me"; the manager by default).
+group in the rail ("Findings: Auto / Manual": Auto, the manager decides; Manual, the user does; Auto by default).
 There is no choice by severity: severity is the reviewer's own rating, so it would only look
 like a control. A finding that is the manager's to decide stays open on its review, in quiet
 ink with a small crown and "The manager decides", and does not count in the violet marks or
@@ -430,6 +454,29 @@ only way in. A session that ended shows the same screen at the user's next actio
 Everything that can be picked has: default, hover, keyboard focus (violet ring), selected
 (violet ring plus shadow). With a node picked, nodes and lines unrelated to it fade.
 
+## Loading
+
+The page must stay quick with twenty agents committing, so it reads in two parts.
+
+- **The snapshot** (`/api/workspace`) is everything the rail, the graph and the side panel
+  show, and no file text: each commit's files by path, how each changed (A, M, D) and its
+  +/− lines (counted once by the service, as the diff package counts them), the uncommitted
+  files the same way, and the repositories' trees (small: about 12 kB for this repository).
+  Texts were nearly all of it: 8.7 MB with them, about 250 kB without.
+- **A unit's code** (`/api/unit/{id}/code`: every text of its commits and of its uncommitted
+  work) is read when its code layer is shown, and again only when the unit's `code` in the
+  snapshot changes (a new commit, other uncommitted texts); then only the commits not read
+  before (a commit never changes) and the uncommitted work come. The graph does not wait
+  for it; the code layer appears once its texts are there. Read like the snapshot, so a
+  blind task gets none of what its view hides.
+- **Refreshing.** Each "changed" from the service reads the snapshot again, at most one read
+  at a time: changes told during a read make one more read after it. A hidden tab reads
+  nothing and reads once when it is shown again. A snapshot that leaves the unit on screen
+  as it was keeps it, so its graph and code are not worked out and drawn again.
+- The built files carry their content's hash in their names and are kept by the browser for
+  good; the page itself is asked for every time. Nothing is compressed: on 127.0.0.1 gzip
+  costs more time than the bytes it saves.
+
 ## Rules that came out of iterating with the user
 
 - Languages from the start: English and Chinese; Japanese ships too. Layout must hold in
@@ -448,7 +495,7 @@ Everything that can be picked has: default, hover, keyboard focus (violet ring),
 ## Not done yet
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
-- No loading state. The one empty state: with no units recorded, the main area is a short
+- No loading state (the code layer is simply not there until its texts are read). The one empty state: with no units recorded, the main area is a short
   start guide (start a manager agent per Herdr workspace, give it the skill, register, start
   an intent from the roadmap; the commands copyable; the commit trailer; the import skill
   for an existing backlog file). An intent with no units yet keeps its

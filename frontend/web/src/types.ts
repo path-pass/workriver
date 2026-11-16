@@ -18,6 +18,68 @@ export interface Workspace {
   workspaces?: RuntimeWorkspace[];
   /** The other machines followed. */
   machines?: Machine[];
+  /** Machines past an alert threshold now (the user's view only). */
+  alerts?: MachineAlert[];
+}
+
+export type Metric = 'cpu' | 'memory';
+
+/** A machine past an alert threshold, for Needs you. */
+export interface MachineAlert {
+  /** `local` for the machine workriver runs on (`here`). */
+  machine: string;
+  here: boolean;
+  metric: Metric;
+  /** Since when it has been over the threshold without a break. */
+  since: string;
+  /** The newest value, in percent. */
+  value: number;
+  percent: number;
+  minutes: number;
+}
+
+/** When a metric alerts: at or above `percent` for `minutes` without a break. */
+export interface Limit {
+  on: boolean;
+  percent: number;
+  minutes: number;
+}
+
+/** The same for every machine. */
+export interface Thresholds {
+  cpu: Limit;
+  memory: Limit;
+}
+
+export interface MetricSample {
+  /** Milliseconds since 1970. */
+  at: number;
+  /** Percent; null until two readings of counters are there (Linux). */
+  cpu: number | null;
+  memUsed: number;
+  memTotal: number;
+}
+
+/** One machine's CPU and memory over the last minutes. */
+export interface MachineMetrics {
+  label: string;
+  here: boolean;
+  /** Its newest probe answered. */
+  reachable: boolean;
+  downSince?: string;
+  /** Why the newest probe gave nothing, when it ran but failed. */
+  error?: string;
+  /** Oldest first. */
+  samples: MetricSample[];
+  /** The metrics in alert, with since when. */
+  alerts: Partial<Record<Metric, string>>;
+}
+
+export interface MetricsReport {
+  thresholds: Thresholds;
+  stepSeconds: number;
+  /** This machine first, then the followed ones. */
+  machines: MachineMetrics[];
 }
 
 /** A runtime (Herdr) workspace, of this machine or of another. */
@@ -240,6 +302,8 @@ export interface Unit {
   tasks: Task[];
   /** Oldest first. The last one may be uncommitted work (`live`). */
   commits: Commit[];
+  /** Which texts its files have: their texts are read again (`loadCode`) only when it changes. */
+  code?: string;
 }
 
 /**
@@ -480,13 +544,16 @@ export interface Commit {
 export interface FileChange {
   path: string;
   status: 'A' | 'M' | 'D';
-  /** The whole file before this commit; null when the commit adds it. */
+  /**
+   * The whole file before this commit; null when the commit adds it. The service's snapshot
+   * leaves the texts out (null here, `lines` empty): a unit's come with its code (`loadCode`).
+   */
   before: string | null;
   /** The whole file after this commit; null when the commit deletes it. */
   after: string | null;
-  /** Derived on load from before and after: */
+  /** Lines added and removed: from the service, or worked out from the texts. */
   add: number;
   del: number;
-  /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers. */
+  /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers; from the texts. */
   lines: string[];
 }

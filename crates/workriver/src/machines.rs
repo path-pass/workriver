@@ -20,7 +20,7 @@
 //!
 //! The list of machines is workriver's own, in `<home>/settings.json`.
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -32,6 +32,7 @@ use workriver_core::runtime::{Place, Runtime, RuntimeAgent, RuntimeError};
 use workriver_scan as scan;
 
 use crate::herdr;
+use crate::metrics::Thresholds;
 
 /// A machine as the user added it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -54,6 +55,35 @@ struct Settings {
     /// By the machine's name.
     #[serde(default)]
     machines: BTreeMap<String, Setting>,
+    /// When a machine's CPU or memory alerts: for this machine and every followed one.
+    #[serde(default)]
+    alerts: Thresholds,
+}
+
+/// Held while `settings.json` is read and written back: machines and thresholds share it.
+static SETTINGS: Mutex<()> = Mutex::new(());
+
+fn read_settings(home: &Path) -> Settings {
+    std::fs::read(home.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn write_settings(home: &Path, s: &Settings) -> Result<(), String> {
+    let path = home.join("settings.json");
+    let text = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+/// The alert thresholds as the user set them (the defaults until then).
+pub fn thresholds(home: &Path) -> Thresholds {
+    read_settings(home).alerts
+}
+
+/// Saves the alert thresholds; the machines in the same file stay as they are.
+pub fn set_thresholds(home: &Path, alerts: Thresholds) -> Result<(), String> {
+    let _held = SETTINGS.lock().unwrap();
+    let mut all = read_settings(home);
+    all.alerts = alerts;
+    write_settings(home, &all)
 }
 
 /// A machine as the page and `workriver machine list` show it.
@@ -172,17 +202,12 @@ impl Machines {
         Arc::new(Machines { local, home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default() })
     }
 
-    fn settings_path(&self) -> PathBuf {
-        self.home.join("settings.json")
-    }
-
     fn settings(&self) -> Settings {
-        std::fs::read(self.settings_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        read_settings(&self.home)
     }
 
     fn save(&self, s: &Settings) -> Result<(), String> {
-        let text = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
-        std::fs::write(self.settings_path(), text).map_err(|e| format!("cannot write {}: {e}", self.settings_path().display()))
+        write_settings(&self.home, s)
     }
 
     /// Every machine with what is known of it now.
@@ -221,6 +246,7 @@ impl Machines {
         if setting.ssh.trim().is_empty() || setting.ssh.starts_with('-') {
             return Err("a machine needs its ssh target: --ssh <host or user@host>".into());
         }
+        let _held = SETTINGS.lock().unwrap();
         let mut all = self.settings();
         if all.machines.contains_key(label) {
             return Err(format!("there is a machine {label} already; remove it first"));
@@ -231,6 +257,7 @@ impl Machines {
 
     /// Records whether a machine is followed; the caller starts or stops it.
     pub fn enable(&self, label: &str, enabled: bool) -> Result<Setting, String> {
+        let _held = SETTINGS.lock().unwrap();
         let mut all = self.settings();
         let s = all.machines.get_mut(label).ok_or_else(|| format!("no machine {label}; add it with `workriver machine add {label} --ssh <target>`"))?;
         s.enabled = enabled;
@@ -240,6 +267,7 @@ impl Machines {
     }
 
     pub fn remove(&self, label: &str) -> Result<(), String> {
+        let _held = SETTINGS.lock().unwrap();
         let mut all = self.settings();
         all.machines.remove(label).ok_or_else(|| format!("no machine {label}"))?;
         self.stop(label);

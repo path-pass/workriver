@@ -25,6 +25,7 @@ use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, Reas
 use workriver_scan as scan;
 
 use crate::machines::Machines;
+use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
 use crate::{ask, attachments, deliver};
 use crate::snapshot::{self, Cache};
@@ -59,6 +60,8 @@ pub struct App {
     watched: Mutex<HashSet<PathBuf>>,
     /// The other machines, when the runtime follows any.
     machines: Option<Arc<Machines>>,
+    /// CPU and memory of this machine and the followed ones, and their alerts.
+    metrics: Arc<Metrics>,
     /// Each followed machine's own listener, to end it when the machine is no longer followed.
     listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
     /// The runtime's groups as last polled, with or without agents.
@@ -95,6 +98,8 @@ pub struct Options {
     pub waits: Waits,
     pub machines: Option<Arc<Machines>>,
     pub allow_as: bool,
+    /// Read the machines' CPU and memory (the service; tests that do not look at it do not).
+    pub sample: bool,
 }
 
 /// Which listener a request came in on: this machine's, or a followed machine's own (the
@@ -150,12 +155,12 @@ impl Default for Waits {
 /// As the tests start it: callers may say which agent they are.
 #[cfg(test)]
 pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
-    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true }).await
+    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true, sample: false }).await
 }
 
 /// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
 pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as } = options;
+    let Options { warning, waits, machines, allow_as, sample } = options;
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
@@ -165,7 +170,12 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     if allow_as {
         tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
     }
+    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), changed.clone(), crate::metrics::STEP);
+    if sample {
+        metrics.start();
+    }
     let app = Arc::new(App {
+        metrics,
         auth,
         allow_as,
         told: Mutex::default(),
@@ -306,6 +316,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
             stop_signal().await;
             tracing::info!("stopping: open requests get {} s", GRACE.as_secs());
             let _ = app.stopping.send(true);
+            app.metrics.stop();
             if let Some(m) = &app.machines {
                 m.stop_all();
             }
@@ -531,8 +542,8 @@ impl App {
         }
     }
 
-    /// What the page reads, of `state` as the reader may see it.
-    /// `light`: without file texts, uncommitted work or trees (board, `task show`).
+    /// What the page reads, of `state` as the reader may see it: files without their texts
+    /// (`unit_code` has them). `light`: not even uncommitted work or trees (board, `task show`).
     fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> snapshot::Workspace {
         let started = std::time::Instant::now();
         let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
@@ -540,7 +551,7 @@ impl App {
         let groups = self.groups.lock().unwrap().clone();
         let live = self.live();
         let mut cache = self.cache.lock().unwrap();
-        cache.light = light;
+        (cache.light, cache.bare) = (light, true);
         let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &groups);
         cache.save();
         if state.reduced {
@@ -991,7 +1002,10 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/session", get(session).post(session_start))
         .route("/api/session/code", post(session_code))
         .route("/api/machines", get(machines).post(machine_set))
+        .route("/api/metrics", get(metrics))
+        .route("/api/metrics/thresholds", post(metrics_thresholds))
         .route("/api/workspace", get(workspace))
+        .route("/api/unit/{id}/code", get(unit_code))
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
         .route("/api/status", get(status))
@@ -1130,6 +1144,10 @@ struct Reader {
     /// Without file texts, uncommitted work or trees.
     #[serde(default)]
     light: bool,
+    /// A unit's code: the commits (short hashes, comma-separated) whose texts the reader
+    /// has already; they never change.
+    #[serde(default)]
+    have: String,
 }
 
 impl App {
@@ -1150,10 +1168,37 @@ impl App {
 async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
-        let ws = app.snapshot(&state, r.light, "workspace");
+        let mut ws = app.snapshot(&state, r.light, "workspace");
+        // Machines in alert are the user's to see (Needs you), like their CPU and memory.
+        if app.user(&caller).is_ok() {
+            ws.alerts = app.metrics.alerts();
+        }
         let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
         app.record_merges(found);
         Ok(Json(ws))
+    })
+    .await
+}
+
+/// One unit's file texts, which the snapshot leaves out: what the page's code layer shows.
+/// Scoped like `/api/workspace`. Not on a machine's listener: no CLI reads it.
+async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<snapshot::Code>, ApiError> {
+    blocking(move || {
+        let state = app.view(&caller, &r)?;
+        let started = std::time::Instant::now();
+        let live = app.live();
+        let code = {
+            let mut cache = app.cache.lock().unwrap();
+            (cache.light, cache.bare) = (false, false);
+            let have: Vec<&str> = r.have.split(',').filter(|h| !h.is_empty()).collect();
+            let code = snapshot::code(&state, &mut cache, live.as_deref(), &id, &have);
+            cache.save();
+            code
+        };
+        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+        app.record_merges(found);
+        tracing::info!(target: "perf", kind = "code", unit = %id, ms = started.elapsed().as_millis() as u64);
+        code.map(Json).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no unit {id}")))
     })
     .await
 }
@@ -1173,7 +1218,7 @@ struct ShowQuery {
 /// read; attachments are paths on this machine and links through the tunnel on another.
 async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
     blocking(move || {
-        let r = Reader { place: q.place.clone(), named: q.named, light: true };
+        let r = Reader { place: q.place.clone(), named: q.named, light: true, have: String::new() };
         let who = app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
         let state = app.view(&caller, &r)?;
         let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
@@ -1351,6 +1396,21 @@ struct MachineSet {
     ssh: String,
     #[serde(default)]
     herdr_socket: Option<String>,
+}
+
+/// CPU and memory of this machine and the followed ones, with the thresholds: the user's
+/// to read (the page), never an agent's, and not on a machine's listener.
+async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<crate::metrics::Report>, ApiError> {
+    app.user(&caller)?;
+    Ok(Json(app.metrics.report()))
+}
+
+/// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a
+/// preference like the list of machines, not a record of work.
+async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::metrics::Thresholds>) -> Result<Json<crate::metrics::Report>, ApiError> {
+    app.user(&caller)?;
+    app.metrics.set_thresholds(t).map_err(bad)?;
+    Ok(Json(app.metrics.report()))
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.
@@ -1623,9 +1683,12 @@ async fn ui(uri: Uri) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     }
     // Any other path is a page of the app: index.html.
-    let file = Ui::get(path).filter(|_| !path.is_empty()).or_else(|| Ui::get("index.html"));
-    match file {
-        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string())], f.data).into_response(),
+    let asset = Ui::get(path).filter(|_| !path.is_empty());
+    // Built files carry their content's hash in their name: kept for good. The page itself
+    // names the current ones, so it is asked for again every time.
+    let cache = if asset.is_some() && path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
+    match asset.or_else(|| Ui::get("index.html")) {
+        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string()), (header::CACHE_CONTROL, cache.to_string())], f.data).into_response(),
         None => (StatusCode::NOT_FOUND, "The web UI is not built: run `npm run build` in frontend/web, then build workriver again.").into_response(),
     }
 }

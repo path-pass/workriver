@@ -26,8 +26,44 @@ pub struct FileChange {
     pub path: String,
     /// "A", "M" or "D".
     pub status: String,
+    /// Lines added and removed, worked out once from the texts: what lists show without them.
+    pub add: u32,
+    pub del: u32,
+    /// The texts; left out where only the change's size is wanted (`FileChange::bare`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
+}
+
+impl FileChange {
+    /// Without its texts.
+    pub fn bare(&self) -> FileChange {
+        FileChange { path: self.path.clone(), status: self.status.clone(), add: self.add, del: self.del, before: None, after: None }
+    }
+}
+
+/// Lines added and removed from `before` to `after`, as a shortest line diff counts them (the
+/// web UI's `diff` package does too; similar's default Myers takes shortcuts that can count
+/// more). A pathological pair gives up after a second, approximate.
+pub fn counts(before: &str, after: &str) -> (u32, u32) {
+    struct Count(u32, u32);
+    impl similar::algorithms::DiffHook for Count {
+        type Error = std::convert::Infallible;
+        fn delete(&mut self, _: usize, n: usize, _: usize) -> std::result::Result<(), Self::Error> {
+            self.1 += n as u32;
+            Ok(())
+        }
+        fn insert(&mut self, _: usize, _: usize, n: usize) -> std::result::Result<(), Self::Error> {
+            self.0 += n as u32;
+            Ok(())
+        }
+    }
+    let (old, new): (Vec<&str>, Vec<&str>) = (before.split_inclusive('\n').collect(), after.split_inclusive('\n').collect());
+    let mut c = Count(0, 0);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    let _ = similar::algorithms::myers::diff_deadline_raw(&mut c, &old, 0..old.len(), &new, 0..new.len(), Some(deadline));
+    (c.0, c.1)
 }
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
@@ -531,7 +567,9 @@ fn change(path: String, status: String, before: Option<Vec<u8>>, after: Option<V
             Some(b) => Some(Some(String::from_utf8_lossy(&b).into_owned())),
         }
     };
-    Some(FileChange { before: text(before)?, after: text(after)?, path, status })
+    let (before, after) = (text(before)?, text(after)?);
+    let (add, del) = counts(before.as_deref().unwrap_or_default(), after.as_deref().unwrap_or_default());
+    Some(FileChange { add, del, before, after, path, status })
 }
 
 fn split0(out: &[u8]) -> impl Iterator<Item = String> + '_ {

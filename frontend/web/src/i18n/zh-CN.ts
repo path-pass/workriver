@@ -11,8 +11,8 @@ export const zhCN: OneForm<typeof en> = {
     fold: '收起侧栏',
     unfold: '展开侧栏',
     resize: '侧栏宽度（拖动，或用方向键；双击恢复默认）',
-    findings: '发现由谁决定',
-    findingsBy: { user: '只由我', manager: '管理者' },
+    findings: '发现',
+    findingsBy: { user: '手动', manager: '自动' },
     search: '搜索单元',
     noMatch: '没有单元匹配「{{q}}」',
     clearSearch: '清除搜索',
@@ -80,8 +80,32 @@ export const zhCN: OneForm<typeof en> = {
     language: '语言',
     theme: '主题',
     themes: { system: '跟随系统', light: '浅色', dark: '深色' },
-    notify: 'agent 需要我时通知我',
+    notify: 'agent 或机器需要我时通知我',
     notifyDenied: '浏览器不允许这个页面发通知。'
+  },
+  alerts: {
+    title: '机器报警',
+    lead: '对本机和每台跟踪的机器都生效。一个值在整段时间里都不低于阈值才报警，低于阈值满一分钟后解除。',
+    on: '{{metric}} 报警',
+    percent: '{{metric}} 的阈值（百分比）',
+    minutes: '{{metric}}：持续多久（分钟）',
+    threshold: '≥ <percent/>% 持续 <minutes/> 分钟',
+    failed: '没有保存：{{error}}'
+  },
+  metrics: {
+    title: '机器',
+    lead: '最近 10 分钟，每 {{seconds}} 秒一次',
+    here: '本机',
+    cpu: 'CPU',
+    memory: '内存',
+    percent: '{{value}}%',
+    memoryValue: '{{used}} / {{total}} GB',
+    noValue: '–',
+    alert: '{{metric}} {{value}} · {{time}}',
+    probeFailed: '读不到：{{error}}',
+    chart: '最近 10 分钟的{{metric}}',
+    notice: '{{machine}}：{{metric}} {{value}}',
+    noticeBody: '已连续 {{minutes}} 分钟不低于 {{percent}}%'
   },
   machines: {
     title: '其他机器',
@@ -164,7 +188,8 @@ export const zhCN: OneForm<typeof en> = {
   },
   side: {
     title: '需要你、Agent、提交、待办和问为什么',
-    close: '收起面板'
+    close: '收起面板',
+    resize: '面板宽度（拖动，或用方向键；双击恢复默认）'
   },
   terminal: {
     open: '在终端里打开',
@@ -228,6 +253,9 @@ export const zhCN: OneForm<typeof en> = {
     title: '需要你',
     blocking: '卡住了',
     blockedAgent: '{{agent}} 在终端里等你',
+    machines: '机器',
+    machineAlert: '{{machine}}：{{metric}} {{value}}',
+    machineLimit: '连续 {{minutes}} 分钟不低于 {{percent}}%',
     decisions: '待决定',
     gaps: '缺口',
     later: '不急',

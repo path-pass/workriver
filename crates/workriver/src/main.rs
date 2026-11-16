@@ -6,6 +6,7 @@ mod backlog;
 mod deliver;
 mod herdr;
 mod machines;
+mod metrics;
 mod quote;
 mod serve;
 mod perf;
@@ -747,7 +748,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = &warning {
                 tracing::warn!("{w}");
             }
-            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1") };
+            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1"), sample: true };
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port.unwrap_or(DEFAULT_PORT)).await?;

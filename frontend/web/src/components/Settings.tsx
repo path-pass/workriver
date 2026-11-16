@@ -6,8 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { MOCK } from '@/data'
-import { machines as loadMachines, notifyWanted, record, setMachine, wantNotify } from '@/runtime'
-import type { Machine, Workspace } from '@/types'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, setMachine, setThresholds, wantNotify } from '@/runtime'
+import type { Limit, Machine, Thresholds, Workspace } from '@/types'
+import { Trans } from 'react-i18next'
 import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
 import { Choice } from './Choice'
@@ -92,6 +93,71 @@ function Machines({ ws }: { ws: Workspace | null }) {
   )
 }
 
+/** A whole number from `min` to `max`, given back when the field is left or Enter pressed. */
+function Count({ value, min, max, label, disabled, onCommit }: { value: number; min: number; max: number; label: string; disabled: boolean; onCommit: (v: number) => void }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  // Out of range or not a number: back to what it was; the service would refuse it too.
+  const commit = () => {
+    const v = Number(text)
+    if (Number.isInteger(v) && v >= min && v <= max) { if (v !== value) onCommit(v) } else setText(String(value))
+  }
+  return (
+    <input
+      type="number" inputMode="numeric" min={min} max={max} step={1} value={text} aria-label={label} disabled={disabled}
+      onChange={e => setText(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit() }}
+      className="w-14 rounded-sm border border-line bg-surface px-2 py-1 text-right text-sm text-ink tabular-nums disabled:opacity-50"
+    />
+  )
+}
+
+/**
+ * When a machine alerts: CPU and memory, the same for this machine and every followed one,
+ * each a percent held for some minutes, or off. Saved as soon as one changes.
+ */
+function MachineAlerts() {
+  const { t } = useT()
+  const [limits, setLimits] = useState<Thresholds | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { loadMetrics().then(r => setLimits(r.thresholds), () => {}) }, [])
+  if (!limits) return null
+  const save = (next: Thresholds) => {
+    setLimits(next)
+    setThresholds(next).then(r => { setLimits(r.thresholds); setError('') }, e => setError(t('alerts.failed', { error: String(e) })))
+  }
+  return (
+    <section aria-labelledby="alerts" className="flex flex-col gap-2 border-t border-line pt-3">
+      <h3 id="alerts" className="text-sm font-semibold">{t('alerts.title')}</h3>
+      <p className="text-xs text-ink-2">{t('alerts.lead')}</p>
+      {(['cpu', 'memory'] as const).map(m => {
+        const limit = limits[m]
+        const name = t(`metrics.${m}`)
+        const set = (patch: Partial<Limit>) => save({ ...limits, [m]: { ...limit, ...patch } })
+        return (
+          // The switch by its name; the threshold wraps as one piece on a narrow screen.
+          <div key={m} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <span className="flex w-28 items-center gap-2">
+              <Switch checked={limit.on} aria-label={t('alerts.on', { metric: name })} onCheckedChange={on => set({ on })} />
+              {name}
+            </span>
+            {/* One sentence with the two fields in it, in whatever order the language puts them. */}
+            <span className="flex items-center gap-1.5 text-ink-2">
+              <Trans
+                i18nKey="alerts.threshold"
+                components={{
+                  percent: <Count value={limit.percent} min={1} max={100} label={t('alerts.percent', { metric: name })} disabled={!limit.on} onCommit={v => set({ percent: v })} />,
+                  minutes: <Count value={limit.minutes} min={1} max={10} label={t('alerts.minutes', { metric: name })} disabled={!limit.on} onCommit={v => set({ minutes: v })} />,
+                }}
+              />
+            </span>
+          </div>
+        )
+      })}
+      {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
+    </section>
+  )
+}
+
 /** `compact`: only the gear, for the folded rail. */
 export function Settings({ compact = false, ws = null }: { compact?: boolean; ws?: Workspace | null }) {
   const { t, lang, setLang } = useT()
@@ -140,6 +206,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
             />
           </Row>
           {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
+          <MachineAlerts />
           {!MOCK && <Machines ws={ws} />}
         </div>
       </DialogContent>

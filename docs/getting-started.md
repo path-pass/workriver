@@ -152,7 +152,7 @@ finished without a merge). When every unit of an intent is merged or done, its m
 closes it with `workriver intent done i1`.
 Reviews and tests are tasks of their own. Their findings are decided by the intent's
 manager by default (shown with a robot mark; you can change any decision on the page, or
-keep the deciding to yourself per intent: "Findings decided by" in the rail, or `workriver
+keep the deciding to yourself per intent: "Findings: Manual" in the rail, or `workriver
 intent set i1 --findings user`). Findings that are yours wait in **Needs you**: accept,
 revise, reject or defer each one there. Deferred ones wait in the **Backlog**
 panel; tick several and "Do together" sends them to the intent's manager as one message,

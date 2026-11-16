@@ -33,7 +33,9 @@ decisions into their terminals, so the question it must answer is: **was that re
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
 drop them, end a conversation, focus a terminal from the page, add projects, add or enable
-machines, link workspaces. The service asks for the token or session on those routes, and
+machines, link workspaces, read the machines' CPU and memory or set when they alert
+(`/api/metrics`, `/api/metrics/thresholds`: not even an agent of this machine may, and
+another machine's listener does not serve them). The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
 
@@ -42,7 +44,7 @@ that work does not wait for you. The trade-off, plainly: a manager that is compr
 simply wrong can accept or reject findings. What limits it: only the manager of that intent
 can (no other agent ever), its decisions are recorded as an agent's and shown with a robot
 mark, never told to anyone as yours, and you can change any of them, which the manager is
-told. To decide everything yourself for an intent, set "Findings decided by: only me"
+told. To decide everything yourself for an intent, set "Findings: Manual"
 (`workriver intent set <intent> --findings user`). There is no rule by severity: a
 finding's severity is its reviewer's own rating, not a control.
 

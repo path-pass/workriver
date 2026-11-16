@@ -28,6 +28,9 @@ pub struct Workspace {
     /// Chores that belong to no intent: a project's, or (no project) nobody's.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     chores: Vec<Chore>,
+    /// Machines past an alert threshold now: for the user only (Needs you).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alerts: Vec<crate::metrics::Alert>,
 }
 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
@@ -37,17 +40,53 @@ pub struct Workspace {
 pub fn hide(ws: &mut Workspace) {
     ws.reduced = true;
     for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
-        u.tasks.retain(|t| t.state != "unregistered");
-        u.commits.retain(|c| !c.live);
-        for c in &mut u.commits {
-            c.subject.clear();
-            c.author.clear();
-            c.files.clear();
-        }
+        hide_unit(u);
     }
     for s in &mut ws.sessions {
         s.topic = None;
     }
+}
+
+/// `hide` for one unit; its code (`code`) is hidden the same way.
+fn hide_unit(u: &mut Unit) {
+    u.tasks.retain(|t| t.state != "unregistered");
+    u.commits.retain(|c| !c.live);
+    u.code.clear();
+    for c in &mut u.commits {
+        c.subject.clear();
+        c.author.clear();
+        c.files.clear();
+    }
+}
+
+/// A unit's file texts, which the page's snapshot leaves out (`Cache::bare`): read when its
+/// code is shown, and again only when `code` (the unit's `code` in the snapshot) changes.
+#[derive(Serialize)]
+pub struct Code {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    code: String,
+    commits: Vec<CommitCode>,
+}
+
+#[derive(Serialize)]
+struct CommitCode {
+    id: String,
+    files: Vec<scan::FileChange>,
+}
+
+/// The texts of unit `id` as `state` lets its reader see them (none of a blind view's),
+/// but for the commits in `have` (short hashes), which the reader has.
+pub fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, id: &str, have: &[&str]) -> Option<Code> {
+    let u = state.units.iter().find(|u| u.id == id)?;
+    cache.refs.clear();
+    cache.worktrees.clear();
+    (cache.recomputed, cache.reused) = (0, 0);
+    let mut shown = unit(state, live.unwrap_or_default(), u, cache, &Names(HashMap::new()), None);
+    if state.reduced {
+        hide_unit(&mut shown);
+    }
+    let commits = shown.commits.into_iter().filter(|c| c.live || !have.contains(&c.id.as_str())).map(|c| CommitCode { id: c.id, files: c.files }).collect();
+    Some(Code { code: shown.code, commits })
 }
 
 fn chore(c: &core::Chore, names: &Names, project: Option<String>) -> Chore {
@@ -229,6 +268,10 @@ struct Unit {
     done_reason: Option<String>,
     tasks: Vec<Task>,
     commits: Vec<Commit>,
+    /// Which texts its commits and uncommitted work have (a hash of them): the page reads
+    /// them (`code`) again only when this changes.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    code: String,
 }
 
 #[derive(Serialize)]
@@ -519,6 +562,9 @@ pub struct Cache {
     dirty: bool,
     /// This build: no file texts, uncommitted work or trees (board, `task show`).
     pub light: bool,
+    /// This build: files without their texts, only how many lines changed (the page's
+    /// snapshot; `code` gives a unit's texts).
+    pub bare: bool,
     /// Whether this cache reads repositories on other machines (the background one does);
     /// one that does not takes what the background read last, from `shared`.
     pub remote_reads: bool,
@@ -778,7 +824,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .filter(|c| c.intent.is_empty())
         .map(|c| chore(c, &names, Some(crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![] }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
@@ -851,6 +897,7 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         done_reason: None,
         tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
         commits: vec![],
+        code: String::new(),
     })
 }
 
@@ -1026,14 +1073,10 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
             Err(e) => tracing::warn!("unit {}: {e}", u.id),
         }
     }
-    let mut commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).cloned().or_else(|| named(h, cache))).collect();
-    // Light: which files, not their texts (a full build may have cached them; they are what
-    // makes a snapshot many megabytes).
-    if cache.light {
-        for f in commits.iter_mut().flat_map(|c| c.files.iter_mut()) {
-            (f.before, f.after) = (None, None);
-        }
-    }
+    // Light and bare: which files, not their texts (they are what makes a snapshot many
+    // megabytes); not even copied.
+    let bare = cache.light || cache.bare;
+    let commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).map(|c| if bare { bare_commit(c) } else { c.clone() }).or_else(|| named(h, cache))).collect();
     // Links whose commit is not here any more, and commits of a branch the unit left (a
     // rebase gave them other hashes): told by patch ids, worked out once each (none: "").
     let stale = u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash));
@@ -1070,6 +1113,24 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
     (commits, files)
 }
 
+fn bare_commit(c: &scan::Commit) -> scan::Commit {
+    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), files: c.files.iter().map(scan::FileChange::bare).collect() }
+}
+
+/// Which texts a unit's commits and uncommitted files have: its commits' hashes (a commit
+/// never changes) and its uncommitted texts.
+fn code_of(commits: &[scan::Commit], files: &[scan::FileChange]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for c in commits {
+        c.hash.hash(&mut h);
+    }
+    for f in files {
+        (&f.path, &f.status, &f.before, &f.after).hash(&mut h);
+    }
+    format!("{:016x}", h.finish())
+}
+
 /// Anything slower than this is marked so in the timing log.
 pub const SLOW_MS: u64 = 500;
 
@@ -1094,6 +1155,8 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             }
         }
     };
+    let code = code_of(&commits, &files);
+    let (commits, files) = if cache.light || cache.bare { (commits.iter().map(bare_commit).collect(), files.iter().map(scan::FileChange::bare).collect()) } else { (commits, files) };
 
     // A commit linked to a task by hand: by its hash; or, for a link whose commit is gone (a
     // rebase), by the same patch id, else by the same subject and author date.
@@ -1172,6 +1235,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks,
         commits: shown,
+        code,
     }
 }
 

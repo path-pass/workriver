@@ -11,8 +11,8 @@ export const ja: OneForm<typeof en> = {
     fold: 'サイドバーを閉じる',
     unfold: 'サイドバーを開く',
     resize: 'サイドバーの幅（ドラッグ、または矢印キー。ダブルクリックで既定の幅）',
-    findings: '指摘を判断する人',
-    findingsBy: { user: '自分だけ', manager: 'マネージャー' },
+    findings: '指摘',
+    findingsBy: { user: '手動', manager: '自動' },
     search: 'ユニットを検索',
     noMatch: '「{{q}}」に一致するユニットはありません',
     clearSearch: '検索をクリア',
@@ -80,8 +80,32 @@ export const ja: OneForm<typeof en> = {
     language: '言語',
     theme: 'テーマ',
     themes: { system: 'システム', light: 'ライト', dark: 'ダーク' },
-    notify: 'エージェントが私を待っているときに通知する',
+    notify: 'エージェントやマシンが私を待っているときに通知する',
     notifyDenied: 'このページの通知はブラウザで許可されていません。'
+  },
+  alerts: {
+    title: 'マシンのアラート',
+    lead: 'このマシンと、追跡しているすべてのマシンに適用されます。値がその時間ずっとしきい値以上だとアラートになり、しきい値を下回って 1 分たつと解除されます。',
+    on: '{{metric}} のアラート',
+    percent: '{{metric}} のしきい値（パーセント）',
+    minutes: '{{metric}}：続く時間（分）',
+    threshold: '<minutes/> 分間 <percent/> % 以上',
+    failed: '保存できませんでした：{{error}}'
+  },
+  metrics: {
+    title: 'マシン',
+    lead: '直近 10 分間、{{seconds}} 秒ごと',
+    here: 'このマシン',
+    cpu: 'CPU',
+    memory: 'メモリ',
+    percent: '{{value}} %',
+    memoryValue: '{{used}} / {{total}} GB',
+    noValue: '–',
+    alert: '{{metric}} {{value}} · {{time}}',
+    probeFailed: '読み取れません：{{error}}',
+    chart: '直近 10 分間の{{metric}}',
+    notice: '{{machine}}：{{metric}} {{value}}',
+    noticeBody: '{{minutes}} 分間 {{percent}} % 以上が続いています'
   },
   machines: {
     title: '他のマシン',
@@ -164,7 +188,8 @@ export const ja: OneForm<typeof en> = {
   },
   side: {
     title: '要対応・エージェント・コミット・バックログ・理由を聞く',
-    close: 'パネルを閉じる'
+    close: 'パネルを閉じる',
+    resize: 'パネルの幅（ドラッグ、または矢印キー。ダブルクリックで既定の幅）'
   },
   terminal: {
     open: 'ターミナルで開く',
@@ -228,6 +253,9 @@ export const ja: OneForm<typeof en> = {
     title: '要対応',
     blocking: 'ブロック中',
     blockedAgent: '{{agent}} がターミナルであなたを待っています',
+    machines: 'マシン',
+    machineAlert: '{{machine}}：{{metric}} {{value}}',
+    machineLimit: '{{minutes}} 分間 {{percent}} % 以上',
     decisions: '判断待ち',
     gaps: '抜け',
     later: '急ぎではない',

@@ -2,17 +2,55 @@
 // the views derive from it. Apart from the loading, pure functions only.
 import { diffLines, structuredPatch } from 'diff'
 import type { T } from './i18n'
-import type { Attachment, Chore, Commit, Intent, Finding, Unit, ModuleNode, Severity, Task, Workspace } from './types'
+import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAlert, Unit, ModuleNode, Severity, Task, Workspace } from './types'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
 
-/** The data carries whole texts; the hunks and line counts are worked out from them. */
+/** A file with its texts: the hunks and line counts are worked out from them. */
+const withLines = (f: FileChange): FileChange => {
+  const before = f.before ?? null, after = f.after ?? null
+  return { ...f, before, after, ...changeOf(before, after) }
+}
+
+/**
+ * The service's snapshot names each file with its line counts and leaves its texts out (a
+ * unit's come with `loadCode`); the sample carries them inline.
+ */
 function prepare(ws: Workspace): Workspace {
-  for (const unit of unitsOf(ws)) for (const c of unit.commits) c.files = c.files.map(f => ({ ...f, ...changeOf(f.before, f.after) }))
-  if (import.meta.env.DEV) checkCounts(ws)
+  for (const unit of unitsOf(ws)) for (const c of unit.commits) c.files = c.files.map(f => (f.before === undefined && f.after === undefined ? { ...f, before: null, after: null, lines: [] } : withLines(f)))
+  if (import.meta.env.DEV && MOCK) checkCounts(ws)
   return ws
 }
+
+/** A unit's file texts, by commit id and path, as of its `code`. */
+export interface UnitCode { code: string; files: Map<string, FileChange> }
+const fileKey = (commit: string, path: string) => `${commit}\0${path}`
+// The units looked at in this sitting, each as last read.
+const codes = new Map<string, UnitCode>()
+
+/**
+ * A unit's file texts, read when its code is shown; read again only once its `code` changed,
+ * and then only for commits not read before (a commit never changes) and uncommitted work.
+ */
+export async function loadCode(unit: Unit): Promise<UnitCode> {
+  const had = codes.get(unit.id)
+  if (had && had.code === (unit.code ?? '')) return had
+  const have = unit.commits.filter(c => !c.live && had?.files.has(fileKey(c.id, c.files[0]?.path ?? ''))).map(c => c.id)
+  const res = await fetch(`/api/unit/${encodeURIComponent(unit.id)}/code${have.length ? `?have=${have.join(',')}` : ''}`)
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  const got: { code?: string; commits: { id: string; files: FileChange[] }[] } = await res.json()
+  const kept = new Set(have)
+  const files = new Map([...(had?.files ?? [])].filter(([k]) => kept.has(k.slice(0, k.indexOf('\0')))))
+  for (const c of got.commits) for (const f of c.files) files.set(fileKey(c.id, f.path), withLines(f))
+  const code = { code: got.code ?? '', files }
+  codes.set(unit.id, code)
+  return code
+}
+
+/** The unit with its files' texts, where `code` has them. */
+export const withCode = (unit: Unit, code: UnitCode): Unit =>
+  ({ ...unit, commits: unit.commits.map(c => ({ ...c, files: c.files.map(f => code.files.get(fileKey(c.id, f.path)) ?? f) })) })
 
 async function loadWorkspace(): Promise<Workspace> {
   if (!MOCK) {
@@ -25,6 +63,7 @@ async function loadWorkspace(): Promise<Workspace> {
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
   for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const f of n.output.findings ?? []) for (const a of f.attachments ?? []) a.url = pictures[a.url] ?? a.url
+  ws.alerts = (await import('./mock/metrics')).mockAlerts()
   return prepare(ws)
 }
 
@@ -34,21 +73,30 @@ async function loadWorkspace(): Promise<Workspace> {
  */
 export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => void): () => void {
   let stopped = false
-  let asked = 0
-  // Only the latest answer counts; an older one arriving late is dropped.
+  // At most one read at a time: changes told meanwhile make one more read after it. A hidden
+  // tab reads nothing; it reads once when shown again, if anything changed meanwhile.
+  let reading = false, again = false, missed = true
   const get = () => {
-    const n = ++asked
-    loadWorkspace().then(ws => { if (!stopped && n === asked) onData(ws) }, () => { if (!stopped && n === asked) onDown() })
+    if (stopped) return
+    if (document.hidden) { missed = true; return }
+    if (reading) { again = true; return }
+    reading = true
+    missed = again = false
+    loadWorkspace()
+      .then(ws => { if (!stopped) onData(ws) }, () => { if (!stopped) onDown() })
+      .finally(() => { reading = false; if (again) get() })
   }
+  const shown = () => { if (!document.hidden && missed) get() }
+  document.addEventListener('visibilitychange', shown)
   get()
-  if (MOCK) return () => { stopped = true }
+  if (MOCK) return () => { stopped = true; document.removeEventListener('visibilitychange', shown) }
   const events = new EventSource('/api/events')
   events.addEventListener('changed', get)
   // The stream reconnects by itself; what changed while it was down is fetched then.
   let opened = false
   events.onopen = () => { if (opened) get(); opened = true }
   events.onerror = () => { if (!stopped) onDown() }
-  return () => { stopped = true; events.close() }
+  return () => { stopped = true; events.close(); document.removeEventListener('visibilitychange', shown) }
 }
 
 /** The repository a unit works in. */
@@ -320,13 +368,15 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  kind: 'agent' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
   project?: string
   /** agent: the agent waiting in its terminal, and where it runs. */
   agent?: { name: string; session?: string; topic?: string; place: string }
+  /** machine: a machine past an alert threshold. */
+  alert?: MachineAlert
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
   unit: Unit | null
   /** What a click opens; null for a chore. */
@@ -345,6 +395,8 @@ export const blockedAgents = (ws: Workspace | null) => (ws?.sessions ?? []).filt
 export interface Inbox {
   /** Gates: an agent cannot go on. */
   blocking: InboxRow[]
+  /** Machines past an alert threshold: they slow every agent there; they leave by themselves. */
+  machines: InboxRow[]
   /** Reviews and gates with open findings, the highest open severity first. */
   decisions: InboxRow[]
   /** Commits that name no node, branches that grew beyond the plan. */
@@ -358,7 +410,7 @@ export const openFindings = (n: Task) =>
   findingsOf(n).filter(waits).sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
 
 export function inbox(ws: Workspace): Inbox {
-  const box: Inbox = { blocking: [], decisions: [], gaps: [], later: [] }
+  const box: Inbox = { blocking: [], machines: [], decisions: [], gaps: [], later: [] }
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
       ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, far: [], since })
@@ -386,6 +438,9 @@ export function inbox(ws: Workspace): Inbox {
   }).sort(oldest)
   box.blocking.sort(oldest)
   box.blocking.unshift(...waiting)
+  box.machines = (ws.alerts ?? [])
+    .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, far: [], since: ms(a.since) }))
+    .sort(oldest)
   box.decisions.sort((a, b) => top(a) - top(b) || oldest(a, b))
   box.gaps.sort(oldest)
   box.later.sort(oldest)
