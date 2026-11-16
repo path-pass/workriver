@@ -44,19 +44,17 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 
 /// One sample of a machine, as raw counters. Linux has CPU counters, so the CPU share is the
 /// difference between two samples; macOS has none a shell can read, so iostat measures one
-/// second itself. `LC_ALL=C`: numbers with a dot whatever the user's locale.
-pub const PROBE: &str = r#"export LC_ALL=C
-if [ -r /proc/stat ]; then
-  echo "os linux"
-  head -n 1 /proc/stat
-  grep -E '^(MemTotal|MemAvailable):' /proc/meminfo
-else
-  echo "os darwin"
-  echo "memsize $(sysctl -n hw.memsize)"
-  vm_stat
-  echo "iostat $(iostat -n 0 -c 2 -w 1 | tail -n 1)"
-fi
-"#;
+/// second itself. `LC_ALL=C`: numbers with a dot whatever the user's locale. One line: over
+/// ssh it reaches the login shell as one quoted word, and csh-family shells refuse a quoted
+/// word with a newline in it.
+pub const PROBE: &str = concat!(
+    "export LC_ALL=C; ",
+    "if [ -r /proc/stat ]; then ",
+    "echo 'os linux'; head -n 1 /proc/stat; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; ",
+    "else ",
+    "echo 'os darwin'; echo \"memsize $(sysctl -n hw.memsize)\"; vm_stat; echo \"iostat $(iostat -n 0 -c 2 -w 1 | tail -n 1)\"; ",
+    "fi",
+);
 
 // ---- reading what the probe printed ----
 
@@ -387,8 +385,10 @@ impl Metrics {
                 }
                 (track.reachable, track.error) = (true, None);
             }
-            Some(Err(why)) => (track.reachable, track.error) = (false, Some(why)),
-            None => (track.reachable, track.error) = (false, None),
+            // The counters of before an outage would make the next CPU an average over the
+            // whole outage: the first sample after it has no CPU, as the first one ever.
+            Some(Err(why)) => (track.reachable, track.error, track.before) = (false, Some(why), None),
+            None => (track.reachable, track.error, track.before) = (false, None, None),
         }
         if Self::judge(track, &thresholds, self.step) {
             let _ = self.changed.send(());
@@ -449,12 +449,15 @@ impl Metrics {
         Report { thresholds: self.thresholds(), step_seconds: self.step.as_secs().max(1), machines }
     }
 
-    /// The machines in alert now, for Needs you.
+    /// The machines in alert now, for Needs you: only those still followed. A machine no
+    /// longer followed keeps its track until its loop next wakes, up to a step later, and the
+    /// page refetches at once when it is dropped.
     pub fn alerts(&self) -> Vec<Alert> {
         let thresholds = self.thresholds();
+        let wanted = self.wanted();
         let tracks = self.tracks.lock().unwrap();
         let mut out = vec![];
-        for (label, t) in tracks.iter() {
+        for (label, t) in tracks.iter().filter(|(label, _)| wanted.contains(label)) {
             for (metric, since) in &t.raised {
                 let limit = thresholds.of(*metric);
                 let value = t.samples.back().and_then(|s| s.value(*metric)).unwrap_or_default();
@@ -522,6 +525,26 @@ MemAvailable:    4075857 kB
         let out = std::process::Command::new("sh").args(["-c", PROBE]).output().unwrap();
         let r = parse(&String::from_utf8_lossy(&out.stdout)).unwrap();
         assert!(r.mem_total > 0 && r.mem_used <= r.mem_total, "{r:?}");
+    }
+
+    #[test]
+    fn the_probe_is_one_line_a_csh_login_shell_takes() {
+        assert!(!PROBE.contains('\n'), "a csh-family shell refuses a quoted word with a newline");
+        // Over ssh the command reaches the login shell as one string of quoted words: a
+        // stand-in hands its last argument to tcsh, as such a login shell would run it.
+        if !std::path::Path::new("/bin/tcsh").exists() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("ssh");
+        std::fs::write(&program, "#!/bin/sh\nfor a; do last=$a; done\nexec /bin/tcsh -c \"$last\"\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = scan::Runner::Ssh { program: program.to_string_lossy().into(), options: vec![], target: "csh-box".into() };
+        let out = runner.command(&["sh", "-c", PROBE]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let r = parse(&String::from_utf8_lossy(&out.stdout)).unwrap();
+        assert!(r.mem_total > 0, "{r:?}");
     }
 
     #[test]
@@ -645,6 +668,19 @@ MemAvailable:    4075857 kB
         assert_eq!(b.samples.iter().map(|s| s.cpu).collect::<Vec<_>>(), [None, Some(60.0)]);
         let g = get("gone");
         assert!(!g.reachable && g.samples.is_empty() && g.down_since.is_some(), "{g:?}");
+        // After a failed sample, the next one has no CPU: the counters of before the outage
+        // would make it an average over the whole outage.
+        all.set_runner("box", printing(dir.path(), "broken", "os linux\n"));
+        m.sample("box");
+        all.set_runner("box", printing(dir.path(), "box3", LINUX_2.replace("1600 0 800 8500", "2000 0 900 9000").as_str()));
+        m.sample("box");
+        assert_eq!(m.report().machines[1].samples.last().unwrap().cpu, None, "no CPU right after an outage");
+        // A machine in alert that is no longer followed leaves Needs you at once, before its
+        // loop next wakes and drops its track.
+        m.tracks.lock().unwrap().get_mut("box").unwrap().raised.insert(Metric::Cpu, now_ms());
+        assert_eq!(m.alerts().iter().map(|a| a.machine.as_str()).collect::<Vec<_>>(), ["box"]);
+        all.stop("box");
+        assert!(m.alerts().is_empty(), "the alert of a machine no longer followed");
         assert!(rx.try_recv().is_err(), "nothing raised, nothing said");
         // Thresholds low enough for this machine's memory (77 %): raised at once? Not before
         // the window is covered: one sample covers 5 s of a minute.

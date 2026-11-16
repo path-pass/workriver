@@ -90,10 +90,7 @@ export const zhCN: Same<typeof en> = {
     on: '{{metric}} 报警',
     percent: '{{metric}} 的阈值（百分比）',
     minutes: '{{metric}}：持续多久（分钟）',
-    atLeast: '≥',
-    percentUnit: '%',
-    held: '持续',
-    minutesUnit: '分钟',
+    threshold: '≥ <percent/>% 持续 <minutes/> 分钟',
     failed: '没有保存：{{error}}'
   },
   metrics: {

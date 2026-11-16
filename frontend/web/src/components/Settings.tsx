@@ -8,6 +8,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { MOCK } from '@/data'
 import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, setMachine, setThresholds, wantNotify } from '@/runtime'
 import type { Limit, Machine, Thresholds, Workspace } from '@/types'
+import { Trans } from 'react-i18next'
 import { LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
 import { Choice } from './Choice'
@@ -139,12 +140,15 @@ function MachineAlerts() {
               <Switch checked={limit.on} aria-label={t('alerts.on', { metric: name })} onCheckedChange={on => set({ on })} />
               {name}
             </span>
+            {/* One sentence with the two fields in it, in whatever order the language puts them. */}
             <span className="flex items-center gap-1.5 text-ink-2">
-              <span aria-hidden>{t('alerts.atLeast')}</span>
-              <Count value={limit.percent} min={1} max={100} label={t('alerts.percent', { metric: name })} disabled={!limit.on} onCommit={v => set({ percent: v })} />
-              {t('alerts.percentUnit')} {t('alerts.held')}
-              <Count value={limit.minutes} min={1} max={10} label={t('alerts.minutes', { metric: name })} disabled={!limit.on} onCommit={v => set({ minutes: v })} />
-              {t('alerts.minutesUnit')}
+              <Trans
+                i18nKey="alerts.threshold"
+                components={{
+                  percent: <Count value={limit.percent} min={1} max={100} label={t('alerts.percent', { metric: name })} disabled={!limit.on} onCommit={v => set({ percent: v })} />,
+                  minutes: <Count value={limit.minutes} min={1} max={10} label={t('alerts.minutes', { metric: name })} disabled={!limit.on} onCommit={v => set({ minutes: v })} />,
+                }}
+              />
             </span>
           </div>
         )

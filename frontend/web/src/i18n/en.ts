@@ -86,10 +86,7 @@ export const en = {
     on: 'Alert on {{metric}}',
     percent: '{{metric}} threshold, in percent',
     minutes: '{{metric}}: how long, in minutes',
-    atLeast: '≥',
-    percentUnit: '%',
-    held: 'for',
-    minutesUnit: 'min',
+    threshold: '≥ <percent/> % for <minutes/> min',
     failed: 'Not saved: {{error}}'
   },
   metrics: {
