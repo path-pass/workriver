@@ -2121,7 +2121,15 @@
      ],
      "unit": "search"
     }
-   ]
+   ],
+   "state": "active",
+   "project": "demo",
+   "workspace": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "goal": "让聊天从“能发消息”变成“好用的聊天”：能 @ 人、能撤回、能搜到以前说过的话，三件事都上线之后再开始做表情回应。",
+   "note": "范围先只做网页版，手机端等这三件做完再评估。\n- @ 功能先做频道内，私聊以后再说\n- 撤回只允许发送后 2 分钟内\n- 搜索先做全文，不做按人或时间筛选\n设计讨论记录：https://example.com/notes/chat-v2"
   },
   {
    "id": "hardening",
@@ -2236,7 +2244,15 @@
      ],
      "since": "2026-11-13T10:00"
     }
-   ]
+   ],
+   "state": "active",
+   "project": "demo",
+   "workspace": {
+    "id": "w2",
+    "label": "hardening"
+   },
+   "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。",
+   "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10"
   },
   {
    "id": "ops",
@@ -2303,7 +2319,128 @@
      ]
     }
    ],
+   "chores": [],
+   "state": "active",
+   "project": "demo",
+   "workspace": {
+    "id": "w3",
+    "label": "ops"
+   },
+   "goal": "部署和日常运维的东西都写清楚，新来的人照着文档就能把服务部署起来、看懂报警、做一次回滚，不用问人。",
+   "note": "已完成：部署脚本的用法说明。\n还剩：报警说明、回滚手册，等这两个做完再关掉这个意图。"
+  },
+  {
+   "id": "onboarding",
+   "title": "新用户引导",
+   "state": "active",
+   "project": "demo",
+   "workspace": {
+    "id": "w4",
+    "label": "onboarding"
+   },
+   "goal": "第一次打开应用的人，三分钟内能完成注册、加入一个频道、发出第一条消息，过程中不用看任何帮助文档。",
+   "note": "先做调查：现在新用户在哪一步流失最多（看埋点数据），再决定先改哪一步。\n参考：https://example.com/notes/onboarding-funnel",
+   "units": [],
    "chores": []
+  },
+  {
+   "id": "perf",
+   "title": "消息列表性能",
+   "state": "active",
+   "project": "demo",
+   "workspace": {
+    "id": "w5",
+    "label": "perf"
+   },
+   "goal": "一个频道里有十万条消息时，打开频道和往上翻历史都不卡：首屏 300 毫秒内出现，滚动保持 60 帧。",
+   "note": "可能要改成虚拟列表，也可能是后端分页的问题，先让调查任务测清楚瓶颈在哪，再拆单元。",
+   "units": [],
+   "chores": []
+  },
+  {
+   "id": "reactions",
+   "title": "消息的表情回应",
+   "state": "planned",
+   "project": "demo",
+   "order": 0,
+   "goal": "在消息上点一个表情就能回应，不用再发一条“+1”。同一个表情的回应合在一起显示人数，鼠标放上去能看到是谁。",
+   "note": "等聊天 v2 的三件事上线后再开始。\n- 先只支持一组固定的表情，自定义表情以后再说\n- 要考虑撤回的消息上已有的回应怎么处理\n需求来源：用户反馈汇总 https://example.com/notes/feedback-q4",
+   "units": [],
+   "chores": [],
+   "external": {
+    "system": "linear",
+    "key": "CHAT-142",
+    "url": "https://linear.app/example/issue/CHAT-142"
+   }
+  },
+  {
+   "id": "threads",
+   "title": "话题回复（Thread）",
+   "state": "planned",
+   "project": "demo",
+   "order": 1,
+   "goal": "对某条消息展开讨论时，回复收在它下面的话题里，不打断频道里的主对话；话题有新回复时，参与过的人会收到提醒。",
+   "note": "这是一个比较大的改动，消息的数据结构要加“属于哪个话题”。开始前先做一次设计，确认方案后再实现。\n和表情回应、搜索都有关系：搜索结果要能定位到话题里的回复。",
+   "units": [],
+   "chores": []
+  },
+  {
+   "id": "mobile",
+   "title": "手机端网页适配",
+   "state": "planned",
+   "project": "demo",
+   "order": 2,
+   "goal": "在手机浏览器里打开也能正常聊天：输入框不被键盘挡住，图片能点开放大，左右滑动能切换频道。",
+   "note": "先做网页的适配，不做原生 App。\n需要真机测试：iPhone 的 Safari 和安卓的 Chrome 各至少一台。",
+   "units": [],
+   "chores": []
+  },
+  {
+   "id": "audit",
+   "title": "审计日志",
+   "state": "planned",
+   "project": "demo",
+   "order": 3,
+   "goal": "管理员能查到谁在什么时候做了哪些敏感操作：改权限、删频道、导出数据，记录保留一年，不能被普通管理员删除。",
+   "note": "上线前加固那一轮决定推到这里。合规那边需要在下个季度末之前有。\n要和法务确认保留期限和导出格式。",
+   "units": [],
+   "chores": [],
+   "external": {
+    "system": "jira",
+    "key": "SEC-88",
+    "url": "https://jira.example.com/browse/SEC-88"
+   }
+  },
+  {
+   "id": "export",
+   "title": "导出聊天记录",
+   "state": "planned",
+   "project": "demo",
+   "order": 4,
+   "goal": "用户能把自己参与过的频道导出成文件（HTML 或 JSON），用于备份或者迁移到别的工具。",
+   "note": "暂时排在最后，有用户提但不急。\n导出时要注意：私聊里对方的消息能不能导出，需要先定规则。",
+   "units": [],
+   "chores": []
+  },
+  {
+   "id": "login-v1",
+   "title": "账号登录",
+   "state": "done",
+   "project": "demo",
+   "goal": "用户能用邮箱和密码注册、登录、找回密码，登录状态在关掉浏览器后保持七天。",
+   "note": "已于上个月上线。遗留的“登录限流”放进了“上线前加固”。",
+   "units": [],
+   "chores": []
+  }
+ ],
+ "projects": [
+  {
+   "id": "demo",
+   "title": "聊天应用",
+   "registered": true,
+   "repos": [
+    "demo"
+   ]
   }
  ]
 }
