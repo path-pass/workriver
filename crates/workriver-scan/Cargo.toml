@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+similar = { version = "3.2.1", default-features = false, features = ["std"] }
 thiserror.workspace = true
 tracing = "0.1.44"
 

@@ -43,6 +43,7 @@ fn daemon_smoke() {
 
     let d = client(port, tmp.path());
     d.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
+    let repo_dir = repo.clone();
     let repo = repo.to_string_lossy();
     d.append("user", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo, "branch": "feat/feature", "base": "main" })).unwrap();
     d.append("manager", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Find mentions" })).unwrap();
@@ -57,14 +58,47 @@ fn daemon_smoke() {
     let unit = &ws["intents"][0]["units"][0];
     assert_eq!(unit["repo"], ws["repos"][0]["path"]);
     assert_eq!(unit["tasks"][0]["output"]["commits"].as_array().unwrap().len(), 1, "the trailer links the commit");
-    assert_eq!(unit["commits"][0]["files"][0]["after"], "one\ntwo\n");
     assert_eq!(unit["tasks"][1]["output"]["findings"][0]["state"], "deferred");
+    // The page's snapshot: each file with how many lines changed, not its texts, and the
+    // repository's tree; the texts come per unit, with the same `code` to tell when to read again.
+    let f = &unit["commits"][0]["files"][0];
+    assert_eq!((f["path"].as_str(), f["status"].as_str(), f["add"].as_u64(), f["del"].as_u64(), f.get("before"), f.get("after")), (Some("a.txt"), Some("M"), Some(1), Some(0), None, None), "{f}");
+    assert_eq!(ws["repos"][0]["modules"]["children"][0]["path"], "a.txt");
+    let code = d.get("/api/unit/u1/code").unwrap();
+    assert_eq!((code["code"].as_str(), code["commits"][0]["id"].as_str()), (unit["code"].as_str(), unit["commits"][0]["id"].as_str()));
+    assert!(unit["code"].as_str().is_some_and(|c| !c.is_empty()));
+    let f = &code["commits"][0]["files"][0];
+    assert_eq!((f["before"].as_str(), f["after"].as_str(), f["add"].as_u64()), (Some("one\n"), Some("one\ntwo\n"), Some(1)), "{f}");
+    assert!(d.get("/api/unit/u9/code").unwrap_err().to_string().contains("no unit u9"));
+    // Uncommitted work: in the snapshot by name and size, its texts with the code, and a new
+    // `code` once it changes.
+    std::fs::write(repo_dir.join("b.txt"), "new\n").unwrap();
+    let again = d.get("/api/workspace").unwrap();
+    let unit2 = &again["intents"][0]["units"][0];
+    let live = unit2["commits"].as_array().unwrap().iter().find(|c| c["live"] == true).expect("uncommitted work");
+    assert_eq!((live["files"][0]["path"].as_str(), live["files"][0]["add"].as_u64(), live["files"][0].get("after")), (Some("b.txt"), Some(1), None));
+    assert_ne!(unit2["code"], unit["code"]);
+    let code = d.get("/api/unit/u1/code").unwrap();
+    assert_eq!(code["commits"][1]["files"][0]["after"], "new\n");
+    // Commits the reader has are not sent again; uncommitted work always is.
+    let have = code["commits"][0]["id"].as_str().unwrap();
+    let code = d.get(&format!("/api/unit/u1/code?have={have}")).unwrap();
+    assert_eq!((code["commits"].as_array().unwrap().len(), code["commits"][0]["id"].as_str()), (1, Some("uncommitted")), "{code}");
     // A light read (the CLI's lists) names the files but carries none of their texts, even
     // once a full read has cached them.
     let light = d.get("/api/workspace?light=true").unwrap();
     let f = &light["intents"][0]["units"][0]["commits"][0]["files"][0];
     assert_eq!((f["path"].as_str(), f["after"].is_null(), f["before"].is_null()), (Some("a.txt"), true, true), "{f}");
 
+    // The built page (when there is one): its hashed files are kept for good, the page
+    // itself, which names them, is asked for every time.
+    let (status, page) = http(port, "GET", "/", &[], None);
+    if status == 200 {
+        assert!(page.to_lowercase().contains("cache-control: no-cache"), "{page}");
+        let script = page.split("src=\"").nth(1).and_then(|s| s.split('"').next()).expect("the page names its script");
+        let (status, js) = http(port, "GET", script, &[], None);
+        assert!(status == 200 && js.to_lowercase().contains("cache-control: public, max-age=31536000, immutable"), "{script}");
+    }
     // Another Host is turned away, whatever the path.
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     write!(s, "GET /api/workspace HTTP/1.1\r\nHost: evil.example:{port}\r\nConnection: close\r\n\r\n").unwrap();
@@ -1027,7 +1061,7 @@ fn only_the_user_is_the_user() {
     assert_eq!(http(port, "GET", "/api/machines?place=w1:p2", &from_pane, None).0, 200);
     assert_eq!(http(port, "POST", "/api/session/code", &from_pane, Some("{}")).0, 403, "nor a way into the browser");
     // Reading needs someone too: the user, or an agent at its place. Nobody reads as nobody.
-    for path in ["/api/state", "/api/workspace", "/api/machines", "/api/events", "/api/attachments/0123456789abcdef"] {
+    for path in ["/api/state", "/api/workspace", "/api/unit/u1/code", "/api/machines", "/api/events", "/api/attachments/0123456789abcdef"] {
         assert_eq!(http(port, "GET", path, &[], None).0, 401, "{path}");
     }
     for path in ["/api/state", "/api/workspace"] {
@@ -1116,6 +1150,8 @@ fn a_machines_listener_serves_only_agents() {
         ("GET", "/api/events", json!(null)),
         ("GET", "/", json!(null)),
         ("GET", "/assets/index.js", json!(null)),
+        // The page's file texts: no CLI over there reads them.
+        ("GET", "/api/unit/u1/code?place=w1:p1", json!(null)),
     ];
     for (method, path, body) in &refused {
         let body = (!body.is_null()).then(|| body.to_string());
@@ -1214,9 +1250,15 @@ fn blind_reviews() {
     assert_eq!((ws["reduced"].as_bool(), unit["tasks"].as_array().unwrap().len(), unit["commits"].as_array().unwrap().len()), (Some(true), 1, 1));
     assert!(unit["commits"][0]["id"].as_str().unwrap().len() >= 7 && unit["commits"][0]["subject"] == "" && unit["commits"][0]["files"].as_array().unwrap().is_empty(), "{}", unit["commits"]);
     assert_eq!(unit["tasks"][0]["blind"], true);
-    for hidden in ["SECRET-NOTE", "SECRET-EVIDENCE", "SECRET-SUBJECT", "Try it", theirs.as_str()] {
-        assert!(!text.contains(hidden) && !ws.to_string().contains(hidden), "{hidden} is hidden");
+    // Nor the code's texts, uncommitted work included: the code is read from git, by hash.
+    std::fs::write(repo.join("auth.rs"), "fn check() { SECRET-LIVE }\n").unwrap();
+    let code = sec.get("/api/unit/u1/code").unwrap();
+    assert!(code["commits"].as_array().unwrap().iter().all(|c| c["files"].as_array().unwrap().is_empty()) && code["code"].is_null(), "{code}");
+    assert!(user.get("/api/unit/u1/code").unwrap().to_string().contains("SECRET-LIVE"), "the user sees them");
+    for hidden in ["SECRET-NOTE", "SECRET-EVIDENCE", "SECRET-SUBJECT", "Try it", "SECRET-LIVE", "fn check", theirs.as_str()] {
+        assert!(!text.contains(hidden) && !ws.to_string().contains(hidden) && !code.to_string().contains(hidden), "{hidden} is hidden");
     }
+    std::fs::write(repo.join("auth.rs"), "fn check() {}\n").unwrap();
     let board = crate::board_text(&sec, None).unwrap();
     assert!(board.starts_with("blind review: other work is hidden until you deliver.") && board.contains("#2 running  review (security-review) [blind]") && board.contains("Find ways around the token check") && board.contains("diff main...feat/f") && !board.contains("#1 ") && !board.contains("Check tokens\n"), "{board}");
     // Files: its own, not others'.
@@ -1280,7 +1322,9 @@ fn units_on_another_machine() {
         git(r, &["commit", "-q", "--allow-empty", "-m", "base"]);
     }
     git(&there, &["switch", "-q", "-c", "feat/feature"]);
-    git(&there, &["commit", "-q", "--allow-empty", "-m", "work there"]);
+    std::fs::write(there.join("queue.rs"), "fn drain() {}\n").unwrap();
+    git(&there, &["add", "."]);
+    git(&there, &["commit", "-q", "-m", "work there"]);
     let path = |p: &std::path::Path| std::fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
 
     let local = std::sync::Arc::new(Fake::default());
@@ -1327,6 +1371,9 @@ fn units_on_another_machine() {
     let ws = user.get("/api/workspace").unwrap();
     let u1 = &ws["intents"][0]["units"][0];
     assert_eq!((u1["machine"].as_str(), u1["branch"].as_str()), (Some("box"), Some("feat/feature")), "{u1}");
+    // Its texts as the background read found them; the snapshot has only how many lines.
+    let code = user.get("/api/unit/u1/code").unwrap();
+    assert!(code["commits"][0]["files"][0]["after"].is_string() && u1["commits"][0]["files"][0].get("after").is_none() && u1["commits"][0]["files"][0]["add"].as_u64() > Some(0), "{code}");
     let board = crate::board_text(&boss, None).unwrap();
     assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feat/feature from main]", path(&there))), "{board}");
 
@@ -1341,6 +1388,7 @@ fn units_on_another_machine() {
     assert!(board.contains("    box is disconnected since "), "{board}");
     let ws = user.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["commits"].as_array().unwrap().len(), 1, "as last read");
+    assert_eq!(user.get("/api/unit/u1/code").unwrap(), code, "texts as last read");
     let worker = ws["sessions"].as_array().unwrap().iter().find(|x| x["agent"] == "worker").unwrap().clone();
     assert_eq!((worker["unreachable"].as_bool(), worker["state"].as_str()), (Some(true), Some("unknown")), "as last seen, in no state: {worker}");
     let shown: crate::show::TaskShow = serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap();

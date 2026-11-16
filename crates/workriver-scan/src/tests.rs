@@ -297,3 +297,13 @@ fn commits_read_at_once_as_one_by_one() {
     assert_eq!(tip(&r, &all[0]), Some(all[0].as_str()));
     assert_eq!(tip(&r, "nope"), None);
 }
+
+/// Lines added and removed as the web UI's diff counts them (a change, an add, a last line
+/// that gains its newline).
+#[test]
+fn line_counts() {
+    assert_eq!(counts("a\nb\nc\n", "a\nB\nc\nd\n"), (2, 1));
+    assert_eq!(counts("", "x\ny\n"), (2, 0));
+    assert_eq!(counts("a", "a\n"), (1, 1));
+    assert_eq!(counts("same\n", "same\n"), (0, 0));
+}

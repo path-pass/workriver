@@ -430,6 +430,29 @@ only way in. A session that ended shows the same screen at the user's next actio
 Everything that can be picked has: default, hover, keyboard focus (violet ring), selected
 (violet ring plus shadow). With a node picked, nodes and lines unrelated to it fade.
 
+## Loading
+
+The page must stay quick with twenty agents committing, so it reads in two parts.
+
+- **The snapshot** (`/api/workspace`) is everything the rail, the graph and the side panel
+  show, and no file text: each commit's files by path, how each changed (A, M, D) and its
+  +/− lines (counted once by the service, as the diff package counts them), the uncommitted
+  files the same way, and the repositories' trees (small: about 12 kB for this repository).
+  Texts were nearly all of it: 8.7 MB with them, about 250 kB without.
+- **A unit's code** (`/api/unit/{id}/code`: every text of its commits and of its uncommitted
+  work) is read when its code layer is shown, and again only when the unit's `code` in the
+  snapshot changes (a new commit, other uncommitted texts); then only the commits not read
+  before (a commit never changes) and the uncommitted work come. The graph does not wait
+  for it; the code layer appears once its texts are there. Read like the snapshot, so a
+  blind task gets none of what its view hides.
+- **Refreshing.** Each "changed" from the service reads the snapshot again, at most one read
+  at a time: changes told during a read make one more read after it. A hidden tab reads
+  nothing and reads once when it is shown again. A snapshot that leaves the unit on screen
+  as it was keeps it, so its graph and code are not worked out and drawn again.
+- The built files carry their content's hash in their names and are kept by the browser for
+  good; the page itself is asked for every time. Nothing is compressed: on 127.0.0.1 gzip
+  costs more time than the bytes it saves.
+
 ## Rules that came out of iterating with the user
 
 - Two languages from the start, English and Chinese. Layout must hold in both: English
@@ -448,7 +471,7 @@ Everything that can be picked has: default, hover, keyboard focus (violet ring),
 ## Not done yet
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
-- No loading state. The one empty state: with no units recorded, the main area is a short
+- No loading state (the code layer is simply not there until its texts are read). The one empty state: with no units recorded, the main area is a short
   start guide (start a manager agent per Herdr workspace, give it the skill, register, start
   an intent from the roadmap; the commands copyable; the commit trailer; the import skill
   for an existing backlog file). An intent with no units yet keeps its

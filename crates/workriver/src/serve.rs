@@ -531,8 +531,8 @@ impl App {
         }
     }
 
-    /// What the page reads, of `state` as the reader may see it.
-    /// `light`: without file texts, uncommitted work or trees (board, `task show`).
+    /// What the page reads, of `state` as the reader may see it: files without their texts
+    /// (`unit_code` has them). `light`: not even uncommitted work or trees (board, `task show`).
     fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> snapshot::Workspace {
         let started = std::time::Instant::now();
         let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
@@ -540,7 +540,7 @@ impl App {
         let groups = self.groups.lock().unwrap().clone();
         let live = self.live();
         let mut cache = self.cache.lock().unwrap();
-        cache.light = light;
+        (cache.light, cache.bare) = (light, true);
         let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &groups);
         cache.save();
         if state.reduced {
@@ -992,6 +992,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/session/code", post(session_code))
         .route("/api/machines", get(machines).post(machine_set))
         .route("/api/workspace", get(workspace))
+        .route("/api/unit/{id}/code", get(unit_code))
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
         .route("/api/status", get(status))
@@ -1130,6 +1131,10 @@ struct Reader {
     /// Without file texts, uncommitted work or trees.
     #[serde(default)]
     light: bool,
+    /// A unit's code: the commits (short hashes, comma-separated) whose texts the reader
+    /// has already; they never change.
+    #[serde(default)]
+    have: String,
 }
 
 impl App {
@@ -1158,6 +1163,29 @@ async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Calle
     .await
 }
 
+/// One unit's file texts, which the snapshot leaves out: what the page's code layer shows.
+/// Scoped like `/api/workspace`. Not on a machine's listener: no CLI reads it.
+async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<snapshot::Code>, ApiError> {
+    blocking(move || {
+        let state = app.view(&caller, &r)?;
+        let started = std::time::Instant::now();
+        let live = app.live();
+        let code = {
+            let mut cache = app.cache.lock().unwrap();
+            (cache.light, cache.bare) = (false, false);
+            let have: Vec<&str> = r.have.split(',').filter(|h| !h.is_empty()).collect();
+            let code = snapshot::code(&state, &mut cache, live.as_deref(), &id, &have);
+            cache.save();
+            code
+        };
+        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
+        app.record_merges(found);
+        tracing::info!(target: "perf", kind = "code", unit = %id, ms = started.elapsed().as_millis() as u64);
+        code.map(Json).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no unit {id}")))
+    })
+    .await
+}
+
 #[derive(Deserialize)]
 struct ShowQuery {
     /// `u1#3`; none: the task the calling agent is on.
@@ -1173,7 +1201,7 @@ struct ShowQuery {
 /// read; attachments are paths on this machine and links through the tunnel on another.
 async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
     blocking(move || {
-        let r = Reader { place: q.place.clone(), named: q.named, light: true };
+        let r = Reader { place: q.place.clone(), named: q.named, light: true, have: String::new() };
         let who = app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
         let state = app.view(&caller, &r)?;
         let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
@@ -1623,9 +1651,12 @@ async fn ui(uri: Uri) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     }
     // Any other path is a page of the app: index.html.
-    let file = Ui::get(path).filter(|_| !path.is_empty()).or_else(|| Ui::get("index.html"));
-    match file {
-        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string())], f.data).into_response(),
+    let asset = Ui::get(path).filter(|_| !path.is_empty());
+    // Built files carry their content's hash in their name: kept for good. The page itself
+    // names the current ones, so it is asked for again every time.
+    let cache = if asset.is_some() && path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
+    match asset.or_else(|| Ui::get("index.html")) {
+        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string()), (header::CACHE_CONTROL, cache.to_string())], f.data).into_response(),
         None => (StatusCode::NOT_FOUND, "The web UI is not built: run `npm run build` in frontend/web, then build workriver again.").into_response(),
     }
 }
