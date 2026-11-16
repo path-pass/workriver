@@ -47,6 +47,9 @@ pub struct Part {
     pub title: String,
     /// The intent's goal, or the unit's purpose.
     pub about: String,
+    /// A unit's: working, waiting, ready, merged or done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -129,6 +132,9 @@ pub struct CommitShow {
     pub subject: String,
     /// Linked to the task by hand (`workriver commit link`), not by its trailer.
     pub linked: bool,
+    /// The same change as this commit of a branch the unit left: its old hash.
+    #[serde(rename = "rebasedFrom", default, skip_serializing_if = "Option::is_none")]
+    pub rebased_from: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -209,7 +215,12 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
         .into_iter()
         .map(|id| {
             let c = shown.and_then(|x| x["commits"].as_array()?.iter().find(|c| c["id"] == id.as_str()));
-            CommitShow { subject: c.and_then(|c| c["subject"].as_str()).unwrap_or_default().to_string(), linked: c.is_some_and(|c| c["linked"] == true), hash: id }
+            CommitShow {
+                subject: c.and_then(|c| c["subject"].as_str()).unwrap_or_default().to_string(),
+                linked: c.is_some_and(|c| c["linked"] == true),
+                rebased_from: c.and_then(|c| c["rebasedFrom"].as_str()).map(str::to_string),
+                hash: id,
+            }
         })
         .collect();
     let done = t.state == core::TaskState::Done || t.done.is_some();
@@ -218,8 +229,13 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
         kind: name(&t.kind),
         state: name(&t.state),
         title: t.title.clone(),
-        intent: Part { id: intent_id.clone(), title: intent.map(|i| i.title.clone()).unwrap_or_default(), about: intent.map(|i| i.goal.clone()).unwrap_or_default() },
-        unit: u.map(|u| Part { id: u.id.clone(), title: u.title.clone(), about: u.purpose.clone() }),
+        intent: Part { id: intent_id.clone(), title: intent.map(|i| i.title.clone()).unwrap_or_default(), about: intent.map(|i| i.goal.clone()).unwrap_or_default(), progress: None },
+        unit: u.map(|u| Part {
+            id: u.id.clone(),
+            title: u.title.clone(),
+            about: u.purpose.clone(),
+            progress: Some(shown.and_then(|x| x["progress"].as_str()).map(str::to_string).unwrap_or_else(|| name(&state.progress(u)))),
+        }),
         place: u.filter(|u| !u.branch.is_empty()).map(|u| Place { machine: u.machine.clone(), repo: u.repo.clone(), branch: u.branch.clone(), base: u.base.clone() }),
         agent: t.agent.as_deref().map(|a| who(state, a)),
         blind: t.blind,
@@ -301,7 +317,8 @@ pub fn text(s: &TaskShow) -> String {
     }
     let _ = writeln!(out, "Intent {} \"{}\": {}", s.intent.id, s.intent.title, s.intent.about);
     if let Some(u) = &s.unit {
-        let _ = writeln!(out, "Unit {} \"{}\": {}", u.id, u.title, u.about);
+        let about = if u.about.is_empty() { String::new() } else { format!(": {}", u.about) };
+        let _ = writeln!(out, "Unit {} \"{}\" ({}){about}", u.id, u.title, u.progress.as_deref().unwrap_or("?"));
     }
     if let Some(p) = &s.place {
         let on = p.machine.as_deref().map(|m| format!("on machine {m}")).unwrap_or_else(|| "on the machine workriver runs on".into());
@@ -353,7 +370,8 @@ pub fn text(s: &TaskShow) -> String {
     if !s.commits.is_empty() {
         let _ = writeln!(out, "Commits:");
         for c in &s.commits {
-            let _ = writeln!(out, "  {} {}{}", c.hash, c.subject, if c.linked { "  (linked by hand)" } else { "" });
+            let rebased = c.rebased_from.as_deref().map(|o| format!("  (rebased from {o})")).unwrap_or_default();
+            let _ = writeln!(out, "  {} {}{}{rebased}", c.hash, c.subject, if c.linked { "  (linked by hand)" } else { "" });
         }
     }
     if !s.lost_commits.is_empty() {

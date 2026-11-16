@@ -152,17 +152,8 @@ pub fn has_rev(at: &Runner, repo: &Path, rev: &str) -> bool {
     run(at, repo, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")], &[]).is_ok()
 }
 
-/// Full hashes of the commits on `branch` since `base`, oldest first; none if the branch is not there yet.
-pub fn commit_list(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<String>> {
-    if !has_rev(at, repo, branch) {
-        return Ok(vec![]);
-    }
-    let range = format!("{base}..{branch}");
-    Ok(git(at, repo, &["rev-list", "--reverse", "--first-parent", &range, "--"])?.lines().map(str::to_string).collect())
-}
-
 /// A commit as it is named and what it says, without its content.
-#[derive(Serialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
 pub struct Named {
     pub hash: String,
     pub subject: String,
@@ -177,8 +168,13 @@ pub fn names(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<N
     if !has_rev(at, repo, branch) {
         return Ok(vec![]);
     }
+    log(at, repo, &["--reverse", &format!("{base}..{branch}")])
+}
+
+/// `git log --first-parent` with `args`, by name only.
+fn log(at: &Runner, repo: &Path, args: &[&str]) -> Result<Vec<Named>> {
     let fmt = "--format=%H%x00%aI%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
-    let out = git(at, repo, &["log", "--reverse", "--first-parent", fmt, &format!("{base}..{branch}"), "--"])?;
+    let out = git(at, repo, &[&["log", "--first-parent", fmt][..], args, &["--"]].concat())?;
     Ok(out
         .lines()
         .filter_map(|l| {
@@ -188,6 +184,56 @@ pub fn names(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<N
             Some(Named { hash: hash.into(), subject: subject.into(), date: date.into(), task })
         })
         .collect())
+}
+
+/// What a unit's branch holds, whatever was done with it since.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Found {
+    /// It has commits its base has not: those (oldest first), and where they start
+    /// (`fork`, to be kept: it finds them again once they are merged).
+    Ahead { commits: Vec<Named>, fork: String },
+    /// All of it is in its base now (a fast-forward, or a merge commit): merged. Its
+    /// commits, oldest first, as far as they can be told (see `branch`).
+    Merged(Vec<Named>),
+    /// It is there, but nothing on it is the unit's yet (just made from its base).
+    Fresh,
+    /// It is not there (deleted after a squash merge, say): what was seen last stands.
+    Gone,
+}
+
+/// How many commits back from a merged branch's tip the unit's oldest one is looked for,
+/// when where they started is not known.
+const WALK: &str = "300";
+
+/// A unit's commits on `branch`. The rules, in one place:
+///
+/// - The branch has commits `base` has not (`base..branch`, first parent): they are the
+///   unit's, and `fork` (the parent of the oldest) is where they start. A squash merge
+///   leaves the branch this way while it exists: its commits are still listed.
+/// - The branch is all in `base` (merged by fast-forward or a merge commit; `base..branch`
+///   is empty): merged, and the unit's commits are `fork..branch` (first parent) when the
+///   fork is known; else, walking back from the tip, every commit down to the oldest one
+///   `ours` recognises (its `Task:` trailer, a link). None recognised, or the tip is the
+///   fork itself: nothing of the unit's yet, `Fresh`.
+/// - The branch is not there: `Gone`; the caller keeps the list it saw last.
+pub fn branch(at: &Runner, repo: &Path, base: &str, branch: &str, fork: Option<&str>, ours: &dyn Fn(&Named) -> bool) -> Result<Found> {
+    if !has_rev(at, repo, branch) {
+        return Ok(Found::Gone);
+    }
+    let ahead = names(at, repo, base, branch)?;
+    if let Some(oldest) = ahead.first() {
+        let fork = format!("{}^", oldest.hash);
+        return Ok(Found::Ahead { commits: ahead, fork });
+    }
+    if let Some(fork) = fork.filter(|f| has_rev(at, repo, f)) {
+        let since = log(at, repo, &["--reverse", &format!("{fork}..{branch}")])?;
+        return Ok(if since.is_empty() { Found::Fresh } else { Found::Merged(since) });
+    }
+    let back = log(at, repo, &["-n", WALK, branch])?;
+    Ok(match back.iter().rposition(ours) {
+        Some(k) => Found::Merged(back[..=k].iter().rev().cloned().collect()),
+        None => Found::Fresh,
+    })
 }
 
 /// The full hash `rev` names in `repo`; an error if it names no commit.

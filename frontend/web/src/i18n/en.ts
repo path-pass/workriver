@@ -88,6 +88,15 @@ export const en = {
     failed: 'Not done: {{error}}'
   },
   unit: {
+    progress: {
+      working: 'Working',
+      waiting: 'Waiting',
+      ready: 'Ready to merge',
+      merged: 'Merged',
+      done: 'Done'
+    },
+    complete: 'All units finished: the manager can close it',
+    finished: 'Finished',
     previously: 'previously on {{branches}}',
     blocking_one: '{{count, number}} manual step an agent is waiting on',
     blocking_other: '{{count, number}} manual steps agents are waiting on',
@@ -342,6 +351,7 @@ export const en = {
     unknownInput: 'The commit names no task, so its input is unknown.',
     linkTo: 'It belongs to task',
     linked: 'linked by hand',
+    rebasedFrom: 'rebased from {{hash}}',
     lostCommits: 'Its commits are not on the current branch: {{commits}} (on a branch this unit left)',
     uncommitted: 'Writing, not committed yet',
     notStarted: 'Not started yet.',

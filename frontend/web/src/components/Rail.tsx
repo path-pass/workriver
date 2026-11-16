@@ -13,7 +13,7 @@ import { useT } from '@/i18n'
 import { useResize } from '@/lib/useResize'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
-import { ExternalChip, Icon, MachineChip, Tip } from './bits'
+import { ExternalChip, Icon, MachineChip, Progress, Tip } from './bits'
 import { Settings } from './Settings'
 
 /** What waits for the user in some units: gates an agent is stuck on, and everything else. */
@@ -58,12 +58,14 @@ function Signals({ unit }: { unit: Unit }) {
   const { t, date } = useT()
   const n = needs([unit])
   const last = unit.commits.at(-1)
-  if (unit.status === 'merged') return last ? <span className="text-xs text-rail-ink-2">{date(last.date, false)}</span> : null
+  const finished = unit.progress === 'merged' || unit.progress === 'done' || unit.status === 'merged'
+  if (finished) return <><Progress unit={unit} />{last && <span className="text-xs text-rail-ink-2">{date(last.date, false)}</span>}</>
   // The intent's own work has no branch or commits: nothing to say unless something waits.
   if (unit.intentLevel && !n.blocking && !n.waiting) return null
-  if (!n.blocking && !n.waiting && !n.grew) return <span className="tag">{t(unit.commits.length ? 'unit.active' : 'unit.untouched')}</span>
+  if (!n.blocking && !n.waiting && !n.grew) return unit.progress && unit.progress !== 'working' ? <Progress unit={unit} /> : <span className="tag">{t(unit.commits.length ? 'unit.active' : 'unit.untouched')}</span>
   return (
     <>
+      {unit.progress && unit.progress !== 'working' && <Progress unit={unit} />}
       <Marks {...n} />
       {n.grew > 0 && <Tip text={t('unit.grewHint')}><span className="tag" data-tone="far">{t('unit.grew', { count: n.grew })}</span></Tip>}
     </>
@@ -143,6 +145,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
         <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
         <span className="min-w-0 flex-1 truncate" title={intent.title}>{intent.title}</span>
         {stateOf(intent) === 'active' && <ManagerState intent={intent} />}
+        {intent.complete && <Tip text={t('unit.complete')}><span className="tag font-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
         {/* Folded, the group still says what waits inside it. */}
         {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
       </CollapsibleTrigger>

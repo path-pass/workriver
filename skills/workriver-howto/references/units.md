@@ -5,7 +5,6 @@ its own branch. Split by what can land independently, not by layer; a small inte
 
     workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch mention [--base main] [--repo PATH]
     workriver task add u1 --title "Notify once when mentioned twice" --agent finder [--plan src/notify]
-    workriver unit merged u1               # once its branch is merged
 
 Work of the intent, not of one unit (comparing approaches, a design across repositories):
 

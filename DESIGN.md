@@ -45,7 +45,11 @@ looked at now and then.
   match. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
   stuck on behind the user (filled violet, a hand, the count), everything else waiting for
   the user – open findings and commits that name no task – (an outlined violet count), and
-  "beyond plan" (amber). A merged unit shows its date instead. Who is working is not shown
+  "beyond plan" (amber). Before them, where the unit stands as a dot and a word, except
+  while it is simply being worked on: waiting, ready to merge (in the done tone, so what
+  can be merged stands out; it counts nowhere as attention), merged (with its date) or done
+  (why, on hover). The unit header carries the same word. An active intent whose units are
+  all merged or done says "Finished" in its header, for its manager to close it. Who is working is not shown
   here, with one exception: each active intent's header names its manager's state quietly
   (a crown, then working, idle, not running, or "no manager"), since a missing manager means
   accepted findings reach no one; opened, its goal line also names the Herdr workspace it

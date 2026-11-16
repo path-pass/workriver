@@ -26,6 +26,7 @@ copy of this file.
 | `blind-review` | a review that must not be anchored by others' accounts |
 | `finding-additions` | a reviewer adds to a finding, or has more findings, after delivery |
 | `deciding-findings` | who decides findings, and how |
+| `closing-units` | what working / waiting / ready / merged / done mean; closing units and the intent |
 | `deferred-batches` | deferred findings, and "do together" batches |
 | `gates-chores` | steps only the user can do; things the user should do sometime |
 | `attachments` | screenshots and reports |

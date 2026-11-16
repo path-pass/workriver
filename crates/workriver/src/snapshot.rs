@@ -170,6 +170,9 @@ struct Intent {
     /// The manager's runtime state, or "gone" when it is not running.
     #[serde(skip_serializing_if = "Option::is_none")]
     manager_state: Option<String>,
+    /// Still active, and every unit of it merged or done: it can be closed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    complete: bool,
 }
 
 /// Where the message about a user's input is, as the page shows it.
@@ -219,6 +222,11 @@ struct Unit {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     previously: Vec<String>,
     status: &'static str,
+    /// Where it stands: working, waiting, ready, merged or done.
+    progress: core::Progress,
+    /// Closed without a merge: why.
+    #[serde(rename = "doneReason", skip_serializing_if = "Option::is_none")]
+    done_reason: Option<String>,
     tasks: Vec<Task>,
     commits: Vec<Commit>,
 }
@@ -410,6 +418,9 @@ struct Commit {
     /// its own `Task:` trailer.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     linked: bool,
+    /// The same change as this commit of a branch the unit left (a rebase): its old hash.
+    #[serde(rename = "rebasedFrom", skip_serializing_if = "Option::is_none")]
+    rebased_from: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -506,8 +517,21 @@ pub struct Cache {
     remote: HashMap<String, (std::time::Instant, Vec<scan::Commit>, Vec<scan::FileChange>)>,
     /// When each remote repository's tree was last checked.
     checked: HashMap<String, std::time::Instant>,
-    /// Each unit's commits as last seen, for recording a merge after the branch is gone.
-    pub last: HashMap<String, Vec<String>>,
+    /// What each unit's branch held when last read, kept in a file across restarts: where
+    /// its commits start (to find them once merged) and the list (when the branch is gone).
+    seen: HashMap<String, Seen>,
+    seen_file: Option<std::path::PathBuf>,
+    /// Units found merged in git and not yet recorded so: (unit, its commits).
+    pub merged_now: Vec<(String, Vec<String>)>,
+}
+
+/// A unit's branch as last read.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
+struct Seen {
+    /// The repository, branch and base it was read at; another place starts over.
+    place: String,
+    fork: Option<String>,
+    commits: Vec<scan::Named>,
 }
 
 /// How often a repository on another machine is read again.
@@ -517,6 +541,13 @@ pub const REMOTE: std::time::Duration = std::time::Duration::from_secs(15);
 impl Cache {
     pub fn following(machines: Option<std::sync::Arc<crate::machines::Machines>>) -> Cache {
         Cache { machines, ..Default::default() }
+    }
+
+    /// Keeps what units' branches held in `file`, and starts from what it holds.
+    pub fn remembering(mut self, file: std::path::PathBuf) -> Cache {
+        self.seen = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        self.seen_file = Some(file);
+        self
     }
 
     /// Where git runs for a repository: None while its machine cannot be reached.
@@ -588,6 +619,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                 .collect(),
             manager: state.manager_of(&i.id).map(|m| names.of(m)),
             manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
+            complete: i.state == core::IntentState::Active && state.finished(&i.id),
         })
         .collect();
     // Live agents, then those the records name that are gone.
@@ -718,6 +750,7 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         tasks: i.tasks.clone(),
         earlier: vec![],
         links: vec![],
+        done: None,
     };
     let manager = state.manager_of(&i.id);
     Some(Unit {
@@ -730,6 +763,8 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         branch: None,
         previously: vec![],
         status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
+        progress: state.progress(&u),
+        done_reason: None,
         tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
         commits: vec![],
     })
@@ -769,10 +804,48 @@ fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
 }
 
 /// A unit's commits and its uncommitted files, read from git where its repository is.
+/// A unit's commits now (oldest first), by the rules of `scan::branch`, and whether git
+/// shows it merged. What the branch held is kept, for when it is merged or gone.
+pub fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<scan::Named>, bool)> {
+    let place = format!("{}|{}|{}", u.repo, u.branch, u.base);
+    let seen = cache.seen.get(&u.id).filter(|s| s.place == place).cloned();
+    let fork = seen.as_ref().and_then(|s| s.fork.clone());
+    let ours = |c: &scan::Named| c.task.as_deref().and_then(parse_task_ref).is_some_and(|(x, _)| x == u.id) || u.links.iter().any(|l| l.hash == c.hash);
+    let (commits, fork, merged) = match scan::branch(at, Path::new(&u.repo), &u.base, &u.branch, fork.as_deref(), &ours)? {
+        scan::Found::Ahead { commits, fork } => (commits, Some(fork), false),
+        scan::Found::Merged(commits) => (commits, fork, true),
+        scan::Found::Fresh => (vec![], fork, false),
+        scan::Found::Gone => return Ok((seen.map(|s| s.commits).unwrap_or_default(), false)),
+    };
+    let now = Seen { place, fork, commits: commits.clone() };
+    if seen.as_ref() != Some(&now) {
+        cache.seen.insert(u.id.clone(), now);
+        if let Some(file) = &cache.seen_file
+            && let Err(e) = serde_json::to_vec(&cache.seen).map_err(std::io::Error::other).and_then(|b| std::fs::write(file, b))
+        {
+            tracing::warn!("cannot write {}: {e}", file.display());
+        }
+    }
+    Ok((commits, merged))
+}
+
 fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
     let repo = Path::new(&u.repo);
+    // Recorded merged with its commits: those. Else (also merged with none recorded, as a
+    // merge recorded by hand after git had merged it could be) as git shows them now.
+    let recorded = u.merged.is_some() && !u.merged_commits.is_empty();
+    let hashes = if recorded {
+        Ok(u.merged_commits.clone())
+    } else {
+        unit_commits(at, u, cache).map(|(list, merged)| {
+            let hashes: Vec<String> = list.into_iter().map(|c| c.hash).collect();
+            if merged && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
+                cache.merged_now.push((u.id.clone(), hashes.clone()));
+            }
+            hashes
+        })
+    };
     let merged = u.merged.is_some();
-    let hashes = if merged { Ok(u.merged_commits.clone()) } else { scan::commit_list(at, repo, &u.base, &u.branch) };
     let mut commits = vec![];
     match hashes {
         Ok(hashes) => {
@@ -789,20 +862,18 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
                 };
                 commits.push(c);
             }
-            if !merged {
-                cache.last.insert(u.id.clone(), hashes);
-            }
         }
         Err(e) => tracing::warn!("unit {}: {e}", u.id),
     }
-    // Links whose commit is not here any more (a rebase gave it another hash): the commits
-    // here are told by their patch ids, which are worked out once each.
-    if u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash)) {
-        for c in &commits {
-            if !cache.patch.contains_key(&c.hash)
-                && let Ok(id) = scan::patch_id(at, repo, &c.hash)
-            {
-                cache.patch.insert(c.hash.clone(), id);
+    // Links whose commit is not here any more, and commits of a branch the unit left (a
+    // rebase gave them other hashes): told by patch ids, worked out once each (none: "").
+    let stale = u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash));
+    if stale || !u.earlier.is_empty() {
+        let old = u.earlier.iter().flat_map(|e| &e.commits).map(|c| &c.hash);
+        for h in commits.iter().map(|c| &c.hash).chain(old) {
+            if !cache.patch.contains_key(h) {
+                let id = scan::patch_id(at, repo, h).unwrap_or_default();
+                cache.patch.insert(h.clone(), id);
             }
         }
     }
@@ -851,13 +922,12 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         link(c).map(|l| l.task).or_else(|| c.task.as_deref().and_then(parse_task_ref).filter(|(unit, n)| *unit == u.id && u.tasks.iter().any(|t| t.n == *n)).map(|(_, n)| n))
     };
     let mut tasks: Vec<Task> = u.tasks.iter().map(|t| task(state, live, u, t, names, manager, commits.iter().filter(|c| owner(c) == Some(t.n)).map(|c| c.id.clone()).collect())).collect();
-    // A task whose commits were on a branch the unit has left and are not on this one: said,
-    // rather than shown as having none.
+    // Commits of branches the unit left, each once: found again here (the same hash, the same
+    // patch id, or the same subject and author date) or not on the current branch.
+    let (again, gone) = earlier_commits(u, &commits, &cache.patch);
     for t in &mut tasks {
-        if t.output.commits.as_ref().is_none_or(|c| c.is_empty()) {
-            let n: Option<u32> = t.id.parse().ok();
-            t.lost_commits = u.earlier.iter().flat_map(|e| &e.commits).filter(|c| c.task.is_some() && c.task == n).map(|c| c.hash.chars().take(9).collect()).collect();
-        }
+        let n: Option<u32> = t.id.parse().ok();
+        t.lost_commits = gone.iter().filter(|c| c.task.is_some() && c.task == n).map(|c| c.hash.chars().take(9).collect()).collect();
     }
     for c in commits.iter().filter(|c| owner(c).is_none()) {
         tasks.push(unregistered(c));
@@ -867,7 +937,10 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let mut shown: Vec<Commit> = commits
         .into_iter()
         .zip(linked)
-        .map(|(c, linked)| Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, files: c.files, linked })
+        .map(|(c, linked)| {
+            let rebased_from = again.get(&c.hash).cloned();
+            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, files: c.files, linked, rebased_from }
+        })
         .collect();
     // Uncommitted work belongs to the running implement task started last.
     // ponytail: a guess when several run in one unit; ask the runtime whose cwd it is (stage 2).
@@ -880,7 +953,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
                 t.writing = true;
                 t.output.commits.get_or_insert_with(Vec::new).push(LIVE.into());
             }
-            shown.push(Commit { id: LIVE.into(), subject: String::new(), date: core::now(), author, live: true, files, linked: false });
+            shown.push(Commit { id: LIVE.into(), subject: String::new(), date: core::now(), author, live: true, files, linked: false, rebased_from: None });
         }
     }
 
@@ -903,9 +976,39 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             b
         },
         status: if merged { "merged" } else if started { "active" } else { "planned" },
+        // Found merged in git: so already, before the record of it lands.
+        progress: if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) },
+        done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks,
         commits: shown,
     }
+}
+
+/// The commits of branches `u` left, each once, against `now`: those found again here, as
+/// new hash → old short hash (a rebase), and those that are not here.
+fn earlier_commits(u: &core::Unit, now: &[scan::Commit], patch: &HashMap<String, String>) -> (HashMap<String, String>, Vec<core::SeenCommit>) {
+    let mut again = HashMap::new();
+    let mut gone: Vec<core::SeenCommit> = vec![];
+    let mut seen = BTreeSet::new();
+    for old in u.earlier.iter().flat_map(|e| &e.commits) {
+        if !seen.insert(old.hash.clone()) {
+            continue;
+        }
+        if now.iter().any(|c| c.hash == old.hash) {
+            continue;
+        }
+        let same = |c: &&scan::Commit| {
+            patch.get(&old.hash).filter(|p| !p.is_empty()).is_some_and(|p| patch.get(&c.hash) == Some(p))
+                || (!old.subject.is_empty() && c.subject == old.subject && (old.date.is_empty() || c.date == old.date))
+        };
+        match now.iter().find(same) {
+            Some(c) => {
+                again.entry(c.hash.clone()).or_insert_with(|| old.hash.chars().take(9).collect());
+            }
+            None => gone.push(old.clone()),
+        }
+    }
+    (again, gone)
 }
 
 #[allow(clippy::too_many_arguments)]

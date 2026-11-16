@@ -163,7 +163,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         allow_as,
         told: Mutex::default(),
         store: Mutex::new(store),
-        cache: Mutex::new(Cache::following(machines.clone())),
+        cache: Mutex::new(Cache::following(machines.clone()).remembering(store_home.join("units-seen.json"))),
         machines,
         listeners: Mutex::default(),
         groups: Mutex::default(),
@@ -452,6 +452,29 @@ impl App {
         }
     }
 
+    /// What the page reads, of `state` as the reader may see it.
+    fn snapshot(&self, state: &core::State) -> snapshot::Workspace {
+        let mut cache = self.cache.lock().unwrap();
+        let blocked = self.blocked.lock().unwrap().clone();
+        let groups = self.groups.lock().unwrap().clone();
+        let mut ws = snapshot::build(state, &mut cache, self.live().as_deref(), &blocked, &groups);
+        if state.reduced {
+            snapshot::hide(&mut ws);
+        }
+        ws
+    }
+
+    /// Units git shows merged (a fast-forward, a merge commit) are recorded merged, with the
+    /// commits they had, as `workriver unit merged` would.
+    fn record_merges(&self) {
+        let found = std::mem::take(&mut self.cache.lock().unwrap().merged_now);
+        for (unit, commits) in found {
+            if let Err(e) = self.record(&Principal::Service, Body::UnitMerged { unit: unit.clone(), commits }) {
+                tracing::warn!("cannot record unit {unit} merged: {}", e.1);
+            }
+        }
+    }
+
     /// A manager that was at work before this build of the service is told, once, to read
     /// what changed: the skill it follows was read from an older workriver, and nothing else
     /// would tell it. `fresh`: it registers now, having just read this build's guide.
@@ -543,13 +566,14 @@ impl App {
                 // What is on the place it leaves is read once, now: the old branch is not
                 // read again, and what only it had would otherwise vanish without a word.
                 let previous = match self.runner(u.machine.as_deref()) {
-                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => scan::names(&at, Path::new(&u.repo), &u.base, &u.branch)
+                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap())
+                        .map(|(list, _)| list)
                         .unwrap_or_default()
                         .into_iter()
                         .map(|c| {
                             let linked = u.links.iter().find(|l| l.hash == c.hash).map(|l| l.task);
                             let named = c.task.as_deref().and_then(core::parse_task_ref).filter(|(x, _)| *x == u.id).map(|(_, n)| n);
-                            core::SeenCommit { task: linked.or(named), hash: c.hash, subject: c.subject }
+                            core::SeenCommit { task: linked.or(named), hash: c.hash, subject: c.subject, date: c.date }
                         })
                         .collect(),
                     _ => vec![],
@@ -563,7 +587,7 @@ impl App {
                 let at = self.runner(u.machine.as_deref())?;
                 let repo = Path::new(&u.repo);
                 let full = scan::resolve(&at, repo, &hash).map_err(|_| bad(format!("no commit {hash} in {}", u.repo)))?;
-                let named = scan::names(&at, repo, &u.base, &u.branch).map_err(|e| bad(e.to_string()))?;
+                let named = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0;
                 let Some(c) = named.into_iter().find(|c| c.hash == full) else {
                     return Err(bad(format!("commit {hash} is not one of unit {unit}'s: not on branch {} since {}", u.branch, u.base)));
                 };
@@ -578,8 +602,8 @@ impl App {
             Body::UnitMerged { unit, commits } if commits.is_empty() => {
                 // The branch's commits now, or as last seen if they are already merged away.
                 let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
-                let now = self.runner(u.machine.as_deref()).ok().and_then(|at| scan::commit_list(&at, Path::new(&u.repo), &u.base, &u.branch).ok()).unwrap_or_default();
-                let commits = if now.is_empty() { self.cache.lock().unwrap().last.get(&unit).cloned().unwrap_or_default() } else { now };
+                let at = self.runner(u.machine.as_deref())?;
+                let commits = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0.into_iter().map(|c| c.hash).collect();
                 Body::UnitMerged { unit, commits }
             }
             // An agent given by its name is recorded by its session.
@@ -689,7 +713,7 @@ impl App {
         // Intent-level work has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         let dir = at.as_ref().and_then(|at| scan::worktree_of(at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
-        let commits = at.map(|at| task_commits(&at, &unit, q.task)).unwrap_or_default();
+        let commits = at.map(|at| task_commits(&at, &unit, q.task, &mut self.cache.lock().unwrap())).unwrap_or_default();
         let name = ask::agent_name(id);
         let agent = match self.runtime.start_temporary(&group.id, &harness, &name, &dir) {
             Ok(a) => a,
@@ -1004,13 +1028,8 @@ impl App {
 async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
-        let mut cache = app.cache.lock().unwrap();
-        let blocked = app.blocked.lock().unwrap().clone();
-        let groups = app.groups.lock().unwrap().clone();
-        let mut ws = snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked, &groups);
-        if state.reduced {
-            snapshot::hide(&mut ws);
-        }
+        let ws = app.snapshot(&state);
+        app.record_merges();
         Ok(Json(ws))
     })
     .await
@@ -1051,16 +1070,8 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
                 }
             }
         };
-        let ws = {
-            let mut cache = app.cache.lock().unwrap();
-            let blocked = app.blocked.lock().unwrap().clone();
-            let groups = app.groups.lock().unwrap().clone();
-            let mut ws = snapshot::build(&state, &mut cache, app.live().as_deref(), &blocked, &groups);
-            if state.reduced {
-                snapshot::hide(&mut ws);
-            }
-            serde_json::to_value(ws).unwrap_or_default()
-        };
+        let ws = serde_json::to_value(app.snapshot(&state)).unwrap_or_default();
+        app.record_merges();
         // A reader on another machine cannot open this machine's files: it gets a link it
         // can fetch through its tunnel, as the reader it is.
         let port = caller.machine.as_deref().and_then(|m| app.machines.as_ref()?.port(m));
@@ -1447,9 +1458,13 @@ async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>
 }
 
 /// A task's commits on its unit's branch, as (short id, subject).
-fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32) -> Vec<(String, String)> {
+fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut snapshot::Cache) -> Vec<(String, String)> {
     let repo = Path::new(&u.repo);
-    let hashes = if u.merged.is_some() { u.merged_commits.clone() } else { scan::commit_list(at, repo, &u.base, &u.branch).unwrap_or_default() };
+    let hashes = if u.merged.is_some() && !u.merged_commits.is_empty() {
+        u.merged_commits.clone()
+    } else {
+        snapshot::unit_commits(at, u, cache).map(|(l, _)| l.into_iter().map(|c| c.hash).collect()).unwrap_or_default()
+    };
     let want = format!("{}#{task}", u.id);
     hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
 }

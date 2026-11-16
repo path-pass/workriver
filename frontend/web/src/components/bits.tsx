@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE } from '@/runtime'
-import type { External, Step } from '@/types'
+import type { External, Step, Unit } from '@/types'
 
 // Who raised it is an icon; so is the state of a piece of work. All from lucide, one size, one stroke.
 const ICONS: Record<string, LucideIcon> = {
@@ -211,4 +211,16 @@ export function MachineChip({ machine, away = false }: { machine?: string; away?
       <span className="ext-chip" data-away={away || undefined}><Icon name="machine" className="size-3" />{machine}</span>
     </Tip>
   )
+}
+
+/**
+ * Where a unit stands, as a small dot and a word: working, waiting, ready to merge (in the
+ * done tone, so what can be merged stands out), merged, or done (with why, on hover).
+ */
+export function Progress({ unit }: { unit: Unit }) {
+  const { t } = useT()
+  const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
+  if (!p) return null
+  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(`unit.progress.${p}`)}</span>
+  return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
 }

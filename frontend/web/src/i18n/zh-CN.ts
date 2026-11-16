@@ -91,6 +91,15 @@ export const zhCN: Same<typeof en> = {
     failed: '没有完成：{{error}}'
   },
   unit: {
+    progress: {
+      working: '进行中',
+      waiting: '等待中',
+      ready: '可以合并',
+      merged: '已合并',
+      done: '已结束'
+    },
+    complete: '所有单元都已完成：管理者可以结束这个意图',
+    finished: '已完成',
     previously: '之前在 {{branches}}',
     blocking_other: '{{count, number}} 个手动步骤卡住了 agent',
     active: '进行中',
@@ -336,6 +345,7 @@ export const zhCN: Same<typeof en> = {
     unknownInput: '提交没有写它对应哪个任务，所以不知道它的输入。',
     linkTo: '它属于任务',
     linked: '手动关联',
+    rebasedFrom: '变基自 {{hash}}',
     lostCommits: '它的提交不在当前分支上：{{commits}}（在这个单元离开的分支上）',
     uncommitted: '正在写，还没有提交',
     notStarted: '还没有开始。',

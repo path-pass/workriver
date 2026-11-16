@@ -44,7 +44,7 @@ fn reads_a_units_branch() {
     write(repo, "app/a.ts", "one\ntwo\nthree\n");
     write(repo, "app/c.ts", "draft\n");
 
-    let list = commit_list(&Runner::Local, repo, "main", "feature").unwrap();
+    let list: Vec<String> = names(&Runner::Local, repo, "main", "feature").unwrap().into_iter().map(|c| c.hash).collect();
     assert_eq!(list.len(), 2);
     let first = commit(&Runner::Local, repo, &list[0]).unwrap();
     assert_eq!(first.task.as_deref(), Some("u1#1"));
@@ -66,7 +66,7 @@ fn reads_a_units_branch() {
     assert_eq!(now[0].after.as_deref(), Some("one\ntwo\nthree\n"));
     assert_eq!((now[1].path.as_str(), now[1].status.as_str()), ("app/c.ts", "A"));
     assert!(live(&Runner::Local, repo, "main").unwrap().is_empty(), "main is checked out nowhere");
-    assert!(commit_list(&Runner::Local, repo, "main", "not-yet").unwrap().is_empty());
+    assert!(names(&Runner::Local, repo, "main", "not-yet").unwrap().is_empty());
 
     let t = tree(&Runner::Local, repo).unwrap();
     assert_eq!((t.files, t.loc), (2, 3), "app/a.ts (2 lines) and app/b.ts (1) at HEAD");
@@ -114,11 +114,95 @@ fn reads_a_repository_over_ssh() {
 
     let at = Runner::Ssh { program: fake.to_string_lossy().into_owned(), options: vec!["-o".into(), "BatchMode=yes".into()], target: "box".into() };
     assert_eq!(std::fs::canonicalize(toplevel(&at, repo).unwrap()).unwrap(), std::fs::canonicalize(repo).unwrap());
-    let list = commit_list(&at, repo, "main", "f").unwrap();
+    let list: Vec<String> = names(&at, repo, "main", "f").unwrap().into_iter().map(|c| c.hash).collect();
     assert_eq!(list.len(), 1);
     let c = commit(&at, repo, &list[0]).unwrap();
     assert_eq!((c.task.as_deref(), c.subject.as_str(), c.files[0].path.as_str(), c.files[0].after.as_deref()), (Some("u1#2"), "add \"b c\"", "b c.txt", Some("new\n")));
     let now = live(&at, repo, "f").unwrap();
     assert_eq!((now.len(), now[0].after.as_deref()), (1, Some("one\ntwo\n")), "the uncommitted file is read over ssh too");
     assert_eq!(tree(&at, repo).unwrap().files, 2);
+}
+
+/// What `branch` makes of a unit's branch after each way of merging it.
+#[test]
+fn a_units_commits_survive_merges() {
+    let new = |name: &str| {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().to_path_buf();
+        sh(&repo, &["init", "-q", "-b", "main"]);
+        sh(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        sh(&repo, &["switch", "-q", "-c", name]);
+        for (k, task) in [(1, "Task: u1#1"), (2, ""), (3, "Task: u1#2")] {
+            write(&repo, &format!("f{k}.rs"), &format!("{k}\n"));
+            sh(&repo, &["add", "."]);
+            sh(&repo, &["commit", "-q", "-m", &format!("Step {k}\n\n{task}")]);
+        }
+        // The mainline moves on meanwhile.
+        sh(&repo, &["switch", "-q", "main"]);
+        write(&repo, "other.rs", "x\n");
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", "Someone else's work"]);
+        (tmp, repo)
+    };
+    let at = Runner::Local;
+    let ours = |c: &Named| c.task.as_deref().is_some_and(|t| t.starts_with("u1#"));
+    let subjects = |f: &Found| match f {
+        Found::Ahead { commits, .. } | Found::Merged(commits) => commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>().join(","),
+        Found::Fresh => "fresh".into(),
+        Found::Gone => "gone".into(),
+    };
+    let fork_of = |f: &Found| match f {
+        Found::Ahead { fork, .. } => fork.clone(),
+        _ => panic!("{f:?}"),
+    };
+
+    // Before any merge: ahead; the fork is kept.
+    let (_t, repo) = new("f");
+    let before = branch(&at, &repo, "main", "f", None, &ours).unwrap();
+    assert!(matches!(before, Found::Ahead { .. }) && subjects(&before) == "Step 1,Step 2,Step 3");
+    let fork = fork_of(&before);
+
+    // Merge commit: the branch is all in main; with the fork, and without it (walked back).
+    sh(&repo, &["merge", "-q", "--no-ff", "-m", "Merge f", "f"]);
+    for fork in [Some(fork.as_str()), None] {
+        let f = branch(&at, &repo, "main", "f", fork, &ours).unwrap();
+        assert!(matches!(f, Found::Merged(_)) && subjects(&f) == "Step 1,Step 2,Step 3", "{fork:?}: {f:?}");
+    }
+
+    // Fast-forward (main had not moved): the same.
+    let (_t, repo) = new("f");
+    sh(&repo, &["reset", "-q", "--hard", "HEAD~1"]);
+    let fork = fork_of(&branch(&at, &repo, "main", "f", None, &ours).unwrap());
+    sh(&repo, &["merge", "-q", "--ff-only", "f"]);
+    for fork in [Some(fork.as_str()), None] {
+        let f = branch(&at, &repo, "main", "f", fork, &ours).unwrap();
+        assert!(matches!(f, Found::Merged(_)) && subjects(&f) == "Step 1,Step 2,Step 3", "{fork:?}: {f:?}");
+    }
+
+    // Squash merge, branch kept: still ahead, still listed. Branch deleted: gone.
+    let (_t, repo) = new("f");
+    sh(&repo, &["merge", "-q", "--squash", "f"]);
+    sh(&repo, &["commit", "-q", "-m", "Squashed f"]);
+    assert_eq!(subjects(&branch(&at, &repo, "main", "f", None, &ours).unwrap()), "Step 1,Step 2,Step 3");
+    sh(&repo, &["branch", "-q", "-D", "f"]);
+    assert_eq!(branch(&at, &repo, "main", "f", None, &ours).unwrap(), Found::Gone);
+
+    // Rebased onto a new branch, which is then merged: found on the new branch.
+    let (_t, repo) = new("f");
+    sh(&repo, &["switch", "-q", "-c", "f2", "main"]);
+    sh(&repo, &["cherry-pick", "f~2", "f~1", "f"]);
+    let fork = fork_of(&branch(&at, &repo, "main", "f2", None, &ours).unwrap());
+    sh(&repo, &["switch", "-q", "main"]);
+    sh(&repo, &["merge", "-q", "--ff-only", "f2"]);
+    for fork in [Some(fork.as_str()), None] {
+        let f = branch(&at, &repo, "main", "f2", fork, &ours).unwrap();
+        assert!(matches!(f, Found::Merged(_)) && subjects(&f) == "Step 1,Step 2,Step 3", "{fork:?}: {f:?}");
+    }
+
+    // A branch just made from its base: nothing yet, not merged.
+    let (_t, repo) = new("f");
+    sh(&repo, &["branch", "fresh", "main"]);
+    assert_eq!(branch(&at, &repo, "main", "fresh", None, &ours).unwrap(), Found::Fresh);
+    let fork = branch(&at, &repo, "main", "main", Some("main"), &ours).unwrap();
+    assert_eq!(fork, Found::Fresh, "its tip is its fork");
 }

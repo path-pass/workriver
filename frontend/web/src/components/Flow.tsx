@@ -532,7 +532,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             return (
               <div key={c.id}>
                 {c.live ? t('io.uncommitted') : c.subject}
-                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}{c.linked && ` · ${t('io.linked')}`}</span>
+                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}{c.linked && ` · ${t('io.linked')}`}{c.rebasedFrom && ` · ${t('io.rebasedFrom', { hash: c.rebasedFrom })}`}</span>
               </div>
             )
           })

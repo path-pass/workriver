@@ -1514,7 +1514,7 @@ fn a_task_shown_in_full() {
     assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,lostCommits,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
     assert_eq!(keys(&shown["causes"][0]["finding"]), "decisions,files,id,impact,notes,problem,reason,reportedBy,severity,state,suggestion,where");
     let text = crate::show::text(&s);
-    for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\": Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {
+    for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\" (working): Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {
         assert!(text.contains(part), "{part:?} in\n{text}");
     }
     assert!(text.contains(&format!("    5) Requirement 5: {}", "x".repeat(600))));
@@ -1534,4 +1534,112 @@ fn a_task_shown_in_full() {
     assert!(sec.get("/api/task?task=u1%232").is_err());
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
+}
+
+
+/// A unit from first task to merge: where it stands at each step; renamed and rebased
+/// branches keep its commits (each once, the rebased ones said so); merged by git, it is
+/// recorded merged with its commits, and its intent can be closed.
+#[test]
+fn units_finish() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "f"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-rev", "rev", "w1", Idle))];
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false })));
+    let user = client(port, tmp.path());
+    let at = |place: &str| Daemon { port, place: Some(place.into()), home: None };
+    let (boss, w, rev) = (at("p1"), at("p2"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "agent": "s-w" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
+    let ws = || user.get("/api/workspace").unwrap();
+    let unit = |id: &str| ws()["intents"][0]["units"].as_array().unwrap().iter().find(|u| u["id"] == id).cloned().unwrap();
+    let progress = |id: &str| unit(id)["progress"].as_str().unwrap().to_string();
+    assert_eq!(progress("u1"), "working");
+
+    for (k, msg) in [(1, "One\n\nTask: u1#1"), (2, "Two\n\nTask: u1#1"), (3, "Three\n\nTask: u1#1")] {
+        std::fs::write(repo.join(format!("{k}.rs")), format!("{k}\n")).unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", msg]);
+    }
+    w.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    w.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "evidence": [{ "command": "cargo test", "result": "passed", "summary": "ok" }] })).unwrap();
+    assert_eq!(progress("u1"), "working", "the review is still to do");
+    rev.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+    rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P2", "problem": "No log", "impact": "Blind ops", "where": ["1.rs"] }, { "severity": "P3", "problem": "Naming", "impact": "Taste", "where": ["2.rs"] }] })).unwrap();
+    assert_eq!(progress("u1"), "waiting", "open findings; the last task delivered is not the end");
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P3-1", "decision": "defer" })).unwrap();
+    boss.append("", "finding.decided", json!({ "unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept" })).unwrap();
+    assert_eq!(progress("u1"), "waiting", "accepted, and nothing handed out for it");
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Log it", "causes": [{ "task": 2, "findings": ["P2-1"] }], "agent": "s-w" })).unwrap();
+    assert_eq!(progress("u1"), "working");
+    w.append("", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+    std::fs::write(repo.join("log.rs"), "log\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "Log it\n\nTask: u1#3"]);
+    w.append("", "task.delivered", json!({ "unit": "u1", "task": 3, "evidence": [{ "command": "cargo test", "result": "passed", "summary": "ok" }] })).unwrap();
+    assert_eq!(progress("u1"), "ready", "all delivered and decided; the deferred one holds nothing up");
+
+    // Renamed twice (the same commits), then rebased onto a moved mainline as a new branch.
+    git(&repo, &["branch", "-m", "f", "r6"]);
+    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "r6", "base": "" })).unwrap();
+    git(&repo, &["branch", "-m", "r6", "r7"]);
+    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "r7", "base": "" })).unwrap();
+    let u = unit("u1");
+    assert!(u["tasks"].as_array().unwrap().iter().all(|t| t["lostCommits"].is_null()), "renamed: nothing is missing\n{u}");
+    git(&repo, &["switch", "-q", "main"]);
+    std::fs::write(repo.join("other.rs"), "x\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "Mainline moved"]);
+    git(&repo, &["switch", "-q", "-c", "r8"]);
+    git(&repo, &["cherry-pick", "r7~3", "r7~2", "r7~1"]); // the last one (Log it) is left behind
+    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "r8", "base": "" })).unwrap();
+    let u = unit("u1");
+    let lost: Vec<Vec<String>> = u["tasks"].as_array().unwrap().iter().map(|t| t["lostCommits"].as_array().map(|l| l.iter().map(|c| c.as_str().unwrap().to_string()).collect()).unwrap_or_default()).collect();
+    assert_eq!(lost.iter().map(Vec::len).collect::<Vec<_>>(), [0, 0, 1], "only the one not carried over, once: {lost:?}");
+    assert_eq!(u["commits"].as_array().unwrap().iter().filter(|c| c["rebasedFrom"].is_string()).count(), 3, "{u}");
+    let shown: crate::show::TaskShow = serde_json::from_value(w.get("/api/task?task=u1%231").unwrap()).unwrap();
+    assert!(shown.lost_commits.is_empty() && shown.commits.len() == 3 && shown.commits.iter().all(|c| c.rebased_from.is_some()));
+    assert!(crate::show::text(&shown).contains("(rebased from "));
+    let board = crate::board_text(&boss, None).unwrap();
+    assert!(board.contains("#3: commits not on the current branch: ") && !board.contains("#1: commits not"), "{board}");
+
+    // Merged by fast-forward: base..branch is empty; its commits stay, and it is recorded merged.
+    git(&repo, &["switch", "-q", "main"]);
+    git(&repo, &["merge", "-q", "--ff-only", "r8"]);
+    let u = unit("u1");
+    assert_eq!(u["progress"], "merged");
+    assert_eq!(u["tasks"][0]["output"]["commits"].as_array().map(Vec::len), Some(3), "{u}");
+    wait_until("recorded merged", || {
+        let state: workriver_core::State = serde_json::from_value(user.get("/api/state").unwrap()).unwrap();
+        state.units[0].merged.is_some() && state.units[0].merged_commits.len() == 3
+    });
+    assert_eq!(unit("u1")["tasks"][0]["output"]["commits"].as_array().map(Vec::len), Some(3), "from the record now");
+    assert_eq!(ws()["intents"][0]["complete"], true);
+    let board = crate::board_text(&boss, None).unwrap();
+    assert!(board.contains("every unit is merged or done: close it with `workriver intent done i1`") && board.contains("from main]  merged"), "{board}");
+
+    // A unit finished without a merge is closed by hand, by the manager or the user.
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Spike", "repo": repo.to_string_lossy(), "branch": "spike", "base": "main" })).unwrap();
+    assert_eq!(ws()["intents"][0]["complete"], json!(null));
+    assert!(w.append("", "unit.done", json!({ "unit": "u2", "reason": "x" })).unwrap_err().to_string().contains("only the manager of intent i1 (boss) or the user closes its units"));
+    boss.append("", "unit.done", json!({ "unit": "u2", "reason": "superseded by u1" })).unwrap();
+    assert_eq!((progress("u2"), unit("u2")["doneReason"].as_str().map(str::to_string)), ("done".into(), Some("superseded by u1".into())));
+    assert!(boss.append("", "unit.done", json!({ "unit": "u2" })).unwrap_err().to_string().contains("already done"));
+    assert_eq!(ws()["intents"][0]["complete"], true);
 }

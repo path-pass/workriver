@@ -393,8 +393,17 @@ enum UnitCmd {
         #[arg(long, value_name = "LABEL")]
         machine: Option<String>,
     },
-    /// Record that a unit's branch was merged.
+    /// Record that a unit's branch was merged. Not needed after a fast-forward or a merge
+    /// commit: workriver sees those and records them itself; a squash merge it cannot see.
     Merged { unit: String },
+    /// Close a unit finished without a merge: research done, abandoned, superseded. By the
+    /// manager of its intent, or the user.
+    Done {
+        unit: String,
+        /// Why (finished, abandoned, superseded by u7…).
+        #[arg(long, alias = "note", default_value = "")]
+        reason: String,
+    },
     /// Say where a unit's work really is: another machine, path, branch or base. What is not
     /// given stays. By the manager of its intent, or the user; checked on that machine.
     Move {
@@ -954,6 +963,7 @@ fn main() -> anyhow::Result<()> {
             d.append(actor, "unit.relocated", json!({ "unit": unit, "machine": machine, "repo": repo.unwrap_or_default(), "branch": branch.unwrap_or_default(), "base": base.unwrap_or_default() }))?
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
+        Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
         Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
             let unit = match unit {
                 Some(u) => u,
@@ -1547,6 +1557,9 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         }
         out
     };
+    // What git shows (commits, where each unit stands), as the page shows it.
+    let ws = d.get("/api/workspace").unwrap_or_default();
+    let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
     for i in &state.intents {
         let units: Vec<_> = state.units.iter().filter(|u| u.intent == i.id && wanted(&i.id, Some(&u.id))).collect();
         let chores: Vec<_> = state.chores.iter().filter(|c| c.intent == i.id && !c.done && wanted(&i.id, c.unit.as_deref())).collect();
@@ -1556,6 +1569,9 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
         if !i.goal.is_empty() {
             let _ = writeln!(out, "  goal: {}", i.goal);
+        }
+        if i.state == core::IntentState::Active && state.finished(&i.id) {
+            let _ = writeln!(out, "  every unit is merged or done: close it with `workriver intent done {}`", i.id);
         }
         // The default is not said: the manager decides findings (the user may always).
         match i.findings {
@@ -1567,10 +1583,12 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             i.tasks.iter().for_each(|t| out += &line(t));
         }
         for u in units {
-            let merged = if u.merged.is_some() { "  merged" } else { "" };
+            let seen = shown(&u.id);
+            let progress = seen["progress"].as_str().map(str::to_string).unwrap_or_else(|| name(&state.progress(u)));
+            let why = u.done.as_ref().filter(|d| !d.reason.is_empty()).map(|d| format!(" ({})", d.reason)).unwrap_or_default();
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
-            let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]{merged}", u.id, u.title, u.repo, u.branch, u.base);
+            let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]  {progress}{why}", u.id, u.title, u.repo, u.branch, u.base);
             // Where it was before (a rebase onto a new branch): its work is the same unit's.
             for e in &u.earlier {
                 let _ = writeln!(out, "    previously on {} (from {}), {} commits seen there", e.branch, e.base, e.commits.len());
@@ -1578,9 +1596,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             // What only the branch it left had (read from git by the service, so asked for
             // only where a unit moved): said, where the browser would show a task without commits.
             if !u.earlier.is_empty() && !state.reduced {
-                let seen = d.get("/api/workspace").unwrap_or_default();
-                let units = seen["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten());
-                for t in units.filter(|x| x["id"] == u.id.as_str()).flat_map(|x| x["tasks"].as_array().into_iter().flatten()) {
+                for t in seen["tasks"].as_array().into_iter().flatten() {
                     let lost: Vec<&str> = t["lostCommits"].as_array().into_iter().flatten().filter_map(|c| c.as_str()).collect();
                     if !lost.is_empty() {
                         let _ = writeln!(out, "    #{}: commits not on the current branch: {}", t["taskId"].as_str().unwrap_or("?"), lost.join(", "));

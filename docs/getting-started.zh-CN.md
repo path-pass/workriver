@@ -124,7 +124,11 @@ git commit -m "Find mentions" -m "Task: u1#1"     # 这一行 trailer 把提交�
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
-单元分支上没有 `Task:` 这一行的提交会显示为未登记，是一个要补上的缺口。审查和测试是单独的
+单元分支上没有 `Task:` 这一行的提交会显示为未登记，是一个要补上的缺口。
+每个单元都标出自己的状态：进行中、等待中（有未决定的发现或 gate）、可以合并、已合并（快进或
+合并提交 workriver 自己能看到；squash 合并之后要运行 `workriver unit merged u1`）、已结束
+（`workriver unit done u1 --reason "……"`，用于不经合并就结束的工作）。一个意图的单元都已合并或
+结束时，由管理者用 `workriver intent done i1` 结束这个意图。审查和测试是单独的
 任务。它们找出的问题默认由这个意图的管理者决定（带机器人标记；你可以在页面上改掉任何一个决定，
 也可以按意图把决定权留给自己：左栏的"发现由谁决定"，或者 `workriver intent set i1 --findings user`）。
 归你决定的问题在页面的 **需要你** 里等着：在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，

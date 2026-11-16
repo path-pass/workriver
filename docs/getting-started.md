@@ -136,6 +136,11 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```
 
 A commit on the unit's branch without a `Task:` line shows as unregistered, a gap to close.
+Each unit says where it stands: working, waiting (an open finding, a gate), ready to merge,
+merged (workriver sees a fast-forward or merge commit itself; after a squash merge run
+`workriver unit merged u1`) or done (`workriver unit done u1 --reason "..."`, for work
+finished without a merge). When every unit of an intent is merged or done, its manager
+closes it with `workriver intent done i1`.
 Reviews and tests are tasks of their own. Their findings are decided by the intent's
 manager by default (shown with a robot mark; you can change any decision on the page, or
 keep the deciding to yourself per intent: "Findings decided by" in the rail, or `workriver

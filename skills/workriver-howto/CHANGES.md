@@ -4,6 +4,14 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-16 (later)
 
+- **Units say where they stand**: working, waiting, ready (to merge), merged, done — on the
+  board, in `workriver task show` and on the page. A merge git shows (fast-forward, merge
+  commit) is recorded by workriver itself; a unit finished without one is closed with
+  `workriver unit done <unit> --reason "..."`. When every unit is merged or done, the board
+  says so: run `workriver intent done <intent>`. (`closing-units`)
+- **A merged or renamed branch keeps its commits**: they no longer vanish once the base
+  has caught up; commits carried to a new branch by a rebase show "rebased from <old>",
+  and only those that were not carried over are "not on the current branch".
 - **`workriver task show <task>`** prints one task in full: what it asks (untruncated), where
   to work, the findings it answers with every decision and everything added to them,
   steps, output, commits, questions; `--json` for the same as data. Without a task, in an

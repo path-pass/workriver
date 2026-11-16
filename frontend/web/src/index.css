@@ -188,6 +188,12 @@
   .tag[data-tone="far"] { background: transparent; box-shadow: inset 0 0 0 1px var(--amber); color: var(--amber); }
   .tag[data-tone="add"] { background: var(--water-bg); color: var(--water-ink); }
   .tag[data-tone="del"] { background: var(--del-row); color: var(--del); }
+  /* Where a unit stands: a dot and a word. Ready to merge in the done tone; the rest quiet. */
+  .tag[data-progress] { gap: 4px; }
+  .tag[data-progress]::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: currentColor; opacity: .7; }
+  .tag[data-progress="ready"] { background: var(--water-bg); color: var(--water-ink); }
+  .tag[data-progress="waiting"] { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+  .tag[data-progress="merged"]::before, .tag[data-progress="done"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
   /* Where an item is tracked elsewhere: quiet, mono, a link when there is one. */
   .ext-chip { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 4px; font: 500 10px/1 var(--font-mono); color: var(--ink-2); white-space: nowrap; }
   .rail .ext-chip { border-color: var(--rail-line); color: var(--rail-ink-2); }

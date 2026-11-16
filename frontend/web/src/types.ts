@@ -86,8 +86,12 @@ export type IntentState = 'planned' | 'active' | 'done' | 'dropped';
  * A goal in a project and the units that serve it. It runs in a runtime (Herdr) workspace
  * once its manager starts it; a workspace may run several.
  */
+export type UnitProgress = 'working' | 'waiting' | 'ready' | 'merged' | 'done'
+
 export interface Intent {
   id: string;
+  /** Still active, with every unit merged or done: its manager can close it. */
+  complete?: boolean;
   title: string;
   /** One sentence on what it is for, set by its manager or the user; may be empty or absent. */
   goal?: string;
@@ -222,6 +226,11 @@ export interface Unit {
   /** The branches its work was on before (a rebase onto a new branch, a rename). */
   previously?: string[];
   status: UnitStatus;
+  /** Where it stands: a task to do (working), something waiting on a decision or the user,
+   *  everything delivered and decided (ready to merge), merged, or closed by hand (done). */
+  progress?: UnitProgress;
+  /** Closed without a merge: why. */
+  doneReason?: string;
   /** The work handed out, as a graph. Empty for units that predate recording. */
   tasks: Task[];
   /** Oldest first. The last one may be uncommitted work (`live`). */
@@ -458,6 +467,8 @@ export interface Commit {
   live: boolean;
   /** It belongs to its task because someone linked it, not by its own `Task:` trailer. */
   linked?: boolean;
+  /** The same change as this commit of a branch the unit left (a rebase): its old hash. */
+  rebasedFrom?: string;
   files: FileChange[];
 }
 

@@ -349,6 +349,9 @@ pub struct SeenCommit {
     /// The task it carried out there (by its trailer or a link), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<u32>,
+    /// Its author date, which a rebase keeps: with the subject, it is found again.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub date: String,
 }
 
 /// Where a unit's work was before it was moved (rebased onto a new branch, say).
@@ -645,6 +648,13 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
     },
+    /// Finished without a merge.
+    #[serde(rename = "unit.done")]
+    UnitDone {
+        unit: String,
+        #[serde(default)]
+        reason: String,
+    },
     #[serde(rename = "unit.merged")]
     UnitMerged {
         unit: String,
@@ -845,7 +855,7 @@ impl Body {
             WorkspaceLinked(_) | WorkspaceUnlinked { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
-            UnitMerged { unit, .. } | UnitRelocated { unit, .. } | CommitUnlinked { unit, .. } => (None, Some(unit.clone()), None),
+            UnitMerged { unit, .. } | UnitDone { unit, .. } | UnitRelocated { unit, .. } | CommitUnlinked { unit, .. } => (None, Some(unit.clone()), None),
             CommitLinked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
@@ -1034,6 +1044,33 @@ pub struct Unit {
     /// Commits linked to its tasks by hand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<CommitLink>,
+    /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done: Option<Closed>,
+}
+
+/// A unit closed by hand.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Closed {
+    pub at: String,
+    pub by: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+}
+
+/// Where a unit stands, from its tasks and its branch; `Done` and `Merged` are recorded.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Progress {
+    /// A task is to be done or being done.
+    Working,
+    /// Something waits on a decision or on the user: an open finding, a waiting gate, or a
+    /// finding accepted with no work handed out for it.
+    Waiting,
+    /// Everything delivered and decided: it can be merged.
+    Ready,
+    Merged,
+    Done,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1209,6 +1246,7 @@ impl State {
             tasks: i.tasks.clone(),
             earlier: vec![],
             links: vec![],
+            done: None,
         })
     }
 
@@ -1320,6 +1358,36 @@ impl State {
         let hit = |owner: &str, t: &&Task| t.causes.iter().any(|c| c.task == task && c.unit.as_deref().unwrap_or(owner) == unit && c.findings.iter().any(|f| f == finding));
         let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(move |t| hit(&u.id, t)).map(move |t| (u.id.clone(), t)));
         units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(move |t| hit(&i.id, t)).map(move |t| (i.id.clone(), t)))).collect()
+    }
+
+    /// Where unit `u` stands. A waiting gate or an open finding comes before work going on,
+    /// since it asks for someone; deferred, rejected and scheduled findings hold nothing up.
+    pub fn progress(&self, u: &Unit) -> Progress {
+        if u.done.is_some() {
+            return Progress::Done;
+        }
+        if u.merged.is_some() {
+            return Progress::Merged;
+        }
+        let answered = |t: &Task, f: &Finding| !self.follow_ups(&u.id, t.n, &f.found.id).is_empty();
+        let waits = u.tasks.iter().any(|t| {
+            t.state == TaskState::Waiting
+                || (t.kind == TaskKind::Gate && t.state == TaskState::Todo)
+                || t.findings.iter().any(|f| f.state == FindingState::Open || (matches!(f.state, FindingState::Accepted | FindingState::Revised) && !answered(t, f)))
+        });
+        if waits {
+            Progress::Waiting
+        } else if u.tasks.is_empty() || u.tasks.iter().any(|t| matches!(t.state, TaskState::Todo | TaskState::Running)) {
+            Progress::Working
+        } else {
+            Progress::Ready
+        }
+    }
+
+    /// Whether every unit of `intent` is merged or done (and it has one).
+    pub fn finished(&self, intent: &str) -> bool {
+        let mut units = self.units.iter().filter(|u| u.intent == intent).peekable();
+        units.peek().is_some() && units.all(|u| matches!(self.progress(u), Progress::Merged | Progress::Done))
     }
 
     /// The link of a group of another machine, if it has one.
@@ -1634,6 +1702,17 @@ impl State {
                     return no(format!("unit {unit} is already merged"));
                 }
                 UnitMerged { unit, commits }
+            }
+            UnitDone { unit, reason } => {
+                let u = self.unit(&unit)?;
+                if u.merged.is_some() || u.done.is_some() {
+                    return no(format!("unit {unit} is already {}", if u.merged.is_some() { "merged" } else { "done" }));
+                }
+                if !user && self.manager_of(&u.intent) != Some(actor) {
+                    let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
+                    return no(format!("only the manager of intent {}{manager} or the user closes its units", u.intent));
+                }
+                UnitDone { unit, reason }
             }
             TaskCreated(t) => TaskCreated(self.prepare_task(t)?),
             TaskStarted { unit, task, agent } => {
@@ -2178,11 +2257,17 @@ impl State {
                 tasks: vec![],
                 earlier: vec![],
                 links: vec![],
+                done: None,
             }),
             UnitMerged { unit, commits } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
                     u.merged = Some(at.clone());
                     u.merged_commits = commits.clone();
+                }
+            }
+            UnitDone { unit, reason } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.done = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
                 }
             }
             TaskCreated(t) => {
