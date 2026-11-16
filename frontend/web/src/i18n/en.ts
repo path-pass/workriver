@@ -191,7 +191,8 @@ export const en = {
   },
   side: {
     title: 'Needs you, agents, commits, backlog and ask why',
-    close: 'Fold the panel'
+    close: 'Fold the panel',
+    resize: 'Panel width (drag, or arrow keys; double-click for the default)'
   },
   terminal: {
     open: 'Open in terminal',

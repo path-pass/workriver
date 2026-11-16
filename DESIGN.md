@@ -83,7 +83,7 @@ looked at now and then.
   **Agents**, **Commits**, **Backlog**, **Machines** and **Ask why**, one at a time, never mixed. Its six buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
-  already has them); open, it is about 340 px wide. Which section is open, if any, is
+  already has them); open, it is 340 px wide by default and its left edge drags it between 280 and 720 px (remembered; double-click for the default; arrow keys too). Which section is open, if any, is
   remembered. The panel spans every intent. A row in it opens its unit and task in the
   main area and the panel stays open; a row names its unit (the inbox also its intent,
   quietly). On a narrow screen the same content is a sheet over the page, opened from the

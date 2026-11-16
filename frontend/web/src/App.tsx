@@ -70,6 +70,7 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(() => recall(RAIL) !== 'closed')
   // The rail's width once a drag has ended: the graph refits then, not while dragging.
   const [railWidth, setRailWidth] = useState(0)
+  const [sideWidth, setSideWidth] = useState(0)
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
   const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE) as Section; return SECTIONS.includes(v) ? v : null })
@@ -320,7 +321,7 @@ export default function App() {
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
-            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}`} />
+            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
             {tree && coded && codeSel && <CodeLayer
               root={tree}
               unit={coded}
@@ -340,7 +341,7 @@ export default function App() {
       </main>
       {ws && (
         <>
-          <SidePanel {...panel} section={side} onSection={s => showSide(side === s ? null : s)} onClose={() => showSide(null)} />
+          <SidePanel {...panel} section={side} onSection={s => showSide(side === s ? null : s)} onClose={() => showSide(null)} onWidth={setSideWidth} />
           <SideSheet {...panel} section={sheet} onSection={s => setSheet(now => (now === s ? null : s))} onClose={() => setSheet(null)} />
         </>
       )}
