@@ -289,7 +289,7 @@ row of the inbox. Picking a
 finding lights the review and the nodes it led to.
 
 Who decides an intent's findings is the user's choice: a small select in the intent's open
-group in the rail ("Findings decided by: the manager / only me"; the manager by default).
+group in the rail ("Findings: Auto (manager decides) / Manual (I decide)"; Auto by default).
 There is no choice by severity: severity is the reviewer's own rating, so it would only look
 like a control. A finding that is the manager's to decide stays open on its review, in quiet
 ink with a small crown and "The manager decides", and does not count in the violet marks or

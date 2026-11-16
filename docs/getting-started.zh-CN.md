@@ -137,7 +137,7 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 （`workriver unit done u1 --reason "……"`，用于不经合并就结束的工作）。一个意图的单元都已合并或
 结束时，由管理者用 `workriver intent done i1` 结束这个意图。审查和测试是单独的
 任务。它们找出的问题默认由这个意图的管理者决定（带机器人标记；你可以在页面上改掉任何一个决定，
-也可以按意图把决定权留给自己：左栏的"发现由谁决定"，或者 `workriver intent set i1 --findings user`）。
+也可以按意图把决定权留给自己：左栏的"发现：自动 / 手动"（选手动），或者 `workriver intent set i1 --findings user`）。
 归你决定的问题在页面的 **需要你** 里等着：在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，
 "一起做"会把它们作为一条消息发给这个意图的管理者，由它合成一个清理单元。你的决定和
 手工步骤的结果会通过 Herdr 送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行
