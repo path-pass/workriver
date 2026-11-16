@@ -10,7 +10,7 @@ export const en = {
     unfold: 'Open the rail',
     resize: 'Rail width (drag, or arrow keys; double-click for the default)',
     findings: 'Findings',
-    findingsBy: { user: 'Manual (I decide)', manager: 'Auto (manager decides)' },
+    findingsBy: { user: 'Manual', manager: 'Auto' },
     search: 'Search units',
     noMatch: 'No units match “{{q}}”',
     clearSearch: 'Clear search',

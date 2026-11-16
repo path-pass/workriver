@@ -14,7 +14,7 @@ export const zhCN: Same<typeof en> = {
     unfold: '展开侧栏',
     resize: '侧栏宽度（拖动，或用方向键；双击恢复默认）',
     findings: '发现',
-    findingsBy: { user: '手动（我来决定）', manager: '自动（管理者决定）' },
+    findingsBy: { user: '手动', manager: '自动' },
     search: '搜索单元',
     noMatch: '没有单元匹配「{{q}}」',
     clearSearch: '清除搜索',
