@@ -63,8 +63,9 @@ the branch `feat/mention`, and hands out the first tasks.
 **The work as a graph.** Inside the unit, every task is a node in the activity graph, with
 an input and an output. #1 finds the people a message mentions, #2 notifies them, and a
 review follows each. When a review raises findings the flow branches: each accepted finding
-leads to new tasks, and the lines join again where the work does. A dotted line is work
-flowing now; a violet count marks findings waiting for you.
+leads to new tasks, and the lines join again where the work does. An amber dotted line is
+work flowing now, dashed lines are secondary inputs, and a violet count marks findings
+waiting for you.
 
 ![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, and a gate at the end](docs/images/activity-graph.en.png)
 
@@ -80,9 +81,11 @@ asks the agent that did the work only when that agent is idle.
 **Findings, decided once.** The code review of #6 found nine problems, rated P1 to P3. Each
 is accepted, revised (accepted, but fixed your way), rejected or deferred. P1-1 was
 accepted and led to tasks #9 and #14; P3-2 was rejected; P3-3 was deferred to the project's
-backlog; P2-4 waits for you, with the reviewer's suggestion next to it. By default the
-intent's manager decides findings and you can always decide differently. Every decision
-goes to the manager, and an accepted finding stays visible on the tasks it caused, since
+backlog, where deferred findings wait to be done together in one batch or dropped; P2-4
+waits for you, with the reviewer's suggestion next to it. By default the intent's manager
+decides findings and you can always decide differently; for 聊天 v2 you set "Findings
+decided by: only me" in the rail, so its findings wait for you. Every decision goes to
+the manager, and an accepted finding stays visible on the tasks it caused, since
 that work must meet it.
 
 ![The code review of task #6: nine findings grouped by severity, one expanded with its impact and place, others accepted with the tasks they led to, rejected, deferred, or waiting for you](docs/images/review-findings.en.png)
