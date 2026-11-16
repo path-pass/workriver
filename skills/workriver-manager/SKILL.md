@@ -48,6 +48,21 @@ own branch. Split by what can land independently, not by layer; a small intent i
 after the unit (`mention`, `login-rate-limit`). Prints the unit id (`u1`). When the branch
 is merged: `workriver unit merged u1`.
 
+**A unit is where its work happens.** If the workers run on another machine (`workriver
+machine list`), register the unit there, with that machine's path and the branch as it is
+named there:
+
+    workriver unit add [i3] --title "Queue" --machine box --repo /home/me/app --branch queue [--base main]
+
+workriver checks the path and the base on that machine. This needs a workspace on that
+machine linked with yours (`workriver workspace list`; the user links them). Never record a
+unit with a path or a ref that exists only on your own machine (a relay remote's
+`hub/queue`): the worker cannot check it out, and its commits are not seen until someone
+fetches. A unit recorded in the wrong place is corrected, not re-created:
+`workriver unit move u1 --machine box --repo /home/me/app --branch queue`.
+`workriver board u1` shows the machine, path and branch as the worker will see them: copy
+them from there into the hand-off message.
+
 ## Tasks
 
 A task is one piece of work for one agent (or, a gate, for the user). Tasks are numbered per
@@ -148,9 +163,13 @@ decides, and an accepted or revised finding leads to a revised design as above.
   path); a suggestion (accept, reject or defer, with a reason) is welcome. JSON array, via
   `--findings FILE` or `--findings -`:
   `[{"severity":"P2","problem":"...","impact":"...","where":["src/a.rs"],"suggestion":{"decision":"accept","reason":"..."}}]`
-- Findings are decided by the user in the browser. Do not decide them yourself unless the
-  user asked you to (`workriver finding decide u1#4 P2-1 accept|revise|reject|defer --note "..."`);
-  what you decide is recorded as an agent's decision, never as the user's.
+- Who decides findings is the user's choice, per intent; `workriver board` prints it when
+  it is not the default. By default the user decides every finding, in the browser: you
+  wait. When the board says "findings: the manager decides them" (or "... except P1"), the
+  delivery message tells you they are yours: decide each with
+  `workriver finding decide u1#4 P2-1 accept|revise|reject|defer --note "..."` (revise needs
+  the note), then hand out work for what you accepted. Never decide a finding that is the
+  user's: workriver refuses it. What you decide is recorded as an agent's decision.
 
 ## Gates and chores
 
@@ -159,7 +178,8 @@ decides, and an accepted or revised finding leads to a revised design as above.
   `workriver task add u1 --kind gate --gate deploy|test --title "..." --after N --step "Deploy to staging => npm run deploy -- --env staging"`.
   The user submits the result in the browser.
 - A **chore** is something the user should do that blocks nobody (rotate a key, clean disk):
-  `workriver chore add --title "..." [--unit u1] --step "TEXT => COMMAND"`.
+  `workriver chore add --title "..." [--unit u1] --step "TEXT => COMMAND"`. One that
+  belongs to no intent goes to the project: `workriver chore add --project <P> --title "..."`.
 
 ## What arrives from the user
 
@@ -191,8 +211,7 @@ you decide what the workers need to hear. Four outcomes:
   revise the design"** - wait for the decisions, then revise as above.
 
 Other machines: workers may run on another machine the user connected (`workriver machine
-list`); they use the same commands there. A unit you or they record from that machine has
-its repository there. A workspace on another machine is yours only if the user linked it
+list`); they use the same commands there. A unit is recorded where its work is (see Units). A workspace on another machine is yours only if the user linked it
 to yours (`workriver workspace list`); do not hand work to agents in unlinked ones.
 
 Temporary agents named `why-q…` may appear in your workspace: workriver starts them to answer
@@ -213,15 +232,16 @@ when two attempts at a task failed the same way.
 
     workriver status | board [i1|u1]
     workriver manager here | intent start i3 | intent done i3 | intent drop i3 --reason R
-    workriver intent set i3 [--title T] [--goal G]
+    workriver intent set i3 [--title T] [--goal G]      (--findings … is the user's alone)
     workriver backlog list | backlog add "T" --goal G [--note N] | backlog move i4 --before i2
-    workriver unit add [i3] --title T --branch B [--base main] [--purpose P] [--repo PATH]
+    workriver unit add [i3] --title T --branch B [--base main] [--purpose P] [--repo PATH] [--machine M]
+    workriver unit move u1 [--machine M] [--repo PATH] [--branch B] [--base B]
     workriver unit merged u1
     workriver task add u1 --title T [--kind K] [--after N] [--cause N:ID | u2#4:ID | f3] [--agent NAME] [--plan P] [--blind]
     workriver task add [--intent i3] --kind research|design --title T [--agent NAME]
     workriver task start u1#3 | task deliver u1#3 [--evidence 'CMD => passed: SUMMARY'] [--findings FILE|-] [--note N] [--amend]
     workriver finding decide u1#4 P2-1 accept|revise|reject|defer [--note N]   (revise needs a note)
-    workriver chore add --title T [--unit u1] [--step 'TEXT => COMMAND']
+    workriver chore add [--project P] --title T [--unit u1] [--step 'TEXT => COMMAND']
     (the user's alone, not yours: gate submit, chore done, finding drop, project add, machine …, workspace link)
     workriver ask u1#3 "question" [--file P [--lines A-B]] [--wait]
     workriver guide worker

@@ -25,6 +25,9 @@ pub struct Workspace {
     /// A part only: what an agent on a blind task may see.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     reduced: bool,
+    /// Chores that belong to no intent: a project's, or (no project) nobody's.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    chores: Vec<Chore>,
 }
 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
@@ -44,6 +47,19 @@ pub fn hide(ws: &mut Workspace) {
     }
     for s in &mut ws.sessions {
         s.topic = None;
+    }
+}
+
+fn chore(c: &core::Chore, names: &Names, project: Option<String>) -> Chore {
+    Chore {
+        id: c.id.clone(),
+        project,
+        title: c.title.clone(),
+        by: names.of(&c.by),
+        steps: c.steps.clone(),
+        state: if c.done { "done" } else { "open" },
+        since: c.at.clone(),
+        unit: c.unit.clone(),
     }
 }
 
@@ -131,6 +147,8 @@ struct Intent {
     state: core::IntentState,
     /// Its project's folder; empty when nothing says.
     project: String,
+    /// Who decides its open findings: the user, or (handed over by the user) its manager.
+    findings: core::FindingsPolicy,
     #[serde(skip_serializing_if = "String::is_empty")]
     note: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,6 +190,9 @@ struct Sent {
 #[derive(Serialize)]
 struct Chore {
     id: String,
+    /// A chore of no intent: its project's folder; empty: it belongs to no project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<String>,
     title: String,
     by: String,
     steps: Vec<core::Step>,
@@ -327,6 +348,9 @@ struct Finding {
     attachments: Vec<AttachmentOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     external: Option<core::External>,
+    /// While open: "manager" when the user handed it to the intent's manager to decide.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decider: Option<&'static str>,
     /// Since when it is known: when its task was delivered, or it was added to the backlog.
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
@@ -507,6 +531,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             title: i.title.clone(),
             goal: i.goal.clone(),
             state: i.state,
+            findings: i.findings,
             project: project_folder(state, i),
             note: i.note.clone(),
             external: i.external.clone(),
@@ -524,15 +549,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                 .chores
                 .iter()
                 .filter(|c| c.intent == i.id)
-                .map(|c| Chore {
-                    id: c.id.clone(),
-                    title: c.title.clone(),
-                    by: names.of(&c.by),
-                    steps: c.steps.clone(),
-                    state: if c.done { "done" } else { "open" },
-                    since: c.at.clone(),
-                    unit: c.unit.clone(),
-                })
+                .map(|c| chore(c, &names, None))
                 .collect(),
             manager: state.manager_of(&i.id).map(|m| names.of(m)),
             manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
@@ -596,12 +613,19 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                     external: f.found.external.clone(),
                     since: Some(b.at.clone()),
                     reason: f.reason.clone(),
+                    decider: None,
                 },
             }
         })
         .collect();
     let workspaces = groups.iter().map(|g| Group { id: g.id.clone(), label: g.label.clone(), machine: g.machine.clone(), linked_to: state.link_of(g).map(|l| l.local.clone()) }).collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false }
+    let chores = state
+        .chores
+        .iter()
+        .filter(|c| c.intent.is_empty())
+        .map(|c| chore(c, &names, Some(crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
+        .collect();
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
@@ -626,7 +650,7 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
         list
     };
     let mut out: Vec<ProjectOut> = state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), registered: true, repos: repos_in(&p.path) }).collect();
-    let folders = state.intents.iter().map(|i| project_folder(state, i)).chain(state.backlog.iter().map(|b| crate::serve::project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
+    let folders = state.intents.iter().map(|i| project_folder(state, i)).chain(state.chores.iter().filter(|c| c.intent.is_empty()).map(|c| crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))).chain(state.backlog.iter().map(|b| crate::serve::project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
     for folder in folders {
         if !folder.is_empty() && !out.iter().any(|p| p.id == folder) {
             let title = Path::new(&folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.clone());
@@ -820,6 +844,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         None if t.by == "user" => "user".into(),
         None => "plan".into(),
     });
+    let policy = state.intents.iter().find(|i| i.id == u.intent).map(|i| i.findings).unwrap_or_default();
     let open = t.findings.iter().any(|f| f.state == FindingState::Open);
     let since = match t.state {
         TaskState::Waiting => Some(t.at.clone()),
@@ -850,6 +875,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             external: f.found.external.clone(),
             since: t.done.clone(),
             reason: f.reason.clone(),
+            decider: (f.state == FindingState::Open && policy.managers(f.found.severity)).then_some("manager"),
         })
         .collect();
     let kind = match t.kind {

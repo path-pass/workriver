@@ -340,6 +340,30 @@ pub struct RuntimeRef {
     pub machine: Option<String>,
 }
 
+/// Who decides an intent's open findings; set by the user alone.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindingsPolicy {
+    /// The user decides every finding.
+    #[default]
+    User,
+    /// The user handed them to the intent's manager.
+    Manager,
+    /// The manager decides, except P1 findings, which stay the user's.
+    ManagerExceptP1,
+}
+
+impl FindingsPolicy {
+    /// Whether the intent's manager decides a finding of this severity.
+    pub fn managers(self, severity: Severity) -> bool {
+        match self {
+            FindingsPolicy::User => false,
+            FindingsPolicy::Manager => true,
+            FindingsPolicy::ManagerExceptP1 => severity != Severity::P1,
+        }
+    }
+}
+
 /// A workspace of another machine made one with a workspace of this machine: one manager,
 /// the same intents. Workspaces are named by their labels, which outlive their ids.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -526,6 +550,20 @@ pub enum Body {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         goal: Option<String>,
+        /// Who decides its findings from now on; the user's alone to set.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        findings: Option<FindingsPolicy>,
+    },
+    /// A unit's repository is somewhere else than recorded: another machine, path or branch.
+    #[serde(rename = "unit.relocated")]
+    UnitRelocated {
+        unit: String,
+        /// The machine it is on now; none: the one workriver runs on.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+        repo: String,
+        branch: String,
+        base: String,
     },
     #[serde(rename = "unit.created")]
     UnitCreated {
@@ -691,7 +729,12 @@ pub enum Body {
     ChoreCreated {
         #[serde(default)]
         id: String,
+        /// The intent it belongs to; empty: a project's (or nobody's) chore.
+        #[serde(default)]
         intent: String,
+        /// Without an intent: the project's folder; empty: it belongs to no project.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        project: String,
         #[serde(default)]
         unit: Option<String>,
         title: String,
@@ -720,7 +763,7 @@ impl Body {
             WorkspaceLinked(_) | WorkspaceUnlinked { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
-            UnitMerged { unit, .. } => (None, Some(unit.clone()), None),
+            UnitMerged { unit, .. } | UnitRelocated { unit, .. } => (None, Some(unit.clone()), None),
             TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
@@ -728,7 +771,7 @@ impl Body {
             | FindingDecided { unit, task: n, .. }
             | GateSubmitted { unit, task: n, .. }
             | DeliveryUpdated { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
-            ChoreCreated { intent, unit, .. } => (Some(intent.clone()), unit.clone(), None),
+            ChoreCreated { intent, unit, .. } => ((!intent.is_empty()).then(|| intent.clone()), unit.clone(), None),
             ChoreDone { .. } => (None, None, None),
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
         }
@@ -860,6 +903,9 @@ pub struct Intent {
     /// Why it was dropped.
     #[serde(default)]
     pub reason: Option<String>,
+    /// Who decides its open findings.
+    #[serde(default)]
+    pub findings: FindingsPolicy,
     /// Intent-level work (research, design), numbered `i3#1`…
     #[serde(default)]
     pub tasks: Vec<Task>,
@@ -960,7 +1006,10 @@ pub struct Finding {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Chore {
     pub id: String,
+    /// Empty: a project's chore (`project`), or nobody's.
     pub intent: String,
+    #[serde(default)]
+    pub project: String,
     pub unit: Option<String>,
     pub title: String,
     pub by: String,
@@ -1110,6 +1159,31 @@ impl State {
             reduced: true,
             ..State::default()
         })
+    }
+
+    /// Whether `who` may put a unit of `intent` on `machine` (none: the machine workriver
+    /// runs on). The user may anywhere. An agent may on its own machine; on another only as
+    /// the intent's manager, and only where a workspace of that machine is linked with the
+    /// intent's workspace: the work must be reachable by the agents it is for.
+    fn may_place(&self, who: &Principal, intent: &str, machine: Option<&str>) -> Result<(), Rejected> {
+        let Principal::Agent { session, machine: own } = who else { return Ok(()) };
+        if own.as_deref() == machine {
+            return Ok(());
+        }
+        if self.manager_of(intent) != Some(session.as_str()) {
+            return no(format!("only the user or the manager of intent {intent} puts its units on another machine"));
+        }
+        let other = machine.or(own.as_deref()).unwrap_or_default();
+        let workspace = self.intents.iter().find(|i| i.id == intent).and_then(|i| i.workspace.as_ref()).and_then(|g| self.workspace_of(g)).map(|w| w.group.label.clone());
+        let linked = workspace.as_ref().is_some_and(|label| self.links.iter().any(|l| l.machine == other && &l.local == label));
+        if !linked {
+            return no(format!(
+                "no workspace on {other} is linked with this intent's workspace{}; the user links one first: workriver workspace link {other}:<workspace there> {}",
+                workspace.as_ref().map(|l| format!(" ({l})")).unwrap_or_default(),
+                workspace.as_deref().unwrap_or("<workspace here>")
+            ));
+        }
+        Ok(())
     }
 
     /// The link of a group of another machine, if it has one.
@@ -1323,18 +1397,38 @@ impl State {
                 }
                 AgentSeen { session, name, harness }
             }
-            IntentUpdated { intent, title, goal } => {
+            IntentUpdated { intent, title, goal, findings } => {
                 self.intent(&intent)?;
                 if !user && self.manager_of(&intent) != Some(actor) {
                     return no(format!("only the user or the manager of intent {intent} may change it"));
                 }
+                // Who decides findings is the user's to say, never the one it is handed to.
+                if findings.is_some() && !user {
+                    return no("only the user says who decides an intent's findings (workriver intent set <intent> --findings …, or in the web UI)");
+                }
                 if title.as_deref().is_some_and(blank) {
                     return no("an intent needs a title");
                 }
-                if title.is_none() && goal.is_none() {
-                    return no("nothing to change: give a title or a goal");
+                if title.is_none() && goal.is_none() && findings.is_none() {
+                    return no("nothing to change: give a title, a goal or --findings");
                 }
-                IntentUpdated { intent, title, goal }
+                IntentUpdated { intent, title, goal, findings }
+            }
+            UnitRelocated { unit, machine, repo, branch, base } => {
+                let u = self.unit(&unit)?;
+                if u.merged.is_some() {
+                    return no(format!("unit {unit} is merged; its place no longer matters"));
+                }
+                if !user && self.manager_of(&u.intent) != Some(actor) {
+                    return no(format!("only the user or the manager of intent {} moves its units", u.intent));
+                }
+                self.may_place(who, &u.intent, machine.as_deref())?;
+                for (field, v) in [("repo", &repo), ("branch", &branch), ("base", &base)] {
+                    if blank(v) {
+                        return no(format!("a unit needs a {field}"));
+                    }
+                }
+                UnitRelocated { unit, machine, repo, branch, base }
             }
             ManagerRegistered { intent, agent, workspace } => {
                 if let Some(i) = &intent {
@@ -1361,6 +1455,7 @@ impl State {
                         return no(format!("a unit needs a {field}"));
                     }
                 }
+                self.may_place(who, &intent, machine.as_deref())?;
                 let id = format!("u{}", self.units.len() + 1);
                 UnitCreated { id, intent, title, purpose, repo, branch, base, machine }
             }
@@ -1432,6 +1527,22 @@ impl State {
                 }
                 // Whose decision it is follows from who records it, whatever the event says.
                 let _ = by;
+                // An agent decides only what the user handed to the intent's manager.
+                if !user {
+                    let intent = self.intent_of(&unit).unwrap_or_default();
+                    let policy = self.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
+                    let severity = t.findings.iter().find(|f| f.found.id == finding).map(|f| f.found.severity);
+                    let managers = severity.is_some_and(|s| policy.managers(s));
+                    if !managers {
+                        return no(format!(
+                            "finding {finding} of {unit}#{task} is the user's to decide (intent {intent}: findings {}). The user decides it in the web UI, or hands findings to the manager with `workriver intent set {intent} --findings manager`",
+                            name(&policy)
+                        ));
+                    }
+                    if self.manager_of(intent) != Some(actor) {
+                        return no(format!("finding {finding} of {unit}#{task} is for the manager of intent {intent} to decide, not for other agents"));
+                    }
+                }
                 FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent } }
             }
             GateSubmitted { unit, task, result, note, findings, attachments } => {
@@ -1487,17 +1598,21 @@ impl State {
                 }
                 DeliveryUpdated { unit, task, finding, chore, delivery }
             }
-            ChoreCreated { intent, unit, title, steps, .. } => {
-                self.intent(&intent)?;
+            ChoreCreated { intent, project, unit, title, steps, .. } => {
+                // Of an intent, or (no intent) of a project, or of nothing at all.
+                if !intent.is_empty() {
+                    self.intent(&intent)?;
+                }
                 if let Some(u) = &unit
-                    && self.unit(u)?.intent != intent
+                    && (intent.is_empty() || self.unit(u)?.intent != intent)
                 {
-                    return no(format!("unit {u} is not part of intent {intent}"));
+                    return no(format!("unit {u} is not part of intent {intent:?}"));
                 }
                 if blank(&title) {
                     return no("a chore needs a title");
                 }
-                ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, unit, title, steps }
+                let project = if intent.is_empty() { project } else { String::new() };
+                ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, project, unit, title, steps }
             }
             QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
                 let about = self.task(&unit, task)?;
@@ -1689,6 +1804,7 @@ impl State {
                     external: external.clone(),
                     workspace: runtime_ref.clone(),
                     reason: None,
+                    findings: FindingsPolicy::User,
                     tasks: vec![],
                 });
                 if *state == IntentState::Planned {
@@ -1777,7 +1893,7 @@ impl State {
                     f.reason = Some(reason.clone());
                 }
             }
-            IntentUpdated { intent, title, goal } => {
+            IntentUpdated { intent, title, goal, findings } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
                     if let Some(t) = title {
                         i.title = t.clone();
@@ -1785,6 +1901,17 @@ impl State {
                     if let Some(g) = goal {
                         i.goal = g.clone();
                     }
+                    if let Some(f) = findings {
+                        i.findings = *f;
+                    }
+                }
+            }
+            UnitRelocated { unit, machine, repo, branch, base } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.machine = machine.clone();
+                    u.repo = repo.clone();
+                    u.branch = branch.clone();
+                    u.base = base.clone();
                 }
             }
             IntentLinked { intent, runtime_ref } => {
@@ -1986,9 +2113,10 @@ impl State {
                     }
                 }
             }
-            ChoreCreated { id, intent, unit, title, steps } => self.chores.push(Chore {
+            ChoreCreated { id, intent, project, unit, title, steps } => self.chores.push(Chore {
                 id: id.clone(),
                 intent: intent.clone(),
+                project: project.clone(),
                 unit: unit.clone(),
                 title: title.clone(),
                 by: e.actor.clone(),

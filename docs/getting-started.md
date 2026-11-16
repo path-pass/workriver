@@ -37,8 +37,9 @@ workriver serve              # http://127.0.0.1:47820
 ```
 
 Then, from a terminal that is not an agent's pane, `workriver open`: it opens the page in
-your browser with a one-time link that signs this browser in as you (the same link is in
-the service's first log line). The plain address shows only how to open it; see
+your browser with a one-time link that signs this browser in as you. The link is never
+printed, since agents can read Herdr panes; on a machine without a browser,
+`workriver open --print` prints one that lasts a minute: use it in a terminal no agent reads. The plain address shows only how to open it; see
 [Security model](security.md) for why. `workriver status` should say
 `agent runtime: connected`.
 
@@ -167,7 +168,11 @@ workriver workspace list                      # box:chat  not linked
 workriver workspace link box:chat chat
 ```
 
-or pick it in Settings. A unit recorded by an agent over there has its repository there;
+or pick it in Settings. A unit is recorded where its work happens: an agent over there
+records it there as usual; a manager on this machine names the machine, with the path and
+branch as they are there (`workriver unit add --machine box --repo /home/me/app --branch
+queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
+--machine box --repo … --branch …`. For a unit over there,
 workriver reads its commits with git over ssh, every 15 seconds. Screenshots attached
 there are uploaded through the connection; messages to agents there link to them
 (`http://127.0.0.1:47820/api/attachments/…`). The terminal button focuses the pane in that
@@ -182,6 +187,11 @@ cargo build --release
 ```
 
 Then stop `workriver serve` (Ctrl-C) and start it again. The data is kept.
+
+Do the same build on **every other machine** you follow (`git pull`, `cargo build
+--release` there): the `workriver` command agents run there must match the service.
+`workriver status`, here and on each of them, shows the version and the commit of the
+service and says so when the command it was run with is another build.
 
 ## Troubleshooting
 

@@ -31,6 +31,9 @@ Go through the file in order. Each item is one of:
 - **Deferred finding** - a problem with a severity, usually left over from a review or a
   test run ("P2", "should fix", "Codex flagged"). Needs a severity (P1, P2 or P3) and the
   problem. P0 or "critical" becomes P1; tell the user you did that.
+- **Chore** - something the user themselves must do, that is neither a goal nor a problem
+  in the code (renew a certificate, answer a vendor, decide a budget). Needs a title; steps
+  if the file gives them.
 
 For both, keep:
 
@@ -51,7 +54,7 @@ cleared ("已清除", "archived", "resolved"), dropped items, and preamble that 
 Show the user, before adding anything:
 
 - the target project (title and folder);
-- one table in file order: `# | kind (intent/finding) | severity | title or problem | source | external`;
+- one table in file order: `# | kind (intent/finding/chore) | severity | title or problem | source | external`;
 - what you will skip and why, and any severity you mapped.
 
 Then stop and wait for an explicit yes. Apply the user's corrections and show the table
@@ -64,12 +67,13 @@ Pass multi-line notes as one quoted argument.
 
     workriver backlog add "<title>" --goal "<one sentence>" --project <P> [--note "<note>"] [--external <system>:<KEY> --url <link>]
     workriver backlog add-finding --project <P> --severity P1|P2|P3 --problem "<problem>" [--impact "<if left>"] [--where <path>]... [--source "<origin>"] [--note "<fix / context>"] [--external <system>:<KEY> --url <link>]
+    workriver chore add --project <P> --title "<what the user should do>" [--step "<step>" | --step "<step> => <command>"]...
 
 Each prints the new id (`i4`, `f7`). If one fails, stop, show the error, and ask; do not
 retry with changed content on your own.
 
 ## 5. Finish
 
-Run `workriver backlog list --project <P>` and show it, then a short list: how many intents
+Run `workriver backlog list --project <P>` and show it, then a short list: how many intents, chores
 and findings were added, what was skipped and why. Remind the user they can reorder the
 roadmap by dragging in the web UI (or `workriver backlog move <intent> --before <other>`).

@@ -401,15 +401,23 @@ fn only_the_user_does_what_is_the_users() {
     let impostor = Principal::Agent { session: "user".into(), machine: None };
     assert!(s.append(&impostor, body(theirs[0].clone())).is_err());
     assert!(s.append(&impostor, body(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}))).is_err(), "nor record anything under that name");
-    // An agent may decide a finding, but never as the user.
-    let e = add(&mut s, "agent-a", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}})).unwrap();
-    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "agent"}})));
     // A manager is an agent registering itself.
     let w = json!({"id": "w1", "label": "chat"});
     assert!(add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w}})).is_err());
     assert!(add(&mut s, "user", json!({"kind": "manager.registered", "body": {"workspace": w}})).is_err());
     let e = add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
     assert_eq!(e.body, body(json!({"kind": "manager.registered", "body": {"agent": "agent-a", "workspace": w}})));
+    add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    // Findings are the user's to decide, until the user (nobody else) hands them to the
+    // intent's manager; its decisions are an agent's, whatever it claims.
+    let decide = json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "user"}});
+    assert!(add(&mut s, "agent-a", decide.clone()).unwrap_err().contains("is the user's to decide (intent i1: findings user)"));
+    assert!(add(&mut s, "agent-a", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}})).unwrap_err().contains("only the user says who decides"));
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}})).unwrap();
+    assert!(add(&mut s, "agent-b", decide.clone()).unwrap_err().contains("for the manager of intent i1"));
+    let e = add(&mut s, "agent-a", decide).unwrap();
+    assert_eq!(e.body, body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "by": "agent"}})));
+    assert_eq!(replayed(&s).intent("i1").unwrap().findings, FindingsPolicy::Manager);
     // The user does all of it.
     for v in theirs {
         add(&mut s, "user", v).unwrap();
@@ -455,4 +463,46 @@ fn a_blind_task_sees_only_its_own() {
     assert!(s.state().blind_view("sec").is_none());
     assert!(s.state().task("u1", 3).unwrap().blind);
     assert!(replayed(&s).task("u1", 3).unwrap().blind);
+}
+
+/// Where a unit's work is: on the recorder's own machine by default; on another only by the
+/// user, or by the intent's manager where a workspace there is linked with the intent's.
+/// It can be corrected afterwards. And chores may belong to a project or to nothing.
+#[test]
+fn units_are_where_the_work_is() {
+    let (_dir, mut s) = temp_store();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    let unit = |machine: Option<&str>| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/srv/app", "branch": "f", "base": "main", "machine": machine}});
+    // The manager is on this machine, the workers on box.
+    let e = add(&mut s, "boss", unit(Some("box"))).unwrap_err();
+    assert!(e.contains("workriver workspace link box:<workspace there> chat"), "{e}");
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "work", "local": "chat"}})).unwrap();
+    assert!(add(&mut s, "worker", unit(Some("box"))).unwrap_err().contains("only the user or the manager"));
+    add(&mut s, "boss", unit(Some("box"))).unwrap();
+    assert_eq!(s.state().unit("u1").unwrap().machine.as_deref(), Some("box"));
+    // An agent over there records a unit over there without more ado; the user, anywhere.
+    let far = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
+    s.append(&far, body(unit(Some("box")))).unwrap();
+    assert!(s.append(&far, body(unit(Some("other")))).is_err());
+    add(&mut s, "user", unit(Some("other"))).unwrap();
+    add(&mut s, "boss", unit(None)).unwrap();
+
+    // Recorded in the wrong place: moved, by the manager or the user only.
+    let moved = json!({"kind": "unit.relocated", "body": {"unit": "u4", "machine": "box", "repo": "/home/me/app", "branch": "feature", "base": "main"}});
+    assert!(add(&mut s, "worker", moved.clone()).unwrap_err().contains("moves its units"));
+    add(&mut s, "boss", moved).unwrap();
+    let u = replayed(&s).unit("u4").unwrap().clone();
+    assert_eq!((u.machine.as_deref(), u.repo.as_str(), u.branch.as_str()), (Some("box"), "/home/me/app", "feature"));
+    assert!(add(&mut s, "boss", json!({"kind": "unit.relocated", "body": {"unit": "u4", "machine": "nowhere", "repo": "/x", "branch": "f", "base": "main"}})).unwrap_err().contains("no workspace on nowhere is linked"));
+
+    // Chores: an intent's, a project's, nobody's.
+    add(&mut s, "boss", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "chore.created", "body": {"project": "/p", "title": "Renew the certificate"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "chore.created", "body": {"title": "Pay the invoice"}})).unwrap();
+    assert!(add(&mut s, "boss", json!({"kind": "chore.created", "body": {"project": "/p", "unit": "u1", "title": "x"}})).is_err(), "a unit's chore is its intent's");
+    let c = &replayed(&s).chores;
+    assert_eq!(c.iter().map(|c| (c.intent.as_str(), c.project.as_str())).collect::<Vec<_>>(), [("i1", ""), ("", "/p"), ("", "")]);
 }

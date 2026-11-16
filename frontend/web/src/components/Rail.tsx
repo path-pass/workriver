@@ -155,6 +155,21 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
             <ExternalChip ext={intent.external} />
           </p>
         )}
+        {/* Who decides its findings: the user's to say, and only the user's (this page is the user's). */}
+        {stateOf(intent) === 'active' && intent.findings && (
+          <label className="flex items-center gap-1.5 px-2.5 pb-1 text-xs text-rail-ink-2">
+            {t('rail.findings')}
+            <select
+              className="min-w-0 flex-1 rounded-sm border border-rail-line bg-rail-2 px-1 py-0.5 text-rail-ink"
+              value={intent.findings}
+              onChange={e => { record('intent.updated', { intent: intent.id, findings: e.target.value }).catch(err => console.warn(err)) }}
+            >
+              <option value="user">{t('rail.findingsBy.user')}</option>
+              <option value="manager">{t('rail.findingsBy.manager')}</option>
+              <option value="manager-except-p1">{t('rail.findingsBy.managerExceptP1')}</option>
+            </select>
+          </label>
+        )}
         {!intent.units.length && <p className="px-2.5 pb-1 text-xs text-rail-ink-2 italic">{t('rail.noUnits')}</p>}
         {units.map(unit => (
           <button

@@ -843,7 +843,14 @@ fn only_the_user_is_the_user() {
         { "severity": "P1", "problem": evil, "impact": "i", "where": ["a"] }, { "severity": "P2", "problem": "second", "impact": "i", "where": ["a"] }] })).unwrap();
 
     // An agent with the token in reach still decides only as an agent, and cannot do what is the user's.
-    let own = boss.append("", "finding.decided", json!({ "unit": "u1", "task": 3, "finding": "P2-1", "decision": "reject", "by": "user" })).unwrap();
+    let decide = |d: &Daemon, finding: &str| d.append("", "finding.decided", json!({ "unit": "u1", "task": 3, "finding": finding, "decision": "reject", "by": "user" }));
+    assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("is the user's to decide"), "findings are the user's unless handed over");
+    // Who decides is the user's to say; then the manager decides what was handed over, as an agent.
+    assert!(boss.append("", "intent.updated", json!({ "intent": "i1", "findings": "manager" })).unwrap_err().to_string().contains("only the user says who decides"));
+    user.append("", "intent.updated", json!({ "intent": "i1", "findings": "manager-except-p1" })).unwrap();
+    assert!(decide(&boss, "P1-1").unwrap_err().to_string().contains("is the user's to decide"), "P1 stays the user's");
+    assert!(decide(&rev, "P2-1").unwrap_err().to_string().contains("for the manager of intent i1"));
+    let own = decide(&boss, "P2-1").unwrap();
     assert_eq!((own["actor"].as_str(), own["body"]["by"].as_str()), (Some("s-boss"), Some("agent")));
     for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 2, "result": "done" })), ("chore.done", json!({ "chore": "c1" })), ("workspace.linked", json!({ "machine": "box", "workspace": "a", "local": "a" })), ("project.added", json!({ "path": tmp.path(), "title": "P" }))] {
         let e = boss.append("", kind, body).unwrap_err().to_string();
@@ -1090,4 +1097,95 @@ fn blind_reviews() {
     let after = sec.get("/api/state").unwrap();
     assert!(after["reduced"].is_null() && after.to_string().contains("SECRET-NOTE"));
     assert!(ask(&sec, 1).is_ok());
+}
+
+/// The manager is on this machine, the work on another: the unit is recorded where the work
+/// is (that machine's path and branch, checked there over ssh), by the manager of a linked
+/// workspace or the user; one recorded in the wrong place is moved. And chores of no intent.
+#[test]
+fn units_on_another_machine() {
+    use std::os::unix::fs::PermissionsExt;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    // An ssh stand-in that runs the command line in a local shell, as in the scan's tests.
+    let fake_ssh = tmp.path().join("fake-ssh");
+    std::fs::write(&fake_ssh, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift; shift\nexec sh -c \"$1\"\n").unwrap();
+    std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (here, there) = (tmp.path().join("mac repo"), tmp.path().join("box repo"));
+    for r in [&here, &there] {
+        std::fs::create_dir(r).unwrap();
+        git(r, &["init", "-q", "-b", "main"]);
+        git(r, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    }
+    git(&there, &["switch", "-q", "-c", "feature"]);
+    git(&there, &["commit", "-q", "--allow-empty", "-m", "work there"]);
+    let path = |p: &std::path::Path| std::fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
+
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p1".into(), live("s-worker", "worker", "w1", Idle))];
+    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    all.set_runner("box", workriver_scan::Runner::Ssh { program: fake_ssh.to_string_lossy().into_owned(), options: vec![], target: "box".into() });
+    all.poll_all();
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (runtime, machines) = (all.clone(), all.clone());
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: false })));
+    let user = client(port, tmp.path());
+    let boss = Daemon { port, place: Some("p1".into()), home: None };
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Sync", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+
+    // What happened on the work machine: recorded on the manager's side, with a ref that only exists there.
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "hub/feature", "base": "main" })).unwrap();
+    // Recording it where the work is needs the two workspaces linked.
+    let on_box = json!({ "intent": "i1", "title": "Queue", "repo": path(&there), "branch": "feature", "base": "main", "machine": "box" });
+    assert!(boss.append("", "unit.created", on_box.clone()).unwrap_err().to_string().contains("workspace link box:"));
+    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
+    let made = boss.append("", "unit.created", on_box).unwrap();
+    assert_eq!((made["body"]["machine"].as_str(), made["body"]["repo"].as_str()), (Some("box"), Some(path(&there).as_str())));
+    // The path and the base are checked on that machine.
+    let e = boss.append("", "unit.created", json!({ "intent": "i1", "title": "x", "repo": "/no/such/repo", "branch": "f", "base": "main", "machine": "box" })).unwrap_err().to_string();
+    assert!(e.contains("/no/such/repo on box is not a git repository"), "{e}");
+
+    // The first unit is corrected: what is not given stays.
+    let moved = boss.append("", "unit.relocated", json!({ "unit": "u1", "machine": "box", "repo": path(&there), "branch": "feature", "base": "" })).unwrap();
+    assert_eq!(moved["body"], json!({ "unit": "u1", "machine": "box", "repo": path(&there), "branch": "feature", "base": "main" }));
+    assert!(boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "", "base": "nope" })).unwrap_err().to_string().contains("base \"nope\" is not a commit or branch"));
+    let back = user.append("", "unit.relocated", json!({ "unit": "u2", "machine": "local", "repo": path(&here), "branch": "", "base": "" })).unwrap();
+    assert!(back["body"]["machine"].is_null() && back["body"]["branch"] == "feature");
+
+    let ws = user.get("/api/workspace").unwrap();
+    let u1 = &ws["intents"][0]["units"][0];
+    assert_eq!((u1["machine"].as_str(), u1["branch"].as_str(), u1["commits"].as_array().unwrap().len()), (Some("box"), Some("feature"), 1), "read over ssh: {u1}");
+    let board = crate::board_text(&boss, None).unwrap();
+    assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feature from main]", path(&there))), "{board}");
+
+    // Chores of no intent: a project's, and nobody's.
+    boss.append("", "chore.created", json!({ "project": path(&here), "title": "Renew the certificate" })).unwrap();
+    boss.append("", "chore.created", json!({ "title": "Pay the invoice" })).unwrap();
+    let ws = user.get("/api/workspace").unwrap();
+    assert_eq!(ws["chores"].as_array().unwrap().iter().map(|c| (c["title"].as_str().unwrap(), c["project"].as_str().unwrap().to_string())).collect::<Vec<_>>(), [("Renew the certificate", path(&here)), ("Pay the invoice", String::new())]);
+    assert!(crate::board_text(&boss, None).unwrap().contains("chore c2 Pay the invoice (by boss)"));
+    user.call("/api/chore-done", Some(json!({ "chore": "c1" }))).unwrap();
+
+    // The build is told, to tell a CLI and a service of different builds apart.
+    let status = user.get("/api/status").unwrap();
+    assert_eq!(status["commit"], env!("WORKRIVER_COMMIT"));
+    assert!(!env!("WORKRIVER_COMMIT").is_empty());
+}
+
+/// A machine just enabled is "connecting" until its first attempt ends one way or the other.
+#[test]
+fn a_machine_is_connecting_until_it_is_not() {
+    use crate::machines::{Tunnel, connecting};
+    assert!(connecting(&Tunnel::default(), false, false), "nothing has happened yet");
+    assert!(!connecting(&Tunnel { up: false, error: Some("ssh: Connection refused".into()) }, false, false), "ssh said why not");
+    assert!(connecting(&Tunnel { up: true, error: None }, false, false), "up, agents not read yet");
+    assert!(!connecting(&Tunnel { up: true, error: None }, true, false) && !connecting(&Tunnel { up: true, error: None }, false, true));
 }

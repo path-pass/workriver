@@ -254,11 +254,9 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     for name in left {
         let _ = app.runtime.close(&name);
     }
-    // The page opens with a one-time code that makes its session; `workriver open` gives another.
-    match app.auth.code() {
-        Ok(code) => tracing::info!("workriver on http://127.0.0.1:{port}/#k={code}  (this link works once, for 5 minutes; later: `workriver open`)"),
-        Err(e) => tracing::warn!("workriver on http://127.0.0.1:{port}; no one-time code: {e}"),
-    }
+    // Nothing that signs anyone in is ever written here: this output is on a screen (a
+    // Herdr pane) that agents can read. The user opens the page with `workriver open`.
+    tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");
     axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); }).await?;
     Ok(())
 }
@@ -379,6 +377,17 @@ impl App {
         }
     }
 
+    /// A repository's top folder on `machine`, checked there to be one and to have `base`.
+    fn repository(&self, machine: Option<&str>, repo: &str, base: &str) -> Result<String, ApiError> {
+        let at = self.runner(machine)?;
+        let on = machine.map(|m| format!(" on {m}")).unwrap_or_default();
+        let top = scan::toplevel(&at, Path::new(repo)).map_err(|e| bad(format!("{repo}{on} is not a git repository: {e}")))?;
+        if !scan::has_rev(&at, &top, base) {
+            return Err(bad(format!("base {base:?} is not a commit or branch in {}{on}", top.display())));
+        }
+        Ok(top.to_string_lossy().into_owned())
+    }
+
     /// Sends a message to an agent. One on another machine cannot open files of this
     /// machine: paths into the attachment store become links through its tunnel.
     fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
@@ -473,14 +482,28 @@ impl App {
                 let project = if project.is_empty() { project } else { self.project_folder(&project, machine)? };
                 Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external }
             }
-            // The repository is on the machine the unit was recorded from.
-            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, .. } => {
-                let at = self.runner(machine)?;
-                let top = scan::toplevel(&at, Path::new(&repo)).map_err(|e| bad(format!("{repo} is not a git repository: {e}")))?;
-                if !scan::has_rev(&at, &top, &base) {
-                    return Err(bad(format!("base {base:?} is not a commit or branch in {}", top.display())));
-                }
-                Body::UnitCreated { id, intent, title, purpose, repo: top.to_string_lossy().into_owned(), branch, base, machine: machine.map(str::to_string) }
+            // The repository is where the work happens: on the machine named, else on the
+            // one the unit was recorded from. It is checked there, over ssh for another machine.
+            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named } => {
+                let machine = place(named.as_deref(), machine);
+                let top = self.repository(machine.as_deref(), &repo, &base)?;
+                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine }
+            }
+            // What is not given stays as it is; `machine` is always said (the CLI sends it).
+            Body::UnitRelocated { unit, machine: named, repo, branch, base } => {
+                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
+                let machine = match named.as_deref() {
+                    None => u.machine.clone(),
+                    named => place(named, None),
+                };
+                let (repo, branch, base) = (if repo.is_empty() { u.repo } else { repo }, if branch.is_empty() { u.branch } else { branch }, if base.is_empty() { u.base } else { base });
+                let top = self.repository(machine.as_deref(), &repo, &base)?;
+                Body::UnitRelocated { unit, machine, repo: top, branch, base }
+            }
+            // A chore of no intent belongs to a project, if one is given or can be told.
+            Body::ChoreCreated { id, intent, project, unit, title, steps } if intent.is_empty() && !project.is_empty() => {
+                let project = self.project_folder(&project, machine).unwrap_or_default();
+                Body::ChoreCreated { id, intent, project, unit, title, steps }
             }
             Body::UnitMerged { unit, commits } if commits.is_empty() => {
                 // The branch's commits now, or as last seen if they are already merged away.
@@ -745,6 +768,16 @@ pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Pr
     state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
 }
 
+/// The machine a unit is put on: the one named ("local": the one workriver runs on), else
+/// the caller's.
+fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
+    match named {
+        Some("local") => None,
+        Some(m) => Some(m.to_string()),
+        None => callers.map(str::to_string),
+    }
+}
+
 /// What a caller that is nobody is told.
 const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
 
@@ -908,6 +941,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
     let (files, bytes) = attachments::usage(&app.home);
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "commit": env!("WORKRIVER_COMMIT"),
         "port": app.port,
         "db": store.path(),
         "events": store.count()?,
@@ -948,9 +982,16 @@ async fn session_start(State(app): State<Shared>, Json(c): Json<Code>) -> Result
 }
 
 /// A new one-time code, for `workriver open`: the user's to ask for.
-async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+#[derive(Deserialize, Default)]
+struct CodeFor {
+    /// The link will be printed in a terminal instead of handed to the browser.
+    #[serde(default)]
+    printed: bool,
+}
+
+async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<CodeFor>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
-    let code = app.auth.code().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let code = app.auth.code(c.printed).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(json!({ "url": format!("http://127.0.0.1:{}/#k={code}", app.port) })))
 }
 

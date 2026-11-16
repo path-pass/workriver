@@ -8,8 +8,11 @@ decisions into their terminals, so the question it must answer is: **was that re
 - **You** are whoever holds the *user token*: a file only your account can read,
   `~/workriver-data/user-token` (made at the first start, mode 600).
   - The CLI sends it when you run a command from a terminal that is not an agent's pane.
-  - The web UI gets a session for it: `workriver open` opens the browser with a link that
-    works once and for five minutes; the page exchanges it for a cookie that scripts cannot
+  - The web UI gets a session for it: `workriver open` hands the browser a link that
+    works once and for five minutes, without showing it (nothing that signs in is ever
+    printed by the service either: Herdr panes can be read by agents; run `workriver open`,
+    and above all `workriver open --print`, whose link lasts a minute, in a terminal agents
+    do not read); the page exchanges it for a cookie that scripts cannot
     read (HttpOnly) and that is not sent with requests from other sites (SameSite=Strict).
     Requests that change something must also come from workriver's own page (Origin
     check). Without a session the page shows only how to open it.

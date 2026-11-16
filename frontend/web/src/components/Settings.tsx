@@ -35,7 +35,7 @@ function Machines({ ws }: { ws: Workspace | null }) {
   // The list as the service has it; what is live about each comes with the data.
   useEffect(() => { loadMachines().then(setList, () => {}) }, [ws?.machines?.length])
   const live = (m: Machine) => ws?.machines?.find(x => x.label === m.label) ?? m
-  const state = (m: Machine) => !m.enabled ? t('machines.off') : m.tunnel && m.reachable ? t('machines.connected', { count: m.agents }) : m.tunnel ? t('machines.noHerdr') : t('machines.down')
+  const state = (m: Machine) => !m.enabled ? t('machines.off') : m.connecting ? t('machines.connecting') : m.tunnel && m.reachable ? t('machines.connected', { count: m.agents }) : m.tunnel ? t('machines.noHerdr') : t('machines.down')
   const here = (ws?.workspaces ?? []).filter(g => !g.machine)
   const there = (ws?.workspaces ?? []).filter(g => g.machine)
   const link = (machine: string, workspace: string, to: string, was?: string) => {

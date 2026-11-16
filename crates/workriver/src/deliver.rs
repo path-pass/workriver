@@ -68,7 +68,8 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
             let to = target(state, live, intent, None);
             Some(Plan { unit: first.unit.clone(), task: first.task, finding: Some(first.finding.clone()), chore: None, to, message: batch_message(state, intent, findings)? })
         }
-        Body::ChoreCreated { id, intent, title, .. } if e.actor != "user" && not_manager(intent) => Some(Plan {
+        // A chore of no intent has no manager to tell.
+        Body::ChoreCreated { id, intent, title, .. } if !intent.is_empty() && e.actor != "user" && not_manager(intent) => Some(Plan {
             unit: String::new(),
             task: 0,
             finding: None,
@@ -202,7 +203,15 @@ fn delivered_message(state: &State, actor: &str, unit: &str, n: u32) -> Option<M
                 (k > 0).then(|| format!("{s} {k}"))
             })
             .collect();
-        m.own.push(format!("Findings: {} (waiting for the user's decision).", per.join(", ")));
+        // Whose they are to decide: the user's, unless the user handed them to the manager.
+        let policy = state.intent_of(unit).and_then(|i| state.intents.iter().find(|x| x.id == i)).map(|i| i.findings).unwrap_or_default();
+        let yours = t.findings.iter().filter(|f| policy.managers(f.found.severity)).count();
+        let decide = format!("`workriver finding decide {unit}#{n} <id> accept|revise|reject|defer [--note \"...\"]` (`workriver board {unit}` lists them)");
+        m.own.push(match (yours, t.findings.len() - yours) {
+            (0, _) => format!("Findings: {} (waiting for the user's decision).", per.join(", ")),
+            (_, 0) => format!("Findings: {}. They are yours to decide (the user handed this intent's findings to its manager): {decide}; then hand out work for what you accept.", per.join(", ")),
+            (_, users) => format!("Findings: {}. The {users} P1 wait for the user's decision; the others are yours to decide (the user handed them to this intent's manager): {decide}.", per.join(", ")),
+        });
     }
     m.own.push(format!("Next: hand out the next task, or see the unit with `workriver board {unit}`."));
     if !t.note.is_empty() {
@@ -395,8 +404,20 @@ mod tests {
         let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &revise).unwrap();
         assert!(p.message.contains("fixed their way: follow what the user wrote below, not the finding's suggestion.") && p.message.ends_with("The finding, as the user wrote it: «Problem: Too rigid.» The user wrote: «Two tables»"), "{}", p.message);
         assert!(p.message.contains("--kind design") && p.message.contains("--cause 8:P2-1") && p.message.contains("--gate decide"), "{}", p.message);
-        // An agent's own decision is not delivered.
-        let own = at(&mut s, "rev", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "defer", "by": "agent"}}));
+        // Handed to the manager by the user: a delivery says they are the manager's to decide,
+        // and the manager's own decision is not delivered back to it.
+        at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager-except-p1"}}));
+        at(&mut s, "rev", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}]}}));
+        let mixed = at(&mut s, "rev", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 9, "findings": [
+            {"severity": "P1", "problem": "Loses data", "impact": "i", "where": ["a"]}, {"severity": "P3", "problem": "Name", "impact": "i", "where": ["a"]}]}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &mixed).unwrap();
+        assert!(p.message.contains("Findings: P1 1, P3 1. The 1 P1 wait for the user's decision; the others are yours to decide") && p.message.contains("`workriver finding decide u1#9 <id> accept|revise|reject|defer"), "{}", p.message);
+        let own = at(&mut s, "boss", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 9, "finding": "P3-1", "decision": "defer"}}));
         assert_eq!(plan(s.state(), Some(&live), std::path::Path::new("/h"), &own), None);
+        at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "manager"}}));
+        at(&mut s, "rev", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}]}}));
+        let all = at(&mut s, "rev", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 10, "findings": [{"severity": "P1", "problem": "x", "impact": "i", "where": ["a"]}]}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &all).unwrap();
+        assert!(p.message.contains("Findings: P1 1. They are yours to decide (the user handed this intent's findings to its manager)") && !p.message.contains("waiting for the user"), "{}", p.message);
     }
 }

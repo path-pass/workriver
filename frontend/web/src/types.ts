@@ -12,6 +12,8 @@ export interface Workspace {
   projects?: Project[];
   /** Deferred findings that came from outside workriver's tasks (an earlier review, a notes file). */
   backlog?: BacklogFinding[];
+  /** Chores that belong to no intent: a project's (`project`), or nobody's. */
+  chores?: Chore[];
   /** Every runtime workspace per machine, with the local one a remote one is linked to. */
   workspaces?: RuntimeWorkspace[];
   /** The other machines followed. */
@@ -37,6 +39,8 @@ export interface Machine {
   port: number;
   /** Its agents can be read now. */
   reachable: boolean;
+  /** Just enabled: the first attempt to connect has not ended yet. */
+  connecting?: boolean;
   error?: string;
   /** The connection is up. */
   tunnel: boolean;
@@ -89,6 +93,8 @@ export interface Intent {
   goal?: string;
   /** Absent in the sample: active. */
   state?: IntentState;
+  /** Who decides its open findings: the user (default), or its manager, handed over by the user. */
+  findings?: 'user' | 'manager' | 'manager-except-p1';
   /** Its project's folder (a `Project.id`); empty when nothing says. */
   project?: string;
   /** More about it; may hold links. */
@@ -172,6 +178,8 @@ export interface Step {
 
 export interface Chore {
   id: string;
+  /** A chore of no intent: its project's folder ('' when it belongs to no project). */
+  project?: string;
   title: string;
   /** The agent that asks for it. */
   by: string;
@@ -280,6 +288,8 @@ export interface Finding {
   since?: string;
   /** Dropped: why. */
   reason?: string;
+  /** While open: 'manager' when the user handed it to the intent's manager to decide. */
+  decider?: 'manager';
 }
 
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */

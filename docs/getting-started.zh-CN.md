@@ -36,7 +36,8 @@ workriver serve              # http://127.0.0.1:47820
 ```
 
 然后在一个不是 agent 窗格的终端里运行 `workriver open`：它用一个一次性的链接在浏览器里打开页面，
-让这个浏览器以你的身份登录（服务启动时的第一行日志里也有这个链接）。直接打开地址只会看到"怎么打开"
+让这个浏览器以你的身份登录。这个链接不会被打印出来，因为 agent 读得到 Herdr 窗格；在没有浏览器的
+机器上，`workriver open --print` 会打印一个只有一分钟有效的链接：请在 agent 读不到的终端里用。直接打开地址只会看到"怎么打开"
 的说明；原因见[安全模型](security.zh-CN.md)。
 
 打开 <http://127.0.0.1:47820>。`workriver status` 应该显示 `agent runtime: connected`。
@@ -151,7 +152,9 @@ workriver workspace list                      # box:chat  not linked
 workriver workspace link box:chat chat
 ```
 
-或者在设置里选。由那边的 agent 登记的单元，仓库就在那边；workriver 通过 ssh 跑 git 读它的提交，
+或者在设置里选。单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
+并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch queue`）；
+登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
 每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
 （`http://127.0.0.1:47820/api/attachments/…`）。终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；
 在 Herdr 侧栏里切到那台机器要你自己来。
@@ -165,6 +168,10 @@ cargo build --release
 ```
 
 然后停掉 `workriver serve`（Ctrl-C）再启动。数据会保留。
+
+你跟踪的**每一台其他机器**上也要做同样的构建（在那边 `git pull`、`cargo build --release`）：
+那边 agent 用的 `workriver` 命令要和服务是同一个版本。在这边和那边运行 `workriver status`，
+都会显示服务的版本和提交号；如果运行它的命令是另一个构建，会明说。
 
 ## 排错
 

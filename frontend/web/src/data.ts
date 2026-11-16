@@ -95,7 +95,9 @@ export type Pick = { kind: 'task'; id: string; finding?: string } | null
 export const SEVERITIES: Severity[] = ['P1', 'P2', 'P3']
 export const findingsOf = (n: Task): Finding[] => n.output.findings ?? []
 /** Findings still waiting for the user's decision. */
-export const openCount = (n: Task) => findingsOf(n).filter(f => f.state === 'open').length
+/** Open findings that wait for the user: not those the user handed to the intent's manager. */
+const waits = (f: Finding) => f.state === 'open' && f.decider !== 'manager'
+export const openCount = (n: Task) => findingsOf(n).filter(waits).length
 /** Findings counted per severity, e.g. 'P1 2 · P2 3'. */
 export const severityCounts = (found: Finding[]) =>
   SEVERITIES.map(s => [s, found.filter(f => f.severity === s).length] as const)
@@ -325,8 +327,10 @@ export function attention(unit: Unit): Attention {
 export interface InboxRow {
   key: string
   kind: 'agent' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
-  /** The intent; null for an agent in a workspace no intent follows. */
+  /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
+  /** A chore of no intent: its project's name, if it has a project. */
+  project?: string
   /** agent: the agent waiting in its terminal, and where it runs. */
   agent?: { name: string; session?: string; topic?: string; place: string }
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
@@ -357,7 +361,7 @@ export interface Inbox {
 
 /** The open findings of a node, the most severe first. */
 export const openFindings = (n: Task) =>
-  findingsOf(n).filter(f => f.state === 'open').sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
+  findingsOf(n).filter(waits).sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
 
 export function inbox(ws: Workspace): Inbox {
   const box: Inbox = { blocking: [], decisions: [], gaps: [], later: [] }
@@ -373,6 +377,9 @@ export function inbox(ws: Workspace): Inbox {
   for (const intent of ws.intents)
     for (const c of intent.chores.filter(c => c.state === 'open'))
       box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent, unit: intent.units.find(u => u.id === c.unit) ?? null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
+  // Chores of no intent: under their project's name, or under nothing.
+  for (const c of (ws.chores ?? []).filter(c => c.state === 'open'))
+    box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent: null, project: ws.projects?.find(p => p.id === c.project)?.title, unit: null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
   const oldest = (a: InboxRow, b: InboxRow) => a.since - b.since
   const top = (r: InboxRow) => SEVERITIES.indexOf(openFindings(r.node!)[0].severity)
   // Agents waiting for a person in their terminal come first: nothing moves until someone looks.
@@ -607,6 +614,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
   }
   return {
     ...ws,
+    chores: ws.chores?.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     intents: ws.intents.map(i => ({
       ...i,
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),

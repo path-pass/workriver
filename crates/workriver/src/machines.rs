@@ -58,6 +58,8 @@ pub struct MachineState {
     /// Why not, in ssh's or Herdr's words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The first attempt to connect has not finished yet: neither up nor failed.
+    pub connecting: bool,
     /// The connection (both forwards) is up.
     pub tunnel: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,7 +153,7 @@ impl Machines {
             .into_iter()
             .map(|(label, s)| match running.iter().find(|e| e.label == label) {
                 Some(e) => state_of(e),
-                None => MachineState { label, ssh: s.ssh, enabled: s.enabled, port: s.port, reachable: false, error: None, tunnel: false, tunnel_error: None, agents: 0 },
+                None => MachineState { label, ssh: s.ssh, enabled: s.enabled, port: s.port, reachable: false, error: None, connecting: false, tunnel: false, tunnel_error: None, agents: 0 },
             })
             .collect()
     }
@@ -169,6 +171,9 @@ impl Machines {
     /// Adds a machine, not yet followed. Its name is used inside ids (`w1@name`) and on the
     /// command line (`name:workspace`), so it is kept plain.
     pub fn add(&self, label: &str, setting: Setting) -> Result<(), String> {
+        if label == "local" {
+            return Err("\"local\" names the machine workriver runs on; give the other machine another name".into());
+        }
         let plain = !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
         if !plain {
             return Err(format!("a machine's name is letters, digits, '-', '_' or '.'; not {label:?}"));
@@ -234,7 +239,16 @@ impl Machines {
         std::thread::spawn(move || {
             let mut delay = OK;
             while !e.stop.load(Ordering::Relaxed) {
-                delay = if poll_once(&e) { OK } else { (delay * 2).min(MAX) };
+                // Until the connection is up there is nothing to read and nothing to say
+                // about it: look again soon, so its agents show as soon as it is.
+                let up = e.tunnel.lock().unwrap().up;
+                delay = if poll_once(&e, !up) {
+                    OK
+                } else if !up {
+                    Duration::from_secs(1)
+                } else {
+                    (delay * 2).min(MAX)
+                };
                 nap(delay, &e.stop);
             }
         });
@@ -315,16 +329,25 @@ impl Machines {
         for (label, runtime) in remotes {
             let setting = Setting { ssh: label.into(), herdr_socket: None, port: 47820, enabled: true };
             let e = Arc::new(Entry { label: label.into(), setting, runtime, runner: scan::Runner::Local, seen: Mutex::default(), tunnel: Mutex::default(), stop: AtomicBool::new(false) });
-            poll_once(&e);
+            poll_once(&e, false);
             m.entries.lock().unwrap().push(e);
         }
         m
     }
 
+    /// For tests: git for a machine's repositories runs through `runner` (an ssh stand-in).
+    #[cfg(test)]
+    pub fn set_runner(&self, label: &str, runner: scan::Runner) {
+        let mut entries = self.entries.lock().unwrap();
+        let k = entries.iter().position(|e| e.label == label).unwrap();
+        let old = entries[k].clone();
+        entries[k] = Arc::new(Entry { label: old.label.clone(), setting: old.setting.clone(), runtime: old.runtime.clone(), runner, seen: Mutex::new(std::mem::take(&mut *old.seen.lock().unwrap())), tunnel: Mutex::default(), stop: AtomicBool::new(false) });
+    }
+
     #[cfg(test)]
     pub fn poll_all(&self) {
         for e in self.entries.lock().unwrap().iter() {
-            poll_once(e);
+            poll_once(e, false);
         }
     }
 }
@@ -345,6 +368,12 @@ fn ask_socket(ssh: &str) -> Result<String, String> {
     }
 }
 
+/// Still on the first attempt: ssh is neither up nor has it said why not; or it is up and
+/// the machine's agents have not been read yet, with nothing wrong so far.
+pub fn connecting(tunnel: &Tunnel, read: bool, read_failed: bool) -> bool {
+    if tunnel.up { !read && !read_failed } else { tunnel.error.is_none() }
+}
+
 fn state_of(e: &Entry) -> MachineState {
     let e_ssh = e.setting.ssh.clone();
     let seen = e.seen.lock().unwrap();
@@ -356,6 +385,7 @@ fn state_of(e: &Entry) -> MachineState {
         port: e.setting.port,
         reachable: seen.ok,
         error: seen.error.clone(),
+        connecting: connecting(&tunnel, seen.ok, seen.error.is_some()),
         tunnel: tunnel.up,
         tunnel_error: tunnel.error.as_deref().map(|e| hint(e, &e_ssh)),
         agents: seen.agents.len(),
@@ -377,7 +407,8 @@ fn their_agent(a: RuntimeAgent, machine: &str) -> RuntimeAgent {
 }
 
 /// One read of a machine's agents and groups; what was last seen stays while it cannot be reached.
-fn poll_once(e: &Entry) -> bool {
+/// `quiet`: a failure is not news (the connection is not up yet).
+fn poll_once(e: &Entry, quiet: bool) -> bool {
     let read = e.runtime.agents().and_then(|a| Ok((a, e.runtime.groups()?)));
     let mut seen = e.seen.lock().unwrap();
     match read {
@@ -387,6 +418,7 @@ fn poll_once(e: &Entry) -> bool {
             seen.ok = true;
             seen.error = None;
         }
+        Err(_) if quiet => seen.ok = false,
         Err(err) => {
             let why = match err {
                 RuntimeError::None => "its Herdr cannot be reached (no connection, or Herdr is not running there)".to_string(),

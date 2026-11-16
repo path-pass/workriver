@@ -61,7 +61,7 @@ function Row({ r, onOpen }: { r: InboxRow; onOpen: (unit: string, pick: Pick) =>
         {r.far.length > 0 && <span className="truncate font-mono">{r.far.map(baseName).join(' ')}</span>}
         {r.chore && <Who name={r.chore.by} />}
         {/* Where it is: the intent quietly, then the unit. */}
-        <span className="unit"><span className="opacity-70">{r.intent?.title}{r.unit && ' / '}</span>{r.unit?.title}</span>
+        <span className="unit"><span className="opacity-70">{r.intent?.title ?? r.project}{r.unit && ' / '}</span>{r.unit?.title}</span>
       </span>
       <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
     </>

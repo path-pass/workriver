@@ -48,8 +48,11 @@ Typical flow for an agent:
   …work, commit with `Task: u1#3`…
   workriver task deliver u1#3 --evidence 'cargo test => passed: 12 passed'";
 
+/// The version and the commit this binary was built from.
+const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER_COMMIT"), ")");
+
 #[derive(Parser)]
-#[command(name = "workriver", version, about = "Keep track of many coding agents working in parallel.", long_about = ABOUT)]
+#[command(name = "workriver", version = BUILD, about = "Keep track of many coding agents working in parallel.", long_about = ABOUT)]
 struct Cli {
     /// Port of the daemon on 127.0.0.1.
     #[arg(long, global = true, env = "WORKRIVER_PORT", default_value_t = 47820)]
@@ -206,7 +209,8 @@ enum IntentCmd {
         #[arg(long)]
         reason: String,
     },
-    /// Change an intent's title or goal (its manager or the user only).
+    /// Change an intent's title or goal (its manager or the user only), or who decides its
+    /// findings (the user only).
     Set {
         /// The intent (i1…).
         intent: String,
@@ -215,6 +219,10 @@ enum IntentCmd {
         /// One sentence on what it is for.
         #[arg(long)]
         goal: Option<String>,
+        /// Who decides its open findings: you; its manager; or its manager except P1
+        /// findings, which stay yours. Only the user sets this.
+        #[arg(long, value_parser = ["user", "manager", "manager-except-p1"])]
+        findings: Option<String>,
     },
 }
 
@@ -369,9 +377,30 @@ enum UnitCmd {
         /// The branch it starts from and merges into.
         #[arg(long, default_value = "main")]
         base: String,
+        /// The machine the work happens on, when it is not the one this runs on: a machine
+        /// of `workriver machine list` (or `local`: the one workriver runs on). --repo and
+        /// --branch are then the path and the branch as they are on that machine.
+        #[arg(long, value_name = "LABEL")]
+        machine: Option<String>,
     },
     /// Record that a unit's branch was merged.
     Merged { unit: String },
+    /// Say where a unit's work really is: another machine, path, branch or base. What is not
+    /// given stays. By the manager of its intent, or the user; checked on that machine.
+    Move {
+        unit: String,
+        /// A machine of `workriver machine list`, or `local`: the one workriver runs on.
+        #[arg(long, value_name = "LABEL")]
+        machine: Option<String>,
+        /// The repository's path on that machine.
+        #[arg(long)]
+        repo: Option<String>,
+        /// The branch as it is named there.
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
+        base: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -506,9 +535,15 @@ enum GateCmd {
 #[derive(Subcommand)]
 enum ChoreCmd {
     /// Ask the user for something that blocks nobody; prints its id (c1…).
+    ///
+    /// It belongs to an intent; or, with --project (or outside any workspace with a current
+    /// intent), to a project; or, where no project can be told, to nothing.
     Add {
         /// The intent it belongs to (i1…); default: the intent of this Herdr workspace.
         intent: Option<String>,
+        /// A chore of no intent: the project it belongs to (p1, or a folder).
+        #[arg(long, conflicts_with = "intent")]
+        project: Option<String>,
         #[arg(long)]
         title: String,
         /// The unit it concerns, if one.
@@ -583,7 +618,7 @@ fn main() -> anyhow::Result<()> {
     let needs_place = matches!(
         cli.cmd,
         Cmd::Unit(UnitCmd::Add { intent: None, .. })
-            | Cmd::Chore(ChoreCmd::Add { intent: None, .. })
+            | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. })
             | Cmd::Task(TaskCmd::Add { unit: None, intent: None, .. })
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
@@ -614,7 +649,11 @@ fn main() -> anyhow::Result<()> {
         Cmd::Serve { .. } | Cmd::Guide { .. } => unreachable!(),
         Cmd::Status => {
             let s = d.get("/api/status")?;
-            println!("workriver {} is running", s["version"].as_str().unwrap_or("?"));
+            let theirs = format!("{} ({})", s["version"].as_str().unwrap_or("?"), s["commit"].as_str().unwrap_or("unknown"));
+            println!("workriver {theirs} is running");
+            if theirs != BUILD {
+                println!("  this `workriver` command is {BUILD}: another build than the service. Rebuild the one that is behind (on every machine: `git pull`, build, restart `workriver serve`).");
+            }
             println!("web UI: http://127.0.0.1:{}  (open it as you with `workriver open`)", s["port"]);
             println!("database: {}", s["db"].as_str().unwrap_or("?"));
             println!("{} events, {} intents, {} units", s["events"], s["intents"], s["units"]);
@@ -640,12 +679,20 @@ fn main() -> anyhow::Result<()> {
             {
                 bail!("`workriver open` is the user's: run it from a terminal that is not an agent's pane");
             }
-            let url = d.call("/api/session/code", Some(json!({})))?["url"].as_str().unwrap_or_default().to_string();
-            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-            if print || std::process::Command::new(opener).arg(&url).status().map(|s| !s.success()).unwrap_or(true) {
+            let url = d.call("/api/session/code", Some(json!({ "printed": print })))?["url"].as_str().unwrap_or_default().to_string();
+            if print {
+                // A link on a screen is a link for everyone who reads that screen.
+                eprintln!("Anyone who can read this terminal can open workriver as you with this link (agents read Herdr panes). It works once, for 60 seconds.");
                 println!("{url}");
-                println!("(works once, for 5 minutes)");
+                return Ok(());
             }
+            // Handed to the browser, never shown: it signs in whoever has it.
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            let opened = std::process::Command::new(opener).arg(&url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
+            if !opened {
+                bail!("cannot open a browser here (`{opener}` failed). On a machine without one: `workriver open --print` prints the link, in a terminal no agent reads");
+            }
+            println!("Opened workriver in your browser.");
             return Ok(());
         }
         Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
@@ -689,9 +736,19 @@ fn main() -> anyhow::Result<()> {
                 body["action"] = json!(action);
                 d.call("/api/machines", Some(body))?
             };
+            // Enabling connects in the background: wait for how the first attempt ends.
+            let mut list = list;
+            if action == "enable" {
+                let until = std::time::Instant::now() + Duration::from_secs(10);
+                let pending = |l: &Value| l.as_array().into_iter().flatten().any(|m| m["label"] == label.as_str() && m["connecting"] == true);
+                while pending(&list) && std::time::Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(500));
+                    list = d.get("/api/machines")?;
+                }
+            }
             print_machines(&list, d.port);
             if action == "enable" {
-                println!("It connects in the background; `workriver machine list` shows whether it is up. On {label}, `workriver status` must answer through it.");
+                println!("On {label}, `workriver status` must answer through this connection.");
             }
             return Ok(());
         }
@@ -755,11 +812,22 @@ fn main() -> anyhow::Result<()> {
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Board { target } => return board(&d, target.as_deref()),
         Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
-        Cmd::Intent(IntentCmd::Set { intent, title, goal }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal }))?,
-        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base }) => {
+        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings }))?,
+        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine }) => {
             let intent = here_intent(intent)?;
-            let repo = std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?;
-            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base }))?
+            // On another machine the path is that machine's: taken as written, checked there.
+            let repo = match &machine {
+                Some(m) if !Path::new(&repo).is_absolute() => bail!("--repo is a path on {m}: give it in full (it cannot be told from here)"),
+                Some(_) => json!(repo),
+                None => json!(std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?),
+            };
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine }))?
+        }
+        Cmd::Unit(UnitCmd::Move { unit, machine, repo, branch, base }) => {
+            if machine.is_none() && repo.is_none() && branch.is_none() && base.is_none() {
+                bail!("nothing to move: give --machine, --repo, --branch or --base");
+            }
+            d.append(actor, "unit.relocated", json!({ "unit": unit, "machine": machine, "repo": repo.unwrap_or_default(), "branch": branch.unwrap_or_default(), "base": base.unwrap_or_default() }))?
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
         Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
@@ -823,10 +891,16 @@ fn main() -> anyhow::Result<()> {
             }
             d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings }))?
         }
-        Cmd::Chore(ChoreCmd::Add { intent, title, unit, step }) => {
-            let intent = here_intent(intent)?;
+        Cmd::Chore(ChoreCmd::Add { intent, project, title, unit, step }) => {
+            // An intent given or this workspace's; else the project given, or where this runs.
+            let intent = if project.is_some() { None } else { here_intent(intent).ok() };
+            let project = match (&intent, project) {
+                (Some(_), _) => String::new(),
+                (None, Some(p)) => project_arg(&p)?,
+                (None, None) => cwd_folder().unwrap_or_default(),
+            };
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
-            d.append(actor, "chore.created", json!({ "intent": intent, "title": title, "unit": unit, "steps": steps }))?
+            d.append(actor, "chore.created", json!({ "intent": intent.unwrap_or_default(), "project": project, "title": title, "unit": unit, "steps": steps }))?
         }
         Cmd::Chore(ChoreCmd::Done { chore }) => d.append(actor, "chore.done", json!({ "chore": chore }))?,
         Cmd::Ask { task, question, file, lines, wait, timeout } => {
@@ -860,6 +934,7 @@ fn main() -> anyhow::Result<()> {
         Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("finding.added") => b["finding"]["id"].as_str().unwrap_or("?").to_string(),
+        Some("unit.relocated") => format!("{} is now {}{}, branch {} from {}", b["unit"].as_str().unwrap_or("?"), b["machine"].as_str().map(|m| format!("on {m}: ")).unwrap_or_default(), b["repo"].as_str().unwrap_or("?"), b["branch"].as_str().unwrap_or("?"), b["base"].as_str().unwrap_or("?")),
         Some("workspace.linked") => "linked".into(),
         Some("workspace.unlinked") => "unlinked".into(),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
@@ -1033,6 +1108,8 @@ fn print_machines(list: &Value, port: u16) {
         let label = m["label"].as_str().unwrap_or("?");
         let state = if m["enabled"] != true {
             "disabled".to_string()
+        } else if m["connecting"] == true {
+            "connecting…".to_string()
         } else if m["reachable"] == true && m["tunnel"] == true {
             format!("connected, {} agents", m["agents"])
         } else if m["tunnel"] == true {
@@ -1288,14 +1365,20 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         if !i.goal.is_empty() {
             let _ = writeln!(out, "  goal: {}", i.goal);
         }
+        match i.findings {
+            core::FindingsPolicy::User => {}
+            core::FindingsPolicy::Manager => { let _ = writeln!(out, "  findings: the manager decides them (handed over by the user)"); }
+            core::FindingsPolicy::ManagerExceptP1 => { let _ = writeln!(out, "  findings: the manager decides them, except P1, which wait for the user"); }
+        }
         // The intent's own work: research and design that belong to no unit.
         if wanted(&i.id, None) {
             i.tasks.iter().for_each(|t| out += &line(t));
         }
         for u in units {
             let merged = if u.merged.is_some() { "  merged" } else { "" };
-            let on = u.machine.as_ref().map(|m| format!(" on {m}")).unwrap_or_default();
-            let _ = writeln!(out, "  {} {}  [branch {} from {}, in {}{on}]{merged}", u.id, u.title, u.branch, u.base, u.repo);
+            // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
+            let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
+            let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]{merged}", u.id, u.title, u.repo, u.branch, u.base);
             if state.reduced {
                 let _ = writeln!(out, "    to review: `git -C {} diff {}...{}` (commits: `git rev-list {}..{}`)", u.repo, u.base, u.branch, u.base, u.branch);
             }
@@ -1314,6 +1397,13 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         }
         for c in chores {
             let _ = writeln!(out, "  chore {} {} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
+        }
+    }
+    // Chores of no intent: a project's, or nobody's.
+    if target.is_none() {
+        for c in state.chores.iter().filter(|c| c.intent.is_empty() && !c.done) {
+            let of = if c.project.is_empty() { String::new() } else { format!(" [project {}]", c.project) };
+            let _ = writeln!(out, "chore {} {}{of} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
         }
     }
     Ok(out)

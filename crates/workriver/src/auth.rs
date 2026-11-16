@@ -17,8 +17,10 @@ use sha2::{Digest, Sha256};
 pub const COOKIE: &str = "workriver_session";
 /// How long a session lasts; the page asks for a new one after that.
 pub const SESSION_DAYS: u64 = 30;
-/// How long a one-time code can be used.
+/// How long a one-time code can be used: one handed straight to the browser.
 const CODE_LIFE: Duration = Duration::from_secs(5 * 60);
+/// One printed in a terminal, where others may read it.
+const PRINTED_LIFE: Duration = Duration::from_secs(60);
 
 pub fn token_path(home: &Path) -> PathBuf {
     home.join("user-token")
@@ -43,8 +45,8 @@ pub fn same(a: &str, b: &str) -> bool {
 
 pub struct Auth {
     token: String,
-    /// One-time codes not yet used, with when each was made.
-    codes: Mutex<Vec<(String, Instant)>>,
+    /// One-time codes not yet used, with when each was made and how long it lasts.
+    codes: Mutex<Vec<(String, Instant, Duration)>>,
     life: Duration,
 }
 
@@ -89,20 +91,21 @@ impl Auth {
         header.and_then(|h| h.strip_prefix("Bearer ")).is_some_and(|t| same(t.trim(), &self.token))
     }
 
-    /// A new one-time code for the page.
-    pub fn code(&self) -> std::io::Result<String> {
+    /// A new one-time code for the page; `printed`: it will show in a terminal, so it
+    /// lasts a minute only.
+    pub fn code(&self, printed: bool) -> std::io::Result<String> {
         let code = random_hex(16)?;
         let mut codes = self.codes.lock().unwrap();
-        codes.retain(|(_, at)| at.elapsed() < self.life);
-        codes.push((code.clone(), Instant::now()));
+        codes.retain(|(_, at, life)| at.elapsed() < *life);
+        codes.push((code.clone(), Instant::now(), if printed { PRINTED_LIFE.min(self.life) } else { self.life }));
         Ok(code)
     }
 
     /// Takes a code, once and in time: the session cookie's value for it.
     pub fn redeem(&self, code: &str) -> Option<String> {
         let mut codes = self.codes.lock().unwrap();
-        codes.retain(|(_, at)| at.elapsed() < self.life);
-        let k = codes.iter().position(|(c, _)| same(c, code))?;
+        codes.retain(|(_, at, life)| at.elapsed() < *life);
+        let k = codes.iter().position(|(c, _, _)| same(c, code))?;
         codes.remove(k);
         let nonce = random_hex(16).ok()?;
         Some(format!("{nonce}.{}", self.sign(&nonce)))
@@ -147,7 +150,7 @@ mod tests {
         assert!(!auth.bearer(Some("Bearer nope")) && !auth.bearer(Some(&token)) && !auth.bearer(None));
 
         // A code works once.
-        let code = auth.code().unwrap();
+        let code = auth.code(false).unwrap();
         let cookie = auth.redeem(&code).unwrap();
         assert!(auth.redeem(&code).is_none(), "single use");
         assert!(auth.session(Some(&format!("theme=dark; {COOKIE}={cookie}"))));
@@ -156,7 +159,7 @@ mod tests {
         let long = format!("{}00", cookie.split_once('.').unwrap().0);
         assert!(!auth.session(Some(&format!("{COOKIE}={long}.{}", auth.sign(&long)))));
         // And only in time.
-        let late = auth.code().unwrap();
+        let late = auth.code(true).unwrap();
         std::thread::sleep(Duration::from_millis(400));
         assert!(auth.redeem(&late).is_none(), "expired");
         // Another token (another home) knows none of these sessions.

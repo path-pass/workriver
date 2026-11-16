@@ -104,7 +104,8 @@ looked at now and then.
   2. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
   3. **Gaps** – commits that name no node, branches that grew beyond the original plan.
-  4. **Not urgent** – chores, quietest; a row opens its steps.
+  4. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
+     its project where others name their intent, or nothing when it has none.
   Within a group the oldest comes first. A row of the first three opens the unit at the
   node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. One line per agent whose
@@ -164,8 +165,8 @@ looked at now and then.
   machine is its own group in Agents, with the chip in its heading, until the user links it
   to a workspace of this machine; then its agents sit in that group (one manager, the same
   intents). Nothing is ever merged by name alone. Settings has "Other machines": each with
-  a follow switch, its state in a few words (connected and how many agents, not connected,
-  connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
+  a follow switch, its state in a few words (connecting… until the first attempt ends,
+  connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
   one; and, per workspace over there, a select that links it to a workspace here.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
@@ -243,6 +244,12 @@ severity, and its list is grouped by it. Only open findings wait for the user: t
 as a violet count on the review node, in the unit's outlined count in the rail, and as a
 row of the inbox. Picking a
 finding lights the review and the nodes it led to.
+
+Who decides an intent's findings is the user's choice: a small select in the intent's open
+group in the rail ("Findings decided by: me / the manager / the manager, P1 by me"). A
+finding handed to the manager stays open on its review, in quiet ink with a small crown and
+"The manager decides", and does not count in the violet marks or in Needs you: violet means
+waiting for the user. The user can still decide it.
 
 A review done blind (its agent saw nothing of other work until it delivered) carries a small
 neutral "eye crossed out" mark: at the top left of its node, in its detail header with the

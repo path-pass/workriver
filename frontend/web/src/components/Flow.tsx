@@ -346,11 +346,12 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
             })}
           </span>
         ) : (
-          <span className={cn('flex flex-none items-center gap-1 py-1 text-xs', f.state === 'open' ? 'text-you-ink' : 'text-ink-2')}>
+          <span className={cn('flex flex-none items-center gap-1 py-1 text-xs', f.state === 'open' && f.decider !== 'manager' ? 'text-you-ink' : 'text-ink-2')}>
             <ExternalChip ext={f.external} />
             {(f.state === 'deferred' || f.state === 'scheduled') && <Icon name="later" className="size-3.5" />}
             {suggests && <span className="text-ink-2 max-[700px]:hidden">{suggests} ·</span>}
-            {t(`finding.${f.state}`)}
+            {/* Handed to the intent's manager by the user: open, but not waiting for the user. */}
+            {f.state === 'open' && f.decider === 'manager' ? <><Icon name="manager" className="size-3.5" />{t('finding.managerDecides')}</> : t(`finding.${f.state}`)}
           </span>
         )}
       </div>

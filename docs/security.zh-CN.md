@@ -8,7 +8,9 @@ workriver 跑在你的机器上，为你服务。它记录 agent 做的事，并
 - **你**是持有*用户令牌*的人：一个只有你的账户能读的文件 `~/workriver-data/user-token`
   （第一次启动时生成，权限 600）。
   - 你在不是 agent 窗格的终端里运行命令时，命令行会带上它。
-  - 网页靠它拿到会话：`workriver open` 用一个只能用一次、五分钟内有效的链接打开浏览器；页面
+  - 网页靠它拿到会话：`workriver open` 把一个只能用一次、五分钟内有效的链接直接交给浏览器，
+    不显示出来（服务自己也从不打印任何能登录的东西：Herdr 窗格 agent 读得到；请在 agent 读不到的
+    终端里运行 `workriver open`，尤其是会打印链接的 `workriver open --print`，它的链接只有一分钟有效）；页面
     用它换一个脚本读不到（HttpOnly）、别的网站发来的请求不会带上（SameSite=Strict）的 cookie。
     会改动东西的请求还必须来自 workriver 自己的页面（检查 Origin）。没有会话时，页面只显示怎么打开它。
 - **agent** 是在 agent 窗格里运行的那一个，由服务向 Herdr 查出来，不看命令自己怎么说。在 agent
