@@ -4,6 +4,10 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Ask the user through Needs you, not your pane**: before merging, deploying, changing
+  the goal or agreed units, anything destructive, or after a task failed the same way
+  twice, add a decide gate on the unit (or the intent) and wait for the answer. The user
+  does not watch your pane. (`ask-user`)
 - **A merge can rename the intent that stays**: `workriver backlog merge <into> <from>...
   --title "<new title>"`; without `--title` it keeps its title. The intent's note (where
   merged intents' text goes) now shows on `workriver board` under its goal, and in

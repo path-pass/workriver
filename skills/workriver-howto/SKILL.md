@@ -1,6 +1,6 @@
 ---
 name: workriver-howto
-description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, attachments, asking another task, remote machines, a message that was not delivered, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
+description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, attachments, asking another task, remote machines, a message that was not delivered, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
 ---
 
 # workriver: how to
@@ -22,6 +22,7 @@ copy of this file.
 | `branch-moved` | a unit's branch was renamed, or rebased onto a new branch |
 | `commit-link` | a commit was made without its `Task:` trailer |
 | `design-gate` | the user has choices to make before implementation |
+| `ask-user` | the user must decide: merging, deploying, changing the goal, a repeated failure |
 | `contract` | two tasks (front and back end) must fit together |
 | `blind-review` | a review that must not be anchored by others' accounts |
 | `finding-additions` | a reviewer adds to a finding, or has more findings, after delivery |
