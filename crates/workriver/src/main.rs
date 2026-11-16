@@ -1676,13 +1676,21 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     // What git shows (commits, where each unit stands), as the page shows it.
     let ws = d.get("/api/workspace?light=true").unwrap_or_default();
     let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
+    // Dropped intents (merged ones among them) only when asked for by id.
+    let hidden = state.intents.iter().filter(|i| target.is_none() && i.state == core::IntentState::Dropped).count();
     for i in &state.intents {
+        if target.is_none() && i.state == core::IntentState::Dropped {
+            continue;
+        }
         let units: Vec<_> = state.units.iter().filter(|u| u.intent == i.id && wanted(&i.id, Some(&u.id))).collect();
         let chores: Vec<_> = state.chores.iter().filter(|c| c.intent == i.id && !c.done && wanted(&i.id, c.unit.as_deref())).collect();
         if units.is_empty() && chores.is_empty() && !wanted(&i.id, None) {
             continue;
         }
         let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        if i.state == core::IntentState::Dropped {
+            let _ = writeln!(out, "  dropped: {}", i.reason.as_deref().unwrap_or(""));
+        }
         if !i.goal.is_empty() {
             let _ = writeln!(out, "  goal: {}", i.goal);
         }
@@ -1755,6 +1763,9 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         for c in state.chores.iter().filter(|c| c.intent.is_empty() && !c.done) {
             let of = if c.project.is_empty() { String::new() } else { format!(" [project {}]", c.project) };
             let _ = writeln!(out, "chore {} {}{of} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
+        }
+        if hidden > 0 {
+            let _ = writeln!(out, "({hidden} dropped or merged intents not shown; `workriver board <intent>` shows one)");
         }
     }
     Ok(out)

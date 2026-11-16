@@ -993,6 +993,10 @@ fn only_the_user_is_the_user() {
     assert!(user.get("/api/state").unwrap()["intents"][2]["reason"] == "merged into i2");
     // The manager sees what was merged: the note, line by line, under the goal on the board.
     assert!(crate::board_text(&boss, Some("i2")).unwrap().contains("  note:\n    Merged from i3: Split off\n"));
+    // The merged one is off the whole board, and shown with why when asked for.
+    let all = crate::board_text(&boss, None).unwrap();
+    assert!(!all.contains("i3 Split off") && all.contains("1 dropped or merged intents not shown"), "{all}");
+    assert!(crate::board_text(&boss, Some("i3")).unwrap().contains("  dropped: merged into i2\n"));
 
     // Every route that acts as the user or changes settings: 401 without the token or a session.
     let user_routes = [
