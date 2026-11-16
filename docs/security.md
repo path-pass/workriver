@@ -95,7 +95,10 @@ another account, where they cannot read `~/workriver-data`.
 Other machines: workriver's own ssh connections never ask for anything, never forward your
 ssh agent and never accept an unknown host key (`BatchMode`, `ForwardAgent=no`,
 `StrictHostKeyChecking=yes`), whatever your ssh config says; connect once by hand to accept
-a new host's key.
+a new host's key. The port that leads here from another machine is picked anew for every
+connection and written there to `~/.config/workriver/port` (mode 600 under a 700
+directory); a machine's listener therefore takes any port of `127.0.0.1` or `localhost` as
+its Host, still refusing other names (a page served elsewhere cannot pose as it).
 
 Reading through the service needs an identity too (you, or an agent at its pane), but the
 files themselves are readable by every program running as you.

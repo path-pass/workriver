@@ -203,11 +203,12 @@ export function ExternalChip({ ext }: { ext?: External }) {
 }
 
 /** The machine something is on, when it is not this one: a small chip with its name. */
-export function MachineChip({ machine, away = false }: { machine?: string; away?: boolean }) {
-  const { t } = useT()
+export function MachineChip({ machine, away = false, since }: { machine?: string; away?: boolean; since?: string }) {
+  const { t, date } = useT()
   if (!machine) return null
+  const why = since ? t('machines.disconnected', { machine, time: date(since) }) : t('machines.unreachable', { machine })
   return (
-    <Tip text={away ? t('machines.unreachable', { machine }) : t('machines.on', { machine })}>
+    <Tip text={away ? why : t('machines.on', { machine })}>
       <span className="ext-chip" data-away={away || undefined}><Icon name="machine" className="size-3" />{machine}</span>
     </Tip>
   )

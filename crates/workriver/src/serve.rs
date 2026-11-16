@@ -59,6 +59,8 @@ pub struct App {
     listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
     /// The runtime's groups as last polled, with or without agents.
     groups: Mutex<Vec<core::RuntimeRef>>,
+    /// Which machines' connections were up at the last poll: the page hears of a change at once.
+    tunnels: Mutex<Vec<(String, bool)>>,
     /// Who the user is: the token, sessions of the page, one-time codes.
     auth: Auth,
     /// A caller may name the agent it records as (`--as`): for tests and development only.
@@ -75,7 +77,6 @@ pub const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER
 struct Caller {
     /// The followed machine whose listener it came in on; none: this machine's.
     machine: Option<String>,
-    port: u16,
     /// It carries the user token, or a session of the page from our own origin. Never on a
     /// machine's listener: a caller on another machine is never the user.
     user: bool,
@@ -167,6 +168,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         machines,
         listeners: Mutex::default(),
         groups: Mutex::default(),
+        tunnels: Mutex::default(),
         runtime,
         warning,
         live: Mutex::new(None),
@@ -212,7 +214,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     // Machines already there (stand-ins in tests) get their listener only.
     #[cfg(test)]
     for m in app.machines.iter().flat_map(|m| m.states()) {
-        let _ = listen(&app, &m.label, m.port).await;
+        let _ = listen(&app, &m.label, 0).await;
     }
     // Repositories on other machines cannot be watched: the page asks again now and then.
     let remote = app.clone();
@@ -323,6 +325,8 @@ impl App {
             *live = now.clone();
             differs
         };
+        let tunnels: Vec<(String, bool)> = self.machines.iter().flat_map(|m| m.states()).map(|m| (m.label, m.tunnel)).collect();
+        let differs = differs || std::mem::replace(&mut *self.tunnels.lock().unwrap(), tunnels.clone()) != tunnels;
         let mut picked = vec![];
         self.pending.lock().unwrap().retain_mut(|p| {
             let to = p.delivery.to.as_deref();
@@ -382,7 +386,10 @@ impl App {
     fn runner(&self, machine: Option<&str>) -> Result<scan::Runner, ApiError> {
         match machine {
             None => Ok(scan::Runner::Local),
-            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)).ok_or_else(|| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} cannot be reached now; see `workriver machine list`"))),
+            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)).ok_or_else(|| {
+                let since = self.machines.as_ref().and_then(|x| x.down_since(m)).filter(|s| !s.is_empty()).map(|s| format!(" (disconnected since {s})")).unwrap_or_default();
+                ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} cannot be reached now{since}; see `workriver machine list`"))
+            }),
         }
     }
 
@@ -401,8 +408,8 @@ impl App {
     /// machine: paths into the attachment store become links through its tunnel.
     fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
-        match machine.and_then(|m| self.machines.as_ref()?.port(&m)) {
-            Some(port) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", attachments::dir(&self.home).display()), port)),
+        match machine {
+            Some(_) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", attachments::dir(&self.home).display()))),
             None => self.runtime.send(to, text),
         }
     }
@@ -951,10 +958,13 @@ fn machine_router(app: Shared, via: Via) -> Router {
 /// along) and, for anything but a GET, on the Origin header being there and ours.
 async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut req: Request, next: Next) -> Response {
     let ours = [via.port, via.local].map(|p| [format!("127.0.0.1:{p}"), format!("localhost:{p}")]).concat();
+    // Through a machine's tunnel the port over there is new with every connection: there,
+    // any port of 127.0.0.1 or localhost (a name that resolves elsewhere is still refused).
+    let fits = |h: &str| ours.iter().any(|o| o == h) || (via.machine.is_some() && h.rsplit_once(':').is_some_and(|(n, p)| matches!(n, "127.0.0.1" | "localhost") && p.parse::<u16>().is_ok()));
     let (allowed, user) = {
         let header = |h| req.headers().get(h).map(|v| v.to_str().unwrap_or(""));
-        let host_ok = header(header::HOST).is_some_and(|h| ours.iter().any(|o| o == h));
-        let our_origin = header(header::ORIGIN).map(|o| ours.iter().any(|h| o == format!("http://{h}")));
+        let host_ok = header(header::HOST).is_some_and(fits);
+        let our_origin = header(header::ORIGIN).map(|o| o.strip_prefix("http://").is_some_and(fits));
         let get = req.method() == Method::GET;
         let origin_ok = get || our_origin.unwrap_or(true);
         let session = app.auth.session(header(header::COOKIE)) && (get || our_origin == Some(true));
@@ -964,7 +974,7 @@ async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut re
         return (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response();
     }
     let place = req.headers().get("x-workriver-place").and_then(|v| v.to_str().ok()).filter(|p| !p.is_empty()).map(str::to_string);
-    req.extensions_mut().insert(Caller { machine: via.machine, port: via.port, user, place });
+    req.extensions_mut().insert(Caller { machine: via.machine, user, place });
     next.run(req).await
 }
 
@@ -1074,17 +1084,14 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
         app.record_merges();
         // A reader on another machine cannot open this machine's files: it gets a link it
         // can fetch through its tunnel, as the reader it is.
-        let port = caller.machine.as_deref().and_then(|m| app.machines.as_ref()?.port(m));
+        let remote = caller.machine.is_some();
         let file = |id: &str| {
             let a = state.attachments.iter().find(|a| a.id == id)?;
             let path = attachments::path(&app.home, &a.id, &a.name);
-            Some(match port {
-                Some(p) => format!(
-                    "{}?place={}",
-                    crate::machines::attachment_url(p, &path.file_name()?.to_string_lossy()),
-                    q.place.as_deref().unwrap_or("$HERDR_PANE_ID")
-                ),
-                None => path.display().to_string(),
+            Some(if remote {
+                format!("{}?place={}", crate::machines::attachment_url(&path.file_name()?.to_string_lossy()), q.place.as_deref().unwrap_or("$HERDR_PANE_ID"))
+            } else {
+                path.display().to_string()
             })
         };
         Ok(Json(crate::show::task(&state, &ws, &unit, n, &file)?))
@@ -1186,8 +1193,8 @@ async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>,
 /// connection and the reading of its agents.
 async fn follow(app: &Shared, label: &str, setting: crate::machines::Setting) -> Result<(), ApiError> {
     let Some(machines) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
-    let local_port = listen(app, label, setting.port).await?;
-    tracing::info!("machine {label}: its port {} leads to 127.0.0.1:{local_port} here", setting.port);
+    let local_port = listen(app, label, 0).await?;
+    tracing::info!("machine {label}: its tunnel leads to 127.0.0.1:{local_port} here");
     machines.start(label, setting, local_port);
     Ok(())
 }
@@ -1228,8 +1235,6 @@ struct MachineSet {
     ssh: String,
     #[serde(default)]
     herdr_socket: Option<String>,
-    #[serde(default)]
-    port: Option<u16>,
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.
@@ -1243,7 +1248,7 @@ async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Cal
         }
     };
     match m.action.as_str() {
-        "add" => all.add(&m.label, crate::machines::Setting { ssh: m.ssh, herdr_socket: m.herdr_socket, port: m.port.unwrap_or(app.port), enabled: false }).map_err(bad)?,
+        "add" => all.add(&m.label, crate::machines::Setting { ssh: m.ssh, herdr_socket: m.herdr_socket, port: 0, enabled: false }).map_err(bad)?,
         "enable" => {
             let setting = all.enable(&m.label, true).map_err(bad)?;
             follow(&app, &m.label, setting).await?;
@@ -1388,7 +1393,7 @@ async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Qu
         app.record(&who, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
         // To a caller on another machine the file is where its tunnel shows it.
         let path = match &via.machine {
-            Some(_) => json!(crate::machines::attachment_url(via.port, &path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+            Some(_) => json!(crate::machines::attachment_url(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
             None => json!(path),
         };
         Ok(Json(json!({ "id": id, "path": path, "name": name, "type": mime, "size": size })))

@@ -721,7 +721,7 @@ fn machines_are_separate_until_linked() {
     let shot = tmp.path().join("shot.png");
     std::fs::write(&shot, b"\x89PNG far").unwrap();
     let up = via_box.upload(&shot, "s-far", None).unwrap();
-    assert!(up["path"].as_str().unwrap().starts_with("http://127.0.0.1:47820/api/attachments/"), "{up}");
+    assert!(up["path"].as_str().unwrap().starts_with("http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/"), "{up}");
     via_box.append("s-far", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P2", "problem": "p", "impact": "i", "where": ["a"], "attachments": [up["id"]] }] })).unwrap();
     let told = local.sent.lock().unwrap().last().unwrap().clone();
     assert!(told.0 == "s-boss" && told.1.contains("delivered by far") && told.1.contains(&tmp.path().join("attachments").display().to_string()), "{told:?}");
@@ -729,7 +729,7 @@ fn machines_are_separate_until_linked() {
     via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
     let got = far.sent.lock().unwrap().last().unwrap().clone();
-    assert!(got.0 == "s-far" && got.1.contains("http://127.0.0.1:47820/api/attachments/") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
+    assert!(got.0 == "s-far" && got.1.contains("http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
 
     let ws = d.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["machine"], "box");
@@ -740,44 +740,158 @@ fn machines_are_separate_until_linked() {
     assert_eq!(ws["machines"].as_array().unwrap().len(), 2);
 }
 
-/// The connection to a machine: what ssh is asked for, and the supervisor that restarts it
-/// with growing waits, says whether it is up and why it ended, and ends it when told.
+/// A stand-in for ssh on a machine whose sshd keeps the sessions of dead connections (and
+/// the ports they forward) for good. `-N`: a tunnel; it asks for a port and gets the next
+/// free one, refusing one still held ("remote port forwarding failed"), says it on stderr
+/// as ssh does, and lives until `drop` exists (the line dies: it is removed and the port
+/// stays held). Anything else runs its command with `$HOME` the machine's home.
+fn fake_ssh(dir: &std::path::Path) -> std::path::PathBuf {
+    let ssh = dir.join("ssh");
+    let script = format!(
+        r#"#!/bin/sh
+d={d}
+tunnel=; want=
+for a in "$@"; do
+  [ "$a" = -N ] && tunnel=1
+  case "$a" in 127.0.0.1:*:127.0.0.1:*) want=$(echo "$a" | cut -d: -f2);; esac
+done
+while [ "$1" != "--" ]; do shift; done; shift; shift
+if [ -z "$tunnel" ]; then HOME=$d/remote exec sh -c "$1"; fi
+echo x >> $d/connections
+if [ "$want" = 0 ]; then
+  p=$((40000 + $(wc -l < $d/connections)))
+  while grep -qx "$p" $d/held 2>/dev/null; do p=$((p + 1)); done
+else
+  p=$want
+  if grep -qx "$p" $d/held 2>/dev/null; then echo "Error: remote port forwarding failed for listen port $p" >&2; exit 255; fi
+fi
+echo $p >> $d/held
+echo "Allocated port $p for remote forward to 127.0.0.1:1" >&2
+while [ ! -e $d/drop ]; do sleep 0.05; done
+rm -f $d/drop
+echo "Timeout, server not responding." >&2
+exit 255
+"#,
+        d = dir.display()
+    );
+    std::fs::create_dir_all(dir.join("remote")).unwrap();
+    std::fs::write(&ssh, script).unwrap();
+    std::fs::set_permissions(&ssh, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    ssh
+}
+
+/// The connection to a machine: what ssh is asked for; a port of its own for every
+/// connection, written over there once it is up, so a reconnect never waits on the port of
+/// a connection that died without closing (here: held for good); down the moment ssh ends;
+/// growing waits; ended with its supervisor.
 #[test]
 fn a_machines_connection_is_kept_up() {
-    use crate::machines::{Pace, Tunnel, supervise, tunnel_words};
+    use crate::machines::{Pace, Tunnel, allocated, publish, slept, supervise, tunnel_words};
     use std::sync::atomic::{AtomicBool, Ordering};
-    let w = tunnel_words("me@box", "/data/herdr-box.sock", "/home/me/.config/herdr/herdr.sock", 47820, 51234);
+    use std::time::Duration;
+    let w = tunnel_words("me@box", "/data/herdr-box.sock", "/home/me/.config/herdr/herdr.sock", 51234);
     assert_eq!(&w[..2], ["ssh", "-N"]);
-    for o in ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ExitOnForwardFailure=yes", "ServerAliveInterval=30", "StreamLocalBindUnlink=yes"] {
+    for o in ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ExitOnForwardFailure=yes", "ConnectTimeout=5", "ServerAliveInterval=10", "ServerAliveCountMax=3", "StreamLocalBindUnlink=yes", "LogLevel=INFO"] {
         assert!(w.windows(2).any(|p| p == ["-o", o]), "{o} in {w:?}");
     }
     // Clearing forwards would clear its own: the tunnel is the one ssh of ours that cannot.
     assert!(!w.iter().any(|o| o.starts_with("ClearAllForwardings")));
     let n = w.len();
-    assert_eq!(&w[n - 6..], ["-L", "/data/herdr-box.sock:/home/me/.config/herdr/herdr.sock", "-R", "127.0.0.1:47820:127.0.0.1:51234", "--", "me@box"]);
+    assert_eq!(&w[n - 6..], ["-L", "/data/herdr-box.sock:/home/me/.config/herdr/herdr.sock", "-R", "127.0.0.1:0:127.0.0.1:51234", "--", "me@box"]);
+    // As OpenSSH says it (checked against a real sshd).
+    assert_eq!(allocated("Allocated port 57793 for remote forward to 127.0.0.1:9"), Some(57793));
+    assert_eq!(allocated("Warning: Permanently added"), None);
+    assert!(slept(Duration::from_secs(600), Duration::from_secs(2)) && !slept(Duration::from_secs(3), Duration::from_secs(2)));
 
-    // A stand-in that fails twice, then stays up.
     let tmp = tempfile::tempdir().unwrap();
-    let count = tmp.path().join("runs");
-    let script = format!("echo x >> {c}; if [ $(wc -l < {c}) -lt 3 ]; then echo 'remote port forwarding failed for listen port 47820' >&2; exit 255; fi; exec sleep 30", c = count.display());
-    let words: Vec<String> = ["sh", "-c", &script].iter().map(|s| s.to_string()).collect();
+    let ssh = fake_ssh(tmp.path());
+    let port_file = tmp.path().join("remote").join(crate::machines::PORT_FILE);
+    let published = || std::fs::read_to_string(&port_file).ok().and_then(|t| t.trim().parse::<u16>().ok());
+    // The old way, a fixed port, after a connection died: refused for as long as it is held.
+    let fixed: Vec<String> = [ssh.to_str().unwrap(), "-N", "-R", "127.0.0.1:41001:127.0.0.1:1", "--", "box"].iter().map(|s| s.to_string()).collect();
+    std::fs::write(tmp.path().join("held"), "41001\n").unwrap();
+    let out = std::process::Command::new(&fixed[0]).args(&fixed[1..]).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stderr).contains("remote port forwarding failed for listen port 41001"));
+    std::fs::remove_file(tmp.path().join("connections")).unwrap();
+
+    let mut words = w.clone();
+    words[0] = ssh.display().to_string();
     let tunnel = std::sync::Arc::new(std::sync::Mutex::new(Tunnel::default()));
     let stop = std::sync::Arc::new(AtomicBool::new(false));
-    let pace = Pace { settle: std::time::Duration::from_millis(300), min: std::time::Duration::from_millis(50), max: std::time::Duration::from_millis(200), healthy: std::time::Duration::from_secs(60) };
-    let (t, s) = (tunnel.clone(), stop.clone());
-    let run = std::thread::spawn(move || supervise(&words, &t, &s, pace));
-    wait_until("the failure is told", || tunnel.lock().unwrap().error.as_deref() == Some("remote port forwarding failed for listen port 47820"));
-    wait_until("it is up after the restarts", || tunnel.lock().unwrap().up);
-    assert_eq!(std::fs::read_to_string(&count).unwrap().lines().count(), 3);
-    assert_eq!(tunnel.lock().unwrap().error, None);
+    let pace = Pace { min: Duration::from_millis(100), max: Duration::from_millis(400), healthy: Duration::from_secs(60) };
+    let (t, s, program) = (tunnel.clone(), stop.clone(), ssh.display().to_string());
+    let run = std::thread::spawn(move || supervise(&words, &t, &s, pace, &|port| publish(&program, "box", port, "mac")));
+    // Soak: the line dies again and again; each time it is down at once, then up on a new
+    // port, written over there, never one of a dead connection.
+    let mut ports = vec![];
+    // Looked at often: it is down only until the next attempt (`pace.min`, doubling).
+    let soon = |what: &str, ok: &dyn Fn(&Tunnel) -> bool| {
+        let until = std::time::Instant::now() + Duration::from_secs(10);
+        while !ok(&tunnel.lock().unwrap()) {
+            assert!(std::time::Instant::now() < until, "{what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    for round in 0..6 {
+        soon("up", &|t| t.up);
+        let t = tunnel.lock().unwrap().clone();
+        let port = t.port.unwrap();
+        assert_eq!((published(), t.error.clone(), t.since.clone()), (Some(port), None, None), "round {round}");
+        assert!(!ports.contains(&port), "a new port each time: {ports:?} {port}");
+        assert_eq!(std::fs::read_to_string(tmp.path().join("remote/.config/workriver/daemon")).unwrap().trim(), "mac");
+        ports.push(port);
+        std::fs::write(tmp.path().join("drop"), "").unwrap();
+        soon("down at once", &|t| !t.up);
+        let t = tunnel.lock().unwrap().clone();
+        assert_eq!((t.error.as_deref(), t.port, t.since.is_some(), t.retry.is_some()), (Some("Timeout, server not responding."), None, true, true), "round {round}");
+    }
+    assert_eq!(std::fs::read_to_string(tmp.path().join("held")).unwrap().lines().count(), 7, "every old port still held over there (and 41001)");
     stop.store(true, Ordering::Relaxed);
     run.join().unwrap();
     assert_eq!(*tunnel.lock().unwrap(), Tunnel::default());
     // The stand-in itself is gone too, not left running.
     wait_until("the command ended with its supervisor", || {
-        let out = std::process::Command::new("pgrep").args(["-f", &count.display().to_string()]).output().unwrap();
+        let out = std::process::Command::new("pgrep").args(["-f", &ssh.display().to_string()]).output().unwrap();
         out.stdout.is_empty()
     });
+
+    // Waits grow, up to the cap, while it keeps failing.
+    let fails: Vec<String> = ["sh", "-c", "echo 'ssh: connect to host box port 22: Operation timed out' >&2; exit 255"].iter().map(|s| s.to_string()).collect();
+    let tunnel = std::sync::Arc::new(std::sync::Mutex::new(Tunnel::default()));
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let (t, s) = (tunnel.clone(), stop.clone());
+    let run = std::thread::spawn(move || supervise(&fails, &t, &s, pace, &|_| Ok(())));
+    let mut waits = vec![];
+    while waits.len() < 5 {
+        let r = tunnel.lock().unwrap().retry;
+        if let Some(r) = r {
+            let left = r.saturating_duration_since(std::time::Instant::now());
+            if waits.last().is_none_or(|w: &Duration| left > *w + Duration::from_millis(30) || left + Duration::from_millis(30) < *w) {
+                waits.push(left);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stop.store(true, Ordering::Relaxed);
+    run.join().unwrap();
+    assert!(waits.iter().all(|w| *w <= Duration::from_millis(400)), "capped: {waits:?}");
+
+    // As `workriver machine list` and the page see it, from a machine followed for real
+    // (through the stand-in): up with its port; down at once, since when, the next attempt.
+    std::fs::remove_file(tmp.path().join("connections")).ok();
+    let all = crate::machines::Machines::with_ssh(std::sync::Arc::new(Fake::default()), tmp.path().to_path_buf(), &ssh.display().to_string(), Pace { min: Duration::from_millis(300), ..pace });
+    let setting = crate::machines::Setting { ssh: "box".into(), herdr_socket: Some("/run/herdr.sock".into()), port: 0, enabled: true };
+    all.start("box", setting, 1);
+    let state = || all.states().into_iter().next().unwrap();
+    wait_until("connected", || state().tunnel);
+    assert!(state().port.is_some() && published() == state().port, "the port of this connection is the one written there");
+    std::fs::write(tmp.path().join("drop"), "").unwrap();
+    wait_until("disconnected", || !state().tunnel);
+    let s = state();
+    assert!(s.down_since.is_some() && s.retry_in.is_some() && s.port.is_none() && s.tunnel_error.as_deref() == Some("Timeout, server not responding."), "{s:?}");
+    assert!(all.runner("box").is_none(), "no git over a dead line");
+    wait_until("connected again", || state().tunnel);
+    all.stop("box");
 }
 
 /// One HTTP request by hand, to set headers a client would not: the status and the whole answer.
@@ -1132,7 +1246,9 @@ fn units_on_another_machine() {
     let tmp = tempfile::tempdir().unwrap();
     // An ssh stand-in that runs the command line in a local shell, as in the scan's tests.
     let fake_ssh = tmp.path().join("fake-ssh");
-    std::fs::write(&fake_ssh, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift; shift\nexec sh -c \"$1\"\n").unwrap();
+    // With `slow` there, it takes 3 s: a machine whose line is dead and not yet known so.
+    let slow = tmp.path().join("slow");
+    std::fs::write(&fake_ssh, format!("#!/bin/sh\n[ -e '{}' ] && sleep 3\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift; shift\nexec sh -c \"$1\"\n", slow.display())).unwrap();
     std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
     let (here, there) = (tmp.path().join("mac repo"), tmp.path().join("box repo"));
     for r in [&here, &there] {
@@ -1189,6 +1305,28 @@ fn units_on_another_machine() {
     let board = crate::board_text(&boss, None).unwrap();
     assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feature from main]", path(&there))), "{board}");
 
+    // The line to box dies (the computer slept): nothing waits on box until it is back.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Drain", "agent": "s-worker" })).unwrap();
+    std::fs::write(&slow, "").unwrap();
+    all.drop_tunnel("box");
+    let started = std::time::Instant::now();
+    let board = crate::board_text(&boss, None).unwrap();
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(1), "board took {took:?} with box down\n{board}");
+    assert!(board.contains("    box is disconnected since "), "{board}");
+    let ws = user.get("/api/workspace").unwrap();
+    assert_eq!(ws["intents"][0]["units"][0]["commits"].as_array().unwrap().len(), 1, "as last read");
+    let worker = ws["sessions"].as_array().unwrap().iter().find(|x| x["agent"] == "worker").unwrap().clone();
+    assert_eq!((worker["unreachable"].as_bool(), worker["state"].as_str()), (Some(true), Some("unknown")), "as last seen, in no state: {worker}");
+    let shown: crate::show::TaskShow = serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap();
+    assert!(shown.place.unwrap().disconnected_since.is_some());
+    // A message for an agent there is refused at once, saying why.
+    let started = std::time::Instant::now();
+    let e = workriver_core::runtime::Runtime::send(all.as_ref(), "s-worker", "hi").unwrap_err().to_string();
+    assert!(started.elapsed() < std::time::Duration::from_millis(200) && e.contains("machine box is disconnected since "), "{e}");
+    assert!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "y", "repo": path(&there), "branch": "f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
+    std::fs::remove_file(&slow).unwrap();
+
     // Chores of no intent: a project's, and nobody's.
     boss.append("", "chore.created", json!({ "project": path(&here), "title": "Renew the certificate" })).unwrap();
     boss.append("", "chore.created", json!({ "title": "Pay the invoice" })).unwrap();
@@ -1208,9 +1346,10 @@ fn units_on_another_machine() {
 fn a_machine_is_connecting_until_it_is_not() {
     use crate::machines::{Tunnel, connecting};
     assert!(connecting(&Tunnel::default(), false, false), "nothing has happened yet");
-    assert!(!connecting(&Tunnel { up: false, error: Some("ssh: Connection refused".into()) }, false, false), "ssh said why not");
-    assert!(connecting(&Tunnel { up: true, error: None }, false, false), "up, agents not read yet");
-    assert!(!connecting(&Tunnel { up: true, error: None }, true, false) && !connecting(&Tunnel { up: true, error: None }, false, true));
+    assert!(!connecting(&Tunnel { up: false, error: Some("ssh: Connection refused".into()), ..Tunnel::default() }, false, false), "ssh said why not");
+    let up = Tunnel { up: true, ..Tunnel::default() };
+    assert!(connecting(&up, false, false), "up, agents not read yet");
+    assert!(!connecting(&up, true, false) && !connecting(&up, false, true));
 }
 
 /// Findings after the fact: the manager decides by default; the reviewer adds to a decided

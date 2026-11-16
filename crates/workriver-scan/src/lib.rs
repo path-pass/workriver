@@ -81,7 +81,7 @@ impl Runner {
     /// Whatever the user's ssh config says, it forwards no agent, takes no unknown host key
     /// and sets up none of the config's port forwards.
     pub fn ssh(target: &str, control: &Path) -> Runner {
-        let opts = ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ClearAllForwardings=yes", "ConnectTimeout=10", "ControlMaster=auto", "ControlPersist=120"];
+        let opts = ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ClearAllForwardings=yes", "ConnectTimeout=5", "ServerAliveInterval=10", "ServerAliveCountMax=3", "ControlMaster=auto", "ControlPersist=120"];
         let mut options: Vec<String> = opts.iter().flat_map(|o| ["-o".to_string(), o.to_string()]).collect();
         options.extend(["-o".to_string(), format!("ControlPath={}", control.join("ssh-%C").display())]);
         Runner::Ssh { program: "ssh".into(), options, target: target.into() }

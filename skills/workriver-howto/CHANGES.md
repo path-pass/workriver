@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-16 (later)
 
+- **Other machines reconnect by themselves**: the port over there is a new one per
+  connection, written to `~/.config/workriver/port`, which the CLI there reads; do not set
+  `WORKRIVER_PORT` there. While a machine is disconnected the board says "box is
+  disconnected since …: as last read"; the CLI there gives up within seconds with
+  "cannot reach workriver … through the ssh tunnel (it may be reconnecting); try again
+  shortly": wait and run it again. `workriver machine add` has no `--remote-port` any more.
 - **Units say where they stand**: working, waiting, ready (to merge), merged, done — on the
   board, in `workriver task show` and on the page. A merge git shows (fast-forward, merge
   commit) is recorded by workriver itself; a unit finished without one is closed with

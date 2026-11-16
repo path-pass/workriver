@@ -25,7 +25,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  * connection is up and why not; and link a workspace over there to one here.
  */
 function Machines({ ws }: { ws: Workspace | null }) {
-  const { t } = useT()
+  const { t, date } = useT()
   const [list, setList] = useState<Machine[]>([])
   const [error, setError] = useState('')
   const [name, setName] = useState('')
@@ -35,7 +35,7 @@ function Machines({ ws }: { ws: Workspace | null }) {
   // The list as the service has it; what is live about each comes with the data.
   useEffect(() => { loadMachines().then(setList, () => {}) }, [ws?.machines?.length])
   const live = (m: Machine) => ws?.machines?.find(x => x.label === m.label) ?? m
-  const state = (m: Machine) => !m.enabled ? t('machines.off') : m.connecting ? t('machines.connecting') : m.tunnel && m.reachable ? t('machines.connected', { count: m.agents }) : m.tunnel ? t('machines.noHerdr') : t('machines.down')
+  const state = (m: Machine) => !m.enabled ? t('machines.off') : m.connecting ? t('machines.connecting') : m.tunnel && m.reachable ? t('machines.connected', { count: m.agents }) : m.tunnel ? t('machines.noHerdr') : m.downSince ? t('machines.downSince', { time: date(m.downSince) }) : t('machines.down')
   const here = (ws?.workspaces ?? []).filter(g => !g.machine)
   const there = (ws?.workspaces ?? []).filter(g => g.machine)
   const link = (machine: string, workspace: string, to: string, was?: string) => {
@@ -56,7 +56,7 @@ function Machines({ ws }: { ws: Workspace | null }) {
             <Button variant="ghost" size="icon-sm" aria-label={t('machines.remove', { machine: m.label })} onClick={() => act(setMachine(m.label, 'remove'))}>×</Button>
           </div>
           {m.enabled && (m.tunnelError || m.error) && <p className="text-xs wrap-anywhere text-ink-2">{m.tunnelError ?? m.error}</p>}
-          {m.enabled && String(m.port) !== location.port && <p className="text-xs text-ink-2">{t('machines.port', { port: m.port })}</p>}
+          {m.enabled && !m.tunnel && m.retryIn != null && <p className="text-xs text-ink-2">{t('machines.retry', { count: m.retryIn })}</p>}
         </div>
       ))}
       <form className="flex gap-1.5" onSubmit={e => { e.preventDefault(); act(setMachine(name.trim(), 'add', ssh.trim()).then(l => { setName(''); setSsh(''); return l })) }}>

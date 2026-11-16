@@ -55,9 +55,10 @@ const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER_COM
 #[derive(Parser)]
 #[command(name = "workriver", version = BUILD, about = "Keep track of many coding agents working in parallel.", long_about = ABOUT)]
 struct Cli {
-    /// Port of the daemon on 127.0.0.1.
-    #[arg(long, global = true, env = "WORKRIVER_PORT", default_value_t = 47820)]
-    port: u16,
+    /// Port of the daemon on 127.0.0.1. Default: on a machine workriver follows over ssh,
+    /// the port of its current connection (in ~/.config/workriver/port); else 47820.
+    #[arg(long, global = true, env = "WORKRIVER_PORT")]
+    port: Option<u16>,
     /// For tests and development: record as this agent instead of the one in this Herdr
     /// pane. Refused unless the service was started with WORKRIVER_ALLOW_AS=1; never the user.
     #[arg(long = "as", global = true, env = "WORKRIVER_AS", value_name = "AGENT", hide = true)]
@@ -250,10 +251,6 @@ enum MachineCmd {
         /// ($HERDR_SOCKET_PATH, else ~/.config/herdr/herdr.sock).
         #[arg(long, value_name = "PATH")]
         herdr_socket: Option<String>,
-        /// The port over there that leads back to this service; default: this service's
-        /// port. With another, agents there need WORKRIVER_PORT set to it.
-        #[arg(long, value_name = "N")]
-        remote_port: Option<u16>,
     },
     /// The machines, whether each can be reached, and why not.
     List,
@@ -715,7 +712,7 @@ fn main() -> anyhow::Result<()> {
             let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1") };
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
-                let listener = serve::bind(cli.port).await?;
+                let listener = serve::bind(cli.port.unwrap_or(DEFAULT_PORT)).await?;
                 serve::serve_with(listener, store, all, options).await
             });
         }
@@ -726,7 +723,7 @@ fn main() -> anyhow::Result<()> {
         _ => {}
     }
     let place = herdr::place_from_env();
-    let d = Daemon { port: cli.port, place: place.clone(), home: Some(core::data_dir()) };
+    let d = Daemon { port: port_of(cli.port), place: place.clone(), home: Some(core::data_dir()) };
     if cli.actor.as_deref() == Some("user") {
         bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");
     }
@@ -779,7 +776,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = rt["warning"].as_str() {
                 println!("  at start: {w}");
             }
-            print_machines(&s["machines"], s["port"].as_u64().unwrap_or(0) as u16);
+            print_machines(&s["machines"]);
             let at = &s["attachments"];
             println!(
                 "attachments: {} files, {:.1} MB in {} (kept for good, like the records)",
@@ -840,7 +837,7 @@ fn main() -> anyhow::Result<()> {
         Cmd::Machine(cmd) => {
             let (label, action, extra) = match cmd {
                 MachineCmd::List => (String::new(), "", json!({})),
-                MachineCmd::Add { label, ssh, herdr_socket, remote_port } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket, "port": remote_port })),
+                MachineCmd::Add { label, ssh, herdr_socket } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket })),
                 MachineCmd::Enable { label } => (label, "enable", json!({})),
                 MachineCmd::Disable { label } => (label, "disable", json!({})),
                 MachineCmd::Remove { label } => (label, "remove", json!({})),
@@ -863,7 +860,7 @@ fn main() -> anyhow::Result<()> {
                     list = d.get("/api/machines")?;
                 }
             }
-            print_machines(&list, d.port);
+            print_machines(&list);
             if action == "enable" {
                 println!("On {label}, `workriver status` must answer through this connection.");
             }
@@ -1125,9 +1122,66 @@ struct Daemon {
     home: Option<PathBuf>,
 }
 
+const DEFAULT_PORT: u16 = 47820;
+
+/// The computer the daemon runs on, when this CLI reaches it through a machine's ssh
+/// tunnel (its port read from the file the daemon writes over there).
+static THROUGH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The daemon's port: as given; else, on a machine workriver follows, its connection's
+/// port as the daemon wrote it there; else the default.
+fn port_of(given: Option<u16>) -> u16 {
+    if let Some(p) = given {
+        return p;
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let read = |f: &str| home.as_ref().and_then(|h| std::fs::read_to_string(h.join(f)).ok()).map(|t| t.trim().to_string());
+    match read(machines::PORT_FILE).and_then(|t| t.parse().ok()) {
+        Some(p) => {
+            let _ = THROUGH.set(read(machines::HOST_FILE).filter(|h| !h.is_empty()).unwrap_or_else(|| "the computer workriver runs on".into()));
+            p
+        }
+        None => DEFAULT_PORT,
+    }
+}
+
+/// How long the CLI waits to connect (a tunnel that is reconnecting refuses at once, or
+/// not at all), and for an answer: it never hangs.
+const CONNECT: Duration = Duration::from_secs(3);
+const ANSWER: Duration = Duration::from_secs(30);
+
 impl Daemon {
+    /// Why the daemon could not be reached, as whoever runs the CLI can act on it.
+    fn unreachable(&self, e: impl std::fmt::Display) -> anyhow::Error {
+        match THROUGH.get() {
+            Some(host) => anyhow!(
+                "cannot reach workriver on {host} through the ssh tunnel (port {}, from ~/{}; it may be reconnecting); try again shortly ({e})",
+                self.port,
+                machines::PORT_FILE
+            ),
+            None => anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port),
+        }
+    }
+
+    /// Through a tunnel, first a quick look that the daemon answers at all: the forward of a
+    /// connection that died accepts and then says nothing, and a request would wait out
+    /// its whole time. Once per command.
+    fn probe(&self) -> anyhow::Result<()> {
+        static PROBED: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+        if THROUGH.get().is_none() {
+            return Ok(());
+        }
+        let port = self.port;
+        let seen = PROBED.get_or_init(|| {
+            let agent: ureq::Agent = ureq::Agent::config_builder().timeout_connect(Some(CONNECT)).timeout_global(Some(CONNECT)).build().into();
+            agent.get(format!("http://127.0.0.1:{port}/api/status")).call().map(|_| ()).map_err(|e| e.to_string())
+        });
+        seen.clone().map_err(|e| self.unreachable(e))
+    }
+
     fn call(&self, path: &str, body: Option<Value>) -> anyhow::Result<Value> {
-        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(Duration::from_secs(60))).build().into();
+        self.probe()?;
+        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_connect(Some(CONNECT)).timeout_global(Some(ANSWER)).build().into();
         let url = format!("http://127.0.0.1:{}{path}", self.port);
         // The token goes along whenever this machine has it. It makes this the user only
         // where the service finds no agent at this place; in an agent's pane it changes nothing.
@@ -1143,9 +1197,9 @@ impl Daemon {
                 None => agent.get(&url).header("authorization", &token).call(),
             },
         };
-        let mut res = res.map_err(|e| anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port))?;
+        let mut res = res.map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string()?;
+        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
         if !ok {
             bail!("{text}");
         }
@@ -1176,8 +1230,9 @@ impl Daemon {
         if bytes.len() > attachments::MAX {
             bail!("{} is larger than {} MB, the most workriver stores", file.display(), attachments::MAX / 1024 / 1024);
         }
+        self.probe()?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(Duration::from_secs(120))).build().into();
+        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_connect(Some(CONNECT)).timeout_global(Some(Duration::from_secs(120))).build().into();
         let mut req = agent
             .post(format!("http://127.0.0.1:{}/api/attachments", self.port))
             .query("name", &name)
@@ -1195,9 +1250,9 @@ impl Daemon {
                 req = req.query("finding", f);
             }
         }
-        let mut res = req.send(&bytes[..]).map_err(|e| anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port))?;
+        let mut res = req.send(&bytes[..]).map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string()?;
+        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
         if !ok {
             bail!("{text}");
         }
@@ -1271,7 +1326,7 @@ fn parse_cause(s: &str) -> anyhow::Result<Value> {
 }
 
 /// One line per machine: whether it is followed and can be reached, and why not.
-fn print_machines(list: &Value, port: u16) {
+fn print_machines(list: &Value) {
     for m in list.as_array().into_iter().flatten() {
         let label = m["label"].as_str().unwrap_or("?");
         let state = if m["enabled"] != true {
@@ -1283,15 +1338,18 @@ fn print_machines(list: &Value, port: u16) {
         } else if m["tunnel"] == true {
             "connected, but its Herdr does not answer".to_string()
         } else {
-            "not connected".to_string()
+            let since = m["downSince"].as_str().map(|s| format!(" since {s}")).unwrap_or_default();
+            format!("disconnected{since}")
         };
         println!("machine {label} ({}): {state}", m["ssh"].as_str().unwrap_or("?"));
         for why in [&m["tunnelError"], &m["error"]].into_iter().filter_map(|e| e.as_str()) {
-            println!("  {why}");
+            println!("  last error: {why}");
         }
-        let rport = m["port"].as_u64().unwrap_or(0) as u16;
-        if rport != port && m["enabled"] == true {
-            println!("  agents there need WORKRIVER_PORT={rport}");
+        if let Some(n) = m["retryIn"].as_u64().filter(|_| m["tunnel"] != true && m["enabled"] == true) {
+            println!("  next attempt in {n} s");
+        }
+        if let Some(p) = m["port"].as_u64() {
+            println!("  its port there: {p} (in ~/{} there, which the workriver CLI there reads)", machines::PORT_FILE);
         }
     }
 }
@@ -1500,6 +1558,12 @@ fn t_owner(state: &core::State, t: &core::Task) -> String {
     state.units.iter().find(|u| has(&u.tasks)).map(|u| u.id.clone()).or_else(|| state.intents.iter().find(|i| has(&i.tasks)).map(|i| i.id.clone())).unwrap_or_default()
 }
 
+/// Since when a machine is disconnected, as the snapshot `ws` says; none while connected.
+fn down_since(ws: &Value, machine: &str) -> Option<String> {
+    let m = ws["machines"].as_array()?.iter().find(|m| m["label"] == machine)?;
+    (m["tunnel"] != true && m["enabled"] == true).then(|| m["downSince"].as_str().unwrap_or("now").to_string())
+}
+
 /// The board as text, as the caller may see it.
 fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     use std::fmt::Write as _;
@@ -1589,6 +1653,10 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
             let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]  {progress}{why}", u.id, u.title, u.repo, u.branch, u.base);
+            // Its machine is disconnected: what is shown is as last read, and nothing waited on it.
+            if let Some(since) = u.machine.as_deref().and_then(|m| down_since(&ws, m)) {
+                let _ = writeln!(out, "    {} is disconnected since {since}: as last read", u.machine.as_deref().unwrap_or_default());
+            }
             // Where it was before (a rebase onto a new branch): its work is the same unit's.
             for e in &u.earlier {
                 let _ = writeln!(out, "    previously on {} (from {}), {} commits seen there", e.branch, e.base, e.commits.len());

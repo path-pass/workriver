@@ -165,7 +165,8 @@ looked at now and then.
   on another machine carries a small chip with the machine's name (a server glyph): an
   agent's line in Agents, a unit's header and its line in the rail; an agent mark's tooltip
   ends with "@machine". When the machine cannot be reached, its agents stay as last seen,
-  faded, the chip dashed, and they raise nothing in Needs you. A workspace of another
+  faded, the chip dashed (its tooltip says since when it is disconnected), and they raise
+  nothing in Needs you. Settings says "disconnected since …" and when it connects again. A workspace of another
   machine is its own group in Agents, with the chip in its heading, until the user links it
   to a workspace of this machine; then its agents sit in that group (one manager, the same
   intents). Nothing is ever merged by name alone. Settings has "Other machines": each with

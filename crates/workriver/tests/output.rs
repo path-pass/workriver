@@ -75,3 +75,34 @@ fn serve_prints_nothing_that_signs_in() {
     }
     assert!(!said.contains("#k=") && !status.contains("#k="), "no sign-in link anywhere: {said}");
 }
+
+/// The CLI on a machine workriver follows: it finds the daemon by the port written there,
+/// and never hangs on a tunnel that is reconnecting: a port nobody listens on (refused), or
+/// the forward of a dead connection that accepts and never answers.
+#[test]
+fn the_cli_over_there_never_hangs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let remote_home = tmp.path().join("box-home");
+    std::fs::create_dir_all(remote_home.join(".config/workriver")).unwrap();
+    let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead_port = dead.local_addr().unwrap().port();
+    let refused = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    std::fs::write(remote_home.join(".config/workriver/daemon"), "the-mac\n").unwrap();
+    let run = |port: u16| {
+        std::fs::write(remote_home.join(".config/workriver/port"), format!("{port}\n")).unwrap();
+        let mut c = Command::new(BIN);
+        c.env("HOME", &remote_home).env("WORKRIVER_HOME", tmp.path().join("nothing")).env_remove("WORKRIVER_PORT");
+        for k in ["HERDR_ENV", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID"] {
+            c.env_remove(k);
+        }
+        let started = Instant::now();
+        let out = c.args(["board"]).output().unwrap();
+        (started.elapsed(), String::from_utf8_lossy(&out.stderr).into_owned(), out.status.success())
+    };
+    for (port, limit) in [(refused, Duration::from_secs(4)), (dead_port, Duration::from_secs(4))] {
+        let (took, err, ok) = run(port);
+        assert!(!ok && took < limit, "{took:?}: {err}");
+        assert!(err.contains(&format!("cannot reach workriver on the-mac through the ssh tunnel (port {port}, from ~/.config/workriver/port; it may be reconnecting); try again shortly")), "{err}");
+    }
+    drop(dead);
+}

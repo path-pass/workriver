@@ -35,8 +35,13 @@ export interface Machine {
   label: string;
   ssh: string;
   enabled: boolean;
-  /** The port over there that leads back to the service. */
-  port: number;
+  /** The port over there that leads back to the service, while connected (a new one per
+   *  connection, written there to ~/.config/workriver/port). */
+  port?: number | null;
+  /** The connection is down: since when. */
+  downSince?: string;
+  /** The next attempt to connect, in seconds. */
+  retryIn?: number;
   /** Its agents can be read now. */
   reachable: boolean;
   /** Just enabled: the first attempt to connect has not ended yet. */

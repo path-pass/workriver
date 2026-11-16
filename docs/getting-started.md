@@ -178,8 +178,10 @@ ln -s "$PWD/target/release/workriver" ~/.local/bin/workriver    # anywhere on PA
 workriver status                              # answers from the service on your machine
 ```
 
-If port 47820 is taken over there, add the machine with `--remote-port 47821` and put
-`export WORKRIVER_PORT=47821` into the shell profile there. If Herdr's socket is not at
+The port over there that leads to this service is a new one for every connection: ssh
+picks a free one, and workriver writes it there to `~/.config/workriver/port`, which the
+`workriver` command there reads (unless `WORKRIVER_PORT` is set). Nothing to configure. If
+Herdr's socket is not at
 `~/.config/herdr/herdr.sock` there (a named session), give it: `--herdr-socket <path>`.
 
 Agents over there show up with the machine's name. Ids are never assumed to be the same
@@ -204,7 +206,7 @@ manager or you: `workriver commit link <hash> u1#3`, or the "It belongs to task"
 the unregistered node; the link follows the commit through a rebase. For a unit over there,
 workriver reads its commits with git over ssh, every 15 seconds. Screenshots attached
 there are uploaded through the connection; messages to agents there link to them
-(`http://127.0.0.1:47820/api/attachments/…`). The terminal button focuses the pane in that
+(`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`). The terminal button focuses the pane in that
 machine's Herdr; switch to the machine in Herdr's sidebar yourself.
 
 ## 7. Update
@@ -235,9 +237,26 @@ service and says so when the command it was run with is another build.
   other than 0.9; workriver may still work, but it is untested.
 - **A machine shows "not connected"**: `workriver machine list` prints ssh's own words.
   *Permission denied* or *Host key verification failed*: make `ssh -o BatchMode=yes
-  <target> true` work first. *remote port forwarding failed*: the port is taken there, see
-  above. *connected, but its Herdr does not answer*: Herdr is not running there, or its
-  socket is elsewhere (`--herdr-socket`).
+  <target> true` work first. *remote port forwarding failed*: a forward in your ssh config
+  for that host fails workriver's connection; give workriver a Host alias without it.
+  *connected, but its Herdr does not answer*: Herdr is not running there, or its socket is
+  elsewhere (`--herdr-socket`).
+- **A machine goes "disconnected" after this computer slept or changed networks**: that
+  is expected and mends itself. ssh notices a dead line within about 30 seconds (and at
+  once after a sleep), workriver connects again, first after 2 seconds and then waiting
+  longer, at most a minute, and at once when the computer wakes. Meanwhile nothing waits
+  on that machine: its units and agents show as last seen, marked "disconnected since
+  14:02", and `workriver machine list` gives the last error and the next attempt. Each
+  connection gets a new port over there, so the sessions of dead connections that the
+  machine's sshd still keeps (it does not check that its clients are alive, and may keep
+  them for half an hour) are in nobody's way. The `workriver` command over there gives up
+  after a few seconds with "cannot reach workriver … through the ssh tunnel (it may be
+  reconnecting); try again shortly", rather than hanging.
+  If you run that machine's sshd, it can drop such sessions sooner: in
+  `/etc/ssh/sshd_config`, `ClientAliveInterval 15` and `ClientAliveCountMax 3`. Not
+  needed. To see them anyway, there: `ss -tnp | grep sshd` (a session per connection,
+  some with data waiting to be sent to a peer that is gone); they end on their own, or
+  with `kill` on that sshd process.
 - **"cannot tell which agent this is"** from the CLI in a pane: the service cannot reach
   Herdr (see above). To run a command as yourself meanwhile, use a terminal outside Herdr.
 - **"workriver answers the user, and agents from their own Herdr pane…" (401)**: the command or the page is not known to be you.

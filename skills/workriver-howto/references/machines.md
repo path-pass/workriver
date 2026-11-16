@@ -3,7 +3,7 @@
 **When:** agents run on another machine. Setting this up is **the user's**, from a terminal
 that is not an agent's pane, on the machine workriver runs on:
 
-    workriver machine add box --ssh me@box [--remote-port 47821] [--herdr-socket PATH]
+    workriver machine add box --ssh me@box [--herdr-socket PATH]
     workriver machine enable box          # waits, then says connected or why not
     workriver workspace link box:<workspace there> <workspace here>
 

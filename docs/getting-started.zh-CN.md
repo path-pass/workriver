@@ -160,8 +160,9 @@ ln -s "$PWD/target/release/workriver" ~/.local/bin/workriver    # PATH 里的任
 workriver status                              # 回答来自你这台机器上的服务
 ```
 
-如果那边的 47820 端口被占了，添加机器时加 `--remote-port 47821`，并在那边的 shell 配置里写
-`export WORKRIVER_PORT=47821`。如果那边 Herdr 的 socket 不在 `~/.config/herdr/herdr.sock`
+那边通往这个服务的端口每次连接都换一个：由 ssh 挑一个空闲的，workriver 把它写到那边的
+`~/.config/workriver/port`，那边的 `workriver` 命令会读它（除非设了 `WORKRIVER_PORT`）。不用配置。
+如果那边 Herdr 的 socket 不在 `~/.config/herdr/herdr.sock`
 （用了命名 session），用 `--herdr-socket <路径>` 指明。
 
 那边的 agent 会带着机器名显示。workriver 不假定任何 id 跨机器唯一；那边的工作区是独立的，即使和
@@ -180,7 +181,7 @@ workriver workspace link box:chat chat
 没写 `Task:` 尾注的提交可以事后关联到任务，由做这个任务的 agent、管理者或你来做：
 `workriver commit link <hash> u1#3`，或者在未登记节点上的"它属于任务"里选；变基之后关联仍然有效。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
 每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
-（`http://127.0.0.1:47820/api/attachments/…`）。终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；
+（`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`）。终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；
 在 Herdr 侧栏里切到那台机器要你自己来。
 
 ## 7. 更新
@@ -204,8 +205,20 @@ cargo build --release
   `WORKRIVER_PORT=47821`）。
 - **某台机器显示 "not connected"**：`workriver machine list` 会原样打印 ssh 的报错。
   *Permission denied* 或 *Host key verification failed*：先让 `ssh -o BatchMode=yes <目标> true`
-  能成功。*remote port forwarding failed*：那边端口被占，见上。*connected, but its Herdr does
-  not answer*：那边没有运行 Herdr，或者 socket 在别处（`--herdr-socket`）。
+  能成功。*remote port forwarding failed*：你的 ssh 配置里给这台主机设的端口转发让 workriver 的
+  连接失败了；给 workriver 一个不带这些转发的 Host 别名。*connected, but its Herdr does not
+  answer*：那边没有运行 Herdr，或者 socket 在别处（`--herdr-socket`）。
+- **电脑睡眠或换了网络之后，某台机器变成"断开"**：这是预期的，会自己恢复。ssh 大约 30 秒内会
+  发现连接已死（睡眠醒来后立刻发现），workriver 随即重连：先等 2 秒，之后越等越久，最多一分钟；
+  电脑醒来时立刻重连。这期间不会有任何操作卡在那台机器上：它的单元和 agent 显示为上次看到的
+  状态，标着"14:02 起断开"，`workriver machine list` 会给出最后一次的错误和下次重连的时间。每次
+  连接在那边用一个新端口，所以那台机器的 sshd 还留着的死连接会话（它不检查客户端是否还活着，
+  可能留半小时）挡不着任何事。那边的 `workriver` 命令几秒内就会放弃，提示 "cannot reach
+  workriver … through the ssh tunnel (it may be reconnecting); try again shortly"，而不会卡住。
+  如果那台机器的 sshd 归你管，可以让它更快丢掉这种会话：在 `/etc/ssh/sshd_config` 里设
+  `ClientAliveInterval 15` 和 `ClientAliveCountMax 3`。不是必需的。想看一眼的话，在那边运行
+  `ss -tnp | grep sshd`（每个连接一个会话，有的还有数据等着发给已经不在的对端）；它们会自己
+  结束，也可以 `kill` 掉对应的 sshd 进程。
 - **页面说连不上服务**：`workriver serve` 没在运行，或者跑在别的端口上。
 - **`agent runtime: not connected`**，或者启动时有关于 Herdr 的警告（`workriver status`
   会显示）：Herdr 没在运行，或者服务看的是另一个 socket。在 Herdr 窗格里启动服务，或者设

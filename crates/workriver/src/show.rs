@@ -56,6 +56,9 @@ pub struct Part {
 pub struct Place {
     /// None: the machine workriver runs on.
     pub machine: Option<String>,
+    /// That machine is disconnected: since when (what is shown is as last read).
+    #[serde(rename = "disconnectedSince", default, skip_serializing_if = "Option::is_none")]
+    pub disconnected_since: Option<String>,
     pub repo: String,
     pub branch: String,
     pub base: String,
@@ -236,7 +239,16 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             about: u.purpose.clone(),
             progress: Some(shown.and_then(|x| x["progress"].as_str()).map(str::to_string).unwrap_or_else(|| name(&state.progress(u)))),
         }),
-        place: u.filter(|u| !u.branch.is_empty()).map(|u| Place { machine: u.machine.clone(), repo: u.repo.clone(), branch: u.branch.clone(), base: u.base.clone() }),
+        place: u.filter(|u| !u.branch.is_empty()).map(|u| Place {
+            machine: u.machine.clone(),
+            disconnected_since: u.machine.as_deref().and_then(|m| {
+                let x = ws["machines"].as_array()?.iter().find(|x| x["label"] == m)?;
+                (x["tunnel"] != true).then(|| x["downSince"].as_str().unwrap_or("now").to_string())
+            }),
+            repo: u.repo.clone(),
+            branch: u.branch.clone(),
+            base: u.base.clone(),
+        }),
         agent: t.agent.as_deref().map(|a| who(state, a)),
         blind: t.blind,
         text: t.text.clone(),
@@ -323,6 +335,9 @@ pub fn text(s: &TaskShow) -> String {
     if let Some(p) = &s.place {
         let on = p.machine.as_deref().map(|m| format!("on machine {m}")).unwrap_or_else(|| "on the machine workriver runs on".into());
         let _ = writeln!(out, "Where: {on}: {}, branch {} (from {})", p.repo, p.branch, p.base);
+        if let Some(since) = &p.disconnected_since {
+            let _ = writeln!(out, "  (that machine is disconnected since {since}: commits as last read)");
+        }
     }
     let _ = writeln!(out, "Agent: {}", s.agent.as_deref().unwrap_or("(none yet)"));
     if !s.text.is_empty() && s.text != s.title {
