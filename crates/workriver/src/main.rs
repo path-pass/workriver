@@ -396,7 +396,8 @@ enum UnitCmd {
         /// The repository (or a worktree of it); default: the current directory.
         #[arg(long, default_value = ".")]
         repo: String,
-        /// The branch the work happens on; it may not exist yet.
+        /// The unit's own branch, where the work happens; it may not exist yet. It starts
+        /// with feat/, chore/ or fix/ (feat/mention) and is not the base.
         #[arg(long)]
         branch: String,
         /// The branch it starts from and merges into.
@@ -429,7 +430,8 @@ enum UnitCmd {
         /// The repository's path on that machine.
         #[arg(long)]
         repo: Option<String>,
-        /// The branch as it is named there.
+        /// The branch as it is named there. A new name starts with feat/, chore/ or fix/
+        /// and is not the base.
         #[arg(long)]
         branch: Option<String>,
         #[arg(long)]

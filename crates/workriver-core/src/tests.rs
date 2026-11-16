@@ -10,7 +10,7 @@ fn body(v: serde_json::Value) -> Body {
 fn seeded(store: &mut Store) {
     let steps = [
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
-        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "mention", "base": "main"}}),
+        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
         json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}),
         json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}),
         json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "npm test", "result": "passed", "summary": "6 passed"}]}}),
@@ -52,7 +52,7 @@ fn rules_reject_bad_input() {
         let err = s.append(&"agent-a".into(), body(v)).unwrap_err().to_string();
         assert!(err.contains(says), "{err:?} does not say {says:?}");
     };
-    rejects(json!({"kind": "unit.created", "body": {"intent": "i9", "title": "x", "repo": "/r", "branch": "b", "base": "main"}}), "no intent i9");
+    rejects(json!({"kind": "unit.created", "body": {"intent": "i9", "title": "x", "repo": "/r", "branch": "feat/b", "base": "main"}}), "no intent i9");
     rejects(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "inputs": [{"from": "7"}]}}), "no task u1#7");
     // A finding without a where.
     rejects(
@@ -202,6 +202,37 @@ fn add(s: &mut Store, actor: &str, v: serde_json::Value) -> Result<Event, String
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
+/// A unit's branch is its own and says what it holds; units named before that rule still
+/// load from the records and keep working.
+#[test]
+fn unit_branches_take_a_prefix_but_old_ones_replay() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let unit = |branch: &str, base: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "x", "repo": "/r", "branch": branch, "base": base}});
+    for (branch, base, says) in [("ja-ui", "main", "starts with feat/, chore/ or fix/"), ("feat/", "main", "and a name"), ("feature/x", "main", "e.g. --branch feat/x"), ("main", "main", "must not be its base"), ("feat/x", "feat/x", "must not be its base"), ("main", "origin/main", "must not be its base")] {
+        let e = add(&mut s, "user", unit(branch, base)).unwrap_err();
+        assert!(e.contains(says), "{branch} from {base}: {e}");
+    }
+    for branch in ["feat/x", "chore/deps", "fix/login"] {
+        add(&mut s, "user", unit(branch, "main")).unwrap();
+    }
+    let moved = |branch: &str, base: &str| json!({"kind": "unit.relocated", "body": {"unit": "u2", "repo": "/r", "branch": branch, "base": base}});
+    assert!(add(&mut s, "user", moved("x2", "main")).unwrap_err().contains("starts with feat/"));
+    add(&mut s, "user", moved("fix/x2", "main")).unwrap();
+
+    // Written before the rule: straight into the records, as an old database has it.
+    let conn = rusqlite::Connection::open(s.path()).unwrap();
+    conn.execute("INSERT INTO events (at, kind, actor, intent, unit, body) VALUES ('2026-01-01T00:00:00Z', 'unit.created', 'user', 'i1', 'u5', ?1)", [json!({"id": "u5", "intent": "i1", "title": "ja", "repo": "/r", "branch": "ja-ui", "base": "main"}).to_string()]).unwrap();
+    drop(conn);
+    let mut s = Store::open(s.path()).unwrap();
+    assert_eq!(s.state().unit("u5").unwrap().branch, "ja-ui");
+    add(&mut s, "user", json!({"kind": "task.created", "body": {"unit": "u5", "kind": "implement", "title": "Translate"}})).unwrap();
+    // Moved to another base, its name stays; a new name follows the rule.
+    add(&mut s, "user", json!({"kind": "unit.relocated", "body": {"unit": "u5", "repo": "/r", "branch": "ja-ui", "base": "develop"}})).unwrap();
+    assert!(add(&mut s, "user", json!({"kind": "unit.relocated", "body": {"unit": "u5", "repo": "/r", "branch": "ja-ui-2", "base": "develop"}})).unwrap_err().contains("starts with feat/"));
+    assert_eq!(replayed(&s).unit("u5").unwrap().base, "develop");
+}
+
 /// The state rebuilt from the records alone.
 fn replayed(s: &Store) -> State {
     Store::open(s.path()).unwrap().state().clone()
@@ -231,7 +262,7 @@ fn intent_states_and_workspaces() {
     // Done: no longer current, no new units; done cannot start again; dropping needs a reason.
     add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "done"}})).unwrap();
     assert_eq!(s.state().intent_for(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).map(|i| i.id.as_str()), Some("i1"), "the other active intent there is current again");
-    let e = add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "x", "repo": "/r", "branch": "b", "base": "main"}})).unwrap_err();
+    let e = add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "x", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap_err();
     assert!(e.contains("is done"), "{e}");
     let e = add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": w1}})).unwrap_err();
     assert!(e.contains("cannot become active"), "{e}");
@@ -280,7 +311,7 @@ fn intent_level_research() {
     let t = st.task("i1", 1).unwrap();
     assert_eq!((t.state, t.intent.as_str()), (TaskState::Done, "i1"));
     // A unit's tasks record their intent too.
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "b", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x"}})).unwrap();
     assert_eq!(s.state().task("u1", 1).unwrap().intent, "i1");
 }
@@ -314,7 +345,7 @@ fn deferred_batches() {
     assert_eq!(st.backlog[0].finding.state, FindingState::Scheduled);
     assert_eq!(st.backlog[0].intent.as_deref(), Some("i1"));
     // One cleanup unit, one task with both as causes; delivering it finishes them.
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Cleanup", "repo": "/r", "branch": "c", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Cleanup", "repo": "/r", "branch": "chore/c", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "Fix both", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}, {"task": 0, "findings": ["f1"]}]}})).unwrap();
     assert_eq!(s.state().task("u2", 1).unwrap().inputs[0].from, "start", "causes in other units are not inputs");
     add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u2", "task": 1}})).unwrap();
@@ -337,7 +368,7 @@ fn old_records_map_onto_workspaces() {
     let w = json!({"id": "wM", "label": "workriver"});
     add(&mut s, "workriver", json!({"kind": "intent.created", "body": {"id": "", "title": "workriver", "goal": "", "runtime_ref": w}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "boss"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "ja", "repo": "/r", "branch": "ja-ui", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "ja", "repo": "/r", "branch": "feat/ja-ui", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "impl"}})).unwrap();
     let st = replayed(&s);
     let i = st.intent("i1").unwrap();
@@ -443,7 +474,7 @@ fn a_blind_task_sees_only_its_own() {
     seeded(&mut s);
     assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "blind": true}})).unwrap_err().contains("--blind is for"));
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "text": "Look for ways around the mention check", "inputs": [{"from": "1"}], "agent": "sec", "blind": true}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Other unit", "repo": "/r2", "branch": "o", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Other unit", "repo": "/r2", "branch": "feat/o", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
     add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?"}})).unwrap();
     add(&mut s, "user", json!({"kind": "finding.added", "body": {"project": "/r", "finding": {"severity": "P2", "problem": "Old leak"}}})).unwrap();
@@ -456,7 +487,7 @@ fn a_blind_task_sees_only_its_own() {
     assert!(s.state().blind_view("agent-a").is_none() && s.state().blind_view("boss").is_none(), "only the agent on the blind task");
     let v = s.state().blind_view("sec").unwrap();
     assert!(v.reduced);
-    assert_eq!(v.units.iter().map(|u| (u.id.as_str(), u.title.as_str(), u.branch.as_str(), u.tasks.len())).collect::<Vec<_>>(), [("u1", "Mentions", "mention", 1)]);
+    assert_eq!(v.units.iter().map(|u| (u.id.as_str(), u.title.as_str(), u.branch.as_str(), u.tasks.len())).collect::<Vec<_>>(), [("u1", "Mentions", "feat/mention", 1)]);
     assert_eq!((v.units[0].tasks[0].n, v.units[0].tasks[0].text.as_str()), (3, "Look for ways around the mention check"));
     assert_eq!((v.intents.len(), v.intents[0].title.as_str()), (1, "Chat v2"));
     assert!(v.chores.is_empty() && v.questions.is_empty() && v.threads.is_empty() && v.backlog.is_empty() && v.roadmap.is_empty());
@@ -486,7 +517,7 @@ fn units_are_where_the_work_is() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"workspace": w1}})).unwrap();
     add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
-    let unit = |machine: Option<&str>| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/srv/app", "branch": "f", "base": "main", "machine": machine}});
+    let unit = |machine: Option<&str>| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/srv/app", "branch": "feat/f", "base": "main", "machine": machine}});
     // The manager is on this machine, the workers on box.
     let e = add(&mut s, "boss", unit(Some("box"))).unwrap_err();
     assert!(e.contains("workriver workspace link box:<workspace there> chat"), "{e}");
@@ -502,12 +533,12 @@ fn units_are_where_the_work_is() {
     add(&mut s, "boss", unit(None)).unwrap();
 
     // Recorded in the wrong place: moved, by the manager or the user only.
-    let moved = json!({"kind": "unit.relocated", "body": {"unit": "u4", "machine": "box", "repo": "/home/me/app", "branch": "feature", "base": "main"}});
+    let moved = json!({"kind": "unit.relocated", "body": {"unit": "u4", "machine": "box", "repo": "/home/me/app", "branch": "feat/feature", "base": "main"}});
     assert!(add(&mut s, "worker", moved.clone()).unwrap_err().contains("moves its units"));
     add(&mut s, "boss", moved).unwrap();
     let u = replayed(&s).unit("u4").unwrap().clone();
-    assert_eq!((u.machine.as_deref(), u.repo.as_str(), u.branch.as_str()), (Some("box"), "/home/me/app", "feature"));
-    assert!(add(&mut s, "boss", json!({"kind": "unit.relocated", "body": {"unit": "u4", "machine": "nowhere", "repo": "/x", "branch": "f", "base": "main"}})).unwrap_err().contains("no workspace on nowhere is linked"));
+    assert_eq!((u.machine.as_deref(), u.repo.as_str(), u.branch.as_str()), (Some("box"), "/home/me/app", "feat/feature"));
+    assert!(add(&mut s, "boss", json!({"kind": "unit.relocated", "body": {"unit": "u4", "machine": "nowhere", "repo": "/x", "branch": "feat/f", "base": "main"}})).unwrap_err().contains("no workspace on nowhere is linked"));
 
     // Chores: an intent's, a project's, nobody's.
     add(&mut s, "boss", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
@@ -567,7 +598,7 @@ fn findings_grow_after_they_are_decided() {
 fn a_gate_waits_only_once_what_it_follows_is_done() {
     let (_dir, mut s) = temp_store();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "f", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "1"}, {"from": "2", "primary": false}]}})).unwrap();

@@ -189,12 +189,25 @@ pub struct Named {
     pub task: Option<String>,
 }
 
-/// The commits on `branch` since `base`, oldest first, by name only: one git call.
+/// The commits on `branch` since `base`, oldest first, by name only.
 pub fn names(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<Named>> {
     if !has_rev(at, repo, branch) {
         return Ok(vec![]);
     }
-    log(at, repo, &["--reverse", &format!("{base}..{branch}")])
+    since(at, repo, base, branch)
+}
+
+/// `base..branch` (first parent), oldest first, and not what the base's upstream has either
+/// when it has one: a local `main` is often behind `origin/main`, and a branch made from (or
+/// rebased onto) the newer one would otherwise take in every commit in between. Two git calls.
+fn since(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<Named>> {
+    let upstream = format!("^{base}@{{upstream}}");
+    let not_base = format!("^{base}");
+    let mut args = vec!["--reverse", branch, &not_base];
+    if has_rev(at, repo, &upstream[1..]) {
+        args.push(&upstream);
+    }
+    log(at, repo, &args)
 }
 
 /// `git log --first-parent` with `args`, by name only.
@@ -233,11 +246,11 @@ const WALK: &str = "300";
 
 /// A unit's commits on `branch`. The rules, in one place:
 ///
-/// - The branch has commits `base` has not (`base..branch`, first parent): they are the
-///   unit's, and `fork` (the parent of the oldest) is where they start. A squash merge
+/// - The branch has commits `base` has not (`base..branch`, first parent, nor the base's
+///   upstream: see `since`): they are the unit's, and `fork` (the parent of the oldest) is where they start. A squash merge
 ///   leaves the branch this way while it exists: its commits are still listed.
-/// - The branch is all in `base` (merged by fast-forward or a merge commit; `base..branch`
-///   is empty): merged, and the unit's commits are `fork..branch` (first parent) when the
+/// - The branch is all in `base` or its upstream (merged by fast-forward or a merge commit;
+///   `base..branch` is empty): merged, and the unit's commits are `fork..branch` (first parent) when the
 ///   fork is known; else, walking back from the tip, every commit down to the oldest one
 ///   `ours` recognises (its `Task:` trailer, a link). None recognised, or the tip is the
 ///   fork itself: nothing of the unit's yet, `Fresh`.
@@ -246,7 +259,7 @@ pub fn branch(at: &Runner, repo: &Path, base: &str, branch: &str, fork: Option<&
     if !has_rev(at, repo, branch) {
         return Ok(Found::Gone);
     }
-    let ahead = names(at, repo, base, branch)?;
+    let ahead = since(at, repo, base, branch)?;
     if let Some(oldest) = ahead.first() {
         let fork = format!("{}^", oldest.hash);
         return Ok(Found::Ahead { commits: ahead, fork });

@@ -73,15 +73,15 @@ function Machines({ ws }: { ws: Workspace | null }) {
           <h4 className="pt-1 text-xs font-semibold">{t('machines.links')}</h4>
           <p className="text-xs text-ink-2">{t('machines.linkLead')}</p>
           {there.map(g => (
-            <label key={g.id} className="flex items-center gap-2 text-sm">
-              <span className="min-w-0 flex-1 truncate"><span className="font-mono text-xs text-ink-2">{g.machine}:</span>{g.label}</span>
+            <label key={g.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-center gap-2 text-sm">
+              <span className="truncate" title={`${g.machine}:${g.label}`}><span className="font-mono text-xs text-ink-2">{g.machine}:</span>{g.label}</span>
               {/* A linked workspace that is not open here now still shows what it is linked to. */}
               <Choice
                 label={t('machines.linkTo', { machine: g.machine, workspace: g.label })}
                 value={g.linkedTo ?? NONE}
                 onChange={v => link(g.machine!, g.label, v === NONE ? '' : v, g.linkedTo)}
                 options={[{ value: NONE, label: t('machines.notLinked') }, ...[...new Set([...here.map(h => h.label), ...(g.linkedTo ? [g.linkedTo] : [])])].map(l => ({ value: l, label: l }))]}
-                className="h-7 max-w-[45%]"
+                className="h-7 w-full"
               />
             </label>
           ))}
@@ -114,7 +114,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent closeLabel={t('settings.close')}>
+      <DialogContent closeLabel={t('settings.close')} className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>

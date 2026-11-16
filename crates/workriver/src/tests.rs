@@ -31,7 +31,7 @@ fn daemon_smoke() {
     std::fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "feature"]);
+    git(&repo, &["switch", "-q", "-c", "feat/feature"]);
     std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "two\n\nTask: u1#1"]);
 
@@ -44,7 +44,7 @@ fn daemon_smoke() {
     let d = client(port, tmp.path());
     d.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
     let repo = repo.to_string_lossy();
-    d.append("user", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo, "branch": "feature", "base": "main" })).unwrap();
+    d.append("user", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo, "branch": "feat/feature", "base": "main" })).unwrap();
     d.append("manager", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Find mentions" })).unwrap();
     d.append("agent-a", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     d.append("agent-a", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P2", "problem": "p", "impact": "i", "where": ["a.txt"] }] })).unwrap();
@@ -161,7 +161,7 @@ fn identity_intents_and_delivery() {
     let again = d.call("/api/here", Some(json!({ "place": "p2" }))).unwrap();
     assert_eq!((again["actor"].as_str(), again["intent"].as_str()), (Some("s-rev"), Some("i1")));
 
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "agent": "rev" })).unwrap();
     d.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
@@ -214,7 +214,7 @@ fn pick_up_survives_a_restart() {
     let a = start(busy.clone());
     a.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
     a.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
-    a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     a.append("s-rev", "task.created", json!({ "unit": "u1", "kind": "review" })).unwrap();
     a.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
@@ -278,7 +278,7 @@ fn asking_why() {
     let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1) };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the mentions", "agent": "s-w" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm the design", "inputs": [{ "from": "1" }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
@@ -354,7 +354,7 @@ fn asking_without_a_runtime() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     d.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
-    d.append("user", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("user", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("user", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "x" })).unwrap();
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why?" }))).unwrap();
     wait_until("it fails as runtime-down", || {
@@ -400,7 +400,7 @@ fn agents_ask_each_other() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
     d.call("/api/here", Some(json!({ "place": "p3" }))).unwrap();
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API", "agent": "s-back" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
 
@@ -452,7 +452,7 @@ fn attachments_round_trip() {
     std::fs::create_dir(&home).unwrap();
     let d = daemon_with(fake.clone(), &home.join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "tests", "agent": "s-t" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
 
@@ -559,8 +559,8 @@ fn projects_workspaces_and_batches() {
     assert!(e.contains("cannot become active"), "{e}");
 
     // Reviews in i1 (w1) and i3 (w2): each delivery goes to its own workspace's manager.
-    d.append("s-b1", "unit.created", json!({ "intent": "i1", "title": "Tokens", "repo": path(&proj.join("api")), "branch": "t", "base": "main" })).unwrap();
-    d.append("s-b2", "unit.created", json!({ "intent": "i3", "title": "Solo", "repo": path(&tmp.path().join("solo")), "branch": "s", "base": "main" })).unwrap();
+    d.append("s-b1", "unit.created", json!({ "intent": "i1", "title": "Tokens", "repo": path(&proj.join("api")), "branch": "feat/t", "base": "main" })).unwrap();
+    d.append("s-b2", "unit.created", json!({ "intent": "i3", "title": "Solo", "repo": path(&tmp.path().join("solo")), "branch": "feat/s", "base": "main" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     for u in ["u1", "u2"] {
         d.append("s-rev", "task.created", json!({ "unit": u, "kind": "review" })).unwrap();
@@ -716,7 +716,7 @@ fn machines_are_separate_until_linked() {
     assert_eq!(via_box.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
 
     // A unit recorded from the other machine has its repository there.
-    let unit = via_box.append("s-far", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    let unit = via_box.append("s-far", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     assert_eq!(unit["body"]["machine"], "box");
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     // A review delivered there reaches the manager here; a file it attached is, for an agent
@@ -950,7 +950,7 @@ fn only_the_user_is_the_user() {
     let reg = boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     assert_eq!((reg["actor"].as_str(), reg["body"]["agent"].as_str()), (Some("s-boss"), Some("s-boss")), "in an agent's pane the token changes nothing");
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{ "from": "1" }] })).unwrap();
     boss.append("", "chore.created", json!({ "intent": "i1", "title": "Rotate the key" })).unwrap();
@@ -1154,7 +1154,7 @@ fn blind_reviews() {
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "f"]);
+    git(&repo, &["switch", "-q", "-c", "feat/f"]);
     std::fs::write(repo.join("auth.rs"), "fn check() {}\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "SECRET-SUBJECT trust me, it is safe\n\nTask: u1#1"]);
@@ -1173,7 +1173,7 @@ fn blind_reviews() {
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
     imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     let shot = tmp.path().join("shot.png");
@@ -1189,7 +1189,7 @@ fn blind_reviews() {
     let text = state.to_string();
     assert_eq!(state["reduced"], true);
     assert_eq!((state["units"][0]["tasks"].as_array().unwrap().len(), state["units"][0]["tasks"][0]["text"].as_str()), (1, Some("Find ways around the token check")));
-    assert_eq!((state["units"][0]["branch"].as_str(), state["units"][0]["base"].as_str(), state["intents"][0]["goal"].as_str()), (Some("f"), Some("main"), Some("Safe login")));
+    assert_eq!((state["units"][0]["branch"].as_str(), state["units"][0]["base"].as_str(), state["intents"][0]["goal"].as_str()), (Some("feat/f"), Some("main"), Some("Safe login")));
     let ws = sec.get("/api/workspace").unwrap();
     let unit = &ws["intents"][0]["units"][0];
     assert_eq!((ws["reduced"].as_bool(), unit["tasks"].as_array().unwrap().len(), unit["commits"].as_array().unwrap().len()), (Some(true), 1, 1));
@@ -1199,7 +1199,7 @@ fn blind_reviews() {
         assert!(!text.contains(hidden) && !ws.to_string().contains(hidden), "{hidden} is hidden");
     }
     let board = crate::board_text(&sec, None).unwrap();
-    assert!(board.starts_with("blind review: other work is hidden until you deliver.") && board.contains("#2 running  review (security-review) [blind]") && board.contains("Find ways around the token check") && board.contains("diff main...f") && !board.contains("#1 ") && !board.contains("Check tokens\n"), "{board}");
+    assert!(board.starts_with("blind review: other work is hidden until you deliver.") && board.contains("#2 running  review (security-review) [blind]") && board.contains("Find ways around the token check") && board.contains("diff main...feat/f") && !board.contains("#1 ") && !board.contains("Check tokens\n"), "{board}");
     // Files: its own, not others'.
     let mine = sec.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
     assert_eq!(theirs, mine, "the same bytes are one stored file");
@@ -1260,7 +1260,7 @@ fn units_on_another_machine() {
         git(r, &["init", "-q", "-b", "main"]);
         git(r, &["commit", "-q", "--allow-empty", "-m", "base"]);
     }
-    git(&there, &["switch", "-q", "-c", "feature"]);
+    git(&there, &["switch", "-q", "-c", "feat/feature"]);
     git(&there, &["commit", "-q", "--allow-empty", "-m", "work there"]);
     let path = |p: &std::path::Path| std::fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
 
@@ -1285,31 +1285,31 @@ fn units_on_another_machine() {
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
 
     // What happened on the work machine: recorded on the manager's side, with a ref that only exists there.
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "hub/feature", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "feat/hub", "base": "main" })).unwrap();
     // Recording it where the work is needs the two workspaces linked.
-    let on_box = json!({ "intent": "i1", "title": "Queue", "repo": path(&there), "branch": "feature", "base": "main", "machine": "box" });
+    let on_box = json!({ "intent": "i1", "title": "Queue", "repo": path(&there), "branch": "feat/feature", "base": "main", "machine": "box" });
     assert!(boss.append("", "unit.created", on_box.clone()).unwrap_err().to_string().contains("workspace link box:"));
     user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     let made = boss.append("", "unit.created", on_box).unwrap();
     assert_eq!((made["body"]["machine"].as_str(), made["body"]["repo"].as_str()), (Some("box"), Some(path(&there).as_str())));
     // The path and the base are checked on that machine.
-    let e = boss.append("", "unit.created", json!({ "intent": "i1", "title": "x", "repo": "/no/such/repo", "branch": "f", "base": "main", "machine": "box" })).unwrap_err().to_string();
+    let e = boss.append("", "unit.created", json!({ "intent": "i1", "title": "x", "repo": "/no/such/repo", "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string();
     assert!(e.contains("/no/such/repo on box is not a git repository"), "{e}");
 
     // The first unit is corrected: what is not given stays.
-    let moved = boss.append("", "unit.relocated", json!({ "unit": "u1", "machine": "box", "repo": path(&there), "branch": "feature", "base": "" })).unwrap();
-    assert_eq!(moved["body"], json!({ "unit": "u1", "machine": "box", "repo": path(&there), "branch": "feature", "base": "main" }));
+    let moved = boss.append("", "unit.relocated", json!({ "unit": "u1", "machine": "box", "repo": path(&there), "branch": "feat/feature", "base": "" })).unwrap();
+    assert_eq!(moved["body"], json!({ "unit": "u1", "machine": "box", "repo": path(&there), "branch": "feat/feature", "base": "main" }));
     assert!(boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "", "base": "nope" })).unwrap_err().to_string().contains("base \"nope\" is not a commit or branch"));
     let back = user.append("", "unit.relocated", json!({ "unit": "u2", "machine": "local", "repo": path(&here), "branch": "", "base": "" })).unwrap();
-    assert!(back["body"]["machine"].is_null() && back["body"]["branch"] == "feature");
+    assert!(back["body"]["machine"].is_null() && back["body"]["branch"] == "feat/feature");
 
     // Read over ssh in the background, never while a request waits.
     wait_until("read over ssh", || user.get("/api/workspace").unwrap()["intents"][0]["units"][0]["commits"].as_array().unwrap().len() == 1);
     let ws = user.get("/api/workspace").unwrap();
     let u1 = &ws["intents"][0]["units"][0];
-    assert_eq!((u1["machine"].as_str(), u1["branch"].as_str()), (Some("box"), Some("feature")), "{u1}");
+    assert_eq!((u1["machine"].as_str(), u1["branch"].as_str()), (Some("box"), Some("feat/feature")), "{u1}");
     let board = crate::board_text(&boss, None).unwrap();
-    assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feature from main]", path(&there))), "{board}");
+    assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feat/feature from main]", path(&there))), "{board}");
 
     // The line to box dies (the computer slept): nothing waits on box until it is back.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Drain", "agent": "s-worker" })).unwrap();
@@ -1330,7 +1330,7 @@ fn units_on_another_machine() {
     let started = std::time::Instant::now();
     let e = workriver_core::runtime::Runtime::send(all.as_ref(), "s-worker", "hi").unwrap_err().to_string();
     assert!(started.elapsed() < std::time::Duration::from_millis(200) && e.contains("machine box is disconnected since "), "{e}");
-    assert!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "y", "repo": path(&there), "branch": "f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
+    assert!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "y", "repo": path(&there), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
     std::fs::remove_file(&slow).unwrap();
 
     // Chores of no intent: a project's, and nobody's.
@@ -1384,7 +1384,7 @@ fn findings_after_the_fact() {
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
@@ -1445,7 +1445,7 @@ fn linked_commits_and_rebased_branches() {
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "f"]);
+    git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let commit = |file: &str, message: &str| {
         std::fs::write(repo.join(file), format!("{file}\n")).unwrap();
         git(&repo, &["add", "."]);
@@ -1473,7 +1473,7 @@ fn linked_commits_and_rebased_branches() {
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for title in ["First", "Second"] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w" })).unwrap();
     }
@@ -1502,19 +1502,19 @@ fn linked_commits_and_rebased_branches() {
     // branch, and one commit is left behind.
     git(&repo, &["switch", "-q", "main"]);
     commit("mainline.rs", "Mainline moved");
-    git(&repo, &["switch", "-q", "-c", "f2"]);
+    git(&repo, &["switch", "-q", "-c", "feat/f2"]);
     git(&repo, &["cherry-pick", &c1, &c2]);
-    assert!(w.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "f2", "base": "" })).unwrap_err().to_string().contains("only the manager of intent i1 (boss) or the user moves its units"));
-    let moved = boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "f2", "base": "" })).unwrap();
+    assert!(w.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "feat/f2", "base": "" })).unwrap_err().to_string().contains("only the manager of intent i1 (boss) or the user moves its units"));
+    let moved = boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "feat/f2", "base": "" })).unwrap();
     assert_eq!(moved["body"]["previous"].as_array().unwrap().iter().map(|c| (c["hash"].as_str().unwrap().to_string(), c["task"].as_u64())).collect::<Vec<_>>(), [(c1.clone(), Some(1)), (c2.clone(), Some(1)), (c3.clone(), Some(2))]);
     let u = unit();
-    assert_eq!((u["branch"].as_str(), u["previously"][0].as_str(), u["commits"].as_array().unwrap().len()), (Some("f2"), Some("f"), 2), "read from the new branch");
+    assert_eq!((u["branch"].as_str(), u["previously"][0].as_str(), u["commits"].as_array().unwrap().len()), (Some("feat/f2"), Some("feat/f"), 2), "read from the new branch");
     assert!(u["commits"].as_array().unwrap().iter().all(|c| c["id"].as_str() != Some(&c1[..9]) && c["id"].as_str() != Some(&c2[..9])), "new hashes");
     assert_eq!(tasks(&u), [("todo".into(), 2), ("todo".into(), 0)], "the trailer and the link both follow the rebase; nothing became a gap");
     assert_eq!(u["commits"][1]["linked"], true, "found again by its patch id");
     assert_eq!(u["tasks"][1]["lostCommits"], json!([&c3[..9]]), "its commit was on the old branch only: said, not shown as none");
     let board = crate::board_text(&boss, None).unwrap();
-    assert!(board.contains("previously on f (from main), 3 commits seen there") && board.contains(&format!("#2: commits not on the current branch: {}", &c3[..9])), "{board}");
+    assert!(board.contains("previously on feat/f (from main), 3 commits seen there") && board.contains(&format!("#2: commits not on the current branch: {}", &c3[..9])), "{board}");
 
     // Changed on the way (a conflict resolved in the rebase): its patch id is another, and it
     // is found by its subject and author date.
@@ -1600,7 +1600,7 @@ fn a_task_shown_in_full() {
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "f"]);
+    git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle)), ("p4".into(), live("s-sec", "sec", "w1", Idle))];
     let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
@@ -1616,7 +1616,7 @@ fn a_task_shown_in_full() {
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login.", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
     rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"], "suggestion": { "decision": "accept", "reason": "Easy to fix" } }] })).unwrap();
@@ -1648,7 +1648,7 @@ fn a_task_shown_in_full() {
     let s: crate::show::TaskShow = serde_json::from_value(shown.clone()).unwrap();
     assert_eq!(s.text, long, "untruncated");
     assert_eq!((s.kind.as_str(), s.state.as_str(), s.written_by.as_str(), s.agent.as_deref(), s.intent.about.as_str()), ("implement", "running", "boss", Some("fix"), "Safe login."));
-    assert_eq!(s.place.as_ref().map(|p| (p.machine.clone(), p.branch.as_str(), p.base.as_str())), Some((None, "f", "main")));
+    assert_eq!(s.place.as_ref().map(|p| (p.machine.clone(), p.branch.as_str(), p.base.as_str())), Some((None, "feat/f", "main")));
     let cause = &s.causes[0];
     assert_eq!((cause.from.as_str(), cause.finding.reported_by.as_str(), cause.finding.state.as_str()), ("u1#2", "rev", "revised"));
     assert_eq!(cause.finding.decisions.iter().map(|d| (d.state.as_str(), d.by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("accepted", "the manager (boss)", "Real risk"), ("revised", "the user", "Expire after 15 minutes")]);
@@ -1693,7 +1693,7 @@ fn units_finish() {
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "f"]);
+    git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-rev", "rev", "w1", Idle))];
     let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
@@ -1709,7 +1709,7 @@ fn units_finish() {
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "f", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "agent": "s-w" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
     let ws = || user.get("/api/workspace").unwrap();
@@ -1741,19 +1741,19 @@ fn units_finish() {
     assert_eq!(progress("u1"), "ready", "all delivered and decided; the deferred one holds nothing up");
 
     // Renamed twice (the same commits), then rebased onto a moved mainline as a new branch.
-    git(&repo, &["branch", "-m", "f", "r6"]);
-    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "r6", "base": "" })).unwrap();
-    git(&repo, &["branch", "-m", "r6", "r7"]);
-    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "r7", "base": "" })).unwrap();
+    git(&repo, &["branch", "-m", "feat/f", "feat/r6"]);
+    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "feat/r6", "base": "" })).unwrap();
+    git(&repo, &["branch", "-m", "feat/r6", "feat/r7"]);
+    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "feat/r7", "base": "" })).unwrap();
     let u = unit("u1");
     assert!(u["tasks"].as_array().unwrap().iter().all(|t| t["lostCommits"].is_null()), "renamed: nothing is missing\n{u}");
     git(&repo, &["switch", "-q", "main"]);
     std::fs::write(repo.join("other.rs"), "x\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "Mainline moved"]);
-    git(&repo, &["switch", "-q", "-c", "r8"]);
-    git(&repo, &["cherry-pick", "r7~3", "r7~2", "r7~1"]); // the last one (Log it) is left behind
-    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "r8", "base": "" })).unwrap();
+    git(&repo, &["switch", "-q", "-c", "feat/r8"]);
+    git(&repo, &["cherry-pick", "feat/r7~3", "feat/r7~2", "feat/r7~1"]); // the last one (Log it) is left behind
+    boss.append("", "unit.relocated", json!({ "unit": "u1", "repo": "", "branch": "feat/r8", "base": "" })).unwrap();
     let u = unit("u1");
     let lost: Vec<Vec<String>> = u["tasks"].as_array().unwrap().iter().map(|t| t["lostCommits"].as_array().map(|l| l.iter().map(|c| c.as_str().unwrap().to_string()).collect()).unwrap_or_default()).collect();
     assert_eq!(lost.iter().map(Vec::len).collect::<Vec<_>>(), [0, 0, 1], "only the one not carried over, once: {lost:?}");
@@ -1766,7 +1766,7 @@ fn units_finish() {
 
     // Merged by fast-forward: base..branch is empty; its commits stay, and it is recorded merged.
     git(&repo, &["switch", "-q", "main"]);
-    git(&repo, &["merge", "-q", "--ff-only", "r8"]);
+    git(&repo, &["merge", "-q", "--ff-only", "feat/r8"]);
     let u = unit("u1");
     assert_eq!(u["progress"], "merged");
     assert_eq!(u["tasks"][0]["output"]["commits"].as_array().map(Vec::len), Some(3), "{u}");
@@ -1780,7 +1780,7 @@ fn units_finish() {
     assert!(board.contains("every unit is merged or done: close it with `workriver intent done i1`") && board.contains("from main]  merged"), "{board}");
 
     // A unit finished without a merge is closed by hand, by the manager or the user.
-    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Spike", "repo": repo.to_string_lossy(), "branch": "spike", "base": "main" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Spike", "repo": repo.to_string_lossy(), "branch": "chore/spike", "base": "main" })).unwrap();
     assert_eq!(ws()["intents"][0]["complete"], json!(null));
     assert!(w.append("", "unit.done", json!({ "unit": "u2", "reason": "x" })).unwrap_err().to_string().contains("only the manager of intent i1 (boss) or the user closes its units"));
     boss.append("", "unit.done", json!({ "unit": "u2", "reason": "superseded by u1" })).unwrap();

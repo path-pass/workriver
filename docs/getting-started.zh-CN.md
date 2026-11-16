@@ -109,7 +109,7 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 workriver manager here                 # 登记为这个工作区的管理者
 workriver backlog list                 # 路线图：i1 "Mentions" ……
 workriver intent start i1              # 在这里开始；成为这个工作区的当前意图
-workriver unit add --title "Mentions" --branch mention
+workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
 workriver task add u1 --title "Find the people mentioned in a message" --agent finder
 herdr agent start finder --kind claude --pane <窗格 id>   # 见 `herdr --skill`
 herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运行 workriver task show u1#1\"，以及 workriver guide worker 的全文>"
@@ -174,10 +174,10 @@ workriver workspace link box:chat chat
 ```
 
 或者在设置里选。单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
-并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch queue`）；
+并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch feat/queue`）；
 登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。分支改了名、
-或者变基到了新分支，也用这条命令（`workriver unit move u1 --branch queue-2 [--base main-2]`）：单元、
-任务和发现都留着，提交从新分支读，页面上写"之前在 queue"，提交留在旧分支上的任务会如实标出来。
+或者变基到了新分支，也用这条命令（`workriver unit move u1 --branch feat/queue-2 [--base main-2]`）：单元、
+任务和发现都留着，提交从新分支读，页面上写"之前在 feat/queue"，提交留在旧分支上的任务会如实标出来。
 没写 `Task:` 尾注的提交可以事后关联到任务，由做这个任务的 agent、管理者或你来做：
 `workriver commit link <hash> u1#3`，或者在未登记节点上的"它属于任务"里选；变基之后关联仍然有效。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
 每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接

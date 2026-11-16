@@ -120,7 +120,7 @@ The manager, from its pane:
 workriver manager here                 # registers it as the workspace's manager
 workriver backlog list                 # the roadmap: i1 "Mentions" ...
 workriver intent start i1              # active here; the workspace's current intent
-workriver unit add --title "Mentions" --branch mention
+workriver unit add --title "Mentions" --branch feat/mention   # its own branch: feat/, fix/ or chore/
 workriver task add u1 --title "Find the people mentioned in a message" --agent finder
 herdr agent start finder --kind claude --pane <pane id>   # see `herdr --skill`
 herdr agent prompt finder "<task u1#1, its goal in a line, where to work, \"run workriver task show u1#1\", and the text of: workriver guide worker>"
@@ -196,11 +196,11 @@ workriver workspace link box:chat chat
 or pick it in Settings. A unit is recorded where its work happens: an agent over there
 records it there as usual; a manager on this machine names the machine, with the path and
 branch as they are there (`workriver unit add --machine box --repo /home/me/app --branch
-queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
+feat/queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
 --machine box --repo … --branch …`. The same command follows a branch that was renamed, or
-rebased onto a new branch (`workriver unit move u1 --branch queue-2 [--base main-2]`): the
+rebased onto a new branch (`workriver unit move u1 --branch feat/queue-2 [--base main-2]`): the
 unit, its tasks and findings stay, its commits are read from the new branch, the page says
-"previously on queue", and a task whose commits stayed on the old branch says so. A commit
+"previously on feat/queue", and a task whose commits stayed on the old branch says so. A commit
 made without its `Task:` trailer is linked to its task afterwards, by its agent, the
 manager or you: `workriver commit link <hash> u1#3`, or the "It belongs to task" select on
 the unregistered node; the link follows the commit through a rebase. For a unit over there,

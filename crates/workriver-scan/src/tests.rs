@@ -207,6 +207,48 @@ fn a_units_commits_survive_merges() {
     assert_eq!(fork, Found::Fresh, "its tip is its fork");
 }
 
+/// A local base behind its upstream: a branch made from the newer `origin/main` holds only
+/// its own commits, not the teammates' ones in between; merged upstream, it is merged.
+#[test]
+fn a_stale_local_base_counts_its_upstream() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (origin, work, other) = (tmp.path().join("origin.git"), tmp.path().join("work"), tmp.path().join("other"));
+    for d in [&origin, &work, &other] {
+        std::fs::create_dir(d).unwrap();
+    }
+    sh(&origin, &["init", "-q", "--bare", "-b", "main"]);
+    sh(&work, &["init", "-q", "-b", "main"]);
+    sh(&work, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    sh(&work, &["remote", "add", "origin", &origin.to_string_lossy()]);
+    sh(&work, &["push", "-q", "-u", "origin", "main"]);
+    // A teammate pushes to main; here only origin/main learns of it.
+    sh(&other, &["clone", "-q", &origin.to_string_lossy(), "."]);
+    for s in ["fix(deps): anyio", "chore(security): pin"] {
+        sh(&other, &["commit", "-q", "--allow-empty", "-m", s]);
+    }
+    sh(&other, &["push", "-q", "origin", "main"]);
+    sh(&work, &["fetch", "-q", "origin"]);
+    sh(&work, &["switch", "-q", "-c", "feat/x", "origin/main"]);
+    sh(&work, &["commit", "-q", "--allow-empty", "-m", "Mine\n\nTask: u1#1"]);
+
+    let at = Runner::Local;
+    let ours = |c: &Named| c.task.as_deref() == Some("u1#1");
+    let subjects = |l: &[Named]| l.iter().map(|c| c.subject.clone()).collect::<Vec<_>>();
+    assert_eq!(subjects(&names(&at, &work, "main", "feat/x").unwrap()), ["Mine"]);
+    let Found::Ahead { commits, fork } = branch(&at, &work, "main", "feat/x", None, &ours).unwrap() else { panic!("ahead") };
+    assert_eq!(subjects(&commits), ["Mine"]);
+    // A base without an upstream (a remote branch itself) reads as before.
+    assert_eq!(subjects(&names(&at, &work, "origin/main", "feat/x").unwrap()), ["Mine"]);
+
+    // Merged upstream, the local main still stale: merged, not ahead.
+    sh(&work, &["push", "-q", "origin", "feat/x:main"]);
+    sh(&work, &["fetch", "-q", "origin"]);
+    for fork in [Some(fork.as_str()), None] {
+        let f = branch(&at, &work, "main", "feat/x", fork, &ours).unwrap();
+        assert!(matches!(&f, Found::Merged(c) if subjects(c) == ["Mine"]), "{fork:?}: {f:?}");
+    }
+}
+
 /// Many commits read at once are what reading them one by one gives: additions, deletions,
 /// a merge (against its first parent), the root commit, a binary file.
 #[test]

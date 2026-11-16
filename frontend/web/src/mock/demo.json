@@ -298,7 +298,7 @@
      "title": "加一个 @ 功能",
      "purpose": "在消息里 @ 某个人，对方会收到通知，并且消息里的名字要显示成高亮。",
      "repo": "demo",
-     "branch": "mention",
+     "branch": "feat/mention",
      "status": "active",
      "commits": [
       {
@@ -824,7 +824,7 @@
         "steps": [
          {
           "text": "切到 mention 分支，确认是最新的",
-          "command": "git switch mention && git pull"
+          "command": "git switch feat/mention && git pull"
          },
          {
           "text": "部署到测试环境",
@@ -1577,7 +1577,7 @@
      "title": "消息支持撤回",
      "purpose": "发出两分钟内的消息可以撤回，所有人看到的都变成「已撤回」。",
      "repo": "demo",
-     "branch": "recall",
+     "branch": "feat/recall",
      "status": "active",
      "commits": [
       {
@@ -2529,7 +2529,7 @@
      "title": "登录限流",
      "purpose": "同一个 IP 一分钟内最多尝试登录十次，超过的返回 429。",
      "repo": "demo",
-     "branch": "login-rate-limit",
+     "branch": "fix/login-rate-limit",
      "status": "active",
      "tasks": [
       {

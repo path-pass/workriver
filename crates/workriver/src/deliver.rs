@@ -146,7 +146,7 @@ fn batch_message(state: &State, intent: &str, refs: &[workriver_core::FindingRef
     }
     m.own.push(format!("[workriver] The user picked {} deferred findings of intent {intent} \"{}\" to do together: {}.", refs.len(), quote::name(&i.title), list.join(", ")));
     m.own.push(format!(
-        "Next: one cleanup unit for all of them (`workriver unit add {intent} --title \"Cleanup: <what>\" --branch <branch>`), then a task with every finding as a cause: `workriver task add <unit> --title \"<outcome>\" {} --agent <agent>`.",
+        "Next: one cleanup unit for all of them (`workriver unit add {intent} --title \"Cleanup: <what>\" --branch chore/<name>`), then a task with every finding as a cause: `workriver task add <unit> --title \"<outcome>\" {} --agent <agent>`.",
         causes.join(" ")
     ));
     Some(m.text(""))
@@ -422,7 +422,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut s = Store::open(&dir.path().join("w.db")).unwrap();
         at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
-        at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "b", "base": "main"}}));
+        at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/b", "base": "main"}}));
         at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}));
         at(&mut s, "worker", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
         at(&mut s, "rev", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}}));

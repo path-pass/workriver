@@ -2,6 +2,17 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-17
+
+- **A unit's branch is its own and says what it holds**: `--branch` of `workriver unit add`
+  (and a new name in `workriver unit move`) starts with `feat/`, `fix/` or `chore/` and a
+  name, and is not the base. Committing straight on `main` is not a unit: make the unit's
+  branch from the base's newest commit (`git fetch`, `git switch -c feat/<name> origin/main`).
+  Units named before keep their names. (`units`)
+- **A unit's commits are only its own**: commits its base's upstream (`origin/main`) already
+  has are no longer counted, even while the local `main` is behind; teammates' commits no
+  longer show as unregistered.
+
 ## 2026-11-16 (later)
 
 - **A gate waits only once what it follows is done.** Planned ahead, it is `todo` and asks

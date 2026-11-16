@@ -1642,6 +1642,8 @@ impl State {
                         return no(format!("a unit needs a {field}"));
                     }
                 }
+                // A branch named before the rule keeps its name while only the rest moves.
+                unit_branch(&branch, &base, branch != u.branch)?;
                 UnitRelocated { unit, machine, repo, branch, base, previous }
             }
             CommitLinked { unit, hash, patch_id, subject, date, task } => {
@@ -1699,6 +1701,7 @@ impl State {
                         return no(format!("a unit needs a {field}"));
                     }
                 }
+                unit_branch(&branch, &base, true)?;
                 self.may_place(who, &intent, machine.as_deref())?;
                 let id = format!("u{}", self.units.len() + 1);
                 UnitCreated { id, intent, title, purpose, repo, branch, base, machine }
@@ -2572,6 +2575,22 @@ impl State {
         }
         self.task_mut(&r.unit, r.task)?.findings.iter_mut().find(|f| f.found.id == r.finding)
     }
+}
+
+/// The branch prefixes a unit's branch takes: what kind of work it holds.
+const BRANCH_PREFIXES: [&str; 3] = ["feat/", "chore/", "fix/"];
+
+/// A unit's branch is its own: never its base (that would count everyone's commits on it as
+/// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name. Checked when an
+/// event is written, never on replay: units named before the rule keep loading.
+fn unit_branch(branch: &str, base: &str, named: bool) -> Result<(), Rejected> {
+    if branch == base || base.strip_prefix("origin/") == Some(branch) {
+        return no(format!("a unit's branch must not be its base ({base}): create the unit's own branch from {base} (git switch -c feat/<name> {base}) and give that: --branch feat/<name>"));
+    }
+    if named && !BRANCH_PREFIXES.iter().any(|p| branch.strip_prefix(p).is_some_and(|rest| !rest.is_empty())) {
+        return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest); {branch} does not: name it so, e.g. --branch feat/{}", branch.rsplit('/').next().unwrap_or(branch)));
+    }
+    Ok(())
 }
 
 /// What a delivery or its correction may carry.

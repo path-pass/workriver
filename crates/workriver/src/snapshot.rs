@@ -533,9 +533,18 @@ pub struct Cache {
     pub reused: usize,
 }
 
+/// The rules by which a unit's commits are worked out (`scan::branch`). Bump it whenever the
+/// scan rules change what a unit's commits are: a cache kept under other rules is dropped on
+/// load (one rescan), else its old lists and forks would be served on, their keys unchanged.
+/// 1: the base's upstream is left out too.
+const RULES: u32 = 1;
+
 /// What a cache keeps across restarts.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct Stored {
+    /// `RULES` when it was written; 0 before there was one.
+    #[serde(default)]
+    rules: u32,
     #[serde(default)]
     seen: HashMap<String, Seen>,
     #[serde(default)]
@@ -591,7 +600,9 @@ impl Cache {
 
     /// Keeps what it learns in `file`, and starts from what it holds.
     pub fn remembering(mut self, file: std::path::PathBuf) -> Cache {
-        self.stored = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let stored: Option<Stored> = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        self.stored = stored.filter(|s| s.rules == RULES).unwrap_or_default();
+        self.stored.rules = RULES;
         self.file = Some(file);
         self
     }
@@ -912,7 +923,10 @@ fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Re
     let key = cache.refs(at, u).and_then(|refs| {
         let base = scan::tip(&refs, &u.base)?.to_string();
         let tip = scan::tip(&refs, &u.branch).unwrap_or("-").to_string();
-        Some(format!("{}|{}={tip}|{}={base}|{fork}|{}|{}|{}", u.repo, u.branch, u.base, u.earlier.len(), u.links.len(), u.merged_commits.len()))
+        // The base's remote copies too: a fetch can merge the branch upstream (`scan::since`).
+        let mut up: Vec<&str> = refs.iter().filter(|(r, _)| r.strip_prefix("refs/remotes/").and_then(|r| r.split_once('/')).is_some_and(|(_, b)| b == u.base)).map(|(_, h)| h.as_str()).collect();
+        up.sort();
+        Some(format!("{}|{}={tip}|{}={base}|{fork}|{}|{}|{}|{}", u.repo, u.branch, u.base, u.earlier.len(), u.links.len(), u.merged_commits.len(), up.join(",")))
     });
     if let Some(m) = cache.stored.memo.get(&u.id).filter(|m| key.as_ref() == Some(&m.key)) {
         cache.reused += 1;
@@ -1331,4 +1345,24 @@ fn unregistered(c: &scan::Commit) -> Task {
         draft: None,
         amended: None,
     }
+}
+
+/// A cache kept under other rules (or before rules were versioned) is not reused.
+#[cfg(test)]
+#[test]
+fn a_cache_of_other_rules_is_dropped() {
+    use serde_json::json;
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("local.json");
+    let memo = json!({ "u1": { "key": "k", "hashes": ["abc"], "merged": false } });
+    for old in [json!({ "memo": memo }), json!({ "rules": RULES - 1, "memo": memo })] {
+        std::fs::write(&file, old.to_string()).unwrap();
+        assert!(Cache::default().remembering(file.clone()).stored.memo.is_empty(), "{old}");
+    }
+    std::fs::write(&file, json!({ "rules": RULES, "memo": memo }).to_string()).unwrap();
+    let mut c = Cache::default().remembering(file.clone());
+    assert_eq!(c.stored.memo.len(), 1, "kept under these rules");
+    c.dirty = true;
+    c.save();
+    assert_eq!(Cache::default().remembering(file).stored.memo.len(), 1, "and saved under them");
 }

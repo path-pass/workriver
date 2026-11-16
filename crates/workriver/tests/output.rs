@@ -82,7 +82,7 @@ fn serve_prints_nothing_that_signs_in() {
         assert!(Command::new("git").arg("-C").arg(&repo).args(args).status().unwrap().success());
     }
     assert!(cli().args(["backlog", "add", "Login", "--goal", "Safe login", "--project", &repo.display().to_string()]).status().unwrap().success());
-    assert!(cli().args(["unit", "add", "i1", "--title", "Auth", "--branch", "main", "--base", "main", "--repo", &repo.display().to_string()]).status().unwrap().success());
+    assert!(cli().args(["unit", "add", "i1", "--title", "Auth", "--branch", "feat/auth", "--base", "main", "--repo", &repo.display().to_string()]).status().unwrap().success());
     assert!(cli().args(["task", "add", "u1", "--title", "Check", "--text", "SECRET-TASK-TEXT asks for this"]).status().unwrap().success());
     let shown = cli().args(["task", "show", "u1#1"]).output().unwrap();
     assert!(String::from_utf8_lossy(&shown.stdout).contains("SECRET-TASK-TEXT"));

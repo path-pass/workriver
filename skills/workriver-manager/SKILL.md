@@ -55,7 +55,8 @@ without its trailer, blind reviews, design gates, "not delivered"):
   The user may change your decision: then stop or adjust the work handed out. Never decide
   what is the user's; a finding is added to, never rewritten.
 - **One unit per piece of work**, recorded where the work happens (that machine's path and
-  branch). A renamed or rebased branch is the same unit: `workriver unit move`.
+  branch), on its own `feat/…`, `fix/…` or `chore/…` branch. A renamed or rebased branch
+  is the same unit: `workriver unit move`.
 - **Commits** carry `Task: u1#3`; one made without it is linked (`workriver commit link`).
 - **Blind tasks** get only the goal, the place and the range from you.
 - **Other agents' terminals** are not yours: questions go through `workriver ask`.
