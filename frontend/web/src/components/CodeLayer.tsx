@@ -5,7 +5,7 @@
 import { hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from '@headless-tree/core'
 import { useTree } from '@headless-tree/react'
 import { html } from 'diff2html'
-import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -20,6 +20,7 @@ import { useResize } from '@/lib/useResize'
 /** Narrower than this, the code block shows its tree as a drawer over the diff, not beside it. */
 const WIDE = 768
 const TREE_OPEN = 'workriver.code.tree'
+const FOLDED = 'workriver.code.folded'
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 const remember = (key: string, v: string) => { try { localStorage.setItem(key, v) } catch { /* not remembered, still shown */ } }
 
@@ -29,6 +30,16 @@ type Change = Omit<FileChange, 'before' | 'after'>
 function unified(f: Change): string {
   const a = f.status === 'A' ? '/dev/null' : 'a/' + f.path, b = f.status === 'D' ? '/dev/null' : 'b/' + f.path
   return [`diff --git a/${f.path} b/${f.path}`, `--- ${a}`, `+++ ${b}`, ...f.lines].join('\n') + '\n'
+}
+
+/** The widest line number in a diff, in digits (from its hunk headers), so the gutter fits it. */
+function digits(lines: string[]): number {
+  let max = 0
+  for (const l of lines) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l)
+    if (m) max = Math.max(max, +m[1] + +(m[2] ?? 1), +m[3] + +(m[4] ?? 1))
+  }
+  return Math.max(3, String(max).length)
 }
 
 function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
@@ -48,13 +59,14 @@ function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
       </span>
     </>
   )
+  const gutter = { '--ln': `${digits(file.lines)}ch` } as CSSProperties
   if (!body) return <div className="fview"><div className="fhead">{head}</div></div>
   // The whole file is one view; it does not fold away.
-  if (whole) return <div className="fview"><div className="fhead">{head}</div><div className="diff" dangerouslySetInnerHTML={{ __html: body }} /></div>
+  if (whole) return <div className="fview"><div className="fhead">{head}</div><div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /></div>
   return (
     <Collapsible className="fview" defaultOpen>
       <CollapsibleTrigger className="fhead"><Icon name="chev" className="chev" />{head}</CollapsibleTrigger>
-      <CollapsibleContent><div className="diff" dangerouslySetInnerHTML={{ __html: body }} /></CollapsibleContent>
+      <CollapsibleContent><div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /></CollapsibleContent>
     </Collapsible>
   )
 }
@@ -216,10 +228,12 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
   const delta = shownDelta(unit, sel, path)
   const touched = delta?.touched ?? []
   const before = delta?.before ?? null, after = delta?.after ?? null, status = delta?.status ?? 'M'
-  // Every line of the file: the context is the whole file.
+  // Every line of the file, or only the changes with a few lines around each (remembered).
+  const [folded, setFolded] = useState(() => recall(FOLDED) === '1')
+  const fold = (on: boolean) => { setFolded(on); remember(FOLDED, on ? '1' : '0') }
   const change = useMemo(
-    () => ({ path, status, ...changeOf(before, after, Number.MAX_SAFE_INTEGER) }) as Change,
-    [path, status, before, after],
+    () => ({ path, status, ...changeOf(before, after, folded ? 3 : Number.MAX_SAFE_INTEGER) }) as Change,
+    [path, status, before, after, folded],
   )
   // Which pieces of work the shown change comes from; a commit that names none, by its hash.
   const from = [...new Map(touched.map(k => {
@@ -230,6 +244,11 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
         <Button variant="ghost" size="xs" className="-ml-2 rounded-sm" onClick={onBack}><Icon name="back" className="size-3.5" />{t('file.back')}</Button>
+        {touched.length > 0 && (
+          <Button variant="ghost" size="xs" className="rounded-sm" aria-pressed={folded} onClick={() => fold(!folded)}>
+            <Icon name={folded ? 'unfold' : 'foldLines'} className="size-3.5" />{folded ? t('file.whole') : t('file.onlyChanges')}
+          </Button>
+        )}
         {from.length > 0 && <span>{t('file.from')}</span>}
         {from.map(({ node, label }) => (
           node?.taskId

@@ -540,7 +540,9 @@ export const en = {
   file: {
     back: 'All changes',
     from: 'Changed by',
-    unchanged: 'This unit has not changed {{path}} yet.'
+    unchanged: 'This unit has not changed {{path}} yet.',
+    onlyChanges: 'Only the changes',
+    whole: 'Whole file'
   },
   tree: {
     label: 'Files',

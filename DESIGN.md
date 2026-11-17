@@ -291,7 +291,9 @@ looked at now and then.
   open the panel on Ask (the sheet on a narrow screen) with the cursor in the box. What a question is about is the current
   selection, shown as chips above the box: the task always, the picked finding, and the
   picked file – or, when lines are picked, the lines instead of their file – and the
-  attachment open in the viewer (see Attachments). Lines are
+  attachment open in the viewer (see Attachments). A single file shows the whole file, or
+  with "Only the changes" just its changes with three lines around each (remembered); the
+  line-number gutter widens to the file's longest number. Lines are
   picked in any diff, the single file or the list (click a line number, shift-click to
   stretch); next to them floats "Ask why", like the "+" of a code review. It picks the task
   that last changed those lines (worked out from the unit's commits; other tasks that

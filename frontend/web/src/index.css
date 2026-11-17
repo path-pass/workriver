@@ -523,11 +523,12 @@
   .diff .d2h-file-wrapper { border: 0; border-radius: 0; margin: 0; }
   .diff .d2h-file-diff { overflow-x: auto; }
   .diff .d2h-diff-table { font: 12px/20px var(--font-mono); tab-size: 2; }
-  .diff .d2h-code-linenumber { width: 88px; border: 0; cursor: default; user-select: none; }
+  /* The gutter fits the widest line number (`--ln`, in ch, set per file; 3 at least). */
+  .diff .d2h-code-linenumber { width: calc(2 * var(--ln, 3ch) + 32px); border: 0; cursor: default; user-select: none; }
   .diff .d2h-code-linenumber.d2h-ins { background: var(--add-gut); }
   .diff .d2h-code-linenumber.d2h-del { background: var(--del-gut); }
-  .diff .line-num1, .diff .line-num2 { width: 44px; padding: 0 8px; }
-  .diff .d2h-code-line { padding: 0 12px 0 96px; width: auto; }
+  .diff .line-num1, .diff .line-num2 { width: calc(var(--ln, 3ch) + 16px); padding: 0 8px; }
+  .diff .d2h-code-line { padding: 0 12px 0 calc(2 * var(--ln, 3ch) + 40px); width: auto; }
   .diff .d2h-code-line-prefix { display: inline-block; width: 2ch; }
   .diff .d2h-ins .d2h-code-line-prefix { color: var(--add); }
   .diff .d2h-del .d2h-code-line-prefix { color: var(--del); }

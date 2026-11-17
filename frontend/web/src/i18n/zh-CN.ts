@@ -528,7 +528,9 @@ export const zhCN: Same<typeof en> = {
   file: {
     back: '全部改动',
     from: '改动来自',
-    unchanged: '这个单元还没有改动 {{path}}。'
+    unchanged: '这个单元还没有改动 {{path}}。',
+    onlyChanges: '只看改动',
+    whole: '看全文'
   },
   tree: {
     label: '文件',
