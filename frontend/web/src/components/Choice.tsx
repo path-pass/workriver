@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from 'cn'
 
@@ -7,6 +8,8 @@ export interface Option {
   label: string
   /** The label's language when it is content (a title), not UI text: see contentLang. */
   lang?: string
+  /** Shown instead of the label when it is a UI sentence with content in it (a Slot). */
+  content?: ReactNode
 }
 
 /**
@@ -54,7 +57,7 @@ export function Choice({ value, onChange, options, groups = [], label, tone = 'p
       >
         {options.map(o => (
           <SelectItem key={o.value} value={o.value} className={item}>
-            <span lang={o.lang}>{o.label}</span>
+            {o.content ?? <span lang={o.lang}>{o.label}</span>}
           </SelectItem>
         ))}
         {groups.filter(g => g.options.length).map(g => (
@@ -62,7 +65,7 @@ export function Choice({ value, onChange, options, groups = [], label, tone = 'p
             <SelectLabel className={rail ? 'text-rail-ink-2' : 'text-ink-2'}>{g.label}</SelectLabel>
             {g.options.map(o => (
               <SelectItem key={o.value} value={o.value} className={item}>
-                <span lang={o.lang}>{o.label}</span>
+                {o.content ?? <span lang={o.lang}>{o.label}</span>}
               </SelectItem>
             ))}
           </SelectGroup>

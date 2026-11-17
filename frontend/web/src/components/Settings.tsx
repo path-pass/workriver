@@ -11,6 +11,7 @@ import type { Levels, Machine, RuntimeWorkspace, Thresholds, Workspace } from '@
 import { Trans } from 'react-i18next'
 import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
+import { Content, Slot, SLOT } from './bits'
 import { Choice } from './Choice'
 
 /** Not linked, in the link picker (Radix takes no empty value). */
@@ -121,7 +122,12 @@ function WorkspaceProjects({ ws }: { ws: Workspace | null }) {
             value={g.projectFrom === 'user' && g.project ? g.project : AUTO}
             onChange={v => set(g, v)}
             options={[
-              { value: AUTO, label: g.project && g.projectFrom !== 'user' ? t('wsProject.auto', { project: g.projectTitle ?? g.project, from: t(`wsProject.from.${g.projectFrom ?? 'intents'}`) }) : t('wsProject.autoUnknown') },
+              g.project && g.projectFrom !== 'user'
+                ? (() => {
+                    const project = g.projectTitle ?? g.project, from = t(`wsProject.from.${g.projectFrom ?? 'intents'}`)
+                    return { value: AUTO, label: t('wsProject.auto', { project, from }), content: <Slot text={t('wsProject.auto', { project: SLOT, from })}><Content text={project} /></Slot> }
+                  })()
+                : { value: AUTO, label: t('wsProject.autoUnknown') },
               ...projects.map(p => ({ value: p.id, label: p.title, lang: contentLang(p.title) })),
             ]}
             className="h-7 w-full"
