@@ -238,6 +238,20 @@ fn add(s: &mut Store, actor: &str, v: serde_json::Value) -> Result<Event, String
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
+/// An event as an old database has it, straight into the records past today's rules (the
+/// body as it was stored, ids and numbers filled in); the store is opened again from them.
+fn recorded_before(s: Store, actor: &str, v: serde_json::Value) -> Store {
+    let (intent, unit, task) = body(v.clone()).refs();
+    let conn = rusqlite::Connection::open(s.path()).unwrap();
+    conn.execute(
+        "INSERT INTO events (at, kind, actor, intent, unit, task, body) VALUES ('2026-01-01T00:00:00Z', ?1, ?2, ?3, ?4, ?5, ?6)",
+        (v["kind"].as_str(), actor, intent, unit, task, v["body"].to_string()),
+    )
+    .unwrap();
+    drop(conn);
+    Store::open(s.path()).unwrap()
+}
+
 /// A unit's branch is its own and says what it holds; units named before that rule still
 /// load from the records and keep working.
 #[test]
@@ -340,7 +354,8 @@ fn planned_intents_merge() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Ranking", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "user", plan("Other project", "/q")).unwrap(); // i4
     add(&mut s, "user", plan("Has a task", "/p")).unwrap(); // i5
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i5", "kind": "research", "title": "Look"}})).unwrap();
+    // Tasks of the intent itself, from before research units.
+    let mut s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i5", "intent": "i5", "n": 1, "kind": "research", "title": "Look", "inputs": [{"from": "start"}]}}));
     add(&mut s, "user", plan("Has a chore", "/p")).unwrap(); // i6
     add(&mut s, "user", json!({"kind": "chore.created", "body": {"intent": "i6", "title": "Rotate"}})).unwrap();
     add(&mut s, "user", plan("Has a finding", "/p")).unwrap(); // i7
@@ -401,27 +416,81 @@ fn planned_intents_merge() {
     assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
 
-/// Research and design belong to an intent without a unit; research hands in a note or a report.
+/// Research and design are a unit of their own with no branch; research hands in a note or a
+/// report. Nothing new goes into an intent itself, but its tasks recorded before that replay
+/// and keep working.
 #[test]
-fn intent_level_research() {
+fn research_units_and_old_intent_level_work() {
     let (_dir, mut s) = temp_store();
-    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync", "project": "/p", "state": "planned"}})).unwrap();
-    let e = add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "implement", "title": "x"}})).unwrap_err();
-    assert!(e.contains("belong to a unit"), "{e}");
-    let t = add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "research", "title": "Compare sync engines"}})).unwrap();
-    assert_eq!(t.body.refs(), (Some("i1".into()), Some("i1".into()), Some("i1#1".into())));
-    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1}})).unwrap_err();
+    add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync", "project": "p1", "state": "planned"}})).unwrap();
+    for kind in ["research", "design", "review", "implement"] {
+        let e = add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": kind, "title": "x"}})).unwrap_err();
+        assert!(e.contains("tasks go into a unit") && e.contains("workriver unit add i1 --kind research"), "{e}");
+    }
+    let research = |extra: serde_json::Value| {
+        let mut b = json!({"intent": "i1", "title": "Compare sync engines", "kind": "research"});
+        b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        json!({"kind": "unit.created", "body": b})
+    };
+    for extra in [json!({"branch": "feat/x"}), json!({"repo": "/r"}), json!({"base": "main"}), json!({"machine": "box"})] {
+        assert!(add(&mut s, "boss", research(extra.clone())).unwrap_err().contains("has no repository, branch"), "{extra}");
+    }
+    let e = add(&mut s, "boss", research(json!({}))).unwrap();
+    assert_eq!(e.body.refs(), (Some("i1".into()), Some("u1".into()), None));
+    let u = s.state().unit("u1").unwrap().clone();
+    assert_eq!((u.kind, u.repo.as_str(), u.branch.as_str(), u.has_code()), (UnitKind::Research, "/p", "", false), "it reads in the project's folder");
+    // No implement or tests work, no commits, no merge, no move.
+    for kind in ["implement", "tests"] {
+        assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": kind, "title": "x"}})).unwrap_err().contains("is a research unit"));
+    }
+    assert!(add(&mut s, "user", json!({"kind": "unit.merged", "body": {"unit": "u1"}})).unwrap_err().contains("unit done u1"));
+    assert!(add(&mut s, "user", json!({"kind": "unit.relocated", "body": {"unit": "u1", "repo": "/r", "branch": "feat/x", "base": "main"}})).unwrap_err().contains("research unit"));
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "Compare sync engines"}})).unwrap();
+    assert!(add(&mut s, "user", json!({"kind": "commit.linked", "body": {"unit": "u1", "hash": "abc", "task": 1}})).unwrap_err().contains("research unit"));
+    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1}})).unwrap_err();
     assert!(e.contains("research task delivers"), "{e}");
-    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "n", "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap_err();
+    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "n", "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap_err();
     assert!(e.contains("findings"), "{e}");
-    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "Use CRDTs; see report"}})).unwrap();
-    let st = s.state();
-    let t = st.task("i1", 1).unwrap();
-    assert_eq!((t.state, t.intent.as_str()), (TaskState::Done, "i1"));
-    // A unit's tasks record their intent too.
+    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "Use CRDTs; see report"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{"from": "1"}]}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().unit("u1").unwrap().clone()), Progress::Waiting);
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 2, "result": "done", "note": "CRDTs"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().unit("u1").unwrap().clone()), Progress::Ready);
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "decided"}})).unwrap();
+    assert_eq!(s.state().unit("u1").unwrap().tasks.len(), 2);
+
+    // Recorded before research units: the intent's own tasks replay and still take the
+    // rest of their life (start, deliver, decide, a cause of work in a unit).
+    let s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "intent": "i1", "n": 1, "kind": "research", "title": "Look", "inputs": [{"from": "start"}]}}));
+    let s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "intent": "i1", "n": 2, "kind": "review", "reviewer": "code-review", "inputs": [{"from": "1"}]}}));
+    let mut s = s;
+    let t = s.state().task("i1", 1).unwrap();
+    assert_eq!((t.state, t.intent.as_str()), (TaskState::Todo, "i1"));
+    add(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "i1", "task": 1}})).unwrap();
+    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "Found it"}})).unwrap();
+    add(&mut s, "r2", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 2, "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "i1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x"}})).unwrap();
-    assert_eq!(s.state().task("u1", 1).unwrap().intent, "i1");
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "Fix", "causes": [{"unit": "i1", "task": 2, "findings": ["P2-1"]}]}})).unwrap();
+    assert_eq!(s.state().task("u2", 1).unwrap().intent, "i1", "a unit's tasks record their intent too");
+    assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "research", "title": "More", "inputs": [{"from": "1"}]}})).unwrap_err().contains("tasks go into a unit"));
+    assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
+}
+
+/// The intent's manager or the user adds a paragraph to its note; nobody else.
+#[test]
+fn a_note_grows_by_paragraphs() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let more = |text: &str| json!({"kind": "intent.updated", "body": {"intent": "i1", "add_note": text}});
+    assert!(add(&mut s, "agent-b", more("x")).unwrap_err().contains("only the user or the manager"));
+    assert!(add(&mut s, "user", more("  ")).unwrap_err().contains("empty"));
+    add(&mut s, "user", more("First: see https://x/1\n")).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "First: see https://x/1");
+    add(&mut s, "user", more("Second\nline")).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "First: see https://x/1\n\nSecond\nline");
+    assert_eq!(replayed(&s).intent("i1").unwrap().note, s.state().intent("i1").unwrap().note);
 }
 
 /// Deferred findings, from a task or added to the backlog, are batched (scheduled), and done
@@ -844,13 +913,14 @@ fn a_later_task_says_what_it_follows() {
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
     add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "Fix", "causes": [{"task": 2, "findings": ["P2-1"]}]}))).unwrap();
     assert_eq!(inputs(&s, "u1", 4), ["2"]);
-    // The intent's own tasks: the first starts at the start, the next must say; a cause in a
-    // unit is not one of the intent's tasks.
-    add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Look"}))).unwrap();
-    assert_eq!(inputs(&s, "i1", 1), ["start"]);
-    let e = add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Again", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}]}))).unwrap_err();
-    assert!(e.contains("i1 already has tasks"), "{e}");
-    add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
+    // A research unit the same: the first starts at the start, the next must say; a cause in
+    // another unit is not one of its tasks.
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Look around", "kind": "research"}})).unwrap();
+    add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Look"}))).unwrap();
+    assert_eq!(inputs(&s, "u2", 1), ["start"]);
+    let e = add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}]}))).unwrap_err();
+    assert!(e.contains("u2 already has tasks"), "{e}");
+    add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
 }
 
 /// The user asks about a unit itself (task 0): its own threads, attachments of its tasks;

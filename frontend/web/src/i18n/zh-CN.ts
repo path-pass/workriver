@@ -36,6 +36,7 @@ export const zhCN: Same<typeof en> = {
     drag: '拖动调整顺序',
     start: '开始',
     intentWork: '调研与设计',
+    foldGroup: '展开或收起「{{title}}」的单元',
     failed: '没有保存：{{error}}',
     mergeOpen: '合并…',
     mergeTitle: '合并计划中的意图',
@@ -56,6 +57,21 @@ export const zhCN: Same<typeof en> = {
     mark: '这个工作区的管理者',
     of: '管理者 {{name}}：{{state}}',
     state: { working: '工作中', idle: '空闲', done: '空闲', blocked: '卡住了', unknown: '状态不明', gone: '没在运行', none: '没有管理者' }
+  },
+  intent: {
+    state: { planned: '计划中', active: '进行中', done: '已完成', dropped: '已放弃' },
+    dropped: '已放弃：{{reason}}',
+    note: '备注',
+    where: '在哪里进行',
+    workspace: '工作区',
+    manager: '管理者',
+    notStarted: '还没开始：它在路线图里。',
+    talk: '给管理者留言',
+    units: '单元',
+    moved: '{{time}}前有动静',
+    neverMoved: '还没有动静',
+    earlier: '早先的调研与设计',
+    earlierHint: '这些是在调研与设计成为独立单元之前，直接记在意图上的。'
   },
   start: {
     title: '从这里开始',
@@ -189,6 +205,7 @@ export const zhCN: Same<typeof en> = {
       working: '进行中',
       waiting: '等待中',
       ready: '可以合并',
+      readyClose: '可以结束',
       merged: '已合并',
       done: '已结束'
     },

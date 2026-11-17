@@ -22,8 +22,10 @@ into i3", their text in i3's note; `--title` renames i3. `workriver board i3` pr
 then you get `[workriver] The user started i3 «title» in your workspace …`. It is already
 active here: do not start it again; `workriver board i3`, then split it into units and tasks.
 
-**You will see:** `i3 active`. New units and tasks here go to the intent started last,
-unless you name one.
+**You will see:** `i3 active`. New units here go to the intent started last, unless you
+name one. Research or design for the intent as a whole is a research unit (`units`), not a
+task on the intent. Its page is `workriver link i3` (goal, note, units); add what the user
+should read there with `workriver intent set i3 --add-note "…"`.
 
 **Refusals:** "only the manager of workspace … starts intents there" - run
 `workriver manager here` first, in your own pane. "intent i3 is done; it cannot become

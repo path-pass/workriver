@@ -251,7 +251,8 @@ export function Progress({ unit }: { unit: Unit }) {
   const { t } = useT()
   const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
   if (!p) return null
-  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(`unit.progress.${p}`)}</span>
+  // Research is never merged: ready, it is closed.
+  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind === 'research' ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
   return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
 }
 

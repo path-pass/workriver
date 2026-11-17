@@ -2954,6 +2954,71 @@
        ]
       }
      ]
+    },
+    {
+     "id": "auth-survey",
+     "kind": "research",
+     "title": "登录限流方案调研",
+     "purpose": "在 IP 限流和账号限流之间选一个，定下阈值。",
+     "repo": "",
+     "branch": null,
+     "status": "active",
+     "progress": "ready",
+     "tasks": [
+      {
+       "id": "1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "比较 IP 限流和账号限流",
+       "agent": "agent-R",
+       "writing": false,
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "比较两种限流在共享出口 IP 下的误伤，给出阈值建议。",
+        "causes": []
+       },
+       "output": {
+        "note": "账号限流误伤更少：公司网络共享出口 IP 时，IP 限流会把整层楼一起挡住。建议每账号每分钟 10 次，超出后指数退避。"
+       },
+       "plans": [],
+       "started": "2026-11-10 09:30",
+       "delivered": "2026-11-10 15:20",
+       "research": true,
+       "raisedBy": "plan"
+      },
+      {
+       "id": "2",
+       "kind": "gate",
+       "state": "done",
+       "taskId": "2",
+       "title": "确认限流方案",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "看调研结论，确认用账号限流和阈值。",
+        "causes": []
+       },
+       "output": {
+        "note": "同意：按账号限流，阈值 10 次/分钟。"
+       },
+       "plans": [],
+       "delivered": "2026-11-11 10:05",
+       "gate": "decide"
+      }
+     ],
+     "commits": []
     }
    ],
    "chores": [
@@ -3092,8 +3157,100 @@
     "label": "perf"
    },
    "goal": "一个频道里有十万条消息时，打开频道和往上翻历史都不卡：首屏 300 毫秒内出现，滚动保持 60 帧。",
-   "note": "可能要改成虚拟列表，也可能是后端分页的问题，先让调查任务测清楚瓶颈在哪，再拆单元。",
+   "note": "可能要改成虚拟列表，也可能是后端分页的问题，先让调查任务测清楚瓶颈在哪，再拆单元。\n\n调研结论见 https://example.com/perf-report ：瓶颈在前端渲染，后端分页不用改。",
    "units": [
+    {
+     "id": "perf",
+     "intentLevel": true,
+     "title": "消息列表性能",
+     "purpose": "一个频道里有十万条消息时，打开频道和往上翻历史都不卡：首屏 300 毫秒内出现，滚动保持 60 帧。",
+     "repo": "",
+     "branch": null,
+     "status": "active",
+     "progress": "ready",
+     "tasks": [
+      {
+       "id": "1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "测清楚打开大频道慢在哪",
+       "agent": "agent-P",
+       "writing": false,
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "在十万条消息的频道里测首屏和滚动，找出瓶颈是前端渲染还是后端分页。",
+        "causes": []
+       },
+       "output": {
+        "note": "瓶颈在前端：一次渲染全部 DOM 节点，首屏 4.2 秒；后端分页接口 80 毫秒内返回。结论：改虚拟列表，后端不用动。"
+       },
+       "plans": [],
+       "started": "2026-10-25 10:00",
+       "delivered": "2026-10-26 18:40",
+       "research": true,
+       "raisedBy": "plan"
+      },
+      {
+       "id": "2",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "2",
+       "title": "虚拟列表的方案设计",
+       "agent": "agent-P",
+       "writing": false,
+       "inputs": [
+        {
+         "from": "1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "给出虚拟列表的设计：可变行高、往上加载历史时保持滚动位置。",
+        "causes": []
+       },
+       "output": {
+        "note": "用可变行高的虚拟列表：先估算行高、渲染后量真实高度并缓存；往上加载时按新增内容的高度补偿 scrollTop。"
+       },
+       "plans": [],
+       "started": "2026-10-27 09:00",
+       "delivered": "2026-10-27 16:30",
+       "design": true,
+       "raisedBy": "plan"
+      },
+      {
+       "id": "3",
+       "kind": "gate",
+       "state": "done",
+       "taskId": "3",
+       "title": "确认虚拟列表方案",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "确认设计，然后开实现单元。",
+        "causes": []
+       },
+       "output": {
+        "note": "确认，按这个方案做，拆成 virtual-list 单元。"
+       },
+       "plans": [],
+       "delivered": "2026-10-28 09:10",
+       "gate": "decide"
+      }
+     ],
+     "commits": []
+    },
     {
      "id": "virtual-list",
      "title": "长消息列表只渲染看得见的部分",

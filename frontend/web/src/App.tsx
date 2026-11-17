@@ -13,7 +13,8 @@ import { Ask, isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { ViewerContext } from '@/components/Viewer'
 import { Rail } from '@/components/Rail'
-import { agents, askeeOf, blame, blockedAgents, firstUnit, inbox, intentOf, loadCode, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
+import { IntentPage } from '@/components/IntentPage'
+import { agents, askeeOf, blame, blockedAgents, firstUnit, inbox, intentOf, loadCode, MOCK, NO_EDITS, noCode, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
 import { useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from '@/link'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, submitGate, tellManager, type Delivery } from '@/runtime'
@@ -30,7 +31,7 @@ const PROJECT = 'workriver.project'
  */
 function useCode(unit: Unit | null): Unit | null {
   const [got, setGot] = useState<{ unit: Unit; code: UnitCode } | null>(null)
-  const want = unit && !MOCK && !unit.intentLevel ? `${unit.id}\0${unit.code ?? ''}` : null
+  const want = unit && !MOCK && !noCode(unit) ? `${unit.id}\0${unit.code ?? ''}` : null
   const latest = useRef(unit)
   latest.current = unit
   useEffect(() => {
@@ -41,7 +42,7 @@ function useCode(unit: Unit | null): Unit | null {
     return () => { gone = true }
   }, [want])
   return useMemo(() => {
-    if (!unit || MOCK || unit.intentLevel) return unit
+    if (!unit || MOCK || noCode(unit)) return unit
     if (got?.unit.id !== unit.id) return null
     return withCode(got.code.code === (unit.code ?? '') ? unit : got.unit, got.code)
   }, [unit, got])
@@ -154,16 +155,20 @@ export default function App() {
   const [asked, setAsked] = useState<Record<string, Record<string, Turn[]>>>({})
   // A request for the ask box to take the cursor, with more context for one task.
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
+  // A request for the Ask section to show the conversation with a manager (from an intent's page).
+  const [managerAt, setManagerAt] = useState(0)
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
   // The stored attachment the viewer shows, if any: a question can be about it.
   const [viewing, setViewing] = useState<Attachment | null>(null)
 
   const unit = useSame(unitsOf(ws).find(i => i.id === unitId) ?? null)
+  // An intent's page is open (`unitId` is its id); `unit` is then its own earlier work, if any.
+  const page = ws?.intents.find(i => i.id === unitId) ?? null
   const sel = useMemo(() => (unit ? selectionOf(unit, pick) : null), [unit, pick])
   // The same unit with its files' texts, for the code and the lines picked in it.
   const coded = useCode(unit)
   const codeSel = useMemo(() => (coded ? selectionOf(coded, pick) : null), [coded, pick])
-  const tree = useSame(ws && unit && !unit.intentLevel ? repoOf(ws, unit).modules : null)
+  const tree = useSame(ws && unit && !noCode(unit) ? repoOf(ws, unit).modules : null)
 
   // What the address named and is not there; whether it has been followed; the latest data.
   const [missing, setMissing] = useState<string | null>(null)
@@ -172,7 +177,7 @@ export default function App() {
   // Whatever opens a unit (the rail, the inbox, an agent) sets the pick the same way, so the
   // file tree opens on what is picked wherever the user came from.
   const pickUnit = useCallback((w: Workspace, id: string, next: Pick = null) => {
-    if (!unitsOf(w).some(i => i.id === id)) return
+    if (!unitsOf(w).some(i => i.id === id) && !w.intents.some(i => i.id === id)) return
     followed.current = true
     setMissing(null)
     setUnitId(id)
@@ -189,10 +194,9 @@ export default function App() {
     const r = p ? resolve(w, p) : first ? { unit: first.id, pick: null } : null
     setMissing(p && !r ? `${p.id}${p.task ? `#${p.task}` : ''}` : null)
     if (!r) { setUnitId(null); return false }
-    if ('planned' in r) { setStarting(r.planned); return true }
     history.replaceState(null, '', pathOf(r.unit, r.pick))
     // A linked unit outside the project the rail shows: the rail shows all, for now.
-    const project = w.intents.find(i => i.units.some(u => u.id === r.unit))?.project
+    const project = intentOf(w, r.unit)?.project
     setProject(p => (p && project !== p ? null : p))
     setUnitId(r.unit)
     setPick(r.pick)
@@ -316,9 +320,10 @@ export default function App() {
     }
     tellManager(to, text).catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
   }
-  const talk: Talk | null = ws && unit
+  const talk: Talk | null = ws && (unit || page)
     ? {
-        sessions: ws.sessions, file, lines, asked: asked[unit.id] ?? {}, onAsk,
+        sessions: ws.sessions, file, lines, asked: asked[unitId ?? ''] ?? {}, onAsk,
+        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt,
         intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell,
         onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
         live: !MOCK,
@@ -346,7 +351,8 @@ export default function App() {
   const [running, setRunning] = useState<RunAsk | null>(null)
   const run = useCallback((a: RunAsk) => {
     if (!ws) return
-    const own = a.unit && unitsOf(ws).find(u => u.id === a.unit)?.intentLevel
+    const at0 = a.unit && unitsOf(ws).find(u => u.id === a.unit)
+    const own = at0 && noCode(at0)
     const at = own ? { ...a, unit: undefined, project: a.project ?? intentOf(ws, a.unit!)?.project } : a
     setRunning(MOCK ? { ...at, ...mockWhere(ws, at) } : at)
   }, [ws])
@@ -397,22 +403,37 @@ export default function App() {
     <ViewerContext.Provider value={viewer}>
     <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
-      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
+      <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {missing && <p role="status" className="text-sm text-ink-2">{t('link.notFound', { ref: missing })}</p>}
         {ws && !unitsOf(ws).length && <Start />}
         {ws && !unit && !missing && unitsOf(ws).length > 0 && !firstUnit(ws, project) && <Start project={ws.projects?.find(p => p.id === project)?.title} />}
-        {ws && unit && sel && talk && (
+        {ws && page && (
+          <IntentPage
+            ws={ws}
+            intent={page}
+            earlier={unit}
+            pick={pick}
+            onPick={onPick}
+            talk={talk}
+            fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`}
+            onUnit={id => pickUnit(ws, id)}
+            onStart={setStarting}
+            onTalk={() => { openAsk(false); setManagerAt(Date.now()) }}
+            aside={<SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} />}
+          />
+        )}
+        {ws && !page && unit && sel && talk && (
           <>
             <header className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
-                  <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span>{unit.intentLevel ? `${unit.title} · ${t('rail.intentWork')}` : unit.title}</span>
+                  <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span>{unit.title}</span>
                   <CopyButton text={linkTo(pathOf(unit.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
                   {unit.branch && <span className="max-w-full min-w-0 truncate font-mono text-xs font-normal tracking-normal text-ink-2" title={unit.branch}>{unit.branch}</span>}
                   <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} />
-                  {!unit.intentLevel && <Progress unit={unit} />}
+                  <Progress unit={unit} />
                   {unit.squash && unit.progress === 'ready' && <Squashed unit={unit} />}
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}

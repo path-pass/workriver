@@ -105,7 +105,7 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
             name(&t.kind),
             t.agent.as_deref().map(|a| format!(", by {}", named(state, a))).unwrap_or_default(),
             name(&t.state),
-            if u.branch.is_empty() { "intent" } else { "unit" },
+            if state.unit(&q.unit).is_err() { "intent" } else { "unit" },
             q.unit,
             quote::name(&u.title),
         ),
@@ -196,18 +196,18 @@ const NOTE_CAP: usize = 300;
 /// unit's agents may be at work, or on a blind task.
 fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<String> {
     let u = state.unit(&q.unit).ok()?;
-    let mut m = vec![
-        who_you_are(&q.unit),
+    let place = if u.has_code() {
         format!(
-            "This one is about unit {} \"{}\" as a whole, not one of its tasks. Its code is in {dir} on branch {} (from {}); read it there, and its commits with `git log {}..{}` in {dir}.",
-            u.id,
-            quote::name(&u.title),
+            "Its code is in {dir} on branch {} (from {}); read it there, and its commits with `git log {}..{}` in {dir}.",
             quote::name(&u.branch),
             quote::name(&u.base),
             quote::name(&u.base),
             quote::name(&u.branch),
-        ),
-    ];
+        )
+    } else {
+        format!("It is research and design with no branch of its own: its tasks' notes and reports are below; the project is in {dir}.")
+    };
+    let mut m = vec![who_you_are(&q.unit), format!("This one is about unit {} \"{}\" as a whole, not one of its tasks. {place}", u.id, quote::name(&u.title))];
     let about = pointed(state, q, home);
     if !about.is_empty() {
         m.push(format!("The question points at: {}.", about.join("; ")));

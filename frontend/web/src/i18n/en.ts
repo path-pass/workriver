@@ -32,6 +32,7 @@ export const en = {
     drag: 'Drag to reorder',
     start: 'Start',
     intentWork: 'Research and design',
+    foldGroup: 'Show or hide the units of {{title}}',
     failed: 'Not saved: {{error}}',
     mergeOpen: 'Merge…',
     mergeTitle: 'Merge planned intents',
@@ -52,6 +53,21 @@ export const en = {
     mark: 'Manager of its workspace',
     of: 'Manager {{name}}: {{state}}',
     state: { working: 'working', idle: 'idle', done: 'idle', blocked: 'blocked', unknown: 'unknown', gone: 'not running', none: 'no manager' }
+  },
+  intent: {
+    state: { planned: 'Planned', active: 'Active', done: 'Done', dropped: 'Dropped' },
+    dropped: 'Dropped: {{reason}}',
+    note: 'Note',
+    where: 'Where it runs',
+    workspace: 'Workspace',
+    manager: 'Manager',
+    notStarted: 'Not started yet: it is in the roadmap.',
+    talk: 'Write to the manager',
+    units: 'Units',
+    moved: 'moved {{time}} ago',
+    neverMoved: 'nothing yet',
+    earlier: 'Earlier research and design',
+    earlierHint: 'Recorded on the intent itself, before research and design became units of their own.'
   },
   start: {
     title: 'Start here',
@@ -188,6 +204,7 @@ export const en = {
       working: 'Working',
       waiting: 'Waiting',
       ready: 'Ready to merge',
+      readyClose: 'Ready to close',
       merged: 'Merged',
       done: 'Done'
     },

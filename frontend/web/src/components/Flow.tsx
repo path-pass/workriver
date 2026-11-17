@@ -741,14 +741,16 @@ function Legend() {
   )
 }
 
-export function Activity({ unit, pick, onPick, talk, fitKey }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown }) {
+/** `title` and `hint`: another heading than "Activity", with a quiet line under it. */
+export function Activity({ unit, pick, onPick, talk, fitKey, title, hint }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; title?: string; hint?: string }) {
   const { t } = useT()
   const pickedId = pick?.kind === 'task' ? pick.id : null
   const picked = unit.tasks.find(n => n.id === pickedId)
   const pickNode = useMemo(() => (id: string | null) => onPick(id ? { kind: 'task', id } : null), [onPick])
   return (
     <section className="block-box">
-      <h2 className="mb-2 text-lg font-[650]">{t('block.activity')}</h2>
+      <h2 className="mb-2 text-lg font-[650]">{title ?? t('block.activity')}</h2>
+      {hint && <p className="-mt-1 mb-2 text-sm text-ink-2">{hint}</p>}
       {unit.tasks.length ? (
         <>
           <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} talk={talk} fitKey={fitKey} />

@@ -2,7 +2,7 @@
 // open), `/i3` (the intent), `/i3/1` (a task of the intent's own work), and optionally
 // `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
 import { unitsOf, type Pick } from './data'
-import type { Intent, Workspace } from './types'
+import type { Workspace } from './types'
 
 /** What an address names; null: the page's root. */
 export interface Place { id: string; task?: string; finding?: string }
@@ -27,15 +27,15 @@ export function pathOf(unit: string, pick: Pick): string {
 export const linkTo = (path: string) => location.origin + path
 
 /**
- * What a place opens: a unit (an intent opens its first, which is its own work when it has
- * some) with a task picked; a planned intent (its steps to start); or nothing it names.
+ * What a place opens: a unit, or an intent's page (`unit` is then the intent's id), with a
+ * task picked (on an intent's page, one of its earlier own tasks); or nothing it names.
  */
-export function resolve(ws: Workspace, p: Place): { unit: string; pick: Pick } | { planned: Intent } | null {
+export function resolve(ws: Workspace, p: Place): { unit: string; pick: Pick } | null {
   const intent = ws.intents.find(i => i.id === p.id)
-  const unit = unitsOf(ws).find(u => u.id === p.id) ?? intent?.units[0]
-  if (!unit) return intent?.state === 'planned' && !p.task ? { planned: intent } : null
-  if (!p.task) return { unit: unit.id, pick: null }
-  // A task of an intent is in its own work, whose id is the intent's.
-  if (unit.id !== p.id || !unit.tasks.some(n => n.id === p.task)) return null
-  return { unit: unit.id, pick: { kind: 'task', id: p.task, finding: p.finding } }
+  // An intent's own tasks are in its earlier work, whose id is the intent's.
+  const unit = intent ? intent.units.find(u => u.intentLevel) : unitsOf(ws).find(u => u.id === p.id && !u.intentLevel)
+  if (!intent && !unit) return null
+  if (!p.task) return { unit: p.id, pick: null }
+  if (!unit?.tasks.some(n => n.id === p.task)) return null
+  return { unit: p.id, pick: { kind: 'task', id: p.task, finding: p.finding } }
 }

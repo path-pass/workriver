@@ -27,6 +27,10 @@ export interface Talk {
   asked: Record<string, Turn[]>
   /** `node`: the task asked about, or null for the unit; `thread`: the conversation it continues, or null for a new one. */
   onAsk: (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude?: boolean) => void
+  /** The intent on screen: its page, or the open unit's. */
+  intent?: string
+  /** Set to now to show the conversation with the manager. */
+  managerAt?: number
   /** Ends a conversation (with the service). */
   onEnd: (thread: string) => void
   /** Questions go to the service and real agents (not the sample). */
@@ -303,6 +307,8 @@ function Box({ label, placeholder, focusAt, above, below, disabled, onSend }: {
 }
 
 type Mode = 'why' | 'manager'
+/** The last request to show the manager that was followed. */
+let managerSeen = 0
 const MODE = 'workriver.ask.mode'
 
 /** The side panel's Ask section: why (about the picked task, or the unit) or the manager. */
@@ -314,6 +320,10 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit | null; n: Task | n
   const focusAt = talk?.focusAt ?? 0
   const seen = useRef(focusAt)
   useEffect(() => { if (focusAt !== seen.current) { seen.current = focusAt; setMode('why') } }, [focusAt])
+  // Asked for from an intent's page: its manager.
+  // (Kept outside the component: the section may mount with the request already made.)
+  const managerAt = talk?.managerAt ?? 0
+  useEffect(() => { if (managerAt > managerSeen) { managerSeen = managerAt; pickMode('manager') } }, [managerAt])
   // Why about a task, or with none picked about the unit itself (not the intent's own work).
   const about = unit && talk && (n || !unit.intentLevel)
   return (
@@ -452,7 +462,7 @@ function Step({ m }: { m: ManagerMessage }) {
  */
 function ManagerTalk({ unit, talk }: { unit: Unit | null; talk: Talk }) {
   const { t } = useT()
-  const intent = unit ? talk.intents.find(i => i.units.some(u => u.id === unit.id)) : undefined
+  const intent = talk.intents.find(i => i.id === talk.intent) ?? (unit ? talk.intents.find(i => i.units.some(u => u.id === unit.id)) : undefined)
   const own = intent?.state === 'active' ? intent.workspace?.label : undefined
   const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
   const labels = [...new Set([own, ...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter((l): l is string => !!l))]

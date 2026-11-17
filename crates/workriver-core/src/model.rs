@@ -25,6 +25,23 @@ pub enum TaskKind {
     Research,
 }
 
+/// What a unit holds: code on a branch of its own, or research and design with no branch.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UnitKind {
+    #[default]
+    Code,
+    /// Research and design for the intent: no repository of its own, no branch, never merged;
+    /// closed with `unit.done`.
+    Research,
+}
+
+impl UnitKind {
+    pub fn is_code(&self) -> bool {
+        *self == UnitKind::Code
+    }
+}
+
 /// Where an intent is: in the backlog, being worked on, finished, or given up.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -627,6 +644,9 @@ pub enum Body {
         /// Who decides its findings from now on; the user's alone to set.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         findings: Option<FindingsPolicy>,
+        /// A paragraph added at the end of its note (a blank line before it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        add_note: Option<String>,
     },
     /// A unit's repository is somewhere else than recorded: another machine, path or branch.
     #[serde(rename = "unit.relocated")]
@@ -676,13 +696,20 @@ pub enum Body {
         title: String,
         #[serde(default)]
         purpose: String,
-        /// Absolute path of the repository (or a worktree of it).
+        /// Absolute path of the repository (or a worktree of it). A research unit: its
+        /// intent's project folder, filled in here (may be empty).
+        #[serde(default)]
         repo: String,
+        /// Empty for a research unit, as is `base`.
+        #[serde(default)]
         branch: String,
+        #[serde(default)]
         base: String,
         /// The machine the repository is on; none: this one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
+        #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+        kind: UnitKind,
     },
     /// Finished without a merge.
     #[serde(rename = "unit.done")]
@@ -1176,6 +1203,16 @@ pub struct Unit {
     /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done: Option<Closed>,
+    #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+    pub kind: UnitKind,
+}
+
+impl Unit {
+    /// Code on a branch: what git is read for. A research unit and an intent's own work
+    /// (seen as a unit) have none.
+    pub fn has_code(&self) -> bool {
+        self.kind.is_code() && !self.branch.is_empty()
+    }
 }
 
 /// A unit closed by hand, or a task dropped.
@@ -1389,6 +1426,7 @@ impl State {
             earlier: vec![],
             links: vec![],
             done: None,
+            kind: UnitKind::Code,
         })
     }
 
@@ -1823,7 +1861,7 @@ impl State {
                 }
                 AgentSeen { session, name, harness }
             }
-            IntentUpdated { intent, title, goal, findings } => {
+            IntentUpdated { intent, title, goal, findings, add_note } => {
                 self.intent(&intent)?;
                 if !user && self.manager_of(&intent) != Some(actor) {
                     return no(format!("only the user or the manager of intent {intent} may change it"));
@@ -1835,13 +1873,19 @@ impl State {
                 if title.as_deref().is_some_and(blank) {
                     return no("an intent needs a title");
                 }
-                if title.is_none() && goal.is_none() && findings.is_none() {
-                    return no("nothing to change: give a title, a goal or --findings");
+                if add_note.as_deref().is_some_and(blank) {
+                    return no("the note to add is empty: --add-note \"...\"");
                 }
-                IntentUpdated { intent, title, goal, findings }
+                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() {
+                    return no("nothing to change: give a title, a goal, --add-note or --findings");
+                }
+                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()) }
             }
             UnitRelocated { unit, machine, repo, branch, base, previous } => {
                 let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it has no repository or branch to move"));
+                }
                 if u.merged.is_some() {
                     return no(format!("unit {unit} is merged; its place no longer matters"));
                 }
@@ -1864,6 +1908,9 @@ impl State {
             }
             CommitLinked { unit, hash, patch_id, subject, date, task } => {
                 let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it has no branch, so no commits to link"));
+                }
                 let t = match u.tasks.iter().find(|t| t.n == task) {
                     Some(t) => t,
                     None => return no(format!("no task {unit}#{task}")),
@@ -1907,10 +1954,23 @@ impl State {
                 };
                 ManagerRegistered { intent, agent, workspace }
             }
-            UnitCreated { intent, title, purpose, repo, branch, base, machine, .. } => {
+            UnitCreated { intent, title, purpose, repo, branch, base, machine, kind, .. } => {
                 let i = self.intent(&intent)?;
                 if matches!(i.state, IntentState::Done | IntentState::Dropped) {
                     return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
+                }
+                let id = format!("u{}", self.units.len() + 1);
+                // Research and design: no repository, branch or machine of its own; it reads
+                // in its intent's project folder.
+                if kind == UnitKind::Research {
+                    if blank(&title) {
+                        return no("a unit needs a title");
+                    }
+                    if !blank(&branch) || !blank(&base) || !blank(&repo) || machine.is_some() {
+                        return no("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
+                    }
+                    let folder = self.projects.iter().find(|p| p.id == i.project).map_or(&i.project, |p| &p.path).clone();
+                    return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind });
                 }
                 for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
                     if blank(v) {
@@ -1919,11 +1979,14 @@ impl State {
                 }
                 unit_branch(&branch, &base, true)?;
                 self.may_place(who, &intent, machine.as_deref())?;
-                let id = format!("u{}", self.units.len() + 1);
-                UnitCreated { id, intent, title, purpose, repo, branch, base, machine }
+                UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
             }
             UnitMerged { unit, commits } => {
-                if self.unit(&unit)?.merged.is_some() {
+                let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it is never merged; close it with `workriver unit done {unit} --reason \"...\"`"));
+                }
+                if u.merged.is_some() {
                     return no(format!("unit {unit} is already merged"));
                 }
                 UnitMerged { unit, commits }
@@ -2303,13 +2366,18 @@ impl State {
             if u.merged.is_some() {
                 return no(format!("unit {} is merged; record new work in a new unit", u.id));
             }
+            if !u.kind.is_code() && matches!(t.kind, TaskKind::Implement | TaskKind::Tests) {
+                return no(format!("{} is a research unit: it takes research, design, review and gate tasks; implement and tests tasks belong to a unit with a branch", u.id));
+            }
             (u.id.clone(), u.intent.clone(), u.tasks.len())
         } else {
-            let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit or intent {}", t.unit)))?;
-            if matches!(t.kind, TaskKind::Implement | TaskKind::Tests) {
-                return no(format!("implement and tests tasks belong to a unit; {} takes research, design, review and gate tasks", i.id));
-            }
-            (i.id.clone(), i.id.clone(), i.tasks.len())
+            // Before 2026-11-17 research and design went into the intent itself (`i3#1`); those
+            // tasks still replay and work, but new ones go into a research unit.
+            let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit {}", t.unit)))?;
+            return no(format!(
+                "{} is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add {} --kind research --title \"...\", then workriver task add u<N> ...",
+                i.id, i.id
+            ));
         };
         if let Some(i) = self.intents.iter().find(|i| i.id == intent)
             && matches!(i.state, IntentState::Done | IntentState::Dropped)
@@ -2530,8 +2598,12 @@ impl State {
                     f.reason = Some(reason.clone());
                 }
             }
-            IntentUpdated { intent, title, goal, findings } => {
+            IntentUpdated { intent, title, goal, findings, add_note } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    if let Some(n) = add_note {
+                        let own = i.note.trim_end();
+                        i.note = if own.is_empty() { n.clone() } else { format!("{own}\n\n{n}") };
+                    }
                     if let Some(t) = title {
                         i.title = t.clone();
                     }
@@ -2596,7 +2668,8 @@ impl State {
                     self.workspace_mut(&g).manager = Some(agent.clone());
                 }
             }
-            UnitCreated { id, intent, title, purpose, repo, branch, base, machine } => self.units.push(Unit {
+            UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind } => self.units.push(Unit {
+                kind: *kind,
                 machine: machine.clone(),
                 id: id.clone(),
                 intent: intent.clone(),

@@ -300,7 +300,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         Ok(d) => *app.watcher.lock().unwrap() = Some(d),
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
-    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().filter(|u| u.machine.is_none()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
+    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }
@@ -691,7 +691,7 @@ impl App {
             let store = self.store.lock().unwrap();
             let state = store.state();
             let told = self.merge_told.lock().unwrap();
-            for u in &state.units {
+            for u in state.units.iter().filter(|u| u.has_code()) {
                 let Some(since) = state.ready_since(u) else { continue };
                 let Some(to) = state.manager_of(&u.intent).filter(|m| live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty()) else { continue };
                 let (id, branch) = (&u.id, crate::quote::name(&u.branch));
@@ -899,7 +899,7 @@ impl App {
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
         // One on another machine is read again in the background.
         if let (_, Some(unit), _) = e.body.refs() {
-            let found = self.store.lock().unwrap().state().unit(&unit).ok().map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
+            let found = self.store.lock().unwrap().state().unit(&unit).ok().filter(|u| u.has_code()).map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
             match found {
                 Some((false, repo, branch)) => self.watch(Path::new(&repo), &branch),
                 Some((true, ..)) => {
@@ -930,10 +930,12 @@ impl App {
             }
             // The repository is where the work happens: on the machine named, else on the
             // one the unit was recorded from. It is checked there, over ssh for another machine.
-            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named } => {
+            // Research has no repository: nothing to check.
+            b @ Body::UnitCreated { kind: core::UnitKind::Research, .. } => b,
+            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named, kind } => {
                 let machine = place(named.as_deref(), machine);
                 let top = self.repository(machine.as_deref(), &repo, &base)?;
-                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine }
+                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine, kind }
             }
             // What is not given stays as it is; `machine` is always said (the CLI sends it).
             Body::UnitRelocated { unit, machine: named, repo, branch, base, .. } => {
@@ -2016,7 +2018,8 @@ async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Cal
             (Some(u), _) => {
                 let u = state.unit(u)?;
                 let at = app.runner(u.machine.as_deref())?;
-                let tree = scan::worktree_of(&at, Path::new(&u.repo), &u.branch).ok().flatten();
+                // A research unit has no work tree: its project's folder.
+                let tree = scan::worktree_of(&at, Path::new(&u.repo), &u.branch).ok().flatten().filter(|_| u.has_code());
                 (tree.map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|| u.repo.clone()), u.machine.clone(), Some(u.id.clone()))
             }
             (None, Some(f)) => {

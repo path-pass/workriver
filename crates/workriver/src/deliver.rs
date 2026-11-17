@@ -402,7 +402,7 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
     let u = state.unit_or_intent(unit)?;
     let t = state.task(unit, n).ok()?;
     let f = t.findings.iter().find(|f| f.found.id == finding)?;
-    let from = format!("from {} in {} {unit} \"{}\"", label(state, unit, t), if u.branch.is_empty() { "intent" } else { "unit" }, quote::name(&u.title));
+    let from = format!("from {} in {} {unit} \"{}\"", label(state, unit, t), if state.unit(unit).is_err() { "intent" } else { "unit" }, quote::name(&u.title));
     let mut m = Msg::default();
     m.own.push(match decision {
         Decision::Revise => format!("[workriver] The user wants finding {finding} {from} fixed their way: follow what the user wrote below, not the finding's suggestion."),

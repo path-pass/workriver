@@ -13,6 +13,9 @@ A unit stands (board, `workriver task show`, the page):
   records this itself, with the unit's commits.
 - **done**: closed without a merge.
 
+A research unit (`units`) has no branch: it goes from ready ("ready to close") to done with
+`workriver unit done`; it is never merged.
+
     workriver unit merged u1                                # after a squash merge (git cannot show it)
     workriver unit done u2 --reason "superseded by u1"      # research, abandoned, superseded
     workriver intent done i3                                # once the board says every unit is merged or done
@@ -34,4 +37,4 @@ The page shows "Looks squash-merged" next to "Ready to merge". With no manager, 
 both in Needs you instead.
 
 **Refusals:** "only the manager of intent i3 (name) or the user closes its units".
-"unit u1 is already merged".
+"unit u1 is already merged". "u2 is a research unit: …" - `unit done`, not `unit merged`.

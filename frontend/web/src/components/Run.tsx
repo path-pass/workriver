@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { unitsOf } from '@/data'
+import { noCode, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import { focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunView } from '@/runtime'
 import type { Step, Workspace } from '@/types'
@@ -123,7 +123,7 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
 export function RunBox({ ws, unit, project }: { ws: Workspace; unit: string | null; project: string | null }) {
   const { t } = useT()
   const run = useContext(RunContext)
-  const units = ws.intents.filter(i => (i.state ?? 'active') === 'active' && (!project || i.project === project)).flatMap(i => i.units).filter(u => !u.intentLevel && u.status !== 'merged' && u.progress !== 'done')
+  const units = ws.intents.filter(i => (i.state ?? 'active') === 'active' && (!project || i.project === project)).flatMap(i => i.units).filter(u => !noCode(u) && u.status !== 'merged' && u.progress !== 'done')
   const projects = (ws.projects ?? []).filter(p => !project || p.id === project)
   const options = [
     ...units.map(u => ({ value: `u:${u.id}`, label: t('run.unit', { unit: u.id, title: u.title }) })),

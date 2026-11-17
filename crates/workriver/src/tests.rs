@@ -1203,6 +1203,16 @@ fn only_the_user_is_the_user() {
     let all = crate::board_text(&boss, None).unwrap();
     assert!(!all.contains("i3 Split off") && all.contains("1 dropped or merged intents not shown"), "{all}");
     assert!(crate::board_text(&boss, Some("i3")).unwrap().contains("  dropped: merged into i2\n"));
+    // Research and design: a unit with no branch, nothing of git; the manager (not another
+    // agent) adds what it learnt to the intent's note.
+    assert_eq!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "Pick a store", "kind": "research" })).unwrap()["body"]["id"], "u2");
+    boss.append("", "intent.updated", json!({ "intent": "i1", "add_note": "Decided: SQLite" })).unwrap();
+    assert!(rev.append("", "intent.updated", json!({ "intent": "i1", "add_note": "x" })).unwrap_err().to_string().contains("only the user or the manager"));
+    let ws = user.get("/api/workspace").unwrap();
+    let u2 = &ws["intents"][0]["units"][1];
+    assert_eq!((u2["kind"].as_str(), u2["branch"].is_null(), u2["repo"].as_str(), u2["commits"].as_array().map(Vec::len)), (Some("research"), true, Some(""), Some(0)), "{u2}");
+    assert_eq!(ws["intents"][0]["note"], "Decided: SQLite");
+    assert!(crate::board_text(&boss, Some("u2")).unwrap().contains("u2 Pick a store  [research, no branch"));
 
     // Every route that acts as the user or changes settings: 401 without the token or a session.
     let user_routes = [
@@ -1382,26 +1392,30 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!(there.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-far");
     // `workriver link` over there: the address the user opens here, not the tunnel's.
     assert_eq!(crate::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
-    let e = there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look" })).unwrap();
+    // Research over there: a unit with no branch, so nothing of that machine to check.
+    let e = there.append("", "unit.created", json!({ "intent": "i1", "title": "Look around", "kind": "research" })).unwrap();
     assert_eq!(e["actor"], "s-far");
+    let u = e["body"]["id"].as_str().unwrap().to_string();
+    there.append("", "task.created", json!({ "unit": u, "kind": "research", "title": "Look" })).unwrap();
     // One task in full over there too: its files are links through the tunnel, for the
     // reader it is.
-    there.append("", "task.started", json!({ "unit": "i1", "task": 1 })).unwrap();
+    there.append("", "task.started", json!({ "unit": u, "task": 1 })).unwrap();
     let report = tmp.path().join("report.txt");
     std::fs::write(&report, b"found").unwrap();
-    there.upload(&report, "", Some(("i1", 1, None))).unwrap();
-    there.append("", "task.delivered", json!({ "unit": "i1", "task": 1, "note": "Found it" })).unwrap();
-    let shown: crate::show::TaskShow = serde_json::from_value(there.get("/api/task?task=i1%231").unwrap()).unwrap();
-    assert_eq!(shown.link, format!("http://127.0.0.1:{port}/i1/1"), "the user's page, not a link through the tunnel");
+    there.upload(&report, "", Some((&u, 1, None))).unwrap();
+    there.append("", "task.delivered", json!({ "unit": u, "task": 1, "note": "Found it" })).unwrap();
+    let shown: crate::show::TaskShow = serde_json::from_value(there.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
+    assert_eq!(shown.link, format!("http://127.0.0.1:{port}/{u}/1"), "the user's page, not a link through the tunnel");
     let link = &shown.output.as_ref().unwrap().files[0];
     assert!(link.starts_with("http://127.0.0.1:") && link.contains("/api/attachments/") && link.ends_with(".txt?place=w1:p1"), "{link}");
-    let here: crate::show::TaskShow = serde_json::from_value(user.get("/api/task?task=i1%231").unwrap()).unwrap();
+    let here: crate::show::TaskShow = serde_json::from_value(user.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
     assert!(here.output.unwrap().files[0].starts_with(&tmp.path().join("attachments").display().to_string()), "a path on this machine");
     // The same view rules over there: on a blind task, only its own.
     assert!(there.get("/api/state").unwrap()["reduced"].is_null());
-    there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look again", "agent": "s-far", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    there.append("", "task.created", json!({ "unit": u, "kind": "research", "title": "Look again", "agent": "s-far", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
     let view = there.get("/api/state").unwrap();
-    assert_eq!((view["reduced"].as_bool(), view["intents"][0]["tasks"].as_array().unwrap().len()), (Some(true), 1), "{view}");
+    let mine = view["units"].as_array().unwrap();
+    assert_eq!((view["reduced"].as_bool(), mine.len(), mine[0]["tasks"].as_array().unwrap().len()), (Some(true), 1, 1), "{view}");
     assert_eq!(there.get("/api/workspace").unwrap()["reduced"], true);
     // Not the user's events, with or without a place, token and all.
     for d in [&there, &Daemon { port: box_port, place: None, home: Some(tmp.path().to_path_buf()) }, &Daemon { port: box_port, place: Some("w1:p9".into()), home: Some(tmp.path().to_path_buf()) }] {

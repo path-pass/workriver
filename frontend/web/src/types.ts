@@ -395,8 +395,11 @@ export type UnitStatus = 'active' | 'planned' | 'merged';
 /** A piece of an intent that can be implemented on its own, on its own branch. */
 export interface Unit {
   id: string;
-  /** The intent's own work (research, design) shown as a unit with no repository or branch. */
+  /** The intent's own work (research, design), recorded before research units: shown on the
+   *  intent's page, with no repository or branch, and never in the rail. */
   intentLevel?: boolean;
+  /** Research and design, with no repository, branch or code; closed by hand, never merged. Absent: code. */
+  kind?: 'research';
   title: string;
   /** One sentence on what the unit is for; may be empty. */
   purpose: string;

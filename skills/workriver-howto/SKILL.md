@@ -16,7 +16,7 @@ copy of this file.
 | topic | when |
 |---|---|
 | `start-intent` | starting a goal from the project's backlog |
-| `units` | splitting an intent into units; research and design that belong to no unit |
+| `units` | splitting an intent into units; research and design for the whole intent (a research unit) |
 | `hand-off` | giving a task to a worker agent |
 | `units-other-machine` | the workers run on another machine than you |
 | `branch-moved` | a unit's branch was renamed, or rebased onto a new branch |

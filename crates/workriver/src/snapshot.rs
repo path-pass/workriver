@@ -141,7 +141,7 @@ struct CommitCode {
 /// The texts of unit `id` as `state` lets its reader see them (none of a blind view's),
 /// but for the commits in `have` (short hashes), which the reader has.
 pub fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, id: &str, have: &[&str]) -> Option<Code> {
-    let u = state.units.iter().find(|u| u.id == id)?;
+    let u = state.units.iter().find(|u| u.id == id && u.has_code())?;
     cache.refs.clear();
     cache.worktrees.clear();
     (cache.recomputed, cache.reused) = (0, 0);
@@ -320,6 +320,9 @@ struct Unit {
     /// The intent's own work (research, design) shown as a unit without a repository.
     #[serde(rename = "intentLevel", skip_serializing_if = "std::ops::Not::not")]
     intent_level: bool,
+    /// Research and design, with no branch; absent: code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<core::UnitKind>,
     title: String,
     purpose: String,
     repo: String,
@@ -856,7 +859,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     (cache.recomputed, cache.reused) = (0, 0);
     let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
-    let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
+    let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().filter(|u| u.has_code()).map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
     let repos = repos.into_iter().map(|(m, r)| repo(m, r, cache)).collect();
     let repos: Vec<Repo> = repos;
     let mut intents = state
@@ -879,7 +882,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             reason: i.reason.clone(),
             units: intent_unit(state, live, i, &names)
                 .into_iter()
-                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(state, live, u, cache, &names, state.manager_of(&i.id))))
+                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names, false) }))
                 .collect(),
             chores: state
                 .chores
@@ -1009,51 +1012,43 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
     out
 }
 
-/// An intent's own tasks (research, design and their reviews and gates) as a unit without a
-/// repository, listed first under the intent; none when it has none.
+/// An intent's own tasks (research, design and their reviews and gates, recorded before
+/// research units) as a unit without a repository, listed first under the intent; none when
+/// it has none.
 fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, names: &Names) -> Option<Unit> {
     if i.tasks.is_empty() {
         return None;
     }
-    let u = core::Unit {
-        id: i.id.clone(),
-        intent: i.id.clone(),
-        title: i.title.clone(),
-        purpose: i.goal.clone(),
-        repo: String::new(),
-        branch: String::new(),
-        base: String::new(),
-        machine: None,
-        at: i.at.clone(),
-        merged: None,
-        merged_commits: vec![],
-        tasks: i.tasks.clone(),
-        earlier: vec![],
-        links: vec![],
-        done: None,
-    };
-    let manager = state.manager_of(&i.id);
-    Some(Unit {
-        id: i.id.clone(),
-        intent_level: true,
-        title: i.title.clone(),
-        purpose: i.goal.clone(),
+    let u = state.unit_or_intent(&i.id)?;
+    Some(branchless(state, live, &u, names, true))
+}
+
+/// A unit with no branch: a research unit, or (`intent_level`) an intent's own work. No
+/// commits, no code, nothing to merge.
+fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names: &Names, intent_level: bool) -> Unit {
+    let manager = state.manager_of(&u.intent);
+    Unit {
+        id: u.id.clone(),
+        intent_level,
+        kind: (!u.kind.is_code()).then_some(u.kind),
+        title: u.title.clone(),
+        purpose: u.purpose.clone(),
         repo: String::new(),
         machine: None,
         branch: None,
         base: None,
         merged: None,
         previously: vec![],
-        status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
-        progress: state.progress(&u),
-        done_reason: None,
-        tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
+        status: if u.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
+        progress: state.progress(u),
+        done_reason: u.done.as_ref().map(|d| d.reason.clone()),
+        tasks: u.tasks.iter().map(|t| task(state, live, u, t, names, manager, vec![])).collect(),
         commits: vec![],
         code: String::new(),
         squash: None,
         overdue: None,
-        threads: vec![],
-    })
+        threads: if intent_level { vec![] } else { threads(state, live, names, &u.id, 0) },
+    }
 }
 
 fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
@@ -1162,7 +1157,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
     cache.worktrees.clear();
     (cache.recomputed, cache.reused) = (0, 0);
     let (mut changed, mut skipped) = (false, false);
-    for u in state.units.iter().filter(|u| u.machine.is_some()) {
+    for u in state.units.iter().filter(|u| u.machine.is_some() && u.has_code()) {
         let Some(at) = cache.runner(u.machine.as_deref()) else {
             skipped = true;
             // Not reachable (yet): what was read before the last restart, without texts.
@@ -1185,7 +1180,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
             changed = true;
         }
     }
-    let repos: BTreeSet<(&str, &str)> = state.units.iter().filter_map(|u| Some((u.machine.as_deref()?, u.repo.as_str()))).collect();
+    let repos: BTreeSet<(&str, &str)> = state.units.iter().filter(|u| u.has_code()).filter_map(|u| Some((u.machine.as_deref()?, u.repo.as_str()))).collect();
     for (m, r) in repos {
         let key = format!("{m}\0{r}");
         let before = cache.trees.get(&key).map(|(h, _)| h.clone());
@@ -1407,6 +1402,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     Unit {
         id: u.id.clone(),
         intent_level: false,
+        kind: None,
         title: u.title.clone(),
         purpose: u.purpose.clone(),
         repo: u.repo.clone(),

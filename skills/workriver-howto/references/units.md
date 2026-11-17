@@ -24,19 +24,34 @@ unit's own, never its base, and says what it holds: `feat/<name>` for new work,
 Markdown: a line or two of what is wanted, then bullets (requirements, constraints, where to
 start); no wall of text.
 
-Work of the intent, not of one unit (comparing approaches, a design across repositories):
+Work of the intent, not of one code unit (comparing approaches, a design across
+repositories) is a **research unit**: no repository, branch or base, never merged. It takes
+research, design, review and gate tasks; implementing goes in a code unit.
 
-    workriver task add --kind research --title "Compare sync engines" --agent scout
+    workriver unit add --kind research --title "Sync engine" --purpose "Pick one for offline chat"
+    workriver task add u2 --kind research --title "Compare sync engines" --agent scout
 
-The first task of a unit (or of the intent) starts from it. Every later one says what it
-follows: `--after <n>` (the task it continues; repeat for several), `--after start` to run
-beside the first, or `--cause` naming findings of a task in the same unit or intent.
+When its work is delivered and decided it is "ready to close": `workriver unit done u2
+--reason "…"`. What the user should see on the intent's page (the decision, a link to the
+report) goes into the intent's note: `workriver intent set i3 --add-note "…"` (a paragraph
+added after what is there).
 
-**You will see:** the unit id (`u1`), task refs (`u1#1`, `i3#1`).
+Tasks are always in a unit: `workriver task add i3 …` is refused. Older intents may have
+tasks of their own (`i3#1`): they still work as before (start, deliver, gates, findings,
+`--cause i3#2:P2-1` from a unit), but take no new tasks; follow-up goes into a research unit.
+
+The first task of a unit starts from it. Every later one says what it follows: `--after
+<n>` (the task it continues; repeat for several), `--after start` to run beside the first,
+or `--cause` naming findings of a task in the same unit.
+
+**You will see:** the unit id (`u1`), task refs (`u1#1`).
 
 **Refusals:** "no intent given, and Herdr workspace … has no current intent" -
 `start-intent`. "… is not a git repository" / "base … is not a commit or branch" - fix
-`--repo` or `--base`. "implement and tests tasks belong to a unit". "u1 already has tasks: say which one this
+`--repo` or `--base`. "i3 is an intent: tasks go into a unit … workriver unit add i3 --kind research …" - add a research
+unit and the task there. "u2 is a research unit: it takes research, design, review and gate tasks" -
+implementing goes in a code unit. "u2 is a research unit: …" - it has no branch to merge,
+move or link commits to; close it with `unit done`. "u1 already has tasks: say which one this
 follows with --after <n> …" - add `--after`, as above. "a unit's branch starts
 with feat/, chore/ or fix/" / "a unit's branch must not be its base" - name the unit's own
 branch so, as the message says.

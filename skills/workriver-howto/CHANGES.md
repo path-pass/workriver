@@ -4,6 +4,22 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Research and design for a whole intent go in a research unit** (managers): `workriver
+  unit add [i3] --kind research --title "…" [--purpose "…"]` makes a unit with no repository,
+  branch or base (none of them is taken). It takes research, design, review and gate tasks
+  (`u5#1`…); implement and tests go in a code unit. It is never merged: once its work is
+  delivered and decided it is ready to close, `workriver unit done u5 --reason "…"`; `unit
+  merged`, `unit move` and `commit link` are refused on it. New tasks on an intent
+  (`workriver task add i3 …`) are refused, pointing here; `task add` always names a unit and
+  `--intent` is gone. Tasks an intent already has (`i3#1`…) work as before (start, deliver,
+  gates, findings, `--cause i3#2:P2-1` from a unit, links `/i3/1`) but take no new ones.
+  (`units`, `design-gate`, `ask-user`, `closing-units`; worker guide)
+- **Add to an intent's note**: `workriver intent set i3 --add-note "…"` (its manager or the
+  user) appends a paragraph after what the note holds. The user reads the note on the
+  intent's own page (`workriver link i3`: goal, note, workspace and manager, units, and the
+  intent's earlier research and design); the rail no longer shows goals and notes. Put there
+  what the user should see about the intent as a whole: a decision from a design gate, a
+  link to a report. (`start-intent`, `design-gate`)
 - **The user can start an intent in your workspace from the page** (managers): you then get
   `[workriver] The user started i3 «title» in your workspace; it is now where new work goes.
   Split it into units and tasks …`, with its goal quoted. It is already active and your

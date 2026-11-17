@@ -255,8 +255,8 @@ enum IntentCmd {
         #[arg(long)]
         reason: String,
     },
-    /// Change an intent's title or goal (its manager or the user only), or who decides its
-    /// findings (the user only).
+    /// Change an intent's title or goal, or add to its note (its manager or the user only), or
+    /// who decides its findings (the user only).
     Set {
         /// The intent (i1…).
         intent: String,
@@ -269,6 +269,10 @@ enum IntentCmd {
         /// always decide any finding yourself. Only the user sets this.
         #[arg(long, value_parser = ["manager", "user"])]
         findings: Option<String>,
+        /// A paragraph to add at the end of its note (a blank line before it): what was
+        /// learnt or decided about the intent as a whole, links welcome.
+        #[arg(long, value_name = "TEXT")]
+        add_note: Option<String>,
     },
 }
 
@@ -429,24 +433,31 @@ enum BacklogCmd {
 #[derive(Subcommand)]
 enum UnitCmd {
     /// Record a unit of an intent; prints its id (u1…).
+    ///
+    /// `--kind research`: research and design for the intent, with no repository, branch or
+    /// machine (leave those out). It takes research, design, review and gate tasks, is never
+    /// merged, and is closed with `workriver unit done` once its work is delivered and decided.
     Add {
         /// The intent it serves (i1…); default: the current intent of this Herdr workspace.
         intent: Option<String>,
+        /// code: work on a branch of its own; research: research and design, no branch.
+        #[arg(long, value_parser = ["code", "research"], default_value = "code")]
+        kind: String,
         #[arg(long)]
         title: String,
         /// One sentence on what it is for.
         #[arg(long, default_value = "")]
         purpose: String,
         /// The repository (or a worktree of it); default: the current directory.
-        #[arg(long, default_value = ".")]
-        repo: String,
-        /// The unit's own branch, where the work happens; it may not exist yet. It starts
-        /// with feat/, chore/ or fix/ (feat/mention) and is not the base.
         #[arg(long)]
-        branch: String,
-        /// The branch it starts from and merges into.
-        #[arg(long, default_value = "main")]
-        base: String,
+        repo: Option<String>,
+        /// The unit's own branch, where the work happens; it may not exist yet. It starts
+        /// with feat/, chore/ or fix/ (feat/mention) and is not the base. Needed for code.
+        #[arg(long)]
+        branch: Option<String>,
+        /// The branch it starts from and merges into; default: main.
+        #[arg(long)]
+        base: Option<String>,
         /// The machine the work happens on, when it is not the one this runs on: a machine
         /// of `workriver machine list` (or `local`: the one workriver runs on). --repo and
         /// --branch are then the path and the branch as they are on that machine.
@@ -496,20 +507,16 @@ enum TaskCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Record a task in a unit, or (research, design, their reviews and gates) in an intent;
-    /// prints its ref (u1#3, i2#1).
+    /// Record a task in a unit; prints its ref (u1#3). Research and design for the intent as a
+    /// whole go into a research unit (`workriver unit add --kind research`), not the intent.
     ///
-    /// The first task of a unit (or intent) starts from the unit itself. A later one says
-    /// what it follows: --after N, or --after start to run beside the first; with --cause
-    /// and no --after it follows the tasks whose findings it answers. A cause must name
-    /// accepted, revised or scheduled findings.
+    /// The first task of a unit starts from the unit itself. A later one says what it
+    /// follows: --after N, or --after start to run beside the first; with --cause and no
+    /// --after it follows the tasks whose findings it answers. A cause must name accepted,
+    /// revised or scheduled findings.
     Add {
-        /// The unit (u1…); without it, the task belongs to the intent itself (--intent, or
-        /// this Herdr workspace's current intent).
-        unit: Option<String>,
-        /// The intent, for intent-level work.
-        #[arg(long, conflicts_with = "unit")]
-        intent: Option<String>,
+        /// The unit (u1…).
+        unit: String,
         #[arg(long, value_parser = ["implement", "design", "research", "review", "tests", "gate"], default_value = "implement")]
         kind: String,
         /// What the work is (needed for implement, design, research and gate).
@@ -519,8 +526,8 @@ enum TaskCmd {
         #[arg(long, default_value = "")]
         text: String,
         /// Task number this one follows, or `start`; repeat for more. The first is the direct
-        /// cause, the rest are merely involved. Needed once the unit (or intent) has a task,
-        /// unless --cause names one in it.
+        /// cause, the rest are merely involved. Needed once the unit has a task, unless
+        /// --cause names one in it.
         #[arg(long, value_name = "N")]
         after: Vec<String>,
         /// Findings this task answers: `N:ID[,ID…]` in this unit (`4:P2-1,P3-1`),
@@ -820,7 +827,6 @@ fn main() -> anyhow::Result<()> {
         cli.cmd,
         Cmd::Unit(UnitCmd::Add { intent: None, .. })
             | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. })
-            | Cmd::Task(TaskCmd::Add { unit: None, intent: None, .. })
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
@@ -1050,8 +1056,16 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
-        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings }))?,
-        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine }) => {
+        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings, add_note }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings, "add_note": add_note }))?,
+        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) if kind == "research" => {
+            if repo.is_some() || branch.is_some() || base.is_some() || machine.is_some() {
+                bail!("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
+            }
+            let intent = here_intent(intent)?;
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research" }))?
+        }
+        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine, .. }) => {
+            let (repo, branch, base) = (repo.unwrap_or_else(|| ".".into()), branch.unwrap_or_default(), base.unwrap_or_else(|| "main".into()));
             let intent = here_intent(intent)?;
             // On another machine the path is that machine's: taken as written, checked there.
             let repo = match &machine {
@@ -1069,11 +1083,7 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
         Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
-        Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
-            let unit = match unit {
-                Some(u) => u,
-                None => here_intent(intent)?,
-            };
+        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
@@ -1816,7 +1826,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             core::FindingsPolicy::Manager => {}
             core::FindingsPolicy::User => { let _ = writeln!(out, "  findings: the user decides them, not the manager"); }
         }
-        // The intent's own work: research and design that belong to no unit.
+        // The intent's own work, from before research units: research and design that belong to no unit.
         if wanted(&i.id, None) {
             i.tasks.iter().for_each(|t| out += &line(t));
         }
@@ -1826,7 +1836,8 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             let why = u.done.as_ref().filter(|d| !d.reason.is_empty()).map(|d| format!(" ({})", d.reason)).unwrap_or_default();
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
-            let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]  {progress}{why}", u.id, u.title, u.repo, u.branch, u.base);
+            let place = if u.kind.is_code() { format!("{on}{}, branch {} from {}", u.repo, u.branch, u.base) } else { "research, no branch: close it with `workriver unit done`".into() };
+            let _ = writeln!(out, "  {} {}  [{place}]  {progress}{why}", u.id, u.title);
             link(&mut out, "    ", &u.id);
             // Its machine is disconnected: what is shown is as last read, and nothing waited on it.
             if let Some(since) = u.machine.as_deref().and_then(|m| down_since(&ws, m)) {
@@ -1846,7 +1857,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
                     }
                 }
             }
-            if state.reduced {
+            if state.reduced && u.has_code() {
                 let _ = writeln!(out, "    to review: `git -C {} diff {}...{}` (commits: `git rev-list {}..{}`)", u.repo, u.base, u.branch, u.base, u.branch);
             }
             u.tasks.iter().for_each(|t| out += &line(t));
