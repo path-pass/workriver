@@ -135,6 +135,7 @@
   --color-add: var(--add);
   --color-del: var(--del);
   --color-del-row: var(--del-row);
+  --color-add-row: var(--add-row);
   --shadow-pick: var(--shadow);
   /* Radius: 6 small controls, 8 nodes, 10 blocks. */
   --radius-sm: 6px;

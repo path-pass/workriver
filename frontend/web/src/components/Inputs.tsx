@@ -213,8 +213,9 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
         type="single" variant="outline" size="sm" value={result} aria-label={t('gate.result')}
         onValueChange={v => { if (v) { setResult(v as 'done' | 'problem'); setError(false); if (v === 'problem' && !drafts.length) setDrafts([blank()]) } }}
       >
-        <ToggleGroupItem value="done" className="h-7 px-3 text-xs">{t('gate.done')}</ToggleGroupItem>
-        <ToggleGroupItem value="problem" className="h-7 px-3 text-xs">{t('gate.problem')}</ToggleGroupItem>
+        {/* The picked one must read as picked in both themes: its own colour, not a grey tint. */}
+        <ToggleGroupItem value="done" className="h-7 px-3 text-xs data-[state=on]:border-add data-[state=on]:bg-add-row data-[state=on]:font-semibold data-[state=on]:text-add">{t('gate.done')}</ToggleGroupItem>
+        <ToggleGroupItem value="problem" className="h-7 px-3 text-xs data-[state=on]:border-del data-[state=on]:bg-del-row data-[state=on]:font-semibold data-[state=on]:text-del">{t('gate.problem')}</ToggleGroupItem>
       </ToggleGroup>
       <textarea
         className="field" rows={2} value={note} placeholder={t('gate.note')} aria-label={t('gate.note')}
@@ -234,7 +235,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
                 <legend className="sr-only">{t('gate.finding', { n: k + 1 })}</legend>
                 <div className="flex items-center gap-2">
                   <ToggleGroup type="single" variant="outline" size="sm" value={d.severity} aria-label={t('gate.severity')} onValueChange={v => v && edit(k, { severity: v as Severity })}>
-                    {SEVERITIES.map(s => <ToggleGroupItem key={s} value={s} className="h-6 px-2 font-mono text-xs">{s}</ToggleGroupItem>)}
+                    {SEVERITIES.map(s => <ToggleGroupItem key={s} value={s} className="h-6 px-2 font-mono text-xs data-[state=on]:border-you data-[state=on]:bg-you-bg data-[state=on]:font-semibold data-[state=on]:text-you-ink">{s}</ToggleGroupItem>)}
                   </ToggleGroup>
                   <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label={t('gate.removeFinding')} onClick={() => { d.files.forEach(detach); setDrafts(ds => ds.filter((_, i) => i !== k)) }}>
                     <Icon name="no" className="size-3.5" />
