@@ -5,7 +5,7 @@ import { useMemo } from 'react'
 import { useAct } from '@/act'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
+import { finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
 import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
@@ -95,10 +95,9 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
   const suggested = open.filter(f => f.recommendation).length
   const icon = !n ? 'chev'
     : r.kind === 'gate' || r.kind === 'decision' ? (n.gate ? `gate-${n.gate}` : n.reviewer ?? 'ring')
-    : r.kind === 'loose' ? 'no' : 'far'
+    : 'no'
   const title = r.chore ? r.chore.title
     : r.kind === 'decision' ? `${finderLabel(t, n!)}${follows ? ` #${follows}` : ''}`
-    : r.kind === 'far' ? `${t('need.far')}${n!.taskId ? ` #${n!.taskId}` : ''}`
     : n!.title
   const body = (
     <>
@@ -116,7 +115,6 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
           </Tip>
         )}
         {r.kind === 'loose' && <span className="flex-none">{t('need.loose')}</span>}
-        {r.far.length > 0 && <span className="truncate font-mono">{r.far.map(baseName).join(' ')}</span>}
         {r.chore && <Who name={r.chore.by} />}
         {/* Where it is: the intent quietly, then the unit. */}
         <span className="unit"><span className="opacity-70">{r.intent?.title ?? r.project}{r.unit && ' / '}</span>{r.unit?.title}</span>

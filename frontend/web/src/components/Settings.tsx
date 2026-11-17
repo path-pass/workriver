@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { MOCK } from '@/data'
-import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/runtime'
-import type { Levels, Machine, Thresholds, Workspace } from '@/types'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, RUN_GROUP, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/runtime'
+import type { Levels, Machine, RuntimeWorkspace, Thresholds, Workspace } from '@/types'
 import { Trans } from 'react-i18next'
 import { LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
@@ -88,6 +88,46 @@ function Machines({ ws }: { ws: Workspace | null }) {
           ))}
         </>
       )}
+      {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
+    </section>
+  )
+}
+
+/** Worked out by workriver, in the project picker. */
+const AUTO = '-'
+
+/**
+ * Which project each workspace here works on: worked out by workriver (from where its
+ * manager runs, else its current intent), or set by the user, which wins. Starting an
+ * intent of another project there asks first.
+ */
+function WorkspaceProjects({ ws }: { ws: Workspace | null }) {
+  const { t } = useT()
+  const [error, setError] = useState('')
+  const list = (ws?.workspaces ?? []).filter(g => !g.machine && g.label !== RUN_GROUP)
+  const projects = ws?.projects ?? []
+  if (!list.length || !projects.length) return null
+  const set = (g: RuntimeWorkspace, v: string) =>
+    record('workspace.project_set', { workspace: { id: g.id, label: g.label }, project: v === AUTO ? null : v }).then(() => setError(''), e => setError(t('machines.failed', { error: String(e) })))
+  return (
+    <section aria-labelledby="ws-projects" className="flex flex-col gap-2 border-t border-line pt-3">
+      <h3 id="ws-projects" className="text-sm font-semibold">{t('wsProject.title')}</h3>
+      <p className="text-xs text-ink-2">{t('wsProject.lead')}</p>
+      {list.map(g => (
+        <label key={g.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-center gap-2 text-sm">
+          <span className="truncate">{g.label}</span>
+          <Choice
+            label={t('wsProject.pick', { workspace: g.label })}
+            value={g.projectFrom === 'user' && g.project ? g.project : AUTO}
+            onChange={v => set(g, v)}
+            options={[
+              { value: AUTO, label: g.project && g.projectFrom !== 'user' ? t('wsProject.auto', { project: g.projectTitle ?? g.project, from: t(`wsProject.from.${g.projectFrom ?? 'intents'}`) }) : t('wsProject.autoUnknown') },
+              ...projects.map(p => ({ value: p.id, label: p.title })),
+            ]}
+            className="h-7 w-full"
+          />
+        </label>
+      ))}
       {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
     </section>
   )
@@ -283,6 +323,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
           </Row>
           {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
           <Stall />
+          <WorkspaceProjects ws={ws} />
           <MachineAlerts />
           {!MOCK && <Machines ws={ws} />}
         </div>

@@ -195,7 +195,6 @@
   /* On a unit in the rail: an agent stuck on the user (filled), other things waiting (outlined). */
   .tag[data-tone="block"] { gap: 3px; background: var(--rail-you); color: var(--rail); }
   .tag[data-tone="wait"] { background: transparent; box-shadow: inset 0 0 0 1px var(--rail-you); color: var(--rail-you); }
-  .tag[data-tone="far"] { background: transparent; box-shadow: inset 0 0 0 1px var(--amber); color: var(--amber); }
   .tag[data-tone="add"] { background: var(--water-bg); color: var(--water-ink); }
   .tag[data-tone="del"] { background: var(--del-row); color: var(--del); }
   /* Where a unit stands: a dot and a word. Ready to merge in the done tone; the rest quiet. */
@@ -347,6 +346,11 @@
   /* Questions asked about this work: a small neutral mark at the bottom corner. */
   .wnode .talks { position: absolute; right: -6px; bottom: -7px; display: inline-flex; align-items: center; gap: 2px; height: 14px; padding: 0 4px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); font-size: 9px; font-weight: 600; line-height: 1; }
   .wnode .count { position: absolute; right: -6px; top: -7px; box-shadow: 0 0 0 2px var(--surface); }
+  /* The scope grew here: folders new on its line of work. Quiet and still, at the bottom middle,
+     clear of the corner marks. */
+  .grew { display: inline-flex; align-items: center; gap: 2px; height: 14px; padding: 0 4px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); font-size: 9px; font-weight: 600; font-style: normal; line-height: 1; }
+  .grew .ic { width: 10px; height: 10px; }
+  .wnode .grew { position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); }
   .wnode[data-dim] { opacity: .32; }
   .wnode[aria-pressed="true"] { outline: 2px solid var(--you); outline-offset: 2px; box-shadow: var(--shadow); }
   .wdot { width: 18px; height: 18px; border-radius: 50%; background: var(--water); }

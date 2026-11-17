@@ -60,6 +60,7 @@ export const en = {
     note: 'Note',
     where: 'Where it runs',
     workspace: 'Workspace',
+    worksOn: 'works on {{project}}',
     manager: 'Manager',
     notStarted: 'Not started yet: it is in the roadmap.',
     talk: 'Write to the manager',
@@ -219,9 +220,7 @@ export const en = {
     active: 'Active',
     untouched: 'Not started',
     waiting_one: '{{count, number}} thing waiting for you',
-    waiting_other: '{{count, number}} things waiting for you',
-    grew_other: '{{count, number}} beyond plan',
-    grewHint: 'A branch grew beyond the original plan'
+    waiting_other: '{{count, number}} things waiting for you'
   },
   agents: {
     blocked: 'Waiting for you in its terminal',
@@ -254,7 +253,23 @@ export const en = {
     none: '{{label}} has no manager, so nobody would split the work. Start one there first:',
     started: 'Started in {{label}}.',
     failed: 'Not started: {{error}}',
-    close: 'Close'
+    close: 'Close',
+    optionUnknown: '{{option}} · project unknown',
+    optionOther: '{{option}} · works on {{project}}',
+    others: 'Other projects’ workspaces',
+    showOthers_one: 'Other projects’ workspaces ({{count, number}})',
+    showOthers_other: 'Other projects’ workspaces ({{count, number}})',
+    pickOther: 'Pick a workspace',
+    otherAsk: 'Its manager {{manager}} works on {{theirs}}; give it a {{mine}} intent?',
+    goOther: 'Yes, start it there'
+  },
+  wsProject: {
+    title: 'Workspaces’ projects',
+    lead: 'Which project each workspace works on. workriver works it out from where its manager runs, else from its current intent; what you set here wins. Starting an intent of another project there asks first.',
+    pick: 'The project {{workspace}} works on',
+    auto: 'Worked out: {{project}} ({{from}})',
+    autoUnknown: 'Worked out: unknown',
+    from: { manager: 'its manager’s folder', intents: 'its current intent', user: 'set by you' }
   },
   backlog: {
     title: 'Backlog',
@@ -428,8 +443,7 @@ export const en = {
     suggested_other: '{{count, number}} with an agent suggestion'
   },
   need: {
-    loose: 'Unregistered',
-    far: 'Grew beyond the plan'
+    loose: 'Unregistered'
   },
   kind: {
     implement: 'Implement',
@@ -578,6 +592,7 @@ export const en = {
   },
   flow: {
     empty: 'No tasks recorded for this unit yet.',
+    grew: 'Also reached {{folders}} — beyond {{tasks}}',
     start: 'Start',
     controls: 'Graph controls',
     zoomIn: 'Zoom in',
@@ -619,6 +634,7 @@ export const en = {
     running: 'In progress',
     todo: 'Not started',
     waiting: 'Findings waiting for you',
+    grew: 'Reached folders new on its line',
     flowed: 'Flowed',
     flowing: 'Flowing now',
     also: 'Secondary input'

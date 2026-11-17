@@ -110,6 +110,12 @@ Then tell it, for example: "You are the workriver manager of this workspace. Sta
 first intent of the roadmap, plan units and tasks, and hand them to worker agents." On the
 page, "Start" next to a planned intent shows the same steps with the commands to copy.
 
+Each workspace works on one project. workriver works out which from the folder its manager
+runs in (else from its current intent); you can set it in Settings, "Workspaces' projects",
+or with `workriver workspace project <workspace> <p1>` (`--clear` to let workriver work it
+out again). "Start" lists the workspaces of the intent's project first and asks before
+giving an intent to a manager that works on another project.
+
 Optional, if agents take screenshots with the Playwright MCP: by default its files land in
 the project (`.playwright-mcp/`). Give it workriver's folder for files it names itself,
 e.g. for Claude Code

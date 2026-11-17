@@ -1695,11 +1695,20 @@ struct Append {
 }
 
 /// Any event, as the CLI or the page records it, as whoever the caller is found to be.
-async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<core::Event>, ApiError> {
+async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
     blocking(move || {
         let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
-        app.record(&who, body).map(Json)
+        let e = app.record(&who, body)?;
+        let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        // A manager that starts an intent of another project than its workspace's is told so.
+        if let Body::IntentStateChanged { intent, state: core::IntentState::Active, workspace: Some(g), .. } = &e.body {
+            let live = app.runtime.agents().unwrap_or_default();
+            if let Some(why) = snapshot::other_project(app.store.lock().unwrap().state(), &live, g, intent) {
+                out["warning"] = json!(format!("{why}. If you do not work on that project, do not split it: ask the user with a decide gate first (`workriver guide how ask-user`)."));
+            }
+        }
+        Ok(Json(out))
     })
     .await
 }
@@ -1956,6 +1965,9 @@ struct StartIntent {
     intent: String,
     /// The runtime group (Herdr workspace) it starts in, by id.
     workspace: String,
+    /// The user was told the workspace works on another project and starts it there anyway.
+    #[serde(default, rename = "confirmOtherProject")]
+    confirm_other_project: bool,
 }
 
 /// The user starts a planned intent in a workspace from the page, as its manager would with
@@ -1966,6 +1978,13 @@ async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Ca
         // The workspace as the runtime knows it, never as the page names it.
         let groups = app.runtime.groups().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         let group = groups.into_iter().find(|g| g.id == s.workspace).ok_or_else(|| bad(format!("no workspace {} in the runtime", s.workspace)))?;
+        // Its manager would get work from a project it is not in: only once the user confirmed.
+        if !s.confirm_other_project {
+            let live = app.runtime.agents().unwrap_or_default();
+            if let Some(why) = snapshot::other_project(app.store.lock().unwrap().state(), &live, &group, &s.intent) {
+                return Err(ApiError(StatusCode::CONFLICT, format!("{why}: its manager would get work from a project it is not in. Pick a workspace of that project, or confirm starting it there anyway (confirmOtherProject)")));
+            }
+        }
         let e = app.record(&who, Body::IntentStateChanged { intent: s.intent.clone(), state: core::IntentState::Active, reason: None, workspace: Some(group) })?;
         let live = app.runtime.agents().ok();
         let plan = deliver::started(app.store.lock().unwrap().state(), live.as_deref(), &s.intent);

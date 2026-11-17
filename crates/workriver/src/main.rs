@@ -325,6 +325,18 @@ enum WorkspaceCmd {
         /// `<machine>:<workspace label>`.
         remote: String,
     },
+    /// Say which project a workspace of this machine works on, over what workriver works out
+    /// (from where its manager runs, else its current intent). The user only.
+    Project {
+        /// The workspace's label.
+        workspace: String,
+        /// The project (p1, or a folder as `workriver project list` shows it).
+        #[arg(required_unless_present = "clear")]
+        project: Option<String>,
+        /// Forget what was set: workriver works it out again.
+        #[arg(long, conflicts_with = "project")]
+        clear: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -978,7 +990,10 @@ fn main() -> anyhow::Result<()> {
             for g in w["workspaces"].as_array().into_iter().flatten() {
                 let label = g["label"].as_str().unwrap_or("?");
                 match (g["machine"].as_str(), g["linkedTo"].as_str()) {
-                    (None, _) => println!("{label}"),
+                    (None, _) => match (g["projectTitle"].as_str(), g["projectFrom"].as_str()) {
+                        (Some(p), Some(from)) => println!("{label}  works on {p} ({from})"),
+                        _ => println!("{label}  project unknown"),
+                    },
                     (Some(m), Some(to)) => println!("{m}:{label}  linked to {to}"),
                     (Some(m), None) => println!("{m}:{label}  not linked"),
                 }
@@ -992,6 +1007,12 @@ fn main() -> anyhow::Result<()> {
         Cmd::Workspace(WorkspaceCmd::Unlink { remote }) => {
             let (machine, workspace) = remote.split_once(':').ok_or_else(|| anyhow!("write the remote workspace as <machine>:<workspace>"))?;
             d.append(actor, "workspace.unlinked", json!({ "machine": machine, "workspace": workspace }))?
+        }
+        Cmd::Workspace(WorkspaceCmd::Project { workspace, project, clear: _ }) => {
+            let w = d.get("/api/workspace?light=true")?;
+            let g = w["workspaces"].as_array().into_iter().flatten().find(|g| g["label"] == workspace.as_str() && g["machine"].is_null());
+            let g = g.ok_or_else(|| anyhow!("no workspace {workspace} on this machine; see `workriver workspace list`"))?;
+            d.append(actor, "workspace.project_set", json!({ "workspace": { "id": g["id"], "label": g["label"] }, "project": project.as_deref().map(project_arg).transpose()? }))?
         }
         Cmd::Project(ProjectCmd::Add { folder, title }) => {
             let folder = std::fs::canonicalize(&folder).with_context(|| format!("no folder {folder}"))?;
@@ -1029,7 +1050,11 @@ fn main() -> anyhow::Result<()> {
         Cmd::Backlog(BacklogCmd::Merge { into, from, title }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from, "title": title })))?,
         Cmd::Intent(IntentCmd::Start { intent }) => {
             let Some(g) = &group else { bail!("run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace") };
-            d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?
+            let out = d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?;
+            if let Some(w) = out["warning"].as_str() {
+                eprintln!("warning: {w}");
+            }
+            out
         }
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
@@ -1218,6 +1243,7 @@ fn main() -> anyhow::Result<()> {
         Some("commit.unlinked") => "unlinked".into(),
         Some("workspace.linked") => "linked".into(),
         Some("workspace.unlinked") => "unlinked".into(),
+        Some("workspace.project_set") => b["project"].as_str().map(|p| format!("works on {p}")).unwrap_or_else(|| "worked out by workriver".into()),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
         Some("intent.merged") => format!("merged {} into {}{}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?"), b["title"].as_str().map(|t| format!(", now \"{t}\"")).unwrap_or_default()),
         Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),

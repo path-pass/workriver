@@ -34,7 +34,7 @@ decisions into their terminals, so the question it must answer is: **was that re
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
 drop them, end a conversation, focus a terminal from the page, start a planned intent in a
 workspace from the page (`/api/intent/start`), run a command (below), add projects, add or
-enable machines, link workspaces, set when the machines alert (`/api/metrics/thresholds`).
+enable machines, link workspaces, say which project a workspace works on, set when the machines alert (`/api/metrics/thresholds`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
 `workriver machine load`) the user and an agent of this machine may; an agent on another
 machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and

@@ -8,6 +8,8 @@ use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, parse_task_ref};
 use workriver_scan as scan;
 
+use crate::quote;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
@@ -176,6 +178,13 @@ struct Group {
     machine: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     linked_to: Option<String>,
+    /// The project (its folder) it works on, its title, and how that is known; none: unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_from: Option<Known>,
 }
 
 /// The group a linked group of another machine stands for: this machine's, by the link.
@@ -566,6 +575,9 @@ struct Commit {
     /// The same change as this commit of a branch the unit left (a rebase): its old hash.
     #[serde(rename = "rebasedFrom", skip_serializing_if = "Option::is_none")]
     rebased_from: Option<String>,
+    /// A merge commit (the base merged into the branch): its files are not work of its own.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    merge: bool,
 }
 
 #[derive(Serialize)]
@@ -969,7 +981,13 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             }
         })
         .collect();
-    let workspaces = groups.iter().map(|g| Group { id: g.id.clone(), label: g.label.clone(), machine: g.machine.clone(), linked_to: state.link_of(g).map(|l| l.local.clone()) }).collect();
+    let workspaces = groups
+        .iter()
+        .map(|g| {
+            let (project, from) = group_project(state, live, g).unzip();
+            Group { id: g.id.clone(), label: g.label.clone(), machine: g.machine.clone(), linked_to: state.link_of(g).map(|l| l.local.clone()), project_title: project.as_deref().map(|p| project_title(state, p)), project, project_from: from }
+        })
+        .collect();
     let chores = state
         .chores
         .iter()
@@ -980,8 +998,88 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages }
 }
 
+/// How workriver knows which project a workspace works on.
+#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Known {
+    /// Its manager runs inside the project's folder.
+    Manager,
+    /// Its current intent belongs to the project.
+    Intents,
+    /// The user said so (`workspace.project_set`).
+    User,
+}
+
+/// The project (its folder) a runtime group works on, and how that is known: what the user
+/// set; else where its manager runs; else its current intent's project. None: unknown.
+pub fn group_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef) -> Option<(String, Known)> {
+    let w = state.workspace_of(g);
+    if let Some(p) = w.and_then(|w| w.project.clone()) {
+        return Some((p, Known::User));
+    }
+    let manager = w.and_then(|w| w.manager.as_deref()).and_then(|m| live.iter().find(|a| a.session == m));
+    if let Some(p) = manager.and_then(|a| project_at(state, a.machine.as_deref(), &a.cwd)) {
+        return Some((p, Known::Manager));
+    }
+    state.intent_for(g).map(|i| project_folder(state, i)).filter(|p| !p.is_empty()).map(|p| (p, Known::Intents))
+}
+
+/// The project a folder is in. Here: the deepest registered project holding it, else the
+/// repository it is in (a project of its own; a linked worktree counts as its main
+/// repository). On another machine its paths are its own: only the repositories of units
+/// recorded on that machine, as their intents' projects.
+fn project_at(state: &core::State, machine: Option<&str>, cwd: &str) -> Option<String> {
+    if cwd.is_empty() {
+        return None;
+    }
+    let cwd = Path::new(cwd);
+    if let Some(m) = machine {
+        let u = state.units.iter().filter(|u| u.machine.as_deref() == Some(m) && u.has_code() && cwd.starts_with(&u.repo)).max_by_key(|u| u.repo.len())?;
+        let i = state.intents.iter().find(|i| i.id == u.intent)?;
+        return Some(project_folder(state, i)).filter(|p| !p.is_empty());
+    }
+    if let Some(p) = crate::serve::project_of(state, &cwd.to_string_lossy()) {
+        return Some(p.path.clone());
+    }
+    let top = cwd.ancestors().find(|d| d.join(".git").exists())?;
+    // A linked worktree's `.git` is a file: `gitdir: <main>/.git/worktrees/<name>`.
+    let main = std::fs::read_to_string(top.join(".git")).ok().and_then(|g| g.trim().strip_prefix("gitdir:").and_then(|d| d.trim().split_once("/.git/worktrees/")).map(|(m, _)| m.to_string()));
+    let top = main.unwrap_or_else(|| top.to_string_lossy().into_owned());
+    Some(crate::serve::project_of(state, &top).map(|p| p.path.clone()).unwrap_or(top))
+}
+
+/// A project's title: a registered one's, else its folder's name.
+pub(crate) fn project_title(state: &core::State, folder: &str) -> String {
+    match state.projects.iter().find(|p| p.path == folder) {
+        Some(p) => p.title.clone(),
+        None => Path::new(folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.to_string()),
+    }
+}
+
+/// When `intent` belongs to a known project and the group is known to work on another: the
+/// two, in a sentence. None when they agree or either is unknown.
+pub fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef, intent: &str) -> Option<String> {
+    let i = state.intents.iter().find(|i| i.id == intent)?;
+    let mine = project_folder(state, i);
+    let (theirs, known) = group_project(state, live, g)?;
+    if mine.is_empty() || mine == theirs {
+        return None;
+    }
+    let how = match known {
+        Known::Manager => "its manager runs in that project's folder",
+        Known::Intents => "its current intent belongs to it",
+        Known::User => "the user set it",
+    };
+    Some(format!(
+        "workspace {} works on project {} ({theirs}; {how}), but {intent} belongs to project {} ({mine})",
+        quote::name(&g.label),
+        quote::name(&project_title(state, &theirs)),
+        quote::name(&project_title(state, &mine))
+    ))
+}
+
 /// An intent's project folder: as recorded, else where its first unit's repository is.
-fn project_folder(state: &core::State, i: &core::Intent) -> String {
+pub(crate) fn project_folder(state: &core::State, i: &core::Intent) -> String {
     let path = if i.project.is_empty() { state.units.iter().find(|u| u.intent == i.id).map(|u| u.repo.clone()).unwrap_or_default() } else { i.project.clone() };
     if path.is_empty() {
         return path;
@@ -1164,7 +1262,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
             let known = cache.stored.memo.get(&u.id).map(|m| m.hashes.clone()).unwrap_or_else(|| u.merged_commits.clone());
             let mut shared = cache.shared.lock().unwrap();
             if !shared.units.contains_key(&u.id) && !known.is_empty() {
-                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), files: vec![] })).collect();
+                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, files: vec![] })).collect();
                 let patch = cache.stored.patch.iter().filter(|(h, _)| known.contains(h)).map(|(h, p)| (h.clone(), p.clone())).collect();
                 shared.units.insert(u.id.clone(), (commits, vec![], patch));
                 changed = true;
@@ -1213,7 +1311,7 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) 
         }
     };
     // Light: what each commit says is enough. Else their texts, those not read yet at once.
-    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), files: vec![] });
+    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, files: vec![] });
     let missing: Vec<String> = hashes.iter().filter(|h| !cache.commits.contains_key(*h) && (!cache.light || !cache.stored.meta.contains_key(*h))).cloned().collect();
     if !missing.is_empty() {
         match scan::commits(at, repo, &missing) {
@@ -1299,7 +1397,7 @@ fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
 }
 
 fn bare_commit(c: &scan::Commit) -> scan::Commit {
-    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), files: c.files.iter().map(scan::FileChange::bare).collect() }
+    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), merge: c.merge, files: c.files.iter().map(scan::FileChange::bare).collect() }
 }
 
 /// Which texts a unit's commits and uncommitted files have: its commits' hashes (a commit
@@ -1378,7 +1476,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         .zip(linked)
         .map(|(c, linked)| {
             let rebased_from = again.get(&c.hash).cloned();
-            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, files: c.files, linked, rebased_from }
+            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.merge, files: c.files, linked, rebased_from }
         })
         .collect();
     // Uncommitted work belongs to the running implement task started last.
@@ -1392,7 +1490,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
                 t.writing = true;
                 t.output.commits.get_or_insert_with(Vec::new).push(LIVE.into());
             }
-            shown.push(Commit { id: LIVE.into(), subject: String::new(), date: core::now(), author, live: true, files, linked: false, rebased_from: None });
+            shown.push(Commit { id: LIVE.into(), subject: String::new(), date: core::now(), author, live: true, files, linked: false, rebased_from: None, merge: false });
         }
     }
 

@@ -4,6 +4,15 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **An intent of another project** (managers): workriver works out which project your
+  workspace works on (your pane's folder, else your current intent; the user can set it),
+  shown by `workriver workspace list`. The user's start message now names the intent's
+  project and folder (`The user started i3 «title» of project «workriver» (folder «…») in
+  your workspace …`), and `workriver intent start` prints a `warning:` line when the intent's
+  project is not your workspace's. Then do not split it: ask the user with a decide gate
+  first (`start-intent`, `ask-user`). The page asks the user before starting an intent in a
+  workspace of another project.
+
 - **Research and design for a whole intent go in a research unit** (managers): `workriver
   unit add [i3] --kind research --title "…" [--purpose "…"]` makes a unit with no repository,
   branch or base (none of them is taken). It takes research, design, review and gate tasks
