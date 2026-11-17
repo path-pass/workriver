@@ -189,7 +189,7 @@ function ThreadRow({ th, open, body, onToggle }: { th: Thread; open: boolean; bo
       <span className="line-clamp-1 min-w-0 flex-1 wrap-anywhere" lang={contentLang(first?.question)}>{first?.question}</span>
       <span className="flex-none text-ink-2">{t('ask.exchanges', { count: th.turns.length, n: num(th.turns.length) })}</span>
       <span className="thread-state flex-none" data-state={state}>{t(`ask.state.${state}`)}</span>
-      {Number.isFinite(at) && <Tip text={when(at)}><span className="w-8 flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
+      {Number.isFinite(at) && <Tip text={when(at)}><span className="thread-age flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
     </button>
   )
 }

@@ -49,7 +49,7 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
         <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{a.name}</span></span>
         <span className="meta">
           {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
-          <span className="unit opacity-70">{a.place}</span>
+          <span className="unit opacity-70" lang={contentLang(a.place)}>{a.place}</span>
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>

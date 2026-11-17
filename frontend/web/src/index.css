@@ -391,6 +391,9 @@
   .thread-row .thread-state { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--sunken); color: var(--ink-2); }
   .thread-row .thread-state[data-state="waiting"] { background: var(--amber-bg); color: var(--amber-ink); }
   .thread-row .thread-state[data-state="failed"] { color: var(--del); }
+  /* The age column: 2rem holds 23h; Japanese units are kanji (23時間), so a little more. */
+  .thread-row .thread-age { width: 2rem; }
+  :root:lang(ja) .thread-row .thread-age { width: 2.75rem; }
   /* A chat scrolls on its own, in whatever height it is given. */
   .chat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; border-radius: 6px; }
   .chat-scroll:focus-visible { outline: 2px solid var(--you); outline-offset: -2px; }

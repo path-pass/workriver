@@ -58,7 +58,12 @@ function formatters(lang: string) {
   const nf = new Intl.NumberFormat(lang)
   const day = new Intl.DateTimeFormat(lang, { dateStyle: 'medium' })
   const minute = new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' })
-  const span = (unit: string) => new Intl.NumberFormat(lang, { style: 'unit', unit, unitDisplay: 'narrow', maximumFractionDigits: 0 })
+  // Japanese's narrow units are Latin (17d); its short ones, without their space, read as Japanese (17日).
+  const ja = lang === 'ja'
+  const span = (unit: string) => {
+    const f = new Intl.NumberFormat(lang, { style: 'unit', unit, unitDisplay: ja ? 'short' : 'narrow', maximumFractionDigits: 0 })
+    return ja ? (n: number) => f.format(n).replace(/\s/g, '') : (n: number) => f.format(n)
+  }
   const spans = { minute: span('minute'), hour: span('hour'), day: span('day') }
   return {
     num: (n: number) => nf.format(n),
@@ -67,10 +72,10 @@ function formatters(lang: string) {
       const d = new Date(s.replace(' ', 'T'))
       return Number.isNaN(d.getTime()) ? s : (time ? minute : day).format(d)
     },
-    /** How long since `since` (milliseconds), in its largest whole unit: 5m, 3h, 2d. */
+    /** How long since `since` (milliseconds), in its largest whole unit: 5m, 3h, 2d (5分, 3時間, 2日). */
     waited: (since: number) => {
       const m = Math.max(0, (Date.now() - since) / 60000)
-      return m < 60 ? spans.minute.format(Math.floor(m)) : m < 1440 ? spans.hour.format(Math.floor(m / 60)) : spans.day.format(Math.floor(m / 1440))
+      return m < 60 ? spans.minute(Math.floor(m)) : m < 1440 ? spans.hour(Math.floor(m / 60)) : spans.day(Math.floor(m / 1440))
     },
     /** A time in milliseconds, written out. */
     when: (t: number) => (Number.isFinite(t) ? minute.format(new Date(t)) : ''),
