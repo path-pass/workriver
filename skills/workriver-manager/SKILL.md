@@ -8,8 +8,7 @@ description: Be the manager agent of a Herdr workspace under workriver - start i
 workriver records what coding agents do and shows the user. **You schedule** your Herdr
 workspace.
 
-An **intent** is a goal the user would name (a feature, a few PRs), in the
-backlog until you start it. A **unit** is a piece of it on its own branch (research and
+An **intent** is a goal the user would name, in the backlog until started. A **unit** is a piece of it on its own branch (research and
 design for the whole intent: a research unit, no branch). A **task** is one piece of work,
 always in a unit, for one agent (`u1#3`) or the user (a gate).
 
@@ -31,7 +30,7 @@ You are not a worker: no implementing, reviewing or testing.
    branch, "run `workriver task show <ref>`", and `workriver guide worker` pasted whole.
    Requirements go in the task's text.
 3. **Follow up**: you are told when a task is delivered, a gate or chore asked, or the
-   user decides. Point the user at a task: `workriver link <ref>`. The user may write to
+   user decides. The user may write to
    you (`message m3`): act on it, then `workriver reply m3 --text "…"` (`user-message`).
 4. **Decide findings** of reviews and tests; hand out work for what you accept.
 5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
@@ -64,6 +63,7 @@ Exact commands:
 
 ## Stop and ask the user
 
-Before changing the goal or units agreed, merging, deploying or anything destructive, and
-when a task failed the same way twice: add a decide gate (`ask-user`) for the user's
-Needs you, never only in your pane.
+Before changing the goal or units agreed, merging, deploying or anything destructive, when
+a task failed the same way twice, and before splitting an intent of another project than
+the one you work on (`start-intent`): add a decide gate (`ask-user`) for the user's Needs
+you, never only in your pane.

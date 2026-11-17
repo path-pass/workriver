@@ -449,6 +449,19 @@
    "state": "idle",
    "idleSince": "2026-10-31 10:00",
    "topic": "虚拟滚动"
+  },
+  {
+   "agent": "mgr-notes",
+   "ended": false,
+   "group": {
+    "id": "w6",
+    "label": "notes"
+   },
+   "harness": "claude",
+   "manager": true,
+   "state": "idle",
+   "idleSince": "2026-11-17 07:40",
+   "topic": "笔记同步的收尾"
   }
  ],
  "intents": [
@@ -526,6 +539,27 @@
        ]
       },
       {
+       "id": "5d2e8f1a0",
+       "subject": "feat(notify): remember who mentioned whom",
+       "date": "2026-11-15 20:20",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/store/mentions.ts",
+         "status": "A",
+         "before": null,
+         "after": "// Who mentioned whom, kept so a notification can say it.\nexport interface Mention {\n  messageId: string\n  from: string\n  to: string\n}\n\nconst mentions: Mention[] = []\n\nexport function remember(m: Mention) {\n  mentions.push(m)\n}\n\nexport function mentionedBy(messageId: string, to: string) {\n  return mentions.find(m => m.messageId === messageId && m.to === to)?.from\n}\n"
+        },
+        {
+         "path": "app/ui/notice/mentioned-by.tsx",
+         "status": "A",
+         "before": null,
+         "after": "// The line under a notification: who mentioned you.\nexport function MentionedBy({ name }: { name: string }) {\n  return <span className=\"mentioned-by\">@{name}</span>\n}\n"
+        }
+       ]
+      },
+      {
        "id": "9c1d7e0aa",
        "subject": "feat(notify): say who mentioned you",
        "date": "2026-11-15 20:31",
@@ -537,6 +571,28 @@
          "status": "M",
          "before": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n",
          "after": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at, from: payload.author } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n"
+        }
+       ]
+      },
+      {
+       "id": "0b7c3e9d4",
+       "subject": "Merge branch 'main' into feat/mention",
+       "date": "2026-11-16 09:12",
+       "author": "agent-A",
+       "live": false,
+       "merge": true,
+       "files": [
+        {
+         "path": "app/search/highlight.ts",
+         "status": "A",
+         "before": null,
+         "after": "// Marks the searched word in a message.\nexport function highlight(text: string, word: string) {\n  if (!word) return [text]\n  return text.split(new RegExp(`(${word.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')})`, 'i'))\n}\n"
+        },
+        {
+         "path": "docs/search.md",
+         "status": "A",
+         "before": null,
+         "after": "# Search\n\nType a word in the box above the message list; messages that contain it are listed, newest first.\n"
         }
        ]
       },
@@ -971,6 +1027,7 @@
        },
        "output": {
         "commits": [
+         "5d2e8f1a0",
          "9c1d7e0aa"
         ],
         "evidence": [
@@ -984,6 +1041,41 @@
        "plans": [],
        "started": "2026-11-14 10:00",
        "delivered": "2026-11-15 20:33"
+      },
+      {
+       "id": "s12",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "12",
+       "title": "把 main 合进分支，跟上最新代码",
+       "agent": "agent-A",
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "s11",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "把 main 合进 feat/mention，跟上最新代码；有冲突就解决。",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "0b7c3e9d4"
+        ],
+        "evidence": [
+         {
+          "command": "npm test",
+          "result": "passed",
+          "summary": "41 passed"
+         }
+        ]
+       },
+       "plans": [],
+       "started": "2026-11-16 09:05",
+       "delivered": "2026-11-16 09:14"
       },
       {
        "id": "s13",
@@ -3492,6 +3584,14 @@
    "repos": [
     "demo"
    ]
+  },
+  {
+   "id": "notes",
+   "title": "笔记服务",
+   "registered": true,
+   "repos": [
+    "notes"
+   ]
   }
  ],
  "messages": [
@@ -3535,6 +3635,54 @@
      "at": "2026-11-17T07:12:00Z"
     }
    ]
+  }
+ ],
+ "workspaces": [
+  {
+   "id": "w1",
+   "label": "chat",
+   "project": "demo",
+   "projectTitle": "聊天应用",
+   "projectFrom": "manager"
+  },
+  {
+   "id": "w2",
+   "label": "hardening",
+   "project": "demo",
+   "projectTitle": "聊天应用",
+   "projectFrom": "manager"
+  },
+  {
+   "id": "w3",
+   "label": "ops",
+   "project": "demo",
+   "projectTitle": "聊天应用",
+   "projectFrom": "intents"
+  },
+  {
+   "id": "w4",
+   "label": "onboarding",
+   "project": "demo",
+   "projectTitle": "聊天应用",
+   "projectFrom": "intents"
+  },
+  {
+   "id": "w5",
+   "label": "perf",
+   "project": "demo",
+   "projectTitle": "聊天应用",
+   "projectFrom": "intents"
+  },
+  {
+   "id": "w6",
+   "label": "notes",
+   "project": "notes",
+   "projectTitle": "笔记服务",
+   "projectFrom": "manager"
+  },
+  {
+   "id": "w7",
+   "label": "sandbox"
   }
  ]
 }

@@ -77,6 +77,10 @@ pub struct Commit {
     pub author: String,
     /// The value of a `Task:` trailer, e.g. "u1#3".
     pub task: Option<String>,
+    /// More than one parent (the base merged into the branch, say); its files are against
+    /// its first parent, so they are not work of its own.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub merge: bool,
     pub files: Vec<FileChange>,
 }
 
@@ -426,7 +430,7 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
     if hashes.is_empty() {
         return Ok(vec![]);
     }
-    let fmt = "--format=%x01%H%x02%an%x02%aI%x02%(trailers:key=Task,valueonly,separator=%x2C)%x02%s%x02";
+    let fmt = "--format=%x01%H%x02%an%x02%aI%x02%P%x02%(trailers:key=Task,valueonly,separator=%x2C)%x02%s%x02";
     let args: Vec<&str> = ["log", "--no-walk=unsorted", "--diff-merges=first-parent", "--root", "--no-renames", "--raw", "-z", "--no-abbrev", fmt].into_iter().chain(hashes.iter().map(String::as_str)).chain(["--"]).collect();
     let out = match run(at, repo, &args, &[]) {
         Ok(o) => o,
@@ -440,9 +444,9 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
     let mut raws = vec![];
     for chunk in out.split(|b| *b == 1).filter(|c| !c.is_empty()) {
         let text = String::from_utf8_lossy(chunk);
-        let mut parts = text.splitn(6, '\u{2}');
-        let head: Vec<String> = (0..5).filter_map(|_| parts.next().map(str::to_string)).collect();
-        if head.len() < 5 {
+        let mut parts = text.splitn(7, '\u{2}');
+        let head: Vec<String> = (0..6).filter_map(|_| parts.next().map(str::to_string)).collect();
+        if head.len() < 6 {
             continue;
         }
         let mut files = vec![];
@@ -465,14 +469,14 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
     Ok(raws
         .into_iter()
         .map(|r| {
-            let [hash, author, date, task, subject] = <[String; 5]>::try_from(r.head).expect("five fields");
+            let [hash, author, date, parents, task, subject] = <[String; 6]>::try_from(r.head).expect("six fields");
             let id = hash.chars().take(9).collect();
             let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
             let files = r.files.into_iter().filter_map(|(status, path, before, after)| {
                 let (b, a) = (if status == "A" { None } else { Some(text(&before).unwrap_or_default()) }, if status == "D" { None } else { Some(text(&after).unwrap_or_default()) });
                 change(path, status, b, a)
             });
-            Commit { id, hash, subject, date, author, task, files: files.collect() }
+            Commit { id, hash, subject, date, author, task, merge: parents.split(' ').count() > 1, files: files.collect() }
         })
         .collect())
 }
@@ -495,7 +499,7 @@ pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
             files.push(c);
         }
     }
-    Ok(Commit { id: id.into(), hash: hash.into(), subject: subject.into(), date: date.into(), author: author.into(), task, files })
+    Ok(Commit { id: id.into(), hash: hash.into(), subject: subject.into(), date: date.into(), author: author.into(), task, merge: parents.split(' ').count() > 1, files })
 }
 
 /// Uncommitted changes in the work tree where `branch` is checked out, against its last

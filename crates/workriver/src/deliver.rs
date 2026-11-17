@@ -344,10 +344,18 @@ pub fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str) -> Re
     let i = state.intents.iter().find(|i| i.id == intent).ok_or_else(|| (ReasonCode::NoManager, format!("no intent {intent}")))?;
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };
+    // Its project, so that a manager working on another one stops before splitting it.
+    let folder = crate::snapshot::project_folder(state, i);
+    let project = if folder.is_empty() {
+        String::new()
+    } else {
+        format!(" of project «{}» (folder «{}»)", quote::name(&crate::snapshot::project_title(state, &folder)), quote::name(&folder))
+    };
+    let check = if folder.is_empty() { "" } else { " If your workspace works on another project, do not split it: ask the user first (`workriver guide how ask-user`)." };
     Ok((
         to,
         format!(
-            "[workriver] The user started {intent} «{}» in your workspace; it is now where new work goes. Split it into units and tasks: `workriver guide how start-intent`, then `workriver board {intent}`.{goal}",
+            "[workriver] The user started {intent} «{}»{project} in your workspace; it is now where new work goes. Split it into units and tasks: `workriver guide how start-intent`, then `workriver board {intent}`.{check}{goal}",
             quote::name(&i.title)
         ),
     ))

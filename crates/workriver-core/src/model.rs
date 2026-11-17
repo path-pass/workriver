@@ -350,7 +350,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | CommandRan { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | CommandRan { .. }
         )
     }
 }
@@ -602,6 +602,14 @@ pub enum Body {
     WorkspaceLinked(Link),
     #[serde(rename = "workspace.unlinked")]
     WorkspaceUnlinked { machine: String, workspace: String },
+    /// The user says which project a runtime group works on, over what workriver works out
+    /// (none: workriver works it out again). `project` is a project's folder (or its id).
+    #[serde(rename = "workspace.project_set")]
+    WorkspaceProjectSet {
+        workspace: RuntimeRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+    },
     /// A deferred finding from outside workriver's tasks, into a project's backlog.
     #[serde(rename = "finding.added")]
     FindingAdded {
@@ -973,7 +981,7 @@ impl Body {
             ProjectAdded { .. } | ProjectRenamed { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
-            WorkspaceLinked(_) | WorkspaceUnlinked { .. } => (None, None, None),
+            WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } | UnitDone { unit, .. } | UnitRelocated { unit, .. } | CommitUnlinked { unit, .. } => (None, Some(unit.clone()), None),
@@ -1175,6 +1183,9 @@ pub struct Workspace {
     pub group: RuntimeRef,
     pub manager: Option<String>,
     pub current: Option<String>,
+    /// The project (its folder) the user says it works on; none: workriver works it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1823,6 +1834,21 @@ impl State {
                     return no(format!("{machine}:{workspace} is not linked"));
                 }
                 WorkspaceUnlinked { machine, workspace }
+            }
+            WorkspaceProjectSet { workspace, project } => {
+                if blank(&workspace.id) || blank(&workspace.label) {
+                    return no("name the workspace by its id and label, as `workriver workspace list` shows it");
+                }
+                let project = match project {
+                    None => None,
+                    // A registered project (by id or folder), or a folder an intent or unit names.
+                    Some(p) => match self.projects.iter().find(|x| x.id == p || x.path == p) {
+                        Some(x) => Some(x.path.clone()),
+                        None if !blank(&p) && (self.intents.iter().any(|i| i.project == p) || self.units.iter().any(|u| u.repo == p)) => Some(p),
+                        None => return no(format!("no project {p}; name a project as `workriver project list` shows it")),
+                    },
+                };
+                WorkspaceProjectSet { workspace, project }
             }
             FindingAdded { project, intent, finding, source, note } => {
                 if blank(&project) {
@@ -2581,6 +2607,7 @@ impl State {
             }
             WorkspaceLinked(l) => self.links.push(l.clone()),
             WorkspaceUnlinked { machine, workspace } => self.links.retain(|x| !(&x.machine == machine && &x.workspace == workspace)),
+            WorkspaceProjectSet { workspace, project } => self.workspace_mut(workspace).project = project.clone(),
             FindingAdded { project, intent, finding, source, note } => {
                 let found = finding.clone();
                 self.backlog.push(BacklogFinding {
@@ -3010,7 +3037,7 @@ impl State {
                 &mut self.workspaces[k]
             }
             None => {
-                self.workspaces.push(Workspace { group: local.unwrap_or_else(|| g.clone()), manager: None, current: None });
+                self.workspaces.push(Workspace { group: local.unwrap_or_else(|| g.clone()), manager: None, current: None, project: None });
                 self.workspaces.last_mut().unwrap()
             }
         }

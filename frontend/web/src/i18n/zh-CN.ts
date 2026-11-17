@@ -64,6 +64,7 @@ export const zhCN: Same<typeof en> = {
     note: '备注',
     where: '在哪里进行',
     workspace: '工作区',
+    worksOn: '在做 {{project}}',
     manager: '管理者',
     notStarted: '还没开始：它在路线图里。',
     talk: '给管理者留言',
@@ -218,9 +219,7 @@ export const zhCN: Same<typeof en> = {
     blocking_other: '{{count, number}} 个手动步骤卡住了 agent',
     active: '进行中',
     untouched: '没动手',
-    waiting_other: '{{count, number}} 件事等你',
-    grew_other: '长出原计划 {{count, number}}',
-    grewHint: '有分支长到了原计划之外'
+    waiting_other: '{{count, number}} 件事等你'
   },
   agents: {
     blocked: '在终端里等你',
@@ -253,7 +252,22 @@ export const zhCN: Same<typeof en> = {
     none: '{{label}} 没有管理者，没人会去拆分这份工作。先在那里启动一个：',
     started: '已在 {{label}} 开始。',
     failed: '没能开始：{{error}}',
-    close: '关闭'
+    close: '关闭',
+    optionUnknown: '{{option}} · 项目未知',
+    optionOther: '{{option}} · 在做 {{project}}',
+    others: '其他项目的工作区',
+    showOthers_other: '其他项目的工作区（{{count, number}}）',
+    pickOther: '选一个工作区',
+    otherAsk: '它的管理者 {{manager}} 在做 {{theirs}}；要把一个 {{mine}} 的意图交给它吗？',
+    goOther: '是，就在那里开始'
+  },
+  wsProject: {
+    title: '工作区在做的项目',
+    lead: '每个工作区在做哪个项目。workriver 按它的管理者在哪个文件夹里运行来判断，否则按它当前的意图；你在这里设的优先。在那里开始另一个项目的意图之前会先问你。',
+    pick: '{{workspace}} 在做的项目',
+    auto: '自动判断：{{project}}（{{from}}）',
+    autoUnknown: '自动判断：未知',
+    from: { manager: '管理者所在的文件夹', intents: '它当前的意图', user: '你设的' }
   },
   backlog: {
     title: '待办',
@@ -420,8 +434,7 @@ export const zhCN: Same<typeof en> = {
     suggested_other: '{{count, number}} 条有 agent 建议'
   },
   need: {
-    loose: '未登记',
-    far: '长出了原计划'
+    loose: '未登记'
   },
   kind: {
     implement: '实现',
@@ -567,6 +580,7 @@ export const zhCN: Same<typeof en> = {
   },
   flow: {
     empty: '这个单元还没有记录任何任务。',
+    grew: '还改到了 {{folders}}——超出了 {{tasks}} 的范围',
     controls: '图的控制',
     zoomIn: '放大',
     zoomOut: '缩小',
@@ -607,6 +621,7 @@ export const zhCN: Same<typeof en> = {
     running: '正在做',
     todo: '没开始',
     waiting: '有问题等你决定',
+    grew: '改到了这条线上没改过的目录',
     flowed: '已经流过',
     flowing: '正在流',
     also: '另一个输入'

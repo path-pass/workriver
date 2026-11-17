@@ -186,8 +186,6 @@ export function nodeLabel(t: T, n: Task): string {
   return n.taskId ? `#${n.taskId} ${n.title}` : n.title
 }
 
-/** The folder a path stands for: a file's folder, or the path itself when it is a folder. */
-const folderOf = (p: string) => (/\.[A-Za-z0-9]+$/.test(p) ? p.slice(0, p.lastIndexOf('/')) : p)
 
 // ---- the graph ----
 
@@ -451,37 +449,13 @@ export interface Attention {
   asked: { review: Task; count: number }[]
   /** Commits that name no node. */
   loose: Task[]
-  /**
-   * Work cut from the unit whose later rounds reached folders the first round neither
-   * changed nor planned; since: when the first of those later rounds got there.
-   */
-  out: { root: Task; far: string[]; since: number }[]
 }
 export function attention(unit: Unit): Attention {
-  const folders = (n: Task) => [
-    ...unit.commits.filter(c => n.output.commits?.includes(c.id)).flatMap(c => c.files.map(f => folderOf(f.path))),
-    ...(n.state === 'done' ? [] : n.plans.map(folderOf)),
-  ]
-  const roots = unit.tasks.filter(n => n.kind === 'implement' && n.inputs.every(i => i.from === 'start'))
-  const home = new Set(roots.flatMap(folders))
-  const out: Attention['out'] = []
-  for (const root of roots) {
-    const below = [...related(unit, root.id)].filter(id => id !== root.id && id !== 'start').map(id => unit.tasks.find(n => n.id === id)!)
-    const far = new Set(below.flatMap(folders).filter(f => !home.has(f)))
-    // A node got there when its first commit landed, or, with none yet, when it began to wait.
-    const reached = (n: Task) => {
-      const landed = unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date))
-      return landed.length ? Math.min(...landed) : ms(n.since)
-    }
-    const times = below.filter(n => folders(n).some(f => far.has(f))).map(reached).filter(Number.isFinite)
-    if (far.size) out.push({ root, far: [...far], since: Math.min(...times) })
-  }
   return {
     now: working(unit),
     gates: unit.tasks.filter(n => n.kind === 'gate' && n.state === 'waiting'),
     asked: unit.tasks.map(review => ({ review, count: openCount(review) })).filter(a => a.count),
     loose: unit.tasks.filter(n => n.state === 'unregistered'),
-    out,
   }
 }
 
@@ -489,7 +463,7 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore' | 'merge'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
@@ -504,8 +478,6 @@ export interface InboxRow {
   node: Task | null
   pick: Pick
   chore: Chore | null
-  /** far: the folders reached beyond the plan. */
-  far: string[]
   /** Since when it has waited, in milliseconds. */
   since: number
 }
@@ -520,7 +492,7 @@ export interface Inbox {
   machines: InboxRow[]
   /** Reviews and gates with open findings, the highest open severity first. */
   decisions: InboxRow[]
-  /** Commits that name no node, branches that grew beyond the plan. */
+  /** Commits that name no node. */
   gaps: InboxRow[]
   /** Chores, and ready units of an intent with no manager that may be merged already: they block nobody. */
   later: InboxRow[]
@@ -535,39 +507,38 @@ export function inbox(ws: Workspace): Inbox {
   const stalled: InboxRow[] = []
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
-      ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, far: [], since })
+      ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, since })
     const a = attention(unit)
     for (const n of a.gates) box.blocking.push(row('gate', unit, n, ms(n.since)))
     // A worker that stopped without delivering, and a reminder did not help (or it is gone).
     for (const n of unit.tasks.filter(n => n.stalled?.escalated)) stalled.push(row('stalled', unit, n, ms(n.stalled!.since)))
     for (const { review: n } of a.asked) box.decisions.push(row('decision', unit, n, ms(n.since), openFindings(n)[0].id))
     for (const n of a.loose) box.gaps.push(row('loose', unit, n, Math.min(...unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date)))))
-    for (const o of a.out) box.gaps.push({ ...row('far', unit, o.root, o.since), far: o.far })
     // Ready and maybe merged where git cannot see it (a squash), or ready for long: with no
     // manager to tell, the user is the one to check.
     if (!intent.manager && unit.progress === 'ready' && (unit.squash || unit.overdue))
-      box.later.push({ key: `merge:${unit.id}`, kind: 'merge', intent, unit, node: null, pick: null, chore: null, far: [], since: ms(unit.overdue) || ms(unit.commits.at(-1)?.date) || Date.now() })
+      box.later.push({ key: `merge:${unit.id}`, kind: 'merge', intent, unit, node: null, pick: null, chore: null, since: ms(unit.overdue) || ms(unit.commits.at(-1)?.date) || Date.now() })
   }
   for (const intent of ws.intents)
     for (const c of intent.chores.filter(c => c.state === 'open'))
-      box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent, unit: intent.units.find(u => u.id === c.unit) ?? null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
+      box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent, unit: intent.units.find(u => u.id === c.unit) ?? null, node: null, pick: null, chore: c, since: ms(c.since) })
   // Chores of no intent: under their project's name, or under nothing.
   for (const c of (ws.chores ?? []).filter(c => c.state === 'open'))
-    box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent: null, project: ws.projects?.find(p => p.id === c.project)?.title, unit: null, node: null, pick: null, chore: c, far: [], since: ms(c.since) })
+    box.later.push({ key: `chore:${c.id}`, kind: 'chore', intent: null, project: ws.projects?.find(p => p.id === c.project)?.title, unit: null, node: null, pick: null, chore: c, since: ms(c.since) })
   const oldest = (a: InboxRow, b: InboxRow) => a.since - b.since
   const top = (r: InboxRow) => SEVERITIES.indexOf(openFindings(r.node!)[0].severity)
   // Agents waiting for a person in their terminal come first: nothing moves until someone looks.
   const waiting = blockedAgents(ws).map((s): InboxRow => {
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     return {
-      key: `agent:${s.session ?? s.agent}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, far: [], since: ms(s.blockedSince),
+      key: `agent:${s.session ?? s.agent}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, since: ms(s.blockedSince),
       agent: { name: s.agent, session: s.session, topic: s.topic, place: intent?.title ?? s.group?.label ?? '' },
     }
   }).sort(oldest)
   box.blocking.sort(oldest)
   box.blocking.unshift(...waiting, ...stalled.sort(oldest))
   box.machines = (ws.alerts ?? [])
-    .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, far: [], since: ms(a.since) }))
+    .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, since: ms(a.since) }))
     .sort(oldest)
   box.decisions.sort((a, b) => top(a) - top(b) || oldest(a, b))
   box.gaps.sort(oldest)
