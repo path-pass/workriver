@@ -2945,8 +2945,6 @@
     "id": "w1",
     "label": "chat"
    },
-   "manager": "chat-manager",
-   "managerState": "idle",
    "findings": "user",
    "goal": "让聊天从“能发消息”变成“好用的聊天”：能 @ 人、能撤回、能搜到以前说过的话，三件事都上线之后再开始做表情回应。",
    "note": "范围先只做网页版，手机端等这三件做完再评估。\n- @ 功能先做频道内，私聊以后再说\n- 撤回只允许发送后 2 分钟内\n- 搜索先做全文，不做按人或时间筛选\n设计讨论记录：https://example.com/notes/chat-v2",

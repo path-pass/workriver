@@ -39,16 +39,19 @@ Three things feed it:
   runs, so no harness is configured and nobody is anyone by saying so.
 - **[Herdr](https://herdr.dev) says who is running**, where, and in what state, and carries
   messages to agents.
-- **One manager agent per Herdr workspace plans.** It starts an intent from the project's
-  roadmap, splits it into units and tasks, and hands the tasks to worker agents.
+- **One manager agent per Herdr workspace plans.** It splits an intent into units and
+  tasks and hands the tasks to worker agents it starts by name. When it needs you (before a
+  merge, a deploy, anything destructive) it asks through Needs you, not in its terminal.
   workriver records and delivers; the manager schedules.
 
 What they report becomes one picture, in a few terms. A **project** is a folder of
 repositories. An **intent** is a goal in it. A **unit** is a piece of an intent built on
-its own branch. A **task** is one piece of work handed to one agent (implement, review,
-tests) or to you: a **gate**, a step only you can do, such as a manual deploy or try-out,
-that an agent waits on. A **finding** is a problem a review found. **Evidence** is a check
-run on a task's work, the command and its result.
+its own branch; research and design for the whole intent go in a research unit, which has
+no branch and is never merged. A **task** is one piece of work handed to one agent
+(implement, review, tests, research) or to you: a **gate**, a step only you can do, such
+as a manual deploy, a try-out or a decision, that an agent waits on. A **finding** is a
+problem a review found. **Evidence** is a check run on a task's work, the command and its
+result.
 
 ## One intent, from goal to merge
 
@@ -56,68 +59,94 @@ The pictures come from the sample data built into the UI: a chat app, its conten
 in Chinese.
 
 **The goal.** The chat app needs @-mentions, message recall and search. The intent
-"聊天 v2" waits in the project's roadmap with a one-sentence goal. You start it in a Herdr
-workspace; its manager splits it into units, one of them "加一个 @ 功能" (add @-mentions) on
-the branch `feat/mention`, and hands out the first tasks.
+"聊天 v2" waits in the project's roadmap with a one-sentence goal. You press "Start" next to
+it and pick the Herdr workspace "chat"; its manager, mgr-chat, is told and splits the
+intent into units, one of them "加一个 @ 功能" (add @-mentions) on the branch
+`feat/mention`. The intent has a page of its own: the goal, a note that grows as decisions
+are made, where it runs, who decides its findings, and its units with where each stands.
+"Write to the manager" opens a conversation beside it: what you write is typed into
+mgr-chat's terminal, and its replies come back to the page.
+
+![The page of the intent 聊天 v2: its goal, note, workspace and manager, findings set to Manual, its three units, and beside it a conversation with its manager](docs/images/intent-page.en.png)
 
 **The work as a graph.** Inside the unit, every task is a node in the activity graph, with
 an input and an output. #1 finds the people a message mentions, #2 notifies them, and a
 review follows each. When a review raises findings the flow branches: each accepted finding
 leads to new tasks, and the lines join again where the work does. An amber dotted line is
 work flowing now, dashed lines are secondary inputs, and a violet count marks findings
-waiting for you.
+waiting for you. A small "+N" under a node says its commits reached N folders that nothing
+before it on its line had touched: there the work grew in scope. A long graph opens on its
+latest work, with a minimap of the whole; zoomed out, as here, all of it shows.
 
-![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, and a gate at the end](docs/images/activity-graph.en.png)
+![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, two marked where the scope grew, a dropped question to merge, and a try-out gate near the end](docs/images/activity-graph.en.png)
 
 **Why a node is the way it is.** Pick a node and its detail says what went in and what came
 out. Task #1 was asked to find the people mentioned in a message; it delivered the commit
-"feat(chat): find the people mentioned in a message" and a check,
-`npm test app/chat/mention.test.ts`, 6 passed. Evidence is recorded the same way whoever ran
-it. Below it you can ask why: a temporary agent answers from the records and the code, and
-asks the agent that did the work only when that agent is idle.
+"feat(chat): find the people mentioned in a message", its reports and screenshots, and a
+check, `npm test app/chat/mention.test.ts`, 6 passed. Evidence is recorded the same way
+whoever ran it. "Ask why" opens a question in the side panel: a temporary agent answers
+from the records and the code, and asks the agent that did the work only while that agent
+is idle. With no node picked, the question is about the whole unit.
 
-![The detail of task #1: its input, its output with the commit and a passed check, and the box to ask its agent why](docs/images/task-detail.en.png)
+![The detail of task #1: its input, its output with the commit, attachments and a passed check, and Ask why](docs/images/task-detail.en.png)
 
 **Findings, decided once.** The code review of #6 found nine problems, rated P1 to P3. Each
-is accepted, revised (accepted, but fixed your way), rejected or deferred. P1-1 was
-accepted and led to tasks #9 and #14; P3-2 was rejected; P3-3 was deferred to the project's
-backlog, where deferred findings wait to be done together in one batch or dropped; P2-4
-waits for you, with the reviewer's suggestion next to it. By default the intent's manager
-decides findings and you can always decide differently; for 聊天 v2 you set "Findings
-decided by: only me" in the rail, so its findings wait for you. Every decision goes to
-the manager, and an accepted finding stays visible on the tasks it caused, since
-that work must meet it.
+is accepted, revised (accepted, but fixed your way), rejected or deferred. By default the
+intent's manager decides them: a decision it made carries a small robot, like P1-2 and the
+rejected P3-2, and you can always decide differently. P1-1 was accepted and led to tasks #9
+and #14; P3-3 was deferred to the project's backlog, where deferred findings wait to be
+done together in one batch or dropped. On its page 聊天 v2 is set to "Findings: Manual", so
+what is still open waits for you: P2-4 and P3-1, each with the reviewer's suggestion. Every
+decision goes to the manager, and an accepted finding stays visible on the tasks it caused,
+since that work must meet it.
 
-![The code review of task #6: nine findings grouped by severity, one expanded with its impact and place, others accepted with the tasks they led to, rejected, deferred, or waiting for you](docs/images/review-findings.en.png)
+![The code review of task #6: nine findings grouped by severity, P2-4 open with the reviewer's suggestion, its impact and place and the four decisions, others accepted with the tasks they led to, decided by the manager, rejected or deferred](docs/images/review-findings.en.png)
 
 **What is waiting on you.** Needs you is one queue across every workspace. First what
-blocks someone: agents waiting for a person in their terminal, and gates. Here an agent
-waits for you to try whether an @ notification says who mentioned you. Then decisions on
-findings, then
-gaps such as a commit that names no task or a branch that grew beyond the plan, and last
-the chores that block nobody.
+blocks someone: agents waiting for a person in their terminal, workers that stopped
+without delivering, and gates, among them the questions a manager asks you (merge now?
+which design?). Here agent-E asks whether it may run `npm test`, and a gate waits for you
+to try whether an @ notification says who mentioned you; its steps are commands, each with
+"Run", which runs it in a shell of your own once you confirm it. Then machines past an
+alert threshold, then decisions on findings, then gaps such as a commit that names no
+task, and last the chores that block nobody.
 
-<img src="docs/images/needs-you.en.png" width="340" alt="Needs you: one gate blocking, six reviews with findings to decide, and three gaps: a branch beyond its plan and two commits that name no task">
+<img src="docs/images/needs-you.en.png" width="340" alt="Needs you: three rows blocking (an agent waiting in its terminal, a worker that stopped, a try-out gate), four machine alerts, and the first decisions on findings">
+
+**Who is doing what.** Agents are a tree by Herdr workspace: the manager, the workers under
+it with the task each is on, and the temporary agents answering questions under the worker
+they ask about. A blocked agent comes first with a violet hand, a gone one is greyed, and a
+worker idle with nothing to do says it can be closed. Machines shows CPU, memory, pressure,
+swap and disk of this machine and of the others followed over ssh, so heavy work does not
+go to one that is already struggling.
+
+<img src="docs/images/agents.en.png" width="340" alt="Agents: the chat workspace with mgr-chat and its workers, one blocked, question agents under the worker they ask about, workers that can be closed, and the workspaces hardening, notes, ops and perf">
 
 **Which code it reached.** Under the graph, the unit's changes as a file tree beside the
 diff, commit by commit. Files a task plans to change but has not touched yet show as
-dashed circles, and an agent writing in a file right now carries its mark there.
+dashed circles, and an agent writing in a file right now carries its mark there. Commits,
+in the side panel, draws every unit's commits as a git graph, one lane per branch, with
+what agents are writing right now on top.
 
 ![The unit's code: a file tree with added and modified files and planned ones, beside the diff of the commit that added app/chat/mention.ts](docs/images/code-tree-diff.en.png)
 
-**Merge.** The try-out passes, you mark the gate done, the last tasks deliver, and the
-branch is merged. workriver sees the merge in git and the unit reads "Merged" with its
-date. Once every unit of the intent is merged or done, its header says "Finished", for its
-manager to close it.
+**Merge.** The try-out passes, you mark the gate done, and the last tasks deliver. The
+manager asks in Needs you whether to merge; after your yes, push, pull request and merge
+are each a task of their own. workriver sees the merge in git and the unit reads "Merged"
+with its date; a squash merge, which git cannot show, is pointed out for the manager to
+record. A research unit is never merged: once its work is decided it reads "Ready to
+close". When every unit of the intent is merged or done, its header says "Finished", for
+its manager to close it, along with the workers it no longer needs.
 
 ## Status
 
 First version, usable. The service records intents, units, tasks, findings and chores,
 reads the units' commits from git, follows the agents running in Herdr, keeps each
-project's roadmap and backlog, delivers your decisions and gate results to the right
-agent, and serves the web UI on real data. Agents on other machines (each with its own
-Herdr) can be followed over ssh; that part is new and has only been tested against
-stand-ins.
+project's roadmap and backlog, delivers your decisions, gate results and messages to the
+right agent, runs the commands you confirm in your own shell, watches the machines' load,
+and serves the web UI on real data in English and Chinese. Agents on other machines (each
+with its own Herdr) can be followed over ssh; that part is new and has only been tested
+against stand-ins.
 
 ## Build and run
 
