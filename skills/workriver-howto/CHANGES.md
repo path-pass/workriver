@@ -4,6 +4,13 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Close workers you no longer need**: idle agents hold the user's memory. When a unit is
+  merged or done, or the intent done, you are told which workers on it are still running with
+  no other task (`[workriver] u2 is merged: ja-impl, ja-test worked on it and are still
+  running …`); a worker idle 30 minutes with no task (the user's `idleMinutes`) brings one
+  reminder per idle period. Check its work tree for uncommitted work, then close its pane;
+  close a blind reviewer once it delivered; never an agent you did not start. workriver never
+  closes them itself. (`closing-workers`)
 - **Workers have names**: hand tasks only to agents started with `herdr agent start <name>`;
   a temporary agent answering a question reaches the worker by that name. (`hand-off`)
 - **Every question goes to a temporary agent**: `workriver ask` no longer prompts the task's

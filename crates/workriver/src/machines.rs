@@ -64,11 +64,14 @@ struct Settings {
     /// Hours a unit may stay ready to merge before its manager is asked to check it.
     #[serde(default = "ready_default", rename = "readyHours")]
     ready_hours: u32,
+    /// Minutes a worker may sit idle with no task before its manager is told.
+    #[serde(default = "idle_default", rename = "idleMinutes")]
+    idle_minutes: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS }
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES }
     }
 }
 
@@ -86,6 +89,22 @@ fn ready_default() -> u32 {
 /// it (at least one). Set by hand in settings.json; read when the service starts.
 pub fn ready_hours(home: &Path) -> u32 {
     read_settings(home).ready_hours.max(1)
+}
+
+/// In the records of real use a worker got its next task a median 4 minutes after it
+/// delivered, 15 times in 21 within 30 minutes; the other 6 waited 37 minutes to 15 hours.
+/// Thirty stays quiet through the usual quick hand-on and tells of a worker left holding
+/// memory for hours; telling is all it does, the manager decides.
+pub const IDLE_MINUTES: u32 = 30;
+
+fn idle_default() -> u32 {
+    IDLE_MINUTES
+}
+
+/// After how many minutes idle with no task a worker's manager is told to close it (at least
+/// one). Set by hand in settings.json; read when the service starts.
+pub fn idle_minutes(home: &Path) -> u32 {
+    read_settings(home).idle_minutes.max(1)
 }
 
 /// See `crate::stall`: why ten.

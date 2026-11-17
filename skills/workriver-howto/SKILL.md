@@ -1,6 +1,6 @@
 ---
 name: workriver-howto
-description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, attachments, asking another task, remote machines, a message that was not delivered, a worker that stopped without delivering, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
+description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, attachments, asking another task, remote machines, a message that was not delivered, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
 ---
 
 # workriver: how to
@@ -29,6 +29,7 @@ copy of this file.
 | `finding-additions` | a reviewer adds to a finding, or has more findings, after delivery |
 | `deciding-findings` | who decides findings, and how |
 | `closing-units` | what working / waiting / ready / merged / done mean; closing units and the intent |
+| `closing-workers` | closing worker agents you started once they have nothing to do |
 | `deferred-batches` | deferred findings, and "do together" batches |
 | `gates-chores` | steps only the user can do; things the user should do sometime |
 | `attachments` | screenshots and reports |

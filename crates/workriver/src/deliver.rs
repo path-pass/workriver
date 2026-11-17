@@ -305,6 +305,38 @@ pub fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(
     out
 }
 
+/// Who is told that work is over (a unit merged or done, an intent done): its manager, of the
+/// agents that worked on it and are still running with no other task, to close them;
+/// workriver never closes them itself. Only a live manager not on a blind task.
+pub fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+    let (what, owners): (String, Vec<String>) = match &e.body {
+        Body::UnitMerged { unit, .. } => (format!("{unit} is merged"), vec![unit.clone()]),
+        Body::UnitDone { unit, .. } => (format!("{unit} is done"), vec![unit.clone()]),
+        Body::IntentStateChanged { intent, state: workriver_core::IntentState::Done, .. } => {
+            (format!("Intent {intent} is done"), state.units.iter().filter(|u| &u.intent == intent).map(|u| u.id.clone()).chain([intent.clone()]).collect())
+        }
+        _ => return vec![],
+    };
+    let Some(live) = live else { return vec![] };
+    let Some(m) = owners.first().and_then(|o| state.intent_of(o)).and_then(|i| state.manager_of(i)) else { return vec![] };
+    if !live.iter().any(|a| a.session == m) || !state.blind_tasks(m).is_empty() {
+        return vec![];
+    }
+    let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
+    let names: Vec<String> = crate::stall::finished_workers(state, live, &owners).iter().map(|x| quote::name(&x.name)).collect();
+    if names.is_empty() {
+        return vec![];
+    }
+    let (are, them) = if names.len() == 1 { ("is", "it") } else { ("are", "them") };
+    vec![(
+        m.to_string(),
+        format!(
+            "[workriver] {what}: {} worked on it and {are} still running with no other task; close {them} if not needed (first check for uncommitted work in the work tree). How: `workriver guide how closing-workers`.",
+            names.join(", ")
+        ),
+    )]
+}
+
 /// The last of workriver's own words in a message about a task: where all of it is. Before
 /// any quote, so that nobody's quoted text can pass for it.
 fn details(owner: &str, n: u32) -> String {

@@ -2251,6 +2251,61 @@ fn squash_merges_and_long_ready_units_are_told() {
     assert!(unit("u1")["squash"].is_null());
 }
 
+/// Workers left running with nothing to do: when a unit is merged its manager hears which of
+/// its workers are still running with no other task (not the manager, not one with work
+/// elsewhere); a worker idle past the threshold with no task is told of once per idle
+/// period; one with a task, or never on one (the user's own session), is not.
+#[test]
+fn idle_workers_are_told_to_their_manager() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    for b in ["feat/a", "feat/b"] {
+        git(&repo, &["branch", b]);
+    }
+    std::fs::write(tmp.path().join("settings.json"), r#"{"idleMinutes": 2}"#).unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = ["boss", "ja-impl", "ja-test", "ja-busy", "me"].iter().enumerate().map(|(k, n)| (format!("p{k}"), live(&format!("s-{n}"), n, "w1", Idle))).collect();
+    // One minute lasts a second: the threshold is two seconds here.
+    let waits = crate::serve::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p0", "s-boss");
+    for b in ["feat/a", "feat/b"] {
+        d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "T", "repo": repo.to_string_lossy(), "branch": b, "base": "main" })).unwrap();
+    }
+    for (unit, agent) in [("u1", "boss"), ("u1", "ja-impl"), ("u1", "ja-test"), ("u1", "ja-busy"), ("u2", "ja-busy")] {
+        d.append("s-boss", "task.created", json!({ "unit": unit, "kind": "implement", "title": "Do it", "agent": agent })).unwrap();
+    }
+    for (n, agent) in [(1, "s-boss"), (2, "s-ja-impl"), (3, "s-ja-test"), (4, "s-ja-busy")] {
+        d.append(agent, "task.started", json!({ "unit": "u1", "task": n })).unwrap();
+        d.append(agent, "task.delivered", json!({ "unit": "u1", "task": n, "evidence": [{ "command": "t", "result": "passed", "summary": "ok" }] })).unwrap();
+    }
+    let to_boss = |what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == "s-boss" && m.contains(what)).count();
+
+    // Merged: one message, the two with nothing else to do.
+    d.append("s-boss", "unit.merged", json!({ "unit": "u1" })).unwrap();
+    assert_eq!(to_boss("[workriver] u1 is merged: ja-impl, ja-test worked on it and are still running with no other task; close them if not needed"), 1, "{:?}", fake.sent.lock().unwrap());
+    assert_eq!(to_boss("is merged"), 1);
+
+    // Idle past the threshold with no task: told once each; not the busy one, the manager, or `me`.
+    wait_until("ja-impl", || to_boss("ja-impl has been idle for") == 1);
+    wait_until("ja-test", || to_boss("ja-test has been idle for") == 1);
+    let told = fake.sent.lock().unwrap().iter().find(|(_, m)| m.contains("ja-impl has been idle")).unwrap().1.clone();
+    assert!(told.contains("(its last: u1#2 \"Do it\")") && told.contains("`workriver guide how closing-workers`"), "{told}");
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert_eq!((to_boss("ja-impl has been idle"), to_boss("ja-test has been idle")), (1, 1), "once per idle period");
+    assert_eq!(to_boss("ja-busy has been idle"), 0, "it has a task");
+    assert_eq!(fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("me has been") || m.contains("boss has been")).count(), 0);
+    // Working, then idle again: a new idle period, told again.
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    fake.agents.lock().unwrap()[1].1.state = Idle;
+    wait_until("told again", || to_boss("ja-impl has been idle for") == 2);
+}
+
 /// `workriver link`: the page's path for each kind of reference, and nothing else.
 #[test]
 fn link_paths() {

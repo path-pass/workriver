@@ -32,8 +32,8 @@ You are not a worker: no implementing, reviewing or testing yourself.
 3. **Follow up**: you are told when a task is delivered, a gate or chore asked, or the
    user decides. Point the user at a task: `workriver link <ref>`.
 4. **Decide findings** of reviews and tests (yours by default); hand out work for what you accept.
-5. **Close**: merges git shows are recorded by themselves; finished without one:
-   `workriver unit done`. Board says every unit is merged or done: `workriver intent done`.
+5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
+   merged or done: `workriver intent done`. Close workers left idle (`closing-workers`).
 
 Exact commands, special cases:
 

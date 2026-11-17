@@ -60,6 +60,12 @@ pub struct App {
     stalls: Mutex<std::collections::HashMap<(String, u32), crate::stall::Watch>>,
     /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
     stall_minutes: std::sync::atomic::AtomicU32,
+    /// Minutes a worker may sit idle with no task before its manager is told (settings.json,
+    /// by hand; read at start).
+    idle_minutes: u32,
+    /// Idle workers whose manager was told, by session and idle since: once per idle period.
+    // ponytail: in memory; a restart tells again of a worker still idle.
+    idle_told: Mutex<HashSet<(String, String)>>,
     /// Hours a unit may stay ready to merge before its manager is asked to check it
     /// (settings.json, by hand; read at start).
     ready_hours: u32,
@@ -239,6 +245,8 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         stalls: Mutex::default(),
         stall_minutes: crate::machines::stall_minutes(&store_home).into(),
         ready_hours: crate::machines::ready_hours(&store_home),
+        idle_minutes: crate::machines::idle_minutes(&store_home),
+        idle_told: Mutex::default(),
         shared: shared.clone(),
         merge_told: Mutex::new(std::fs::read(store_home.join(MERGE_TOLD)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
         changed: changed.clone(),
@@ -469,6 +477,7 @@ impl App {
         let stalled = now.as_deref().is_some_and(|live| self.find_stalls(live));
         if let Some(live) = now.as_deref() {
             self.merge_reminders(live);
+            self.idle_reminders(live);
         }
         let differs = {
             let mut live = self.live.lock().unwrap();
@@ -559,11 +568,7 @@ impl App {
     /// manager is the one that stopped (then, as with no manager, only the user sees it, in
     /// Needs you). Whether anything changed.
     fn find_stalls(&self, live: &[RuntimeAgent]) -> bool {
-        // Where the runtime was read just now and listed agents: elsewhere (a failed or empty
-        // read, a machine that cannot be reached, listed as last seen) agents are unknown.
-        let down: Vec<String> = self.machines.iter().flat_map(|m| m.states()).filter(|m| !m.reachable).map(|m| m.label).collect();
-        let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m))).collect();
-        read.dedup();
+        let read = self.readable(live);
         let threshold = self.waits.minute * self.stall_minutes.load(std::sync::atomic::Ordering::Relaxed);
         let idle = self.idle_since.lock().unwrap().clone();
         let mut tell = vec![];
@@ -600,6 +605,46 @@ impl App {
             }
         }
         changed
+    }
+
+    /// Where the runtime was read just now and listed agents (None: this machine): elsewhere
+    /// (a failed or empty read, a machine that cannot be reached, listed as last seen) agents
+    /// are unknown.
+    fn readable(&self, live: &[RuntimeAgent]) -> Vec<Option<String>> {
+        let down: Vec<String> = self.machines.iter().flat_map(|m| m.states()).filter(|m| !m.reachable).map(|m| m.label).collect();
+        let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m))).collect();
+        read.dedup();
+        read
+    }
+
+    /// Workers idle with no task for `idle_minutes` (see `stall::idle_workers`): their manager
+    /// is told, once per idle period, to close them if it has no work for them; workriver never
+    /// closes them. Only a manager that is running and not on a blind task; until then nothing
+    /// is marked told.
+    fn idle_reminders(&self, live: &[RuntimeAgent]) {
+        let threshold = self.waits.minute * self.idle_minutes;
+        let idle = self.idle_since.lock().unwrap().clone();
+        let read = self.readable(live);
+        let mut told = self.idle_told.lock().unwrap();
+        told.retain(|(s, since)| idle.get(s).is_some_and(|(x, _)| x == since));
+        let tell: Vec<_> = {
+            let store = self.store.lock().unwrap();
+            let state = store.state();
+            let reachable = |m: &str| live.iter().any(|a| a.session == m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty();
+            crate::stall::idle_workers(state, live, &idle, threshold, &read)
+                .into_iter()
+                .filter(|w| !told.contains(&(w.session.clone(), w.since.clone())) && reachable(&w.manager))
+                .filter_map(|w| Some((w.manager.clone(), (w.session.clone(), w.since.clone()), crate::stall::idle_message(state, &w)?)))
+                .collect()
+        };
+        for (to, key, text) in tell {
+            match self.send(&to, &text) {
+                Ok(()) => {
+                    told.insert(key);
+                }
+                Err(e) => tracing::warn!("cannot tell {to} of an idle worker: {e}"),
+            }
+        }
     }
 
     /// Ready units that may have been merged where git cannot see it. One that looks
@@ -1115,17 +1160,20 @@ impl App {
         // what does not arrive is only logged.
         // ponytail: these are not followed up as "delivered / picked up" like decisions are.
         // A dropped task likewise: its agent (to stop) and the manager.
-        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. }) {
+        // Work over: the manager hears which of its workers it may close.
+        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. }) {
             let to = {
                 let store = self.store.lock().unwrap();
                 match e.body {
                     Body::FindingNoted { .. } => deliver::notes(store.state(), live.as_deref(), &self.home, e),
-                    _ => deliver::dropped(store.state(), live.as_deref(), e),
+                    Body::TaskDropped { .. } => deliver::dropped(store.state(), live.as_deref(), e),
+                    _ => deliver::finished(store.state(), live.as_deref(), e),
                 }
             };
             for (agent, message) in to {
                 if let Err(err) = self.send(&agent, &message) {
-                    tracing::warn!("cannot tell {agent} of {}: {err}", e.body.refs().2.unwrap_or_default());
+                    let (_, unit, task) = e.body.refs();
+                    tracing::warn!("cannot tell {agent} of {}: {err}", task.or(unit).unwrap_or_default());
                 }
             }
             return;

@@ -182,6 +182,80 @@ pub fn message(state: &State, f: &Found) -> Option<String> {
     })
 }
 
+// ---- workers left running with nothing to do: workriver tells their manager, never closes them ----
+
+/// Whether task `t` is (or was) `x`'s: assigned by session, or by the name it goes by.
+fn of(t: &Task, x: &RuntimeAgent) -> bool {
+    t.agent.as_deref().is_some_and(|a| a == x.session || a == x.name)
+}
+
+/// Every task with its owner (a unit, or an intent for its own), and whether that work is
+/// still open: the unit neither merged nor done, the intent planned or active.
+fn all_tasks(state: &State) -> impl Iterator<Item = (&str, bool, &Task)> {
+    let units = state.units.iter().flat_map(|u| u.tasks.iter().map(move |t| (u.id.as_str(), u.merged.is_none() && u.done.is_none(), t)));
+    let intents = state.intents.iter().flat_map(|i| i.tasks.iter().map(move |t| (i.id.as_str(), matches!(i.state, IntentState::Planned | IntentState::Active), t)));
+    units.chain(intents)
+}
+
+/// Not a worker a manager started: a manager itself, or a temporary agent answering a
+/// question (workriver closes those).
+fn not_a_worker(state: &State, x: &RuntimeAgent) -> bool {
+    let mut managers = state.workspaces.iter().filter_map(|w| w.manager.as_deref()).chain(state.intents.iter().filter_map(|i| i.manager.as_deref()));
+    let temporary = state.questions.iter().any(|q| q.temporary && q.agent.as_deref() == Some(x.session.as_str()));
+    managers.any(|m| m == x.session) || temporary
+}
+
+/// It has work: a task to do or being done, in work still open.
+fn busy(state: &State, x: &RuntimeAgent) -> bool {
+    all_tasks(state).any(|(_, open, t)| open && matches!(t.state, TaskState::Todo | TaskState::Running) && of(t, x))
+}
+
+/// The agents of `owners`' tasks (units, or an intent for its own) still in the runtime with
+/// no other work: the ones to close once that work is merged or done.
+pub fn finished_workers<'a>(state: &State, live: &'a [RuntimeAgent], owners: &[&str]) -> Vec<&'a RuntimeAgent> {
+    live.iter().filter(|x| !not_a_worker(state, x) && !busy(state, x) && all_tasks(state).any(|(o, _, t)| owners.contains(&o) && of(t, x))).collect()
+}
+
+/// A worker idle with nothing to do, for its manager to close.
+pub struct IdleWorker {
+    pub session: String,
+    pub name: String,
+    /// The manager of the intent of its last task.
+    pub manager: String,
+    /// Idle since then: one reminder per idle period.
+    pub since: String,
+    /// Its last task: owner and number.
+    pub last: (String, u32),
+}
+
+/// Agents idle (or done) in the runtime for `threshold` with no task to do anywhere. Never
+/// one seen on no task (the user's own sessions), a manager, a temporary agent, or one with no
+/// manager to tell; never one where the runtime was not read just now (`read`, as in `step`):
+/// it is unknown.
+pub fn idle_workers(state: &State, live: &[RuntimeAgent], idle: &HashMap<String, (String, Instant)>, threshold: Duration, read: &[Option<String>]) -> Vec<IdleWorker> {
+    let last = |t: &Task| t.done.clone().or_else(|| t.started.clone()).unwrap_or_else(|| t.at.clone());
+    live.iter()
+        .filter(|x| matches!(x.state, AgentState::Idle | AgentState::Done) && read.contains(&x.machine) && !not_a_worker(state, x) && !busy(state, x))
+        .filter_map(|x| {
+            let (since, _) = idle.get(&x.session).filter(|(_, at)| at.elapsed() >= threshold)?;
+            let (owner, t) = all_tasks(state).filter(|(_, _, t)| of(t, x)).map(|(o, _, t)| (o, t)).max_by_key(|(_, t)| last(t))?;
+            let manager = state.intent_of(owner).and_then(|i| state.manager_of(i))?;
+            Some(IdleWorker { session: x.session.clone(), name: x.name.clone(), manager: manager.into(), since: since.clone(), last: (owner.into(), t.n) })
+        })
+        .collect()
+}
+
+/// What the manager hears of an idle worker.
+pub fn idle_message(state: &State, w: &IdleWorker) -> Option<String> {
+    let t = state.task(&w.last.0, w.last.1).ok()?;
+    let minutes = humantime::parse_rfc3339(&w.since).ok().and_then(|s| s.elapsed().ok()).map_or(0, |d| d.as_secs() / 60);
+    Some(format!(
+        "[workriver] {} has been idle for {minutes} min with no task (its last: {}). If you have no work for it now or soon, close it: idle agents hold memory, and a fresh one starts when work comes. First check its work tree for uncommitted work. How: `workriver guide how closing-workers`.",
+        quote::name(&w.name),
+        crate::deliver::label(state, &w.last.0, t)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -192,6 +266,32 @@ mod tests {
 
     fn agent(session: &str, state: AgentState, machine: Option<&str>) -> RuntimeAgent {
         RuntimeAgent { session: session.into(), harness: "claude".into(), state, cwd: String::new(), group: None, name: session.into(), topic: None, machine: machine.map(str::to_string) }
+    }
+
+    /// An idle worker with no task where the runtime was not read just now is unknown: its
+    /// manager is not told. Read, it is; with a task, it is not.
+    #[test]
+    fn an_idle_worker_on_an_unread_machine_is_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+        let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.append(&who, serde_json::from_value(v).unwrap()).unwrap();
+        let boss = || Principal::Agent { session: "boss".into(), machine: None };
+        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+        at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
+        at(&mut s, Principal::User, json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
+        at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "agent": "w"}}));
+        let w = || Principal::Agent { session: "w".into(), machine: Some("box".into()) };
+        at(&mut s, w(), json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
+        at(&mut s, w(), json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}}));
+        let long_ago = Instant::now() - Duration::from_secs(3600);
+        let idle: HashMap<String, (String, Instant)> = [("w".to_string(), ("2026-11-17T00:00:00Z".to_string(), long_ago))].into();
+        let live = [agent("w", AgentState::Idle, Some("box")), agent("boss", AgentState::Idle, None)];
+        let minute = Duration::from_secs(60);
+        assert!(idle_workers(s.state(), &live, &idle, minute, &[None]).is_empty(), "box not read");
+        let found = idle_workers(s.state(), &live, &idle, minute, &[None, Some("box".into())]);
+        assert!(matches!(&found[..], [IdleWorker { session, manager, last, .. }] if session == "w" && manager == "boss" && last == &("u1".to_string(), 1)));
+        at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "y", "agent": "w"}}));
+        assert!(idle_workers(s.state(), &live, &idle, minute, &[None, Some("box".into())]).is_empty(), "it has a task");
     }
 
     /// An agent on a machine that cannot be reached is unknown, never stopped: neither when it
