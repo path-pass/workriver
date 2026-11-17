@@ -42,6 +42,9 @@ pub struct TaskShow {
     /// Dropped as no longer needed: when, by whom (by name), why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dropped: Option<core::Closed>,
+    /// Running, and its agent stopped without delivering: since when, or it is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled: Option<crate::stall::Stall>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -282,6 +285,7 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             .map(|q| QuestionShow { id: q.id.clone(), question: q.text.clone(), asked_by: who(state, &q.by), at: q.at.clone(), answer: q.answer.clone(), answered_by: q.answered_by.as_deref().map(|a| who(state, a)) })
             .collect(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: who(state, &d.by), ..d }),
+        stalled: mine.and_then(|m| serde_json::from_value(m["stalled"].clone()).ok()),
     })
 }
 
@@ -328,6 +332,16 @@ pub fn finding_text(f: &FindingShow, pad: &str) -> String {
     out
 }
 
+/// A stopped worker, as the board and `task show` say it.
+pub fn stalled_line(s: &crate::stall::Stall) -> String {
+    let reminded = s.reminded.as_ref().map(|at| format!("; reminded at {at}")).unwrap_or_default();
+    match (s.escalated, s.gone) {
+        (_, true) => format!("stalled since {}: its agent is gone{reminded}", s.since),
+        (true, false) => format!("stalled since {}: its agent stopped without delivering{reminded}", s.since),
+        (false, false) => format!("idle since {} without delivering{reminded}", s.since),
+    }
+}
+
 /// `workriver task show`, as text.
 pub fn text(s: &TaskShow) -> String {
     let mut out = String::new();
@@ -354,6 +368,9 @@ pub fn text(s: &TaskShow) -> String {
         }
     }
     let _ = writeln!(out, "Agent: {}", s.agent.as_deref().unwrap_or("(none yet)"));
+    if let Some(st) = &s.stalled {
+        let _ = writeln!(out, "{}", stalled_line(st));
+    }
     if !s.text.is_empty() && s.text != s.title {
         block(&mut out, &format!("What it asks (written by {})", s.written_by), &s.text);
     }

@@ -82,7 +82,13 @@ export const zhCN: Same<typeof en> = {
     theme: '主题',
     themes: { system: '跟随系统', light: '浅色', dark: '深色' },
     notify: 'agent 或机器需要我时通知我',
-    notifyDenied: '浏览器不允许这个页面发通知。'
+    notifyDenied: '浏览器不允许这个页面发通知。',
+    stall: {
+      title: '停下的 worker',
+      sentence: '运行中任务的 agent 空闲 <minutes/> 分钟后提醒它；再过一半时间仍空闲，就告诉它的 manager 并显示在这里。',
+      minutes: '运行中任务的 agent 可以空闲的分钟数',
+      failed: '没能保存：{{error}}'
+    }
   },
   alerts: {
     title: '机器报警',
@@ -298,6 +304,9 @@ export const zhCN: Same<typeof en> = {
     title: '需要你',
     blocking: '卡住了',
     blockedAgent: '{{agent}} 在终端里等你',
+    stalled: '{{task}}：{{agent}} {{ago}}前停下了，没有交付',
+    stalledGone: '{{task}}：{{agent}} 已不在了',
+    reminded: '{{time}} 已提醒',
     machines: '机器',
     machineAlert: '{{machine}}：{{metric}} {{value}}',
     machineLimit: '连续 {{minutes}} 分钟不低于 {{percent}}%',

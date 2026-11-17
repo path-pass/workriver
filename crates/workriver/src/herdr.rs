@@ -46,6 +46,11 @@ pub fn ask_hint(agent: &str) -> String {
     )
 }
 
+/// How a manager looks at a stopped worker's terminal and gets it going, through Herdr's own CLI.
+pub fn stall_hint(agent: &str) -> String {
+    format!("Look at its terminal (`herdr agent read {agent} --source recent-unwrapped --lines 80`) and either get it going (`herdr agent prompt {agent} \"...\"`),")
+}
+
 /// `HERDR_SOCKET_PATH`, or Herdr's default socket.
 pub fn socket_path() -> PathBuf {
     match std::env::var_os("HERDR_SOCKET_PATH") {

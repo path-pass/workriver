@@ -12,6 +12,7 @@ mod serve;
 mod perf;
 mod show;
 mod snapshot;
+mod stall;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -1674,6 +1675,10 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         let _ = writeln!(out, "blind review: other work is hidden until you deliver. Read the code from git (the diff, not the commit messages); what you need beyond your task, ask your manager for.");
     }
     let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
+    // What git shows (commits, where each unit stands), and what the runtime shows (a worker
+    // that stopped), as the page shows it.
+    let ws = d.get("/api/workspace?light=true").unwrap_or_default();
+    let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
     let line = |t: &core::Task| {
         let mut out = String::new();
         let what = match t.kind {
@@ -1713,11 +1718,13 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         if let Some(d) = &t.dropped {
             let _ = writeln!(out, "       dropped ({})", d.reason);
         }
+        let n = t.n.to_string();
+        let mine = shown(&t_owner(&state, t))["tasks"].as_array().and_then(|ts| ts.iter().find(|x| x["id"] == n.as_str()).cloned());
+        if let Some(s) = mine.and_then(|x| serde_json::from_value::<crate::stall::Stall>(x["stalled"].clone()).ok()) {
+            let _ = writeln!(out, "       {}", show::stalled_line(&s));
+        }
         out
     };
-    // What git shows (commits, where each unit stands), as the page shows it.
-    let ws = d.get("/api/workspace?light=true").unwrap_or_default();
-    let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
     // Dropped intents (merged ones among them) only when asked for by id.
     let hidden = state.intents.iter().filter(|i| target.is_none() && i.state == core::IntentState::Dropped).count();
     for i in &state.intents {

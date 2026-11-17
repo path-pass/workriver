@@ -150,6 +150,12 @@ looked at now and then.
      question; the runtime says "blocked"), across every workspace: the agent's mark and
      name, its topic, its intent or workspace, how long it has waited; a click brings its
      terminal to the front, and the row leaves by itself once it is no longer waiting. Then
+     workers that stopped without delivering: a running task whose agent sat idle past the
+     threshold in Settings (10 min by default), was reminded of its task in its terminal, and
+     is still idle half that again later, or whose agent is gone: "u1#3: ja-impl stopped
+     12 min ago without delivering" (or "is gone"), quietly when it was reminded, the unit;
+     the row opens the task, a terminal button of its own opens the terminal; it leaves by
+     itself once the agent works again or the task is delivered or dropped. Then
      gates waiting for the user; an agent cannot go on. Violet, the strongest rows. Both
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
@@ -245,6 +251,10 @@ looked at now and then.
   a follow switch, its state in a few words (connecting… until the first attempt ends,
   connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
   one; and, per workspace over there, a select that links it to a workspace here.
+- **Stopped workers.** Settings has "Stopped workers", before "Machine alerts": one sentence
+  with the minutes (1 to 240, default 10) an agent may sit idle on a running task before it
+  is reminded; half that again later the manager is told and the row shows in Needs you.
+  Kept in the service's settings with the alert thresholds; the user's alone.
 - **Machine alerts.** Settings has "Machine alerts", before "Other machines", the same for
   this machine and every followed one, each applying where the machine's system has the
   value, in three groups. Every machine: CPU and Memory, "≥ [90] % for [5] min" (one

@@ -4,6 +4,15 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **A worker that stops without delivering is noticed**: a running task whose agent sits idle
+  past a threshold (10 minutes by default; the user sets it in Settings) is reminded once in
+  its terminal: deliver if finished; if something stopped it (a command refused, e.g. a hook
+  forbids push), deliver with what it did and the refusal in `--note`, or raise it with
+  `workriver chore add` / `workriver ask`; never just wait. Still idle half the threshold
+  later, or its agent gone, the manager is told once (look at its terminal, get it going,
+  hand the task on, or `workriver task drop`) and the user sees it in Needs you; the board and
+  `task show` say `stalled since …`. Waiting on a gate open to the user or a question it
+  asked is not stopping. (`stalled`)
 - **A task can be dropped as no longer needed**: `workriver task drop u1#15 --reason
   "superseded by u1#17"`, by the intent's manager or the user (a worker only a task it
   recorded itself), for work not done yet. It is kept, never deleted, and holds nothing

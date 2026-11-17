@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { MOCK } from '@/data'
-import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, setMachine, setThresholds, wantNotify } from '@/runtime'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/runtime'
 import type { Levels, Machine, Thresholds, Workspace } from '@/types'
 import { Trans } from 'react-i18next'
 import { LANGS, useT, type Lang } from '@/i18n'
@@ -209,6 +209,31 @@ function MachineAlerts() {
   )
 }
 
+/** After how many idle minutes a worker on a running task is reminded, then escalated. */
+function Stall() {
+  const { t } = useT()
+  const [minutes, setMinutes] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { stallMinutes().then(setMinutes, () => {}) }, [])
+  if (minutes == null) return null
+  const save = (v: number) => {
+    setMinutes(v)
+    setStallMinutes(v).then(
+      m => { setMinutes(m); setError('') },
+      e => { setError(t('settings.stall.failed', { error: String(e) })); stallMinutes().then(setMinutes, () => {}) },
+    )
+  }
+  return (
+    <section aria-labelledby="stall" className="flex flex-col gap-2 border-t border-line pt-3">
+      <h3 id="stall" className="text-sm font-semibold">{t('settings.stall.title')}</h3>
+      <p className="flex flex-wrap items-center gap-1.5 text-sm text-ink-2">
+        <Trans i18nKey="settings.stall.sentence" components={{ minutes: <Count value={minutes} min={1} max={240} label={t('settings.stall.minutes')} disabled={false} onCommit={save} /> }} />
+      </p>
+      {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
+    </section>
+  )
+}
+
 /** `compact`: only the gear, for the folded rail. */
 export function Settings({ compact = false, ws = null }: { compact?: boolean; ws?: Workspace | null }) {
   const { t, lang, setLang } = useT()
@@ -257,6 +282,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
             />
           </Row>
           {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
+          <Stall />
           <MachineAlerts />
           {!MOCK && <Machines ws={ws} />}
         </div>

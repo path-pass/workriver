@@ -9,13 +9,13 @@ import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxR
 import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
-import { Icon, Mark, Steps, Tip, Who } from './bits'
+import { Icon, Mark, Steps, TerminalButton, Tip, Who } from './bits'
 import { alertLimit, alertValue, topLine } from './Machines'
 
 const GROUPS = ['blocking', 'machines', 'decisions', 'gaps', 'later'] as const
 
 function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
-  const { t, lang, num, waited, when } = useT()
+  const { t, lang, num, waited, when, date } = useT()
   const act = useAct()
   // A machine past an alert threshold: the row opens the Machines section.
   // Its level is its colour and its first word; the processes using the most memory follow.
@@ -49,6 +49,27 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>
+    )
+  }
+  // A worker that stopped without delivering: the row opens the task, the button its terminal.
+  if (r.kind === 'stalled') {
+    const n = r.node!
+    const s = n.stalled!
+    const agent = n.agent ?? ''
+    const ref = `${r.unit!.id}#${n.taskId ?? n.id}`
+    return (
+      <div className="flex items-center gap-1">
+        <button type="button" className="irow min-w-0" data-kind="stalled" onClick={() => onOpen(r.unit!.id, r.pick)}>
+          <Icon name="terminal" />
+          <span className="title">{s.gone ? t('inbox.stalledGone', { task: ref, agent }) : t('inbox.stalled', { task: ref, agent, ago: waited(r.since) })}</span>
+          <span className="meta">
+            {s.reminded && <span className="flex-none">{t('inbox.reminded', { time: date(s.reminded) })}</span>}
+            <span className="unit"><span className="opacity-70">{r.intent?.title}{' / '}</span>{r.unit?.title}</span>
+          </span>
+          <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+        </button>
+        {!s.gone && agent && <TerminalButton agent={agent} session={n.agentSession} />}
+      </div>
     )
   }
   const n = r.node

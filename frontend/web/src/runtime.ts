@@ -236,6 +236,25 @@ export async function setThresholds(t: Thresholds): Promise<MetricsReport> {
   return res.json()
 }
 
+// The sample keeps the stall threshold in memory.
+let mockStall = 10
+
+/** After how many idle minutes a running task's agent is reminded (then escalated). */
+export async function stallMinutes(): Promise<number> {
+  if (MOCK) return mockStall
+  const res = await fetch('/api/settings/stall')
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).minutes
+}
+
+/** Sets it (1 to 240 minutes); answers what the service kept. */
+export async function setStallMinutes(minutes: number): Promise<number> {
+  if (MOCK) return (mockStall = minutes)
+  const res = await fetch('/api/settings/stall', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ minutes }) })
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).minutes
+}
+
 /** The machines the service knows, followed or not. */
 export async function machines(): Promise<Machine[]> {
   if (MOCK) return []

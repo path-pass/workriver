@@ -329,6 +329,9 @@ struct Task {
     /// Dropped as no longer needed: when, by whom (by name), why.
     #[serde(skip_serializing_if = "Option::is_none")]
     dropped: Option<core::Closed>,
+    /// Running, and its agent stopped without delivering (idle too long, or gone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stalled: Option<crate::stall::Stall>,
 }
 
 #[derive(Serialize)]
@@ -726,8 +729,9 @@ impl Names {
     }
 }
 
-/// `blocked`: when each blocked live agent (by session) was first seen blocked.
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, groups: &[core::RuntimeRef]) -> Workspace {
+/// `blocked`: when each blocked live agent (by session) was first seen blocked; `stalls`: the
+/// running tasks whose agent stopped, by (unit or intent, task).
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::stall::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();
@@ -737,7 +741,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
     let repos = repos.into_iter().map(|(m, r)| repo(m, r, cache)).collect();
     let repos: Vec<Repo> = repos;
-    let intents = state
+    let mut intents = state
         .intents
         .iter()
         .map(|i| Intent {
@@ -769,7 +773,12 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
             complete: i.state == core::IntentState::Active && state.finished(&i.id),
         })
-        .collect();
+        .collect::<Vec<Intent>>();
+    for u in intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
+        for t in &mut u.tasks {
+            t.stalled = t.id.parse().ok().and_then(|n| stalls.get(&(u.id.clone(), n))).cloned();
+        }
+    }
     // Live agents, then those the records name that are gone.
     let mut sessions: Vec<Session> = live
         .iter()
@@ -1403,6 +1412,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         delivery: if t.kind == TaskKind::Gate && t.state == TaskState::Done { names.sent(&t.delivery, manager) } else { None },
         amended: t.amended.clone(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
+        stalled: None,
     }
 }
 
@@ -1435,6 +1445,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         draft: None,
         amended: None,
         dropped: None,
+        stalled: None,
     }
 }
 

@@ -2605,7 +2605,8 @@
        "taskId": "1",
        "title": "登录接口按 IP 限流",
        "agent": "agent-G",
-       "writing": true,
+       "writing": false,
+       "stalled": { "since": "2026-11-15T20:20:00Z", "reminded": "2026-11-15T20:30:00Z", "escalated": true },
        "raisedBy": "plan",
        "inputs": [
         {

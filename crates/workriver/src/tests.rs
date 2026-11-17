@@ -128,10 +128,15 @@ pub(crate) struct Fake {
     start_as: std::sync::Mutex<Option<workriver_core::runtime::AgentState>>,
     /// As Herdr may just after a start: this many prompts are refused as not ready yet.
     not_ready: std::sync::atomic::AtomicUsize,
+    /// Herdr does not answer: reading the agents fails.
+    down: std::sync::atomic::AtomicBool,
 }
 
 impl workriver_core::runtime::Runtime for Fake {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::None);
+        }
         Ok(self.agents.lock().unwrap().iter().map(|(_, a)| a.clone()).collect())
     }
     fn locate(&self, _: Option<&str>, place: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
@@ -472,7 +477,7 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(60), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(5) };
+    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(60), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(5), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -772,7 +777,7 @@ fn replays_a_copied_database() {
         }
     }
     let mut cache = crate::snapshot::Cache::default();
-    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default(), &[])).unwrap();
+    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default(), &Default::default(), &[])).unwrap();
     println!("projects: {}", snap["projects"]);
     println!("events: {}", store.count().unwrap());
 }
@@ -2045,4 +2050,90 @@ fn a_dropped_task_is_told_and_shown() {
     assert!(shown.contains("u1#1  implement  dropped") && shown.contains("Dropped as no longer needed by the user at ") && shown.contains("because: superseded by u1#3"), "{shown}");
     let tasks = d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"].clone();
     assert_eq!((tasks[1]["state"].as_str(), tasks[1]["dropped"]["by"].as_str(), tasks[1]["dropped"]["reason"].as_str()), (Some("dropped"), Some("boss"), Some("the branch changed; asked again")));
+}
+
+/// A worker that stops without delivering: reminded once at the threshold (set by the user
+/// only); still idle after the second wait, it is escalated (the task shows it, the manager is
+/// told once); working again after the reminder clears it; gone, it is escalated at once;
+/// waiting on a gate it asked for, it is left alone.
+#[test]
+fn stopped_workers_are_reminded_then_escalated() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "ja-impl", "w1", Working))];
+    // One minute of the threshold lasts a second here.
+    let waits = crate::serve::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p1", "s-boss");
+
+    // The threshold: ten minutes until the user sets it; only the user does, within bounds.
+    assert_eq!(d.get("/api/settings/stall").unwrap()["minutes"], 10);
+    let worker = Daemon { port: d.port, place: Some("p2".into()), home: Some(tmp.path().to_path_buf()) };
+    assert!(worker.call("/api/settings/stall", Some(json!({ "minutes": 1 }))).is_err(), "an agent does not set it");
+    assert!(d.call("/api/settings/stall", Some(json!({ "minutes": 0 }))).is_err());
+    d.call("/api/settings/stall", Some(json!({ "minutes": 2 }))).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(tmp.path().join("settings.json")).unwrap()).unwrap();
+    assert_eq!(saved["stallMinutes"], 2);
+
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    for title in ["push it", "again", "deploy"] {
+        d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "ja-impl" })).unwrap();
+    }
+    d.append("s-w", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let task = |n: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][n].clone();
+    let to = |who: &str, what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == who && m.contains(what)).count();
+    let set = |state| fake.agents.lock().unwrap()[1].1.state = state;
+
+    // Idle past the threshold: the worker itself is reminded, once; nobody else hears yet.
+    set(Idle);
+    wait_until("the reminder", || to("s-w", "Your task u1#1 \"push it\" is still running") == 1);
+    let stall = task(0)["stalled"].clone();
+    assert!(stall["reminded"].is_string() && stall["escalated"].is_null(), "{stall}");
+    assert!(to("s-w", "a hook forbids push") == 1 && to("s-boss", "") == 0);
+    // Still idle after the second wait: escalated, the manager told once, the board says so.
+    wait_until("escalated", || task(0)["stalled"]["escalated"] == true);
+    wait_until("the manager is told", || to("s-boss", "ja-impl stopped") == 1);
+    let told = fake.sent.lock().unwrap().iter().find(|(t, _)| t == "s-boss").unwrap().1.clone();
+    assert!(told.starts_with("[workriver] ja-impl stopped") && told.contains("herdr agent read ja-impl") && told.contains("workriver task drop u1#1") && told.contains("It was reminded"), "{told}");
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert_eq!((to("s-w", "Your task"), to("s-boss", "")), (1, 1), "once per stall");
+    assert!(crate::board_text(&d, None).unwrap().contains("stalled since"), "the board says it");
+    assert!(d.get("/api/task?task=u1%231").unwrap()["stalled"]["escalated"] == true, "task show too");
+    // It works again: cleared.
+    set(Working);
+    wait_until("cleared", || task(0)["stalled"].is_null());
+
+    // Reminded, it goes on working: cleared, never escalated.
+    d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "evidence": [{ "command": "t", "result": "passed", "summary": "ok" }] })).unwrap();
+    d.append("s-w", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+    set(Idle);
+    wait_until("the second reminder", || to("s-w", "Your task u1#2") == 1);
+    set(Working);
+    wait_until("cleared after working on", || task(1)["stalled"].is_null());
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    assert_eq!(to("s-boss", "stopped"), 1, "no escalation");
+
+    // Waiting on a gate it asked for after its task started: left alone.
+    set(Idle);
+    d.append("s-w", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy it" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5000));
+    assert!(task(1)["stalled"].is_null() && to("s-w", "Your task u1#2") == 1, "{}", task(1));
+
+    // Herdr not answering: unknown, nobody is gone.
+    d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 2, "evidence": [{ "command": "t", "result": "passed", "summary": "ok" }] })).unwrap();
+    d.append("s-w", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+    fake.down.store(true, std::sync::atomic::Ordering::Relaxed);
+    fake.agents.lock().unwrap().pop();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(task(2)["stalled"].is_null() && to("s-boss", "is gone") == 0, "{}", task(2));
+    // Read again, it is missing: gone after a minute of good reads; no one to remind.
+    fake.down.store(false, std::sync::atomic::Ordering::Relaxed);
+    wait_until("gone", || task(2)["stalled"]["gone"] == true);
+    wait_until("the manager hears", || to("s-boss", "is gone") == 1);
+    assert_eq!(to("s-w", "Your task u1#3"), 0);
 }

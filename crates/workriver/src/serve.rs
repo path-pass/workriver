@@ -52,6 +52,14 @@ pub struct App {
     /// When each live agent was first seen blocked, by session.
     // ponytail: in memory; a restart makes a blocked agent's wait start again.
     blocked: Mutex<std::collections::HashMap<String, String>>,
+    /// When each live agent was first seen idle or done, by session (and when, to measure it).
+    // ponytail: in memory, like `blocked`; a restart starts every idle wait again.
+    idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
+    /// Running tasks whose agent stopped (reminded, or escalated), by (unit or intent, task),
+    /// as of the last poll.
+    stalls: Mutex<std::collections::HashMap<(String, u32), crate::stall::Watch>>,
+    /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
+    stall_minutes: std::sync::atomic::AtomicU32,
     changed: broadcast::Sender<()>,
     /// Set once the service is stopping: open event streams end, so nothing holds it up.
     stopping: watch::Sender<bool>,
@@ -160,11 +168,13 @@ pub struct Waits {
     pub idle: Duration,
     /// How long a new agent may refuse its first message as not ready (retried every poll).
     pub ready: Duration,
+    /// How long one minute of the stall threshold lasts (a minute; less in tests).
+    pub minute: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY }
+        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY, minute: Duration::from_secs(60) }
     }
 }
 
@@ -211,6 +221,9 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         idle: Mutex::default(),
         waits,
         blocked: Mutex::default(),
+        idle_since: Mutex::default(),
+        stalls: Mutex::default(),
+        stall_minutes: crate::machines::stall_minutes(&store_home).into(),
         changed: changed.clone(),
         stopping: watch::channel(false).0,
         port,
@@ -418,7 +431,14 @@ impl App {
             for a in still {
                 blocked.entry(a.session.clone()).or_insert_with(core::now);
             }
+            let mut idle = self.idle_since.lock().unwrap();
+            let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| matches!(a.state, AgentState::Idle | AgentState::Done)).collect();
+            idle.retain(|s, _| still.iter().any(|a| &a.session == s));
+            for a in still {
+                idle.entry(a.session.clone()).or_insert_with(|| (core::now(), std::time::Instant::now()));
+            }
         }
+        let stalled = now.as_deref().is_some_and(|live| self.find_stalls(live));
         let differs = {
             let mut live = self.live.lock().unwrap();
             let differs = *live != now;
@@ -499,9 +519,57 @@ impl App {
                 tracing::warn!("cannot close {name}: {e}");
             }
         }
-        if differs || recorded || regrouped {
+        if differs || recorded || regrouped || stalled {
             let _ = self.changed.send(());
         }
+    }
+
+    /// Works out which running tasks' agents stopped (see `stall::step`): the agent itself is
+    /// reminded once; if that does not help, its intent's manager is told, once, unless the
+    /// manager is the one that stopped (then, as with no manager, only the user sees it, in
+    /// Needs you). Whether anything changed.
+    fn find_stalls(&self, live: &[RuntimeAgent]) -> bool {
+        // Where the runtime was read just now and listed agents: elsewhere (a failed or empty
+        // read, a machine that cannot be reached, listed as last seen) agents are unknown.
+        let down: Vec<String> = self.machines.iter().flat_map(|m| m.states()).filter(|m| !m.reachable).map(|m| m.label).collect();
+        let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m))).collect();
+        read.dedup();
+        let threshold = self.waits.minute * self.stall_minutes.load(std::sync::atomic::Ordering::Relaxed);
+        let idle = self.idle_since.lock().unwrap().clone();
+        let mut tell = vec![];
+        let changed = {
+            let store = self.store.lock().unwrap();
+            let state = store.state();
+            let mut stalls = self.stalls.lock().unwrap();
+            let (next, found) = crate::stall::step(state, live, &idle, threshold, self.waits.minute, &read, &stalls);
+            for f in &found {
+                let to = match f.act {
+                    crate::stall::Act::Remind => Some(f.agent.as_str()),
+                    crate::stall::Act::Escalate => {
+                        let stopped = |m: &str| m == f.agent || state.name_of(m) == Some(f.agent.as_str());
+                        state.intent_of(&f.owner).and_then(|i| state.manager_of(i)).filter(|m| !stopped(m) && live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown))
+                    }
+                };
+                if let Some(to) = to
+                    && let Some(text) = crate::stall::message(state, f)
+                {
+                    tell.push((to.to_string(), text));
+                }
+            }
+            let seen = |m: &std::collections::HashMap<(String, u32), crate::stall::Watch>| m.iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect::<Vec<_>>();
+            let mut was = seen(&stalls);
+            let mut now = seen(&next);
+            was.sort_by(|a, b| a.0.cmp(&b.0));
+            now.sort_by(|a, b| a.0.cmp(&b.0));
+            *stalls = next;
+            was != now
+        };
+        for (to, text) in tell {
+            if let Err(e) = self.send(&to, &text) {
+                tracing::warn!("cannot tell {to} of a stopped worker: {e}");
+            }
+        }
+        changed
     }
 
     fn live(&self) -> Option<Vec<RuntimeAgent>> {
@@ -591,11 +659,12 @@ impl App {
         let started = std::time::Instant::now();
         let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
         let blocked = self.blocked.lock().unwrap().clone();
+        let stalls = self.stalls.lock().unwrap().iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect();
         let groups = self.groups.lock().unwrap().clone();
         let live = self.live();
         let mut cache = self.cache.lock().unwrap();
         (cache.light, cache.bare) = (light, true);
-        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &groups);
+        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &stalls, &groups);
         cache.save();
         if state.reduced {
             snapshot::hide(&mut ws);
@@ -1077,6 +1146,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/metrics", get(metrics))
         .route("/api/metrics/history", get(metrics_history))
         .route("/api/metrics/thresholds", post(metrics_thresholds))
+        .route("/api/settings/stall", get(stall_get).post(stall_set))
         .route("/api/workspace", get(workspace))
         .route("/api/unit/{id}/code", get(unit_code))
         .route("/api/state", get(state))
@@ -1511,6 +1581,25 @@ async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extens
     app.user(&caller)?;
     app.metrics.set_thresholds(t).map_err(bad)?;
     Ok(Json(app.metrics.report()))
+}
+
+#[derive(Deserialize)]
+struct StallSetting {
+    minutes: u32,
+}
+
+/// After how many idle minutes a running task's agent counts as stopped; the page's Settings.
+async fn stall_get(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.user(&caller)?;
+    Ok(Json(json!({ "minutes": app.stall_minutes.load(std::sync::atomic::Ordering::Relaxed) })))
+}
+
+/// Sets it; the user's alone, kept in settings.json like the alert thresholds.
+async fn stall_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StallSetting>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.user(&caller)?;
+    crate::machines::set_stall_minutes(&app.home, s.minutes).map_err(bad)?;
+    app.stall_minutes.store(s.minutes, std::sync::atomic::Ordering::Relaxed);
+    Ok(Json(json!({ "minutes": s.minutes })))
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.

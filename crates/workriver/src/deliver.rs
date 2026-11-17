@@ -327,7 +327,7 @@ fn followed<'a>(state: &'a State, unit: &str, t: &Task) -> Option<&'a Task> {
 }
 
 /// How a task reads in a message: `u1#2 "title"`, or `u1#4 (code review of u1#2 "title")`.
-fn label(state: &State, unit: &str, t: &Task) -> String {
+pub fn label(state: &State, unit: &str, t: &Task) -> String {
     let of = || followed(state, unit, t).map(|f| format!(" of {}", label(state, unit, f))).unwrap_or_default();
     match t.kind {
         TaskKind::Review => format!("{unit}#{} ({}{})", t.n, t.reviewer.map(|r| name(&r).replace('-', " ")).unwrap_or_default(), of()),

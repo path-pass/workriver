@@ -532,6 +532,11 @@ export interface Task {
   lostCommits?: string[];
   /** Waiting gates: the latest conclusion about it or the work it follows, to start the note from. */
   draft?: string;
+  /**
+   * Running, and its agent stopped without delivering: idle since `since` (or gone), when it
+   * was reminded, and whether that did not help (then it is the user's and the manager's).
+   */
+  stalled?: { since: string; gone?: boolean; reminded?: string; escalated?: boolean };
   /** Review nodes only. */
   reviewer?: Reviewer;
   /** Review nodes only: found problems, found none, or still running. */

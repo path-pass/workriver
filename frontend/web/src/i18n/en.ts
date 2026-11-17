@@ -78,7 +78,13 @@ export const en = {
     theme: 'Theme',
     themes: { system: 'System', light: 'Light', dark: 'Dark' },
     notify: 'Notify me when an agent or a machine needs me',
-    notifyDenied: 'The browser does not allow notifications for this page.'
+    notifyDenied: 'The browser does not allow notifications for this page.',
+    stall: {
+      title: 'Stopped workers',
+      sentence: 'Remind an agent idle on a running task after <minutes/> min; still idle half that again later, tell its manager and show it here.',
+      minutes: 'Minutes an agent may be idle on a running task',
+      failed: 'Could not save: {{error}}'
+    }
   },
   alerts: {
     title: 'Machine alerts',
@@ -305,6 +311,9 @@ export const en = {
     title: 'Needs you',
     blocking: 'Blocking',
     blockedAgent: '{{agent}} is waiting for you in its terminal',
+    stalled: '{{task}}: {{agent}} stopped {{ago}} ago without delivering',
+    stalledGone: '{{task}}: {{agent}} is gone',
+    reminded: 'reminded {{time}}',
     machines: 'Machines',
     machineAlert: '{{machine}}: {{metric}} {{value}}',
     machineLimit: 'at or above {{percent}} % for {{minutes}} min',

@@ -50,7 +50,7 @@ pub struct Setting {
     pub enabled: bool,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 struct Settings {
     /// By the machine's name.
     #[serde(default)]
@@ -58,6 +58,24 @@ struct Settings {
     /// When a machine's CPU or memory alerts: for this machine and every followed one.
     #[serde(default)]
     alerts: Thresholds,
+    /// Minutes an agent may sit idle on a running task before it counts as stopped.
+    #[serde(default = "stall_default", rename = "stallMinutes")]
+    stall_minutes: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES }
+    }
+}
+
+/// See `crate::stall`: why ten.
+pub const STALL_MINUTES: u32 = 10;
+/// The most the stall threshold may be set to: four hours.
+pub const STALL_MAX: u32 = 240;
+
+fn stall_default() -> u32 {
+    STALL_MINUTES
 }
 
 /// Held while `settings.json` is read and written back: machines and thresholds share it.
@@ -83,6 +101,22 @@ pub fn set_thresholds(home: &Path, alerts: Thresholds) -> Result<(), String> {
     let _held = SETTINGS.lock().unwrap();
     let mut all = read_settings(home);
     all.alerts = alerts;
+    write_settings(home, &all)
+}
+
+/// After how many idle minutes a running task's agent counts as stopped.
+pub fn stall_minutes(home: &Path) -> u32 {
+    read_settings(home).stall_minutes
+}
+
+/// Saves the stall threshold (1 to `STALL_MAX` minutes); the rest of the file stays.
+pub fn set_stall_minutes(home: &Path, minutes: u32) -> Result<(), String> {
+    if !(1..=STALL_MAX).contains(&minutes) {
+        return Err(format!("the stall threshold is 1 to {STALL_MAX} minutes, not {minutes}"));
+    }
+    let _held = SETTINGS.lock().unwrap();
+    let mut all = read_settings(home);
+    all.stall_minutes = minutes;
     write_settings(home, &all)
 }
 

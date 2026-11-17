@@ -375,7 +375,7 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
@@ -418,11 +418,14 @@ export const openFindings = (n: Task) =>
 
 export function inbox(ws: Workspace): Inbox {
   const box: Inbox = { blocking: [], machines: [], decisions: [], gaps: [], later: [] }
+  const stalled: InboxRow[] = []
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
       ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, far: [], since })
     const a = attention(unit)
     for (const n of a.gates) box.blocking.push(row('gate', unit, n, ms(n.since)))
+    // A worker that stopped without delivering, and a reminder did not help (or it is gone).
+    for (const n of unit.tasks.filter(n => n.stalled?.escalated)) stalled.push(row('stalled', unit, n, ms(n.stalled!.since)))
     for (const { review: n } of a.asked) box.decisions.push(row('decision', unit, n, ms(n.since), openFindings(n)[0].id))
     for (const n of a.loose) box.gaps.push(row('loose', unit, n, Math.min(...unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date)))))
     for (const o of a.out) box.gaps.push({ ...row('far', unit, o.root, o.since), far: o.far })
@@ -444,7 +447,7 @@ export function inbox(ws: Workspace): Inbox {
     }
   }).sort(oldest)
   box.blocking.sort(oldest)
-  box.blocking.unshift(...waiting)
+  box.blocking.unshift(...waiting, ...stalled.sort(oldest))
   box.machines = (ws.alerts ?? [])
     .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, far: [], since: ms(a.since) }))
     .sort(oldest)

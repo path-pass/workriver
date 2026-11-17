@@ -278,6 +278,8 @@
   .irow[data-kind="gate"]:hover { box-shadow: var(--shadow); }
   .irow[data-kind="gate"] .ic { color: var(--you); }
   .irow[data-kind="gate"] .meta, .irow[data-kind="gate"] .age { color: inherit; font-weight: 400; }
+  /* A worker that stopped: its terminal is where to look. */
+  .irow[data-kind="stalled"] .ic { color: var(--you); }
   .irow[data-kind="loose"] .ic { color: var(--del); }
   .irow[data-kind="far"] .ic { color: var(--amber); }
   .irow[data-kind="machine"][data-level=warn] :is(.ic, .level) { color: var(--amber-ink); }
