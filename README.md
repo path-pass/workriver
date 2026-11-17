@@ -48,9 +48,9 @@ What they report becomes one picture, in a few terms. A **project** is a folder 
 repositories. An **intent** is a goal in it. A **unit** is a piece of an intent built on
 its own branch; research and design for the whole intent go in a research unit, which has
 no branch and is never merged. A **task** is one piece of work handed to one agent
-(implement, review, tests, research) or to you: a **gate**, a step only you can do, such
-as a manual deploy, a try-out or a decision, that an agent waits on. A **finding** is a
-problem a review found. **Evidence** is a check run on a task's work, the command and its
+(implement, review, tests, research) or to you: a **gate** ("Manual step" in the UI), a
+step only you can do, such as a manual deploy, a try-out or a decision, that an agent
+waits on. A **finding** is a problem a review, tests or a gate found. **Evidence** is a check run on a task's work, the command and its
 result.
 
 ## One intent, from goal to merge
@@ -106,8 +106,8 @@ since that work must meet it.
 blocks someone: agents waiting for a person in their terminal, workers that stopped
 without delivering, and gates, among them the questions a manager asks you (merge now?
 which design?). Here agent-E asks whether it may run `npm test`, and a gate waits for you
-to try whether an @ notification says who mentioned you; its steps are commands, each with
-"Run", which runs it in a shell of your own once you confirm it. Then machines past an
+to try whether an @ notification says who mentioned you; its steps say what to do, and a
+step with a command has "Run", which runs it in a shell of your own once you confirm it. Then machines past an
 alert threshold, then decisions on findings, then gaps such as a commit that names no
 task, and last the chores that block nobody.
 
