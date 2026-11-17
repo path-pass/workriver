@@ -82,11 +82,23 @@ export const en = {
   },
   alerts: {
     title: 'Machine alerts',
-    lead: 'For this machine and every machine you follow. A value alerts once it stays at or above its threshold the whole time, and clears after a minute below.',
+    lead: 'For this machine and every machine you follow, each where its system has the value. A warning shows amber, critical red. A level rises once the value stays past it the whole time (or at once where it says so), and clears after a minute back.',
     on: 'Alert on {{metric}}',
     percent: '{{metric}} threshold, in percent',
     minutes: '{{metric}}: how long, in minutes',
+    warn: '{{metric}}: warning threshold',
+    crit: '{{metric}}: critical threshold',
+    warnFree: '{{metric}}: warning, GB free',
+    critFree: '{{metric}}: critical, GB free',
+    group: { all: 'Every machine', mac: 'macOS', linux: 'Linux' },
     threshold: '≥ <percent/> % for <minutes/> min',
+    overPercent: 'warn over <warn/> %, critical over <crit/> %, for <minutes/> min',
+    overPercentNow: 'warn over <warn/> %, critical over <crit/> %, at once',
+    overGb: 'warn over <warn/> GB, critical over <crit/> GB, for <minutes/> min',
+    underPercent: 'warn under <warn/> %, critical under <crit/> %, for <minutes/> min',
+    pressure: 'the kernel’s warning warns, its critical is critical, for <minutes/> min',
+    oom: 'a process killed is critical at once, held <minutes/> min',
+    disk: 'warn over <warn/> % used or under <warnFree/> GB free, critical over <crit/> % or under <critFree/> GB, for <minutes/> min',
     failed: 'Not saved: {{error}}'
   },
   metrics: {
@@ -98,11 +110,25 @@ export const en = {
     percent: '{{value}} %',
     memoryValue: '{{used}} / {{total}} GB',
     noValue: '–',
-    alert: '{{metric}} {{value}} · {{time}}',
+    alert: '{{what}} · {{time}}',
+    level: { warn: 'Warning', crit: 'Critical' },
+    compressor: 'Compressor',
+    compressorValue: '{{value}} % of its limit',
+    compressorHint: 'How full the memory compressor is; at 100 % macOS runs out of it and can panic',
+    systemFree: 'System free',
+    systemFreeHint: 'The share of memory macOS counts as free (memory_pressure)',
+    psi: 'Memory stall',
+    oom: 'OOM kills',
+    gb: '{{value}} GB',
+    kills_one: '{{count, number}} kill',
+    kills_other: '{{count, number}} kills',
+    diskAlert: '{{mount}} {{used}} % used, {{free}} free',
+    top: 'Most memory: {{list}}',
+    proc: '{{name}} {{size}}',
+    procAgent: '{{name}} {{size}} ({{agent}})',
     probeFailed: 'Cannot read it: {{error}}',
     chart: '{{metric}} over the last 10 minutes',
     notice: '{{machine}}: {{metric}} at {{value}}',
-    noticeBody: 'At or above {{percent}} % for {{minutes}} min',
     available: 'Available',
     pressure: 'Pressure',
     pressureLevel: { normal: 'normal', warning: 'warning', critical: 'critical' },
@@ -235,8 +261,10 @@ export const en = {
     step: {
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
-      asking: 'Asking {{agent}}…'
+      asking: 'Asking {{agent}}…',
+      blocked: 'Waiting for you in Herdr: {{agent}} needs an answer in its terminal. The question goes in once it is free.'
     },
+    toTerminal: 'Go to the terminal',
     asked: 'Asked {{agent}}',
     busy: '{{agent}} was busy; answered from the records',
     ended: '{{agent}}’s session has ended; answered from the records',
@@ -280,6 +308,14 @@ export const en = {
     machines: 'Machines',
     machineAlert: '{{machine}}: {{metric}} {{value}}',
     machineLimit: 'at or above {{percent}} % for {{minutes}} min',
+    limit: {
+      over: 'over {{value}} for {{minutes}} min',
+      overNow: 'over {{value}}, at once',
+      under: 'under {{value}} for {{minutes}} min',
+      pressure: 'the kernel says {{level}} for {{minutes}} min',
+      oom: 'a process was killed; held {{minutes}} min',
+      disk: 'over {{used}} % used or under {{free}} GB free for {{minutes}} min'
+    },
     decisions: 'Decisions',
     gaps: 'Gaps',
     later: 'Not urgent',
@@ -303,7 +339,8 @@ export const en = {
     running: 'In progress',
     done: 'Done',
     waiting: 'Waiting for you',
-    unregistered: 'Unregistered'
+    unregistered: 'Unregistered',
+    dropped: 'No longer needed'
   },
   reviewer: {
     'security-review': 'Security review',
@@ -333,7 +370,17 @@ export const en = {
     remove: 'Remove {{name}}',
     zoomIn: 'Full width (click the picture too)',
     zoomOut: 'Whole picture (click the picture too)',
-    original: 'Open the original in a new tab'
+    original: 'Open the original in a new tab',
+    prev: 'Previous attachment (←)',
+    next: 'Next attachment (→)',
+    counter: '{{n}} / {{count}}',
+    now: '{{n}} of {{count}}: {{name}}',
+    download: 'Download',
+    ask: 'Ask why about this attachment: it goes with the question',
+    loading: 'Loading…',
+    failed: 'Could not load this file. Download it instead.',
+    cut: 'Shows the first {{shown}} of {{size}}; download it for the rest.',
+    mdImage: 'Image: {{name}}'
   },
   deliver: {
     pending: 'Not delivered yet',
@@ -352,6 +399,8 @@ export const en = {
       'no-workspace': 'its intent has no Herdr workspace',
       timeout: 'no answer in time',
       restarted: 'the service restarted',
+      blocked: 'its agent waited for an answer in its terminal the whole time',
+      'not-ready': 'its new agent never got ready for a prompt',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'
@@ -375,7 +424,8 @@ export const en = {
     found_one: '{{by}}: {{count, number}} finding',
     found_other: '{{by}}: {{count, number}} findings',
     passed: '{{by}}: no problems',
-    running: '{{by}}: in progress'
+    running: '{{by}}: in progress',
+    dropped: '{{by}}: no longer needed'
   },
   finding: {
     open: 'Waiting for you',
@@ -404,7 +454,16 @@ export const en = {
   task: {
     blind: 'Blind',
     blindHint: 'Blind: done without seeing other work, so its findings are its own view',
-    unregistered: 'Unregistered: {{title}}'
+    unregistered: 'Unregistered: {{title}}',
+    dropped: 'No longer needed',
+    droppedBy: 'Marked no longer needed by {{by}}, {{when}}',
+    droppedByYou: 'You marked it no longer needed, {{when}}',
+    drop: 'No longer needed…',
+    dropReason: 'Why it is no longer needed',
+    dropReasonHint: 'e.g. superseded by #17; the agent on it and the manager are told',
+    dropConfirm: 'Mark no longer needed',
+    dropCancel: 'Cancel',
+    dropFailed: 'Not recorded: {{error}}'
   },
   who: {
     writing: '{{name}}, writing now'

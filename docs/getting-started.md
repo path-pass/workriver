@@ -150,6 +150,10 @@ merged (workriver sees a fast-forward or merge commit itself; after a squash mer
 `workriver unit merged u1`) or done (`workriver unit done u1 --reason "..."`, for work
 finished without a merge). When every unit of an intent is merged or done, its manager
 closes it with `workriver intent done i1`.
+A task that is no longer needed (a gate asked again after the branch changed) is dropped,
+never deleted: "No longer needed…" in its details on the page, or `workriver task drop u1#15
+--reason "superseded by u1#17"`. It turns grey, leaves Needs you, holds nothing up, and its
+agent and the manager are told.
 Reviews and tests are tasks of their own. Their findings are decided by the intent's
 manager by default (shown with a robot mark; you can change any decision on the page, or
 keep the deciding to yourself per intent: "Findings: Manual" in the rail, or `workriver

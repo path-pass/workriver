@@ -109,9 +109,12 @@ looked at now and then.
   section is open. Per machine two lines, CPU and Memory: the label, a small line of the
   ten minutes with the alert threshold dashed across it (inline SVG; a chart library is
   not worth one line), and the value right-aligned in a fixed column ("97 %",
-  "25.4 / 32 GB"). Lines are neutral; a metric in alert takes the violet of waiting for
-  you, and a pill in the machine's header says which, its value and for how long ("CPU
-  97 % · 6m"). A machine that cannot be reached keeps its last values, faded, with the
+  "25.4 / 32 GB"). Lines are neutral; a metric in alert takes the colour of its level,
+  amber (`--amber`, `--amber-ink` on `--amber-bg`) for a warning and red (`--del` on
+  `--del-row`) for critical, the same as the pressure word: a machine's state is the
+  system's rating, not work waiting for you, so it is never violet. A pill per alert in the
+  machine's header, critical first, says which, its value and for how long ("CPU 97 % ·
+  6m", "Compressor 66 % · 2m", "Disk / 86 % used, 14 GB free · 40m"). A machine that cannot be reached keeps its last values, faded, with the
   dashed chip and "disconnected since …". Memory used is total minus available, the same
   on every machine: one small sh probe reads them all through the runner git uses, here
   or over the machine's ssh connection, and nothing is installed anywhere.
@@ -121,12 +124,14 @@ looked at now and then.
   the newest reading, only those the machine's system has, wrapping: Available (total −
   used, on Linux MemAvailable); Pressure, on macOS the kernel's level as a word, normal
   green (`--add`), warning amber (`--amber-ink`), critical red (`--del`), on Linux PSI's
-  "some 0.59 % · full 0.12 %" (the last 10 s), or "unknown" without PSI; Compressed
-  (macOS); OOM kills (Linux: since boot · while watched); Swap used / total (left out
-  without swap); Disk free of the home folder's filesystem, and of `/` by its mount point
-  when that is another one. Sizes in MB, GB or TB (steps of 1024). The pressure word is
-  the one colour here that is not violet: it is the system's own rating, not an alert.
-  The same probe reads it all (one round trip per sample); a piece a kernel lacks is a
+  "some 0.59 % · full 0.12 %" (the last 10 s), or "unknown" without PSI; System free
+  (macOS, the kernel's free share, `memory_pressure`'s number); Compressed and Compressor
+  ("66 % of its limit": segments or compressed pages over the kernel's limit, whichever is
+  higher; at 100 % macOS is out of compressor space) (macOS); OOM kills (Linux: since boot
+  · while watched); Swap used / total (left out without swap); Disk free of the home
+  folder's filesystem, and of `/` by its mount point when that is another one. Sizes in
+  MB, GB or TB (steps of 1024). A reading in alert takes its level's colour (a
+  filesystem by its own level). The same probe reads it all (one round trip per sample); a piece a kernel lacks is a
   field without a value, never a failed reading.
   **History**: each machine's samples are folded into one line a minute (the mean of each
   reading, the worst pressure level, counters and disks at the minute's end) appended to
@@ -149,11 +154,16 @@ looked at now and then.
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
      Settings, a newly waiting agent raises a browser notification that opens its terminal.
-  2. **Machines** – a machine past an alert threshold: "This machine: CPU 97 %", quietly
-     the threshold ("at or above 90 % for 5 min"), and since when. It counts in no mark and
-     not in the tab's title (those count work stuck on the user); a newly raised one sends
-     a browser notification under the same switch. The row opens the Machines section and
-     leaves by itself once the alert clears.
+  2. **Machines** – a machine past an alert threshold: "This machine: Swap 5.2 GB", then
+     its level as a word in its colour ("Warning" amber, "Critical" red, the icon too) and
+     quietly the threshold ("over 4 GB for 1 min", "over 60 %, at once"), since when, and
+     on a third line the five processes using the most memory when it rose or last rose a
+     level, each with the agent (and workspace) it descends from ("claude 6.1 GB (reviewer
+     · chat), …"). An alert that rises from warning to critical stays the same row. It
+     counts in no mark and not in the tab's title (those count work stuck on the user); a
+     newly raised one sends a browser notification under the same switch, and one that
+     becomes critical sends another; never again while it stays. The row opens the
+     Machines section and leaves by itself once the alert clears.
   3. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
   4. **Gaps** – commits that name no node, branches that grew beyond the original plan.
@@ -235,14 +245,26 @@ looked at now and then.
   a follow switch, its state in a few words (connecting… until the first attempt ends,
   connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
   one; and, per workspace over there, a select that links it to a workspace here.
-- **Machine alerts.** Settings has "Machine alerts", before "Other machines": CPU and
-  Memory, each with a switch by its name, then "≥ [90] % for [5] min", the same for this
-  machine and every followed one (defaults 90 % for 5 min, both on). A value alerts once
-  every sample of that time is at or above it, so a spike never does, and clears after a
-  minute below; while a machine cannot be reached its alerts neither rise nor clear. A
-  field is saved when left or on Enter; out of range it goes back. On a narrow screen the
-  threshold wraps under the switch as one piece. The thresholds are kept with the list of
-  machines in the service's settings, not as events.
+- **Machine alerts.** Settings has "Machine alerts", before "Other machines", the same for
+  this machine and every followed one, each applying where the machine's system has the
+  value, in three groups. Every machine: CPU and Memory, "≥ [90] % for [5] min" (one
+  level, warning), and Disk, "warn over [80] % used or under [50] GB free, critical over
+  [90] % or under [20] GB, for [1] min" (each filesystem listed; the worst one alerts).
+  macOS: Compressor (warn over 60 %, critical over 80 %, at once), Swap (4 / 10 GB), the
+  kernel's Pressure level (warning warns, critical is critical), System free (under 25 /
+  20 %). Linux: Available (MemAvailable / MemTotal under 25 / 12 %), Memory stall (PSI
+  `full` avg10 over 5 / 20 %: all tasks stalled, real lost work; `some` rises with one
+  task paging), OOM kills (any new kill is critical at once, held 5 min after the last).
+  Each has a switch by its name and one sentence with its fields. The duration of the
+  memory and disk alerts defaults to a minute: a spike never alerts, and a leak that fills
+  a Mac's compressor within minutes is still caught early. A level rises once every
+  sample of that time is past it (the compressor and OOM kills on the sample that sees
+  them), steps down from critical, or clears, after a minute back; while a machine cannot
+  be reached its alerts neither rise nor clear. A field is saved when left or on Enter;
+  out of range, or crossing its other level, it goes back; a refusal shows and brings back
+  the service's values. On a narrow screen the sentence wraps under the switch. The
+  thresholds are kept with the list of machines in the service's settings, not as events;
+  a settings file without the newer keys takes their defaults.
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
   terminal) and in the header of running or waiting work. It is not on graph nodes. All
@@ -256,7 +278,8 @@ looked at now and then.
   small "Ask why" with how many conversations it has; it, "Ask why" on picked lines and `?`
   open the panel on Ask (the sheet on a narrow screen) with the cursor in the box. What a question is about is the current
   selection, shown as chips above the box: the task always, the picked finding, and the
-  picked file – or, when lines are picked, the lines instead of their file. Lines are
+  picked file – or, when lines are picked, the lines instead of their file – and the
+  attachment open in the viewer (see Attachments). Lines are
   picked in any diff, the single file or the list (click a line number, shift-click to
   stretch); next to them floats "Ask why", like the "+" of a code review. It picks the task
   that last changed those lines (worked out from the unit's commits; other tasks that
@@ -270,7 +293,16 @@ looked at now and then.
   from workriver's records and the code; it asks the agent that did the work only when
   that agent is idle, never one at work, and the answer says quietly whether it did. While
   it works, the step it is at shows; if none can be started, the turn says why in the
-  user's language (the service's words on hover). Questions form conversations on the node:
+  user's language (the service's words on hover). An agent that waits for a person in its
+  terminal (a harness's first-run prompt in a folder it has not seen, such as "trust this
+  folder", or a permission prompt) is never typed over and nothing answers the prompt for
+  the user: the question waits, the turn says so in violet ("Waiting for you in Herdr: …
+  needs an answer in its terminal") with "Go to the terminal", the agent is a Blocking row
+  in Needs you like any waiting agent, and the question goes in by itself once the agent is
+  free; still waiting at the question's deadline, it fails saying so. The same holds for
+  follow-ups and for an agent's question to another. A new agent the runtime does not take
+  a prompt for yet (still launching) is tried again at each poll (2 s) for up to 60 s, then
+  the question fails saying it never got ready. Questions form conversations on the node:
   question, answer, question, answer, with the box under the last one; follow-ups go to the
   same temporary agent while it lives (it closes after a quiet while, and a later question
   starts a new one with the conversation so far). Under a conversation: "Draft conclusion"
@@ -377,6 +409,14 @@ attached to a task. It belongs to an intent (sometimes to one of its units): it 
 last, quietest group of the inbox, opening the same list of steps and a "Done" that takes
 it off the list. It is not counted in anything violet and goes to no one.
 
+A task **no longer needed** (a gate asked again after the branch changed) is dropped,
+never deleted. Its node stays where it was, neutral: a dashed frame, grey text struck
+through, and a small "no longer needed" mark (a ban sign) where the untested mark would be.
+It holds nothing up and counts nowhere. Its details open with who marked it and when, then
+the reason as written. Work not done yet has a quiet "No longer needed…" at the foot of its
+details; it opens a reason field (required) with "Mark no longer needed" and "Cancel". The
+service tells the agent on it to stop, and the manager.
+
 ## What the user puts in
 
 Everything the user decides goes to the service through one place (`runtime.ts`), which
@@ -393,8 +433,30 @@ records it and delivers it to the agents through Herdr.
   each finding, wherever it shows, including as the cause of the work it led to.
 - **Attachments** from agents (screenshots, reports, logs, any file) show the same way
   wherever they belong: with a task's output, a finding, or a check (next to its line).
-  Images preview as thumbnails; any other file is a small chip that downloads it. The store
-  keeps every file for good, like the records.
+  Images preview as thumbnails; any other file is a small chip. Pictures, Markdown and plain
+  text (logs, JSON, YAML, CSV…) open in the **viewer**; any other file (and SVG) downloads.
+  The store keeps every file for good, like the records.
+  The viewer shows one place's previewable attachments one at a time, in their order: the
+  name (mono) as its title, "2 / 5" with previous / next (← and → too, wrapping round; the
+  position and name are read out), for a picture the zoom toggle and "open original",
+  "Ask why", and a download button for every file. Markdown is rendered (tables, code,
+  links) by react-markdown with remark-gfm, loaded only when one is opened (49 kB gzip,
+  against 24 kB for marked + DOMPurify: chosen because it never puts an HTML string into
+  the page, and the text is an agent's): raw HTML is dropped, links open in a new tab with
+  `noopener noreferrer`, and images in it are not fetched but shown as links. Plain text is
+  monospace (whole JSON indented). Markdown is rendered up to its first 256 kB (about 1 s to
+  render, measured), plain text up to 1 MB; past that a line says how much is shown.
+  It is not modal: a large panel over the rail and the main area that stops at the side
+  panel (open or folded), so the side panel stays in use; a click outside leaves it open, and
+  Escape closes it unless typed in a field outside it. Focus starts in the file (↑ ↓ scroll)
+  and goes back to the thumbnail or chip on close. On a narrow screen it covers the page,
+  and its "Ask why" opens the Ask sheet over it; closing the sheet comes back to it.
+  While it shows a stored attachment, the ask box carries it as a chip (the attachment's
+  name) next to the task's; the question then points at it, and the temporary agent is given
+  its path in the store (a link through the tunnel on another machine). A question may point
+  only at an attachment shown with its task (its output, checks, findings and what was added
+  to them, and the findings it answers – but not those for a blind task not yet delivered);
+  the service refuses any other.
 - **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer, with an
   optional one-line note; the agent's suggestion, if any, is the filled button. The row
   takes its new state at once and every count drops (the task's badge, Needs you, the rail).

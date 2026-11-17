@@ -62,7 +62,7 @@ async function loadWorkspace(): Promise<Workspace> {
   const ws = demo as unknown as Workspace
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
-  for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const f of n.output.findings ?? []) for (const a of f.attachments ?? []) a.url = pictures[a.url] ?? a.url
+  for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const a of [...(n.output.attachments ?? []), ...(n.output.findings ?? []).flatMap(f => f.attachments ?? [])]) a.url = pictures[a.url] ?? a.url
   ws.alerts = (await import('./mock/metrics')).mockAlerts()
   return prepare(ws)
 }
@@ -161,6 +161,7 @@ export const finderLabel = (t: T, n: Task): string =>
 
 export function reviewLabel(t: T, n: Task): string {
   const by = finderLabel(t, n)
+  if (n.state === 'dropped') return t('review.dropped', { by })
   if (n.result === 'running') return t('review.running', { by })
   if (n.result === 'found') return t('review.found', { by, count: findingsOf(n).length })
   return t('review.passed', { by })

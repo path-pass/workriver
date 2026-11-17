@@ -15,18 +15,25 @@ What a manager or worker can do:
 
 How loaded each machine is (read-only, for you too; the user sets the alert thresholds):
 
-    workriver machine load                    # CPU and memory per machine, and alerts
+    workriver machine load                    # CPU and memory per machine, and alerts with their level
     workriver machine load --hours 24         # also mean / max CPU and memory over 24 h (max 168)
 
 Under each machine's line, a second one: available memory, memory pressure (macOS:
-normal / warning / critical; Linux: PSI "some … full …", or "unknown"), compressed memory
-(macOS), OOM kills (Linux: since boot, and while watched), swap, free disk of the home
-folder's filesystem (and `/` if another).
+normal / warning / critical; Linux: PSI "some … full …", or "unknown"), compressed memory,
+how full the compressor is ("compressor 17% of its limit") and the kernel's free share
+("system free 50%") (macOS), OOM kills (Linux: since boot, and while watched), swap, free
+disk of the home folder's filesystem (and `/` if another).
 
-Before handing heavy work (a build, a test run, a browser) to an agent on a machine in
-alert, prefer another machine or wait. Also wait or pick another machine when its
-pressure is warning or critical, its OOM kills grew while watched, or its disk is nearly
-full.
+An alert in the first line has a level: `ALERT: compressor WARN since …, disk CRIT since …`.
+Metrics: cpu, memory, disk (every machine); compressor, swap, pressure, systemFree (macOS);
+available, psi, oom (Linux). The last line lists the thresholds the user set. A macOS
+compressor at 100 % of its limit can panic the machine; an OOM alert means the kernel
+killed a process there within the last minutes.
+
+Before handing heavy work (a build, a test run, a browser) to an agent on a machine with a
+CRIT alert, do not: pick another machine or wait. With a WARN alert, prefer another machine
+for heavy work. Also wait or pick another machine when its pressure is warning or critical,
+its OOM kills grew while watched, or its disk is nearly full.
 
 A workspace on another machine is one with yours only if linked; do not hand work to agents
 in unlinked ones. Units there: `units-other-machine`.

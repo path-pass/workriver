@@ -86,11 +86,23 @@ export const zhCN: Same<typeof en> = {
   },
   alerts: {
     title: '机器报警',
-    lead: '对本机和每台跟踪的机器都生效。一个值在整段时间里都不低于阈值才报警，低于阈值满一分钟后解除。',
+    lead: '对本机和每台跟踪的机器都生效，各自只看其系统有的值。警告显示为琥珀色，严重显示为红色。一个值在整段时间里都越过某一级才升到这一级（标明“立即”的除外），回到界内满一分钟后解除。',
     on: '{{metric}} 报警',
     percent: '{{metric}} 的阈值（百分比）',
     minutes: '{{metric}}：持续多久（分钟）',
+    warn: '{{metric}}：警告阈值',
+    crit: '{{metric}}：严重阈值',
+    warnFree: '{{metric}}：警告，剩余 GB',
+    critFree: '{{metric}}：严重，剩余 GB',
+    group: { all: '所有机器', mac: 'macOS', linux: 'Linux' },
     threshold: '≥ <percent/>% 持续 <minutes/> 分钟',
+    overPercent: '超过 <warn/>% 警告，超过 <crit/>% 严重，持续 <minutes/> 分钟',
+    overPercentNow: '超过 <warn/>% 警告，超过 <crit/>% 严重，立即',
+    overGb: '超过 <warn/> GB 警告，超过 <crit/> GB 严重，持续 <minutes/> 分钟',
+    underPercent: '低于 <warn/>% 警告，低于 <crit/>% 严重，持续 <minutes/> 分钟',
+    pressure: '内核报“警告”即警告，报“严重”即严重，持续 <minutes/> 分钟',
+    oom: '有进程被杀立即严重，保持 <minutes/> 分钟',
+    disk: '已用超过 <warn/>% 或剩余不足 <warnFree/> GB 警告，超过 <crit/>% 或不足 <critFree/> GB 严重，持续 <minutes/> 分钟',
     failed: '没有保存：{{error}}'
   },
   metrics: {
@@ -102,11 +114,24 @@ export const zhCN: Same<typeof en> = {
     percent: '{{value}}%',
     memoryValue: '{{used}} / {{total}} GB',
     noValue: '–',
-    alert: '{{metric}} {{value}} · {{time}}',
+    alert: '{{what}} · {{time}}',
+    level: { warn: '警告', crit: '严重' },
+    compressor: '压缩器',
+    compressorValue: '上限的 {{value}}%',
+    compressorHint: '内存压缩器用了多少；到 100% 时 macOS 无处可压，可能内核崩溃',
+    systemFree: '系统空闲',
+    systemFreeHint: 'macOS 认为空闲的内存占比（memory_pressure）',
+    psi: '内存停顿',
+    oom: 'OOM 杀进程',
+    gb: '{{value}} GB',
+    kills_other: '{{count, number}} 次',
+    diskAlert: '{{mount}} 已用 {{used}}%，剩余 {{free}}',
+    top: '内存占用最多：{{list}}',
+    proc: '{{name}} {{size}}',
+    procAgent: '{{name}} {{size}}（{{agent}}）',
     probeFailed: '读不到：{{error}}',
     chart: '最近 10 分钟的{{metric}}',
     notice: '{{machine}}：{{metric}} {{value}}',
-    noticeBody: '已连续 {{minutes}} 分钟不低于 {{percent}}%',
     available: '可用',
     pressure: '内存压力',
     pressureLevel: { normal: '正常', warning: '警告', critical: '严重' },
@@ -233,8 +258,10 @@ export const zhCN: Same<typeof en> = {
     step: {
       starting: '正在启动 agent…',
       reading: '正在读记录和代码…',
-      asking: '正在问 {{agent}}…'
+      asking: '正在问 {{agent}}…',
+      blocked: '在 Herdr 里等你：{{agent}} 需要你在它的终端里回答。回答后问题会自动发给它。'
     },
+    toTerminal: '去终端',
     asked: '问过 {{agent}}',
     busy: '{{agent}} 正忙，根据记录回答',
     ended: '{{agent}} 的会话已结束，根据记录回答',
@@ -274,6 +301,14 @@ export const zhCN: Same<typeof en> = {
     machines: '机器',
     machineAlert: '{{machine}}：{{metric}} {{value}}',
     machineLimit: '连续 {{minutes}} 分钟不低于 {{percent}}%',
+    limit: {
+      over: '连续 {{minutes}} 分钟超过 {{value}}',
+      overNow: '超过 {{value}}，立即',
+      under: '连续 {{minutes}} 分钟低于 {{value}}',
+      pressure: '内核连续 {{minutes}} 分钟报“{{level}}”',
+      oom: '有进程被杀；保持 {{minutes}} 分钟',
+      disk: '连续 {{minutes}} 分钟已用超过 {{used}}% 或剩余不足 {{free}} GB'
+    },
     decisions: '待决定',
     gaps: '缺口',
     later: '不急',
@@ -296,7 +331,8 @@ export const zhCN: Same<typeof en> = {
     running: '正在做',
     done: '已完成',
     waiting: '等你',
-    unregistered: '未登记'
+    unregistered: '未登记',
+    dropped: '不再需要'
   },
   reviewer: {
     'security-review': '安全审查',
@@ -326,7 +362,17 @@ export const zhCN: Same<typeof en> = {
     remove: '移除 {{name}}',
     zoomIn: '按宽度放大（也可以点图片）',
     zoomOut: '看整张图（也可以点图片）',
-    original: '在新标签页打开原图'
+    original: '在新标签页打开原图',
+    prev: '上一个附件（←）',
+    next: '下一个附件（→）',
+    counter: '{{n}} / {{count}}',
+    now: '第 {{n}} 个，共 {{count}} 个：{{name}}',
+    download: '下载',
+    ask: '就这个附件提问：它会随问题一起发出',
+    loading: '正在读取…',
+    failed: '读不到这个文件，请下载查看。',
+    cut: '只显示前 {{shown}}（共 {{size}}），其余请下载。',
+    mdImage: '图片：{{name}}'
   },
   deliver: {
     pending: '还没送出',
@@ -345,6 +391,8 @@ export const zhCN: Same<typeof en> = {
       'no-workspace': '它的意图没有对应的 Herdr 工作区',
       timeout: '没有及时回答',
       restarted: '服务重启了',
+      blocked: '它的 agent 一直在终端里等人回答',
+      'not-ready': '新启动的 agent 一直没准备好接收提问',
       unknown: '没有说明原因'
     },
     failed: '没记下：服务没有收下'
@@ -367,7 +415,8 @@ export const zhCN: Same<typeof en> = {
   review: {
     found_other: '{{by}} {{count, number}} 个问题',
     passed: '{{by}} 没有问题',
-    running: '{{by}} 进行中'
+    running: '{{by}} 进行中',
+    dropped: '{{by}} 不再需要'
   },
   finding: {
     open: '等你决定',
@@ -394,7 +443,16 @@ export const zhCN: Same<typeof en> = {
   task: {
     blind: '盲审',
     blindHint: '盲审：没有看到其他工作就做的，所以它的发现是独立的看法',
-    unregistered: '未登记：{{title}}'
+    unregistered: '未登记：{{title}}',
+    dropped: '不再需要',
+    droppedBy: '{{by}} 标记为不再需要，{{when}}',
+    droppedByYou: '你标记为不再需要，{{when}}',
+    drop: '不再需要…',
+    dropReason: '为什么不再需要',
+    dropReasonHint: '例如：已被 #17 取代；会通知做这件事的 agent 和 manager',
+    dropConfirm: '标记为不再需要',
+    dropCancel: '取消',
+    dropFailed: '没有记录：{{error}}'
   },
   who: {
     writing: '{{name}}，正在写'

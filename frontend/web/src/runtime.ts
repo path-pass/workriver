@@ -196,6 +196,12 @@ export async function record(kind: string, body: unknown) {
   await post('/api/append', { kind, body })
 }
 
+/** Marks a task no longer needed: the user's alone from the page; its agent and the manager are told. */
+export async function dropTask(unit: Unit, task: Task, reason: string) {
+  if (MOCK) return
+  await post('/api/task/drop', { unit: unit.id, task: Number(task.id), reason })
+}
+
 /** Merges planned intents into one: the user's alone, so it has a route of its own. */
 export async function mergeIntents(into: string, from: string[], title?: string) {
   if (MOCK) return

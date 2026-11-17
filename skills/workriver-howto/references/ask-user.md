@@ -16,5 +16,18 @@ opening anything else: what is ready or wrong, what was checked, the options.
 change the goal). Or "did not confirm …" with findings: handle them like a design gate's
 (`design-gate`). Until then, wait; do not merge or deploy.
 
+**Asking again:** when a question you asked is out of date (the branch changed after a merge
+gate, the options changed), ask anew and drop the old gate, or it waits in Needs you for good.
+A task is dropped, never deleted; what follows it no longer waits on it:
+
+    workriver task add u1 --kind gate --gate decide --title "Merge u1 (feat/readme) into main?" --after 16 --text "<what changed since>"
+    workriver task drop u1#15 --reason "superseded by u1#17: the branch changed"
+
+The same for any task re-planning made unneeded: its agent is told to stop (the reason is
+quoted to it); the board shows `dropped (reason)`.
+
 **Refusals:** "gate … is not open yet: it follows …" - it waits until the tasks before it
-are done; that is fine, it shows in Needs you then.
+are done; that is fine, it shows in Needs you then. "… is done; only work not done yet is
+dropped" - a gate the user submitted is done. "… is dropped by the manager of its intent or
+the user (or the agent that recorded it)" - a worker tells its manager instead. "… was
+dropped as no longer needed (…)" - it is not started, delivered or submitted any more.

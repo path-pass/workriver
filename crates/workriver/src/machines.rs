@@ -664,6 +664,17 @@ impl Runtime for Machines {
         self.route(agent, |r| r.close(agent))
     }
 
+    /// Asked of that machine's own runtime: the ids are its operating system's.
+    fn processes(&self, machine: Option<&str>) -> Result<Vec<(RuntimeAgent, Vec<u32>)>, RuntimeError> {
+        match machine {
+            None => self.local.processes(None),
+            Some(m) => {
+                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
+                Ok(on(&e, &|r: &dyn Runtime| r.processes(None))?.into_iter().map(|(a, pids)| (their_agent(a, m), pids)).collect())
+            }
+        }
+    }
+
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
         let entries = self.entries.lock().unwrap().clone();
         let mut all = match self.local.groups() {

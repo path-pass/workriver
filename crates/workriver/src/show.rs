@@ -39,6 +39,9 @@ pub struct TaskShow {
     /// Its commits that were only on a branch the unit has left.
     pub lost_commits: Vec<String>,
     pub questions: Vec<QuestionShow>,
+    /// Dropped as no longer needed: when, by whom (by name), why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<core::Closed>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -278,6 +281,7 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             .filter(|q| q.unit == unit && q.task == n)
             .map(|q| QuestionShow { id: q.id.clone(), question: q.text.clone(), asked_by: who(state, &q.by), at: q.at.clone(), answer: q.answer.clone(), answered_by: q.answered_by.as_deref().map(|a| who(state, a)) })
             .collect(),
+        dropped: t.dropped.clone().map(|d| core::Closed { by: who(state, &d.by), ..d }),
     })
 }
 
@@ -330,6 +334,9 @@ pub fn text(s: &TaskShow) -> String {
     let _ = writeln!(out, "{}  {}  {}{}", s.reference, s.kind, s.state, if s.blind { "  [blind]" } else { "" });
     if !s.title.is_empty() {
         let _ = writeln!(out, "Title: {}", s.title);
+    }
+    if let Some(d) = &s.dropped {
+        block(&mut out, &format!("Dropped as no longer needed by {} at {}, because", d.by, d.at), &d.reason);
     }
     let _ = writeln!(out, "Intent {} \"{}\": {}", s.intent.id, s.intent.title, s.intent.about);
     if !s.intent.note.is_empty() {

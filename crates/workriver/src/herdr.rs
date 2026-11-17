@@ -136,6 +136,11 @@ struct AgentInfo {
     cwd: Option<String>,
     #[serde(default)]
     foreground_cwd: Option<String>,
+    /// Still launching / ready for input: in Herdr's schema, not described; absent says nothing.
+    #[serde(default)]
+    launch_pending: Option<bool>,
+    #[serde(default)]
+    interactive_ready: Option<bool>,
     /// The terminal title without decoration: what the session is about.
     #[serde(default)]
     terminal_title_stripped: Option<String>,
@@ -175,7 +180,13 @@ impl Herdr {
         BufReader::new(&stream).read_line(&mut answer).map_err(fail)?;
         let v: Value = serde_json::from_str(&answer).map_err(|e| RuntimeError::Failed(format!("herdr {method}: unreadable answer: {e}")))?;
         if let Some(e) = v.get("error") {
-            return Err(RuntimeError::Failed(format!("herdr {method}: {} ({})", e["message"].as_str().unwrap_or("?"), e["code"].as_str().unwrap_or("?"))));
+            let (message, code) = (e["message"].as_str().unwrap_or("?"), e["code"].as_str().unwrap_or("?"));
+            let words = format!("herdr {method}: {message} ({code})");
+            return Err(match code {
+                "agent_blocked" => RuntimeError::Blocked(words),
+                "agent_not_ready" => RuntimeError::NotReady(words),
+                _ => RuntimeError::Failed(words),
+            });
         }
         v.get("result").cloned().ok_or_else(|| RuntimeError::Failed(format!("herdr {method}: answer without a result")))
     }
@@ -310,10 +321,15 @@ impl Runtime for Herdr {
         let tab = self.call("tab.create", json!({ "workspace_id": group, "cwd": cwd, "label": name, "focus": false }))?;
         let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();
         let started = self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": pane, "timeout_ms": 60_000 }), Duration::from_secs(75));
-        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state.
+        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state
+        // and, where Herdr says so (AgentInfo's `launch_pending` / `interactive_ready`, in its
+        // schema), its launch is over. Blocked counts: it waits for a person, and the caller
+        // holds its message. A prompt can still meet `agent_not_ready`; the caller retries.
         let found = started.and_then(|_| {
             for _ in 0..60 {
-                if let Some((_, a)) = self.read()?.1.into_iter().find(|(p, _)| *p == pane).filter(|(_, a)| a.state != AgentState::Unknown) {
+                let (snap, list) = self.read()?;
+                let launched = snap.agents.iter().find(|i| i.pane_id == pane).is_some_and(|i| i.launch_pending != Some(true) && i.interactive_ready != Some(false));
+                if let Some((_, a)) = list.into_iter().find(|(p, _)| *p == pane).filter(|(_, a)| a.state != AgentState::Unknown && launched) {
                     return Ok(a);
                 }
                 std::thread::sleep(Duration::from_millis(500));
@@ -330,6 +346,21 @@ impl Runtime for Herdr {
         let pane = self.pane_of(agent)?;
         self.call("pane.close", json!({ "pane_id": pane }))?;
         Ok(())
+    }
+
+    /// One `pane.process_info` per agent pane: its shell, and the foreground processes in
+    /// case Herdr knows no shell. A pane that does not answer has no ids.
+    fn processes(&self, _: Option<&str>) -> Result<Vec<(RuntimeAgent, Vec<u32>)>, RuntimeError> {
+        let (_, list) = self.read()?;
+        Ok(list
+            .into_iter()
+            .map(|(pane, agent)| {
+                let info = self.call("pane.process_info", json!({ "pane_id": pane })).map(|r| r["process_info"].clone()).unwrap_or_default();
+                let fg = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64());
+                let pids = info["shell_pid"].as_u64().into_iter().chain(fg).map(|p| p as u32).collect();
+                (agent, pids)
+            })
+            .collect())
     }
 
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
@@ -419,8 +450,9 @@ mod tests {
         let error = json!({ "error": { "code": "agent_blocked", "message": "agent is blocked" } });
         let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), error]);
         herdr.send("s-1", "hello").unwrap();
-        let err = herdr.send("s-1", "again").unwrap_err().to_string();
-        assert!(err.contains("agent_blocked") && err.contains("agent is blocked"), "{err}");
+        // Blocked is its own error: the message waits rather than fails.
+        let err = herdr.send("s-1", "again").unwrap_err();
+        assert!(matches!(&err, RuntimeError::Blocked(w) if w.contains("agent_blocked") && w.contains("agent is blocked")), "{err}");
         let seen = server.join().unwrap();
         assert_eq!(seen[1]["method"], "agent.prompt");
         assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
@@ -431,5 +463,18 @@ mod tests {
         let herdr = Herdr::new("/nonexistent/herdr.sock".into(), String::new());
         assert!(matches!(herdr.agents(), Err(RuntimeError::None)));
         assert!(herdr.check().unwrap().contains("not running"));
+    }
+
+    #[test]
+    fn reads_the_processes_of_each_agent_pane() {
+        let info = |shell: Value, fg: Value| json!({ "result": { "type": "pane_process_info", "process_info": { "pane_id": "x", "shell_pid": shell, "foreground_processes": fg } } });
+        let refused = json!({ "error": { "code": "pane_not_found", "message": "gone" } });
+        let replies = vec![snapshot(), info(json!(100), json!([{ "pid": 101, "name": "claude" }])), info(Value::Null, json!([{ "pid": 200, "name": "codex" }])), refused, info(json!(400), json!([]))];
+        let (_dir, herdr, server) = fake(replies);
+        let got: Vec<(String, Vec<u32>)> = herdr.processes(None).unwrap().into_iter().map(|(a, p)| (a.name, p)).collect();
+        assert_eq!(got, [("lead".into(), vec![100, 101]), ("reviewer".into(), vec![200]), ("claude 1".into(), vec![]), ("claude 2".into(), vec![400])]);
+        let seen = server.join().unwrap();
+        assert_eq!(seen[1]["method"], "pane.process_info");
+        assert_eq!(seen[1]["params"], json!({ "pane_id": "w5:p1" }));
     }
 }

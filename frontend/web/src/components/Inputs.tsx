@@ -2,9 +2,7 @@
 // and the line that follows each on its way to the agents. Nothing is sent from here: it all
 // goes through the shell's actions to one place in runtime.ts.
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
-import { ExternalLink, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { findingKey, gateKey, useAct } from '@/act'
@@ -13,64 +11,40 @@ import { useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
 import { CopyButton, Icon, Tip, Who, ChipName } from './bits'
+import { kindOf, Viewer } from './Viewer'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
 
-/** Small pictures (a click shows one large) and other files as links. With `onRemove`, each has a ×. */
+/** Small pictures and other files as chips. A click opens the viewer over every one of them
+ *  that previews (pictures, Markdown, plain text), in their order; any other file downloads.
+ *  With `onRemove` (pictures still being put in a form), each has a ×. */
 export function Thumbs({ list, onRemove }: { list: Attachment[]; onRemove?: (a: Attachment) => void }) {
   const { t } = useT()
-  const [big, setBig] = useState<Attachment | null>(null)
-  // Whole picture, or as wide as the dialog with the rest scrolled: a tall screenshot fitted
-  // whole is too small to read.
-  const [wide, setWide] = useState(false)
+  const [open, setOpen] = useState<number | null>(null)
   if (!list.length) return null
-  const isImage = (a: Attachment) => !a.type || (a.type.startsWith('image/') && a.type !== 'image/svg+xml')
-  const files = list.filter(a => !isImage(a))
+  const shown = list.filter(a => kindOf(a))
+  const view = (a: Attachment) => setOpen(shown.indexOf(a))
+  const files = list.filter(a => kindOf(a) !== 'image')
+  const images = list.filter(a => kindOf(a) === 'image')
   return (
     <>
       {files.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {files.map(a => <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" /><ChipName name={a.name} /></a>)}
+          {files.map(a => kindOf(a)
+            ? <button key={a.id} type="button" className="ctx font-mono text-xs hover:text-ink" onClick={() => view(a)}><Icon name="file" className="size-3" /><ChipName name={a.name} /></button>
+            : <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" /><ChipName name={a.name} /></a>)}
         </div>
       )}
-      {list.some(isImage) && <div className="thumbs">
-        {list.filter(isImage).map(a => (
+      {images.length > 0 && <div className="thumbs">
+        {images.map(a => (
           <span key={a.id} className="thumb">
-            <button type="button" aria-label={t('attach.open', { name: a.name })} onClick={() => { setWide(false); setBig(a) }}><img src={a.url} alt="" /></button>
+            <button type="button" aria-label={t('attach.open', { name: a.name })} onClick={() => view(a)}><img src={a.url} alt="" /></button>
             {onRemove && <button type="button" className="x" aria-label={t('attach.remove', { name: a.name })} onClick={() => onRemove(a)}><Icon name="no" className="size-3" /></button>}
           </span>
         ))}
       </div>}
-      <Dialog open={!!big} onOpenChange={o => { if (!o) setBig(null) }}>
-        <DialogContent closeLabel={t('settings.close')} aria-describedby={undefined} className="sm:max-w-[min(1400px,calc(100%-2rem))]">
-          <div className="flex min-w-0 items-center gap-1 pr-8">
-            <DialogTitle className="min-w-0 flex-1 truncate text-sm">{big?.name}</DialogTitle>
-            <Tip text={wide ? t('attach.zoomOut') : t('attach.zoomIn')}>
-              <Button variant="ghost" size="icon-sm" aria-label={wide ? t('attach.zoomOut') : t('attach.zoomIn')} aria-pressed={wide} onClick={() => setWide(w => !w)}>
-                {wide ? <ZoomOut aria-hidden /> : <ZoomIn aria-hidden />}
-              </Button>
-            </Tip>
-            {big && (
-              <Tip text={t('attach.original')}>
-                <Button variant="ghost" size="icon-sm" asChild>
-                  <a href={big.url} target="_blank" rel="noreferrer" aria-label={t('attach.original')}><ExternalLink aria-hidden /></a>
-                </Button>
-              </Tip>
-            )}
-          </div>
-          {big && (
-            <div className="max-h-[80vh] overflow-auto rounded-md">
-              <img
-                src={big.url}
-                alt={big.name}
-                onClick={() => setWide(w => !w)}
-                className={wide ? 'h-auto w-full max-w-none cursor-zoom-out' : 'mx-auto max-h-[78vh] w-full cursor-zoom-in object-contain'}
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {open !== null && shown[open] && <Viewer list={shown} at={open} onAt={setOpen} onClose={() => setOpen(null)} stored={!onRemove} />}
     </>
   )
 }

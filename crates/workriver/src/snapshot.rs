@@ -326,6 +326,9 @@ struct Task {
     /// When its output was last corrected.
     #[serde(skip_serializing_if = "Option::is_none")]
     amended: Option<String>,
+    /// Dropped as no longer needed: when, by whom (by name), why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dropped: Option<core::Closed>,
 }
 
 #[derive(Serialize)]
@@ -486,9 +489,13 @@ struct Turn {
     question: String,
     context: Vec<core::AskContext>,
     answer: Option<String>,
-    /// While it comes: starting (the agent), reading (it works on it).
+    /// While it comes: starting (the agent), reading (it works on it), blocked (its agent
+    /// waits for a person in its terminal: the question waits too).
     #[serde(skip_serializing_if = "Option::is_none")]
     step: Option<&'static str>,
+    /// While blocked: the agent that waits, to bring its terminal to the front.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<Blocked>,
     #[serde(skip_serializing_if = "Option::is_none")]
     consulted: Option<Consulted>,
     at: String,
@@ -497,6 +504,12 @@ struct Turn {
     /// A request for the thread's conclusion.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     conclude: bool,
+}
+
+#[derive(Serialize)]
+struct Blocked {
+    agent: String,
+    session: String,
 }
 
 #[derive(Serialize)]
@@ -528,17 +541,22 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                     .questions
                     .iter()
                     .filter(|q| q.thread == t.id)
-                    .map(|q| Turn {
+                    .map(|q| {
+                        // The agent answering it, when the runtime says it waits for a person.
+                        let stuck = q.agent.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).filter(|a| q.open() && a.state == AgentState::Blocked);
+                        Turn {
                         id: q.id.clone(),
                         by: (q.by != "user").then(|| names.of(&q.by)),
                         question: q.text.clone(),
                         context: q.context.clone(),
                         answer: q.answer.clone(),
-                        step: q.open().then_some(if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        step: q.open().then_some(if stuck.is_some() { "blocked" } else if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
                         consulted: q.asked.as_ref().map(|a| Consulted { agent: names.of(a), outcome: "asked" }),
                         at: q.at.clone(),
                         failed: q.failed.as_ref().map(|(code, reason)| Failed { code: *code, reason: reason.clone() }),
                         conclude: q.conclude,
+                        }
                     })
                     .collect(),
             }
@@ -1342,7 +1360,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         gate: t.gate,
         since,
         reviewer,
-        result: (kind == "review").then_some(match t.state {
+        result: (kind == "review" && t.state != TaskState::Dropped).then_some(match t.state {
             TaskState::Done if !t.findings.is_empty() => "found",
             TaskState::Done => "passed",
             _ => "running",
@@ -1384,6 +1402,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         }).flatten(),
         delivery: if t.kind == TaskKind::Gate && t.state == TaskState::Done { names.sent(&t.delivery, manager) } else { None },
         amended: t.amended.clone(),
+        dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
     }
 }
 
@@ -1415,6 +1434,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         threads: vec![],
         draft: None,
         amended: None,
+        dropped: None,
     }
 }
 

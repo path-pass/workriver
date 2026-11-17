@@ -5,14 +5,16 @@ import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
 import { SECTIONS, SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
 import { MachineChip, Notes, Progress, Topics } from '@/components/bits'
+import { alertLimit, alertValue, topLine } from '@/components/Machines'
 import { Start, StartIntent } from '@/components/Start'
 import { Ask, isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
+import { ViewerContext } from '@/components/Viewer'
 import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, blockedAgents, inbox, loadCode, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
 import { useT } from '@/i18n'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, submitGate, type Delivery } from '@/runtime'
-import type { AskContext, Intent, MachineAlert, Task, Turn, Unit, Workspace } from '@/types'
+import type { AskContext, Attachment, Intent, MachineAlert, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -58,7 +60,7 @@ const remember = (key: string, value: string) => { try { localStorage.setItem(ke
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
 export default function App() {
-  const { t } = useT()
+  const { t, lang } = useT()
   const [data, setData] = useState<Workspace | null>(null)
   // The service cannot be reached right now; what was shown stays.
   const [down, setDown] = useState(false)
@@ -82,6 +84,8 @@ export default function App() {
   const showSide = (next: Section | null) => { setSide(next); remember(SIDE, next ?? 'closed') }
   // Narrow screens: the same content as a sheet over the page; not remembered.
   const [sheet, setSheet] = useState<Section | null>(null)
+  // How wide the side panel is now, open or folded to its strip: the attachment viewer stops there.
+  useEffect(() => document.documentElement.style.setProperty('--side-now', side ? 'var(--side-w, 340px)' : '2.75rem'), [side])
 
   // What the user put in during this sitting; the data shown is the data with it on top.
   const [edits, setEdits] = useState<Edits>(NO_EDITS)
@@ -99,20 +103,22 @@ export default function App() {
     // The first data only sets what is known; it is not news.
     if (before) for (const s of now) if (!before.has(s.session ?? s.agent)) notify(t('agents.notice', { agent: s.agent }), s.topic, s.session ?? s.agent)
   }, [data, t])
-  // A machine newly past an alert threshold: a notification too, once per alert.
+  // A machine alert: a notification when it rises, and again only when it becomes critical;
+  // never again while it stays (nor when it steps back to a warning).
   const alerted = useRef<Set<string> | null>(null)
   useEffect(() => {
     if (!data) return
     const key = (a: MachineAlert) => `${a.machine}:${a.metric}:${a.since}`
+    const keys = (a: MachineAlert) => (a.level === 'crit' ? [key(a), `${key(a)}:crit`] : [key(a)])
     const now = data.alerts ?? []
     const before = alerted.current
-    alerted.current = new Set(now.map(key))
+    alerted.current = new Set(now.flatMap(keys))
     if (before)
-      for (const a of now.filter(a => !before.has(key(a)))) {
-        const value = t('metrics.percent', { value: Math.round(a.value) })
-        notify(t('metrics.notice', { machine: a.here ? t('metrics.here') : a.machine, metric: t(`metrics.${a.metric}`), value }), t('metrics.noticeBody', { percent: a.percent, minutes: a.minutes }), `alert:${key(a)}`, false)
+      for (const a of now.filter(a => keys(a).some(k => !before.has(k)))) {
+        const body = [`${t(`metrics.level.${a.level}`)}: ${alertLimit(t, a)}`, topLine(t, lang, a)].filter(Boolean).join('\n')
+        notify(t('metrics.notice', { machine: a.here ? t('metrics.here') : a.machine, metric: t(`metrics.${a.metric}`), value: alertValue(t, lang, a) }), body, `alert:${key(a)}:${a.level}`, false)
       }
-  }, [data, t])
+  }, [data, t, lang])
   const blocking = useMemo(() => (ws ? inbox(ws).blocking.length : 0), [ws])
   useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])
   // What each live session is about, for the agent marks' tooltips; a name that repeats
@@ -135,6 +141,8 @@ export default function App() {
   // A request for the ask box to take the cursor, with more context for one task.
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
+  // The stored attachment the viewer shows, if any: a question can be about it.
+  const [viewing, setViewing] = useState<Attachment | null>(null)
 
   const unit = useSame(unitsOf(ws).find(i => i.id === unitId) ?? null)
   const sel = useMemo(() => (unit ? selectionOf(unit, pick) : null), [unit, pick])
@@ -249,9 +257,16 @@ export default function App() {
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
         onOpen: () => openAsk(),
-        extra: askReq.task === pick?.id ? askReq.extra : [],
+        extra: [
+          ...(askReq.task === pick?.id ? askReq.extra : []),
+          ...(viewing ? [{ kind: 'attachment' as const, label: viewing.name, id: viewing.id }] : []),
+        ],
       }
     : null
+  // The viewer hears this once: the latest openAsk is called through a ref.
+  const askNow = useRef(openAsk)
+  askNow.current = openAsk
+  const viewer = useMemo(() => ({ onView: setViewing, onAsk: () => askNow.current() }), [])
 
   // The Ask section asks about the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
@@ -299,6 +314,7 @@ export default function App() {
 
   return (
     <ActContext.Provider value={act}>
+    <ViewerContext.Provider value={viewer}>
     <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
       <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
@@ -349,6 +365,7 @@ export default function App() {
       <Notes />
     </div>
     </Topics.Provider>
+    </ViewerContext.Provider>
     </ActContext.Provider>
   )
 }

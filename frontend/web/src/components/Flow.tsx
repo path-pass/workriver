@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
-import { record } from '@/runtime'
+import { dropTask, record } from '@/runtime'
+import { Input } from '@/components/ui/input'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
@@ -77,7 +78,7 @@ const glyph = (n: Task) =>
   : n.kind === 'gate' ? `gate-${n.gate}`
   : n.design && (n.state === 'done' || n.state === 'todo') ? 'design'
   : n.research && (n.state === 'done' || n.state === 'todo') ? 'research'
-  : ({ done: 'check', running: 'pen', unregistered: 'no', todo: 'ring', waiting: 'ring' })[n.state]
+  : ({ done: 'check', running: 'pen', unregistered: 'no', todo: 'ring', waiting: 'ring', dropped: 'ring' })[n.state]
 
 const ports = (
   <>
@@ -102,6 +103,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         data-kind={n.kind}
         data-state={n.kind === 'review' ? undefined : n.state}
         data-dim={dim || undefined}
+        data-dropped={n.state === 'dropped' || undefined}
         aria-pressed={picked}
         // The mouse picks through React Flow's node click, which a drag does not trigger;
         // this handler is for the keyboard (detail 0).
@@ -109,7 +111,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
       >
         <Icon
           name={glyph(n)}
-          className={n.kind === 'review' ? (n.result === 'running' ? 'text-amber!' : 'text-water!') : ''}
+          className={n.kind === 'review' && n.state !== 'dropped' ? (n.result === 'running' ? 'text-amber!' : 'text-water!') : ''}
         />
         <span className="lb">
           {n.kind === 'review'
@@ -122,6 +124,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         {/* Work handed in with no check run: information, not a call to act. */}
         {untested(n) && <span className="untested"><Mark name="untested" label={t('evidence.none')} /></span>}
         {n.blind && <span className="blind"><Mark name="blind" label={t('task.blindHint')} /></span>}
+        {n.state === 'dropped' && <span className="dropped"><Mark name="dropped" label={t('task.dropped')} /></span>}
         {talks > 0 && (
           <span className="talks"><Icon name="talk" className="size-2.5" /><span aria-hidden>{num(talks)}</span><span className="sr-only">{t('ask.count', { count: talks })}</span></span>
         )}
@@ -476,7 +479,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
   if (n.kind === 'review') {
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).flatMap(c => c.files.map(f => f.path)))]
-    head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.result === 'running' ? 'state.running' : 'state.done')}</>
+    head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
     input = <>{of && <div>{t('io.changesOf', { label: nodeLabel(t, of) })}</div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
@@ -561,6 +564,16 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
           <TerminalButton agent={n.agent} session={n.agentSession} className="ml-auto text-you-ink hover:bg-surface/60" />
         )}
       </div>
+      {/* No longer needed: by whom and when, then why in their words. */}
+      {n.dropped && (
+        <div className="flex flex-col gap-0.5 border-b border-line px-3 py-2 text-sm wrap-anywhere">
+          <span className="flex items-center gap-1.5 text-xs text-ink-2">
+            <Icon name="dropped" className="size-3.5" />
+            {n.dropped.by === 'user' ? t('task.droppedByYou', { when: when(ms(n.dropped.at)) }) : t('task.droppedBy', { by: n.dropped.by, when: when(ms(n.dropped.at)) })}
+          </span>
+          <span>{n.dropped.reason}</span>
+        </div>
+      )}
       <div className={cn('grid text-sm wrap-anywhere', n.kind === 'review' ? 'min-[701px]:grid-cols-[1fr_2fr]' : 'grid-cols-[repeat(auto-fit,minmax(260px,1fr))]')}>
         <div className="min-w-0 p-3"><h3 className="mb-1.5 text-xs font-semibold text-ink-2">{t('io.input')}</h3>{input}</div>
         <div className="min-w-0 border-line p-3 max-[700px]:border-t min-[701px]:border-l">
@@ -576,8 +589,27 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
       <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-2">
         <Button variant="outline" size="xs" className="rounded-sm" onClick={talk.onOpen}><Icon name="talk" className="size-3" />{t('ask.why')}</Button>
         {threads > 0 && <span>{t('ask.conversations', { count: threads })}</span>}
+        {(n.state === 'todo' || n.state === 'running' || n.state === 'waiting') && <DropTask key={unit.id + n.id} unit={unit} n={n} />}
       </div>
     </div>
+  )
+}
+
+/** The user marks work not done yet as no longer needed, saying why; nothing is deleted. */
+function DropTask({ unit, n }: { unit: Unit; n: Task }) {
+  const { t } = useT()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  if (!open) return <Button variant="ghost" size="xs" className="ml-auto rounded-sm" onClick={() => setOpen(true)}><Icon name="dropped" className="size-3" />{t('task.drop')}</Button>
+  const submit = () => { dropTask(unit, n, reason.trim()).then(() => setOpen(false), (e: Error) => setError(e.message)) }
+  return (
+    <form className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" onSubmit={e => { e.preventDefault(); if (reason.trim()) submit() }}>
+      <Input autoFocus aria-label={t('task.dropReason')} placeholder={t('task.dropReasonHint')} value={reason} onChange={e => setReason(e.target.value)} className="h-7 min-w-48 flex-1 text-xs" />
+      <Button type="submit" size="xs" className="rounded-sm" disabled={!reason.trim()}>{t('task.dropConfirm')}</Button>
+      <Button type="button" variant="ghost" size="xs" className="rounded-sm" onClick={() => { setOpen(false); setError('') }}>{t('task.dropCancel')}</Button>
+      {error && <p role="alert" className="w-full text-xs wrap-anywhere text-del">{t('task.dropFailed', { error })}</p>}
+    </form>
   )
 }
 

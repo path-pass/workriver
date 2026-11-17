@@ -568,6 +568,16 @@ enum TaskCmd {
         #[arg(long, value_name = "FILE", requires = "amend", conflicts_with = "findings")]
         add_findings: Option<String>,
     },
+    /// Mark a task not done yet as no longer needed (a gate asked again, a plan changed). It
+    /// is kept, never deleted; what follows it no longer waits on it, and its agent is told
+    /// to stop. By the intent's manager or the user (or the agent that recorded it).
+    Drop {
+        /// The task (u1#15).
+        task: String,
+        /// Why, e.g. "superseded by u1#17".
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1053,6 +1063,10 @@ fn main() -> anyhow::Result<()> {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
         }
+        Cmd::Task(TaskCmd::Drop { task, reason }) => {
+            let (unit, n) = task_ref(&task)?;
+            d.append(actor, "task.dropped", json!({ "unit": unit, "task": n, "reason": reason }))?
+        }
         Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings: None, amend: true, add_findings: Some(file) }) => {
             // More findings on a delivered review: the others are not touched.
             if !note.is_empty() || !evidence.is_empty() {
@@ -1178,6 +1192,7 @@ fn main() -> anyhow::Result<()> {
             format!("added findings {}", ids.join(" "))
         }
         Some("task.amended") => "amended".into(),
+        Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
@@ -1681,7 +1696,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             }
         }
         // Work still to do: what it answers, with what was added to those findings since.
-        if t.state != TaskState::Done {
+        if !t.state.over() {
             for c in &t.causes {
                 let at = c.unit.clone().unwrap_or_else(|| t_owner(&state, t));
                 for f in state.task(&at, c.task).iter().flat_map(|x| x.findings.iter()).filter(|f| c.findings.contains(&f.found.id)) {
@@ -1694,6 +1709,9 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         }
         if t.state == TaskState::Waiting {
             let _ = writeln!(out, "       waiting for the user");
+        }
+        if let Some(d) = &t.dropped {
+            let _ = writeln!(out, "       dropped ({})", d.reason);
         }
         out
     };
@@ -1830,7 +1848,7 @@ fn load_text(r: &Value) -> String {
         let cpu = s["cpu"].as_f64().map(|c| format!("{c:.0}%")).unwrap_or_else(|| "-".into());
         let total = gb(&s["memTotal"]);
         let mem = if total > 0.0 { format!("{:.0}% ({:.1}/{:.1} GB)", gb(&s["memUsed"]) * 100.0 / total, gb(&s["memUsed"]), total) } else { "-".into() };
-        let alerts: Vec<String> = m["alerts"].as_object().into_iter().flatten().map(|(k, v)| format!("{k} over its threshold since {}", v.as_str().unwrap_or("?"))).collect();
+        let alerts: Vec<String> = m["alerts"].as_object().into_iter().flatten().map(|(k, v)| format!("{k} {} since {}", v["level"].as_str().unwrap_or("?").to_uppercase(), v["since"].as_str().unwrap_or("?"))).collect();
         let alerts = if alerts.is_empty() { String::new() } else { format!("  ALERT: {}", alerts.join(", ")) };
         let _ = writeln!(out, "{name}  cpu {cpu}  memory {mem}{alerts}");
         // Below it, what this machine's system says beyond that; a missing piece is left out,
@@ -1850,6 +1868,12 @@ fn load_text(r: &Value) -> String {
         if !s["memCompressed"].is_null() {
             more.push(format!("compressed {:.1} GB", gb(&s["memCompressed"])));
         }
+        if let Some(c) = s["compressor"].as_f64() {
+            more.push(format!("compressor {c:.0}% of its limit"));
+        }
+        if let Some(f) = s["systemFree"].as_f64() {
+            more.push(format!("system free {f:.0}%"));
+        }
         if let Some(n) = s["oomKills"].as_u64() {
             more.push(format!("oom kills {n} ({} while watched)", s["oomKillsWatched"].as_u64().unwrap_or(0)));
         }
@@ -1863,7 +1887,27 @@ fn load_text(r: &Value) -> String {
         let _ = writeln!(out, "  {}", more.join("  "));
     }
     let t = &r["thresholds"];
-    let lim = |m: &Value| if m["on"] == true { format!("{}% for {} min", m["percent"], m["minutes"]) } else { "off".into() };
-    let _ = writeln!(out, "alerts: cpu {}, memory {} (the user sets them in Settings)", lim(&t["cpu"]), lim(&t["memory"]));
+    let on = |m: &Value, text: String| if m["on"] == true { text } else { "off".into() };
+    let held = |m: &Value| m["minutes"].as_u64().map_or("at once".into(), |n| format!("for {n} min"));
+    let lim = |m: &Value| on(m, format!("{}% {}", m["percent"], held(m)));
+    // 60.0 as JSON says "60" here.
+    let n = |v: &Value| v.as_f64().map_or("?".into(), |x| x.to_string());
+    let lv = |m: &Value, dir: &str, unit: &str| on(m, format!("warn {dir}{}{unit} crit {dir}{}{unit} {}", n(&m["warn"]), n(&m["crit"]), held(m)));
+    let (d, oom) = (&t["disk"], &t["oom"]);
+    let disk = on(d, format!("warn >{}% or <{} GB free, crit >{}% or <{} GB free {}", n(&d["warn"]), n(&d["warnFree"]), n(&d["crit"]), n(&d["critFree"]), held(d)));
+    let _ = writeln!(
+        out,
+        "alerts (the user sets them in Settings): cpu {}, memory {}; macOS: compressor {}, swap {}, pressure {}, system free {}; Linux: available {}, psi full {}, oom {}; every machine: disk {}",
+        lim(&t["cpu"]),
+        lim(&t["memory"]),
+        lv(&t["compressor"], ">", "%"),
+        lv(&t["swap"], ">", " GB"),
+        on(&t["pressure"], format!("warning=warn critical=crit {}", held(&t["pressure"]))),
+        lv(&t["systemFree"], "<", "%"),
+        lv(&t["available"], "<", "%"),
+        lv(&t["psi"], ">", "%"),
+        on(oom, format!("crit at once, held {} min", oom["minutes"])),
+        disk,
+    );
     out
 }

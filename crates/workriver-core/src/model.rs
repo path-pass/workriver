@@ -135,6 +135,15 @@ pub enum TaskState {
     /// Gates only: the user has not done it yet.
     Waiting,
     Done,
+    /// No longer needed (`task.dropped`); kept, never deleted. See `Task::dropped`.
+    Dropped,
+}
+
+impl TaskState {
+    /// Done or dropped: nothing more comes of it, and nothing waits on it.
+    pub fn over(self) -> bool {
+        matches!(self, TaskState::Done | TaskState::Dropped)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -451,14 +460,23 @@ pub enum ReasonCode {
     Timeout,
     /// The service restarted while waiting.
     Restarted,
+    /// The agent waited for a person in its terminal (a permission or first-run prompt) the
+    /// whole time: the message never reached it.
+    Blocked,
+    /// A new agent never became ready to take its first message.
+    NotReady,
 }
 
-/// What a question is about besides its task: a finding, a file, or lines of a file.
+/// What a question is about besides its task: a finding, a file, lines of a file, or one of
+/// the task's attachments.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct AskContext {
-    /// "task", "finding", "file" or "lines".
+    /// "task", "finding", "file", "lines" or "attachment".
     pub kind: String,
     pub label: String,
+    /// attachment: its id in the store (one shown with the task, see `State::attachments_of`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -703,6 +721,10 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<String>,
     },
+    /// A task no longer needed (a gate asked again, a plan changed): kept, never deleted;
+    /// what follows it no longer waits on it.
+    #[serde(rename = "task.dropped")]
+    TaskDropped { unit: String, task: u32, reason: String },
     /// A correction to a delivered task: what is given replaces what was delivered.
     #[serde(rename = "task.amended")]
     TaskAmended {
@@ -878,6 +900,7 @@ impl Body {
             TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
+            | TaskDropped { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }
             | FindingNoted { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
@@ -1071,7 +1094,7 @@ pub struct Unit {
     pub done: Option<Closed>,
 }
 
-/// A unit closed by hand.
+/// A unit closed by hand, or a task dropped.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Closed {
     pub at: String,
@@ -1138,6 +1161,9 @@ pub struct Task {
     /// Stored attachments of its output (a gate's note, a task's screenshots).
     #[serde(default)]
     pub attachments: Vec<String>,
+    /// Dropped as no longer needed: when, by whom, why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<Closed>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1307,10 +1333,31 @@ impl State {
         self.workspace_at(r).map(|k| &self.workspaces[k])
     }
 
+    /// The stored attachments shown with a task: its output's, its checks', its findings' and
+    /// those added to them later, then those of the findings it answers, unless it is blind
+    /// and not delivered (its agent is told nothing of other work). Empty for no such task.
+    pub fn attachments_of(&self, unit: &str, n: u32) -> Vec<&str> {
+        let Ok(t) = self.task(unit, n) else { return vec![] };
+        fn of<'a>(fs: &'a [Finding], ids: Option<&[String]>) -> Vec<&'a String> {
+            let fs = fs.iter().filter(|f| ids.is_none_or(|ids| ids.contains(&f.found.id)));
+            fs.flat_map(|f| f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))).collect()
+        }
+        let mut out: Vec<&String> = t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(of(&t.findings, None)).collect();
+        if !(t.blind && !t.state.over()) {
+            for c in &t.causes {
+                if let Ok(by) = self.task(c.unit.as_deref().unwrap_or(unit), c.task) {
+                    out.extend(of(&by.findings, Some(&c.findings)));
+                }
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
+    }
+
     /// The blind tasks an agent is on: assigned to it or started by it, not delivered yet.
     pub fn blind_tasks(&self, session: &str) -> Vec<(String, u32)> {
         let name = self.name_of(session);
-        let mine = |t: &&Task| t.blind && t.state != TaskState::Done && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
+        let mine = |t: &&Task| t.blind && !t.state.over() && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
         let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(mine).map(|t| (u.id.clone(), t.n)));
         units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(mine).map(|t| (i.id.clone(), t.n)))).collect()
     }
@@ -1401,7 +1448,8 @@ impl State {
         if u.merged.is_some() {
             return Progress::Merged;
         }
-        let answered = |t: &Task, f: &Finding| !self.follow_ups(&u.id, t.n, &f.found.id).is_empty();
+        // Dropped work answers nothing: the finding waits for work again.
+        let answered = |t: &Task, f: &Finding| self.follow_ups(&u.id, t.n, &f.found.id).iter().any(|(_, x)| x.state != TaskState::Dropped);
         let waits = u.tasks.iter().any(|t| {
             t.state == TaskState::Waiting
                 || t.findings.iter().any(|f| f.state == FindingState::Open || (matches!(f.state, FindingState::Accepted | FindingState::Revised) && !answered(t, f)))
@@ -1800,6 +1848,7 @@ impl State {
             TaskCreated(t) => TaskCreated(self.prepare_task(t)?),
             TaskStarted { unit, task, agent } => {
                 let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: only the user does it, with gate submit"));
                 }
@@ -1810,6 +1859,7 @@ impl State {
             }
             TaskDelivered { unit, task, note, evidence, findings, attachments } => {
                 let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
                 }
@@ -1825,6 +1875,22 @@ impl State {
                     return no("a research task delivers what it found: a --note, and its report attached (workriver attach --dir)");
                 }
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
+            }
+            TaskDropped { unit, task, reason } => {
+                let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
+                if t.state == TaskState::Done {
+                    return no(format!("{unit}#{task} is done; only work not done yet is dropped"));
+                }
+                if blank(&reason) {
+                    return no("dropping a task needs a reason: --reason \"...\" (e.g. superseded by u1#17)");
+                }
+                // The manager re-plans; a worker takes back only what it asked for itself.
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager && t.by != actor {
+                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed"));
+                }
+                TaskDropped { unit, task, reason }
             }
             TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
                 let t = self.task(&unit, task)?;
@@ -1911,6 +1977,7 @@ impl State {
             GateSubmitted { unit, task, result, note, findings, attachments } => {
                 self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
                 let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate && t.state == TaskState::Todo {
                     return no(format!("gate {unit}#{task} is not open yet: it follows {}, not done yet", self.unfinished_inputs(&unit, t).join(", ")));
                 }
@@ -1986,11 +2053,20 @@ impl State {
                 if !self.blind_tasks(actor).is_empty() {
                     return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead");
                 }
-                if about.blind && about.state != TaskState::Done && !user {
+                if about.blind && !about.state.over() && !user {
                     return no(format!("{unit}#{task} is a blind task in progress: its agent is not to be told about other work. Ask once it is delivered"));
                 }
                 if blank(&text) {
                     return no("a question needs its text");
+                }
+                // An attachment it points at is one shown with that task: the temporary agent is
+                // given its path, so nothing else (another task's, a blind task's) gets out this way.
+                let shown = self.attachments_of(&unit, task);
+                for c in context.iter().filter(|c| c.kind == "attachment") {
+                    let a = c.id.as_deref().unwrap_or_default();
+                    if !shown.contains(&a) {
+                        return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a question points only at what is shown with its task"));
+                    }
                 }
                 let id = format!("q{}", self.questions.len() + 1);
                 let thread = if thread.is_empty() {
@@ -2416,6 +2492,7 @@ impl State {
                         amended: None,
                         waiting_since: None,
                         attachments: vec![],
+                        dropped: None,
                     })
                 }
             }
@@ -2468,6 +2545,12 @@ impl State {
                     f.decided_by = Some(*by);
                     f.note = (!note.is_empty()).then(|| note.clone());
                     f.decisions.push(Decided { state: f.state, by: *by, agent: agent_of(&e.actor), note: note.clone(), at: at.clone() });
+                }
+            }
+            TaskDropped { unit, task, reason } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Dropped;
+                    t.dropped = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
                 }
             }
             GateSubmitted { unit, task, result, note, findings, attachments } => {
@@ -2615,12 +2698,13 @@ impl State {
         self.open_gates(at);
     }
 
-    /// The tasks a task follows that are not done yet (`start` is always done).
+    /// The tasks a task follows that are not done yet (`start` is always done; a dropped
+    /// task holds nothing up).
     pub fn unfinished_inputs(&self, owner: &str, t: &Task) -> Vec<String> {
         t.inputs
             .iter()
             .filter(|i| i.from != "start")
-            .filter(|i| i.from.parse().ok().and_then(|n| self.task(owner, n).ok()).is_none_or(|x| x.state != TaskState::Done))
+            .filter(|i| i.from.parse().ok().and_then(|n| self.task(owner, n).ok()).is_none_or(|x| !x.state.over()))
             .map(|i| format!("{owner}#{}", i.from))
             .collect()
     }
@@ -2689,6 +2773,14 @@ fn unit_branch(branch: &str, base: &str, named: bool) -> Result<(), Rejected> {
         return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest); {branch} does not: name it so, e.g. --branch feat/{}", branch.rsplit('/').next().unwrap_or(branch)));
     }
     Ok(())
+}
+
+/// A dropped task is no longer worked on: refused, saying why it was dropped.
+fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
+    match &t.dropped {
+        Some(d) => no(format!("{unit}#{} was dropped as no longer needed ({}); it is not started, delivered or submitted any more", t.n, d.reason)),
+        None => Ok(()),
+    }
 }
 
 /// What a delivery or its correction may carry.

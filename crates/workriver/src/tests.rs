@@ -124,6 +124,10 @@ pub(crate) struct Fake {
     closed: std::sync::Mutex<Vec<String>>,
     /// As Herdr does: a message to an agent it does not have is an error.
     strict: std::sync::atomic::AtomicBool,
+    /// The state a temporary agent starts in (Idle unless set), e.g. Blocked on a first-run prompt.
+    start_as: std::sync::Mutex<Option<workriver_core::runtime::AgentState>>,
+    /// As Herdr may just after a start: this many prompts are refused as not ready yet.
+    not_ready: std::sync::atomic::AtomicUsize,
 }
 
 impl workriver_core::runtime::Runtime for Fake {
@@ -141,12 +145,20 @@ impl workriver_core::runtime::Runtime for Fake {
         if self.strict.load(std::sync::atomic::Ordering::Relaxed) && !self.agents.lock().unwrap().iter().any(|(_, a)| a.session == session || a.name == session) {
             return Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()));
         }
+        if self.not_ready.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            return Err(workriver_core::runtime::RuntimeError::NotReady(format!("herdr agent.prompt: agent {session} is not an active named agent (agent_not_ready)")));
+        }
+        // As Herdr does: an agent waiting for a person takes no prompt.
+        if self.agents.lock().unwrap().iter().any(|(_, a)| (a.session == session || a.name == session) && a.state == workriver_core::runtime::AgentState::Blocked) {
+            return Err(workriver_core::runtime::RuntimeError::Blocked(format!("herdr agent.prompt: agent {session} is blocked (agent_blocked)")));
+        }
         self.sent.lock().unwrap().push((session.into(), text.into()));
         Ok(())
     }
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
         self.started.lock().unwrap().push((group.into(), harness.into(), name.into(), cwd.into()));
-        let mut agent = live(&format!("s-{name}"), name, group, workriver_core::runtime::AgentState::Idle);
+        let state = self.start_as.lock().unwrap().unwrap_or(workriver_core::runtime::AgentState::Idle);
+        let mut agent = live(&format!("s-{name}"), name, group, state);
         agent.harness = harness.into();
         self.agents.lock().unwrap().push((format!("place-{name}"), agent.clone()));
         Ok(agent)
@@ -314,7 +326,7 @@ fn asking_why() {
     let mut worker = live("s-w", "w", "w1", Idle);
     worker.harness = "codex".into();
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), worker)];
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1) };
+    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -331,15 +343,24 @@ fn asking_why() {
     assert_eq!(to, "why-q1");
     assert!(prompt.ends_with("Question q1, the user asks: «Why one table?»") && prompt.contains("the file src/a.rs") && prompt.contains("workriver answer q1 --text"), "{prompt}");
     assert!(!prompt.contains('\n'));
+    let tail = |text: &str| text[text.find("points at").unwrap()..].to_string();
     // Someone else may not answer; the temporary agent may.
     assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
     d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "Fewer joins.", "asked": "s-w" })).unwrap();
 
-    // A follow-up goes to the same agent.
-    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q1", "text": "And later?" }))).unwrap();
+    // A follow-up goes to the same agent; one about an attachment of the task gets its path.
+    d.append("s-w", "attachment.added", json!({ "id": "0123456789abcdef", "name": "Report \"v2\".MD", "type": "text/markdown", "size": 3, "unit": "u1", "task": 1 })).unwrap();
+    let report = tmp.path().join("attachments").join("0123456789abcdef.md");
+    let about = |id: &str| json!([{ "kind": "attachment", "label": "evil » label", "id": id }]);
+    assert!(d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "thread": "q1", "text": "?", "context": about("0123456789abcdef") }))).is_err(), "another task's thread");
+    assert!(d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "?", "context": about("0123456789abcdef") }))).unwrap_err().to_string().contains("not one of u1#2's"));
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q1", "text": "And later?", "context": about("0123456789abcdef") }))).unwrap();
     wait_until("the follow-up is sent", || fake.sent.lock().unwrap().len() == 2);
     assert_eq!(fake.started.lock().unwrap().len(), 1, "no second agent");
-    assert!(fake.sent.lock().unwrap()[1].1.ends_with("Question q2, the user asks: «And later?»"));
+    let follow = fake.sent.lock().unwrap()[1].1.clone();
+    assert!(follow.ends_with("Question q2, the user asks: «And later?»"), "{follow}");
+    assert!(follow.contains(&format!("It points at: the attachment \"Report 'v2'.MD\" at {}. ", report.display())), "{follow}");
+    assert!(!tail(&follow).contains("evil"), "named by the store's record, not the request: {follow}");
     d.append("s-why-q1", "question.answered", json!({ "question": "q2", "text": "Then split." })).unwrap();
     // The conclusion goes to the same agent and starts the decide gate's note.
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q1", "text": "Draft a conclusion of this discussion.", "conclude": true }))).unwrap();
@@ -377,6 +398,105 @@ fn asking_why() {
     d.call("/api/thread/end", Some(json!({ "thread": "q5" }))).unwrap();
     wait_until("ended thread's agent is closed", || fake.closed.lock().unwrap().contains(&"why-q5".to_string()));
     assert!(d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q5", "text": "?" }))).is_err(), "an ended thread takes no more");
+}
+
+/// An agent waiting for a person in its terminal (a harness's first-run prompt in a new
+/// folder, a permission prompt) is not prompted over it: the question waits, says so, and is
+/// given once the agent is free; a follow-up the same; still blocked at the deadline, it fails
+/// saying why.
+#[test]
+fn a_blocked_agent_gets_the_question_once_free() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(6), idle: std::time::Duration::from_secs(600), ..Default::default() };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let turn = |t: usize, k: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["threads"][t]["turns"][k].clone();
+    let set = |name: &str, s: workriver_core::runtime::AgentState| fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.name == name).for_each(|(_, a)| a.state = s);
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).count();
+
+    // Started in a folder it has not seen: the harness asks a person first.
+    *fake.start_as.lock().unwrap() = Some(Blocked);
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why paged?" }))).unwrap();
+    wait_until("the question shows its agent waiting", || turn(0, 0)["step"] == "blocked");
+    assert_eq!(turn(0, 0)["blocked"], json!({ "agent": "why-q1", "session": "s-why-q1" }));
+    let ws = d.get("/api/workspace").unwrap();
+    assert!(ws["sessions"].as_array().unwrap().iter().any(|s| s["agent"] == "why-q1" && s["blockedSince"].is_string()), "in Needs you, as every waiting agent");
+    assert_eq!(sent_to("why-q1"), 0, "not prompted over the prompt");
+    // The person answers it in Herdr: the question goes in by itself.
+    set("why-q1", Idle);
+    wait_until("the prompt is given once free", || sent_to("why-q1") == 1);
+    assert!(fake.sent.lock().unwrap().iter().any(|(to, m)| to == "why-q1" && m.ends_with("Question q1, the user asks: «Why paged?»")));
+    wait_until("it reads", || turn(0, 0)["step"] == "reading");
+    d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "50 per page." })).unwrap();
+
+    // A follow-up to the thread's agent while it waits on a permission prompt: the same.
+    set("why-q1", Blocked);
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q1", "text": "And the cursor?" }))).unwrap();
+    wait_until("the follow-up waits", || turn(0, 1)["step"] == "blocked");
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(sent_to("why-q1"), 1);
+    set("why-q1", Idle);
+    wait_until("the follow-up is given", || sent_to("why-q1") == 2);
+    assert_eq!(fake.started.lock().unwrap().len(), 1, "the same agent");
+    d.append("s-why-q1", "question.answered", json!({ "question": "q2", "text": "Opaque." })).unwrap();
+
+    // Never freed: at the deadline it fails, saying the agent waited the whole time.
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Another topic" }))).unwrap();
+    wait_until("a second agent, waiting", || turn(1, 0)["step"] == "blocked");
+    wait_until("it fails as blocked", || turn(1, 0)["failed"]["code"] == "blocked");
+    let why = turn(1, 0)["failed"]["reason"].as_str().unwrap().to_string();
+    assert!(why.contains("why-q3 waited for an answer in its terminal") && why.contains("never reached it"), "{why}");
+    assert_eq!(sent_to("why-q3"), 0);
+    wait_until("its agent is closed", || fake.closed.lock().unwrap().contains(&"why-q3".to_string()));
+}
+
+/// A new agent Herdr does not take prompts for yet is tried again at each poll; one that
+/// stays not ready past the window fails, saying so.
+#[test]
+fn a_new_agent_not_ready_yet_is_asked_again() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(60), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(5) };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let turn = |t: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["threads"][t]["turns"][0].clone();
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).count();
+
+    // Refused twice, then taken: given once, nothing failed.
+    fake.not_ready.store(2, std::sync::atomic::Ordering::SeqCst);
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why paged?" }))).unwrap();
+    wait_until("given once ready", || sent_to("why-q1") == 1);
+    assert_eq!(fake.not_ready.load(std::sync::atomic::Ordering::SeqCst), 0);
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert_eq!(sent_to("why-q1"), 1, "once");
+    assert!(turn(0)["failed"].is_null());
+
+    // Never ready within the window: it fails, saying so.
+    fake.not_ready.store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Another topic" }))).unwrap();
+    wait_until("it fails as not ready", || turn(1)["failed"]["code"] == "not-ready");
+    let why = turn(1)["failed"]["reason"].as_str().unwrap().to_string();
+    assert!(why.contains("why-q2 was not ready for a prompt within 5 seconds"), "{why}");
+    assert_eq!(sent_to("why-q2"), 0);
 }
 
 /// With no runtime the question fails at once, saying why.
@@ -1879,4 +1999,50 @@ fn units_finish() {
     assert_eq!((progress("u2"), unit("u2")["doneReason"].as_str().map(str::to_string)), ("done".into(), Some("superseded by u1".into())));
     assert!(boss.append("", "unit.done", json!({ "unit": "u2" })).unwrap_err().to_string().contains("already done"));
     assert_eq!(ws()["intents"][0]["complete"], true);
+}
+
+/// The user drops a task from the page: the agent on it is told to stop and the manager is
+/// told; an agent cannot use the user's route. The board, `task show` and the page show it
+/// dropped with why; a dropped gate no longer waits for the user.
+#[test]
+fn a_dropped_task_is_told_and_shown() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let at = |place: &str| Daemon { port: d.port, place: Some(place.into()), home: None };
+    let (boss, fix) = (at("p1"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
+    fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+
+    let drop = |n: u32, reason: &str| json!({ "unit": "u1", "task": n, "reason": reason });
+    assert!(fix.call("/api/task/drop", Some(drop(1, "mine"))).is_err(), "the page's route is the user's alone");
+    d.call("/api/task/drop", Some(drop(1, "superseded by u1#3"))).unwrap();
+    wait_until("the agent and the manager are told", || {
+        let sent = fake.sent.lock().unwrap();
+        sent.iter().any(|(to, m)| to == "s-fix" && m.starts_with("[workriver] The user dropped your task u1#1") && m.ends_with("The user wrote: «superseded by u1#3»"))
+            && sent.iter().any(|(to, m)| to == "s-boss" && m.contains("The user dropped u1#1 \"Check tokens\" as no longer needed"))
+    });
+    // The manager drops the gate it asked before; it is not told its own act.
+    boss.append("", "task.dropped", json!({ "unit": "u1", "task": 2, "reason": "the branch changed; asked again" })).unwrap();
+    assert!(!fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.contains("u1#2")));
+
+    let board = crate::board_text(&boss, None).unwrap();
+    assert!(board.contains("#1 dropped  implement Check tokens @fix") && board.contains("       dropped (superseded by u1#3)\n") && board.contains("       dropped (the branch changed; asked again)\n") && !board.contains("waiting for the user"), "{board}");
+    let shown = crate::show::text(&serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap());
+    assert!(shown.contains("u1#1  implement  dropped") && shown.contains("Dropped as no longer needed by the user at ") && shown.contains("because: superseded by u1#3"), "{shown}");
+    let tasks = d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"].clone();
+    assert_eq!((tasks[1]["state"].as_str(), tasks[1]["dropped"]["by"].as_str(), tasks[1]["dropped"]["reason"].as_str()), (Some("dropped"), Some("boss"), Some("the branch changed; asked again")));
 }

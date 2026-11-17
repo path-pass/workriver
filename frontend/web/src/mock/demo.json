@@ -415,6 +415,28 @@
        "output": {
         "attachments": [
          {
+          "id": "mention-ui",
+          "name": "mention-highlight.png",
+          "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27640%27%20height%3D%27400%27%20viewBox%3D%270%200%20640%20400%27%3E%3Crect%20width%3D%27640%27%20height%3D%27400%27%20fill%3D%27%23eef1f6%27%2F%3E%3Crect%20x%3D%2740%27%20y%3D%2740%27%20width%3D%27560%27%20height%3D%2764%27%20rx%3D%2710%27%20fill%3D%27%23fff%27%20stroke%3D%27%23c9cfdb%27%2F%3E%3Ctext%20x%3D%2764%27%20y%3D%2780%27%20font-family%3D%27sans-serif%27%20font-size%3D%2720%27%20fill%3D%27%23333%27%3Ehi%20%40ana%20%E2%80%94%20mention%20highlighted%3C%2Ftext%3E%3Crect%20x%3D%2740%27%20y%3D%27128%27%20width%3D%27560%27%20height%3D%2764%27%20rx%3D%2710%27%20fill%3D%27%23fff%27%20stroke%3D%27%23c9cfdb%27%2F%3E%3Ctext%20x%3D%2764%27%20y%3D%27168%27%20font-family%3D%27sans-serif%27%20font-size%3D%2720%27%20fill%3D%27%23333%27%3E%40ana%20%40ana%20%E2%80%94%20one%20notice%3C%2Ftext%3E%3C%2Fsvg%3E"
+         },
+         {
+          "id": "test-report",
+          "name": "mention-test-report.md",
+          "url": "data:text/markdown;charset=utf-8,%23%20Mention%20parsing%3A%20test%20report%0A%0AAll%20mention%20cases%20pass.%20The%20parser%20now%20reads%20%60%40name%60%20once%20per%20message.%0A%0A%7C%20Case%20%7C%20Input%20%7C%20Result%20%7C%0A%7C---%7C---%7C---%7C%0A%7C%20plain%20%7C%20%60hi%20%40ana%60%20%7C%20ana%20%7C%0A%7C%20twice%20%7C%20%60%40ana%20%40ana%60%20%7C%20ana%20%28once%29%20%7C%0A%7C%20emoji%20%7C%20%60%40%F0%9F%A6%8Afox%60%20%7C%20not%20found%20%7C%0A%0A%60%60%60ts%0Aexport%20function%20mentions%28text%3A%20string%29%3A%20string%5B%5D%20%7B%0A%20%20return%20%5B...new%20Set%28text.match%28%2F%40%5B%5Cw-%5D%2B%2Fg%29%20%3F%3F%20%5B%5D%29%5D%0A%7D%0A%60%60%60%0A%0ASee%20the%20%5BGFM%20table%20spec%5D%28https%3A%2F%2Fgithub.github.com%2Fgfm%2F%23tables-extension-%29%20for%20the%20table%20format.%0A%0A%21%5Bparser%20timing%20chart%5D%28https%3A%2F%2Fexample.com%2Fchart.png%29%0A%0A%3Cscript%3Ealert%28%27raw%20HTML%20is%20dropped%27%29%3C%2Fscript%3E%3Cb%3Enot%20bold%3C%2Fb%3E%0A%0A%3E%20Emoji%20names%20are%20left%20to%20finding%20P2-2.%0A",
+          "type": "text/markdown"
+         },
+         {
+          "id": "lockscreen-2",
+          "name": "lockscreen.png",
+          "url": "lockscreen.svg"
+         },
+         {
+          "id": "test-log",
+          "name": "mention.test.log",
+          "url": "data:text/plain;charset=utf-8,2026-11-16%2010%3A00%3A03%20INFO%20mention.test%20%E2%9C%93%20case%200%20passed%0A2026-11-16%2010%3A01%3A03%20INFO%20mention.test%20%E2%9C%93%20case%201%20passed%0A2026-11-16%2010%3A02%3A03%20INFO%20mention.test%20%E2%9C%93%20case%202%20passed%0A2026-11-16%2010%3A03%3A03%20INFO%20mention.test%20%E2%9C%93%20case%203%20passed%0A2026-11-16%2010%3A04%3A03%20INFO%20mention.test%20%E2%9C%93%20case%204%20passed%0A2026-11-16%2010%3A05%3A03%20INFO%20mention.test%20%E2%9C%93%20case%205%20passed%0A2026-11-16%2010%3A06%3A03%20INFO%20mention.test%20%E2%9C%93%20case%206%20passed%0A2026-11-16%2010%3A07%3A03%20INFO%20mention.test%20%E2%9C%93%20case%207%20passed%0A2026-11-16%2010%3A08%3A03%20INFO%20mention.test%20%E2%9C%93%20case%208%20passed%0A2026-11-16%2010%3A09%3A03%20INFO%20mention.test%20%E2%9C%93%20case%209%20passed%0A2026-11-16%2010%3A10%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2010%20passed%0A2026-11-16%2010%3A11%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2011%20passed%0A2026-11-16%2010%3A12%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2012%20passed%0A2026-11-16%2010%3A13%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2013%20passed%0A2026-11-16%2010%3A14%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2014%20passed%0A2026-11-16%2010%3A15%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2015%20passed%0A2026-11-16%2010%3A16%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2016%20passed%0A2026-11-16%2010%3A17%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2017%20passed%0A2026-11-16%2010%3A18%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2018%20passed%0A2026-11-16%2010%3A19%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2019%20passed%0A2026-11-16%2010%3A20%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2020%20passed%0A2026-11-16%2010%3A21%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2021%20passed%0A2026-11-16%2010%3A22%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2022%20passed%0A2026-11-16%2010%3A23%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2023%20passed%0A2026-11-16%2010%3A24%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2024%20passed%0A2026-11-16%2010%3A25%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2025%20passed%0A2026-11-16%2010%3A26%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2026%20passed%0A2026-11-16%2010%3A27%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2027%20passed%0A2026-11-16%2010%3A28%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2028%20passed%0A2026-11-16%2010%3A29%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2029%20passed%0A2026-11-16%2010%3A30%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2030%20passed%0A2026-11-16%2010%3A31%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2031%20passed%0A2026-11-16%2010%3A32%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2032%20passed%0A2026-11-16%2010%3A33%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2033%20passed%0A2026-11-16%2010%3A34%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2034%20passed%0A2026-11-16%2010%3A35%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2035%20passed%0A2026-11-16%2010%3A36%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2036%20passed%0A2026-11-16%2010%3A37%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2037%20passed%0A2026-11-16%2010%3A38%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2038%20passed%0A2026-11-16%2010%3A39%3A03%20INFO%20mention.test%20%E2%9C%93%20case%2039%20passed",
+          "type": "text/plain"
+         },
+         {
           "id": "a-long-name",
           "name": "2026-11-16-new-account-deploy-role-source.md",
           "url": "data:text/markdown,%23%20Deploy%20role%0A",
@@ -610,6 +632,22 @@
          "consulted": {
           "agent": "agent-C",
           "outcome": "asked"
+         }
+        },
+        {
+         "question": "后来补上的 from 字段会不会又把内容带出去？",
+         "context": [
+          {
+           "kind": "task",
+           "label": "#6"
+          }
+         ],
+         "answer": null,
+         "at": "2026-11-16T09:12",
+         "step": "blocked",
+         "blocked": {
+          "agent": "why-q9",
+          "session": "why-q9"
          }
         }
        ]
@@ -973,6 +1011,34 @@
        "plans": [
         "app/notify/push.ts"
        ]
+      },
+      {
+       "id": "g11|decide",
+       "kind": "gate",
+       "gate": "decide",
+       "state": "dropped",
+       "taskId": null,
+       "title": "把 @ 通知合并到 main？",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "s11",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "把 @ 通知合并到 main？",
+        "causes": [],
+        "steps": []
+       },
+       "output": {},
+       "plans": [],
+       "dropped": {
+        "at": "2026-11-15T20:30",
+        "by": "manager",
+        "reason": "分支在提问后又变了，已用新的确认重新问"
+       }
       },
       {
        "id": "g11|test",

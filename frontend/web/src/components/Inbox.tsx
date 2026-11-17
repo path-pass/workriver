@@ -10,22 +10,29 @@ import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
 import { Icon, Mark, Steps, Tip, Who } from './bits'
+import { alertLimit, alertValue, topLine } from './Machines'
 
 const GROUPS = ['blocking', 'machines', 'decisions', 'gaps', 'later'] as const
 
 function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
-  const { t, num, waited, when } = useT()
+  const { t, lang, num, waited, when } = useT()
   const act = useAct()
   // A machine past an alert threshold: the row opens the Machines section.
+  // Its level is its colour and its first word; the processes using the most memory follow.
   if (r.alert) {
     const a = r.alert
     const metric = t(`metrics.${a.metric}`)
+    const top = topLine(t, lang, a)
     return (
-      <button type="button" className="irow" data-kind="machine" onClick={onMachines}>
+      <button type="button" className="irow" data-kind="machine" data-level={a.level} onClick={onMachines}>
         <Icon name="machine" />
-        <span className="title">{t('inbox.machineAlert', { machine: a.here ? t('metrics.here') : a.machine, metric, value: t('metrics.percent', { value: Math.round(a.value) }) })}</span>
-        <span className="meta"><span className="truncate">{t('inbox.machineLimit', { percent: a.percent, minutes: a.minutes })}</span></span>
+        <span className="title">{t('inbox.machineAlert', { machine: a.here ? t('metrics.here') : a.machine, metric, value: alertValue(t, lang, a) })}</span>
+        <span className="meta">
+          <span className="level">{t(`metrics.level.${a.level}`)}</span>
+          <span className="truncate">{alertLimit(t, a)}</span>
+        </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+        {top && <span className="meta top" title={top}><span className="truncate">{top}</span></span>}
       </button>
     )
   }

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { askeeOf, baseName, finderLabel, findingsOf, ms, type Lines } from '@/data'
 import { useT } from '@/i18n'
+import { focusAgent } from '@/runtime'
 import type { AskContext, Session, Thread, Turn, Task, Unit } from '@/types'
 import { ChipName, Icon, Tip, Who } from './bits'
 
@@ -97,6 +98,13 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
         <Tip text={turn.failed.reason}>
           <p className="text-del">{t('ask.cannot', { reason: t(`deliver.reason.${turn.failed.code}`) })}</p>
         </Tip>
+      ) : turn.answer === null && turn.step === 'blocked' && turn.blocked ? (
+        // Its agent waits for a person in its terminal (a first-run or permission prompt): the
+        // question goes in by itself once that is answered there.
+        <div className="flex flex-col items-start gap-1.5" aria-live="polite">
+          <p className="text-you-ink"><span className="pending" aria-hidden />{t('ask.step.blocked', { agent: turn.blocked.agent })}</p>
+          <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(turn.blocked!.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
+        </div>
       ) : turn.answer === null ? (
         <p className="text-ink-2" aria-live="polite">
           <span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: agent ?? '' })}

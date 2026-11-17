@@ -44,6 +44,8 @@ pub struct App {
     pending: Mutex<Vec<Pending>>,
     /// Questions waiting for their temporary agent's answer, with when they give up.
     deadlines: Mutex<Vec<(String, std::time::Instant)>>,
+    /// Questions whose agent waits for a person in its terminal: given once it is free.
+    held: Mutex<Vec<Held>>,
     /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
     idle: Mutex<Vec<(String, String, std::time::Instant)>>,
     waits: Waits,
@@ -113,6 +115,18 @@ struct Via {
     local: u16,
 }
 
+/// A question's message held for its agent, which waits for a person in its terminal.
+// ponytail: in memory; after a restart the question fails as `restarted`, like any open one.
+struct Held {
+    question: String,
+    /// The session or live name it goes to, and the name to say.
+    to: String,
+    name: String,
+    text: String,
+    /// A new agent that is not ready for a prompt yet: retried at each poll until then.
+    not_ready: Option<std::time::Instant>,
+}
+
 /// A delivered message: picked up once its receiver is seen working after it arrived.
 /// Rebuilt from the records at start.
 struct Pending {
@@ -144,11 +158,13 @@ const POLL: Duration = Duration::from_secs(2);
 pub struct Waits {
     pub answer: Duration,
     pub idle: Duration,
+    /// How long a new agent may refuse its first message as not ready (retried every poll).
+    pub ready: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: ask::TIMEOUT, idle: ask::IDLE }
+        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY }
     }
 }
 
@@ -170,7 +186,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     if allow_as {
         tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
     }
-    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), changed.clone(), crate::metrics::STEP);
+    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::metrics::STEP);
     if sample {
         metrics.start();
     }
@@ -191,6 +207,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         live: Mutex::new(None),
         pending: Mutex::default(),
         deadlines: Mutex::default(),
+        held: Mutex::default(),
         idle: Mutex::default(),
         waits,
         blocked: Mutex::default(),
@@ -437,11 +454,37 @@ impl App {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }
+        // Held questions whose agent is free now are given to it; one whose agent is gone fails.
+        if let Some(agents) = &now {
+            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || a.name == h.to).map(|a| a.state);
+            let ready: Vec<Held> = {
+                let mut held = self.held.lock().unwrap();
+                let free = |h: &Held| h.not_ready.is_some() || !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown));
+                let (ready, wait): (Vec<Held>, Vec<Held>) = held.drain(..).partition(free);
+                *held = wait;
+                ready
+            };
+            for h in ready {
+                match (state(&h), h.not_ready) {
+                    (None, _) => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
+                    (_, Some(end)) if end <= std::time::Instant::now() => {
+                        let secs = self.waits.ready.as_secs();
+                        self.fail_question(&h.question, ReasonCode::NotReady, &format!("{} was not ready for a prompt within {secs} seconds of starting (Herdr: agent_not_ready)", h.name));
+                    }
+                    _ => self.hand(h),
+                }
+            }
+        }
         // Questions whose temporary agent has not answered in time.
         let now = std::time::Instant::now();
         let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
         for id in &late {
-            self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {} seconds", self.waits.answer.as_secs()));
+            let held = self.held.lock().unwrap().iter().find(|h| &h.question == id).map(|h| h.name.clone());
+            let secs = self.waits.answer.as_secs();
+            match held {
+                Some(name) => self.fail_question(id, ReasonCode::Blocked, &format!("{name} waited for an answer in its terminal for {secs} seconds; the question never reached it")),
+                None => self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {secs} seconds")),
+            }
         }
         let recorded = recorded || !late.is_empty();
         // Threads idle for too long: their temporary agent goes; the thread stays open.
@@ -756,11 +799,9 @@ impl App {
             let text = {
                 let store = self.store.lock().unwrap();
                 let s = store.state();
-                s.question(id).ok().and_then(|q| ask::direct(s, q))
+                s.question(id).ok().and_then(|q| ask::direct(s, q, &self.home))
             };
-            if let Err(e) = self.send(&own.session, &text.unwrap_or_default()) {
-                fail(ReasonCode::RuntimeError, format!("cannot give {} the question: {e}", own.name));
-            }
+            self.hand(Held { question: id.into(), to: own.session.clone(), name: own.name.clone(), text: text.unwrap_or_default(), not_ready: None });
             return;
         }
         // A follow-up goes to the thread's agent while it lives, which keeps its context.
@@ -777,11 +818,9 @@ impl App {
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
             let text = {
                 let store = self.store.lock().unwrap();
-                store.state().question(id).ok().map(|q| ask::follow_up(store.state(), q)).unwrap_or_default()
+                store.state().question(id).ok().map(|q| ask::follow_up(store.state(), q, &self.home)).unwrap_or_default()
             };
-            if let Err(e) = self.send(&name, &text) {
-                fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
-            }
+            self.hand(Held { question: id.into(), to: name.clone(), name, text, not_ready: None });
             return;
         }
         let (q, unit, task_agent, manager, group) = {
@@ -829,9 +868,33 @@ impl App {
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
         let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits, &self.home).unwrap_or_default();
-        if let Err(e) = self.send(&agent.name, &prompt) {
-            fail(ReasonCode::RuntimeError, format!("cannot give {name} the question: {e}"));
+        // A harness opening a folder it has not seen first asks a person (trust this folder,
+        // approve the directory): the prompt waits for that, it is never answered for them.
+        self.hand(Held { question: id.into(), to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
+    }
+
+    /// Gives a question's message to the agent that answers it (`to`: a session or a live
+    /// agent's name). One waiting for a person in its terminal (Herdr: blocked) cannot take
+    /// it: it is held and given once the agent is free (`poll`), or the question fails with
+    /// the reason when its time is up. A new agent the runtime does not take prompts for yet
+    /// is tried again at each poll, for `Waits::ready` from the first refusal.
+    fn hand(&self, mut h: Held) {
+        let is = |a: &RuntimeAgent| a.session == h.to || a.name == h.to;
+        let blocked = self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).is_some_and(|a| a.state == AgentState::Blocked);
+        if !blocked {
+            match self.send(&h.to, &h.text) {
+                Ok(()) => return,
+                Err(RuntimeError::Blocked(_)) => h.not_ready = None,
+                Err(RuntimeError::NotReady(_)) => {
+                    h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
+                }
+                Err(e) => return self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+            }
+        } else {
+            h.not_ready = None;
         }
+        self.held.lock().unwrap().push(h);
+        let _ = self.changed.send(());
     }
 
     /// Records a question as failed (if still open) and closes its temporary agent, which
@@ -842,6 +905,7 @@ impl App {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        self.held.lock().unwrap().retain(|h| h.question != id);
         // Only an agent started for it is closed; a task's own agent is not.
         let name = self.store.lock().unwrap().state().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
         if let Some(name) = name {
@@ -852,6 +916,7 @@ impl App {
     /// An answer came: the thread's agent waits for a follow-up until it has been idle too long.
     fn answered(&self, id: &str) {
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
+        self.held.lock().unwrap().retain(|h| h.question != id);
         // An agent that asked hears the answer in its terminal.
         let back = {
             let store = self.store.lock().unwrap();
@@ -901,11 +966,18 @@ impl App {
         // An addition to a finding goes to several at once; it is on the page either way, so
         // what does not arrive is only logged.
         // ponytail: these are not followed up as "delivered / picked up" like decisions are.
-        if matches!(e.body, Body::FindingNoted { .. }) {
-            let to = deliver::notes(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
+        // A dropped task likewise: its agent (to stop) and the manager.
+        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. }) {
+            let to = {
+                let store = self.store.lock().unwrap();
+                match e.body {
+                    Body::FindingNoted { .. } => deliver::notes(store.state(), live.as_deref(), &self.home, e),
+                    _ => deliver::dropped(store.state(), live.as_deref(), e),
+                }
+            };
             for (agent, message) in to {
                 if let Err(err) = self.send(&agent, &message) {
-                    tracing::warn!("cannot tell {agent} of a note on a finding: {err}");
+                    tracing::warn!("cannot tell {agent} of {}: {err}", e.body.refs().2.unwrap_or_default());
                 }
             }
             return;
@@ -1013,6 +1085,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/events", get(events))
         .route("/api/append", post(append))
         .route("/api/decide", post(decide))
+        .route("/api/task/drop", post(drop_task))
         .route("/api/gate", post(gate))
         .route("/api/chore-done", post(chore_done))
         .route("/api/backlog/merge", post(merge))
@@ -1518,6 +1591,19 @@ async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, J
 #[derive(Deserialize)]
 struct ChoreDone {
     chore: String,
+}
+
+#[derive(Deserialize)]
+struct DropTask {
+    unit: String,
+    task: u32,
+    reason: String,
+}
+
+/// The user marks a task no longer needed from the page (agents use `workriver task drop`).
+async fn drop_task(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<DropTask>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::TaskDropped { unit: d.unit, task: d.task, reason: d.reason }).map(Json)).await
 }
 
 async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {

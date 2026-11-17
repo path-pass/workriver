@@ -4,6 +4,18 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **A task can be dropped as no longer needed**: `workriver task drop u1#15 --reason
+  "superseded by u1#17"`, by the intent's manager or the user (a worker only a task it
+  recorded itself), for work not done yet. It is kept, never deleted, and holds nothing
+  up: what follows it no longer waits on it, and a dropped gate leaves Needs you. Its
+  agent is told to stop (and the manager, when the user drops one); it cannot be started,
+  delivered or submitted any more. When you ask the user again (a merge gate after the
+  branch changed), drop the old gate. (`ask-user`, `branch-moved`, `deciding-findings`)
+- **Machine alerts have levels**: `workriver machine load` says `ALERT: <metric> WARN|CRIT
+  since …`, over more metrics (macOS compressor, swap, pressure level, system free; Linux
+  available memory, PSI, OOM kills; disk everywhere), shows the compressor's fill and the
+  system free share, and lists all thresholds. Never hand heavy work to a machine with a
+  CRIT alert; with WARN, prefer another. (`machines`)
 - **`workriver machine load` says more**: a second line per machine with available memory,
   memory pressure, compressed memory (macOS), OOM kills (Linux), swap and free disk; and
   `--hours N` (1 to 168) adds mean / max CPU and memory over the last N hours. Weigh
