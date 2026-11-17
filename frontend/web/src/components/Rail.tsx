@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
+import { attention, blockedAgents, intentQuietSince, quietSince, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import { linkTo, pathOf } from '@/link'
 import { useResize } from '@/lib/useResize'
@@ -56,24 +56,42 @@ function Marks({ blocking, waiting }: { blocking: number; waiting: number }) {
   )
 }
 
+/** Nothing has moved for a while: how long, quietly; the date on hover. */
+function Quiet({ since }: { since: number | null }) {
+  const { t, waited, when } = useT()
+  if (since === null) return null
+  const text = t('rail.quiet', { time: waited(since) })
+  return (
+    <Tip text={`${text} · ${t('rail.quietSince', { date: when(since) })}`}>
+      <span role="img" aria-label={text} className="flex flex-none items-center gap-0.5 text-[11px] font-normal text-rail-ink-2 opacity-80">
+        <Icon name="idle" className="size-3" /><span aria-hidden>{text}</span>
+      </span>
+    </Tip>
+  )
+}
+
 /**
  * What a unit's line says: its two violet marks and branches that grew beyond the plan;
- * merged, its date; with nothing to say, whether it has started.
+ * merged, its date; quiet for a while, since when; with nothing to say, whether it has started.
  */
 function Signals({ unit }: { unit: Unit }) {
   const { t, date } = useT()
   const n = needs([unit])
+  const quiet = <Quiet since={quietSince(unit)} />
   const last = unit.commits.at(-1)
   const finished = unit.progress === 'merged' || unit.progress === 'done' || unit.status === 'merged'
-  if (finished) return <><Progress unit={unit} />{last && <span className="text-xs text-rail-ink-2">{date(last.date, false)}</span>}</>
+  // Merged: when it was recorded so, else its last commit.
+  const on = unit.merged ?? last?.date
+  if (finished) return <><Progress unit={unit} />{on && <span className="text-xs text-rail-ink-2">{date(on, false)}</span>}</>
   // The intent's own work has no branch or commits: nothing to say unless something waits.
-  if (unit.intentLevel && !n.blocking && !n.waiting) return null
-  if (!n.blocking && !n.waiting && !n.grew) return unit.progress && unit.progress !== 'working' ? <Progress unit={unit} /> : <span className="tag">{t(unit.commits.length ? 'unit.active' : 'unit.untouched')}</span>
+  if (unit.intentLevel && !n.blocking && !n.waiting) return quiet
+  if (!n.blocking && !n.waiting && !n.grew) return unit.progress && unit.progress !== 'working' ? <><Progress unit={unit} />{quiet}</> : quietSince(unit) !== null ? quiet : <span className="tag">{t(unit.commits.length ? 'unit.active' : 'unit.untouched')}</span>
   return (
     <>
       {unit.progress && unit.progress !== 'working' && <Progress unit={unit} />}
       <Marks {...n} />
       {n.grew > 0 && <Tip text={t('unit.grewHint')}><span className="tag" data-tone="far">{t('unit.grew', { count: n.grew })}</span></Tip>}
+      {quiet}
     </>
   )
 }
@@ -149,13 +167,21 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
     <Collapsible open={isOpen} onOpenChange={onOpen}>
       {/* Its own link beside the header (a button of its own, not inside the one that folds it). */}
       <div className="group/row flex items-center gap-0.5">
-      <CollapsibleTrigger className="group/intent flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
-        <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
-        <span className="min-w-0 flex-1 truncate" title={intent.title}>{intent.title}</span>
-        {stateOf(intent) === 'active' && <ManagerState intent={intent} />}
-        {intent.complete && <Tip text={t('unit.complete')}><span className="tag font-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
-        {/* Folded, the group still says what waits inside it. */}
-        {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
+      <CollapsibleTrigger className="group/intent flex min-w-0 flex-1 items-start gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
+        <Icon name="chev" className="mt-px size-3.5 flex-none transition-transform group-data-[state=open]/intent:rotate-90" />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate" title={intent.title}>{intent.title}</span>
+            {/* Folded, the group still says what waits inside it. */}
+            {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
+          </span>
+          {/* Under the title, so it stays readable: who manages it, whether it is quiet or finished. */}
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 empty:hidden">
+            {stateOf(intent) === 'active' && <ManagerState intent={intent} />}
+            <Quiet since={intentQuietSince(intent)} />
+            {intent.complete && <Tip text={t('unit.complete')}><span className="tag font-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
+          </span>
+        </span>
       </CollapsibleTrigger>
       <CopyButton text={linkTo(pathOf(intent.id, null))} aria={t('link.copy')} className="rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 focus-visible:opacity-100" />
       </div>

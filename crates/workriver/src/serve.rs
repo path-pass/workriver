@@ -792,13 +792,14 @@ impl App {
         let started = std::time::Instant::now();
         let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
         let blocked = self.blocked.lock().unwrap().clone();
+        let idle = self.idle_since.lock().unwrap().iter().map(|(s, (at, _))| (s.clone(), at.clone())).collect();
         let stalls = self.stalls.lock().unwrap().iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect();
         let groups = self.groups.lock().unwrap().clone();
         let live = self.live();
         let mut cache = self.cache.lock().unwrap();
         (cache.light, cache.bare) = (light, true);
         cache.ready_after = Some(self.waits.hour * self.ready_hours);
-        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &stalls, &groups);
+        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &groups);
         cache.save();
         if state.reduced {
             snapshot::hide(&mut ws);

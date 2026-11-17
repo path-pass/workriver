@@ -16,6 +16,8 @@ export const en = {
     clearSearch: 'Clear search',
     none: 'No units recorded yet.',
     noUnits: 'No units yet',
+    quiet: 'quiet {{time}}',
+    quietSince: 'Nothing has moved since {{date}}',
     project: 'Project',
     allProjects: 'All projects',
     active: 'Active',
@@ -207,7 +209,16 @@ export const en = {
     blocked: 'Waiting for you in its terminal',
     notice: '{{agent}} is waiting for you',
     title: 'Agents',
-    idle: 'Idle'
+    state: { working: 'working', idle: 'idle', blocked: 'blocked', gone: 'gone' },
+    idleFor: 'idle {{time}}',
+    blockedFor: 'blocked {{time}}',
+    closable: 'can be closed',
+    closableFor: 'can be closed · {{time}}',
+    last: 'last:',
+    askedBy: 'asked by {{who}}',
+    askedByYou: 'you asked',
+    own: 'Not workriver’s',
+    ownHint: 'Sessions that never took a task: yours, or started by hand.'
   },
   plan: {
     title: 'Start “{{title}}”',
@@ -306,9 +317,7 @@ export const en = {
   },
   commits: {
     title: 'Commits',
-    writing: 'Writing now',
-    today: 'Today',
-    yesterday: 'Yesterday'
+    writing: 'Writing now'
   },
   inbox: {
     title: 'Needs you',

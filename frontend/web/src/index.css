@@ -49,6 +49,15 @@
   --add-gut: light-dark(oklch(90% 0.08 150), oklch(31% 0.07 150));
   --del-row: light-dark(oklch(95.5% 0.03 26), oklch(26% 0.05 26));
   --del-gut: light-dark(oklch(90% 0.06 26), oklch(31% 0.07 26));
+  /* A unit's branch in the commit graph: its own tone, picked from its id, telling branches
+     apart and nothing else. Three hue families none of the state colours use (blue, rose,
+     olive), each dark and light; the base is neutral. */
+  --lane-0: light-dark(oklch(48% 0.17 262), oklch(70% 0.14 262));
+  --lane-1: light-dark(oklch(55% 0.19 354), oklch(72% 0.15 354));
+  --lane-2: light-dark(oklch(52% 0.12 120), oklch(76% 0.13 120));
+  --lane-3: light-dark(oklch(66% 0.12 262), oklch(84% 0.08 262));
+  --lane-4: light-dark(oklch(69% 0.13 354), oklch(84% 0.08 354));
+  --lane-5: light-dark(oklch(40% 0.08 120), oklch(62% 0.1 120));
   --shadow: 0 1px 2px light-dark(oklch(24% 0.02 242 / .08), oklch(0% 0 0 / .4)),
     0 6px 16px -6px light-dark(oklch(24% 0.02 242 / .18), oklch(0% 0 0 / .6));
 
@@ -234,34 +243,33 @@
   /* An agent's mark. Its colour comes from its name and is used nowhere else. */
   .who { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: .02em; box-shadow: 0 0 0 2px var(--who-ground, var(--surface)); }
   .rail .who { --who-ground: var(--rail); }
-  /* An agent in the side panel, quieter the further it is from working: holding work that
-     has not started, then idle. The line that led to what is open shows as picked. The left
-     padding leaves room for the writing ring as it grows (about 15px past the mark), which
-     the panel's scroll area would otherwise cut. */
+  /* The agents in the side panel, as a tree: a workspace's manager, its workers indented
+     under it, their question agents under them; thin guide lines from the parent's mark.
+     A line is a grid, so nothing is drawn over anything: the mark; the name (its marks and
+     machine chip never shrink) over what it is on; its state in a word. The left padding
+     leaves room for the writing ring as it grows, which the scroll area would otherwise cut. */
+  .tree { margin: 0; padding: 0; list-style: none; }
+  .tree .tree { margin-left: 24px; border-left: 1px solid var(--line-2); }
+  .tree .tree .agent { padding-left: 9px; }
   .agent-row { display: flex; align-items: center; gap: 2px; padding-right: 4px; }
-  .agent-row .agent { flex: 1; min-width: 0; }
-  /* A grid, so nothing is drawn over anything: the mark; the name (with its marks and
-     machine chip, which never shrink) over the topic; where it works, in a column of its
-     own that truncates. */
-  .agent { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 45%); align-items: center; column-gap: 6px; width: 100%; min-height: 30px; padding: 2px 10px 2px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
+  .agent { display: grid; flex: 1; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 6px; min-width: 0; min-height: 30px; padding: 3px 6px 3px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
   .agent .agent-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .agent .agent-name > :not(:first-child) { flex: none; }
-  /* A narrow panel: where it works goes to a third line, under the topic. */
-  .agents { container-type: inline-size; }
-  @container (max-width: 340px) {
-    .agent { grid-template-columns: auto minmax(0, 1fr) auto; }
-    .agent .at { grid-column: 2 / 4; margin-left: 0; }
-    /* Idle says so with a mark only: it stays at the end of the first line. */
-    .agent .at[data-idle] { grid-column: 3; grid-row: 1; }
-  }
+  .agent > .who { grid-row: span 2; }
+  .agent .sub { grid-column: 2 / 4; display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11px; color: var(--ink-2); }
+  .agent .word { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
   .agent:not(:disabled):hover { background: var(--sunken); }
+  .agent:not(:disabled):hover .task { text-decoration: underline; }
   .agent[aria-pressed="true"] { background: var(--you-bg); color: var(--you-ink); }
-  .agent .at { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; overflow: hidden; color: var(--ink-2); }
-  @container (max-width: 340px) { .agent .at { justify-content: flex-start; } }
-  .agent[data-place="queued"] { color: var(--ink-2); }
-  .agent[data-place="queued"] .who { opacity: .55; }
-  .agent[data-place="idle"] { color: var(--ink-2); }
-  .agent[data-place="idle"] .who { opacity: .45; filter: grayscale(1); }
+  .agent[data-state="working"] .word { color: var(--ink); }
+  .agent[data-state="blocked"] .word { color: var(--you-ink); font-weight: 600; }
+  .agent[data-state="idle"] .who { opacity: .45; filter: grayscale(1); }
+  /* Gone, still holding unfinished work: greyed. */
+  .agent[data-state="gone"] { color: var(--ink-2); }
+  .agent[data-state="gone"] > * { opacity: .6; }
+  .agent[data-state="gone"] .who { filter: grayscale(1); }
+  /* Idle and holding nothing: it can be closed, quietly. */
+  .closable { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 6px; border-radius: 8px; background: var(--sunken); font-size: 10px; font-weight: 600; }
   /* An agent that is writing right now: the mark breathes. */
   .who[data-live]::after { content: ''; position: absolute; inset: -2px; border-radius: 12px; border: 2px solid var(--amber); animation: writing 1.8s cubic-bezier(.2, .7, .2, 1) infinite; }
 
@@ -506,11 +514,20 @@
   .prose-fold[data-all] { max-height: none; }
   .prose-fold[data-cut] { mask-image: linear-gradient(to bottom, #000 65%, transparent); }
 
-  /* ---- the commits feed in the side panel ---- */
-  .crow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px 6px 12px; border-radius: 6px; text-align: left; font-size: 13px; }
-  button.crow:hover { background: var(--sunken); }
-  .crow[aria-pressed="true"] { background: var(--you-bg); }
-  .crow[data-live] { color: var(--amber-ink); }
+  /* ---- the commits in the side panel, as a git graph: one row a commit, the lanes on the
+     left drawn row by row (inline SVG), so rows touch and the lines run on. ---- */
+  .grow { --row-bg: var(--surface); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 6px; width: 100%; height: 44px; padding: 0 10px 0 2px; border-radius: 6px; text-align: left; font-size: 13px; }
+  button.grow:not(:disabled):hover { --row-bg: var(--sunken); background: var(--row-bg); }
+  .grow[aria-pressed="true"] { --row-bg: var(--you-bg); background: var(--row-bg); }
+  .grow:focus-visible { outline-offset: -2px; }
+  .grow[data-live] { color: var(--amber-ink); }
+  .graph { display: block; flex: none; }
+  .graph line, .graph path { fill: none; stroke: currentColor; stroke-width: 2; }
+  .graph .base { stroke: var(--line-2); }
+  .graph [data-dash] { stroke-dasharray: 3 3; }
+  /* A commit's dot, ringed in the row's ground so the lines stop short of it. */
+  .graph .dot { fill: currentColor; stroke: var(--row-bg); stroke-width: 2; }
+  .graph .dot[data-live] { fill: var(--row-bg); stroke: currentColor; stroke-dasharray: 2 1.5; }
 
   /* ---- the diff. diff2html draws the lines; these point it at our tokens. ---- */
   .fview { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }

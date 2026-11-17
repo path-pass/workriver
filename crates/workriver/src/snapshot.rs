@@ -44,6 +44,8 @@ pub fn hide(ws: &mut Workspace) {
     }
     for s in &mut ws.sessions {
         s.topic = None;
+        // When another agent went idle would say when it delivered.
+        s.idle_since = None;
     }
 }
 
@@ -143,6 +145,12 @@ struct Session {
     /// Waiting for a person in its terminal since then (a question, an approval).
     #[serde(rename = "blockedSince", skip_serializing_if = "Option::is_none")]
     blocked_since: Option<String>,
+    /// Idle (or done) in its terminal since then, while it lives.
+    #[serde(rename = "idleSince", skip_serializing_if = "Option::is_none")]
+    idle_since: Option<String>,
+    /// The harness that runs it (claude, codex), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    harness: Option<String>,
     /// The runtime group (Herdr workspace) it runs in.
     #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<core::RuntimeRef>,
@@ -257,6 +265,12 @@ struct Unit {
     #[serde(skip_serializing_if = "Option::is_none")]
     machine: Option<String>,
     branch: Option<String>,
+    /// The branch it leaves from and is merged into.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base: Option<String>,
+    /// When it was recorded as merged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merged: Option<String>,
     /// The branches its work was on before (a rebase onto a new branch, a rename).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     previously: Vec<String>,
@@ -299,6 +313,11 @@ struct Task {
     gate: Option<core::GateKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
+    /// When its agent started it, and when it was delivered (a gate: submitted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivered: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -407,6 +426,9 @@ struct Finding {
     leads_to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     decided_by: Option<core::Who>,
+    /// When it was last decided.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decided: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     recommendation: Option<core::Suggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -751,9 +773,10 @@ impl Names {
     }
 }
 
-/// `blocked`: when each blocked live agent (by session) was first seen blocked; `stalls`: the
+/// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
+/// (or done) the same way; `stalls`: the
 /// running tasks whose agent stopped, by (unit or intent, task).
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::stall::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::stall::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();
@@ -818,6 +841,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                 topic: a.topic.clone(),
                 // An agent that cannot be seen now is not known to wait.
                 blocked_since: (a.state == AgentState::Blocked && !away).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
+                idle_since: idle.get(&a.session).filter(|_| !away && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned(),
+                harness: (!a.harness.is_empty()).then(|| a.harness.clone()),
                 group,
                 ended: false,
                 state: Some(if away { "unknown".into() } else { name(&a.state) }),
@@ -830,7 +855,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     for session in recorded {
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
-            sessions.push(Session { agent, session, topic: None, blocked_since: None, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
+            let harness = state.agents.iter().find(|a| a.session == session).map(|a| a.harness.clone()).filter(|h| !h.is_empty());
+            sessions.push(Session { agent, session, topic: None, blocked_since: None, idle_since: None, harness, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
         }
     }
     let backlog = state
@@ -852,6 +878,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                     state: f.state,
                     leads_to: vec![],
                     decided_by: None,
+                    decided: None,
                     recommendation: None,
                     note: f.note.clone(),
                     delivery: names.sent(&f.delivery, b.intent.as_deref().and_then(|i| state.manager_of(i))),
@@ -940,6 +967,8 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         repo: String::new(),
         machine: None,
         branch: None,
+        base: None,
+        merged: None,
         previously: vec![],
         status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
         progress: state.progress(&u),
@@ -1308,6 +1337,8 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         repo: u.repo.clone(),
         machine: u.machine.clone(),
         branch: (!merged).then(|| u.branch.clone()),
+        base: (!u.base.is_empty()).then(|| u.base.clone()),
+        merged: u.merged.clone(),
         previously: {
             let mut b: Vec<String> = vec![];
             for e in u.earlier.iter().filter(|e| e.branch != u.branch) {
@@ -1405,6 +1436,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
                 .map(|x| x.n.to_string())
                 .collect(),
             decided_by: f.decided_by,
+            decided: f.decisions.last().map(|d| d.at.clone()),
             recommendation: if f.state == FindingState::Open { f.found.suggestion.clone() } else { None },
             note: f.note.clone(),
             delivery: names.sent(&f.delivery, manager),
@@ -1434,6 +1466,8 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         raised_by,
         gate: t.gate,
         since,
+        started: t.started.clone(),
+        delivered: t.done.clone(),
         reviewer,
         result: (kind == "review" && t.state != TaskState::Dropped).then_some(match t.state {
             TaskState::Done if !t.findings.is_empty() => "found",
@@ -1496,6 +1530,8 @@ fn unregistered(c: &scan::Commit) -> Task {
         raised_by: None,
         gate: None,
         since: None,
+        started: None,
+        delivered: None,
         reviewer: None,
         result: None,
         inputs: vec![core::Input { from: "start".into(), primary: true }],

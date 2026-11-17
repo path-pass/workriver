@@ -244,48 +244,211 @@
  "builtAt": "2026-11-15 20:48",
  "sessions": [
   {
+   "agent": "mgr-chat",
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "manager": true,
+   "state": "working",
+   "topic": "把复查结果拆成任务"
+  },
+  {
    "agent": "agent-A",
-   "ended": false
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "working",
+   "topic": "高亮 @名字"
   },
   {
    "agent": "agent-B",
-   "ended": false
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "codex",
+   "state": "idle",
+   "idleSince": "2026-11-15 18:00",
+   "topic": "等着做成员列表"
   },
   {
    "agent": "agent-C",
-   "ended": false
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-12 19:30",
+   "topic": "通知不带全文"
   },
   {
    "agent": "agent-D",
-   "ended": false
-  },
-  {
-   "agent": "review-agent",
-   "ended": true
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "working",
+   "machine": "mini",
+   "topic": "撤回状态"
   },
   {
    "agent": "agent-E",
-   "ended": false
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "codex",
+   "state": "blocked",
+   "blockedSince": "2026-11-16 21:40",
+   "topic": "要不要允许运行 npm test？"
   },
   {
    "agent": "agent-F",
-   "ended": false
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-15 21:00"
   },
   {
-   "agent": "agent-G",
-   "ended": false
+   "agent": "review-agent",
+   "ended": true,
+   "harness": "claude"
   },
   {
-   "agent": "agent-H",
-   "ended": false
+   "agent": "why-q16",
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-16 13:40",
+   "topic": "引用回复里还会有撤回的消息吗"
   },
   {
-   "agent": "agent-I",
-   "ended": false
+   "agent": "why-q21",
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "working",
+   "topic": "审计日志为什么留着全文"
   },
   {
    "agent": "agent-J",
-   "ended": false
+   "ended": false,
+   "group": {
+    "id": "w1",
+    "label": "chat"
+   },
+   "intent": "chat-v2",
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-16 09:00",
+   "topic": "问问 Rust 生命周期"
+  },
+  {
+   "agent": "mgr-hard",
+   "ended": false,
+   "group": {
+    "id": "w2",
+    "label": "hardening"
+   },
+   "intent": "hardening",
+   "harness": "codex",
+   "manager": true,
+   "state": "idle",
+   "idleSince": "2026-11-16 18:00",
+   "topic": "等加固的复查"
+  },
+  {
+   "agent": "agent-G",
+   "ended": false,
+   "group": {
+    "id": "w2",
+    "label": "hardening"
+   },
+   "intent": "hardening",
+   "harness": "codex",
+   "state": "idle",
+   "idleSince": "2026-11-15 20:20",
+   "topic": "按 IP 限流"
+  },
+  {
+   "agent": "agent-K",
+   "ended": true,
+   "group": {
+    "id": "w2",
+    "label": "hardening"
+   },
+   "intent": "hardening",
+   "harness": "codex"
+  },
+  {
+   "agent": "scratch",
+   "ended": false,
+   "group": {
+    "id": "w2",
+    "label": "hardening"
+   },
+   "intent": "hardening",
+   "harness": "codex",
+   "state": "working",
+   "topic": "整理周报"
+  },
+  {
+   "agent": "agent-H",
+   "ended": false,
+   "group": {
+    "id": "w3",
+    "label": "ops"
+   },
+   "intent": "ops",
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-06 11:20",
+   "topic": "部署脚本"
+  },
+  {
+   "agent": "agent-I",
+   "ended": false,
+   "group": {
+    "id": "w5",
+    "label": "perf"
+   },
+   "intent": "perf",
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-10-31 10:00",
+   "topic": "虚拟滚动"
   }
  ],
  "intents": [
@@ -299,12 +462,13 @@
      "purpose": "在消息里 @ 某个人，对方会收到通知，并且消息里的名字要显示成高亮。",
      "repo": "demo",
      "branch": "feat/mention",
+     "base": "main",
      "status": "active",
      "commits": [
       {
        "id": "75657476d",
        "subject": "feat(chat): find the people mentioned in a message",
-       "date": "2026-11-14 16:10",
+       "date": "2026-11-03 16:10",
        "author": "agent-D",
        "live": false,
        "files": [
@@ -319,7 +483,7 @@
       {
        "id": "e40cb2ed2",
        "subject": "feat(chat): notify everyone mentioned when a message is sent",
-       "date": "2026-11-14 17:30",
+       "date": "2026-11-04 17:30",
        "author": "agent-A",
        "live": false,
        "files": [
@@ -334,7 +498,7 @@
       {
        "id": "21476e43c",
        "subject": "fix(chat): notify a person once when they are mentioned twice",
-       "date": "2026-11-15 10:05",
+       "date": "2026-11-07 10:05",
        "author": "review-agent",
        "live": false,
        "files": [
@@ -349,7 +513,7 @@
       {
        "id": "bee88a5ef",
        "subject": "fix(notify): leave the message text out of the notification",
-       "date": "2026-11-15 19:22",
+       "date": "2026-11-12 19:22",
        "author": "agent-C",
        "live": false,
        "files": [
@@ -454,7 +618,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-03 10:00",
+       "delivered": "2026-11-03 16:30"
       },
       {
        "id": "s2",
@@ -487,7 +653,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-03 10:05",
+       "delivered": "2026-11-04 17:40"
       },
       {
        "id": "s3",
@@ -515,7 +683,8 @@
        },
        "plans": [
         "app/chat/render.ts"
-       ]
+       ],
+       "started": "2026-11-15 20:40"
       },
       {
        "id": "s4",
@@ -650,7 +819,9 @@
           "session": "why-q9"
          }
         }
-       ]
+       ],
+       "started": "2026-11-05 11:00",
+       "delivered": "2026-11-12 19:30"
       },
       {
        "id": "g6|test",
@@ -705,7 +876,8 @@
             "name": "lockscreen.svg",
             "url": "lockscreen.svg"
            }
-          ]
+          ],
+          "decided": "2026-11-14 09:30"
          },
          {
           "id": "P3-1",
@@ -717,11 +889,14 @@
           ],
           "state": "deferred",
           "leadsTo": [],
-          "decidedBy": "user"
+          "decidedBy": "user",
+          "decided": "2026-11-14 09:30"
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-13 11:00",
+       "delivered": "2026-11-14 09:00"
       },
       {
        "id": "s9",
@@ -806,7 +981,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-14 10:00",
+       "delivered": "2026-11-15 20:33"
       },
       {
        "id": "s13",
@@ -839,7 +1016,9 @@
          "21476e43c"
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-06 09:00",
+       "delivered": "2026-11-07 10:20"
       },
       {
        "id": "g13|deploy",
@@ -876,7 +1055,9 @@
        "output": {
         "note": "已经部署到测试环境，版本 21476e4。"
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-07 10:20",
+       "delivered": "2026-11-07 15:00"
       },
       {
        "id": "s14",
@@ -1140,11 +1321,14 @@
           "leadsTo": [
            "s6"
           ],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-05 10:30"
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-04 17:50",
+       "delivered": "2026-11-05 10:00"
       },
       {
        "id": "v3|security-review",
@@ -1186,7 +1370,9 @@
         ]
        },
        "plans": [],
-       "since": "2026-11-15T19:40"
+       "since": "2026-11-15T19:40",
+       "started": "2026-11-15 18:50",
+       "delivered": "2026-11-15 19:40"
       },
       {
        "id": "v1|code-review",
@@ -1222,7 +1408,8 @@
           "leadsTo": [
            "s13"
           ],
-          "decidedBy": "user"
+          "decidedBy": "user",
+          "decided": "2026-11-04 10:00"
          },
          {
           "id": "P3-1",
@@ -1234,11 +1421,14 @@
           ],
           "state": "rejected",
           "leadsTo": [],
-          "decidedBy": "user"
+          "decidedBy": "user",
+          "decided": "2026-11-04 10:00"
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-03 16:40",
+       "delivered": "2026-11-04 09:30"
       },
       {
        "id": "v6|code-review",
@@ -1275,7 +1465,8 @@
            "s9",
            "s14"
           ],
-          "decidedBy": "user"
+          "decidedBy": "user",
+          "decided": "2026-11-15 20:10"
          },
          {
           "id": "P1-2",
@@ -1290,7 +1481,8 @@
           "leadsTo": [
            "s15"
           ],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-15 20:10"
          },
          {
           "id": "P2-1",
@@ -1304,7 +1496,8 @@
           "leadsTo": [
            "s16"
           ],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-15 20:10"
          },
          {
           "id": "P2-2",
@@ -1319,7 +1512,8 @@
           "leadsTo": [
            "s16"
           ],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-15 20:10"
          },
          {
           "id": "P2-3",
@@ -1333,7 +1527,8 @@
           "leadsTo": [
            "s11"
           ],
-          "decidedBy": "user"
+          "decidedBy": "user",
+          "decided": "2026-11-15 20:10"
          },
          {
           "id": "P2-4",
@@ -1375,7 +1570,8 @@
           ],
           "state": "rejected",
           "leadsTo": [],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-15 20:10"
          },
          {
           "id": "P3-3",
@@ -1388,7 +1584,8 @@
           ],
           "state": "deferred",
           "leadsTo": [],
-          "decidedBy": "user"
+          "decidedBy": "user",
+          "decided": "2026-11-15 20:10"
          }
         ]
        },
@@ -1414,7 +1611,9 @@
           "outcome": "ended"
          }
         }
-       ]
+       ],
+       "started": "2026-11-15 18:30",
+       "delivered": "2026-11-15 19:50"
       },
       {
        "id": "v9|security-review",
@@ -1452,7 +1651,9 @@
         ]
        },
        "plans": [],
-       "since": "2026-11-15T20:05"
+       "since": "2026-11-15T20:05",
+       "started": "2026-11-15 19:20",
+       "delivered": "2026-11-15 20:05"
       },
       {
        "id": "v6|test",
@@ -1493,7 +1694,8 @@
           "leadsTo": [
            "s11"
           ],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-13 11:30"
          }
         ],
         "evidence": [
@@ -1504,7 +1706,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-12 19:35",
+       "delivered": "2026-11-13 11:00"
       },
       {
        "id": "v4|code-review",
@@ -1554,12 +1758,15 @@
           ],
           "state": "deferred",
           "leadsTo": [],
-          "decidedBy": "agent"
+          "decidedBy": "agent",
+          "decided": "2026-11-15 20:00"
          }
         ]
        },
        "plans": [],
-       "since": "2026-11-15T19:45"
+       "since": "2026-11-15T19:45",
+       "started": "2026-11-15 19:00",
+       "delivered": "2026-11-15 19:45"
       },
       {
        "id": "v2|code-review",
@@ -1584,7 +1791,9 @@
        "output": {
         "findings": []
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-04 17:50",
+       "delivered": "2026-11-05 09:00"
       },
       {
        "id": "v1|security-review",
@@ -1609,7 +1818,9 @@
        "output": {
         "findings": []
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-03 16:40",
+       "delivered": "2026-11-03 18:00"
       },
       {
        "id": "v6|security-review",
@@ -1634,7 +1845,8 @@
        "output": {
         "findings": []
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-15 19:55"
       }
      ]
     },
@@ -1644,6 +1856,7 @@
      "purpose": "发出两分钟内的消息可以撤回，所有人看到的都变成「已撤回」。",
      "repo": "demo",
      "branch": "feat/recall",
+     "base": "main",
      "status": "active",
      "commits": [
       {
@@ -1886,7 +2099,7 @@
         {
          "id": "q16",
          "ended": false,
-         "live": false,
+         "live": true,
          "turns": [
           {
            "question": "被撤回的消息还会出现在别人的引用回复里吗？",
@@ -2100,7 +2313,8 @@
        },
        "plans": [
         "app/store/messages.ts"
-       ]
+       ],
+       "started": "2026-11-15 09:40"
       },
       {
        "id": "s2",
@@ -2129,7 +2343,8 @@
        "plans": [
         "app/chat",
         "app/auth/permissions.ts"
-       ]
+       ],
+       "started": "2026-11-15 10:00"
       },
       {
        "id": "s3",
@@ -2208,7 +2423,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-15 20:42",
+       "delivered": "2026-11-15 20:52"
       },
       {
        "id": "v2|security-review",
@@ -2250,7 +2467,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-15 20:42",
+       "delivered": "2026-11-15 21:05"
       },
       {
        "id": "u|e7b20d4c1",
@@ -2285,12 +2504,14 @@
      "purpose": "在所有消息里按词搜索，并在消息列表上方提供搜索框。",
      "repo": "demo",
      "branch": null,
+     "base": "main",
      "status": "merged",
+     "merged": "2026-10-29 11:05",
      "commits": [
       {
        "id": "4056a9478",
        "subject": "feat(search): find messages that contain a word",
-       "date": "2026-11-13 11:00",
+       "date": "2026-10-27 15:50",
        "author": "agent-A",
        "live": false,
        "files": [
@@ -2305,7 +2526,7 @@
       {
        "id": "845665151",
        "subject": "feat(search): a search box above the message list",
-       "date": "2026-11-13 15:40",
+       "date": "2026-10-28 13:40",
        "author": "agent-A",
        "live": false,
        "files": [
@@ -2320,7 +2541,7 @@
       {
        "id": "b51c0e9a3",
        "subject": "fix(search): ignore case and surrounding spaces in the query",
-       "date": "2026-11-15 22:10",
+       "date": "2026-10-29 10:30",
        "author": "agent-A",
        "live": false,
        "files": [
@@ -2365,7 +2586,9 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-10-27 09:30",
+       "delivered": "2026-10-27 16:00"
       },
       {
        "id": "v1|code-review",
@@ -2390,7 +2613,9 @@
        "output": {
         "findings": []
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-10-27 16:10",
+       "delivered": "2026-10-27 17:00"
       },
       {
        "id": "v1|security-review",
@@ -2415,7 +2640,9 @@
        "output": {
         "findings": []
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-10-27 16:10",
+       "delivered": "2026-10-27 17:20"
       },
       {
        "id": "s2",
@@ -2441,7 +2668,9 @@
          "845665151"
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-10-28 09:00",
+       "delivered": "2026-10-28 14:00"
       },
       {
        "id": "v2|code-review",
@@ -2466,7 +2695,9 @@
        "output": {
         "findings": []
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-10-28 14:10",
+       "delivered": "2026-10-28 15:00"
       },
       {
        "id": "g|deploy",
@@ -2511,7 +2742,9 @@
        "output": {
         "note": "已经上线，搜索框在消息列表上方可以用。"
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-10-29 10:40",
+       "delivered": "2026-10-29 11:00"
       },
       {
        "id": "u|b51c0e9a3",
@@ -2584,7 +2817,9 @@
     "label": "chat"
    },
    "goal": "让聊天从“能发消息”变成“好用的聊天”：能 @ 人、能撤回、能搜到以前说过的话，三件事都上线之后再开始做表情回应。",
-   "note": "范围先只做网页版，手机端等这三件做完再评估。\n- @ 功能先做频道内，私聊以后再说\n- 撤回只允许发送后 2 分钟内\n- 搜索先做全文，不做按人或时间筛选\n设计讨论记录：https://example.com/notes/chat-v2"
+   "note": "范围先只做网页版，手机端等这三件做完再评估。\n- @ 功能先做频道内，私聊以后再说\n- 撤回只允许发送后 2 分钟内\n- 搜索先做全文，不做按人或时间筛选\n设计讨论记录：https://example.com/notes/chat-v2",
+   "manager": "mgr-chat",
+   "managerState": "working"
   },
   {
    "id": "hardening",
@@ -2596,6 +2831,7 @@
      "purpose": "同一个 IP 一分钟内最多尝试登录十次，超过的返回 429。",
      "repo": "demo",
      "branch": "fix/login-rate-limit",
+     "base": "main",
      "status": "active",
      "tasks": [
       {
@@ -2606,7 +2842,11 @@
        "title": "登录接口按 IP 限流",
        "agent": "agent-G",
        "writing": false,
-       "stalled": { "since": "2026-11-15T20:20:00Z", "reminded": "2026-11-15T20:30:00Z", "escalated": true },
+       "stalled": {
+        "since": "2026-11-15T20:20:00Z",
+        "reminded": "2026-11-15T20:30:00Z",
+        "escalated": true
+       },
        "raisedBy": "plan",
        "inputs": [
         {
@@ -2630,7 +2870,8 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-10 14:00"
       },
       {
        "id": "s2",
@@ -2638,7 +2879,7 @@
        "state": "todo",
        "taskId": "2",
        "title": "被限流时告诉客户端多久以后再试",
-       "agent": null,
+       "agent": "agent-K",
        "writing": false,
        "raisedBy": "plan",
        "inputs": [
@@ -2708,7 +2949,9 @@
     "label": "hardening"
    },
    "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。",
-   "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10"
+   "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10",
+   "manager": "mgr-hard",
+   "managerState": "idle"
   },
   {
    "id": "ops",
@@ -2720,6 +2963,7 @@
      "purpose": "脚本开头说明怎么用，缺了 DEPLOY_HOST 时直接报错。",
      "repo": "demo",
      "branch": null,
+     "base": "main",
      "status": "merged",
      "tasks": [
       {
@@ -2753,14 +2997,16 @@
          }
         ]
        },
-       "plans": []
+       "plans": [],
+       "started": "2026-11-05 10:00",
+       "delivered": "2026-11-06 11:20"
       }
      ],
      "commits": [
       {
        "id": "c0ffee123",
        "subject": "docs(scripts): say how to run deploy.sh and fail without DEPLOY_HOST",
-       "date": "2026-11-14 17:05",
+       "date": "2026-11-06 11:05",
        "author": "agent-H",
        "live": false,
        "files": [
@@ -2810,7 +3056,122 @@
    },
    "goal": "一个频道里有十万条消息时，打开频道和往上翻历史都不卡：首屏 300 毫秒内出现，滚动保持 60 帧。",
    "note": "可能要改成虚拟列表，也可能是后端分页的问题，先让调查任务测清楚瓶颈在哪，再拆单元。",
-   "units": [],
+   "units": [
+    {
+     "id": "virtual-list",
+     "title": "长消息列表只渲染看得见的部分",
+     "purpose": "上千条消息的频道滚动不再卡顿。",
+     "repo": "demo",
+     "branch": "perf/virtual-list",
+     "base": "main",
+     "status": "active",
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "消息列表改成虚拟滚动",
+       "agent": "agent-I",
+       "writing": false,
+       "raisedBy": "plan",
+       "started": "2026-10-28 10:00",
+       "delivered": "2026-10-30 17:10",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "消息列表改成虚拟滚动：只渲染视口内外各 20 条。",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "d1e2f3a4b"
+        ],
+        "evidence": [
+         {
+          "command": "npm test -- list",
+          "result": "passed",
+          "summary": "6 passed"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "v1|code-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": "agent-I",
+       "writing": false,
+       "reviewer": "code-review",
+       "result": "passed",
+       "started": "2026-10-30 17:30",
+       "delivered": "2026-10-31 10:00",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "看一下虚拟滚动的改动。",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": []
+      },
+      {
+       "id": "s2",
+       "kind": "implement",
+       "state": "todo",
+       "taskId": "2",
+       "title": "跳到某条消息时先加载它前后的消息",
+       "agent": null,
+       "writing": false,
+       "raisedBy": "plan",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "跳到某条消息时先加载它前后的消息。",
+        "causes": []
+       },
+       "output": {},
+       "plans": [
+        "app/chat/list.ts"
+       ]
+      }
+     ],
+     "commits": [
+      {
+       "id": "d1e2f3a4b",
+       "subject": "perf(list): render only the messages in view",
+       "date": "2026-10-30 16:55",
+       "author": "agent-I",
+       "live": false,
+       "files": [
+        {
+         "path": "app/chat/window.ts",
+         "status": "A",
+         "before": null,
+         "after": "// Which messages to render: those in view, and 20 on either side.\nexport function window(total: number, first: number, last: number, margin = 20) {\n  return { from: Math.max(0, first - margin), to: Math.min(total, last + margin) }\n}\n"
+        }
+       ]
+      }
+     ]
+    }
+   ],
    "chores": []
   },
   {

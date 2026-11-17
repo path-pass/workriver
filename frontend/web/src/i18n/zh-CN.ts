@@ -20,6 +20,8 @@ export const zhCN: Same<typeof en> = {
     clearSearch: '清除搜索',
     none: '还没有记录任何单元。',
     noUnits: '还没有单元',
+    quiet: '{{time}}没动静',
+    quietSince: '{{date}} 以来没有动静',
     project: '项目',
     allProjects: '全部项目',
     active: '进行中',
@@ -206,7 +208,16 @@ export const zhCN: Same<typeof en> = {
     blocked: '在终端里等你',
     notice: '{{agent}} 在等你',
     title: 'Agent',
-    idle: '空闲'
+    state: { working: '在干活', idle: '空闲', blocked: '卡住了', gone: '已退出' },
+    idleFor: '空闲 {{time}}',
+    blockedFor: '卡住 {{time}}',
+    closable: '可以关掉',
+    closableFor: '可以关掉 · {{time}}',
+    last: '上次：',
+    askedBy: '{{who}} 问的',
+    askedByYou: '你问的',
+    own: '不归 workriver 管',
+    ownHint: '从没接过任务的会话：你自己的，或手动开的。'
   },
   plan: {
     title: '开始「{{title}}」',
@@ -299,9 +310,7 @@ export const zhCN: Same<typeof en> = {
   },
   commits: {
     title: '提交',
-    writing: '正在写',
-    today: '今天',
-    yesterday: '昨天'
+    writing: '正在写'
   },
   inbox: {
     title: '需要你',

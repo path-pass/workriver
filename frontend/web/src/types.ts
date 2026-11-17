@@ -312,6 +312,10 @@ export interface Session {
   intent?: string;
   /** It is the manager of its workspace. */
   manager?: boolean;
+  /** The harness the runtime names (claude, codex), when known. */
+  harness?: string;
+  /** Idle (or done) in its terminal since then, while it lives. */
+  idleSince?: string;
 }
 
 /**
@@ -380,6 +384,8 @@ export interface Unit {
   machine?: string;
   /** The branch the work happens on; null once merged. */
   branch: string | null;
+  /** The branch it leaves from and is merged into (main). */
+  base?: string;
   /** The branches its work was on before (a rebase onto a new branch, a rename). */
   previously?: string[];
   status: UnitStatus;
@@ -399,6 +405,8 @@ export interface Unit {
   squash?: { into: string; commit: string; tip: string };
   /** Ready to merge for longer than the service's ready period, not merged: since when. */
   overdue?: string;
+  /** When it was recorded as merged. */
+  merged?: string;
 }
 
 /**
@@ -451,6 +459,8 @@ export interface Finding {
   leadsTo: string[];
   /** Who made the decision; absent while the finding is open. An agent may decide on its own. */
   decidedBy?: 'agent' | 'user';
+  /** When it was last decided. */
+  decided?: string;
   /** While open: what the agent suggests, with one sentence of why. */
   recommendation?: { decision: 'accept' | 'reject' | 'defer'; reason: string };
   /** The user's one line with a decision. */
@@ -575,6 +585,9 @@ export interface Task {
   delivery?: Sent;
   /** When its output was last corrected after delivery. */
   amended?: string;
+  /** When its agent started it, and when it was delivered (a gate: submitted). */
+  started?: string;
+  delivered?: string;
   /** Dropped as no longer needed: when, by whom ("user", or an agent's name), why. */
   dropped?: { at: string; by: string; reason: string };
 }

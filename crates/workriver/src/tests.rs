@@ -778,6 +778,7 @@ fn projects_workspaces_and_batches() {
     assert_eq!((ws["backlog"][0]["finding"]["state"].as_str(), ws["backlog"][0]["intent"].as_str()), (Some("scheduled"), Some("i1")));
     // The batch's message is recorded on its first finding.
     assert_eq!(ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0]["delivery"]["to"], "boss1");
+    assert!(ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0]["decided"].is_string(), "when it was decided");
     let rev = ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == "rev").unwrap();
     assert_eq!((rev["intent"].as_str(), rev["manager"].as_bool()), (Some("i2"), Some(false)));
 }
@@ -807,7 +808,7 @@ fn replays_a_copied_database() {
         }
     }
     let mut cache = crate::snapshot::Cache::default();
-    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default(), &Default::default(), &[])).unwrap();
+    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default(), &Default::default(), &Default::default(), &[])).unwrap();
     println!("projects: {}", snap["projects"]);
     println!("events: {}", store.count().unwrap());
 }
@@ -1484,6 +1485,12 @@ fn blind_reviews() {
     user.call("/api/gate", Some(json!({ "unit": "u1", "task": 3, "result": "done", "note": "Works" }))).unwrap();
     wait_until("the gate's result is delivered", || fake.sent.lock().unwrap().iter().any(|(_, m)| m.contains("finished gate")));
     assert!(fake.sent.lock().unwrap().iter().all(|(to, _)| to != "s-sec"), "nothing is typed into the blind reviewer's terminal");
+    // Nor when the others went idle (it would say when they delivered); the user sees it,
+    // with when each task started and was delivered.
+    let idle = |d: &Daemon| d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().filter(|s| s["idleSince"].is_string()).count();
+    assert_eq!((idle(&sec), idle(&user) > 0), (0, true));
+    let mine = &user.get("/api/workspace").unwrap()["intents"][0]["units"][0];
+    assert!(mine["base"] == "main" && mine["tasks"][0]["started"].is_string() && mine["tasks"][0]["delivered"].is_string(), "{mine}");
 
     // Delivered: the normal view is back.
     sec.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"] }] })).unwrap();

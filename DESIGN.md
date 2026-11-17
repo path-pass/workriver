@@ -1,8 +1,7 @@
 # workriver design
 
-Direction set on 2026-11-15 following the Operate mode of the `impeccable` skill. The
-structure below was worked out on a throwaway prototype (`.local/prototype/`, not in git);
-the real UI lives in `frontend/web/`.
+Direction set on 2026-11-15 following the Operate mode of the `impeccable` skill. The UI
+lives in `frontend/web/`.
 
 ## Use scene
 
@@ -47,7 +46,13 @@ looked at now and then.
   with its line breaks and clickable links, cut to three lines with "Show more". The intent of the open
   unit is open, the others folded, and a folded group still shows the sum of its units' violet marks, so
   nothing waiting is hidden. A search looks through every unit and opens the groups with a
-  match. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
+  match. A unit where nothing has moved for 3 days (no task started, delivered or dropped,
+  gate opened, finding decided or commit, and no running task with its agent at it) says
+  so quietly: a moon and "quiet 5d" on its line, the date on hover. An active intent says
+  the same under its title when nothing moved for 3 days in any of its units (a merge
+  counts) or its own tasks, and none has a running task with its agent at it; units that
+  never moved do not hold it back. Not for merged or done units, nor planned or done
+  intents. The 3 days are fixed for now. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
   stuck on behind the user (filled violet, a hand, the count), everything else waiting for
   the user – open findings and commits that name no task – (an outlined violet count), and
   "beyond plan" (amber). Before them, where the unit stands as a dot and a word, except
@@ -55,8 +60,9 @@ looked at now and then.
   can be merged stands out; it counts nowhere as attention), merged (with its date) or done
   (why, on hover). The unit header carries the same word. An active intent whose units are
   all merged or done says "Finished" in its header, for its manager to close it. Who is working is not shown
-  here, with one exception: each active intent's header names its manager's state quietly
-  (a crown, then working, idle, not running, or "no manager"), since a missing manager means
+  here, with one exception: each active intent's header names its manager's state quietly,
+  on a second line under the title with the quiet mark and "Finished" (a crown, then
+  working, idle, not running, or "no manager"), since a missing manager means
   accepted findings reach no one; opened, its goal line also names the Herdr workspace it
   runs in. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
   the product mark, the button, settings and, if any task anywhere is stuck on the user,
@@ -68,7 +74,8 @@ looked at now and then.
   by 16 px, Home and End go to the ends). The width is remembered; the graph refits once
   when the drag ends, not during it. With more width, unit and roadmap titles use it
   (they wrap); an intent's title stays on one line and is cut with its full text on
-  hover. The handle is a small hook of ours (`lib/useResize.ts`), written so the side
+  hover; at the default width it keeps the line to itself (and the folded group's violet
+  marks), everything else about the intent is on the line under it. The handle is a small hook of ours (`lib/useResize.ts`), written so the side
   panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
   handle, which is the case the "prefer a library" rule excepts.
 - **Merging planned intents** is a dialog, not a mode of the rail: the planned intents of the
@@ -88,12 +95,24 @@ looked at now and then.
   main area and the panel stays open; a row names its unit (the inbox also its intent,
   quietly). On a narrow screen the same content is a sheet over the page, opened from the
   same buttons in the unit header, with the same switch inside.
-- **Commits** is the feed of every unit's commits, newest first, by day (today, yesterday,
-  then the date). A row: how long ago, the author's mark, the subject, and quietly the unit,
-  the task (or the red mark of a commit that names none) and its +/− lines. Above them,
-  while any agent has uncommitted work, "Writing now": each such agent with its amber ring
-  and the files it is writing. A row opens its unit and task and brings that commit into
-  view in the code layer; it stays picked.
+- **Commits** is every unit's commits as a git graph, newest first, like `git log --graph`
+  or GitHub's network view: the base on the left as a plain neutral line labelled at its
+  top with the base branch's name (its own commits are not drawn), one lane per unit branch
+  in the unit's own tone (`--lane-0` … `--lane-5`, picked from its id; see the lane colours
+  below), leaving the base at the
+  unit's first commit and, merged, joining it again where it was merged (the unit's
+  `merged` time when known, else at its last commit); a unit closed without merging just
+  ends. A lane is used again once its unit has ended, so the graph is as wide as the most
+  units running side by side. One graph per repository, under its name when there are
+  several. A row: the dot on its lane, the subject, quietly the unit, the task (or the red
+  mark of a commit that names none) and its +/− lines, and how long ago (the date on
+  hover). On top, while any agent has uncommitted work, "Writing now": the files each such
+  agent is writing and its unit and task, as a hollow dashed dot on its unit's lane, dashed
+  down to the unit's newest commit; the agent's mark with its amber ring is in the last
+  column, where a commit's age is, so it never sits on the lanes. A row opens its unit and task and brings that
+  commit into view in the code layer; it stays picked. Drawn as one small inline SVG per
+  row (rows of a fixed 44 px touch, so the lines run on; 2 px lines on whole pixels stay
+  crisp at 1x and 2x); no graph library.
 - **Backlog** lists the deferred findings of the project picked in the rail (or of all):
   those from reviews, tests and gates, grouped by intent and unit, and those added to the
   backlog from outside (an earlier review, a notes file), grouped by where they came from;
@@ -179,26 +198,28 @@ looked at now and then.
      long ("u2 looks squash-merged into main"); the row opens the unit.
   Within a group the oldest comes first. A row of Blocking, Decisions or Gaps opens the
   unit at the node (a review at its first open finding). With nothing to show, one short line says so.
-- **Agents** are not in a unit, because a session crosses units. One line per agent whose
-  session has not ended, working first (on a node, or by the runtime's word when it has
-  none, as a manager planning), then holding work that has not started (the mark faded),
-  then idle (a grey mark and a moon, nothing else). A working or waiting line
-  names the unit and node it is on, and a click opens them; an idle line opens the last
-  node it finished. The amber ring around the mark means it is writing, as on a node. The
-  line that led to what is open shows as picked. Whether a session has ended is the only
-  thing recorded about agents; everything else comes from the nodes. Inside a unit, who
-  is on which node is the mark on the node. The list is grouped by the Herdr workspace each
-  agent runs in, headed by the workspace's label and, quietly, the title of its current
-  intent, with a quiet "no manager" when none is registered; groups with someone working come first, then
-  by name. In a group an agent waiting for a person in its terminal comes first, with a
-  violet hand (the Blocking meaning, not the amber writing ring), then the manager (with a
-  small crown), then working, holding work, idle. Under each name, quietly, what the session is about (its terminal
-  title); the agent's mark shows it on hover wherever the name is unique. An agent Herdr
-  knows by no name is called by its harness and a number within its workspace ("claude
-  2"); its mark reads "C2". A line is a grid, so nothing is drawn over anything: the mark;
-  the name (truncated; its marks and machine chip never shrink) over the topic; where it
-  works, in a column of its own that truncates; the terminal button. In a panel narrower
-  than about 340 px, where it works moves to a third line (an idle moon stays on the first).
+- **Agents** are not in a unit, because a session crosses units. They are a tree, as a list
+  (indentation and thin guide lines, no cards; it reads at 340 px and up to 720 px), by the
+  Herdr workspace each runs in. A group's heading is the workspace's label and, quietly, the
+  title of its current intent (or "no manager"); groups with someone working come first,
+  then by name. Under it the manager (with a small crown), and indented under the manager
+  its workers: those that took a task (recorded on the task, since Herdr does not say who
+  started a session), blocked first (a violet hand: the Blocking meaning), then working,
+  idle, idle with nothing to do, gone. A temporary question agent (`why-qN`) is indented
+  under the worker whose task it asks about, saying who asked ("asked by agent-B", "you
+  asked"). A line: the mark, the name (its marks and machine chip never shrink), its state
+  in a word on the right (working, idle 2d, blocked 5m, gone); under them, quietly, the
+  harness and the task it is on or holds, else "last:" and the one it last did, with its
+  unit. An idle worker holding no work says "can be closed · 5d" in a quiet chip instead.
+  A gone worker shows only while it still holds unfinished work, greyed, without a
+  terminal button. Sessions that never took a task are not workriver's: a folded "Not
+  workriver's (N)" group at the end, with their topic. The amber ring around the mark means
+  it is writing, as on a node. A line opens its task (a question agent's: the task asked
+  about); the line that led to what is open shows as picked; the terminal button at its
+  end opens its terminal. An agent Herdr knows by no name is called by its harness and a
+  number within its workspace ("claude 2"); its mark reads "C2". How long an agent has been
+  idle is the service's: when the runtime first showed it idle (kept in memory, so a
+  restart of the service starts it again); without that, since it last delivered.
 - The main area shows the picked unit: its name and one-line purpose, nothing else (the
   graph already shows what waits: violet gates, violet counts on reviews), then two
   layers stacked top to bottom, each one block:
@@ -373,6 +394,11 @@ looked at now and then.
 | Amber (`--amber`) | Flowing now: someone is on it | Running nodes, the line into them, the ring around a writing agent's mark, "grew beyond the plan" |
 | Violet (`--you`) | Waiting for you, and what you picked | Gates waiting for the user, the count of findings waiting for a decision, selection outline, the file selected in the tree, focus ring, primary button |
 | Neutrals | Not started, or just ground | Everything else |
+
+One colour role is not a state: **lane colours** (`--lane-0` … `--lane-5`) only tell the
+branches apart in the commit graph. They take hues none of the states use (blue, rose and
+olive, each dark and light; no water, amber or violet), have light and dark values like
+every token, and appear nowhere else.
 
 Three things that used to share colour now have their own channel:
 
