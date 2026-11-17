@@ -138,7 +138,8 @@ struct Held {
     to: String,
     name: String,
     text: String,
-    /// A new agent that is not ready for a prompt yet: retried at each poll until then.
+    /// A new agent not ready for a prompt: retried at each poll until then; after it, it may
+    /// sit on a prompt the runtime does not report and waits for the user like a blocked one.
     not_ready: Option<std::time::Instant>,
 }
 
@@ -176,7 +177,8 @@ const MERGE_TOLD: &str = "merge-told.json";
 pub struct Waits {
     pub answer: Duration,
     pub idle: Duration,
-    /// How long a new agent may refuse its first message as not ready (retried every poll).
+    /// How long a new agent's first message is retried every poll while it is not ready;
+    /// after that it is shown waiting for the user, like a blocked one.
     pub ready: Duration,
     /// How long one minute of the stall threshold lasts (a minute; less in tests).
     pub minute: Duration,
@@ -436,7 +438,18 @@ impl App {
     /// Reads the runtime's agents; says "changed" when they differ, and marks delivered
     /// messages picked up when their receiver starts working.
     fn poll(&self) {
-        let now = self.runtime.agents().ok();
+        let mut now = self.runtime.agents().ok();
+        // A held question's new agent still not ready after its window waits for the user
+        // (e.g. on a first-run prompt the runtime does not report): shown blocked.
+        {
+            let at = std::time::Instant::now();
+            let held = self.held.lock().unwrap();
+            for a in now.iter_mut().flatten().filter(|a| a.state == AgentState::Unknown) {
+                if held.iter().any(|h| (a.session == h.to || a.name == h.to) && h.not_ready.is_some_and(|end| end <= at)) {
+                    a.state = AgentState::Blocked;
+                }
+            }
+        }
         let groups = self.runtime.groups().unwrap_or_default();
         let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
         {
@@ -497,19 +510,16 @@ impl App {
             let state = |h: &Held| agents.iter().find(|a| a.session == h.to || a.name == h.to).map(|a| a.state);
             let ready: Vec<Held> = {
                 let mut held = self.held.lock().unwrap();
-                let free = |h: &Held| h.not_ready.is_some() || !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown));
+                let at = std::time::Instant::now();
+                let free = |h: &Held| h.not_ready.is_some_and(|end| end > at) || !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown));
                 let (ready, wait): (Vec<Held>, Vec<Held>) = held.drain(..).partition(free);
                 *held = wait;
                 ready
             };
             for h in ready {
-                match (state(&h), h.not_ready) {
-                    (None, _) => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
-                    (_, Some(end)) if end <= std::time::Instant::now() => {
-                        let secs = self.waits.ready.as_secs();
-                        self.fail_question(&h.question, ReasonCode::NotReady, &format!("{} was not ready for a prompt within {secs} seconds of starting (Herdr: agent_not_ready)", h.name));
-                    }
-                    _ => self.hand(h),
+                match state(&h) {
+                    None => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
+                    Some(_) => self.hand(h),
                 }
             }
         }
@@ -517,10 +527,12 @@ impl App {
         let now = std::time::Instant::now();
         let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
         for id in &late {
-            let held = self.held.lock().unwrap().iter().find(|h| &h.question == id).map(|h| h.name.clone());
+            let held = self.held.lock().unwrap().iter().find(|h| &h.question == id).map(|h| (h.name.clone(), h.not_ready.is_some()));
             let secs = self.waits.answer.as_secs();
             match held {
-                Some(name) => self.fail_question(id, ReasonCode::Blocked, &format!("{name} waited for an answer in its terminal for {secs} seconds; the question never reached it")),
+                // Its tab stays: the user may be about to answer what it waits on.
+                Some((name, true)) => self.drop_question(id, ReasonCode::NotReady, &format!("{name} never became ready for a prompt in {secs} seconds; the question never reached it, and its tab was left open for you")),
+                Some((name, false)) => self.fail_question(id, ReasonCode::Blocked, &format!("{name} waited for an answer in its terminal for {secs} seconds; the question never reached it")),
                 None => self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {secs} seconds")),
             }
         }
@@ -930,26 +942,8 @@ impl App {
         let fail = |code, why: String| self.fail_question(id, code, &why);
         // Read fresh: a temporary agent started since the last poll counts.
         let Ok(live) = self.runtime.agents() else { return fail(ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into()) };
-        // An agent's question goes straight to the task's own agent while it is free (it knows
-        // its work best); a working or blocked one is not interrupted: a temporary agent answers.
-        let direct = {
-            let store = self.store.lock().unwrap();
-            let s = store.state();
-            s.question(id).ok().filter(|q| q.by != "user").and_then(|q| s.task(&q.unit, q.task).ok()).and_then(|t| t.agent.clone())
-        };
-        if let Some(own) = direct.and_then(|own| live.iter().find(|a| a.session == own && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned()) {
-            if let Err(e) = self.record(&Principal::Service, Body::QuestionStarted { question: id.into(), agent: own.session.clone(), name: own.name.clone(), temporary: false }) {
-                tracing::warn!("question {id}: {}", e.1);
-            }
-            self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-            let text = {
-                let store = self.store.lock().unwrap();
-                let s = store.state();
-                s.question(id).ok().and_then(|q| ask::direct(s, q, &self.home))
-            };
-            self.hand(Held { question: id.into(), to: own.session.clone(), name: own.name.clone(), text: text.unwrap_or_default(), not_ready: None });
-            return;
-        }
+        // Every question, the user's or an agent's, goes to a temporary agent; it may ask the
+        // task's own agent while that one is idle (its prompt says how).
         // A follow-up goes to the thread's agent while it lives, which keeps its context.
         let current = {
             let store = self.store.lock().unwrap();
@@ -1016,6 +1010,7 @@ impl App {
         let prompt = ask::prompt(self.store.lock().unwrap().state(), &q, &dir, &commits, &self.home).unwrap_or_default();
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
+        // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
         self.hand(Held { question: id.into(), to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
     }
 
@@ -1023,21 +1018,23 @@ impl App {
     /// agent's name). One waiting for a person in its terminal (Herdr: blocked) cannot take
     /// it: it is held and given once the agent is free (`poll`), or the question fails with
     /// the reason when its time is up. A new agent the runtime does not take prompts for yet
-    /// is tried again at each poll, for `Waits::ready` from the first refusal.
+    /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
+    /// the first try; after that it waits for the user like a blocked one.
     fn hand(&self, mut h: Held) {
         let is = |a: &RuntimeAgent| a.session == h.to || a.name == h.to;
-        let blocked = self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).is_some_and(|a| a.state == AgentState::Blocked);
-        if !blocked {
-            match self.send(&h.to, &h.text) {
+        let not_ready = |h: &mut Held| {
+            h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
+        };
+        match self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).map(|a| a.state) {
+            Some(AgentState::Blocked) => h.not_ready = None,
+            // No state yet: not typed into, whatever the terminal shows.
+            Some(AgentState::Unknown) => not_ready(&mut h),
+            _ => match self.send(&h.to, &h.text) {
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
-                Err(RuntimeError::NotReady(_)) => {
-                    h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
-                }
+                Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
                 Err(e) => return self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
-            }
-        } else {
-            h.not_ready = None;
+            },
         }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());
@@ -1046,17 +1043,22 @@ impl App {
     /// Records a question as failed (if still open) and closes its temporary agent, which
     /// did not answer.
     fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
+        self.drop_question(id, code, why);
+        // Only an agent started for it is closed; a task's own agent is not.
+        let name = self.store.lock().unwrap().state().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
+        if let Some(name) = name {
+            self.close_later(name);
+        }
+    }
+
+    /// Records a question as failed (if still open) and stops waiting for it.
+    fn drop_question(&self, id: &str, code: ReasonCode, why: &str) {
         let body = Body::QuestionFailed { question: id.into(), reason_code: code, reason: why.into() };
         if let Err(e) = self.record(&Principal::Service, body) {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
         self.held.lock().unwrap().retain(|h| h.question != id);
-        // Only an agent started for it is closed; a task's own agent is not.
-        let name = self.store.lock().unwrap().state().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
-        if let Some(name) = name {
-            self.close_later(name);
-        }
     }
 
     /// An answer came: the thread's agent waits for a follow-up until it has been idle too long.

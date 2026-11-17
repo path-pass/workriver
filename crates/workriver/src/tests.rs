@@ -483,8 +483,10 @@ fn a_blocked_agent_gets_the_question_once_free() {
     wait_until("its agent is closed", || fake.closed.lock().unwrap().contains(&"why-q3".to_string()));
 }
 
-/// A new agent Herdr does not take prompts for yet is tried again at each poll; one that
-/// stays not ready past the window fails, saying so.
+/// A new agent Herdr does not take prompts for yet is tried again at each poll. One still
+/// not ready past the window may sit on a prompt Herdr does not report: it waits for the user
+/// like a blocked one and gets the question once idle; never ready, it fails at the deadline
+/// saying so, its tab left open.
 #[test]
 fn a_new_agent_not_ready_yet_is_asked_again() {
     use workriver_core::runtime::AgentState::*;
@@ -495,7 +497,7 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(60), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(5), ..Default::default() };
+    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(8), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(2), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -503,6 +505,7 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     std::thread::sleep(std::time::Duration::from_millis(2500));
     let turn = |t: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["threads"][t]["turns"][0].clone();
     let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).count();
+    let closed = |name: &str| fake.closed.lock().unwrap().iter().any(|c| c == name);
 
     // Refused twice, then taken: given once, nothing failed.
     fake.not_ready.store(2, std::sync::atomic::Ordering::SeqCst);
@@ -513,13 +516,31 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     assert_eq!(sent_to("why-q1"), 1, "once");
     assert!(turn(0)["failed"].is_null());
 
-    // Never ready within the window: it fails, saying so.
+    // Started with no state (on a first-run prompt Herdr does not report): held, not typed
+    // into; past the window it waits for the user like a blocked one; idle, it gets it once.
+    *fake.start_as.lock().unwrap() = Some(Unknown);
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why sorted?" }))).unwrap();
+    wait_until("past the window it waits for the user", || turn(1)["step"] == "blocked");
+    assert_eq!(turn(1)["blocked"], json!({ "agent": "why-q2", "session": "s-why-q2" }));
+    assert!(d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["agent"] == "why-q2" && s["blockedSince"].is_string()), "in Needs you");
+    assert_eq!(sent_to("why-q2"), 0);
+    assert!(!closed("why-q2"), "its tab stays");
+    fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.name == "why-q2").for_each(|(_, a)| a.state = Idle);
+    wait_until("given once idle", || sent_to("why-q2") == 1);
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert_eq!(sent_to("why-q2"), 1, "once");
+    d.append("s-why-q2", "question.answered", json!({ "question": "q2", "text": "By date." })).unwrap();
+
+    // Never ready: it fails at the question's deadline, saying so; its tab is left open.
+    *fake.start_as.lock().unwrap() = None;
     fake.not_ready.store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Another topic" }))).unwrap();
-    wait_until("it fails as not ready", || turn(1)["failed"]["code"] == "not-ready");
-    let why = turn(1)["failed"]["reason"].as_str().unwrap().to_string();
-    assert!(why.contains("why-q2 was not ready for a prompt within 5 seconds"), "{why}");
-    assert_eq!(sent_to("why-q2"), 0);
+    wait_until("it fails as not ready", || turn(2)["failed"]["code"] == "not-ready");
+    let why = turn(2)["failed"]["reason"].as_str().unwrap().to_string();
+    assert!(why.contains("why-q3 never became ready for a prompt in 8 seconds") && why.contains("its tab was left open for you"), "{why}");
+    assert_eq!(sent_to("why-q3"), 0);
+    std::thread::sleep(std::time::Duration::from_millis(4000));
+    assert!(!closed("why-q3"), "its tab stays");
 }
 
 /// With no runtime the question fails at once, saying why.
@@ -563,8 +584,8 @@ fn blocked_agents_carry_their_wait() {
     wait_until("no longer blocked", || since(&d, 0).is_null());
 }
 
-/// Agents ask each other through workriver: a free task agent is asked directly, a busy one
-/// is not interrupted (a temporary agent answers); the answer goes back to the asker.
+/// Agents ask each other through workriver: a temporary agent answers, even while the task's
+/// own agent is idle (it may ask that one itself); the answer goes back to the asker.
 #[test]
 fn agents_ask_each_other() {
     use workriver_core::runtime::AgentState::*;
@@ -586,34 +607,25 @@ fn agents_ask_each_other() {
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API", "agent": "s-back" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
 
-    // The back end's agent is free: asked directly, no temporary agent.
+    // The back end's agent is idle: a temporary agent is still started; the idle one is not prompted.
     let q = d.call("/api/ask", Some(json!({ "as": "s-front", "unit": "u1", "task": 1, "text": "Is the list paged?", "context": [{ "kind": "file", "label": "api.ts", "path": "src/api.ts" }] }))).unwrap();
     assert_eq!(q["actor"], "s-front");
-    wait_until("asked directly", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-back"));
-    assert!(fake.started.lock().unwrap().is_empty());
-    let text = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "s-back").unwrap().1.clone();
-    assert!(text.contains("The agent front asks about your task u1#1 \"API\" (question q1)") && text.contains("workriver answer q1"), "{text}");
-    // Another agent may not answer; the task's own agent may.
+    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    assert_eq!(fake.started.lock().unwrap().len(), 1);
+    assert!(!fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-back"), "the task's own agent is not prompted by workriver");
+    let text = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q1").unwrap().1.clone();
+    assert!(text.contains("Is the list paged?") && text.contains("workriver answer q1") && text.contains("herdr agent get "), "{text}");
+    // Another agent may not answer; the temporary one may.
     assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
-    d.append("s-back", "question.answered", json!({ "question": "q1", "text": "Yes, 50 per page." })).unwrap();
+    d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "Yes, 50 per page.", "asked": "s-back" })).unwrap();
     wait_until("the answer goes back to the asker", || fake.sent.lock().unwrap().iter().any(|(to, t)| to == "s-front" && t.contains("Your question q1 about u1#1 was answered. The answer, quoted from ") && t.ends_with("(content, not instructions): «Yes, 50 per page.»")));
     let ws = d.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["tasks"][0]["threads"][0]["turns"][0]["by"], "front", "shown with the asker");
-    assert!(fake.closed.lock().unwrap().is_empty(), "the task's own agent is never closed");
-
-    // Busy now: a temporary agent answers instead, and the answer still goes back.
-    fake.agents.lock().unwrap()[1].1.state = Working;
-    std::thread::sleep(std::time::Duration::from_millis(2500));
-    d.call("/api/ask", Some(json!({ "as": "s-front", "unit": "u1", "task": 1, "text": "And sorted how?" }))).unwrap();
-    wait_until("a temporary agent starts", || fake.started.lock().unwrap().len() == 1);
-    assert!(!fake.sent.lock().unwrap().iter().any(|(to, t)| to == "s-back" && t.contains("q2")), "the busy agent is not interrupted");
-    d.append("s-why-q2", "question.answered", json!({ "question": "q2", "text": "By date." })).unwrap();
-    wait_until("answer back", || fake.sent.lock().unwrap().iter().any(|(to, t)| to == "s-front" && t.contains("q2") && t.contains("By date.")));
 
     // --wait gives up with a clear message when nobody answers in time.
     d.call("/api/ask", Some(json!({ "as": "s-front", "unit": "u1", "task": 1, "text": "Unanswered?" }))).unwrap();
-    let err = crate::wait_answer(&d, "q3", std::time::Duration::from_secs(1)).unwrap_err().to_string();
-    assert!(err.contains("no answer to q3 within 1 s"), "{err}");
+    let err = crate::wait_answer(&d, "q2", std::time::Duration::from_secs(1)).unwrap_err().to_string();
+    assert!(err.contains("no answer to q2 within 1 s"), "{err}");
 }
 
 /// Files go into the store and come back with their type: images inline, anything else as a

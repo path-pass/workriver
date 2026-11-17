@@ -4,6 +4,10 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Every question goes to a temporary agent**: `workriver ask` no longer prompts the task's
+  own agent when it is idle; a temporary agent reads the records and the code and asks that
+  agent itself only while it is idle. The one asked never gets `[workriver] The agent … asks
+  about your task …` any more. (`ask`)
 - **Every intent, unit and task has its own link**: `workriver link u1#3` (or `u1`, `i3`,
   `i3#1`, `u1#3:P2-1`) prints the address that opens it in the user's browser on the
   machine workriver runs on, also when run on another machine; `task show` prints its

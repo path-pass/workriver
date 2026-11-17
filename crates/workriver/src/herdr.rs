@@ -328,18 +328,23 @@ impl Runtime for Herdr {
         let started = self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": pane, "timeout_ms": 60_000 }), Duration::from_secs(75));
         // Herdr may answer before the agent is ready for a prompt; wait until it shows a state
         // and, where Herdr says so (AgentInfo's `launch_pending` / `interactive_ready`, in its
-        // schema), its launch is over. Blocked counts: it waits for a person, and the caller
-        // holds its message. A prompt can still meet `agent_not_ready`; the caller retries.
+        // schema), its launch is over. Blocked is taken at once: it waits for a person, and the
+        // caller holds its message. One still not ready after a minute may sit on a first-run
+        // prompt ("trust this folder?") Herdr does not report: it is returned as it is, its tab
+        // left open for the user; the caller holds the message until it is free. Only an agent
+        // that never showed up in the pane is given up, and its tab closed.
         let found = started.and_then(|_| {
-            for _ in 0..60 {
+            let mut seen = None;
+            for _ in 0..120 {
                 let (snap, list) = self.read()?;
                 let launched = snap.agents.iter().find(|i| i.pane_id == pane).is_some_and(|i| i.launch_pending != Some(true) && i.interactive_ready != Some(false));
-                if let Some((_, a)) = list.into_iter().find(|(p, _)| *p == pane).filter(|(_, a)| a.state != AgentState::Unknown && launched) {
+                seen = list.into_iter().find(|(p, _)| *p == pane).map(|(_, a)| a);
+                if let Some(a) = seen.take_if(|a| a.state == AgentState::Blocked || (a.state != AgentState::Unknown && launched)) {
                     return Ok(a);
                 }
                 std::thread::sleep(Duration::from_millis(500));
             }
-            Err(RuntimeError::NoAgent(name.into()))
+            seen.ok_or_else(|| RuntimeError::NoAgent(name.into()))
         });
         if found.is_err() {
             let _ = self.call("pane.close", json!({ "pane_id": pane }));
@@ -461,6 +466,27 @@ mod tests {
         let seen = server.join().unwrap();
         assert_eq!(seen[1]["method"], "agent.prompt");
         assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
+    }
+
+    /// A new agent on a first-run prompt is blocked and not interactive-ready: taken at once,
+    /// its tab kept. One Herdr could not start: its tab is closed.
+    #[test]
+    fn starts_a_temporary_agent() {
+        let tab = json!({ "result": { "type": "tab_created", "root_pane": { "pane_id": "w5:p7" } } });
+        let started = json!({ "result": { "type": "agent_started" } });
+        let mut snap = snapshot();
+        snap["result"]["snapshot"]["agents"].as_array_mut().unwrap().push(json!({ "pane_id": "w5:p7", "workspace_id": "w5", "agent": "claude", "name": "why-q1", "agent_status": "blocked", "interactive_ready": false }));
+        let (_dir, herdr, server) = fake(vec![tab.clone(), started, snap]);
+        let a = herdr.start_temporary("w5", "claude", "why-q1", "/r").unwrap();
+        assert_eq!((a.name.as_str(), a.state), ("why-q1", AgentState::Blocked));
+        let seen = server.join().unwrap();
+        assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["tab.create", "agent.start", "session.snapshot"], "no pane.close");
+
+        let refused = json!({ "error": { "code": "agent_start_failed", "message": "no such harness" } });
+        let (_dir, herdr, server) = fake(vec![tab, refused, json!({ "result": { "type": "ok" } })]);
+        assert!(herdr.start_temporary("w5", "nope", "why-q2", "/r").is_err());
+        let seen = server.join().unwrap();
+        assert_eq!((seen[2]["method"].as_str(), &seen[2]["params"]), (Some("pane.close"), &json!({ "pane_id": "w5:p7" })));
     }
 
     #[test]

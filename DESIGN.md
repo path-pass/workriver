@@ -312,9 +312,13 @@ looked at now and then.
   needs an answer in its terminal") with "Go to the terminal", the agent is a Blocking row
   in Needs you like any waiting agent, and the question goes in by itself once the agent is
   free; still waiting at the question's deadline, it fails saying so. The same holds for
-  follow-ups and for an agent's question to another. A new agent the runtime does not take
-  a prompt for yet (still launching) is tried again at each poll (2 s) for up to 60 s, then
-  the question fails saying it never got ready. Questions form conversations on the node:
+  follow-ups and for an agent's question to another, which also goes to a temporary agent
+  (never straight to the task's own agent, even an idle one). A new agent the runtime does
+  not take a prompt for yet (still launching) is tried again at each poll (2 s) for up to
+  60 s; still not ready then, it may sit on a prompt the runtime does not report, so it is
+  shown and held exactly like a waiting one above, and the question goes in once it is
+  idle. Never ready by the deadline, the question fails saying so, and its tab is left open
+  for the user (only a start that failed, or an agent that never appeared, closes it). Questions form conversations on the node:
   question, answer, question, answer, with the box under the last one; follow-ups go to the
   same temporary agent while it lives (it closes after a quiet while, and a later question
   starts a new one with the conversation so far). Under a conversation: "Draft conclusion"

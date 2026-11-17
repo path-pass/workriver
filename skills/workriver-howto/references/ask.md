@@ -6,8 +6,8 @@ type into another agent's terminal.
     workriver ask u1#3 "Is the list paged?" [--file src/api.ts [--lines 10-24]] [--wait]
     workriver answer q7 --text "Yes, 50 per page."          # when you are the one asked
 
-The task's own agent answers if it is free; else a temporary agent reads the records and
-the code.
+A temporary agent answers from the records and the code; it asks the task's own agent
+only while that one is idle. workriver never types into the task's own agent itself.
 
 **You will see:** the question id (`q7`); later, in your terminal, "Your question q7 … was
 answered" with the answer quoted. With `--wait` the command prints it.
