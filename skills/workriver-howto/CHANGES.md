@@ -4,6 +4,9 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **`workriver machine load`**: CPU and memory of this machine and the followed ones, and
+  which are over their alert thresholds; agents may read it (only the user sets the
+  thresholds). Weigh it before handing heavy work to a machine. (`machines`)
 - **Agents may merge planned intents that agents added** (an import split too finely):
   `workriver backlog merge <into> <from>...`. Intents the user added stay the user's to
   merge; the service refuses with "… was added by the user". (`start-intent`)

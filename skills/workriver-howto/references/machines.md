@@ -13,6 +13,13 @@ What a manager or worker can do:
     workriver workspace list                  # what is linked to what
     workriver status                          # on the other machine: must answer, same build
 
+How loaded each machine is (read-only, for you too; the user sets the alert thresholds):
+
+    workriver machine load                    # CPU and memory per machine, and alerts
+
+Before handing heavy work (a build, a test run, a browser) to an agent on a machine in
+alert, prefer another machine or wait.
+
 A workspace on another machine is one with yours only if linked; do not hand work to agents
 in unlinked ones. Units there: `units-other-machine`.
 

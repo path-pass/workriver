@@ -1060,11 +1060,12 @@ fn only_the_user_is_the_user() {
     let (code, said) = http(port, "POST", "/api/machines", &from_pane, Some(&json!({ "label": "x", "action": "add", "ssh": "x" }).to_string()));
     assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
     assert_eq!(http(port, "GET", "/api/machines?place=w1:p2", &from_pane, None).0, 200);
-    // CPU, memory and their thresholds are the user's alone, to read and to set.
+    // Thresholds are the user's alone to set; CPU and memory an agent here may read.
     let (code, said) = http(port, "POST", "/api/metrics/thresholds", &from_pane, Some(&json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }).to_string()));
     assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
-    assert_eq!(http(port, "GET", "/api/metrics?place=w1:p2", &from_pane, None).0, 403);
+    assert_eq!(http(port, "GET", "/api/metrics?place=w1:p2", &from_pane, None).0, 200);
     let report = user.get("/api/metrics").unwrap();
+    assert!(crate::load_text(&report).starts_with("local (here)  "), "{}", crate::load_text(&report));
     assert_eq!((report["machines"][0]["label"].as_str(), report["machines"][0]["here"].as_bool()), (Some("local"), Some(true)), "this machine first: {report}");
     assert_eq!(report["thresholds"]["cpu"], json!({ "on": true, "percent": 90, "minutes": 5 }), "the defaults");
     let set = user.call("/api/metrics/thresholds", Some(json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }))).unwrap();

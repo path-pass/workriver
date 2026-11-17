@@ -273,6 +273,10 @@ enum MachineCmd {
     },
     /// The machines, whether each can be reached, and why not.
     List,
+    /// CPU and memory of this machine and the followed ones, newest reading, and which are
+    /// over their alert thresholds. Read-only: agents may run it too (the user sets the
+    /// thresholds, in Settings).
+    Load,
     /// Follow a machine: its agents show up, and its `workriver` CLI reaches this service.
     Enable { label: String },
     /// Stop following a machine; nothing over there is stopped.
@@ -884,8 +888,13 @@ fn main() -> anyhow::Result<()> {
             }
             return Ok(());
         }
+        Cmd::Machine(MachineCmd::Load) => {
+            print!("{}", load_text(&d.get("/api/metrics")?));
+            return Ok(());
+        }
         Cmd::Machine(cmd) => {
             let (label, action, extra) = match cmd {
+                MachineCmd::Load => unreachable!("handled above"),
                 MachineCmd::List => (String::new(), "", json!({})),
                 MachineCmd::Add { label, ssh, herdr_socket } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket })),
                 MachineCmd::Enable { label } => (label, "enable", json!({})),
@@ -1780,4 +1789,29 @@ mod tests;
 // ponytail: whole answer in memory, capped at 256 MB; stream it if snapshots ever get there.
 fn read_answer(res: &mut ureq::http::Response<ureq::Body>) -> anyhow::Result<String> {
     res.body_mut().with_config().limit(256 * 1024 * 1024).read_to_string().map_err(|e| anyhow!("the service answered, but its answer could not be read: {e}"))
+}
+
+/// `machine load` as text: one line per machine, its newest CPU and memory and alerts.
+fn load_text(r: &Value) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let gb = |b: &Value| b.as_f64().unwrap_or(0.0) / 1_073_741_824.0;
+    for m in r["machines"].as_array().into_iter().flatten() {
+        let name = format!("{}{}", m["label"].as_str().unwrap_or("?"), if m["here"] == true { " (here)" } else { "" });
+        let Some(s) = m["samples"].as_array().and_then(|s| s.last()).filter(|_| m["reachable"] == true) else {
+            let why = m["error"].as_str().map(str::to_string).or_else(|| m["downSince"].as_str().map(|d| format!("disconnected since {d}"))).unwrap_or_else(|| "no reading yet".into());
+            let _ = writeln!(out, "{name}  {why}");
+            continue;
+        };
+        let cpu = s["cpu"].as_f64().map(|c| format!("{c:.0}%")).unwrap_or_else(|| "-".into());
+        let total = gb(&s["memTotal"]);
+        let mem = if total > 0.0 { format!("{:.0}% ({:.1}/{:.1} GB)", gb(&s["memUsed"]) * 100.0 / total, gb(&s["memUsed"]), total) } else { "-".into() };
+        let alerts: Vec<String> = m["alerts"].as_object().into_iter().flatten().map(|(k, v)| format!("{k} over its threshold since {}", v.as_str().unwrap_or("?"))).collect();
+        let alerts = if alerts.is_empty() { String::new() } else { format!("  ALERT: {}", alerts.join(", ")) };
+        let _ = writeln!(out, "{name}  cpu {cpu}  memory {mem}{alerts}");
+    }
+    let t = &r["thresholds"];
+    let lim = |m: &Value| if m["on"] == true { format!("{}% for {} min", m["percent"], m["minutes"]) } else { "off".into() };
+    let _ = writeln!(out, "alerts: cpu {}, memory {} (the user sets them in Settings)", lim(&t["cpu"]), lim(&t["memory"]));
+    out
 }

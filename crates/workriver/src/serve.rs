@@ -1398,10 +1398,11 @@ struct MachineSet {
     herdr_socket: Option<String>,
 }
 
-/// CPU and memory of this machine and the followed ones, with the thresholds: the user's
-/// to read (the page), never an agent's, and not on a machine's listener.
-async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<crate::metrics::Report>, ApiError> {
-    app.user(&caller)?;
+/// CPU and memory of this machine and the followed ones, with the thresholds: read by the
+/// user (the page) and by an agent at its place here (to weigh where to put work); set by
+/// the user alone. Not on a machine's listener.
+async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::metrics::Report>, ApiError> {
+    app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
     Ok(Json(app.metrics.report()))
 }
 
