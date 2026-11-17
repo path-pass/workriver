@@ -4,6 +4,8 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Workers have names**: hand tasks only to agents started with `herdr agent start <name>`;
+  a temporary agent answering a question reaches the worker by that name. (`hand-off`)
 - **Every question goes to a temporary agent**: `workriver ask` no longer prompts the task's
   own agent when it is idle; a temporary agent reads the records and the code and asks that
   agent itself only while it is idle. The one asked never gets `[workriver] The agent … asks
