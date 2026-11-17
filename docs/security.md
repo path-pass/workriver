@@ -35,8 +35,8 @@ Decide findings as the user, submit gates, finish chores, do deferred findings t
 drop them, end a conversation, focus a terminal from the page, add projects, add or enable
 machines, link workspaces, set when the machines alert (`/api/metrics/thresholds`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
-`workriver machine load`) the user and
-an agent of this machine may; another machine's listener serves neither. The service asks for the token or session on those routes, and
+`workriver machine load`) the user and an agent of this machine may; an agent on another
+machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
 

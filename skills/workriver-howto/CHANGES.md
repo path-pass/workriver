@@ -4,6 +4,8 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **`workriver machine load` works on other machines too**, showing that machine alone
+  (its own load and history; nothing of the machine workriver runs on). (`machines`)
 - **Push, pull request and merge are three tasks**, each after a decide gate, added one at
   a time; a worker does only its own step and never pushes, opens a PR or merges unless that
   is its task. (`push-pr-merge`; worker guide)

@@ -1208,6 +1208,9 @@ fn machine_router(app: Shared, via: Via) -> Router {
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
         .route("/api/status", get(status))
+        // Its own load only (the handlers keep a machine's caller to that machine).
+        .route("/api/metrics", get(metrics))
+        .route("/api/metrics/history", get(metrics_history))
         .route_layer(middleware::from_fn(timing))
         .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
         .layer(middleware::from_fn_with_state(app.clone(), guard))
@@ -1547,7 +1550,12 @@ struct MachineSet {
 /// the user alone. Not on a machine's listener.
 async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::metrics::Report>, ApiError> {
     app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
-    Ok(Json(app.metrics.report()))
+    let mut report = app.metrics.report();
+    // An agent on another machine sees that machine alone: nothing of this one or the others.
+    if let Some(m) = caller.machine.as_deref() {
+        report.machines.retain(|x| !x.here && x.label == m);
+    }
+    Ok(Json(report))
 }
 
 #[derive(Deserialize)]
@@ -1569,6 +1577,9 @@ fn a_day() -> u32 {
 /// the user, or an agent at its place on this machine.
 async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
     app.who(&caller, q.place.as_deref(), q.named.as_deref())?;
+    if let Some(m) = caller.machine.as_deref().filter(|m| *m != q.machine) {
+        return Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} reads that machine's history only")));
+    }
     let m = app.metrics.clone();
     let (label, hours) = (q.machine.clone(), q.hours);
     let points = tokio::task::spawn_blocking(move || m.history(&label, hours)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;

@@ -1291,8 +1291,6 @@ fn a_machines_listener_serves_only_agents() {
         ("POST", "/api/thread/end", json!({ "thread": "q1" })),
         ("POST", "/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),
         ("GET", "/api/machines", json!(null)),
-        ("GET", "/api/metrics", json!(null)),
-        ("GET", "/api/metrics/history?machine=local&place=w1:p1", json!(null)),
         ("POST", "/api/metrics/thresholds", json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } })),
         ("POST", "/api/session", json!({ "code": "x" })),
         ("GET", "/api/session", json!(null)),
@@ -1314,6 +1312,16 @@ fn a_machines_listener_serves_only_agents() {
         assert_eq!(http(box_port, "GET", &format!("{path}?place=w1:p1"), &[], None).0, 200, "{path}");
     }
     assert_eq!(http(box_port, "GET", "/api/status", &[], None).0, 200);
+    // Its own load, read-only: that machine alone, never this one; its own history only.
+    let (code, text) = http(box_port, "GET", "/api/metrics?place=w1:p1", &[], None);
+    let seen: serde_json::Value = serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap_or(&text)).unwrap_or_default();
+    assert_eq!(code, 200, "{text}");
+    let theirs = seen["machines"].as_array().unwrap();
+    assert!(!theirs.is_empty() && theirs.iter().all(|m| m["label"] == "box" && m["here"] == false), "{seen}");
+    assert_eq!(http(box_port, "GET", "/api/metrics?place=w1:p1", &[], None).0, 200);
+    assert_eq!(http(box_port, "GET", "/api/metrics", &creds, None).0, 403, "as nobody, token and all");
+    assert_eq!(http(box_port, "GET", "/api/metrics/history?machine=local&place=w1:p1", &[], None).0, 403, "not this machine's");
+    assert_eq!(http(box_port, "GET", "/api/metrics/history?machine=box&place=w1:p1", &[], None).0, 200);
     let there = Daemon { port: box_port, place: Some("w1:p1".into()), home: Some(tmp.path().to_path_buf()) };
     assert_eq!(there.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-far");
     let e = there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look" })).unwrap();

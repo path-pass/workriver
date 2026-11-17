@@ -13,7 +13,8 @@ What a manager or worker can do:
     workriver workspace list                  # what is linked to what
     workriver status                          # on the other machine: must answer, same build
 
-How loaded each machine is (read-only, for you too; the user sets the alert thresholds):
+How loaded each machine is (read-only, for you too; the user sets the alert thresholds). On
+another machine it shows that machine only:
 
     workriver machine load                    # CPU and memory per machine, and alerts with their level
     workriver machine load --hours 24         # also mean / max CPU and memory over 24 h (max 168)
