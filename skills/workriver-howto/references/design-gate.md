@@ -10,6 +10,11 @@ What is already decided needs no design task: cite the decision in the task's `-
 The designer delivers the design as its note (`workriver task deliver u1#1 --note "..."`).
 The user discusses it in the browser and confirms at the gate.
 
+A design for the whole intent (across units or repositories) goes in a research unit
+(`units`): `workriver unit add --kind research --title "…"`, then the design task and the
+gate there, the implementation in the code units after it. Once confirmed, put the decision
+on the intent's page: `workriver intent set i3 --add-note "Design: … (u2#2)"`.
+
 **You will see:** "The user confirmed the design in gate …", the decision quoted: hand out
 the implementation. Or "did not confirm …": for each finding accepted or revised, a new
 design task `--cause 2:<id>`, a new decide gate after it, the implementation after the

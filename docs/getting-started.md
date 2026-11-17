@@ -73,8 +73,11 @@ of one goal become one intent, with them as a checklist in its note), shows you 
 preview table and waits for your yes, then adds them in the file's order with
 `workriver backlog add` and `workriver backlog add-finding`. It never changes the file.
 `workriver backlog export --project P` prints the backlog back as Markdown.
-Split too finely? Tick the rows in the roadmap and "Merge into…" one of them, or
-`workriver backlog merge i3 i4 i5`: i4 and i5 are dropped and what they said goes into i3's note.
+Split too finely? "Merge…" in the roadmap's heading opens a dialog: tick the intents, pick the
+one that stays and, if you like, give it a new title. Or `workriver backlog merge i3 i4 i5
+--title "Search"`: i4 and i5 are dropped and what they said goes into i3's note, shown under
+its goal. An agent may merge intents that agents added (the import agent tidying its own
+import); intents you added only you merge.
 
 ## 4. Give each workspace a manager
 
@@ -147,9 +150,13 @@ merged (workriver sees a fast-forward or merge commit itself; after a squash mer
 `workriver unit merged u1`) or done (`workriver unit done u1 --reason "..."`, for work
 finished without a merge). When every unit of an intent is merged or done, its manager
 closes it with `workriver intent done i1`.
+A task that is no longer needed (a gate asked again after the branch changed) is dropped,
+never deleted: "No longer needed…" in its details on the page, or `workriver task drop u1#15
+--reason "superseded by u1#17"`. It turns grey, leaves Needs you, holds nothing up, and its
+agent and the manager are told.
 Reviews and tests are tasks of their own. Their findings are decided by the intent's
 manager by default (shown with a robot mark; you can change any decision on the page, or
-keep the deciding to yourself per intent: "Findings decided by" in the rail, or `workriver
+keep the deciding to yourself per intent: "Findings: Manual" in the rail, or `workriver
 intent set i1 --findings user`). Findings that are yours wait in **Needs you**: accept,
 revise, reject or defer each one there. Deferred ones wait in the **Backlog**
 panel; tick several and "Do together" sends them to the intent's manager as one message,

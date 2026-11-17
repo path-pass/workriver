@@ -46,6 +46,11 @@ pub fn ask_hint(agent: &str) -> String {
     )
 }
 
+/// How a manager looks at a stopped worker's terminal and gets it going, through Herdr's own CLI.
+pub fn stall_hint(agent: &str) -> String {
+    format!("Look at its terminal (`herdr agent read {agent} --source recent-unwrapped --lines 80`) and either get it going (`herdr agent prompt {agent} \"...\"`),")
+}
+
 /// `HERDR_SOCKET_PATH`, or Herdr's default socket.
 pub fn socket_path() -> PathBuf {
     match std::env::var_os("HERDR_SOCKET_PATH") {
@@ -136,6 +141,11 @@ struct AgentInfo {
     cwd: Option<String>,
     #[serde(default)]
     foreground_cwd: Option<String>,
+    /// Still launching / ready for input: in Herdr's schema, not described; absent says nothing.
+    #[serde(default)]
+    launch_pending: Option<bool>,
+    #[serde(default)]
+    interactive_ready: Option<bool>,
     /// The terminal title without decoration: what the session is about.
     #[serde(default)]
     terminal_title_stripped: Option<String>,
@@ -175,9 +185,24 @@ impl Herdr {
         BufReader::new(&stream).read_line(&mut answer).map_err(fail)?;
         let v: Value = serde_json::from_str(&answer).map_err(|e| RuntimeError::Failed(format!("herdr {method}: unreadable answer: {e}")))?;
         if let Some(e) = v.get("error") {
-            return Err(RuntimeError::Failed(format!("herdr {method}: {} ({})", e["message"].as_str().unwrap_or("?"), e["code"].as_str().unwrap_or("?"))));
+            let (message, code) = (e["message"].as_str().unwrap_or("?"), e["code"].as_str().unwrap_or("?"));
+            let words = format!("herdr {method}: {message} ({code})");
+            return Err(match code {
+                "agent_blocked" => RuntimeError::Blocked(words),
+                "agent_not_ready" => RuntimeError::NotReady(words),
+                _ => RuntimeError::Failed(words),
+            });
         }
         v.get("result").cloned().ok_or_else(|| RuntimeError::Failed(format!("herdr {method}: answer without a result")))
+    }
+
+    /// Herdr focuses a pane inside its window; the window's app is brought forward here (macOS).
+    /// A failure only means the user switches to it by hand.
+    fn activate(&self) {
+        #[cfg(target_os = "macos")]
+        if !self.terminal_app.is_empty() && !self.terminal_app.contains('"') {
+            let _ = std::process::Command::new("osascript").args(["-e", &format!("tell application \"{}\" to activate", self.terminal_app)]).output();
+        }
     }
 
     /// A line on what is wrong with the connection, or None when Herdr answers with our protocol.
@@ -290,12 +315,7 @@ impl Runtime for Herdr {
         // On another machine this focuses the pane in that machine's Herdr; nothing in Herdr's
         // API makes this machine's window switch to it, so the user picks it in the sidebar.
         self.call("agent.focus", json!({ "target": pane }))?;
-        // Herdr focuses the pane inside its window; the window's app is brought forward here.
-        // A failure only means the user switches to it by hand.
-        #[cfg(target_os = "macos")]
-        if !self.terminal_app.is_empty() && !self.terminal_app.contains('"') {
-            let _ = std::process::Command::new("osascript").args(["-e", &format!("tell application \"{}\" to activate", self.terminal_app)]).output();
-        }
+        self.activate();
         Ok(())
     }
 
@@ -310,15 +330,25 @@ impl Runtime for Herdr {
         let tab = self.call("tab.create", json!({ "workspace_id": group, "cwd": cwd, "label": name, "focus": false }))?;
         let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();
         let started = self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": pane, "timeout_ms": 60_000 }), Duration::from_secs(75));
-        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state.
+        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state
+        // and, where Herdr says so (AgentInfo's `launch_pending` / `interactive_ready`, in its
+        // schema), its launch is over. Blocked is taken at once: it waits for a person, and the
+        // caller holds its message. One still not ready after a minute may sit on a first-run
+        // prompt ("trust this folder?") Herdr does not report: it is returned as it is, its tab
+        // left open for the user; the caller holds the message until it is free. Only an agent
+        // that never showed up in the pane is given up, and its tab closed.
         let found = started.and_then(|_| {
-            for _ in 0..60 {
-                if let Some((_, a)) = self.read()?.1.into_iter().find(|(p, _)| *p == pane).filter(|(_, a)| a.state != AgentState::Unknown) {
+            let mut seen = None;
+            for _ in 0..120 {
+                let (snap, list) = self.read()?;
+                let launched = snap.agents.iter().find(|i| i.pane_id == pane).is_some_and(|i| i.launch_pending != Some(true) && i.interactive_ready != Some(false));
+                seen = list.into_iter().find(|(p, _)| *p == pane).map(|(_, a)| a);
+                if let Some(a) = seen.take_if(|a| a.state == AgentState::Blocked || (a.state != AgentState::Unknown && launched)) {
                     return Ok(a);
                 }
                 std::thread::sleep(Duration::from_millis(500));
             }
-            Err(RuntimeError::NoAgent(name.into()))
+            seen.ok_or_else(|| RuntimeError::NoAgent(name.into()))
         });
         if found.is_err() {
             let _ = self.call("pane.close", json!({ "pane_id": pane }));
@@ -332,9 +362,50 @@ impl Runtime for Herdr {
         Ok(())
     }
 
+    /// One `pane.process_info` per agent pane: its shell, and the foreground processes in
+    /// case Herdr knows no shell. A pane that does not answer has no ids.
+    fn processes(&self, _: Option<&str>) -> Result<Vec<(RuntimeAgent, Vec<u32>)>, RuntimeError> {
+        let (_, list) = self.read()?;
+        Ok(list
+            .into_iter()
+            .map(|(pane, agent)| {
+                let info = self.call("pane.process_info", json!({ "pane_id": pane })).map(|r| r["process_info"].clone()).unwrap_or_default();
+                let fg = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64());
+                let pids = info["shell_pid"].as_u64().into_iter().chain(fg).map(|p| p as u32).collect();
+                (agent, pids)
+            })
+            .collect())
+    }
+
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
         let snap = self.snapshot()?;
         Ok(snap.workspaces.iter().filter_map(|w| group(&snap, &w.workspace_id, self.label())).collect())
+    }
+
+    /// A tab of its own in the workspace labelled `group` (made, with its first tab, when there
+    /// is none): a run never types into a shell an earlier run may still hold (a password
+    /// prompt, a pager), and each run's output starts clean. Herdr queues the text and Enter
+    /// together, so they wait in the terminal until the new shell reads them.
+    fn run_shell(&self, _: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
+        let snap = self.snapshot()?;
+        let made = match snap.workspaces.iter().find(|w| w.label == group) {
+            Some(w) => self.call("tab.create", json!({ "workspace_id": w.workspace_id, "cwd": dir, "label": "run", "focus": false }))?,
+            None => self.call("workspace.create", json!({ "label": group, "cwd": dir, "focus": false }))?,
+        };
+        let pane = made["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr: no pane in the answer".into()))?.to_string();
+        self.call("pane.send_input", json!({ "pane_id": pane, "text": line, "keys": ["enter"] }))?;
+        Ok(pane)
+    }
+
+    fn read_place(&self, _: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
+        let r = self.call("pane.read", json!({ "pane_id": place, "source": "recent_unwrapped", "lines": lines }))?;
+        Ok(r["read"]["text"].as_str().unwrap_or_default().to_string())
+    }
+
+    fn focus_place(&self, _: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+        self.call("pane.focus", json!({ "pane_id": place }))?;
+        self.activate();
+        Ok(())
     }
 }
 
@@ -419,11 +490,33 @@ mod tests {
         let error = json!({ "error": { "code": "agent_blocked", "message": "agent is blocked" } });
         let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), error]);
         herdr.send("s-1", "hello").unwrap();
-        let err = herdr.send("s-1", "again").unwrap_err().to_string();
-        assert!(err.contains("agent_blocked") && err.contains("agent is blocked"), "{err}");
+        // Blocked is its own error: the message waits rather than fails.
+        let err = herdr.send("s-1", "again").unwrap_err();
+        assert!(matches!(&err, RuntimeError::Blocked(w) if w.contains("agent_blocked") && w.contains("agent is blocked")), "{err}");
         let seen = server.join().unwrap();
         assert_eq!(seen[1]["method"], "agent.prompt");
         assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
+    }
+
+    /// A new agent on a first-run prompt is blocked and not interactive-ready: taken at once,
+    /// its tab kept. One Herdr could not start: its tab is closed.
+    #[test]
+    fn starts_a_temporary_agent() {
+        let tab = json!({ "result": { "type": "tab_created", "root_pane": { "pane_id": "w5:p7" } } });
+        let started = json!({ "result": { "type": "agent_started" } });
+        let mut snap = snapshot();
+        snap["result"]["snapshot"]["agents"].as_array_mut().unwrap().push(json!({ "pane_id": "w5:p7", "workspace_id": "w5", "agent": "claude", "name": "why-q1", "agent_status": "blocked", "interactive_ready": false }));
+        let (_dir, herdr, server) = fake(vec![tab.clone(), started, snap]);
+        let a = herdr.start_temporary("w5", "claude", "why-q1", "/r").unwrap();
+        assert_eq!((a.name.as_str(), a.state), ("why-q1", AgentState::Blocked));
+        let seen = server.join().unwrap();
+        assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["tab.create", "agent.start", "session.snapshot"], "no pane.close");
+
+        let refused = json!({ "error": { "code": "agent_start_failed", "message": "no such harness" } });
+        let (_dir, herdr, server) = fake(vec![tab, refused, json!({ "result": { "type": "ok" } })]);
+        assert!(herdr.start_temporary("w5", "nope", "why-q2", "/r").is_err());
+        let seen = server.join().unwrap();
+        assert_eq!((seen[2]["method"].as_str(), &seen[2]["params"]), (Some("pane.close"), &json!({ "pane_id": "w5:p7" })));
     }
 
     #[test]
@@ -431,5 +524,18 @@ mod tests {
         let herdr = Herdr::new("/nonexistent/herdr.sock".into(), String::new());
         assert!(matches!(herdr.agents(), Err(RuntimeError::None)));
         assert!(herdr.check().unwrap().contains("not running"));
+    }
+
+    #[test]
+    fn reads_the_processes_of_each_agent_pane() {
+        let info = |shell: Value, fg: Value| json!({ "result": { "type": "pane_process_info", "process_info": { "pane_id": "x", "shell_pid": shell, "foreground_processes": fg } } });
+        let refused = json!({ "error": { "code": "pane_not_found", "message": "gone" } });
+        let replies = vec![snapshot(), info(json!(100), json!([{ "pid": 101, "name": "claude" }])), info(Value::Null, json!([{ "pid": 200, "name": "codex" }])), refused, info(json!(400), json!([]))];
+        let (_dir, herdr, server) = fake(replies);
+        let got: Vec<(String, Vec<u32>)> = herdr.processes(None).unwrap().into_iter().map(|(a, p)| (a.name, p)).collect();
+        assert_eq!(got, [("lead".into(), vec![100, 101]), ("reviewer".into(), vec![200]), ("claude 1".into(), vec![]), ("claude 2".into(), vec![400])]);
+        let seen = server.join().unwrap();
+        assert_eq!(seen[1]["method"], "pane.process_info");
+        assert_eq!(seen[1]["params"], json!({ "pane_id": "w5:p1" }));
     }
 }

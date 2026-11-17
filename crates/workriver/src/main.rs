@@ -6,11 +6,14 @@ mod backlog;
 mod deliver;
 mod herdr;
 mod machines;
+mod metrics;
 mod quote;
+mod run;
 mod serve;
 mod perf;
 mod show;
 mod snapshot;
+mod stall;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -194,6 +197,14 @@ enum Cmd {
         #[arg(long)]
         conclusion: bool,
     },
+    /// Reply to the user's message (m3) that workriver typed into your terminal, for the
+    /// manager it was sent to; the user reads it in workriver's page.
+    Reply {
+        /// The message (m3).
+        message: String,
+        #[arg(long)]
+        text: String,
+    },
     /// Print the instructions for an agent working with workriver.
     ///
     /// What it prints matches this binary, which a copied skill file may not: `manager` (the
@@ -212,6 +223,12 @@ enum Cmd {
     Board {
         /// An intent (i1) or unit (u1).
         target: Option<String>,
+    },
+    /// Print the link that opens an intent, unit or task in the user's browser, on the
+    /// machine workriver runs on: to point the user at it.
+    Link {
+        /// An intent (i3), unit (u1), task (u1#3, i3#1), or a finding of a task (u1#3:P2-1).
+        target: String,
     },
 }
 
@@ -238,8 +255,8 @@ enum IntentCmd {
         #[arg(long)]
         reason: String,
     },
-    /// Change an intent's title or goal (its manager or the user only), or who decides its
-    /// findings (the user only).
+    /// Change an intent's title or goal, or add to its note (its manager or the user only), or
+    /// who decides its findings (the user only).
     Set {
         /// The intent (i1…).
         intent: String,
@@ -252,6 +269,10 @@ enum IntentCmd {
         /// always decide any finding yourself. Only the user sets this.
         #[arg(long, value_parser = ["manager", "user"])]
         findings: Option<String>,
+        /// A paragraph to add at the end of its note (a blank line before it): what was
+        /// learnt or decided about the intent as a whole, links welcome.
+        #[arg(long, value_name = "TEXT")]
+        add_note: Option<String>,
     },
 }
 
@@ -272,6 +293,15 @@ enum MachineCmd {
     },
     /// The machines, whether each can be reached, and why not.
     List,
+    /// CPU and memory of this machine and the followed ones, newest reading (with memory
+    /// pressure, swap, OOM kills and free disk), and which are over their alert thresholds. Read-only: agents may run it too (the user sets the
+    /// thresholds, in Settings).
+    Load {
+        /// Also the mean and highest CPU and memory of each machine over the last N hours
+        /// (1 to 168), from the minute history workriver keeps.
+        #[arg(long, value_name = "N")]
+        hours: Option<u32>,
+    },
     /// Follow a machine: its agents show up, and its `workriver` CLI reaches this service.
     Enable { label: String },
     /// Stop following a machine; nothing over there is stopped.
@@ -309,6 +339,12 @@ enum ProjectCmd {
     },
     /// List the projects and their repositories.
     List,
+    /// Change a project's title. The user only.
+    Rename {
+        /// Its id (p1…) or its folder.
+        project: String,
+        title: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -383,6 +419,9 @@ enum BacklogCmd {
         /// The planned intents merged into it, in the order their text is added.
         #[arg(required = true)]
         from: Vec<String>,
+        /// A new title for the intent that stays (the merged whole may need one).
+        #[arg(long)]
+        title: Option<String>,
     },
     /// Print a project's backlog as Markdown (a read-only copy; the records stay in workriver).
     Export {
@@ -394,24 +433,31 @@ enum BacklogCmd {
 #[derive(Subcommand)]
 enum UnitCmd {
     /// Record a unit of an intent; prints its id (u1…).
+    ///
+    /// `--kind research`: research and design for the intent, with no repository, branch or
+    /// machine (leave those out). It takes research, design, review and gate tasks, is never
+    /// merged, and is closed with `workriver unit done` once its work is delivered and decided.
     Add {
         /// The intent it serves (i1…); default: the current intent of this Herdr workspace.
         intent: Option<String>,
+        /// code: work on a branch of its own; research: research and design, no branch.
+        #[arg(long, value_parser = ["code", "research"], default_value = "code")]
+        kind: String,
         #[arg(long)]
         title: String,
         /// One sentence on what it is for.
         #[arg(long, default_value = "")]
         purpose: String,
         /// The repository (or a worktree of it); default: the current directory.
-        #[arg(long, default_value = ".")]
-        repo: String,
-        /// The unit's own branch, where the work happens; it may not exist yet. It starts
-        /// with feat/, chore/ or fix/ (feat/mention) and is not the base.
         #[arg(long)]
-        branch: String,
-        /// The branch it starts from and merges into.
-        #[arg(long, default_value = "main")]
-        base: String,
+        repo: Option<String>,
+        /// The unit's own branch, where the work happens; it may not exist yet. It starts
+        /// with feat/, chore/ or fix/ (feat/mention) and is not the base. Needed for code.
+        #[arg(long)]
+        branch: Option<String>,
+        /// The branch it starts from and merges into; default: main.
+        #[arg(long)]
+        base: Option<String>,
         /// The machine the work happens on, when it is not the one this runs on: a machine
         /// of `workriver machine list` (or `local`: the one workriver runs on). --repo and
         /// --branch are then the path and the branch as they are on that machine.
@@ -461,19 +507,16 @@ enum TaskCmd {
         #[arg(long)]
         json: bool,
     },
-    /// Record a task in a unit, or (research, design, their reviews and gates) in an intent;
-    /// prints its ref (u1#3, i2#1).
+    /// Record a task in a unit; prints its ref (u1#3). Research and design for the intent as a
+    /// whole go into a research unit (`workriver unit add --kind research`), not the intent.
     ///
-    /// Without --after or --cause the task starts from the unit itself. With --cause and
-    /// no --after it follows the tasks whose findings it answers. A cause must name
-    /// accepted, revised or scheduled findings.
+    /// The first task of a unit starts from the unit itself. A later one says what it
+    /// follows: --after N, or --after start to run beside the first; with --cause and no
+    /// --after it follows the tasks whose findings it answers. A cause must name accepted,
+    /// revised or scheduled findings.
     Add {
-        /// The unit (u1…); without it, the task belongs to the intent itself (--intent, or
-        /// this Herdr workspace's current intent).
-        unit: Option<String>,
-        /// The intent, for intent-level work.
-        #[arg(long, conflicts_with = "unit")]
-        intent: Option<String>,
+        /// The unit (u1…).
+        unit: String,
         #[arg(long, value_parser = ["implement", "design", "research", "review", "tests", "gate"], default_value = "implement")]
         kind: String,
         /// What the work is (needed for implement, design, research and gate).
@@ -482,8 +525,9 @@ enum TaskCmd {
         /// The full ask, as handed to the agent; default: the title.
         #[arg(long, default_value = "")]
         text: String,
-        /// Task number this one follows; repeat for more. The first is the direct cause, the
-        /// rest are merely involved.
+        /// Task number this one follows, or `start`; repeat for more. The first is the direct
+        /// cause, the rest are merely involved. Needed once the unit has a task, unless
+        /// --cause names one in it.
         #[arg(long, value_name = "N")]
         after: Vec<String>,
         /// Findings this task answers: `N:ID[,ID…]` in this unit (`4:P2-1,P3-1`),
@@ -548,6 +592,16 @@ enum TaskCmd {
         /// has, which stay as they are, decided or not.
         #[arg(long, value_name = "FILE", requires = "amend", conflicts_with = "findings")]
         add_findings: Option<String>,
+    },
+    /// Mark a task not done yet as no longer needed (a gate asked again, a plan changed). It
+    /// is kept, never deleted; what follows it no longer waits on it, and its agent is told
+    /// to stop. By the intent's manager or the user (or the agent that recorded it).
+    Drop {
+        /// The task (u1#15).
+        task: String,
+        /// Why, e.g. "superseded by u1#17".
+        #[arg(long)]
+        reason: String,
     },
 }
 
@@ -738,7 +792,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = &warning {
                 tracing::warn!("{w}");
             }
-            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1") };
+            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1"), sample: true };
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port.unwrap_or(DEFAULT_PORT)).await?;
@@ -773,11 +827,10 @@ fn main() -> anyhow::Result<()> {
         cli.cmd,
         Cmd::Unit(UnitCmd::Add { intent: None, .. })
             | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. })
-            | Cmd::Task(TaskCmd::Add { unit: None, intent: None, .. })
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks where it is
     // for the commands that need the workspace or its current intent.
     let here = match &place {
@@ -874,8 +927,22 @@ fn main() -> anyhow::Result<()> {
             }
             return Ok(());
         }
+        Cmd::Machine(MachineCmd::Load { hours }) => {
+            let report = d.get("/api/metrics")?;
+            print!("{}", load_text(&report));
+            if let Some(hours) = hours {
+                println!("over the last {hours} h (minute means):");
+                for m in report["machines"].as_array().into_iter().flatten() {
+                    let label = m["label"].as_str().unwrap_or_default();
+                    let h = d.get(&format!("/api/metrics/history?machine={label}&hours={hours}"))?;
+                    println!("{}", history_text(m, &h["points"]));
+                }
+            }
+            return Ok(());
+        }
         Cmd::Machine(cmd) => {
             let (label, action, extra) = match cmd {
+                MachineCmd::Load { .. } => unreachable!("handled above"),
                 MachineCmd::List => (String::new(), "", json!({})),
                 MachineCmd::Add { label, ssh, herdr_socket } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket })),
                 MachineCmd::Enable { label } => (label, "enable", json!({})),
@@ -907,7 +974,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Workspace(WorkspaceCmd::List) => {
-            let w = d.get("/api/workspace")?;
+            let w = d.get("/api/workspace?light=true")?;
             for g in w["workspaces"].as_array().into_iter().flatten() {
                 let label = g["label"].as_str().unwrap_or("?");
                 match (g["machine"].as_str(), g["linkedTo"].as_str()) {
@@ -930,8 +997,9 @@ fn main() -> anyhow::Result<()> {
             let folder = std::fs::canonicalize(&folder).with_context(|| format!("no folder {folder}"))?;
             d.append(actor, "project.added", json!({ "path": folder, "title": title }))?
         }
+        Cmd::Project(ProjectCmd::Rename { project, title }) => d.append(actor, "project.renamed", json!({ "project": project_arg(&project)?, "title": title }))?,
         Cmd::Project(ProjectCmd::List) => {
-            let w = d.get("/api/workspace")?;
+            let w = d.get("/api/workspace?light=true")?;
             for p in w["projects"].as_array().into_iter().flatten() {
                 let kind = if p["registered"] == true { "" } else { "  (a repository outside every project)" };
                 let key = p["key"].as_str().map(|k| format!("{k} ")).unwrap_or_default();
@@ -958,7 +1026,7 @@ fn main() -> anyhow::Result<()> {
         Cmd::Backlog(BacklogCmd::List { project }) => return backlog::list(&d, project.as_deref().map(project_arg).transpose()?.as_deref()),
         Cmd::Backlog(BacklogCmd::Export { project }) => return backlog::export(&d, &project_arg(&project)?),
         Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
-        Cmd::Backlog(BacklogCmd::Merge { into, from }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from })))?,
+        Cmd::Backlog(BacklogCmd::Merge { into, from, title }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from, "title": title })))?,
         Cmd::Intent(IntentCmd::Start { intent }) => {
             let Some(g) = &group else { bail!("run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace") };
             d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?
@@ -966,6 +1034,11 @@ fn main() -> anyhow::Result<()> {
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Board { target } => return board(&d, target.as_deref()),
+        Cmd::Link { target } => {
+            let path = link_path(&target)?;
+            println!("{}{path}", page(&d)?);
+            return Ok(());
+        }
         Cmd::Task(TaskCmd::Show { task, json }) => {
             let shown = task_show(&d, task.as_deref())?;
             if json {
@@ -983,8 +1056,16 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
-        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings }))?,
-        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine }) => {
+        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings, add_note }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings, "add_note": add_note }))?,
+        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) if kind == "research" => {
+            if repo.is_some() || branch.is_some() || base.is_some() || machine.is_some() {
+                bail!("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
+            }
+            let intent = here_intent(intent)?;
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research" }))?
+        }
+        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine, .. }) => {
+            let (repo, branch, base) = (repo.unwrap_or_else(|| ".".into()), branch.unwrap_or_default(), base.unwrap_or_else(|| "main".into()));
             let intent = here_intent(intent)?;
             // On another machine the path is that machine's: taken as written, checked there.
             let repo = match &machine {
@@ -1002,11 +1083,7 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
         Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
-        Cmd::Task(TaskCmd::Add { unit, intent, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
-            let unit = match unit {
-                Some(u) => u,
-                None => here_intent(intent)?,
-            };
+        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
@@ -1018,6 +1095,10 @@ fn main() -> anyhow::Result<()> {
         Cmd::Task(TaskCmd::Start { task, agent }) => {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
+        }
+        Cmd::Task(TaskCmd::Drop { task, reason }) => {
+            let (unit, n) = task_ref(&task)?;
+            d.append(actor, "task.dropped", json!({ "unit": unit, "task": n, "reason": reason }))?
         }
         Cmd::Task(TaskCmd::Deliver { task, note, evidence, findings: None, amend: true, add_findings: Some(file) }) => {
             // More findings on a delivered review: the others are not touched.
@@ -1124,6 +1205,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
+        Cmd::Reply { message, text } => d.append(actor, "message.replied", json!({ "message": message, "text": text }))?,
     };
     // What was recorded, by the id an agent uses next.
     let b = &out["body"];
@@ -1137,14 +1219,16 @@ fn main() -> anyhow::Result<()> {
         Some("workspace.linked") => "linked".into(),
         Some("workspace.unlinked") => "unlinked".into(),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
-        Some("intent.merged") => format!("merged {} into {}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?")),
+        Some("intent.merged") => format!("merged {} into {}{}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?"), b["title"].as_str().map(|t| format!(", now \"{t}\"")).unwrap_or_default()),
         Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
         Some("task.amended") if b["add"].as_array().is_some_and(|a| !a.is_empty()) => {
             let ids: Vec<&str> = b["add"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             format!("added findings {}", ids.join(" "))
         }
         Some("task.amended") => "amended".into(),
+        Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
+        Some("message.replied") => "replied".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }
@@ -1241,7 +1325,7 @@ impl Daemon {
         };
         let mut res = res.map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
+        let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
@@ -1294,7 +1378,7 @@ impl Daemon {
         }
         let mut res = req.send(&bytes[..]).map_err(|e| self.unreachable(e))?;
         let ok = res.status().is_success();
-        let text = res.body_mut().read_to_string().map_err(|e| self.unreachable(e))?;
+        let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
@@ -1345,6 +1429,32 @@ fn wait_answer(d: &Daemon, id: &str, timeout: Duration) -> anyhow::Result<String
         }
         std::thread::sleep(Duration::from_millis(1000).min(until.saturating_duration_since(std::time::Instant::now()).max(Duration::from_millis(50))));
     }
+}
+
+/// The page's path for `i3`, `u1`, `u1#3` (`/u1/3`) or `u1#3:P2-1` (`/u1/3?finding=P2-1`).
+fn link_path(s: &str) -> anyhow::Result<String> {
+    let bad = || anyhow!("{s:?} is not an intent, unit or task; write it as i3, u1, u1#3 or u1#3:P2-1");
+    let (at, finding) = s.split_once(':').map_or((s, None), |(a, f)| (a, Some(f)));
+    let (id, n) = at.split_once('#').map_or((at, None), |(u, n)| (u, Some(n)));
+    let digits = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit());
+    if !(id.strip_prefix('u').or_else(|| id.strip_prefix('i')).is_some_and(digits) && n.is_none_or(digits)) {
+        return Err(bad());
+    }
+    let mut path = format!("/{id}");
+    if let Some(n) = n {
+        path += &format!("/{n}");
+    }
+    match finding {
+        None => {}
+        Some(f) if n.is_some() && !f.is_empty() && f.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') => path += &format!("?finding={f}"),
+        Some(_) => return Err(bad()),
+    }
+    Ok(path)
+}
+
+/// The page's address where the user opens it, as the service says (also through a tunnel).
+fn page(d: &Daemon) -> anyhow::Result<String> {
+    d.get("/api/status")?["url"].as_str().map(str::to_string).ok_or_else(|| anyhow!("the service does not say its address: it is an older build; restart `workriver serve`"))
 }
 
 fn task_ref(s: &str) -> anyhow::Result<(String, u32)> {
@@ -1625,6 +1735,17 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         let _ = writeln!(out, "blind review: other work is hidden until you deliver. Read the code from git (the diff, not the commit messages); what you need beyond your task, ask your manager for.");
     }
     let named = |s: &str| state.name_of(s).unwrap_or(s).to_string();
+    // What git shows (commits, where each unit stands), and what the runtime shows (a worker
+    // that stopped), as the page shows it.
+    let ws = d.get("/api/workspace?light=true").unwrap_or_default();
+    // Where the user opens each intent and unit: a line under it, for pointing the user there.
+    let base = page(d).ok();
+    let link = |out: &mut String, indent: &str, id: &str| {
+        if let Some(b) = &base {
+            let _ = writeln!(out, "{indent}link: {b}/{id}");
+        }
+    };
+    let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
     let line = |t: &core::Task| {
         let mut out = String::new();
         let what = match t.kind {
@@ -1647,7 +1768,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             }
         }
         // Work still to do: what it answers, with what was added to those findings since.
-        if t.state != TaskState::Done {
+        if !t.state.over() {
             for c in &t.causes {
                 let at = c.unit.clone().unwrap_or_else(|| t_owner(&state, t));
                 for f in state.task(&at, c.task).iter().flat_map(|x| x.findings.iter()).filter(|f| c.findings.contains(&f.found.id)) {
@@ -1661,20 +1782,41 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         if t.state == TaskState::Waiting {
             let _ = writeln!(out, "       waiting for the user");
         }
+        if let Some(d) = &t.dropped {
+            let _ = writeln!(out, "       dropped ({})", d.reason);
+        }
+        let n = t.n.to_string();
+        let mine = shown(&t_owner(&state, t))["tasks"].as_array().and_then(|ts| ts.iter().find(|x| x["id"] == n.as_str()).cloned());
+        if let Some(s) = mine.and_then(|x| serde_json::from_value::<crate::stall::Stall>(x["stalled"].clone()).ok()) {
+            let _ = writeln!(out, "       {}", show::stalled_line(&s));
+        }
         out
     };
-    // What git shows (commits, where each unit stands), as the page shows it.
-    let ws = d.get("/api/workspace?light=true").unwrap_or_default();
-    let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
+    // Dropped intents (merged ones among them) only when asked for by id.
+    let hidden = state.intents.iter().filter(|i| target.is_none() && i.state == core::IntentState::Dropped).count();
     for i in &state.intents {
+        if target.is_none() && i.state == core::IntentState::Dropped {
+            continue;
+        }
         let units: Vec<_> = state.units.iter().filter(|u| u.intent == i.id && wanted(&i.id, Some(&u.id))).collect();
         let chores: Vec<_> = state.chores.iter().filter(|c| c.intent == i.id && !c.done && wanted(&i.id, c.unit.as_deref())).collect();
         if units.is_empty() && chores.is_empty() && !wanted(&i.id, None) {
             continue;
         }
         let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        link(&mut out, "  ", &i.id);
+        if i.state == core::IntentState::Dropped {
+            let _ = writeln!(out, "  dropped: {}", i.reason.as_deref().unwrap_or(""));
+        }
         if !i.goal.is_empty() {
             let _ = writeln!(out, "  goal: {}", i.goal);
+        }
+        // More about it, line by line: what the user wrote, and what merged intents brought in.
+        if !i.note.trim().is_empty() {
+            let _ = writeln!(out, "  note:");
+            for l in i.note.trim().lines() {
+                let _ = writeln!(out, "    {l}");
+            }
         }
         if i.state == core::IntentState::Active && state.finished(&i.id) {
             let _ = writeln!(out, "  every unit is merged or done: close it with `workriver intent done {}`", i.id);
@@ -1684,7 +1826,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             core::FindingsPolicy::Manager => {}
             core::FindingsPolicy::User => { let _ = writeln!(out, "  findings: the user decides them, not the manager"); }
         }
-        // The intent's own work: research and design that belong to no unit.
+        // The intent's own work, from before research units: research and design that belong to no unit.
         if wanted(&i.id, None) {
             i.tasks.iter().for_each(|t| out += &line(t));
         }
@@ -1694,7 +1836,9 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             let why = u.done.as_ref().filter(|d| !d.reason.is_empty()).map(|d| format!(" ({})", d.reason)).unwrap_or_default();
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
-            let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]  {progress}{why}", u.id, u.title, u.repo, u.branch, u.base);
+            let place = if u.kind.is_code() { format!("{on}{}, branch {} from {}", u.repo, u.branch, u.base) } else { "research, no branch: close it with `workriver unit done`".into() };
+            let _ = writeln!(out, "  {} {}  [{place}]  {progress}{why}", u.id, u.title);
+            link(&mut out, "    ", &u.id);
             // Its machine is disconnected: what is shown is as last read, and nothing waited on it.
             if let Some(since) = u.machine.as_deref().and_then(|m| down_since(&ws, m)) {
                 let _ = writeln!(out, "    {} is disconnected since {since}: as last read", u.machine.as_deref().unwrap_or_default());
@@ -1713,7 +1857,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
                     }
                 }
             }
-            if state.reduced {
+            if state.reduced && u.has_code() {
                 let _ = writeln!(out, "    to review: `git -C {} diff {}...{}` (commits: `git rev-list {}..{}`)", u.repo, u.base, u.branch, u.base, u.branch);
             }
             u.tasks.iter().for_each(|t| out += &line(t));
@@ -1739,9 +1883,108 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             let of = if c.project.is_empty() { String::new() } else { format!(" [project {}]", c.project) };
             let _ = writeln!(out, "chore {} {}{of} (by {})", c.id, c.title, state.name_of(&c.by).unwrap_or(&c.by));
         }
+        if hidden > 0 {
+            let _ = writeln!(out, "({hidden} dropped or merged intents not shown; `workriver board <intent>` shows one)");
+        }
     }
     Ok(out)
 }
 
 #[cfg(test)]
 mod tests;
+
+/// The service's answer as text. A reply that cannot be read is said as that, not as the
+/// service being unreachable: it answered.
+// ponytail: whole answer in memory, capped at 256 MB; stream it if snapshots ever get there.
+fn read_answer(res: &mut ureq::http::Response<ureq::Body>) -> anyhow::Result<String> {
+    res.body_mut().with_config().limit(256 * 1024 * 1024).read_to_string().map_err(|e| anyhow!("the service answered, but its answer could not be read: {e}"))
+}
+
+/// One machine's history in a line: mean and highest CPU and memory share over the minutes.
+fn history_text(m: &Value, points: &Value) -> String {
+    let name = format!("{}{}", m["label"].as_str().unwrap_or("?"), if m["here"] == true { " (here)" } else { "" });
+    let points = points.as_array().map(Vec::as_slice).unwrap_or_default();
+    let stats = |v: Vec<f64>| if v.is_empty() { "-".to_string() } else { format!("mean {:.0}% max {:.0}%", v.iter().sum::<f64>() / v.len() as f64, v.iter().copied().fold(0.0, f64::max)) };
+    let cpu = stats(points.iter().filter_map(|p| p["cpu"].as_f64()).collect());
+    let mem = stats(points.iter().filter_map(|p| Some(p["memUsed"].as_f64()? * 100.0 / p["memTotal"].as_f64().filter(|t| *t > 0.0)?)).collect());
+    if points.is_empty() { format!("{name}  no history yet") } else { format!("{name}  cpu {cpu}  memory {mem}  ({} min)", points.len()) }
+}
+
+/// `machine load` as text: one line per machine, its newest CPU and memory and alerts.
+fn load_text(r: &Value) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let gb = |b: &Value| b.as_f64().unwrap_or(0.0) / 1_073_741_824.0;
+    for m in r["machines"].as_array().into_iter().flatten() {
+        let name = format!("{}{}", m["label"].as_str().unwrap_or("?"), if m["here"] == true { " (here)" } else { "" });
+        let Some(s) = m["samples"].as_array().and_then(|s| s.last()).filter(|_| m["reachable"] == true) else {
+            let why = m["error"].as_str().map(str::to_string).or_else(|| m["downSince"].as_str().map(|d| format!("disconnected since {d}"))).unwrap_or_else(|| "no reading yet".into());
+            let _ = writeln!(out, "{name}  {why}");
+            continue;
+        };
+        let cpu = s["cpu"].as_f64().map(|c| format!("{c:.0}%")).unwrap_or_else(|| "-".into());
+        let total = gb(&s["memTotal"]);
+        let mem = if total > 0.0 { format!("{:.0}% ({:.1}/{:.1} GB)", gb(&s["memUsed"]) * 100.0 / total, gb(&s["memUsed"]), total) } else { "-".into() };
+        let alerts: Vec<String> = m["alerts"].as_object().into_iter().flatten().map(|(k, v)| format!("{k} {} since {}", v["level"].as_str().unwrap_or("?").to_uppercase(), v["since"].as_str().unwrap_or("?"))).collect();
+        let alerts = if alerts.is_empty() { String::new() } else { format!("  ALERT: {}", alerts.join(", ")) };
+        let _ = writeln!(out, "{name}  cpu {cpu}  memory {mem}{alerts}");
+        // Below it, what this machine's system says beyond that; a missing piece is left out,
+        // except Linux pressure, which says it is unknown (no PSI there).
+        let mut more = vec![];
+        if total > 0.0 {
+            more.push(format!("available {:.1} GB", total - gb(&s["memUsed"])));
+        }
+        if let Some(p) = s["pressure"].as_str() {
+            more.push(format!("pressure {p}"));
+        } else if s["os"] == "linux" {
+            more.push(match (s["pressureSome"].as_f64(), s["pressureFull"].as_f64()) {
+                (Some(some), Some(full)) => format!("pressure some {some:.2}% full {full:.2}% (last 10 s)"),
+                _ => "pressure unknown".into(),
+            });
+        }
+        if !s["memCompressed"].is_null() {
+            more.push(format!("compressed {:.1} GB", gb(&s["memCompressed"])));
+        }
+        if let Some(c) = s["compressor"].as_f64() {
+            more.push(format!("compressor {c:.0}% of its limit"));
+        }
+        if let Some(f) = s["systemFree"].as_f64() {
+            more.push(format!("system free {f:.0}%"));
+        }
+        if let Some(n) = s["oomKills"].as_u64() {
+            more.push(format!("oom kills {n} ({} while watched)", s["oomKillsWatched"].as_u64().unwrap_or(0)));
+        }
+        if s["swapTotal"].as_u64().is_some_and(|t| t > 0) {
+            more.push(format!("swap {:.1}/{:.1} GB", gb(&s["swapUsed"]), gb(&s["swapTotal"])));
+        }
+        for (k, d) in s["disks"].as_array().into_iter().flatten().enumerate() {
+            let at = if k == 0 { String::new() } else { format!(" {}", d["mount"].as_str().unwrap_or("?")) };
+            more.push(format!("disk{at} {:.1} GB free of {:.1} GB", gb(&d["free"]), gb(&d["total"])));
+        }
+        let _ = writeln!(out, "  {}", more.join("  "));
+    }
+    let t = &r["thresholds"];
+    let on = |m: &Value, text: String| if m["on"] == true { text } else { "off".into() };
+    let held = |m: &Value| m["minutes"].as_u64().map_or("at once".into(), |n| format!("for {n} min"));
+    let lim = |m: &Value| on(m, format!("{}% {}", m["percent"], held(m)));
+    // 60.0 as JSON says "60" here.
+    let n = |v: &Value| v.as_f64().map_or("?".into(), |x| x.to_string());
+    let lv = |m: &Value, dir: &str, unit: &str| on(m, format!("warn {dir}{}{unit} crit {dir}{}{unit} {}", n(&m["warn"]), n(&m["crit"]), held(m)));
+    let (d, oom) = (&t["disk"], &t["oom"]);
+    let disk = on(d, format!("warn >{}% or <{} GB free, crit >{}% or <{} GB free {}", n(&d["warn"]), n(&d["warnFree"]), n(&d["crit"]), n(&d["critFree"]), held(d)));
+    let _ = writeln!(
+        out,
+        "alerts (the user sets them in Settings): cpu {}, memory {}; macOS: compressor {}, swap {}, pressure {}, system free {}; Linux: available {}, psi full {}, oom {}; every machine: disk {}",
+        lim(&t["cpu"]),
+        lim(&t["memory"]),
+        lv(&t["compressor"], ">", "%"),
+        lv(&t["swap"], ">", " GB"),
+        on(&t["pressure"], format!("warning=warn critical=crit {}", held(&t["pressure"]))),
+        lv(&t["systemFree"], "<", "%"),
+        lv(&t["available"], "<", "%"),
+        lv(&t["psi"], ">", "%"),
+        on(oom, format!("crit at once, held {} min", oom["minutes"])),
+        disk,
+    );
+    out
+}

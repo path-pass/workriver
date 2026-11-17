@@ -3,7 +3,7 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Machine, Task, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Sent, Task, Thresholds, Turn, Unit } from './types'
 
 /** Sent on the window when the service says this page is not the user (any more). */
 export const SIGNED_OUT = 'workriver:signed-out'
@@ -22,12 +22,31 @@ async function post(path: string, body: unknown) {
 export async function startSession(): Promise<boolean> {
   const code = new URLSearchParams(location.hash.slice(1)).get('k')
   if (code) {
-    history.replaceState(null, '', location.pathname + location.search)
+    // `workriver open` opens the root: a link the user opened while signed out lands there.
+    const wanted = recallWanted()
+    history.replaceState(null, '', location.pathname === '/' && wanted ? wanted : location.pathname + location.search)
     await fetch('/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => undefined)
   }
   const res = await fetch('/api/session')
   if (!res.ok) throw new Error(await res.text())
   return (await res.json()).user === true
+}
+
+const WANTED = 'workriver.signin-to'
+
+/** A link opened while signed out (`/u1/3`), kept for the sign-in that follows in a new tab. */
+export function rememberWanted() {
+  if (location.pathname === '/') return
+  try { localStorage.setItem(WANTED, JSON.stringify({ path: location.pathname + location.search, at: Date.now() })) } catch { /* lands on the root */ }
+}
+
+/** That link, once, if it is from the last ten minutes. */
+function recallWanted(): string | null {
+  try {
+    const w = JSON.parse(localStorage.getItem(WANTED) ?? 'null')
+    localStorage.removeItem(WANTED)
+    return w && Date.now() - w.at < 600_000 && typeof w.path === 'string' && /^\/(?!\/)/.test(w.path) ? w.path : null
+  } catch { return null }
 }
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
@@ -159,18 +178,30 @@ export async function wantNotify(on: boolean): Promise<boolean> {
   try { localStorage.setItem(NOTIFY, ok ? '1' : '0') } catch { /* not remembered; still applies now */ }
   return ok
 }
-/** One notification; clicking it brings this tab and then the agent's terminal forward. */
-export function notify(title: string, body: string | undefined, agent: string) {
+/**
+ * One notification; clicking it brings this tab forward and, for an agent, its terminal.
+ * `key` names what it is about (an agent, or a machine's alert), so one is not shown twice.
+ */
+export function notify(title: string, body: string | undefined, key: string, agent = true) {
   if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  const n = new Notification(title, { body, tag: `workriver:${agent}` })
-  n.onclick = () => { window.focus(); focusAgent(agent); n.close() }
+  const n = new Notification(title, { body, tag: `workriver:${key}` })
+  n.onclick = () => { window.focus(); if (agent) focusAgent(key); n.close() }
 }
 
-/** Asks the service a question about a task (live mode): it records it, and starts the
- * thread's temporary agent or gives it to the one already there. */
-export async function askWhy(unit: Unit, task: Task, text: string, context: AskContext[], thread: string | null, conclude = false) {
-  await post('/api/ask', { unit: unit.id, task: Number(task.id), text, context, thread, conclude })
+/** Asks the service a question about a task, or with none about the unit as a whole (live
+ * mode): it records it, and starts the thread's temporary agent or gives it to the one already there. */
+export async function askWhy(unit: Unit, task: Task | null, text: string, context: AskContext[], thread: string | null, conclude = false) {
+  await post('/api/ask', { unit: unit.id, task: task ? Number(task.id) : 0, text, context, thread, conclude })
 }
+
+/** Writes to a workspace's manager (by the intent it runs, or the workspace's label): the
+ * service types it into the manager's terminal; the manager answers with `workriver reply`. */
+export async function tellManager(to: { intent?: string; workspace: string }, text: string) {
+  await post('/api/message', { ...to, text })
+}
+
+/** The sample's made-up reply from a manager; content, not UI text. */
+export const mockReply = (text: string) => `（示例回复，还没有接到真正的 manager）收到：「${text}」，我会安排。`
 
 /** Ends a conversation; its temporary agent closes. */
 export async function endThread(thread: string) {
@@ -193,10 +224,63 @@ export async function record(kind: string, body: unknown) {
   await post('/api/append', { kind, body })
 }
 
-/** Merges planned intents into one: the user's alone, so it has a route of its own. */
-export async function mergeIntents(into: string, from: string[]) {
+/** Marks a task no longer needed: the user's alone from the page; its agent and the manager are told. */
+export async function dropTask(unit: Unit, task: Task, reason: string) {
   if (MOCK) return
-  await post('/api/backlog/merge', { into, from })
+  await post('/api/task/drop', { unit: unit.id, task: Number(task.id), reason })
+}
+
+/** Merges planned intents into one: the user's alone, so it has a route of its own. */
+export async function mergeIntents(into: string, from: string[], title?: string) {
+  if (MOCK) return
+  await post('/api/backlog/merge', { into, from, title })
+}
+
+/** CPU and memory of this machine and the followed ones, with the alert thresholds. */
+export async function metrics(): Promise<MetricsReport> {
+  if (MOCK) return (await import('./mock/metrics')).mockMetrics()
+  const res = await fetch('/api/metrics')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** One machine's minutes (means of its samples) over the last `hours`, oldest first. */
+export async function metricsHistory(machine: string, hours = 24): Promise<MetricSample[]> {
+  if (MOCK) return (await import('./mock/metrics')).mockHistory(machine, hours)
+  const res = await fetch(`/api/metrics/history?machine=${encodeURIComponent(machine)}&hours=${hours}`)
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).points
+}
+
+/** Sets when a machine alerts (the same for every machine); answers the report after it. */
+export async function setThresholds(t: Thresholds): Promise<MetricsReport> {
+  if (MOCK) {
+    const mock = await import('./mock/metrics')
+    mock.setMockThresholds(t)
+    return mock.mockMetrics()
+  }
+  const res = await fetch('/api/metrics/thresholds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(t) })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+// The sample keeps the stall threshold in memory.
+let mockStall = 10
+
+/** After how many idle minutes a running task's agent is reminded (then escalated). */
+export async function stallMinutes(): Promise<number> {
+  if (MOCK) return mockStall
+  const res = await fetch('/api/settings/stall')
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).minutes
+}
+
+/** Sets it (1 to 240 minutes); answers what the service kept. */
+export async function setStallMinutes(minutes: number): Promise<number> {
+  if (MOCK) return (mockStall = minutes)
+  const res = await fetch('/api/settings/stall', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ minutes }) })
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).minutes
 }
 
 /** The machines the service knows, followed or not. */
@@ -212,4 +296,101 @@ export async function setMachine(label: string, action: 'add' | 'enable' | 'disa
   const res = await fetch('/api/machines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label, action, ssh }) })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
+}
+
+// ---- the user's own hands: starting an intent, running a command ----
+
+/** The runtime workspace the user's command shells are in (the service's `run::GROUP`). */
+export const RUN_GROUP = 'workriver-commands'
+
+/** A POST that answers JSON; a refusal is thrown with the service's words. */
+async function call<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
+  if (!res.ok) throw new Error(await res.text())
+  return res.status === 204 ? (undefined as T) : res.json()
+}
+
+/** Where the message to the workspace's manager went. */
+export type StartDelivery = Omit<Sent, 'toManager'>
+
+/**
+ * Starts a planned intent in a runtime workspace, as the user: recorded as theirs, and its
+ * manager is told to split it. `manager` names that manager for the sample.
+ */
+export async function startIntent(intent: string, workspace: string, manager?: string): Promise<StartDelivery> {
+  if (MOCK) return manager ? { step: 'delivered', to: manager, message: '' } : { step: 'not-delivered', to: null, reasonCode: 'no-manager', message: '' }
+  return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace })).delivery
+}
+
+/** A command to run as the user, and where: a unit's work tree, or a project's folder. */
+export interface RunAsk {
+  command: string
+  unit?: string
+  project?: string
+  /** Whose step it is: a task (`u1#3`) or a chore (`c2`); none: the user's own. */
+  from?: string
+  /** For the sample only: who wrote it, the folder and machine it would run in. */
+  by?: string
+  dir?: string
+  machine?: string
+}
+
+/** A run as the service shows it: what the confirm dialog shows, then what its pane shows. */
+export interface RunView {
+  id: string
+  command: string
+  dir: string
+  machine?: string | null
+  /** "user", or the agent that wrote it. */
+  by: string
+  started: boolean
+  output: string
+  exit: number | null
+  /** Its pane is still read. */
+  watching: boolean
+}
+
+// The sample makes runs up, in memory.
+const mockRuns = new Map<string, RunView & { at: number }>()
+
+/** Where and as whose a command would run; nothing runs yet. */
+export async function prepareRun(a: RunAsk): Promise<RunView> {
+  if (MOCK) {
+    const r = { id: Math.random().toString(16).slice(2, 10), command: a.command, dir: a.dir ?? '~', machine: a.machine ?? null, by: a.by ?? 'user', started: false, output: '', exit: null, watching: false, at: 0 }
+    mockRuns.set(r.id, r)
+    return r
+  }
+  return call('/api/run/prepare', { command: a.command, unit: a.unit, project: a.project, from: a.from })
+}
+
+/** Runs what was prepared, with the exact text the user confirmed. */
+export async function runCommand(id: string, command: string): Promise<void> {
+  if (MOCK) {
+    const r = mockRuns.get(id)
+    if (r) mockRuns.set(id, { ...r, started: true, watching: true, at: Date.now() })
+    return
+  }
+  await call('/api/run', { id, command })
+}
+
+/** What a run's pane shows now, and its exit status once it ended. */
+export async function readRun(id: string): Promise<RunView> {
+  if (MOCK) {
+    const r = mockRuns.get(id)!
+    const k = Math.floor((Date.now() - r.at) / 1000)
+    const lines = ['Enumerating objects: 9, done.', 'Writing objects: 100% (5/5), 612 bytes | 612.00 KiB/s, done.', 'To example.com:demo.git', '   1a2b3c4..5d6e7f8  HEAD -> feat/branch']
+    return { ...r, output: lines.slice(0, k).join('\n'), exit: k > lines.length ? 0 : null, watching: k <= lines.length }
+  }
+  const res = await fetch(`/api/run/${encodeURIComponent(id)}`)
+  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** Brings a run's terminal to the front. */
+export function focusRun(id: string) {
+  const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent: 'workriver' } }))
+  if (MOCK) note()
+  else call(`/api/run/${encodeURIComponent(id)}/focus`, {}).catch(note)
 }

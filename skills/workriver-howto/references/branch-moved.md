@@ -11,7 +11,8 @@ What you do not give stays as it is.
 **You will see:** `u1 is now …`; the board says "previously on feat/queue (from main), 3 commits
 seen there". Tasks, findings and questions stay. Commits are read from the new branch and
 keep their task by the `Task:` trailer or their link. A task whose commits were only on the
-old branch shows "commits not on the current branch" in the browser.
+old branch shows "commits not on the current branch" in the browser. A merge gate asked
+before the move is out of date: ask again and drop the old one (`ask-user`).
 
 **Refusals:** "only the manager of intent i3 (name) or the user moves its units" - a worker
 tells its manager the new branch. "base … is not a commit or branch in …". "a unit's branch

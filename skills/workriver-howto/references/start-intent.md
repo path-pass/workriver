@@ -13,11 +13,19 @@ intent of its own: it goes into that intent, as a task of its unit or a line in 
 text (`units`).
 Finished: `workriver intent done i3`. Given up: `workriver intent drop i3 --reason "..."`
 (an intent you started; one still in the roadmap is the user's to drop). Planned intents that
-are one goal are the user's to merge too (`workriver backlog merge <into> <from>...`, or in the
-roadmap): ask them; the merged ones are dropped, "merged into i3", their text in i3's note.
+are one goal merge into one (`workriver backlog merge <into> <from>... [--title
+"<new title>"]`): you may merge intents agents added (an import); ones the user added are the
+user's to merge (ask them; "Merge…" in the roadmap). The merged ones are dropped, "merged
+into i3", their text in i3's note; `--title` renames i3. `workriver board i3` prints the note.
 
-**You will see:** `i3 active`. New units and tasks here go to the intent started last,
-unless you name one.
+**Started by the user:** the user may start a planned intent in your workspace from the page;
+then you get `[workriver] The user started i3 «title» in your workspace …`. It is already
+active here: do not start it again; `workriver board i3`, then split it into units and tasks.
+
+**You will see:** `i3 active`. New units here go to the intent started last, unless you
+name one. Research or design for the intent as a whole is a research unit (`units`), not a
+task on the intent. Its page is `workriver link i3` (goal, note, units); add what the user
+should read there with `workriver intent set i3 --add-note "…"`.
 
 **Refusals:** "only the manager of workspace … starts intents there" - run
 `workriver manager here` first, in your own pane. "intent i3 is done; it cannot become

@@ -6,8 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { MOCK } from '@/data'
-import { machines as loadMachines, notifyWanted, record, setMachine, wantNotify } from '@/runtime'
-import type { Machine, Workspace } from '@/types'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/runtime'
+import type { Levels, Machine, Thresholds, Workspace } from '@/types'
+import { Trans } from 'react-i18next'
 import { LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
 import { Choice } from './Choice'
@@ -92,6 +93,147 @@ function Machines({ ws }: { ws: Workspace | null }) {
   )
 }
 
+/** A whole number from `min` to `max`, given back when the field is left or Enter pressed. */
+function Count({ value, min, max, label, disabled, onCommit }: { value: number; min: number; max: number; label: string; disabled: boolean; onCommit: (v: number) => void }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  // Out of range or not a number: back to what it was; the service would refuse it too.
+  const commit = () => {
+    const v = Number(text)
+    if (Number.isInteger(v) && v >= min && v <= max) { if (v !== value) onCommit(v) } else setText(String(value))
+  }
+  return (
+    <input
+      type="number" inputMode="numeric" min={min} max={max} step={1} value={text} aria-label={label} disabled={disabled}
+      onChange={e => setText(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit() }}
+      className="w-14 rounded-sm border border-line bg-surface px-2 py-1 text-right text-sm text-ink tabular-nums disabled:opacity-50"
+    />
+  )
+}
+
+type Group = 'all' | 'mac' | 'linux'
+/** What each alert edits, by the system that has it. */
+const ALERTS: [Group, (keyof Thresholds)[]][] = [
+  ['all', ['cpu', 'memory', 'disk']],
+  ['mac', ['compressor', 'swap', 'pressure', 'systemFree']],
+  ['linux', ['available', 'psi', 'oom']],
+]
+/** A field's bounds: percents, GB of swap and of free disk, minutes. */
+const MAX = { percent: 100, gb: 1024, free: 100_000 }
+
+/**
+ * When a machine alerts, the same for this machine and every followed one, grouped by the
+ * system that has the value: each a switch and a sentence with its fields (warning and
+ * critical thresholds, how long, where it applies). A field takes only what keeps warning
+ * before critical. Saved as soon as one changes; refused, the service's values come back.
+ */
+function MachineAlerts() {
+  const { t } = useT()
+  const [limits, setLimits] = useState<Thresholds | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { loadMetrics().then(r => setLimits(r.thresholds), () => {}) }, [])
+  if (!limits) return null
+  const save = (next: Thresholds) => {
+    setLimits(next)
+    setThresholds(next).then(
+      r => { setLimits(r.thresholds); setError('') },
+      e => { setError(t('alerts.failed', { error: String(e) })); loadMetrics().then(r => setLimits(r.thresholds), () => {}) },
+    )
+  }
+  const row = (m: keyof Thresholds) => {
+    const name = t(`metrics.${m}`)
+    const value = limits[m]
+    const set = (patch: object) => save({ ...limits, [m]: { ...value, ...patch } })
+    const field = (key: string, v: number, min: number, max: number, label: string) => (
+      <Count value={v} min={min} max={max} label={label} disabled={!value.on} onCommit={x => set({ [key]: x })} />
+    )
+    // An alert at once has no minutes; its sentence names none.
+    const minutes = 'minutes' in value && value.minutes != null ? field('minutes', value.minutes, 1, 10, t('alerts.minutes', { metric: name })) : <></>
+    // Warning and critical, each bounded by the other: over them, or under them for a share free.
+    const pair = (l: Levels, under: boolean, max: number) => ({
+      warn: field('warn', l.warn, under ? l.crit : 0, under ? max : l.crit, t('alerts.warn', { metric: name })),
+      crit: field('crit', l.crit, under ? 0 : l.warn, under ? l.warn : max, t('alerts.crit', { metric: name })),
+      minutes,
+    })
+    let sentence: React.ReactNode
+    if (m === 'cpu' || m === 'memory') {
+      const l = limits[m]
+      sentence = <Trans i18nKey="alerts.threshold" components={{ percent: field('percent', l.percent, 1, 100, t('alerts.percent', { metric: name })), minutes }} />
+    } else if (m === 'compressor' || m === 'psi') {
+      sentence = <Trans i18nKey={limits[m].minutes == null ? 'alerts.overPercentNow' : 'alerts.overPercent'} components={pair(limits[m], false, MAX.percent)} />
+    } else if (m === 'swap') {
+      sentence = <Trans i18nKey="alerts.overGb" components={pair(limits.swap, false, MAX.gb)} />
+    } else if (m === 'systemFree' || m === 'available') {
+      sentence = <Trans i18nKey="alerts.underPercent" components={pair(limits[m], true, MAX.percent)} />
+    } else if (m === 'pressure' || m === 'oom') {
+      sentence = <Trans i18nKey={`alerts.${m}`} components={{ minutes }} />
+    } else {
+      const d = limits.disk
+      sentence = (
+        <Trans
+          i18nKey="alerts.disk"
+          components={{
+            warn: field('warn', d.warn, 0, d.crit, t('alerts.warn', { metric: name })),
+            crit: field('crit', d.crit, d.warn, MAX.percent, t('alerts.crit', { metric: name })),
+            warnFree: field('warnFree', d.warnFree, d.critFree, MAX.free, t('alerts.warnFree', { metric: name })),
+            critFree: field('critFree', d.critFree, 0, d.warnFree, t('alerts.critFree', { metric: name })),
+            minutes,
+          }}
+        />
+      )
+    }
+    return (
+      // The switch by its name; the sentence wraps as one piece on a narrow screen.
+      <div key={m} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <span className="flex w-36 items-center gap-2">
+          <Switch checked={value.on} aria-label={t('alerts.on', { metric: name })} onCheckedChange={on => set({ on })} />
+          {name}
+        </span>
+        {/* One sentence with its fields in it, in whatever order the language puts them. */}
+        <span className="flex flex-wrap items-center gap-1.5 text-ink-2">{sentence}</span>
+      </div>
+    )
+  }
+  return (
+    <section aria-labelledby="alerts" className="flex flex-col gap-2 border-t border-line pt-3">
+      <h3 id="alerts" className="text-sm font-semibold">{t('alerts.title')}</h3>
+      <p className="text-xs text-ink-2">{t('alerts.lead')}</p>
+      {ALERTS.map(([group, metrics]) => (
+        <div key={group} role="group" aria-labelledby={`alerts-${group}`} className="flex flex-col gap-2">
+          <h4 id={`alerts-${group}`} className="pt-1 text-xs font-semibold text-ink-2">{t(`alerts.group.${group}`)}</h4>
+          {metrics.map(row)}
+        </div>
+      ))}
+      {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
+    </section>
+  )
+}
+
+/** After how many idle minutes a worker on a running task is reminded, then escalated. */
+function Stall() {
+  const { t } = useT()
+  const [minutes, setMinutes] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { stallMinutes().then(setMinutes, () => {}) }, [])
+  if (minutes == null) return null
+  const save = (v: number) => {
+    setMinutes(v)
+    setStallMinutes(v).then(
+      m => { setMinutes(m); setError('') },
+      e => { setError(t('settings.stall.failed', { error: String(e) })); stallMinutes().then(setMinutes, () => {}) },
+    )
+  }
+  return (
+    <section aria-labelledby="stall" className="flex flex-col gap-2 border-t border-line pt-3">
+      <h3 id="stall" className="text-sm font-semibold">{t('settings.stall.title')}</h3>
+      <p className="flex flex-wrap items-center gap-1.5 text-sm text-ink-2">
+        <Trans i18nKey="settings.stall.sentence" components={{ minutes: <Count value={minutes} min={1} max={240} label={t('settings.stall.minutes')} disabled={false} onCommit={save} /> }} />
+      </p>
+      {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
+    </section>
+  )
+}
+
 /** `compact`: only the gear, for the folded rail. */
 export function Settings({ compact = false, ws = null }: { compact?: boolean; ws?: Workspace | null }) {
   const { t, lang, setLang } = useT()
@@ -140,6 +282,8 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
             />
           </Row>
           {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
+          <Stall />
+          <MachineAlerts />
           {!MOCK && <Machines ws={ws} />}
         </div>
       </DialogContent>

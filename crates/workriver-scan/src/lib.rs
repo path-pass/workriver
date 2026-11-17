@@ -26,8 +26,44 @@ pub struct FileChange {
     pub path: String,
     /// "A", "M" or "D".
     pub status: String,
+    /// Lines added and removed, worked out once from the texts: what lists show without them.
+    pub add: u32,
+    pub del: u32,
+    /// The texts; left out where only the change's size is wanted (`FileChange::bare`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
+}
+
+impl FileChange {
+    /// Without its texts.
+    pub fn bare(&self) -> FileChange {
+        FileChange { path: self.path.clone(), status: self.status.clone(), add: self.add, del: self.del, before: None, after: None }
+    }
+}
+
+/// Lines added and removed from `before` to `after`, as a shortest line diff counts them (the
+/// web UI's `diff` package does too; similar's default Myers takes shortcuts that can count
+/// more). A pathological pair gives up after a second, approximate.
+pub fn counts(before: &str, after: &str) -> (u32, u32) {
+    struct Count(u32, u32);
+    impl similar::algorithms::DiffHook for Count {
+        type Error = std::convert::Infallible;
+        fn delete(&mut self, _: usize, n: usize, _: usize) -> std::result::Result<(), Self::Error> {
+            self.1 += n as u32;
+            Ok(())
+        }
+        fn insert(&mut self, _: usize, _: usize, n: usize) -> std::result::Result<(), Self::Error> {
+            self.0 += n as u32;
+            Ok(())
+        }
+    }
+    let (old, new): (Vec<&str>, Vec<&str>) = (before.split_inclusive('\n').collect(), after.split_inclusive('\n').collect());
+    let mut c = Count(0, 0);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    let _ = similar::algorithms::myers::diff_deadline_raw(&mut c, &old, 0..old.len(), &new, 0..new.len(), Some(deadline));
+    (c.0, c.1)
 }
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
@@ -273,6 +309,43 @@ pub fn branch(at: &Runner, repo: &Path, base: &str, branch: &str, fork: Option<&
         Some(k) => Found::Merged(back[..=k].iter().rev().cloned().collect()),
         None => Found::Fresh,
     })
+}
+
+/// How many of a branch's changed files name the commit that brought them into the base.
+const NAMED_PATHS: usize = 50;
+
+/// Whether a branch git does not show merged looks squash-merged: every file `fork..branch`
+/// changes is the same at the tip of `base` (else of its upstream) as at the branch's. Then
+/// where (`base`, or the upstream as `origin/main`) and the newest commit there since the
+/// fork that touched those files: the squash, usually.
+///
+/// By content, not patch id: a squash made onto a base that had moved has other context
+/// lines, so another patch id, and finding it would mean reading the patch of every commit
+/// on the base since the fork. A base that moved on since in other files still shows it; one
+/// that changed one of the same files again does not (the reminder after a long ready period
+/// covers that). At most five git calls, all by name only.
+pub fn squashed(at: &Runner, repo: &Path, base: &str, branch: &str, fork: &str) -> Result<Option<(String, String)>> {
+    let changed = |a: &str, b: &str| -> Result<std::collections::HashSet<String>> { Ok(split0(&run(at, repo, &["diff", "--name-only", "--no-renames", "-z", a, b, "--"], &[])?).collect()) };
+    let mine = changed(fork, branch)?;
+    if mine.is_empty() {
+        return Ok(None);
+    }
+    let upstream = String::from_utf8_lossy(&run(at, repo, &["rev-parse", "--abbrev-ref", &format!("{base}@{{upstream}}")], &[128])?).trim().to_string();
+    for into in [base, upstream.as_str()].into_iter().filter(|i| !i.is_empty()) {
+        if !changed(into, branch)?.is_disjoint(&mine) {
+            continue;
+        }
+        let mut paths: Vec<String> = mine.iter().map(|p| format!(":(literal){p}")).collect();
+        paths.sort();
+        paths.truncate(NAMED_PATHS);
+        let range = format!("{fork}..{into}");
+        let args: Vec<&str> = ["log", "-1", "--format=%H", &range, "--"].into_iter().chain(paths.iter().map(String::as_str)).collect();
+        let hash = git(at, repo, &args)?.trim().to_string();
+        if !hash.is_empty() {
+            return Ok(Some((into.to_string(), hash)));
+        }
+    }
+    Ok(None)
 }
 
 /// The full hash `rev` names in `repo`; an error if it names no commit.
@@ -531,7 +604,9 @@ fn change(path: String, status: String, before: Option<Vec<u8>>, after: Option<V
             Some(b) => Some(Some(String::from_utf8_lossy(&b).into_owned())),
         }
     };
-    Some(FileChange { before: text(before)?, after: text(after)?, path, status })
+    let (before, after) = (text(before)?, text(after)?);
+    let (add, del) = counts(before.as_deref().unwrap_or_default(), after.as_deref().unwrap_or_default());
+    Some(FileChange { add, del, before, after, path, status })
 }
 
 fn split0(out: &[u8]) -> impl Iterator<Item = String> + '_ {

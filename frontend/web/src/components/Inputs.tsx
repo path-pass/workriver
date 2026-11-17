@@ -3,7 +3,6 @@
 // goes through the shell's actions to one place in runtime.ts.
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { findingKey, gateKey, useAct } from '@/act'
@@ -12,38 +11,40 @@ import { useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
 import { CopyButton, Icon, Tip, Who, ChipName } from './bits'
+import { kindOf, Viewer } from './Viewer'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
 
-/** Small pictures (a click shows one large) and other files as links. With `onRemove`, each has a ×. */
+/** Small pictures and other files as chips. A click opens the viewer over every one of them
+ *  that previews (pictures, Markdown, plain text), in their order; any other file downloads.
+ *  With `onRemove` (pictures still being put in a form), each has a ×. */
 export function Thumbs({ list, onRemove }: { list: Attachment[]; onRemove?: (a: Attachment) => void }) {
   const { t } = useT()
-  const [big, setBig] = useState<Attachment | null>(null)
+  const [open, setOpen] = useState<number | null>(null)
   if (!list.length) return null
-  const isImage = (a: Attachment) => !a.type || (a.type.startsWith('image/') && a.type !== 'image/svg+xml')
-  const files = list.filter(a => !isImage(a))
+  const shown = list.filter(a => kindOf(a))
+  const view = (a: Attachment) => setOpen(shown.indexOf(a))
+  const files = list.filter(a => kindOf(a) !== 'image')
+  const images = list.filter(a => kindOf(a) === 'image')
   return (
     <>
       {files.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {files.map(a => <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" /><ChipName name={a.name} /></a>)}
+          {files.map(a => kindOf(a)
+            ? <button key={a.id} type="button" className="ctx font-mono text-xs hover:text-ink" onClick={() => view(a)}><Icon name="file" className="size-3" /><ChipName name={a.name} /></button>
+            : <a key={a.id} href={a.url} download={a.name} className="ctx font-mono text-xs"><Icon name="attach" className="size-3" /><ChipName name={a.name} /></a>)}
         </div>
       )}
-      {list.some(isImage) && <div className="thumbs">
-        {list.filter(isImage).map(a => (
+      {images.length > 0 && <div className="thumbs">
+        {images.map(a => (
           <span key={a.id} className="thumb">
-            <button type="button" aria-label={t('attach.open', { name: a.name })} onClick={() => setBig(a)}><img src={a.url} alt="" /></button>
+            <button type="button" aria-label={t('attach.open', { name: a.name })} onClick={() => view(a)}><img src={a.url} alt="" /></button>
             {onRemove && <button type="button" className="x" aria-label={t('attach.remove', { name: a.name })} onClick={() => onRemove(a)}><Icon name="no" className="size-3" /></button>}
           </span>
         ))}
       </div>}
-      <Dialog open={!!big} onOpenChange={o => { if (!o) setBig(null) }}>
-        <DialogContent closeLabel={t('settings.close')} aria-describedby={undefined} className="sm:max-w-[min(900px,calc(100%-2rem))]">
-          <DialogTitle className="text-sm">{big?.name}</DialogTitle>
-          {big && <img src={big.url} alt={big.name} className="max-h-[75vh] w-full rounded-md object-contain" />}
-        </DialogContent>
-      </Dialog>
+      {open !== null && shown[open] && <Viewer list={shown} at={open} onAt={setOpen} onClose={() => setOpen(null)} stored={!onRemove} />}
     </>
   )
 }
@@ -154,7 +155,7 @@ export function Decided({ unit, task, f }: { unit: Unit; task: Task; f: Finding 
   const { t } = useT()
   return (
     <>
-      {f.note && <div><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span>{f.note}</div>}
+      {f.note && <div className="whitespace-pre-line"><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span>{f.note}</div>}
       <DeliveryLine id={findingKey(unit, task, f)} sent={f.delivery} message />
     </>
   )
@@ -212,8 +213,9 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
         type="single" variant="outline" size="sm" value={result} aria-label={t('gate.result')}
         onValueChange={v => { if (v) { setResult(v as 'done' | 'problem'); setError(false); if (v === 'problem' && !drafts.length) setDrafts([blank()]) } }}
       >
-        <ToggleGroupItem value="done" className="h-7 px-3 text-xs">{t('gate.done')}</ToggleGroupItem>
-        <ToggleGroupItem value="problem" className="h-7 px-3 text-xs">{t('gate.problem')}</ToggleGroupItem>
+        {/* The picked one must read as picked in both themes: its own colour, not a grey tint. */}
+        <ToggleGroupItem value="done" className="h-7 px-3 text-xs data-[state=on]:border-add data-[state=on]:bg-add-row data-[state=on]:font-semibold data-[state=on]:text-add">{t('gate.done')}</ToggleGroupItem>
+        <ToggleGroupItem value="problem" className="h-7 px-3 text-xs data-[state=on]:border-del data-[state=on]:bg-del-row data-[state=on]:font-semibold data-[state=on]:text-del">{t('gate.problem')}</ToggleGroupItem>
       </ToggleGroup>
       <textarea
         className="field" rows={2} value={note} placeholder={t('gate.note')} aria-label={t('gate.note')}
@@ -233,7 +235,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
                 <legend className="sr-only">{t('gate.finding', { n: k + 1 })}</legend>
                 <div className="flex items-center gap-2">
                   <ToggleGroup type="single" variant="outline" size="sm" value={d.severity} aria-label={t('gate.severity')} onValueChange={v => v && edit(k, { severity: v as Severity })}>
-                    {SEVERITIES.map(s => <ToggleGroupItem key={s} value={s} className="h-6 px-2 font-mono text-xs">{s}</ToggleGroupItem>)}
+                    {SEVERITIES.map(s => <ToggleGroupItem key={s} value={s} className="h-6 px-2 font-mono text-xs data-[state=on]:border-you data-[state=on]:bg-you-bg data-[state=on]:font-semibold data-[state=on]:text-you-ink">{s}</ToggleGroupItem>)}
                   </ToggleGroup>
                   <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label={t('gate.removeFinding')} onClick={() => { d.files.forEach(detach); setDrafts(ds => ds.filter((_, i) => i !== k)) }}>
                     <Icon name="no" className="size-3.5" />

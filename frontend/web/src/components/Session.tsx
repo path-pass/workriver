@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Waves } from 'lucide-react'
 import { MOCK } from '@/data'
 import { useT } from '@/i18n'
-import { SIGNED_OUT, startSession } from '@/runtime'
+import { rememberWanted, SIGNED_OUT, startSession } from '@/runtime'
 import { Steps } from './bits'
 
 export function Session({ children }: { children: ReactNode }) {
@@ -23,6 +23,15 @@ export function Session({ children }: { children: ReactNode }) {
     window.addEventListener('hashchange', check)
     return () => { window.removeEventListener(SIGNED_OUT, check); window.removeEventListener('hashchange', check) }
   }, [])
+  // Signed out: a link to a unit or task opened here is where the sign-in (`workriver open`,
+  // in a new tab) lands; and this tab follows once it is back in front.
+  useEffect(() => {
+    if (user !== false) return
+    rememberWanted()
+    const again = () => startSession().then(setUser, () => setUser('down'))
+    window.addEventListener('focus', again)
+    return () => window.removeEventListener('focus', again)
+  }, [user])
   if (user === true) return children
   if (user === null) return null
   return (
