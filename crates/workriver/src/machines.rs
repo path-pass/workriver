@@ -482,6 +482,14 @@ impl Machines {
         }
     }
 
+    /// Runs `f` on `machine`'s runtime (none: this one's).
+    fn at<T>(&self, machine: Option<&str>, f: impl Fn(&dyn Runtime) -> Result<T, RuntimeError>) -> Result<T, RuntimeError> {
+        match machine {
+            None => f(self.local.as_ref()),
+            Some(m) => on(&*self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?, &f),
+        }
+    }
+
     /// For tests: machines whose runtimes are given, read once, with no threads or ssh.
     #[cfg(test)]
     pub fn with(local: Arc<dyn Runtime>, remotes: Vec<(&str, Arc<dyn Runtime>)>) -> Arc<Machines> {
@@ -745,6 +753,19 @@ impl Runtime for Machines {
                 Ok(on(&e, &|r: &dyn Runtime| r.processes(None))?.into_iter().map(|(a, pids)| (their_agent(a, m), pids)).collect())
             }
         }
+    }
+
+    /// On the machine named, through its own runtime: the shell is the user's over there.
+    fn run_shell(&self, machine: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.run_shell(None, group, dir, line))
+    }
+
+    fn read_place(&self, machine: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.read_place(None, place, lines))
+    }
+
+    fn focus_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.focus_place(None, place))
     }
 
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {

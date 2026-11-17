@@ -1848,6 +1848,43 @@
        "plans": [],
        "started": "2026-11-15 19:55"
       }
+     ],
+     "threads": [
+      {
+       "id": "q30",
+       "ended": false,
+       "live": true,
+       "turns": [
+        {
+         "id": "q30",
+         "question": "这个单元为什么要先做解析，再做通知？",
+         "context": [
+          {
+           "kind": "unit",
+           "label": "加一个 @ 功能"
+          }
+         ],
+         "answer": "先有解析，通知才知道要发给谁：\n\n- `app/mention/parse.ts` 把 `@名字` 解析成用户 id\n- 通知（`app/notify/send.ts`）只读解析的结果，不再自己找名字",
+         "answerBy": "why-q30",
+         "answeredAt": "2026-11-17T09:42:00Z",
+         "at": "2026-11-17T09:40:00Z"
+        },
+        {
+         "id": "q31",
+         "question": "那为什么不放在同一个任务里？",
+         "context": [
+          {
+           "kind": "unit",
+           "label": "加一个 @ 功能"
+          }
+         ],
+         "answer": "拆开以后解析可以先被评审，通知改动不会把评审范围撑大。",
+         "answerBy": "why-q30",
+         "answeredAt": "2026-11-17T09:46:00Z",
+         "at": "2026-11-17T09:45:00Z"
+        }
+       ]
+      }
      ]
     },
     {
@@ -3297,6 +3334,49 @@
    "registered": true,
    "repos": [
     "demo"
+   ]
+  }
+ ],
+ "messages": [
+  {
+   "id": "m1",
+   "intent": "chat-v2",
+   "workspace": "chat",
+   "manager": "mgr-chat",
+   "text": "撤回先放一放，等 @ 功能合并了再开始。",
+   "at": "2026-11-17T08:30:00Z",
+   "step": "delivered",
+   "replies": [
+    {
+     "by": "mgr-chat",
+     "text": "好的：\n\n- `recall` 的任务先不派\n- `mention` 合并后我再排它",
+     "at": "2026-11-17T08:33:00Z"
+    }
+   ]
+  },
+  {
+   "id": "m2",
+   "intent": "chat-v2",
+   "workspace": "chat",
+   "manager": "mgr-chat",
+   "text": "搜索那个单元，评审能不能也让 agent-G 看一眼？",
+   "at": "2026-11-17T10:05:00Z",
+   "step": "delivered",
+   "replies": []
+  },
+  {
+   "id": "m3",
+   "workspace": "hardening",
+   "manager": "mgr-hard",
+   "text": "限流的阈值先按每分钟 10 次。",
+   "at": "2026-11-17T07:10:00Z",
+   "step": "delivered",
+   "replies": [
+    {
+     "by": "mgr-hard",
+     "text": "已经写进 `ratelimit` 的任务说明里了。",
+     "at": "2026-11-17T07:12:00Z"
+    }
    ]
   }
  ]

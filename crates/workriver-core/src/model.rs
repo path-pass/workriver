@@ -333,7 +333,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | CommandRan { .. }
         )
     }
 }
@@ -799,6 +799,25 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         finding: Option<String>,
     },
+    /// The user ran a command in a shell of their own, from the page, after confirming its
+    /// exact text: what, where, and who wrote it. Recorded before it runs; never its output.
+    #[serde(rename = "command.ran")]
+    CommandRan {
+        id: String,
+        command: String,
+        dir: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+        /// The unit whose work tree it ran in, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        /// Who wrote it (an agent's session, or "user").
+        #[serde(default)]
+        by: String,
+    },
+    /// Such a command ended, with its exit status, as workriver saw it end.
+    #[serde(rename = "command.ended")]
+    CommandEnded { id: String, exit: i32 },
     /// Where a message is: about a task (a decision when `finding` is set, a gate result, a
     /// delivered task, a gate asked for), or about a chore (`chore` set; then no unit/task).
     #[serde(rename = "delivery.updated")]
@@ -814,7 +833,8 @@ pub enum Body {
         #[serde(flatten)]
         delivery: Delivery,
     },
-    /// The user asks why about a task; a temporary agent answers.
+    /// The user asks why about a task, or (task 0, the user only) about a unit itself; a
+    /// temporary agent answers.
     #[serde(rename = "question.asked")]
     QuestionAsked {
         #[serde(default)]
@@ -823,6 +843,8 @@ pub enum Body {
         #[serde(default)]
         thread: String,
         unit: String,
+        /// 0: about the unit, not one of its tasks.
+        #[serde(default)]
         task: u32,
         text: String,
         #[serde(default)]
@@ -875,6 +897,35 @@ pub enum Body {
     },
     #[serde(rename = "chore.done")]
     ChoreDone { chore: String },
+    /// The user writes to a workspace's manager from the page; workriver types it into the
+    /// manager's terminal. Given an intent (its workspace's manager) or a workspace's label;
+    /// the rest is filled in here.
+    #[serde(rename = "message.sent")]
+    MessageSent {
+        #[serde(default)]
+        id: String,
+        /// The intent it is about, if any.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        intent: String,
+        /// The workspace (runtime group) whose manager it goes to, by label.
+        #[serde(default)]
+        workspace: String,
+        /// That manager's session.
+        #[serde(default)]
+        manager: String,
+        text: String,
+    },
+    /// Where the user's message to a manager is; workriver's alone to record.
+    #[serde(rename = "message.delivery")]
+    MessageDelivery {
+        /// The message's id (its text as typed is the delivery's `message`).
+        id: String,
+        #[serde(flatten)]
+        delivery: Delivery,
+    },
+    /// The manager the message went to answers it (`workriver reply`); it may answer more than once.
+    #[serde(rename = "message.replied")]
+    MessageReplied { message: String, text: String },
 }
 
 impl Body {
@@ -886,6 +937,9 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
+            MessageDelivery { .. } | MessageReplied { .. } => (None, None, None),
+            MessageSent { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
+            QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } => (intent.clone(), None, None),
             IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
@@ -909,6 +963,8 @@ impl Body {
             ChoreCreated { intent, unit, .. } => ((!intent.is_empty()).then(|| intent.clone()), unit.clone(), None),
             ChoreDone { .. } => (None, None, None),
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
+            CommandRan { unit, .. } => (None, unit.clone(), None),
+            CommandEnded { .. } => (None, None, None),
         }
     }
 }
@@ -949,6 +1005,9 @@ pub struct State {
     pub backlog: Vec<BacklogFinding>,
     #[serde(default)]
     pub links: Vec<Link>,
+    /// The user's messages to managers, with their replies.
+    #[serde(default)]
+    pub messages: Vec<Message>,
     /// Not the records but a part of them: what an agent on a blind task may see.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reduced: bool,
@@ -966,7 +1025,30 @@ pub struct Attachment {
     pub at: String,
 }
 
-/// A conversation about a task: its questions share one temporary agent while it lives.
+/// The user's message to a workspace's manager, and what it answered.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Message {
+    pub id: String,
+    pub intent: String,
+    pub workspace: String,
+    /// The manager's session it went to: only that one replies.
+    pub manager: String,
+    pub text: String,
+    pub at: String,
+    pub delivery: Option<Delivery>,
+    #[serde(default)]
+    pub replies: Vec<Reply>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Reply {
+    pub by: String,
+    pub text: String,
+    pub at: String,
+}
+
+/// A conversation about a task (or, task 0, its unit): its questions share one temporary
+/// agent while it lives.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Thread {
     pub id: String,
@@ -979,7 +1061,7 @@ pub struct Thread {
     pub conclusion: Option<String>,
 }
 
-/// A question about a task and how it fared.
+/// A question about a task (task 0: its unit) and how it fared.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Question {
     pub id: String,
@@ -1000,6 +1082,8 @@ pub struct Question {
     #[serde(default = "yes")]
     pub temporary: bool,
     pub answer: Option<String>,
+    #[serde(default)]
+    pub answered_at: Option<String>,
     pub asked: Option<String>,
     pub answered_by: Option<String>,
     pub failed: Option<(ReasonCode, String)>,
@@ -2023,6 +2107,21 @@ impl State {
                 }
                 AttachmentAdded { id, name, mime, size, unit, task, finding }
             }
+            CommandRan { id, command, dir, machine, unit, by } => {
+                if blank(&id) || blank(&command) || blank(&dir) {
+                    return no("a command run needs its id, its text and its directory");
+                }
+                if let Some(u) = &unit {
+                    self.unit(u)?;
+                }
+                CommandRan { id, command, dir, machine, unit, by }
+            }
+            CommandEnded { id, exit } => {
+                if *who != Principal::Service {
+                    return no("only workriver records how a command ended");
+                }
+                CommandEnded { id, exit }
+            }
             DeliveryUpdated { unit, task, finding, chore, delivery } => {
                 if let Some(c) = &chore {
                     if !self.chores.iter().any(|x| &x.id == c) {
@@ -2058,20 +2157,31 @@ impl State {
                 ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, project, unit, title, steps }
             }
             QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
-                let about = self.task(&unit, task)?;
+                // Task 0 is the unit itself: the user's to ask about; an agent asks about a task.
+                let about = match task {
+                    0 if !user => return no("a question is about a task: workriver ask <unit>#<n> \"...\""),
+                    0 => {
+                        self.unit(&unit)?;
+                        None
+                    }
+                    n => Some(self.task(&unit, n)?),
+                };
                 // Blind work neither asks nor is asked by other agents: both would tell it things.
                 if !self.blind_tasks(actor).is_empty() {
                     return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead");
                 }
-                if about.blind && !about.state.over() && !user {
+                if about.is_some_and(|t| t.blind && !t.state.over()) && !user {
                     return no(format!("{unit}#{task} is a blind task in progress: its agent is not to be told about other work. Ask once it is delivered"));
                 }
                 if blank(&text) {
                     return no("a question needs its text");
                 }
-                // An attachment it points at is one shown with that task: the temporary agent is
-                // given its path, so nothing else (another task's, a blind task's) gets out this way.
-                let shown = self.attachments_of(&unit, task);
+                // An attachment it points at is one shown with that task (with the unit: with one
+                // of its tasks): the temporary agent is given its path, so nothing else gets out.
+                let shown: Vec<&str> = match about {
+                    Some(_) => self.attachments_of(&unit, task),
+                    None => self.unit(&unit)?.tasks.iter().flat_map(|t| self.attachments_of(&unit, t.n)).collect(),
+                };
                 for c in context.iter().filter(|c| c.kind == "attachment") {
                     let a = c.id.as_deref().unwrap_or_default();
                     if !shown.contains(&a) {
@@ -2141,7 +2251,50 @@ impl State {
                 Some(c) if c.done => return no(format!("chore {chore} is already done")),
                 Some(_) => ChoreDone { chore },
             },
+            MessageSent { intent, workspace, text, .. } => {
+                if blank(&text) {
+                    return no("a message needs its text");
+                }
+                // To the manager of the intent's workspace, or of the workspace named (here).
+                let (workspace, manager) = if intent.is_empty() {
+                    let w = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == workspace);
+                    (workspace, w.and_then(|w| w.manager.clone()))
+                } else {
+                    let i = self.intent(&intent)?;
+                    let label = i.workspace.as_ref().map(|g| self.workspace_of(g).map_or(&g.label, |w| &w.group.label).clone()).unwrap_or_default();
+                    (label, self.manager_of(&intent).map(str::to_string))
+                };
+                let Some(manager) = manager else {
+                    return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
+                };
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text }
+            }
+            MessageDelivery { id, delivery } => {
+                if *who != Principal::Service {
+                    return no("only workriver records where a message is");
+                }
+                self.message(&id)?;
+                MessageDelivery { id, delivery }
+            }
+            MessageReplied { message, text } => {
+                let m = self.message(&message)?;
+                // Only the manager it was typed to: nobody else answers for it, the user included.
+                if m.manager != actor {
+                    return no(format!("message {message} went to {}; only that manager replies to it", self.name_of(&m.manager).unwrap_or(&m.manager)));
+                }
+                if blank(&text) {
+                    return no("a reply needs its text");
+                }
+                MessageReplied { message, text }
+            }
         })
+    }
+
+    pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
+        match self.messages.iter().find(|m| m.id == id) {
+            Some(m) => Ok(m),
+            None => no(format!("no message {id}")),
+        }
     }
 
     fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
@@ -2594,6 +2747,8 @@ impl State {
                     }
                 }
             }
+            // In the record only: what ran is read from the events, nothing on the page keeps it.
+            CommandRan { .. } | CommandEnded { .. } => {}
             DeliveryUpdated { chore: Some(c), delivery, .. } => {
                 if let Some(x) = self.chores.iter_mut().find(|x| &x.id == c) {
                     x.delivery = Some(delivery.clone());
@@ -2665,6 +2820,7 @@ impl State {
                 agent: None,
                 name: None,
                 answer: None,
+                answered_at: None,
                 asked: None,
                 answered_by: None,
                 failed: None,
@@ -2687,6 +2843,7 @@ impl State {
             QuestionAnswered { question, text, asked, conclusion } => {
                 if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
                     q.answer = Some(text.clone());
+                    q.answered_at = Some(at.clone());
                     q.asked = asked.clone();
                     q.answered_by = Some(e.actor.clone());
                     if *conclusion && let Some(t) = self.threads.iter_mut().find(|t| t.id == q.thread) {
@@ -2707,6 +2864,26 @@ impl State {
             ChoreDone { chore } => {
                 if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
                     c.done = true;
+                }
+            }
+            MessageSent { id, intent, workspace, manager, text } => self.messages.push(Message {
+                id: id.clone(),
+                intent: intent.clone(),
+                workspace: workspace.clone(),
+                manager: manager.clone(),
+                text: text.clone(),
+                at: at.clone(),
+                delivery: None,
+                replies: vec![],
+            }),
+            MessageDelivery { id, delivery } => {
+                if let Some(m) = self.messages.iter_mut().find(|m| &m.id == id) {
+                    m.delivery = Some(delivery.clone());
+                }
+            }
+            MessageReplied { message, text } => {
+                if let Some(m) = self.messages.iter_mut().find(|m| &m.id == message) {
+                    m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone() });
                 }
             }
         }

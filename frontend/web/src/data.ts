@@ -129,6 +129,11 @@ export const baseName = (p: string) => p.split('/').pop() ?? p
 
 /** Every unit, across intents. */
 export const unitsOf = (ws: Workspace | null) => ws?.intents.flatMap(i => i.units) ?? []
+/** The first unit the rail shows for a project (or for all): of its active intents, then of its done ones. */
+export function firstUnit(ws: Workspace, project: string | null): Unit | undefined {
+  const mine = ws.intents.filter(i => !project || i.project === project)
+  return [...mine.filter(i => (i.state ?? 'active') === 'active'), ...mine.filter(i => i.state === 'done')].flatMap(i => i.units)[0]
+}
 /** The intent a unit belongs to. */
 export const intentOf = (ws: Workspace, unitId: string) => ws.intents.find(i => i.units.some(u => u.id === unitId))
 
@@ -397,6 +402,9 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
       if (s.ended) continue
       const about = tasks.find(({ node }) => node.threads?.some(t => t.id === q))
       const a = agent(s, [])
+      // About a unit as a whole: in its workspace, saying who asked.
+      const unitThread = about ? undefined : unitsOf(ws).flatMap(u => u.threads ?? []).find(t => t.id === q)
+      if (unitThread) { groupOf(s).workers.push({ ...a, asker: unitThread.turns[0]?.by ?? null }); continue }
       if (!about) { own.push(a); continue }
       questions.push({ ...a, at: about, current: true, asker: about.node.threads!.find(t => t.id === q)!.turns[0]?.by ?? null })
       continue
@@ -775,9 +783,11 @@ export interface Edits {
   chores: string[]
   /** Planned intents merged into another (as the service records it: dropped, with this reason). */
   merges: { into: string; from: string[]; title?: string }[]
+  /** Planned intents started in a runtime workspace, by intent. */
+  starts: Record<string, { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }>
 }
 
-export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [] }
+export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {} }
 
 const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
@@ -821,6 +831,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
     intents: ws.intents.map(i => ({
       ...i,
       ...(mergedInto(i) && { state: 'dropped' as const, reason: `merged into ${mergedInto(i)}` }),
+      ...(i.state === 'planned' && edits.starts[i.id] && { state: 'active' as const, workspace: { id: edits.starts[i.id].id, label: edits.starts[i.id].label }, manager: edits.starts[i.id].manager, managerState: edits.starts[i.id].managerState }),
       note: noteOf(i),
       title: titleOf(i),
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),

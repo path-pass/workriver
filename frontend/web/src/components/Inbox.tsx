@@ -9,7 +9,8 @@ import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxR
 import { useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
-import { Icon, Mark, Steps, TerminalButton, Tip, Who } from './bits'
+import { Icon, Mark, TerminalButton, Tip, Who } from './bits'
+import { RunSteps } from './Run'
 import { alertLimit, alertValue, topLine } from './Machines'
 
 const GROUPS = ['blocking', 'machines', 'decisions', 'gaps', 'later'] as const
@@ -127,7 +128,7 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
     <Collapsible>
       <CollapsibleTrigger className="irow" data-kind="chore">{body}</CollapsibleTrigger>
       <CollapsibleContent className="pb-2 pl-[34px] text-sm">
-        <Steps steps={r.chore.steps} />
+        <RunSteps steps={r.chore.steps} ask={{ unit: r.chore.unit, project: r.chore.unit ? undefined : r.chore.project || r.intent?.project, from: r.chore.id, by: r.chore.by }} />
         {/* A chore goes to no one: done, it simply leaves the list. */}
         <Button variant="outline" size="xs" className="mt-2 rounded-sm" onClick={() => act.choreDone(r.chore!.id)}>
           <Icon name="check" className="size-3" />{t('chore.done')}

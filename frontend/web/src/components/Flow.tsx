@@ -17,7 +17,8 @@ import type { Finding, Unit, Task } from '@/types'
 import { threadsOf, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
-import { CopyButton, ExternalChip, Icon, Mark, Prose, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
+import { CopyButton, ExternalChip, Icon, Mark, Prose, TerminalButton, Tip, Waiting, Who } from './bits'
+import { RunSteps } from './Run'
 import { Choice } from './Choice'
 
 const W = 176, H = 48, R = 18
@@ -592,7 +593,8 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
-    input = <><Prose text={n.input.text || n.title} /><Steps steps={n.input.steps ?? []} /></>
+    // Whoever did the work the gate follows wrote its steps (the sample's guess; the service knows).
+    input = <><Prose text={n.input.text || n.title} /><RunSteps steps={n.input.steps ?? []} ask={{ unit: unit.id, from: `${unit.id}#${n.id}`, by: byId(n.inputs.find(i => i.primary)?.from)?.agent ?? undefined }} /></>
     output = n.state === 'waiting'
       ? <GateForm key={gateKey(unit, n)} unit={unit} gate={n} />
       : <>

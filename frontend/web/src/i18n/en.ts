@@ -56,6 +56,7 @@ export const en = {
   start: {
     title: 'Start here',
     lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
+    leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
     agent: 'In a Herdr workspace, start a coding agent to be its manager.',
     skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
     register: 'Have it register as the manager of the workspace:',
@@ -226,7 +227,17 @@ export const en = {
     workspace: 'Open a Herdr workspace for it, or pick one whose manager has room for another intent.',
     agent: 'If the workspace has no manager yet, start a coding agent there and give it the manager skill:',
     register: 'In the manager’s pane, register it:',
-    start: 'Then start this intent there; new units and tasks in that workspace go to it:'
+    start: 'Then start this intent there; new units and tasks in that workspace go to it:',
+    pickLabel: 'Start it in',
+    option: '{{label}} · {{manager}}: {{state}}',
+    optionNone: '{{label}} · no manager',
+    noWorkspace: 'Herdr has no workspace yet. These are the steps:',
+    go: 'Start',
+    goHint: 'Recorded as yours; {{manager}} is told to split it into units and tasks.',
+    none: '{{label}} has no manager, so nobody would split the work. Start one there first:',
+    started: 'Started in {{label}}.',
+    failed: 'Not started: {{error}}',
+    close: 'Close'
   },
   backlog: {
     title: 'Backlog',
@@ -262,6 +273,36 @@ export const en = {
     openFor: 'Open {{agent}} in terminal',
     note: 'Would bring {{agent}}’s terminal to the front – not connected yet'
   },
+  run: {
+    title: 'Run as you',
+    lead: 'It runs in a shell of your own, in Herdr’s “workriver” workspace, with your credentials and hooks, exactly as if you typed it there.',
+    command: 'Command',
+    dir: 'Directory',
+    machine: 'Machine',
+    here: 'this machine',
+    by: 'Written by',
+    byAgent: '{{agent}}, an agent: read it before you run it',
+    byYou: 'you',
+    danger: 'This can destroy work for good (delete files, rewrite history). Run it only if you meant exactly this.',
+    go: 'Run',
+    cancel: 'Cancel',
+    running: 'Running…',
+    ok: 'Done (exit 0)',
+    exit: 'Failed (exit {{code}})',
+    lost: 'Its terminal can no longer be read; look in Herdr.',
+    open: 'Open in terminal',
+    close: 'Close',
+    failed: 'Not run: {{error}}',
+    button: 'Run',
+    buttonFor: 'Run “{{command}}” as you',
+    section: 'Run a command',
+    where: 'Where',
+    placeholder: 'A command, run as you',
+    hint: 'Runs in a shell of your own, after you confirm it.',
+    unit: '{{unit}} · {{title}}',
+    project: 'Project: {{title}}',
+    nowhere: 'No unit or project to run in yet.'
+  },
   evidence: {
     label: 'Checks run',
     passed: 'Passed',
@@ -278,6 +319,13 @@ export const en = {
     remove: 'Leave {{label}} out',
     how: 'A temporary agent answers from the records and the code; it asks {{agent}} only when {{agent}} is idle.',
     howAlone: 'A temporary agent answers from the records and the code.',
+    howUnit: 'A temporary agent answers from the unit’s records and code; it asks none of its agents.',
+    placeholderUnit: 'Ask why about {{unit}}…',
+    unitHint: 'About the whole unit. To ask about one task, pick it in the graph.',
+    you: 'You',
+    answerer: 'Temporary agent',
+    log: 'Conversation',
+    mode: { label: 'Talk with', why: 'Why', manager: 'Manager' },
     step: {
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
@@ -311,6 +359,21 @@ export const en = {
     conversations_other: '{{count, number}} conversations',
     count_one: '{{count, number}} question asked',
     count_other: '{{count, number}} questions asked'
+  },
+  talk: {
+    workspace: 'Workspace',
+    label: 'Message to the manager',
+    placeholder: 'Write to {{agent}}…',
+    how: 'Typed into {{agent}}’s terminal; it replies here.',
+    none: 'No manager is running in this workspace: nobody would read it.',
+    noWorkspace: 'No workspace has a manager yet.',
+    empty: 'Write to the manager of {{workspace}}: it reads it in its terminal and replies here.',
+    step: {
+      sending: 'Sending to {{agent}}…',
+      blocked: 'Waiting for you in Herdr: {{agent}} needs an answer in its terminal. The message goes in once it is free.',
+      delivered: 'In {{agent}}’s terminal',
+      'not-delivered': 'Not delivered: {{reason}}'
+    }
   },
   chore: {
     done: 'Done'

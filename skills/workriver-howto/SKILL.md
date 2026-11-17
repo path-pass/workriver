@@ -1,6 +1,6 @@
 ---
 name: workriver-howto
-description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, attachments, asking another task, remote machines, a message that was not delivered, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
+description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
 ---
 
 # workriver: how to
@@ -36,6 +36,7 @@ copy of this file.
 | `ask` | asking about another task |
 | `machines` | other machines and linked workspaces (the user's to set up) |
 | `not-delivered` | a decision or result did not reach an agent |
+| `user-message` | the user wrote to you from the page (`message m3`); replying with `workriver reply` |
 | `stalled` | a worker stopped without delivering, or is gone |
 | `updating` | after workriver was updated |
 

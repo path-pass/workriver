@@ -8,6 +8,7 @@ mod herdr;
 mod machines;
 mod metrics;
 mod quote;
+mod run;
 mod serve;
 mod perf;
 mod show;
@@ -195,6 +196,14 @@ enum Cmd {
         /// The text is the conclusion the user asked for.
         #[arg(long)]
         conclusion: bool,
+    },
+    /// Reply to the user's message (m3) that workriver typed into your terminal, for the
+    /// manager it was sent to; the user reads it in workriver's page.
+    Reply {
+        /// The message (m3).
+        message: String,
+        #[arg(long)]
+        text: String,
     },
     /// Print the instructions for an agent working with workriver.
     ///
@@ -1186,6 +1195,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
+        Cmd::Reply { message, text } => d.append(actor, "message.replied", json!({ "message": message, "text": text }))?,
     };
     // What was recorded, by the id an agent uses next.
     let b = &out["body"];
@@ -1208,6 +1218,7 @@ fn main() -> anyhow::Result<()> {
         Some("task.amended") => "amended".into(),
         Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
+        Some("message.replied") => "replied".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }

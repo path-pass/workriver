@@ -20,6 +20,28 @@ export interface Workspace {
   machines?: Machine[];
   /** Machines past an alert threshold now (the user's view only). */
   alerts?: MachineAlert[];
+  /** The user's messages to managers, with their replies, oldest first. */
+  messages?: ManagerMessage[];
+}
+
+/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. */
+export interface ManagerMessage {
+  /** "m3"; a local one the service refused has none. */
+  id?: string;
+  /** The intent it is about, if any. */
+  intent?: string;
+  /** The runtime workspace whose manager it went to, by label. */
+  workspace: string;
+  /** The manager's name. */
+  manager: string;
+  text: string;
+  at: string;
+  /** blocked: the manager waits for a person in its terminal; the message goes in once it is free. */
+  step: 'sending' | 'blocked' | 'delivered' | 'not-delivered';
+  reasonCode?: ReasonCode;
+  reason?: string;
+  blocked?: { agent: string; session: string };
+  replies: { by: string; text: string; at: string }[];
 }
 
 /** What a machine alerts on: macOS has compressor, swap, pressure and systemFree; Linux
@@ -407,6 +429,8 @@ export interface Unit {
   overdue?: string;
   /** When it was recorded as merged. */
   merged?: string;
+  /** Conversations about the unit as a whole (asked with no task picked), oldest first. */
+  threads?: Thread[];
 }
 
 /**
@@ -594,7 +618,7 @@ export interface Task {
 
 /** What a question is about, shown as a chip with it. */
 export interface AskContext {
-  kind: 'task' | 'finding' | 'file' | 'lines' | 'attachment';
+  kind: 'task' | 'unit' | 'finding' | 'file' | 'lines' | 'attachment';
   label: string;
   /** attachment: its id in the service's store. */
   id?: string;
@@ -629,6 +653,9 @@ export interface Turn {
   context: AskContext[];
   /** Null while it comes. */
   answer: string | null;
+  /** Who answered (an agent's name, or "user") and when; absent in the sample. */
+  answerBy?: string;
+  answeredAt?: string;
   /** While it comes: how far it has got. */
   step?: AskStep;
   /** step 'blocked': the agent that waits for a person in its terminal; the question waits too. */

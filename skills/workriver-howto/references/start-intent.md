@@ -18,6 +18,10 @@ are one goal merge into one (`workriver backlog merge <into> <from>... [--title
 user's to merge (ask them; "Merge…" in the roadmap). The merged ones are dropped, "merged
 into i3", their text in i3's note; `--title` renames i3. `workriver board i3` prints the note.
 
+**Started by the user:** the user may start a planned intent in your workspace from the page;
+then you get `[workriver] The user started i3 «title» in your workspace …`. It is already
+active here: do not start it again; `workriver board i3`, then split it into units and tasks.
+
 **You will see:** `i3 active`. New units and tasks here go to the intent started last,
 unless you name one.
 

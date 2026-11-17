@@ -196,6 +196,15 @@ impl Herdr {
         v.get("result").cloned().ok_or_else(|| RuntimeError::Failed(format!("herdr {method}: answer without a result")))
     }
 
+    /// Herdr focuses a pane inside its window; the window's app is brought forward here (macOS).
+    /// A failure only means the user switches to it by hand.
+    fn activate(&self) {
+        #[cfg(target_os = "macos")]
+        if !self.terminal_app.is_empty() && !self.terminal_app.contains('"') {
+            let _ = std::process::Command::new("osascript").args(["-e", &format!("tell application \"{}\" to activate", self.terminal_app)]).output();
+        }
+    }
+
     /// A line on what is wrong with the connection, or None when Herdr answers with our protocol.
     pub fn check(&self) -> Option<String> {
         match self.call("ping", json!({})) {
@@ -306,12 +315,7 @@ impl Runtime for Herdr {
         // On another machine this focuses the pane in that machine's Herdr; nothing in Herdr's
         // API makes this machine's window switch to it, so the user picks it in the sidebar.
         self.call("agent.focus", json!({ "target": pane }))?;
-        // Herdr focuses the pane inside its window; the window's app is brought forward here.
-        // A failure only means the user switches to it by hand.
-        #[cfg(target_os = "macos")]
-        if !self.terminal_app.is_empty() && !self.terminal_app.contains('"') {
-            let _ = std::process::Command::new("osascript").args(["-e", &format!("tell application \"{}\" to activate", self.terminal_app)]).output();
-        }
+        self.activate();
         Ok(())
     }
 
@@ -376,6 +380,32 @@ impl Runtime for Herdr {
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
         let snap = self.snapshot()?;
         Ok(snap.workspaces.iter().filter_map(|w| group(&snap, &w.workspace_id, self.label())).collect())
+    }
+
+    /// A tab of its own in the workspace labelled `group` (made, with its first tab, when there
+    /// is none): a run never types into a shell an earlier run may still hold (a password
+    /// prompt, a pager), and each run's output starts clean. Herdr queues the text and Enter
+    /// together, so they wait in the terminal until the new shell reads them.
+    fn run_shell(&self, _: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
+        let snap = self.snapshot()?;
+        let made = match snap.workspaces.iter().find(|w| w.label == group) {
+            Some(w) => self.call("tab.create", json!({ "workspace_id": w.workspace_id, "cwd": dir, "label": "run", "focus": false }))?,
+            None => self.call("workspace.create", json!({ "label": group, "cwd": dir, "focus": false }))?,
+        };
+        let pane = made["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr: no pane in the answer".into()))?.to_string();
+        self.call("pane.send_input", json!({ "pane_id": pane, "text": line, "keys": ["enter"] }))?;
+        Ok(pane)
+    }
+
+    fn read_place(&self, _: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
+        let r = self.call("pane.read", json!({ "pane_id": place, "source": "recent_unwrapped", "lines": lines }))?;
+        Ok(r["read"]["text"].as_str().unwrap_or_default().to_string())
+    }
+
+    fn focus_place(&self, _: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+        self.call("pane.focus", json!({ "pane_id": place }))?;
+        self.activate();
+        Ok(())
     }
 }
 

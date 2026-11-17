@@ -14,10 +14,11 @@ import type { Workspace } from '@/types'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { MachinesList } from './Machines'
+import { RunBox } from './Run'
 import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
 
-export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'ask'
-export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'ask']
+export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'ask'
+export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'run', 'ask']
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }
@@ -254,6 +255,11 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
           <h2 id="side-backlog" className="mb-2 px-2.5 text-sm font-[650]">{t('backlog.title')}</h2>
           <BacklogList ws={ws} project={project} onOpen={onOpen} />
         </section>
+      ) : section === 'run' ? (
+        <section aria-labelledby="side-run">
+          <h2 id="side-run" className="mb-2 px-2.5 text-sm font-[650]">{t('run.section')}</h2>
+          <RunBox ws={ws} unit={here?.unit ?? null} project={project} />
+        </section>
       ) : section === 'commits' ? (
         <section aria-labelledby="side-commits">
           <h2 id="side-commits" className="mb-2 px-2.5 text-sm font-[650]">{t('commits.title')}</h2>
@@ -277,7 +283,7 @@ function Body(props: ContentProps) {
   return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
 }
 
-/** The six buttons work as a switch: one section at a time; the open one again folds it. */
+/** The buttons work as a switch: one section at a time; the open one again folds it. */
 export function SideButtons({ active, onPick }: { active: Section | null; onPick: (s: Section) => void }) {
   const { t } = useT()
   const button = (s: Section, icon: string, label: string) => (
@@ -287,7 +293,7 @@ export function SideButtons({ active, onPick }: { active: Section | null; onPick
       </Button>
     </Tip>
   )
-  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('machines', 'machine', t('metrics.title'))}{button('ask', 'talk', t('ask.why'))}</>
+  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('machines', 'machine', t('metrics.title'))}{button('run', 'terminal', t('run.section'))}{button('ask', 'talk', t('ask.why'))}</>
 }
 
 interface PanelProps extends Omit<ContentProps, 'section'> {

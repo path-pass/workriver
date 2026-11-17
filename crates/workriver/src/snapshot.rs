@@ -31,6 +31,68 @@ pub struct Workspace {
     /// Machines past an alert threshold now: for the user only (Needs you).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub alerts: Vec<crate::metrics::Alert>,
+    /// The user's messages to managers, with their replies, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    messages: Vec<MessageOut>,
+}
+
+/// The user's message to a workspace's manager, as the page shows it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageOut {
+    id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    intent: String,
+    workspace: String,
+    /// The manager's name.
+    manager: String,
+    text: String,
+    at: String,
+    /// sending, blocked (the manager waits for a person in its terminal; it goes in once
+    /// free), delivered or not-delivered.
+    step: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_code: Option<core::ReasonCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<Blocked>,
+    replies: Vec<ReplyOut>,
+}
+
+#[derive(Serialize)]
+struct ReplyOut {
+    by: String,
+    text: String,
+    at: String,
+}
+
+fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<MessageOut> {
+    state
+        .messages
+        .iter()
+        .map(|m| {
+            let stuck = live.iter().find(|a| a.session == m.manager && a.state == AgentState::Blocked).filter(|_| m.delivery.is_none());
+            MessageOut {
+                id: m.id.clone(),
+                intent: m.intent.clone(),
+                workspace: m.workspace.clone(),
+                manager: names.of(&m.manager),
+                text: m.text.clone(),
+                at: m.at.clone(),
+                step: match m.delivery.as_ref().map(|d| d.step) {
+                    None if stuck.is_some() => "blocked",
+                    None => "sending",
+                    Some(core::DeliveryStep::NotDelivered) => "not-delivered",
+                    Some(_) => "delivered",
+                },
+                reason_code: m.delivery.as_ref().and_then(|d| d.reason_code),
+                reason: m.delivery.as_ref().and_then(|d| d.reason.clone()),
+                blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
+                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone() }).collect(),
+            }
+        })
+        .collect()
 }
 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
@@ -292,6 +354,9 @@ struct Unit {
     /// Ready for longer than the user's `readyHours` without a merge: since when.
     #[serde(skip_serializing_if = "Option::is_none")]
     overdue: Option<String>,
+    /// Conversations about the unit as a whole ("ask why" with no task picked), oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    threads: Vec<ThreadOut>,
 }
 
 #[derive(Serialize)]
@@ -520,6 +585,11 @@ struct Turn {
     question: String,
     context: Vec<core::AskContext>,
     answer: Option<String>,
+    /// Who answered (the agent's name, or "user") and when.
+    #[serde(rename = "answerBy", skip_serializing_if = "Option::is_none")]
+    answer_by: Option<String>,
+    #[serde(rename = "answeredAt", skip_serializing_if = "Option::is_none")]
+    answered_at: Option<String>,
     /// While it comes: starting (the agent), reading (it works on it), blocked (its agent
     /// waits for a person in its terminal: the question waits too).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -581,6 +651,9 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                         question: q.text.clone(),
                         context: q.context.clone(),
                         answer: q.answer.clone(),
+                        // The agent started for it is known by the name it was given.
+                        answer_by: q.answered_by.as_ref().map(|a| q.name.clone().filter(|_| q.agent.as_ref() == Some(a)).unwrap_or_else(|| names.of(a))),
+                        answered_at: q.answered_at.clone(),
                         step: q.open().then_some(if stuck.is_some() { "blocked" } else if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
                         blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
                         consulted: q.asked.as_ref().map(|a| Consulted { agent: names.of(a), outcome: "asked" }),
@@ -900,7 +973,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .filter(|c| c.intent.is_empty())
         .map(|c| chore(c, &names, Some(crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![] }
+    let messages = messages(state, live, &names);
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
@@ -978,6 +1052,7 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         code: String::new(),
         squash: None,
         overdue: None,
+        threads: vec![],
     })
 }
 
@@ -1360,6 +1435,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             let ago = humantime::parse_rfc3339(&since).ok()?.elapsed().ok()?;
             (ago >= after).then_some(since)
         }),
+        threads: threads(state, live, names, &u.id, 0),
     }
 }
 

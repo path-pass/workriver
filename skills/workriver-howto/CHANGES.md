@@ -4,6 +4,24 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **The user can start an intent in your workspace from the page** (managers): you then get
+  `[workriver] The user started i3 «title» in your workspace; it is now where new work goes.
+  Split it into units and tasks …`, with its goal quoted. It is already active and your
+  workspace's current intent: do not run `workriver intent start` again; read it with
+  `workriver board i3` and split it as usual. (`start-intent`)
+- **Gate steps can be run by the user from the page**: the user's page has "Run" next to each
+  command of a gate's or chore's steps, which runs it in the user's own shell. So write each
+  command as one exact line the user could type (`Push => git push origin feat/x`), in the
+  directory of the unit's work tree; never chain a step that is not the user's. (`gates-chores`)
+- **The user can write to you from the page** (managers): a message arrives as `[workriver]
+  The user writes to you from workriver's page (message m3, …) … The user says, in workriver:
+  «…»`. The quoted text after "The user says" is the user's own: act on it as if typed in your
+  pane, then answer with `workriver reply m3 --text "…"`; the user reads replies in the page,
+  not your terminal. Only the manager it was sent to can reply; you may reply more than once.
+  (`user-message`)
+- **The user can ask about a whole unit**: with no task picked, the page's Ask why asks about
+  the unit; a temporary agent answers from its records and code and asks none of its agents.
+  `workriver ask` still takes a task (`u1#3`): a unit is refused. (`ask`)
 - **Task text and delivery notes are short Markdown**: the user's page now renders a task's
   `--text` and a delivery's `--note` (and answers to questions) as Markdown, keeping line
   breaks; a long one is cut to a few lines with "show more". Write them as a line or two of

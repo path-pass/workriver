@@ -7,7 +7,8 @@ type into another agent's terminal.
     workriver answer q7 --text "Yes, 50 per page."          # when you are the one asked
 
 A temporary agent answers from the records and the code; it asks the task's own agent
-only while that one is idle. workriver never types into the task's own agent itself.
+only while that one is idle. workriver never types into the task's own agent itself. A question
+always names a task; only the user asks about a whole unit (from the page).
 
 **You will see:** the question id (`q7`); later, in your terminal, "Your question q7 … was
 answered" with the answer quoted. With `--wait` the command prints it.

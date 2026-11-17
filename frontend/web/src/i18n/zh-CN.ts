@@ -60,6 +60,7 @@ export const zhCN: Same<typeof en> = {
   start: {
     title: '从这里开始',
     lead: '还没有任何记录。agent 自己记录自己的工作；每个 Herdr 工作区有一个管理者 agent 负责规划。',
+    leadProject: '{{project}} 里还没有任何记录。agent 自己记录自己的工作；每个 Herdr 工作区有一个管理者 agent 负责规划。',
     agent: '在一个 Herdr 工作区里，启动一个 coding agent 当它的管理者。',
     skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
     register: '让它登记为这个工作区的管理者：',
@@ -225,7 +226,17 @@ export const zhCN: Same<typeof en> = {
     workspace: '为它开一个 Herdr 工作区，或者选一个管理者还能再管一个意图的工作区。',
     agent: '如果这个工作区还没有管理者，在里面启动一个 coding agent，并把管理者 skill 给它：',
     register: '在管理者的窗格里登记：',
-    start: '然后在那里开始这个意图；这个工作区里新建的单元和任务都归它：'
+    start: '然后在那里开始这个意图；这个工作区里新建的单元和任务都归它：',
+    pickLabel: '在哪里开始',
+    option: '{{label}} · {{manager}}：{{state}}',
+    optionNone: '{{label}} · 没有管理者',
+    noWorkspace: 'Herdr 里还没有工作区。按这几步做：',
+    go: '开始',
+    goHint: '记为你的操作；会通知 {{manager}} 把它拆成单元和任务。',
+    none: '{{label}} 没有管理者，没人会去拆分这份工作。先在那里启动一个：',
+    started: '已在 {{label}} 开始。',
+    failed: '没能开始：{{error}}',
+    close: '关闭'
   },
   backlog: {
     title: '待办',
@@ -259,6 +270,36 @@ export const zhCN: Same<typeof en> = {
     openFor: '在终端里打开 {{agent}}',
     note: '将把 {{agent}} 的终端切到前台（还没有接上）'
   },
+  run: {
+    title: '以你的身份运行',
+    lead: '在 Herdr 的「workriver」工作区里你自己的 shell 中运行，用你的凭据和 hook，和你亲手在那里输入完全一样。',
+    command: '命令',
+    dir: '目录',
+    machine: '机器',
+    here: '本机',
+    by: '写这条命令的',
+    byAgent: '{{agent}}（agent）：运行前请先读一遍',
+    byYou: '你',
+    danger: '这条命令可能永久毁掉工作（删除文件、改写历史）。只有确实就是要这样做时才运行。',
+    go: '运行',
+    cancel: '取消',
+    running: '运行中…',
+    ok: '完成（退出码 0）',
+    exit: '失败（退出码 {{code}}）',
+    lost: '读不到它的终端了，去 Herdr 里看。',
+    open: '在终端里打开',
+    close: '关闭',
+    failed: '没有运行：{{error}}',
+    button: '运行',
+    buttonFor: '以你的身份运行「{{command}}」',
+    section: '运行命令',
+    where: '在哪里',
+    placeholder: '一条命令，以你的身份运行',
+    hint: '确认之后在你自己的 shell 里运行。',
+    unit: '{{unit}} · {{title}}',
+    project: '项目：{{title}}',
+    nowhere: '还没有可以运行的单元或项目。'
+  },
   evidence: {
     label: '跑过的检查',
     passed: '通过',
@@ -275,6 +316,13 @@ export const zhCN: Same<typeof en> = {
     remove: '不带上 {{label}}',
     how: '由临时 agent 根据记录和代码回答；{{agent}} 空闲时才会去问它。',
     howAlone: '由临时 agent 根据记录和代码回答。',
+    howUnit: '由临时 agent 根据这个单元的记录和代码回答，不会去问它的 agent。',
+    placeholderUnit: '问关于 {{unit}} 的为什么…',
+    unitHint: '问的是整个单元。要问某个任务，在图里选中它。',
+    you: '你',
+    answerer: '临时 agent',
+    log: '对话',
+    mode: { label: '对话对象', why: '问为什么', manager: '管理者' },
     step: {
       starting: '正在启动 agent…',
       reading: '正在读记录和代码…',
@@ -304,6 +352,21 @@ export const zhCN: Same<typeof en> = {
     empty: '在图里选一个任务，或在代码里选几行，就可以问为什么。',
     conversations_other: '{{count, number}} 段对话',
     count_other: '{{count, number}} 个提问'
+  },
+  talk: {
+    workspace: '工作区',
+    label: '给管理者的消息',
+    placeholder: '写给 {{agent}}…',
+    how: '会输入到 {{agent}} 的终端里；它在这里回复。',
+    none: '这个工作区没有在运行的管理者，没人会读到。',
+    noWorkspace: '还没有哪个工作区有管理者。',
+    empty: '写给 {{workspace}} 的管理者：它在终端里读到，在这里回复。',
+    step: {
+      sending: '正在发给 {{agent}}…',
+      blocked: '在 Herdr 里等你：{{agent}} 的终端里有问题要回答。它空下来后消息会自动发进去。',
+      delivered: '已发到 {{agent}} 的终端',
+      'not-delivered': '没有送达：{{reason}}'
+    }
   },
   chore: {
     done: '做完了'

@@ -7,15 +7,17 @@ import { SECTIONS, SideButtons, SidePanel, SideSheet, type CommitFocus, type Sec
 import { CopyButton, MachineChip, Notes, Progress, Squashed, Topics } from '@/components/bits'
 import { alertLimit, alertValue, topLine } from '@/components/Machines'
 import { Start, StartIntent } from '@/components/Start'
+import { mockWhere, RunContext, RunDialog } from '@/components/Run'
+import type { RunAsk } from '@/runtime'
 import { Ask, isField, type Talk } from '@/components/Ask'
 import { CodeLayer } from '@/components/CodeLayer'
 import { ViewerContext } from '@/components/Viewer'
 import { Rail } from '@/components/Rail'
-import { agents, askeeOf, blame, blockedAgents, inbox, loadCode, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
+import { agents, askeeOf, blame, blockedAgents, firstUnit, inbox, intentOf, loadCode, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
 import { useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from '@/link'
-import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, submitGate, type Delivery } from '@/runtime'
-import type { AskContext, Attachment, Intent, MachineAlert, Task, Turn, Unit, Workspace } from '@/types'
+import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, submitGate, tellManager, type Delivery } from '@/runtime'
+import type { AskContext, Attachment, Intent, MachineAlert, ManagerMessage, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -79,7 +81,18 @@ export default function App() {
   const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE) as Section; return SECTIONS.includes(v) ? v : null })
   // The project the rail and the backlog show, or all; remembered.
   const [picked, setProject] = useState<string | null>(() => recall(PROJECT) || null)
-  const pickProject = (p: string | null) => { setProject(p); remember(PROJECT, p ?? '') }
+  // The main area follows the switch: the unit on screen stays if it is the project's, else the
+  // project's first unit opens, or its empty state when it has none.
+  const pickProject = (p: string | null) => {
+    setProject(p)
+    remember(PROJECT, p ?? '')
+    if (!ws || (unitId && (!p || intentOf(ws, unitId)?.project === p))) return
+    const first = firstUnit(ws, p)
+    if (first) return pickUnit(ws, first.id)
+    setUnitId(null)
+    setPick(null)
+    if (location.pathname !== '/') history.pushState(null, '', '/')
+  }
   // A planned intent whose start steps are shown.
   const [starting, setStarting] = useState<Intent | null>(null)
   const showSide = (next: Section | null) => { setSide(next); remember(SIDE, next ?? 'closed') }
@@ -170,7 +183,9 @@ export default function App() {
   // and set when something else is opened or picked. The root opens the first unit.
   const follow = useCallback((w: Workspace) => {
     const p = placeOf(location.pathname, location.search)
-    const first = unitsOf(w)[0]
+    // The root opens the first unit of the project remembered (or of all).
+    const kept = recall(PROJECT)
+    const first = firstUnit(w, w.projects?.some(x => x.id === kept) ? kept : null)
     const r = p ? resolve(w, p) : first ? { unit: first.id, pick: null } : null
     setMissing(p && !r ? `${p.id}${p.task ? `#${p.task}` : ''}` : null)
     if (!r) { setUnitId(null); return false }
@@ -222,12 +237,15 @@ export default function App() {
     const unit = coded, sel = codeSel
     if (!unit || !sel) return
     const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.touched.at(-1)
-    if (upTo === undefined) return
-    const owners = [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0))].sort((a, b) => b - a)
-    // None of the unit's work wrote these lines: ask the last task that touched the file.
-    const order = owners.length ? owners : [upTo]
-    const tasks = [...new Set(order.map(k => unit.tasks.find(n => n.output.commits?.includes(unit.commits[k].id))).filter((n): n is Task => !!n))]
-    if (!tasks.length) return
+    const owners = upTo === undefined ? [] : [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0))].sort((a, b) => b - a)
+    const tasks = [...new Set(owners.map(k => unit.tasks.find(n => n.output.commits?.includes(unit.commits[k].id))).filter((n): n is Task => !!n))]
+    // No task wrote these lines: the question is about the unit, with the lines as its chip.
+    if (!tasks.length) {
+      setPick(null)
+      setAskReq({ at: Date.now(), task: null, extra: [] })
+      openAsk(false)
+      return
+    }
     setPick({ kind: 'task', id: tasks[0].id })
     setAskReq({ at: Date.now(), task: tasks[0].id, extra: tasks.slice(1).map(n => ({ kind: 'task', label: n.taskId ? `#${n.taskId}` : n.title })) })
     openAsk(false)
@@ -248,7 +266,8 @@ export default function App() {
       if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
         if (lines) askAbout(lines)
-        else openAsk(!!pick)
+        // With nothing picked the question is about the unit (not the intent's own work).
+        else openAsk(!!pick || (!!unit && !unit.intentLevel))
       }
     }
     window.addEventListener('keydown', onKey)
@@ -262,9 +281,10 @@ export default function App() {
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
 
-  const onAsk = (node: Task, question: string, context: AskContext[], thread: string | null, conclude = false) => {
+  const onAsk = (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude = false) => {
     if (!ws || !unit) return
-    const at = unit.id, id = node.id
+    // Questions about the unit itself are kept under ''.
+    const at = unit.id, id = node?.id ?? ''
     const turn: Turn = { question, context, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
     const put = (next: Turn) => setAsked(all => ({ ...all, [at]: { ...all[at], [id]: (all[at]?.[id] ?? []).map(x => (x === turn || x.at === turn.at ? next : x)) } }))
     // With the service, the question and its answer come back with the data; only a refusal
@@ -277,7 +297,7 @@ export default function App() {
     }
     setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), turn] } }))
     // The agent that did the work is asked only while it is idle; a gone session cannot be.
-    const who = askeeOf(unit, node)
+    const who = node && askeeOf(unit, node)
     const session = who ? ws.sessions.find(s => s.agent === who) : undefined
     const busy = agents(ws).some(a => a.agent === who && a.state === 'working')
     const owner = who ? { agent: who, state: !session || session.ended ? 'ended' as const : busy ? 'busy' as const : 'idle' as const } : null
@@ -285,9 +305,21 @@ export default function App() {
     ask(question, context, owner, step => { now = { ...now, step }; put(now) })
       .then(r => put({ ...now, ...r, step: undefined }))
   }
+  // Messages to managers: the service's, then any it refused (or, with the sample, all of them).
+  const [told, setTold] = useState<ManagerMessage[]>([])
+  const onTell = (to: { intent?: string; workspace: string }, text: string, manager: string) => {
+    const m: ManagerMessage = { workspace: to.workspace, intent: to.intent, manager, text, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
+    if (MOCK) {
+      setTold(all => [...all, m])
+      setTimeout(() => setTold(all => all.map(x => (x === m ? { ...m, replies: [{ by: manager, text: mockReply(text), at: new Date().toISOString() }] } : x))), 1200)
+      return
+    }
+    tellManager(to, text).catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
+  }
   const talk: Talk | null = ws && unit
     ? {
         sessions: ws.sessions, file, lines, asked: asked[unit.id] ?? {}, onAsk,
+        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell,
         onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
         live: !MOCK,
         // The sheet gets out of the way of the file, as for a row of the panel.
@@ -295,7 +327,7 @@ export default function App() {
         focusAt: askReq.at,
         onOpen: () => openAsk(),
         extra: [
-          ...(askReq.task === pick?.id ? askReq.extra : []),
+          ...(askReq.task && askReq.task === pick?.id ? askReq.extra : []),
           ...(viewing ? [{ kind: 'attachment' as const, label: viewing.name, id: viewing.id }] : []),
         ],
       }
@@ -308,6 +340,16 @@ export default function App() {
   // The Ask section asks about the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
   const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, ask: <Ask unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
+
+  // A command the user asked to run: the confirm dialog shows it. A gate or chore of the
+  // intent's own work has no work tree: it runs in the intent's project folder.
+  const [running, setRunning] = useState<RunAsk | null>(null)
+  const run = useCallback((a: RunAsk) => {
+    if (!ws) return
+    const own = a.unit && unitsOf(ws).find(u => u.id === a.unit)?.intentLevel
+    const at = own ? { ...a, unit: undefined, project: a.project ?? intentOf(ws, a.unit!)?.project } : a
+    setRunning(MOCK ? { ...at, ...mockWhere(ws, at) } : at)
+  }, [ws])
 
   // ---- what the user puts in, and where it is on its way ----
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
@@ -351,6 +393,7 @@ export default function App() {
 
   return (
     <ActContext.Provider value={act}>
+    <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
     <Topics.Provider value={topics}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
@@ -359,6 +402,7 @@ export default function App() {
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
         {missing && <p role="status" className="text-sm text-ink-2">{t('link.notFound', { ref: missing })}</p>}
         {ws && !unitsOf(ws).length && <Start />}
+        {ws && !unit && !missing && unitsOf(ws).length > 0 && !firstUnit(ws, project) && <Start project={ws.projects?.find(p => p.id === project)?.title} />}
         {ws && unit && sel && talk && (
           <>
             <header className="flex items-start gap-3">
@@ -401,11 +445,13 @@ export default function App() {
           <SideSheet {...panel} section={sheet} onSection={s => setSheet(now => (now === s ? null : s))} onClose={() => setSheet(null)} />
         </>
       )}
-      <StartIntent intent={starting} onClose={() => setStarting(null)} />
+      <StartIntent ws={ws} intent={starting} onClose={() => setStarting(null)} onStarted={(i, w) => setEdits(e => ({ ...e, starts: { ...e.starts, [i]: w } }))} />
+      <RunDialog ask={running} onClose={() => setRunning(null)} />
       <Notes />
     </div>
     </Topics.Provider>
     </ViewerContext.Provider>
+    </RunContext.Provider>
     </ActContext.Provider>
   )
 }

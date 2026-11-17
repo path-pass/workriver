@@ -30,12 +30,22 @@ Three columns: the rail picks a unit, the main area shows it, the side panel hol
 looked at now and then.
 
 - A dark rail on the left picks units and nothing else: product name, the project switch
-  (a select in the rail's colours, "All projects" first; remembered), search, then the intents in three
+  (a select in the rail's colours, "All projects" first; remembered; switching it opens the
+  project's first unit, or its empty state – the start guide naming the project – when it has
+  none, and sets the address; the unit on screen stays when it belongs to the project picked),
+  search, then the intents in three
   groups under quiet headings: **Active** (with their units), **Roadmap** (planned intents
   in order, each with its goal, a link chip when it is tracked elsewhere, its note behind a
-  small "Note" disclosure on a line of its own, and "Start", which
-  shows the steps to start it in Herdr with the commands to copy – workriver never starts an
-  agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
+  small "Note" disclosure on a line of its own, and "Start", which opens a dialog to pick
+  the Herdr workspace it starts in: a select, workspaces with a manager first, each with its
+  manager's name and state ("chat · boss: idle"), those without saying "no manager"
+  (workriver's own "workriver-commands" workspace of command shells is left out). With a manager,
+  "Start" records the start as the user's (as `workriver intent start` would) and types into
+  that manager's terminal "[workriver] The user started i3 «title» in your workspace … split
+  it into units and tasks (`workriver guide how start-intent`)", its goal quoted; the dialog
+  then says where it started and whether the message was delivered (or why not, in the user's
+  language). A workspace without a manager says so and shows the steps to start one, with the
+  commands to copy – workriver never starts an agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
   "+" adds one inline, title and one-sentence goal, to the project shown; a quiet "Merge…"
   in the heading, when a project has two planned intents or more, opens a dialog to merge
   them), and **Done**,
@@ -87,7 +97,7 @@ looked at now and then.
   happens: the others are dropped and what they said goes into its note. Merge and Cancel;
   the service's refusal shows in the dialog. Escape closes it and focus goes back to "Merge…".
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents**, **Commits**, **Backlog**, **Machines** and **Ask why**, one at a time, never mixed. Its six buttons work as a
+  **Agents**, **Commits**, **Backlog**, **Machines**, **Run a command** and **Ask why**, one at a time, never mixed. Its buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
   already has them); open, it is 340 px wide by default and its left edge drags it between 280 and 720 px (remembered; double-click for the default; arrow keys too). Which section is open, if any, is
@@ -95,6 +105,30 @@ looked at now and then.
   main area and the panel stays open; a row names its unit (the inbox also its intent,
   quietly). On a narrow screen the same content is a sheet over the page, opened from the
   same buttons in the unit header, with the same switch inside.
+- **Run a command** is a small box: "Where" (a select of the active units in the project
+  shown, the unit on screen first – its work tree is the directory – then the project
+  folders), the command (one line, monospace) and "Run", which opens the confirm dialog below.
+- **Running a command as the user.** Where an agent may not do something (a hook blocks its
+  push), the manager makes it a gate step with the command. Next to the copy button of every
+  command in a gate's or chore's steps sits "Run" (a play icon). It, and the side panel's box,
+  open one dialog: the exact command in monospace, its directory (the unit's work tree, else
+  its repository; a project's folder), the machine (the unit's), and who wrote it – "you", or
+  "agent X, an agent: read it before you run it" in amber, since an agent's text is not to be
+  trusted. A command that can destroy work for good (`rm -r`/`-f`, `push --force`/`-f`/`+ref`,
+  `reset --hard`, `clean -f…`, `branch -D`, `mkfs`, `dd of=`) is flagged in red: the box red,
+  a line saying what it can do, the Run button the destructive one. A heuristic for the
+  obvious ones, not a guard. Run and Cancel; nothing runs before Run. Then workriver types it
+  into a new tab of a plain shell (no agent) in a Herdr workspace named "workriver-commands" on the
+  unit's machine (made on first use, reused after) as `cd -- '<dir>' && eval '<command>';
+  echo "__workriver_end_<id>_$?__"`: a tab per run, so a run never types into a shell an
+  earlier one still holds (a password prompt, a pager) and each output starts clean. It is the
+  user's own shell, so their credentials and hooks apply exactly as when they type it. The
+  dialog then shows what the tab shows (read every second; the echo of the typed line left
+  out), "Running…" in amber, then "Done (exit 0)" in the done tone or "Failed (exit N)" in red
+  once the marker line appears (the typed line carries `$?`, not digits, so its echo never
+  counts; the id is random, so the command's own output cannot fake it); "Open in terminal"
+  brings that tab to the front. A tab that cannot be read for five seconds (closed, or its
+  shell exited) says so. The marker needs a POSIX shell (zsh, bash, sh).
 - **Commits** is every unit's commits as a git graph, newest first, like `git log --graph`
   or GitHub's network view: the base on the left as a plain neutral line labelled at its
   top with the base branch's name (its own commits are not drawn), one lane per unit branch
@@ -331,8 +365,12 @@ looked at now and then.
 - **Asking why.** There is no "why" button on every element. Asking happens in the side
   panel's **Ask why** section, as a chat sits beside a pull request's diff: its heading, the
   picked task's conversations, and at the bottom, fixed, the context chips, the box and the
-  line saying who answers. With no task picked it says what to pick (a task in the graph, or
-  lines in the code); every question is about a task. The picked task's detail keeps only a
+  line saying who answers. With no task picked the questions are about the unit as a whole
+  (its chip is the unit's title): a temporary agent answers from the intent's goal, the
+  unit's purpose, its tasks and findings in short, and the code on its branch, and asks none
+  of the unit's agents; the unit's conversations show there. Only the user asks about a
+  unit; agents' `workriver ask` names a task. The intent's own work, with no task picked,
+  says what to pick. The picked task's detail keeps only a
   small "Ask why" with how many conversations it has; it, "Ask why" on picked lines and `?`
   open the panel on Ask (the sheet on a narrow screen) with the cursor in the box. What a question is about is the current
   selection, shown as chips above the box: the task always, the picked finding, and the
@@ -344,7 +382,8 @@ looked at now and then.
   stretch); next to them floats "Ask why", like the "+" of a code review. It picks the task
   that last changed those lines (worked out from the unit's commits; other tasks that
   changed some of them come along as chips) and puts the cursor in its box, so the code can
-  be asked about with no task picked. A chip can be left out for this question (its ×).
+  be asked about with no task picked; lines no task changed are asked about the unit (the
+  task is unpicked). A chip can be left out for this question (its ×).
   `?` (outside a field) does the same with picked lines, and otherwise opens the panel on
   Ask; Enter sends, Shift+Enter breaks the line. On a gate – the user's own task – the
   question goes to the agent that asked for it (the agent of the task the gate follows; with
@@ -374,12 +413,27 @@ looked at now and then.
   it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
   "New question" (beside the chips) starts another conversation. File paths in an answer
   open the file (the sheet gets out of the way). Each conversation folds to one row
-  (its first question in up to two lines, who asked, how many exchanges, answered / waiting
-  / failed / ended, when last), and one opens at a time, as its own scroll area of at most
-  360 px kept at the latest exchange (it follows a new answer only while the reader is at
-  the bottom); the one just asked in, or one still waiting, is open. Past three
-  conversations only the latest three show, with "N earlier" above them. The list scrolls;
-  the box stays under it.
+  (its first question on one line, who asked, how many exchanges, answered / waiting
+  / failed / ended, when last), and one opens at a time: it takes all the height left above
+  the box (at least 12rem), as its own scroll area (a log for screen readers) kept at the
+  latest exchange (it follows a new answer only while the reader is at the bottom); the one
+  just asked in, one still waiting, or else the latest, is open. It reads as a chat: the
+  question on the right on the sunken ground, with who asked ("You", or the asking agent's
+  mark and name) and when; the answer on the left in a thin frame, rendered as Markdown,
+  with who answered and when. Past three conversations only the latest three show, with
+  "N earlier" above them. The box stays under them.
+  **The manager.** A two-way switch in the section's heading, "Why | Manager"
+  (remembered; a request to ask why switches back), opens a conversation with a workspace's
+  manager in the same place, rather than a seventh side section: it is a conversation like
+  the others, with the same box. The workspace is the open unit's intent's, or picked from
+  those with a manager (a select, when there are several). What the user writes is typed
+  into the manager's terminal ("The user writes to you from workriver's page (message m3) …
+  Reply with `workriver reply m3 …`", the text quoted as the user's); a manager waiting for a
+  person in its terminal is never typed over: the message waits, says so in violet with "Go
+  to the terminal", and goes in once it is free. Under each message where it is (sending,
+  waiting, in the manager's terminal, or not delivered and why); the manager's replies
+  (only that manager may reply) follow it on the left with its crown. With no manager
+  running in the workspace the box is disabled and says so.
   Agents ask each other the same way, through workriver (never in each other's terminals):
   their conversations show on the task asked about like the user's, with the asking agent's
   mark before the question, and count in the node's speech-bubble mark; they never appear in
@@ -479,11 +533,13 @@ it follows is done; before that it is drawn like any task not started and counts
 (not in Needs you, the marks, the tab's title or the unit's state), and its age in Needs
 you counts from the moment it opened. The work behind it stays not
 started, and the lines around a waiting gate do not flow, so a stuck branch is visible on
-the graph. Its input is the steps the agent prepared, each command with a copy button;
+the graph. Its input is the steps the agent prepared, each command with a copy button and
+"Run" (see Running a command as the user);
 its output is a short note and, for a try-out that went wrong, findings like a review's.
 A **chore** blocks nobody (clean the disk, rotate a key) and is never on the graph or
 attached to a task. It belongs to an intent (sometimes to one of its units): it is the
-last, quietest group of the inbox, opening the same list of steps and a "Done" that takes
+last, quietest group of the inbox, opening the same list of steps (with "Run" too; a chore
+of no unit runs in its project's folder) and a "Done" that takes
 it off the list. It is not counted in anything violet and goes to no one.
 
 A task **no longer needed** (a gate asked again after the branch changed) is dropped,
@@ -614,8 +670,9 @@ page keeps the path for ten minutes; the tab with the link follows once it is in
 
 Each unit, intent and task has its own path, never the fragment (it carries the sign-in
 code): `/u1`, `/u1/3` (the task picked, its detail open), `/i3` (the intent's first unit,
-which is its own work when it has some; a planned one shows its start steps), `/i3/1`, and
-`?finding=P2-1`. The page follows the address on load and on back and forward, and sets it
+which is its own work when it has some; a planned one opens its start dialog), `/i3/1`, and
+`?finding=P2-1`; the root opens the first unit of the project remembered in the rail (or of
+all). The page follows the address on load and on back and forward, and sets it
 when a unit or task is picked; a path that names nothing says so in the main area, the rail
 as usual. The unit heading, the task detail and each intent in the rail have a quiet
 "copy link" button (in the rail it shows on hover or keyboard focus). Agents get the same

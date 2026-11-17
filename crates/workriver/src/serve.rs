@@ -27,7 +27,7 @@ use workriver_scan as scan;
 use crate::machines::Machines;
 use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
-use crate::{ask, attachments, deliver};
+use crate::{ask, attachments, deliver, run};
 use crate::snapshot::{self, Cache};
 
 pub struct App {
@@ -97,6 +97,27 @@ pub struct App {
     allow_as: bool,
     /// Held while the list of managers told of this build is read and written.
     told: Mutex<()>,
+    /// Commands the user is about to run (prepared, shown in the confirm dialog) and those run,
+    /// by id, with what their pane last showed.
+    // ponytail: in memory; a restart forgets them (what ran stays in the record).
+    runs: Mutex<std::collections::HashMap<String, Run>>,
+}
+
+/// A command the user prepared to run, then ran (`place` set).
+#[derive(Clone)]
+struct Run {
+    command: String,
+    dir: String,
+    machine: Option<String>,
+    unit: Option<String>,
+    /// Who wrote it: an agent's session, or "user".
+    by: String,
+    prepared: std::time::Instant,
+    place: Option<String>,
+    output: String,
+    exit: Option<i32>,
+    /// Its pane is still read.
+    watching: bool,
 }
 
 /// This build of the service, as `workriver status` and the guides name it.
@@ -136,10 +157,13 @@ struct Via {
     local: u16,
 }
 
-/// A question's message held for its agent, which waits for a person in its terminal.
+/// A question's message (or the user's message to a manager) held for its agent, which
+/// waits for a person in its terminal.
 // ponytail: in memory; after a restart the question fails as `restarted`, like any open one.
 struct Held {
+    /// The question's id, or with `message` the user's message's.
     question: String,
+    message: bool,
     /// The session or live name it goes to, and the name to say.
     to: String,
     name: String,
@@ -255,6 +279,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         home: store_home,
         watcher: Mutex::new(None),
         watched: Mutex::default(),
+        runs: Mutex::default(),
     });
     let poller = app.clone();
     tokio::spawn(async move {
@@ -355,6 +380,11 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     let open: Vec<String> = app.store.lock().unwrap().state().questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect();
     for id in open {
         app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
+    }
+    // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
+    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none()).map(|m| m.id.clone()).collect();
+    for id in held {
+        app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
     }
     // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
     // the next question starts a new one with the thread so far.
@@ -527,6 +557,7 @@ impl App {
             };
             for h in ready {
                 match state(&h) {
+                    None if h.message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
                     None => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
                     Some(_) => self.hand(h),
                 }
@@ -862,6 +893,7 @@ impl App {
             Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
             Body::QuestionAnswered { question, .. } => self.answered(question),
             Body::ThreadEnded { thread } => self.end_thread(thread),
+            Body::MessageSent { id, .. } => self.tell_manager(id),
             _ => {}
         }
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
@@ -1006,7 +1038,7 @@ impl App {
                 let store = self.store.lock().unwrap();
                 store.state().question(id).ok().map(|q| ask::follow_up(store.state(), q, &self.home)).unwrap_or_default()
             };
-            self.hand(Held { question: id.into(), to: name.clone(), name, text, not_ready: None });
+            self.hand(Held { question: id.into(), message: false, to: name.clone(), name, text, not_ready: None });
             return;
         }
         let (q, unit, task_agent, manager, group) = {
@@ -1043,7 +1075,8 @@ impl App {
         // Intent-level work has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         let dir = at.as_ref().and_then(|at| scan::worktree_of(at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
-        let commits = at.map(|at| task_commits(&at, &unit, q.task, &mut self.cache.lock().unwrap())).unwrap_or_default();
+        // A question about the whole unit reads its commits itself (its prompt says how).
+        let commits = at.filter(|_| q.task != 0).map(|at| task_commits(&at, &unit, q.task, &mut self.cache.lock().unwrap())).unwrap_or_default();
         let name = ask::agent_name(id);
         let agent = match self.runtime.start_temporary(&group.id, &harness, &name, &dir) {
             Ok(a) => a,
@@ -1057,7 +1090,7 @@ impl App {
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
-        self.hand(Held { question: id.into(), to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
+        self.hand(Held { question: id.into(), message: false, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
     }
 
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
@@ -1076,14 +1109,49 @@ impl App {
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
             _ => match self.send(&h.to, &h.text) {
+                Ok(()) if h.message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
                 Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
+                Err(e) if h.message => return self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
                 Err(e) => return self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
             },
         }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());
+    }
+
+    /// The user wrote to a manager: typed into its terminal now, or held while it waits for a
+    /// person there (`hand`), or recorded as not delivered when it is not running.
+    fn tell_manager(&self, id: &str) {
+        let Some((to, text)) = ({
+            let store = self.store.lock().unwrap();
+            store.state().message(id).ok().map(|m| (m.manager.clone(), deliver::user_message(store.state(), m)))
+        }) else {
+            return;
+        };
+        let name = self.store.lock().unwrap().state().name_of(&to).unwrap_or(&to).to_string();
+        match self.runtime.agents() {
+            Err(_) => self.message_not_delivered(id, None, ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected"),
+            Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
+            Ok(_) => self.hand(Held { question: id.into(), message: true, to, name, text, not_ready: None }),
+        }
+    }
+
+    /// Records where the user's message to a manager is.
+    fn message_delivery(&self, id: &str, delivery: Delivery) {
+        self.held.lock().unwrap().retain(|h| h.question != id);
+        if let Err(e) = self.record(&Principal::Service, Body::MessageDelivery { id: id.into(), delivery }) {
+            tracing::warn!("message {id}: {}", e.1);
+        }
+    }
+
+    fn message_not_delivered(&self, id: &str, to: Option<&str>, code: ReasonCode, why: &str) {
+        let message = {
+            let store = self.store.lock().unwrap();
+            store.state().message(id).ok().map(|m| deliver::user_message(store.state(), m)).unwrap_or_default()
+        };
+        self.message_delivery(id, Delivery { step: DeliveryStep::NotDelivered, to: to.map(str::to_string), reason_code: Some(code), reason: Some(why.into()), message });
     }
 
     /// Records a question as failed (if still open) and closes its temporary agent, which
@@ -1288,9 +1356,15 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/chore-done", post(chore_done))
         .route("/api/backlog/merge", post(merge))
         .route("/api/focus", post(focus))
+        .route("/api/intent/start", post(start_intent))
+        .route("/api/run/prepare", post(run_prepare))
+        .route("/api/run", post(run_command))
+        .route("/api/run/{id}", get(run_read))
+        .route("/api/run/{id}/focus", post(run_focus))
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
         .route("/api/thread/end", post(end_thread))
+        .route("/api/message", post(message))
         .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
@@ -1876,6 +1950,199 @@ async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, 
 }
 
 #[derive(Deserialize)]
+struct StartIntent {
+    intent: String,
+    /// The runtime group (Herdr workspace) it starts in, by id.
+    workspace: String,
+}
+
+/// The user starts a planned intent in a workspace from the page, as its manager would with
+/// `workriver intent start`; the workspace's manager is told to split it.
+async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StartIntent>) -> Result<Json<serde_json::Value>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || {
+        // The workspace as the runtime knows it, never as the page names it.
+        let groups = app.runtime.groups().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        let group = groups.into_iter().find(|g| g.id == s.workspace).ok_or_else(|| bad(format!("no workspace {} in the runtime", s.workspace)))?;
+        let e = app.record(&who, Body::IntentStateChanged { intent: s.intent.clone(), state: core::IntentState::Active, reason: None, workspace: Some(group) })?;
+        let live = app.runtime.agents().ok();
+        let plan = deliver::started(app.store.lock().unwrap().state(), live.as_deref(), &s.intent);
+        let name = |to: &str| app.store.lock().unwrap().state().name_of(to).unwrap_or(to).to_string();
+        let delivery = match plan {
+            Ok((to, message)) => match app.send(&to, &message) {
+                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(name(&to)), reason_code: None, reason: None, message },
+                Err(err) => Delivery { step: DeliveryStep::NotDelivered, to: Some(name(&to)), reason_code: Some(if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }), reason: Some(err.to_string()), message },
+            },
+            Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(code), reason: Some(reason), message: String::new() },
+        };
+        // As the page names a delivery's fields.
+        let delivery = json!({ "step": delivery.step, "to": delivery.to, "reasonCode": delivery.reason_code, "reason": delivery.reason, "message": delivery.message });
+        Ok(Json(json!({ "event": e, "delivery": delivery })))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct RunPrepare {
+    command: String,
+    /// Where it runs: a unit's work tree (on its machine), or a project's folder.
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    /// Whose step it is: a task's (`u1#3`) or a chore's (`c2`); none: the user's own.
+    #[serde(default)]
+    from: Option<String>,
+}
+
+/// How long a prepared command may wait for the user's confirmation.
+const CONFIRM: Duration = Duration::from_secs(600);
+
+/// A run as the page shows it: in the confirm dialog, then with what its pane shows.
+fn run_view(id: &str, r: &Run, state: &core::State) -> serde_json::Value {
+    let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
+    json!({ "id": id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
+            "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching })
+}
+
+/// The user is about to run a command: where it would run and who wrote it, for the confirm
+/// dialog. Nothing runs here; `run_command` runs it, and only with this exact text.
+async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(p): Json<RunPrepare>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.user(&caller)?;
+    blocking(move || {
+        run::check(&p.command).map_err(bad)?;
+        let state = app.store.lock().unwrap().state().clone();
+        let (dir, machine, unit) = match (&p.unit, &p.project) {
+            (Some(u), _) => {
+                let u = state.unit(u)?;
+                let at = app.runner(u.machine.as_deref())?;
+                let tree = scan::worktree_of(&at, Path::new(&u.repo), &u.branch).ok().flatten();
+                (tree.map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|| u.repo.clone()), u.machine.clone(), Some(u.id.clone()))
+            }
+            (None, Some(f)) => {
+                if !state.projects.iter().any(|x| &x.path == f) && !state.intents.iter().any(|i| &i.project == f) {
+                    return Err(bad(format!("{f} is not a project's folder")));
+                }
+                // A repository on another machine is a project of its own: it runs there.
+                let machine = state.units.iter().find(|u| Path::new(&u.repo).starts_with(f)).and_then(|u| u.machine.clone());
+                (f.clone(), machine, None)
+            }
+            (None, None) => return Err(bad("say where it runs: a unit (its work tree) or a project's folder".into())),
+        };
+        let by = match p.from.as_deref() {
+            None => "user".to_string(),
+            Some(f) => match core::parse_task_ref(f) {
+                Some((u, n)) => state.task(u, n)?.by.clone(),
+                None => state.chores.iter().find(|c| c.id == f).map(|c| c.by.clone()).ok_or_else(|| bad(format!("no chore {f}")))?,
+            },
+        };
+        let id = auth::random_hex(8).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let r = Run { command: p.command, dir, machine, unit, by, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false };
+        let view = run_view(&id, &r, &state);
+        let mut runs = app.runs.lock().unwrap();
+        runs.retain(|_, r| r.place.is_some() || r.prepared.elapsed() < CONFIRM);
+        runs.insert(id, r);
+        Ok(Json(view))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct RunConfirmed {
+    id: String,
+    /// The exact text the user was shown and confirmed.
+    command: String,
+}
+
+/// Runs a prepared command once the user confirmed it: typed into a plain shell of the user's,
+/// in workriver's own runtime group, on the machine of its directory. Recorded (not its
+/// output); its end is recorded when its pane shows it.
+async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<RunConfirmed>) -> Result<Json<serde_json::Value>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || {
+        // Claimed under the lock: one confirmation runs once.
+        let r = {
+            let mut runs = app.runs.lock().unwrap();
+            let r = runs.get_mut(&c.id).filter(|r| r.place.is_none() && !r.watching && r.prepared.elapsed() < CONFIRM);
+            let r = r.ok_or_else(|| bad("nothing confirmed to run under this id (it ran already, or was shown too long ago): open it again".into()))?;
+            if r.command != c.command {
+                return Err(bad("this is not the command that was confirmed; nothing ran".into()));
+            }
+            r.watching = true;
+            r.clone()
+        };
+        let line = run::line(&r.dir, &r.command, &c.id);
+        let place = match app.runtime.run_shell(r.machine.as_deref(), run::GROUP, &r.dir, &line) {
+            Ok(p) => p,
+            Err(e) => {
+                app.runs.lock().unwrap().remove(&c.id);
+                return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("nothing ran: {e}")));
+            }
+        };
+        if let Some(x) = app.runs.lock().unwrap().get_mut(&c.id) {
+            x.place = Some(place);
+        }
+        app.record(&who, Body::CommandRan { id: c.id.clone(), command: r.command, dir: r.dir, machine: r.machine, unit: r.unit, by: r.by })
+            .map_err(|e| ApiError(e.0, format!("it runs, but could not be recorded: {}", e.1)))?;
+        let watcher = app.clone();
+        let id = c.id.clone();
+        std::thread::spawn(move || watcher.watch_run(&id));
+        Ok(Json(json!({ "id": c.id })))
+    })
+    .await
+}
+
+/// A run: what its pane shows now, and its exit status once it ended.
+async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.user(&caller)?;
+    let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
+    Ok(Json(run_view(&id, &r, app.store.lock().unwrap().state())))
+}
+
+/// Brings a run's terminal to the front.
+async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<StatusCode, ApiError> {
+    app.user(&caller)?;
+    let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
+    let place = r.place.ok_or_else(|| bad(format!("run {id} has not started")))?;
+    blocking(move || {
+        app.runtime.focus_place(r.machine.as_deref(), &place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        Ok(StatusCode::NO_CONTENT)
+    })
+    .await
+}
+
+impl App {
+    /// Reads a run's pane every second until it shows the end (then records the exit status),
+    /// its pane is gone, or a day has passed.
+    fn watch_run(&self, id: &str) {
+        let Some((machine, place)) = self.runs.lock().unwrap().get(id).and_then(|r| Some((r.machine.clone(), r.place.clone()?))) else { return };
+        let (until, mut misses) = (std::time::Instant::now() + Duration::from_secs(24 * 3600), 0);
+        // A pane that cannot be read five times running is gone (closed, or its shell exited).
+        while std::time::Instant::now() < until && misses < 5 {
+            std::thread::sleep(Duration::from_secs(1));
+            let Ok(text) = self.runtime.read_place(machine.as_deref(), &place, run::LINES) else {
+                misses += 1;
+                continue;
+            };
+            misses = 0;
+            let (output, end) = run::read(&text, id);
+            if let Some(r) = self.runs.lock().unwrap().get_mut(id) {
+                (r.output, r.exit) = (output, end);
+            }
+            if let Some(exit) = end {
+                if let Err(e) = self.record(&Principal::Service, Body::CommandEnded { id: id.to_string(), exit }) {
+                    tracing::warn!("cannot record run {id} ended: {}", e.1);
+                }
+                break;
+            }
+        }
+        if let Some(r) = self.runs.lock().unwrap().get_mut(id) {
+            r.watching = false;
+        }
+    }
+}
+
+#[derive(Deserialize)]
 struct Here {
     place: String,
 }
@@ -1982,6 +2249,22 @@ struct EndThread {
 async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::ThreadEnded { thread: t.thread }).map(Json)).await
+}
+
+#[derive(Deserialize)]
+struct Say {
+    /// The intent whose workspace's manager it goes to; or, without one, the workspace's label.
+    #[serde(default)]
+    intent: String,
+    #[serde(default)]
+    workspace: String,
+    text: String,
+}
+
+/// The user writes to a manager from the page; it is typed into the manager's terminal.
+async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text }).map(Json)).await
 }
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.

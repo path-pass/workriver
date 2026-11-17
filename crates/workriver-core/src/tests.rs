@@ -852,3 +852,78 @@ fn a_later_task_says_what_it_follows() {
     assert!(e.contains("i1 already has tasks"), "{e}");
     add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
 }
+
+/// The user asks about a unit itself (task 0): its own threads, attachments of its tasks;
+/// agents still ask about a task. Old questions (every one names a task) replay unchanged.
+#[test]
+fn the_user_asks_about_a_unit() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let ask = |task: u32, thread: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "thread": thread, "text": "Why this order?", "context": [{"kind": "unit", "label": "Mentions"}]}});
+    let e = add(&mut s, "user", ask(0, "")).unwrap();
+    assert_eq!(e.body.refs(), (None, Some("u1".into()), None), "about the unit, no task");
+    // Without `task` at all: the unit too.
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "text": "And?"}})).unwrap();
+    assert_eq!((s.state().questions[1].task, s.state().threads[1].task), (0, 0));
+    // A follow-up stays in the unit's thread; a task's thread is another conversation.
+    add(&mut s, "user", ask(0, "q1")).unwrap();
+    assert!(add(&mut s, "user", ask(1, "q1")).unwrap_err().contains("about another task"));
+    add(&mut s, "user", ask(1, "")).unwrap();
+    assert!(add(&mut s, "user", ask(0, "q4")).unwrap_err().contains("about another task"));
+    // Agents do not ask about whole units; nobody asks about a unit that is not there.
+    assert!(add(&mut s, "agent-b", ask(0, "")).unwrap_err().contains("workriver ask <unit>#<n>"));
+    assert!(add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u9", "text": "?"}})).unwrap_err().contains("no unit u9"));
+    // An attachment shown with one of its tasks may be pointed at; another one not.
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "rep", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "loose", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
+    let at = |id: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": 0, "text": "?", "context": [{"kind": "attachment", "label": "r.md", "id": id}]}});
+    add(&mut s, "user", at("rep")).unwrap();
+    assert!(add(&mut s, "user", at("loose")).unwrap_err().contains("not one of u1#0's"));
+    // Answered by the agent started for it, with when.
+    add(&mut s, "workriver", json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}})).unwrap();
+    add(&mut s, "s-why", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Parse first."}})).unwrap();
+    assert!(s.state().question("q1").unwrap().answered_at.is_some());
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// The user writes to a workspace's manager; only that manager replies, workriver alone
+/// records where the message is, and it all replays.
+#[test]
+fn the_user_talks_to_a_manager() {
+    let (_dir, mut s) = temp_store();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
+    let say = |intent: &str, workspace: &str| json!({"kind": "message.sent", "body": {"intent": intent, "workspace": workspace, "manager": "forged", "text": "Pause u2 until the API settles."}});
+    // Nobody to tell yet.
+    assert!(add(&mut s, "user", say("i1", "")).unwrap_err().contains("intent i1 has no manager"));
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    // Only the user writes; the manager is the workspace's, whatever the request says.
+    assert!(add(&mut s, "boss", say("i1", "")).unwrap_err().contains("only the user does this (message.sent)"));
+    let e = add(&mut s, "user", say("i1", "")).unwrap();
+    let Body::MessageSent { id, workspace, manager, .. } = &e.body else { panic!() };
+    assert_eq!((id.as_str(), workspace.as_str(), manager.as_str()), ("m1", "chat", "boss"));
+    assert_eq!(e.body.refs().0.as_deref(), Some("i1"));
+    // By workspace alone, when nothing of an intent is picked.
+    add(&mut s, "user", say("", "chat")).unwrap();
+    assert!(add(&mut s, "user", say("", "nowhere")).unwrap_err().contains("workspace \"nowhere\" has no manager"));
+    assert!(add(&mut s, "user", say("i2", "")).unwrap_err().contains("intent i2 has no manager"), "planned: it runs nowhere");
+    // Where it is: workriver's word only.
+    let delivery = |m: &str| json!({"kind": "message.delivery", "body": {"id": m, "step": "delivered", "to": "boss", "reason": null, "message": "[workriver] ..."}});
+    assert!(add(&mut s, "boss", delivery("m1")).unwrap_err().contains("only workriver"));
+    assert!(add(&mut s, "user", delivery("m1")).unwrap_err().contains("only workriver"));
+    assert!(add(&mut s, "workriver", delivery("m9")).unwrap_err().contains("no message m9"));
+    add(&mut s, "workriver", delivery("m1")).unwrap();
+    assert_eq!(s.state().message("m1").unwrap().delivery.as_ref().map(|d| d.step), Some(DeliveryStep::Delivered));
+    // Replies: the manager it went to, and nobody else.
+    let reply = |m: &str| json!({"kind": "message.replied", "body": {"message": m, "text": "Paused."}});
+    assert!(add(&mut s, "worker", reply("m1")).unwrap_err().contains("only that manager replies"));
+    assert!(add(&mut s, "user", reply("m1")).unwrap_err().contains("only that manager replies"));
+    assert!(add(&mut s, "boss", reply("m9")).unwrap_err().contains("no message m9"));
+    add(&mut s, "boss", reply("m1")).unwrap();
+    add(&mut s, "boss", reply("m1")).unwrap();
+    let m = s.state().message("m1").unwrap();
+    assert_eq!((m.replies.len(), m.replies[0].by.as_str(), m.replies[0].text.as_str()), (2, "boss", "Paused."));
+    assert_eq!(replayed(&s), *s.state());
+}
