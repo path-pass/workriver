@@ -60,6 +60,13 @@ pub struct App {
     stalls: Mutex<std::collections::HashMap<(String, u32), crate::stall::Watch>>,
     /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
     stall_minutes: std::sync::atomic::AtomicU32,
+    /// Hours a unit may stay ready to merge before its manager is asked to check it
+    /// (settings.json, by hand; read at start).
+    ready_hours: u32,
+    /// What the scans found that the reminders need: units that look squash-merged.
+    shared: Arc<Mutex<snapshot::Shared>>,
+    /// Which merge reminders went out (`merge_reminders`), kept in a file next to the database.
+    merge_told: Mutex<std::collections::BTreeSet<String>>,
     changed: broadcast::Sender<()>,
     /// Set once the service is stopping: open event streams end, so nothing holds it up.
     stopping: watch::Sender<bool>,
@@ -160,6 +167,9 @@ const CLOSE_DELAY: Duration = Duration::from_secs(3);
 /// How often the runtime's agents are read.
 const POLL: Duration = Duration::from_secs(2);
 
+/// The merge reminders that went out, in the data directory.
+const MERGE_TOLD: &str = "merge-told.json";
+
 /// Serves on an already bound listener until Ctrl-C.
 /// How long a temporary agent may take to answer, and to wait idle for a follow-up.
 #[derive(Clone, Copy)]
@@ -170,11 +180,13 @@ pub struct Waits {
     pub ready: Duration,
     /// How long one minute of the stall threshold lasts (a minute; less in tests).
     pub minute: Duration,
+    /// How long one hour of the ready threshold lasts (an hour; less in tests).
+    pub hour: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY, minute: Duration::from_secs(60) }
+        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600) }
     }
 }
 
@@ -224,6 +236,9 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         idle_since: Mutex::default(),
         stalls: Mutex::default(),
         stall_minutes: crate::machines::stall_minutes(&store_home).into(),
+        ready_hours: crate::machines::ready_hours(&store_home),
+        shared: shared.clone(),
+        merge_told: Mutex::new(std::fs::read(store_home.join(MERGE_TOLD)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
         changed: changed.clone(),
         stopping: watch::channel(false).0,
         port,
@@ -439,6 +454,9 @@ impl App {
             }
         }
         let stalled = now.as_deref().is_some_and(|live| self.find_stalls(live));
+        if let Some(live) = now.as_deref() {
+            self.merge_reminders(live);
+        }
         let differs = {
             let mut live = self.live.lock().unwrap();
             let differs = *live != now;
@@ -572,8 +590,66 @@ impl App {
         changed
     }
 
+    /// Ready units that may have been merged where git cannot see it. One that looks
+    /// squash-merged (`snapshot::Shared::squash`): its manager is told once per branch tip.
+    /// One ready for longer than `ready_hours`: its manager is asked, once per ready period,
+    /// to check its pull request. Only a manager that is running and not on a blind task;
+    /// until then nothing is marked told. With no manager the page shows it in Needs you.
+    fn merge_reminders(&self, live: &[RuntimeAgent]) {
+        let squash = self.shared.lock().unwrap().squash.clone();
+        let after = self.waits.hour * self.ready_hours;
+        let mut tell = vec![];
+        {
+            let store = self.store.lock().unwrap();
+            let state = store.state();
+            let told = self.merge_told.lock().unwrap();
+            for u in &state.units {
+                let Some(since) = state.ready_since(u) else { continue };
+                let Some(to) = state.manager_of(&u.intent).filter(|m| live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty()) else { continue };
+                let (id, branch) = (&u.id, crate::quote::name(&u.branch));
+                if let Some(s) = squash.get(id) {
+                    let key = format!("squash {id} {}", s.tip);
+                    let short: String = s.commit.chars().take(9).collect();
+                    let text = format!(
+                        "[workriver] {id} ({branch}) looks merged into {} by squash: every change of it is there (commit {short} matches). If so, record it: `workriver unit merged {id}`; if not, ignore this. How: `workriver guide how closing-units`.",
+                        crate::quote::name(&s.into)
+                    );
+                    tell.push((to.to_string(), key, text));
+                }
+                let ago = humantime::parse_rfc3339(&since).ok().and_then(|t| t.elapsed().ok());
+                if let Some(ago) = ago.filter(|a| *a >= after) {
+                    let key = format!("ready {id} {since}");
+                    let text = format!(
+                        "[workriver] {id} ({branch}) has been ready to merge for {} h and git shows no merge. Check its pull request: merged (by squash, say): `workriver unit merged {id}`; still open: nothing to do; abandoned: `workriver unit done {id} --reason \"...\"`. How: `workriver guide how push-pr-merge`.",
+                        ago.as_secs() / self.waits.hour.as_secs().max(1)
+                    );
+                    tell.push((to.to_string(), key, text));
+                }
+            }
+            tell.retain(|(_, key, _)| !told.contains(key));
+        }
+        for (to, key, text) in tell {
+            if let Err(e) = self.send(&to, &text) {
+                tracing::warn!("cannot remind {to} of a merge: {e}");
+                continue;
+            }
+            let mut told = self.merge_told.lock().unwrap();
+            told.insert(key);
+            let path = self.home.join(MERGE_TOLD);
+            if let Err(e) = serde_json::to_vec_pretty(&*told).map_err(std::io::Error::other).and_then(|b| std::fs::write(&path, b)) {
+                tracing::warn!("cannot write {}: {e}", path.display());
+            }
+        }
+    }
+
     fn live(&self) -> Option<Vec<RuntimeAgent>> {
         self.live.lock().unwrap().clone()
+    }
+
+    /// The page's address on this machine, where the user opens it; a unit or task is a
+    /// path under it (`/u1`, `/u1/3`).
+    fn page(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
     }
 
     /// Where git runs for a repository on `machine`; an error while it cannot be reached.
@@ -664,6 +740,7 @@ impl App {
         let live = self.live();
         let mut cache = self.cache.lock().unwrap();
         (cache.light, cache.bare) = (light, true);
+        cache.ready_after = Some(self.waits.hour * self.ready_hours);
         let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &stalls, &groups);
         cache.save();
         if state.reduced {
@@ -1400,7 +1477,9 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
                 path.display().to_string()
             })
         };
-        Ok(Json(crate::show::task(&state, &ws, &unit, n, &file)?))
+        let mut shown = crate::show::task(&state, &ws, &unit, n, &file)?;
+        shown.link = format!("{}/{unit}/{n}", app.page());
+        Ok(Json(shown))
     })
     .await
 }
@@ -1418,6 +1497,9 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
         "commit": env!("WORKRIVER_COMMIT"),
         "build": BUILD,
         "port": app.port,
+        // The page as the user opens it, on this machine: `workriver link` builds on it, also
+        // through a machine's tunnel.
+        "url": app.page(),
         "db": store.path(),
         "events": store.count()?,
         "intents": s.intents.len(),
@@ -1469,7 +1551,7 @@ struct CodeFor {
 async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<CodeFor>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     let code = app.auth.code(c.printed).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(json!({ "url": format!("http://127.0.0.1:{}/#k={code}", app.port) })))
+    Ok(Json(json!({ "url": format!("{}/#k={code}", app.page()) })))
 }
 
 #[derive(Deserialize)]

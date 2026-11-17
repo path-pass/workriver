@@ -72,6 +72,22 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
       </div>
     )
   }
+  // A ready unit that may be merged already (a squash), or ready for long; with no manager
+  // to ask, the user checks. The row opens the unit, whose header has the command.
+  if (r.kind === 'merge') {
+    const u = r.unit!
+    return (
+      <button type="button" className="irow" data-kind="merge" onClick={() => onOpen(u.id, null)}>
+        <Icon name="merge" />
+        <span className="title">{u.squash ? t('inbox.mergeSquash', { unit: u.id, into: u.squash.into }) : t('inbox.mergeOverdue', { unit: u.id, ago: waited(r.since) })}</span>
+        <span className="meta">
+          <span className="flex-none">{t('inbox.mergeCheck')}</span>
+          <span className="unit"><span className="opacity-70">{r.intent?.title}{' / '}</span>{u.title}</span>
+        </span>
+        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+      </button>
+    )
+  }
   const n = r.node
   const follows = n && r.unit?.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.taskId
   const open = n && r.kind === 'decision' ? openFindings(n) : []

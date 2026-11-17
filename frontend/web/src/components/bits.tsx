@@ -1,5 +1,5 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { Archive, ArrowLeft, Ban, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FileText, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
+import { Archive, ArrowLeft, Ban, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,7 @@ const ICONS: Record<string, LucideIcon> = {
   fold: PanelRightClose,
   idle: Moon,
   copy: Copy,
+  permalink: Link2,
   terminal: SquareTerminal,
   talk: MessageSquare,
   send: ArrowUp,
@@ -53,6 +54,7 @@ const ICONS: Record<string, LucideIcon> = {
   test: FlaskConical,
   far: CornerUpRight,
   chev: ChevronRight,
+  merge: GitMerge,
   back: ArrowLeft,
 }
 
@@ -90,8 +92,11 @@ export function Waiting({ count }: { count: number }) {
   )
 }
 
-/** Copies `text`; with a `label` it is a small text button, without, an icon for a command. */
-export function CopyButton({ text, label }: { text: string; label?: string }) {
+/**
+ * Copies `text`; with a `label` it is a small text button, without, an icon (for a command,
+ * or what `aria` names, which its tooltip says too).
+ */
+export function CopyButton({ text, label, aria, className }: { text: string; label?: string; aria?: string; className?: string }) {
   const { t } = useT()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
@@ -107,11 +112,14 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
         <Icon name={copied ? 'check' : 'copy'} className="size-3" />{copied ? t('steps.copied') : label}
       </Button>
     )
-  return (
-    <Button variant="ghost" size="icon-xs" className="flex-none" aria-label={t(copied ? 'steps.copied' : 'steps.copy')} onClick={copy}>
-      <Icon name={copied ? 'check' : 'copy'} className="size-3.5" />
+  const icon = (
+    <Button variant="ghost" size="icon-xs" className={cn('flex-none', className)} aria-label={copied ? t('steps.copied') : aria ?? t('steps.copy')} onClick={copy}>
+      <Icon name={copied ? 'check' : aria ? 'permalink' : 'copy'} className="size-3.5" />
     </Button>
   )
+  if (!aria) return icon
+  // A changed name is not read out: the confirmation is said once, politely.
+  return <><Tip text={copied ? t('steps.copied') : aria}>{icon}</Tip><span role="status" className="sr-only">{copied ? t('steps.copied') : ''}</span></>
 }
 
 /** What an agent prepared for the user to do by hand: the same for a gate and for a chore. */
@@ -227,6 +235,23 @@ export function Progress({ unit }: { unit: Unit }) {
   if (!p) return null
   const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(`unit.progress.${p}`)}</span>
   return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
+}
+
+/**
+ * A ready unit whose every change is already in its base: merged by squash, most likely,
+ * which git cannot show. Said next to "Ready to merge", with the command that records it.
+ */
+export function Squashed({ unit }: { unit: Unit }) {
+  const { t } = useT()
+  const s = unit.squash!
+  const command = t('unit.mergedCommand', { unit: unit.id })
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-normal tracking-normal text-ink-2">
+      <Tip text={t('unit.squashedWhy', { into: s.into, commit: s.commit.slice(0, 9) })}><span className="tag font-normal tracking-normal">{t('unit.squashed')}</span></Tip>
+      <code className="font-mono">{command}</code>
+      <CopyButton text={command} />
+    </span>
+  )
 }
 
 /** Longer than this, a name in a chip is shortened in the middle. */

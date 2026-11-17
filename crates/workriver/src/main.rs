@@ -215,6 +215,12 @@ enum Cmd {
         /// An intent (i1) or unit (u1).
         target: Option<String>,
     },
+    /// Print the link that opens an intent, unit or task in the user's browser, on the
+    /// machine workriver runs on: to point the user at it.
+    Link {
+        /// An intent (i3), unit (u1), task (u1#3, i3#1), or a finding of a task (u1#3:P2-1).
+        target: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -807,7 +813,7 @@ fn main() -> anyhow::Result<()> {
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks where it is
     // for the commands that need the workspace or its current intent.
     let here = match &place {
@@ -1011,6 +1017,11 @@ fn main() -> anyhow::Result<()> {
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Board { target } => return board(&d, target.as_deref()),
+        Cmd::Link { target } => {
+            let path = link_path(&target)?;
+            println!("{}{path}", page(&d)?);
+            return Ok(());
+        }
         Cmd::Task(TaskCmd::Show { task, json }) => {
             let shown = task_show(&d, task.as_deref())?;
             if json {
@@ -1397,6 +1408,32 @@ fn wait_answer(d: &Daemon, id: &str, timeout: Duration) -> anyhow::Result<String
     }
 }
 
+/// The page's path for `i3`, `u1`, `u1#3` (`/u1/3`) or `u1#3:P2-1` (`/u1/3?finding=P2-1`).
+fn link_path(s: &str) -> anyhow::Result<String> {
+    let bad = || anyhow!("{s:?} is not an intent, unit or task; write it as i3, u1, u1#3 or u1#3:P2-1");
+    let (at, finding) = s.split_once(':').map_or((s, None), |(a, f)| (a, Some(f)));
+    let (id, n) = at.split_once('#').map_or((at, None), |(u, n)| (u, Some(n)));
+    let digits = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit());
+    if !(id.strip_prefix('u').or_else(|| id.strip_prefix('i')).is_some_and(digits) && n.is_none_or(digits)) {
+        return Err(bad());
+    }
+    let mut path = format!("/{id}");
+    if let Some(n) = n {
+        path += &format!("/{n}");
+    }
+    match finding {
+        None => {}
+        Some(f) if n.is_some() && !f.is_empty() && f.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') => path += &format!("?finding={f}"),
+        Some(_) => return Err(bad()),
+    }
+    Ok(path)
+}
+
+/// The page's address where the user opens it, as the service says (also through a tunnel).
+fn page(d: &Daemon) -> anyhow::Result<String> {
+    d.get("/api/status")?["url"].as_str().map(str::to_string).ok_or_else(|| anyhow!("the service does not say its address: it is an older build; restart `workriver serve`"))
+}
+
 fn task_ref(s: &str) -> anyhow::Result<(String, u32)> {
     parse_task_ref(s).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| anyhow!("{s:?} is not a task; write it as <unit>#<n>, e.g. u1#3"))
 }
@@ -1678,6 +1715,13 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     // What git shows (commits, where each unit stands), and what the runtime shows (a worker
     // that stopped), as the page shows it.
     let ws = d.get("/api/workspace?light=true").unwrap_or_default();
+    // Where the user opens each intent and unit: a line under it, for pointing the user there.
+    let base = page(d).ok();
+    let link = |out: &mut String, indent: &str, id: &str| {
+        if let Some(b) = &base {
+            let _ = writeln!(out, "{indent}link: {b}/{id}");
+        }
+    };
     let shown = |id: &str| ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == id).cloned().unwrap_or_default();
     let line = |t: &core::Task| {
         let mut out = String::new();
@@ -1737,6 +1781,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             continue;
         }
         let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        link(&mut out, "  ", &i.id);
         if i.state == core::IntentState::Dropped {
             let _ = writeln!(out, "  dropped: {}", i.reason.as_deref().unwrap_or(""));
         }
@@ -1769,6 +1814,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
             let _ = writeln!(out, "  {} {}  [{on}{}, branch {} from {}]  {progress}{why}", u.id, u.title, u.repo, u.branch, u.base);
+            link(&mut out, "    ", &u.id);
             // Its machine is disconnected: what is shown is as last read, and nothing waited on it.
             if let Some(since) = u.machine.as_deref().and_then(|m| down_since(&ws, m)) {
                 let _ = writeln!(out, "    {} is disconnected since {since}: as last read", u.machine.as_deref().unwrap_or_default());

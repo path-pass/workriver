@@ -394,6 +394,11 @@ export interface Unit {
   commits: Commit[];
   /** Which texts its files have: their texts are read again (`loadCode`) only when it changes. */
   code?: string;
+  /** Ready, and every change of it is already in its base (or the base's upstream): it looks
+   *  merged by squash, which git cannot show. Where, and the commit there that brought it. */
+  squash?: { into: string; commit: string; tip: string };
+  /** Ready to merge for longer than the service's ready period, not merged: since when. */
+  overdue?: string;
 }
 
 /**

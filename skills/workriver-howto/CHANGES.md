@@ -4,6 +4,18 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Every intent, unit and task has its own link**: `workriver link u1#3` (or `u1`, `i3`,
+  `i3#1`, `u1#3:P2-1`) prints the address that opens it in the user's browser on the
+  machine workriver runs on, also when run on another machine; `task show` prints its
+  `Link:` and `board` a `link:` line under each intent and unit. To point the user at
+  something, give them that link. (`ask-user`; worker guide)
+- **Squash merges and long-ready units are pointed out**: a ready unit whose every change is
+  already in its base (or the base's upstream) brings `[workriver] u2 (feat/x) looks merged
+  into main by squash … (commit abc123 matches)`, once per branch tip: check the commit, then
+  `workriver unit merged u2`, or ignore it if it is not the unit's merge. A unit ready for 24 h
+  (the user's `readyHours`) without a merge brings one reminder per ready period: check its pull
+  request; merged, `workriver unit merged`; open, nothing; abandoned, `workriver unit done`.
+  workriver never records these merges itself. (`closing-units`, `push-pr-merge`)
 - **`workriver machine load` works on other machines too**, showing that machine alone
   (its own load and history; nothing of the machine workriver runs on). (`machines`)
 - **Push, pull request and merge are three tasks**, each after a decide gate, added one at

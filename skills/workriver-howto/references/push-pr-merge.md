@@ -20,7 +20,11 @@ go for both; still one task per step.
 
 **You will see:** "The user confirmed … in gate …" after each gate; the push and PR tasks
 deliver the branch and the PR link as their note; the merge shows up by itself (git sees it,
-the unit becomes merged) unless it was a squash merge (`workriver unit merged u2`).
+the unit becomes merged) unless it was a squash merge: then workriver tells you "u2 (feat/readme)
+looks merged into main by squash"; check the commit it names and record it (`workriver unit
+merged u2`). A unit still ready a day later (the user's `readyHours`) brings "has been ready
+to merge for 24 h": look at the pull request; merged, `workriver unit merged u2`; open,
+nothing to do; abandoned, `workriver unit done u2 --reason "…"` (`closing-units`).
 
 **Refusals:** a push refused by a hook on that machine is delivered by the worker as a
 refusal in its note: ask the user (another gate) how to go on; do not route around the hook.

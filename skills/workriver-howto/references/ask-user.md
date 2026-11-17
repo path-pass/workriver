@@ -12,6 +12,10 @@ A unit's question goes on the unit, after its last task; a question about the wh
 intent goes on the intent (`i3`). Put in `--text` what the user needs to decide without
 opening anything else: what is ready or wrong, what was checked, the options.
 
+**Pointing the user at it** (or at any task, unit or intent): `workriver link u2#5` prints
+the link that opens it in the user's browser (`u2`, `i3`, `i3#1`, `u2#5:P2-1` work too),
+also on another machine. `workriver task show` and `workriver board` print links as well.
+
 **You will see:** "The user confirmed … in gate …" with their note: do it (merge, deploy,
 change the goal). Or "did not confirm …" with findings: handle them like a design gate's
 (`design-gate`). Until then, wait; do not merge or deploy.

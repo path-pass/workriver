@@ -192,6 +192,9 @@ export const zhCN: Same<typeof en> = {
     complete: '所有单元都已完成：管理者可以结束这个意图',
     finished: '已完成',
     previously: '之前在 {{branches}}',
+    squashed: '看起来已 squash 合并',
+    squashedWhy: '它的每处改动都已在 {{into}} 里（提交 {{commit}}）：多半是 squash 合并的，git 看不出来。如果是，用这条命令记下；它的管理者也会收到提醒。',
+    mergedCommand: 'workriver unit merged {{unit}}',
     blocking_other: '{{count, number}} 个手动步骤卡住了 agent',
     active: '进行中',
     untouched: '没动手',
@@ -307,6 +310,9 @@ export const zhCN: Same<typeof en> = {
     stalled: '{{task}}：{{agent}} {{ago}}前停下了，没有交付',
     stalledGone: '{{task}}：{{agent}} 已不在了',
     reminded: '{{time}} 已提醒',
+    mergeSquash: '{{unit}} 看起来已 squash 合并进 {{into}}',
+    mergeOverdue: '{{unit}} 已可以合并 {{ago}}，仍未合并',
+    mergeCheck: '没有管理者：请确认它是否已合并',
     machines: '机器',
     machineAlert: '{{machine}}：{{metric}} {{value}}',
     machineLimit: '连续 {{minutes}} 分钟不低于 {{percent}}%',
@@ -420,6 +426,10 @@ export const zhCN: Same<typeof en> = {
   steps: {
     copy: '复制命令',
     copied: '已复制'
+  },
+  link: {
+    copy: '复制链接',
+    notFound: '这里没有内容：{{ref}} 不存在（或还没有）。请在左边选一个单元。'
   },
   review: {
     found_other: '{{by}} {{count, number}} 个问题',

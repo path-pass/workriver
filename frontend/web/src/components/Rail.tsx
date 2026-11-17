@@ -10,10 +10,11 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, blockedAgents, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
+import { linkTo, pathOf } from '@/link'
 import { useResize } from '@/lib/useResize'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
-import { ExternalChip, Icon, IntentNote, MachineChip, NoteDisclosure, Progress, Tip } from './bits'
+import { CopyButton, ExternalChip, Icon, IntentNote, MachineChip, NoteDisclosure, Progress, Tip } from './bits'
 import { Choice } from './Choice'
 import { MergeDialog } from './Merge'
 
@@ -146,7 +147,9 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
   sum.blocking += blockedAgents(ws).filter(s => s.intent === intent.id).length
   return (
     <Collapsible open={isOpen} onOpenChange={onOpen}>
-      <CollapsibleTrigger className="group/intent flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
+      {/* Its own link beside the header (a button of its own, not inside the one that folds it). */}
+      <div className="group/row flex items-center gap-0.5">
+      <CollapsibleTrigger className="group/intent flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
         <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/intent:rotate-90" />
         <span className="min-w-0 flex-1 truncate" title={intent.title}>{intent.title}</span>
         {stateOf(intent) === 'active' && <ManagerState intent={intent} />}
@@ -154,6 +157,8 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
         {/* Folded, the group still says what waits inside it. */}
         {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
       </CollapsibleTrigger>
+      <CopyButton text={linkTo(pathOf(intent.id, null))} aria={t('link.copy')} className="rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 focus-visible:opacity-100" />
+      </div>
       <CollapsibleContent className="flex flex-col gap-0.5 pl-3">
         {/* The intent's goal and where it runs, quietly, for whoever opened it. */}
         {(intent.goal || intent.workspace || intent.external) && (

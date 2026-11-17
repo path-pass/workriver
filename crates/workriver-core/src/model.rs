@@ -1463,6 +1463,16 @@ impl State {
         }
     }
 
+    /// Since when a ready unit has been ready: the last time one of its tasks was delivered,
+    /// submitted, corrected or dropped, or one of their findings decided. None unless ready.
+    pub fn ready_since(&self, u: &Unit) -> Option<String> {
+        if self.progress(u) != Progress::Ready {
+            return None;
+        }
+        let times = u.tasks.iter().flat_map(|t| t.done.iter().chain(&t.amended).chain(t.dropped.as_ref().map(|d| &d.at)).chain(t.findings.iter().flat_map(|f| f.decisions.iter().map(|d| &d.at))));
+        times.max().cloned()
+    }
+
     /// Whether every unit of `intent` is merged or done (and it has one).
     pub fn finished(&self, intent: &str) -> bool {
         let mut units = self.units.iter().filter(|u| u.intent == intent).peekable();

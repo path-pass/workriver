@@ -61,12 +61,31 @@ struct Settings {
     /// Minutes an agent may sit idle on a running task before it counts as stopped.
     #[serde(default = "stall_default", rename = "stallMinutes")]
     stall_minutes: u32,
+    /// Hours a unit may stay ready to merge before its manager is asked to check it.
+    #[serde(default = "ready_default", rename = "readyHours")]
+    ready_hours: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES }
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS }
     }
+}
+
+/// A ready unit is merged within a working day when it goes through push, pull request and
+/// merge (each a gate the user answers), and a merge git sees is recorded within seconds; a
+/// day without one is a squash merge git cannot see, or a pull request stuck or abandoned.
+/// Any less would ask again about a pull request left overnight for review.
+pub const READY_HOURS: u32 = 24;
+
+fn ready_default() -> u32 {
+    READY_HOURS
+}
+
+/// After how many hours a unit ready to merge and not merged has its manager asked to check
+/// it (at least one). Set by hand in settings.json; read when the service starts.
+pub fn ready_hours(home: &Path) -> u32 {
+    read_settings(home).ready_hours.max(1)
 }
 
 /// See `crate::stall`: why ten.

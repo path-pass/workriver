@@ -249,6 +249,70 @@ fn a_stale_local_base_counts_its_upstream() {
     }
 }
 
+/// A squash merge git cannot show: every file the branch changed is the same in the base (or
+/// its upstream), named by the commit that brought it; a part of it there is not enough; the
+/// base moving on elsewhere still shows it, changing one of the same files again hides it.
+#[test]
+fn a_squash_merge_looks_merged() {
+    let new = || {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().to_path_buf();
+        sh(&repo, &["init", "-q", "-b", "main"]);
+        write(&repo, "shared.rs", "a\n");
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", "base"]);
+        sh(&repo, &["switch", "-q", "-c", "f"]);
+        write(&repo, "f1.rs", "1\n");
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", "One\n\nTask: u1#1"]);
+        write(&repo, "shared.rs", "a\nb\n");
+        sh(&repo, &["commit", "-q", "-am", "Two\n\nTask: u1#1"]);
+        sh(&repo, &["switch", "-q", "main"]);
+        write(&repo, "other.rs", "x\n");
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", "Someone else's work"]);
+        (tmp, repo)
+    };
+    let at = Runner::Local;
+    let fork = |repo: &Path| match branch(&at, repo, "main", "f", None, &|_| false).unwrap() {
+        Found::Ahead { fork, .. } => fork,
+        f => panic!("{f:?}"),
+    };
+    let head = |repo: &Path, rev: &str| resolve(&at, repo, rev).unwrap();
+
+    let (_t, repo) = new();
+    let k = fork(&repo);
+    assert_eq!(squashed(&at, &repo, "main", "f", &k).unwrap(), None, "not merged");
+    // Part of it: not merged.
+    sh(&repo, &["checkout", "f", "--", "f1.rs"]);
+    sh(&repo, &["commit", "-q", "-m", "Only f1"]);
+    assert_eq!(squashed(&at, &repo, "main", "f", &k).unwrap(), None, "partly merged");
+    // The rest by squash: merged, by that commit; the branch is still ahead by git's account.
+    sh(&repo, &["merge", "-q", "--squash", "f"]);
+    sh(&repo, &["commit", "-q", "-m", "Squashed f"]);
+    let squash = head(&repo, "main");
+    assert!(matches!(branch(&at, &repo, "main", "f", None, &|_| false).unwrap(), Found::Ahead { .. }));
+    assert_eq!(squashed(&at, &repo, "main", "f", &k).unwrap(), Some(("main".into(), squash.clone())));
+    // The base moves on in other files: still.
+    write(&repo, "later.rs", "y\n");
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-q", "-m", "Later"]);
+    assert_eq!(squashed(&at, &repo, "main", "f", &k).unwrap(), Some(("main".into(), squash)));
+    // The base changes one of its files again: no longer told by content.
+    write(&repo, "shared.rs", "a\nb\nc\n");
+    sh(&repo, &["commit", "-q", "-am", "More"]);
+    assert_eq!(squashed(&at, &repo, "main", "f", &k).unwrap(), None);
+
+    // Squashed into the base's upstream only (merged on the remote, local main behind).
+    let (_t, repo) = new();
+    let k = fork(&repo);
+    sh(&repo, &["switch", "-q", "-c", "up"]);
+    sh(&repo, &["merge", "-q", "--squash", "f"]);
+    sh(&repo, &["commit", "-q", "-m", "Squashed f upstream"]);
+    sh(&repo, &["branch", "-q", "--set-upstream-to=up", "main"]);
+    assert_eq!(squashed(&at, &repo, "main", "f", &k).unwrap(), Some(("up".into(), head(&repo, "up"))));
+}
+
 /// Many commits read at once are what reading them one by one gives: additions, deletions,
 /// a merge (against its first parent), the root commit, a binary file.
 #[test]

@@ -375,7 +375,7 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore' | 'merge'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
@@ -408,7 +408,7 @@ export interface Inbox {
   decisions: InboxRow[]
   /** Commits that name no node, branches that grew beyond the plan. */
   gaps: InboxRow[]
-  /** Chores: they block nobody. */
+  /** Chores, and ready units of an intent with no manager that may be merged already: they block nobody. */
   later: InboxRow[]
 }
 
@@ -429,6 +429,10 @@ export function inbox(ws: Workspace): Inbox {
     for (const { review: n } of a.asked) box.decisions.push(row('decision', unit, n, ms(n.since), openFindings(n)[0].id))
     for (const n of a.loose) box.gaps.push(row('loose', unit, n, Math.min(...unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date)))))
     for (const o of a.out) box.gaps.push({ ...row('far', unit, o.root, o.since), far: o.far })
+    // Ready and maybe merged where git cannot see it (a squash), or ready for long: with no
+    // manager to tell, the user is the one to check.
+    if (!intent.manager && unit.progress === 'ready' && (unit.squash || unit.overdue))
+      box.later.push({ key: `merge:${unit.id}`, kind: 'merge', intent, unit, node: null, pick: null, chore: null, far: [], since: ms(unit.overdue) || ms(unit.commits.at(-1)?.date) || Date.now() })
   }
   for (const intent of ws.intents)
     for (const c of intent.chores.filter(c => c.state === 'open'))

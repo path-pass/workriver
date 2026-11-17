@@ -191,6 +191,9 @@ export const en = {
     complete: 'All units finished: the manager can close it',
     finished: 'Finished',
     previously: 'previously on {{branches}}',
+    squashed: 'Looks squash-merged',
+    squashedWhy: 'Every change of it is already in {{into}} (commit {{commit}}): merged by squash, most likely, which git cannot show. If it was, record it with this command; its manager is told too.',
+    mergedCommand: 'workriver unit merged {{unit}}',
     blocking_one: '{{count, number}} manual step an agent is waiting on',
     blocking_other: '{{count, number}} manual steps agents are waiting on',
     active: 'Active',
@@ -314,6 +317,9 @@ export const en = {
     stalled: '{{task}}: {{agent}} stopped {{ago}} ago without delivering',
     stalledGone: '{{task}}: {{agent}} is gone',
     reminded: 'reminded {{time}}',
+    mergeSquash: '{{unit}} looks squash-merged into {{into}}',
+    mergeOverdue: '{{unit}} has been ready to merge for {{ago}}',
+    mergeCheck: 'No manager: check whether it was merged',
     machines: 'Machines',
     machineAlert: '{{machine}}: {{metric}} {{value}}',
     machineLimit: 'at or above {{percent}} % for {{minutes}} min',
@@ -428,6 +434,10 @@ export const en = {
   steps: {
     copy: 'Copy command',
     copied: 'Copied'
+  },
+  link: {
+    copy: 'Copy link',
+    notFound: 'Nothing here: {{ref}} is not known (or not yet). Pick a unit on the left.'
   },
   review: {
     found_one: '{{by}}: {{count, number}} finding',

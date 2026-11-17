@@ -98,7 +98,25 @@ fn daemon_smoke() {
         let script = page.split("src=\"").nth(1).and_then(|s| s.split('"').next()).expect("the page names its script");
         let (status, js) = http(port, "GET", script, &[], None);
         assert!(status == 200 && js.to_lowercase().contains("cache-control: public, max-age=31536000, immutable"), "{script}");
+        // A unit's, an intent's or a task's own link is the same page; it names its files
+        // from the root, so they load from a nested path too.
+        assert!(script.starts_with('/'), "{script}");
+        for path in ["/u1", "/u1/3", "/i1", "/i1/1", "/u1/3?finding=P2-1"] {
+            let (status, same) = http(port, "GET", path, &[], None);
+            assert!(status == 200 && same.to_lowercase().contains("cache-control: no-cache") && same.contains(script), "{path}");
+        }
     }
+    // Unknown API paths stay a 404, not the page.
+    let (status, text) = http(port, "GET", "/api/nope", &[], None);
+    assert!(status == 404 && !text.contains("<html"), "{text}");
+    // Links for the user: the service's own address, whoever asks.
+    let page = format!("http://127.0.0.1:{port}");
+    assert_eq!(d.get("/api/status").unwrap()["url"], page.as_str());
+    let shown: crate::show::TaskShow = serde_json::from_value(d.get("/api/task?task=u1%232").unwrap()).unwrap();
+    assert_eq!(shown.link, format!("{page}/u1/2"));
+    assert!(crate::show::text(&shown).contains(&format!("\nLink: {page}/u1/2\n")));
+    let board = crate::board_text(&d, None).unwrap();
+    assert!(board.contains(&format!("i1 Chat\n  link: {page}/i1\n")) && board.contains(&format!("\n    link: {page}/u1\n")), "{board}");
     // Another Host is turned away, whatever the path.
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     write!(s, "GET /api/workspace HTTP/1.1\r\nHost: evil.example:{port}\r\nConnection: close\r\n\r\n").unwrap();
@@ -1324,6 +1342,8 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!(http(box_port, "GET", "/api/metrics/history?machine=box&place=w1:p1", &[], None).0, 200);
     let there = Daemon { port: box_port, place: Some("w1:p1".into()), home: Some(tmp.path().to_path_buf()) };
     assert_eq!(there.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-far");
+    // `workriver link` over there: the address the user opens here, not the tunnel's.
+    assert_eq!(crate::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
     let e = there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look" })).unwrap();
     assert_eq!(e["actor"], "s-far");
     // One task in full over there too: its files are links through the tunnel, for the
@@ -1334,6 +1354,7 @@ fn a_machines_listener_serves_only_agents() {
     there.upload(&report, "", Some(("i1", 1, None))).unwrap();
     there.append("", "task.delivered", json!({ "unit": "i1", "task": 1, "note": "Found it" })).unwrap();
     let shown: crate::show::TaskShow = serde_json::from_value(there.get("/api/task?task=i1%231").unwrap()).unwrap();
+    assert_eq!(shown.link, format!("http://127.0.0.1:{port}/i1/1"), "the user's page, not a link through the tunnel");
     let link = &shown.output.as_ref().unwrap().files[0];
     assert!(link.starts_with("http://127.0.0.1:") && link.contains("/api/attachments/") && link.ends_with(".txt?place=w1:p1"), "{link}");
     let here: crate::show::TaskShow = serde_json::from_value(user.get("/api/task?task=i1%231").unwrap()).unwrap();
@@ -1881,7 +1902,7 @@ fn a_task_shown_in_full() {
     assert_eq!(s.commits.iter().map(|c| (c.subject.as_str(), c.linked)).collect::<Vec<_>>(), [("Expire tokens", false)]);
     // The JSON's fields, as agents and scripts read them.
     let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>().join(",");
-    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,lostCommits,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
+    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,link,lostCommits,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
     assert_eq!(keys(&shown["causes"][0]["finding"]), "decisions,files,id,impact,notes,problem,reason,reportedBy,severity,state,suggestion,where");
     let text = crate::show::text(&s);
     for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\" (working): Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {
@@ -2144,4 +2165,87 @@ fn stopped_workers_are_reminded_then_escalated() {
     wait_until("gone", || task(2)["stalled"]["gone"] == true);
     wait_until("the manager hears", || to("s-boss", "is gone") == 1);
     assert_eq!(to("s-w", "Your task u1#3"), 0);
+}
+
+/// A unit merged by squash, which git cannot show as merged: its manager is told once per
+/// branch tip, and the page shows it; one merged by fast-forward is recorded as before and
+/// told nothing. Ready for longer than the ready period (an hour here, set in settings.json,
+/// an hour lasting a few seconds), the manager is asked once to check the pull request.
+#[test]
+fn squash_merges_and_long_ready_units_are_told() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    for (b, f, t) in [("feat/s", "s.rs", "u1#1"), ("feat/ff", "ff.rs", "u2#1")] {
+        git(&repo, &["switch", "-q", "-c", b, "main"]);
+        std::fs::write(repo.join(f), "x\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", &format!("Work\n\nTask: {t}")]);
+    }
+    git(&repo, &["switch", "-q", "main"]);
+    std::fs::write(tmp.path().join("settings.json"), r#"{"readyHours": 1}"#).unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
+    let waits = crate::serve::Waits { hour: std::time::Duration::from_secs(4), ..Default::default() };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p1", "s-boss");
+    for (u, branch) in [("u1", "feat/s"), ("u2", "feat/ff")] {
+        d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "T", "repo": repo.to_string_lossy(), "branch": branch, "base": "main" })).unwrap();
+        d.append("s-boss", "task.created", json!({ "unit": u, "kind": "implement", "title": "Do it", "agent": "s-w" })).unwrap();
+        d.append("s-w", "task.started", json!({ "unit": u, "task": 1 })).unwrap();
+        d.append("s-w", "task.delivered", json!({ "unit": u, "task": 1, "evidence": [{ "command": "t", "result": "passed", "summary": "ok" }] })).unwrap();
+    }
+    let unit = |id: &str| d.get("/api/workspace").unwrap()["intents"][0]["units"].as_array().unwrap().iter().find(|u| u["id"] == id).cloned().unwrap();
+    let to_boss = |what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == "s-boss" && m.contains(what)).count();
+    assert_eq!(unit("u1")["progress"], "ready");
+    assert!(unit("u1")["squash"].is_null(), "not merged yet");
+
+    git(&repo, &["merge", "-q", "--ff-only", "feat/ff"]);
+    git(&repo, &["merge", "-q", "--squash", "feat/s"]);
+    git(&repo, &["commit", "-q", "-m", "Squashed feat/s"]);
+    let squash = String::from_utf8(Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "--short=9", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_string();
+    let u = unit("u1");
+    assert_eq!((u["progress"].as_str(), u["squash"]["into"].as_str()), (Some("ready"), Some("main")), "{u}");
+    wait_until("the manager is told", || to_boss("looks merged into main by squash") == 1);
+    let told = fake.sent.lock().unwrap().iter().find(|(_, m)| m.contains("looks merged into")).unwrap().1.clone();
+    assert_eq!(told, format!("[workriver] u1 (feat/s) looks merged into main by squash: every change of it is there (commit {squash} matches). If so, record it: `workriver unit merged u1`; if not, ignore this. How: `workriver guide how closing-units`."));
+    wait_until("the fast-forward is recorded", || unit("u2")["progress"] == "merged");
+    assert_eq!(to_boss("u2 (feat/ff)"), 0, "a merge git sees is told nothing");
+
+    // Ready past the period: asked once; nothing repeats.
+    wait_until("the ready reminder", || to_boss("u1 (feat/s) has been ready to merge for 1 h") == 1);
+    assert!(fake.sent.lock().unwrap().iter().any(|(_, m)| m.contains("merged (by squash, say): `workriver unit merged u1`; still open: nothing to do; abandoned: `workriver unit done u1 --reason")));
+    assert!(unit("u1")["overdue"].is_string());
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    unit("u1");
+    assert_eq!((to_boss("looks merged into"), to_boss("ready to merge for")), (1, 1), "once each");
+
+    // More work on the branch, squashed too: a new tip, told again.
+    git(&repo, &["switch", "-q", "feat/s"]);
+    std::fs::write(repo.join("t.rs"), "y\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "More\n\nTask: u1#1"]);
+    git(&repo, &["switch", "-q", "main"]);
+    assert!(unit("u1")["squash"].is_null(), "not all of it is there");
+    git(&repo, &["merge", "-q", "--squash", "feat/s"]);
+    git(&repo, &["commit", "-q", "-m", "Squashed the rest"]);
+    unit("u1");
+    wait_until("told for the new tip", || to_boss("looks merged into") == 2);
+    // Recorded merged: nothing more.
+    d.append("s-boss", "unit.merged", json!({ "unit": "u1" })).unwrap();
+    assert!(unit("u1")["squash"].is_null());
+}
+
+/// `workriver link`: the page's path for each kind of reference, and nothing else.
+#[test]
+fn link_paths() {
+    for (r, path) in [("u1", "/u1"), ("i3", "/i3"), ("u1#3", "/u1/3"), ("i3#1", "/i3/1"), ("u12#4:P2-1", "/u12/4?finding=P2-1")] {
+        assert_eq!(crate::link_path(r).unwrap(), path, "{r}");
+    }
+    for r in ["", "u", "x1", "u1#", "u1#a", "u1:P2-1", "u1#3:", "u1#3:P2 1", "u1/3", "../u1"] {
+        assert!(crate::link_path(r).is_err(), "{r}");
+    }
 }

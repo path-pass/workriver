@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/act'
 import { Activity } from '@/components/Flow'
 import { SECTIONS, SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
-import { MachineChip, Notes, Progress, Topics } from '@/components/bits'
+import { CopyButton, MachineChip, Notes, Progress, Squashed, Topics } from '@/components/bits'
 import { alertLimit, alertValue, topLine } from '@/components/Machines'
 import { Start, StartIntent } from '@/components/Start'
 import { Ask, isField, type Talk } from '@/components/Ask'
@@ -13,6 +13,7 @@ import { ViewerContext } from '@/components/Viewer'
 import { Rail } from '@/components/Rail'
 import { agents, askeeOf, blame, blockedAgents, inbox, loadCode, MOCK, NO_EDITS, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
 import { useT } from '@/i18n'
+import { linkTo, pathOf, placeOf, resolve } from '@/link'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, submitGate, type Delivery } from '@/runtime'
 import type { AskContext, Attachment, Intent, MachineAlert, Task, Turn, Unit, Workspace } from '@/types'
 
@@ -151,20 +152,56 @@ export default function App() {
   const codeSel = useMemo(() => (coded ? selectionOf(coded, pick) : null), [coded, pick])
   const tree = useSame(ws && unit && !unit.intentLevel ? repoOf(ws, unit).modules : null)
 
+  // What the address named and is not there; whether it has been followed; the latest data.
+  const [missing, setMissing] = useState<string | null>(null)
+  const followed = useRef(false)
+  const latest = useRef<Workspace | null>(null)
   // Whatever opens a unit (the rail, the inbox, an agent) sets the pick the same way, so the
   // file tree opens on what is picked wherever the user came from.
   const pickUnit = useCallback((w: Workspace, id: string, next: Pick = null) => {
     if (!unitsOf(w).some(i => i.id === id)) return
+    followed.current = true
+    setMissing(null)
     setUnitId(id)
     setPick(next)
   }, [])
 
-  // The first unit opens once there is one; later updates keep what is open.
+  // The address names what is open (`/u1/3`): it is followed on load and on back/forward,
+  // and set when something else is opened or picked. The root opens the first unit.
+  const follow = useCallback((w: Workspace) => {
+    const p = placeOf(location.pathname, location.search)
+    const first = unitsOf(w)[0]
+    const r = p ? resolve(w, p) : first ? { unit: first.id, pick: null } : null
+    setMissing(p && !r ? `${p.id}${p.task ? `#${p.task}` : ''}` : null)
+    if (!r) { setUnitId(null); return false }
+    if ('planned' in r) { setStarting(r.planned); return true }
+    history.replaceState(null, '', pathOf(r.unit, r.pick))
+    // A linked unit outside the project the rail shows: the rail shows all, for now.
+    const project = w.intents.find(i => i.units.some(u => u.id === r.unit))?.project
+    setProject(p => (p && project !== p ? null : p))
+    setUnitId(r.unit)
+    setPick(r.pick)
+    return true
+  }, [])
+  useEffect(() => {
+    const back = () => { if (latest.current) followed.current = follow(latest.current) }
+    window.addEventListener('popstate', back)
+    return () => window.removeEventListener('popstate', back)
+  }, [follow])
+  useEffect(() => {
+    if (!unitId) return
+    const path = pathOf(unitId, pick)
+    if (path !== location.pathname + location.search) history.pushState(null, '', path)
+  }, [unitId, pick])
+
+  // Until the address is followed (it may name what is not there yet), each update tries
+  // again; then later updates keep what is open.
   useEffect(() => watchWorkspace(w => {
     setData(w)
     setDown(false)
-    setUnitId(id => id ?? unitsOf(w)[0]?.id ?? null)
-  }, () => setDown(true)), [])
+    latest.current = w
+    if (!followed.current) followed.current = follow(w)
+  }, () => setDown(true)), [follow])
 
   // Picking the same thing again clears it.
   const onPick = useCallback((next: Pick) => {
@@ -320,6 +357,7 @@ export default function App() {
       <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
         {down && <p role="status" className="text-sm text-ink-2">{t('service.unreachable')}</p>}
+        {missing && <p role="status" className="text-sm text-ink-2">{t('link.notFound', { ref: missing })}</p>}
         {ws && !unitsOf(ws).length && <Start />}
         {ws && unit && sel && talk && (
           <>
@@ -327,9 +365,11 @@ export default function App() {
               <div className="min-w-0 flex-1">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
                   <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span>{unit.intentLevel ? `${unit.title} · ${t('rail.intentWork')}` : unit.title}</span>
+                  <CopyButton text={linkTo(pathOf(unit.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
                   {unit.branch && <span className="max-w-full min-w-0 truncate font-mono text-xs font-normal tracking-normal text-ink-2" title={unit.branch}>{unit.branch}</span>}
                   <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} />
                   {!unit.intentLevel && <Progress unit={unit} />}
+                  {unit.squash && unit.progress === 'ready' && <Squashed unit={unit} />}
                 </h1>
                 {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}
                 {/* Rebased onto a new branch, or renamed: the same unit, said quietly. */}

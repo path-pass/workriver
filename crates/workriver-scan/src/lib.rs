@@ -311,6 +311,43 @@ pub fn branch(at: &Runner, repo: &Path, base: &str, branch: &str, fork: Option<&
     })
 }
 
+/// How many of a branch's changed files name the commit that brought them into the base.
+const NAMED_PATHS: usize = 50;
+
+/// Whether a branch git does not show merged looks squash-merged: every file `fork..branch`
+/// changes is the same at the tip of `base` (else of its upstream) as at the branch's. Then
+/// where (`base`, or the upstream as `origin/main`) and the newest commit there since the
+/// fork that touched those files: the squash, usually.
+///
+/// By content, not patch id: a squash made onto a base that had moved has other context
+/// lines, so another patch id, and finding it would mean reading the patch of every commit
+/// on the base since the fork. A base that moved on since in other files still shows it; one
+/// that changed one of the same files again does not (the reminder after a long ready period
+/// covers that). At most five git calls, all by name only.
+pub fn squashed(at: &Runner, repo: &Path, base: &str, branch: &str, fork: &str) -> Result<Option<(String, String)>> {
+    let changed = |a: &str, b: &str| -> Result<std::collections::HashSet<String>> { Ok(split0(&run(at, repo, &["diff", "--name-only", "--no-renames", "-z", a, b, "--"], &[])?).collect()) };
+    let mine = changed(fork, branch)?;
+    if mine.is_empty() {
+        return Ok(None);
+    }
+    let upstream = String::from_utf8_lossy(&run(at, repo, &["rev-parse", "--abbrev-ref", &format!("{base}@{{upstream}}")], &[128])?).trim().to_string();
+    for into in [base, upstream.as_str()].into_iter().filter(|i| !i.is_empty()) {
+        if !changed(into, branch)?.is_disjoint(&mine) {
+            continue;
+        }
+        let mut paths: Vec<String> = mine.iter().map(|p| format!(":(literal){p}")).collect();
+        paths.sort();
+        paths.truncate(NAMED_PATHS);
+        let range = format!("{fork}..{into}");
+        let args: Vec<&str> = ["log", "-1", "--format=%H", &range, "--"].into_iter().chain(paths.iter().map(String::as_str)).collect();
+        let hash = git(at, repo, &args)?.trim().to_string();
+        if !hash.is_empty() {
+            return Ok(Some((into.to_string(), hash)));
+        }
+    }
+    Ok(None)
+}
+
 /// The full hash `rev` names in `repo`; an error if it names no commit.
 pub fn resolve(at: &Runner, repo: &Path, rev: &str) -> Result<String> {
     Ok(git(at, repo, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])?.trim().to_string())

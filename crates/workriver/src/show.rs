@@ -14,6 +14,9 @@ use workriver_core::{self as core, FindingRef, State, Task, Who, name};
 pub struct TaskShow {
     #[serde(rename = "ref")]
     pub reference: String,
+    /// Where the user opens it in the page (the service's address on its machine).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub link: String,
     pub kind: String,
     pub state: String,
     pub title: String,
@@ -238,6 +241,7 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
     let done = t.state == core::TaskState::Done || t.done.is_some();
     Ok(TaskShow {
         reference: format!("{unit}#{n}"),
+        link: String::new(),
         kind: name(&t.kind),
         state: name(&t.state),
         title: t.title.clone(),
@@ -346,6 +350,9 @@ pub fn stalled_line(s: &crate::stall::Stall) -> String {
 pub fn text(s: &TaskShow) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{}  {}  {}{}", s.reference, s.kind, s.state, if s.blind { "  [blind]" } else { "" });
+    if !s.link.is_empty() {
+        let _ = writeln!(out, "Link: {}", s.link);
+    }
     if !s.title.is_empty() {
         let _ = writeln!(out, "Title: {}", s.title);
     }

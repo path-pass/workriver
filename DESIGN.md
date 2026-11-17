@@ -174,7 +174,9 @@ looked at now and then.
      per severity and how many carry an agent's suggestion; the highest severity first.
   4. **Gaps** – commits that name no node, branches that grew beyond the original plan.
   5. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
-     its project where others name their intent, or nothing when it has none.
+     its project where others name their intent, or nothing when it has none. Then, for an
+     intent with no manager, ready units that look squash-merged or have been ready for
+     long ("u2 looks squash-merged into main"); the row opens the unit.
   Within a group the oldest comes first. A row of Blocking, Decisions or Gaps opens the
   unit at the node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. One line per agent whose
@@ -392,6 +394,14 @@ where it would say it has none. A commit that names no task is a gap (an unregis
 its detail has a small select, "It belongs to task", that links it by hand; a commit linked
 that way says "linked by hand" after its stats.
 
+A ready unit whose every change is already in its base (or the base's upstream) was most
+likely merged by squash, which git cannot show: next to "Ready to merge" the header says
+"Looks squash-merged" (on hover: where, and the commit that brought it), then the command
+that records it, `workriver unit merged u1`, with a copy button. Its manager is told once per
+branch tip; a unit ready for longer than the ready period (`readyHours` in the service's
+settings.json, 24 by default) has its manager asked once to check its pull request. With no
+manager, either is a row in Needs you under "Not urgent" that opens the unit.
+
 What is added to a finding after it was reported (a requirement for the fix, a detail) is
 never merged into its text: the row shows a small "+n", and its details list each addition
 with its author's mark and time. The same list shows with the finding where it is a cause
@@ -540,6 +550,19 @@ Without one it shows a single calm screen, nothing of the app: the product mark,
 sentence on why, the command `workriver open` with its copy button, and a quiet line that
 the link works once. No form, no token field: the link from the user's own terminal is the
 only way in. A session that ended shows the same screen at the user's next action.
+A unit's or task's own link opened signed out lands there after `workriver open` (the
+page keeps the path for ten minutes; the tab with the link follows once it is in front).
+
+## Addresses
+
+Each unit, intent and task has its own path, never the fragment (it carries the sign-in
+code): `/u1`, `/u1/3` (the task picked, its detail open), `/i3` (the intent's first unit,
+which is its own work when it has some; a planned one shows its start steps), `/i3/1`, and
+`?finding=P2-1`. The page follows the address on load and on back and forward, and sets it
+when a unit or task is picked; a path that names nothing says so in the main area, the rail
+as usual. The unit heading, the task detail and each intent in the rail have a quiet
+"copy link" button (in the rail it shows on hover or keyboard focus). Agents get the same
+links from `workriver link <ref>`.
 
 ## States
 

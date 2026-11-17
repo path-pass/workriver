@@ -11,6 +11,7 @@ import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCoun
 import { dropTask, record } from '@/runtime'
 import { Input } from '@/components/ui/input'
 import { useT } from '@/i18n'
+import { linkTo, pathOf } from '@/link'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
 import { threadsOf, turnsOf, type Talk } from './Ask'
@@ -559,10 +560,14 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
         {head}
         {/* Blind: its findings were made without seeing other work; weigh agreement accordingly. */}
         {n.blind && <Tip text={t('task.blindHint')}><span className="flex items-center gap-1 font-normal"><Icon name="blind" className="size-3.5" />{t('task.blind')}</span></Tip>}
-        {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
-        {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
-          <TerminalButton agent={n.agent} session={n.agentSession} className="ml-auto text-you-ink hover:bg-surface/60" />
-        )}
+        <span className="ml-auto flex items-center gap-1">
+          {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
+          {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
+            <TerminalButton agent={n.agent} session={n.agentSession} className="text-you-ink hover:bg-surface/60" />
+          )}
+          {/* Its own link: to send someone straight here. */}
+          <CopyButton text={linkTo(pathOf(unit.id, { kind: 'task', id: n.id }))} aria={t('link.copy')} className="text-you-ink hover:bg-surface/60" />
+        </span>
       </div>
       {/* No longer needed: by whom and when, then why in their words. */}
       {n.dropped && (

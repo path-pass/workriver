@@ -272,6 +272,12 @@ struct Unit {
     /// them (`code`) again only when this changes.
     #[serde(skip_serializing_if = "String::is_empty")]
     code: String,
+    /// Ready, and it looks squash-merged (`scan::squashed`): where, and by which commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    squash: Option<Squash>,
+    /// Ready for longer than the user's `readyHours` without a merge: since when.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overdue: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -595,6 +601,8 @@ pub struct Cache {
     worktrees: HashMap<String, HashMap<String, std::path::PathBuf>>,
     /// Units found merged in git and not yet recorded so: (unit, its commits).
     pub merged_now: Vec<(String, Vec<String>)>,
+    /// How long a unit may be ready before it is overdue (the page shows it); none: never.
+    pub ready_after: Option<std::time::Duration>,
     /// This build: units whose commits were worked out again, and those reused.
     pub recomputed: usize,
     pub reused: usize,
@@ -620,6 +628,18 @@ struct Stored {
     meta: HashMap<String, scan::Named>,
     #[serde(default)]
     patch: HashMap<String, String>,
+    /// Whether each ready unit looked squash-merged, under the key of its commits (`Memo`).
+    #[serde(default)]
+    squash: HashMap<String, (String, Option<Squash>)>,
+}
+
+/// A unit that looks squash-merged: its branch's tip when it was seen so, where its change
+/// is (its base, or the base's upstream) and the commit there that brought it.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
+pub struct Squash {
+    pub tip: String,
+    pub into: String,
+    pub commit: String,
 }
 
 /// A unit's commits for one state of its branch and base (`key`).
@@ -639,6 +659,8 @@ pub type RemoteUnit = (Vec<scan::Commit>, Vec<scan::FileChange>, HashMap<String,
 pub struct Shared {
     pub units: HashMap<String, RemoteUnit>,
     pub trees: HashMap<String, scan::Module>,
+    /// Ready units, on any machine, that looked squash-merged when last read.
+    pub squash: HashMap<String, Squash>,
 }
 
 /// A unit's branch as last read.
@@ -925,6 +947,8 @@ fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, nam
         tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
         commits: vec![],
         code: String::new(),
+        squash: None,
+        overdue: None,
     })
 }
 
@@ -1048,7 +1072,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
             }
             continue;
         };
-        let (c, f) = read_unit(&at, u, cache);
+        let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
         let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
         let mut shared = cache.shared.lock().unwrap();
         let same = shared.units.get(&u.id).is_some_and(|(oc, of, op)| oc.iter().map(|x| &x.hash).eq(c.iter().map(|x| &x.hash)) && *of == f && *op == p);
@@ -1069,7 +1093,8 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
 
 /// A unit's commits and its uncommitted work, read from git where its repository is: the
 /// commits' texts only for those not read before, all in one go; none in a light build.
-fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
+/// `ready`: the unit is ready to merge, so whether it looks squash-merged is looked at too.
+fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
     let started = std::time::Instant::now();
     let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
     let repo = Path::new(&u.repo);
@@ -1077,6 +1102,9 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
         Ok((hashes, merged)) => {
             if merged && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
                 cache.merged_now.push((u.id.clone(), hashes.clone()));
+            }
+            if ready && !merged && u.merged.is_none() {
+                squash_check(at, u, cache);
             }
             hashes
         }
@@ -1140,6 +1168,37 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
     (commits, files)
 }
 
+/// Whether a ready unit git does not show merged looks squash-merged (`scan::squashed`):
+/// worked out once per state of its branch and base (the key of its commits), and kept in
+/// `Shared::squash`, where the page and the service's reminder read it.
+fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
+    let Some(key) = cache.stored.memo.get(&u.id).map(|m| m.key.clone()) else { return };
+    let found = match cache.stored.squash.get(&u.id) {
+        Some((k, f)) if *k == key => f.clone(),
+        _ => {
+            // Its branch gone, or where its commits start not known: nothing to compare.
+            let tip = cache.refs(at, u).and_then(|r| scan::tip(&r, &u.branch).map(str::to_string));
+            let fork = cache.stored.seen.get(&u.id).and_then(|s| s.fork.clone());
+            let (Some(tip), Some(fork)) = (tip, fork) else { return };
+            let found = match scan::squashed(at, Path::new(&u.repo), &u.base, &u.branch, &fork) {
+                Ok(f) => f.map(|(into, commit)| Squash { tip, into, commit }),
+                Err(e) => {
+                    tracing::warn!("unit {}: {e}", u.id);
+                    return;
+                }
+            };
+            cache.stored.squash.insert(u.id.clone(), (key, found.clone()));
+            cache.dirty = true;
+            found
+        }
+    };
+    let mut shared = cache.shared.lock().unwrap();
+    match found {
+        Some(s) => shared.squash.insert(u.id.clone(), s),
+        None => shared.squash.remove(&u.id),
+    };
+}
+
 fn bare_commit(c: &scan::Commit) -> scan::Commit {
     scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), files: c.files.iter().map(scan::FileChange::bare).collect() }
 }
@@ -1173,7 +1232,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         match cache.runner(u.machine.as_deref()) {
             None => Default::default(),
             Some(at) => {
-                let (c, f) = read_unit(&at, u, cache);
+                let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
                 let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
                 if u.machine.is_some() {
                     cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone()));
@@ -1239,6 +1298,8 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     }
 
     let started = u.tasks.iter().any(|t| t.state != TaskState::Todo && t.kind != TaskKind::Gate) || !shown.is_empty();
+    // Found merged in git: so already, before the record of it lands.
+    let progress_now = if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) };
     Unit {
         id: u.id.clone(),
         intent_level: false,
@@ -1257,12 +1318,17 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             b
         },
         status: if merged { "merged" } else if started { "active" } else { "planned" },
-        // Found merged in git: so already, before the record of it lands.
-        progress: if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) },
+        progress: progress_now,
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks,
         commits: shown,
         code,
+        squash: (progress_now == core::Progress::Ready).then(|| cache.shared.lock().unwrap().squash.get(&u.id).cloned()).flatten(),
+        overdue: cache.ready_after.filter(|_| progress_now == core::Progress::Ready).and_then(|after| {
+            let since = state.ready_since(u)?;
+            let ago = humantime::parse_rfc3339(&since).ok()?.elapsed().ok()?;
+            (ago >= after).then_some(since)
+        }),
     }
 }
 
