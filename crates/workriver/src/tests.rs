@@ -1064,6 +1064,13 @@ fn only_the_user_is_the_user() {
     let (code, said) = http(port, "POST", "/api/metrics/thresholds", &from_pane, Some(&json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }).to_string()));
     assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
     assert_eq!(http(port, "GET", "/api/metrics?place=w1:p2", &from_pane, None).0, 200);
+    // The history is read the same way: the user, or an agent at its place; nobody else.
+    assert_eq!(http(port, "GET", "/api/metrics/history?machine=local&place=w1:p2", &[], None).0, 200);
+    assert_eq!(http(port, "GET", "/api/metrics/history?machine=local&place=w1:p9", &[], None).0, 401, "a pane without an agent");
+    assert_eq!(http(port, "GET", "/api/metrics/history?machine=local", &[], None).0, 401);
+    let h = user.get("/api/metrics/history?machine=local").unwrap();
+    assert_eq!((h["hours"].as_u64(), h["points"].as_array().map(Vec::len)), (Some(24), Some(0)), "none yet: {h}");
+    assert!(user.get("/api/metrics/history?machine=local&hours=169").unwrap_err().to_string().contains("168"));
     let report = user.get("/api/metrics").unwrap();
     assert!(crate::load_text(&report).starts_with("local (here)  "), "{}", crate::load_text(&report));
     assert_eq!((report["machines"][0]["label"].as_str(), report["machines"][0]["here"].as_bool()), (Some("local"), Some(true)), "this machine first: {report}");
@@ -1160,6 +1167,7 @@ fn a_machines_listener_serves_only_agents() {
         ("POST", "/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),
         ("GET", "/api/machines", json!(null)),
         ("GET", "/api/metrics", json!(null)),
+        ("GET", "/api/metrics/history?machine=local&place=w1:p1", json!(null)),
         ("POST", "/api/metrics/thresholds", json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } })),
         ("POST", "/api/session", json!({ "code": "x" })),
         ("GET", "/api/session", json!(null)),

@@ -1003,6 +1003,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/session/code", post(session_code))
         .route("/api/machines", get(machines).post(machine_set))
         .route("/api/metrics", get(metrics))
+        .route("/api/metrics/history", get(metrics_history))
         .route("/api/metrics/thresholds", post(metrics_thresholds))
         .route("/api/workspace", get(workspace))
         .route("/api/unit/{id}/code", get(unit_code))
@@ -1404,6 +1405,31 @@ struct MachineSet {
 async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::metrics::Report>, ApiError> {
     app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
     Ok(Json(app.metrics.report()))
+}
+
+#[derive(Deserialize)]
+struct HistoryQuery {
+    machine: String,
+    #[serde(default = "a_day")]
+    hours: u32,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+}
+
+fn a_day() -> u32 {
+    24
+}
+
+/// One machine's minutes over the last `hours` (1 to 168), read as `GET /api/metrics` is:
+/// the user, or an agent at its place on this machine.
+async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+    app.who(&caller, q.place.as_deref(), q.named.as_deref())?;
+    let m = app.metrics.clone();
+    let (label, hours) = (q.machine.clone(), q.hours);
+    let points = tokio::task::spawn_blocking(move || m.history(&label, hours)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
+    Ok(Json(json!({ "machine": q.machine, "hours": q.hours, "points": points })))
 }
 
 /// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a

@@ -3,7 +3,7 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Machine, MetricsReport, Task, Thresholds, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Task, Thresholds, Turn, Unit } from './types'
 
 /** Sent on the window when the service says this page is not the user (any more). */
 export const SIGNED_OUT = 'workriver:signed-out'
@@ -208,6 +208,14 @@ export async function metrics(): Promise<MetricsReport> {
   const res = await fetch('/api/metrics')
   if (!res.ok) throw new Error(await res.text())
   return res.json()
+}
+
+/** One machine's minutes (means of its samples) over the last `hours`, oldest first. */
+export async function metricsHistory(machine: string, hours = 24): Promise<MetricSample[]> {
+  if (MOCK) return (await import('./mock/metrics')).mockHistory(machine, hours)
+  const res = await fetch(`/api/metrics/history?machine=${encodeURIComponent(machine)}&hours=${hours}`)
+  if (!res.ok) throw new Error(await res.text())
+  return (await res.json()).points
 }
 
 /** Sets when a machine alerts (the same for every machine); answers the report after it. */

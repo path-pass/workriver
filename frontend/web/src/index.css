@@ -537,4 +537,17 @@
   .spark .th { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 3; }
   .mline[data-hot] .spark .area { fill: color-mix(in oklch, var(--you) 18%, transparent); }
   .mline[data-hot] .spark .ln { stroke: var(--you); }
+  .spark.day { height: 32px; }
+  .spark .ln.mem { stroke: var(--water); }
+  .mday .legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; font-size: 10px; color: var(--ink-2); }
+  .mday .sw { display: inline-block; width: 8px; height: 2px; background: var(--ink-2); }
+  .mday .sw.mem { margin-left: 4px; background: var(--water); }
+  .mfacts { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .mfacts > div { display: flex; gap: 4px; white-space: nowrap; }
+  .mfacts dt { color: var(--ink-2); }
+  .mrow[data-away] .mfacts { opacity: .55; }
+  .pressure { font-weight: 600; }
+  .pressure[data-level=normal] { color: var(--add); }
+  .pressure[data-level=warning] { color: var(--amber-ink); }
+  .pressure[data-level=critical] { color: var(--del); }
 }

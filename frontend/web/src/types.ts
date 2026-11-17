@@ -51,11 +51,40 @@ export interface Thresholds {
   memory: Limit;
 }
 
-export interface MetricSample {
+export type Pressure = 'normal' | 'warning' | 'critical'
+
+/** One filesystem's room, in bytes. */
+export interface Disk {
+  mount: string;
+  free: number;
+  total: number;
+}
+
+/** What a machine says beyond CPU and memory; null where its system does not say it. */
+export interface MetricDetail {
+  os: 'linux' | 'darwin' | null;
+  /** macOS: memory the compressor occupies. */
+  memCompressed: number | null;
+  /** macOS: the kernel's memory pressure level. */
+  pressure: Pressure | null;
+  /** Linux PSI, percent of the last 10 s some / all tasks waited for memory; null without PSI. */
+  pressureSome: number | null;
+  pressureFull: number | null;
+  /** Linux: OOM kills since boot, and since workriver began to read the machine. */
+  oomKills: number | null;
+  oomKillsWatched: number | null;
+  swapUsed: number | null;
+  swapTotal: number | null;
+  /** The home folder's filesystem first, then `/` when it is another one. */
+  disks: Disk[];
+}
+
+export interface MetricSample extends MetricDetail {
   /** Milliseconds since 1970. */
   at: number;
   /** Percent; null until two readings of counters are there (Linux). */
   cpu: number | null;
+  /** Total − available, the same on every machine. */
   memUsed: number;
   memTotal: number;
 }

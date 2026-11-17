@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **`workriver machine load` says more**: a second line per machine with available memory,
+  memory pressure, compressed memory (macOS), OOM kills (Linux), swap and free disk; and
+  `--hours N` (1 to 168) adds mean / max CPU and memory over the last N hours. Weigh
+  pressure, new OOM kills and a nearly full disk too before handing heavy work to a
+  machine. (`machines`)
 - **`workriver machine load`**: CPU and memory of this machine and the followed ones, and
   which are over their alert thresholds; agents may read it (only the user sets the
   thresholds). Weigh it before handing heavy work to a machine. (`machines`)

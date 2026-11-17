@@ -1,11 +1,13 @@
 // The Machines section of the side panel: CPU and memory of this machine and of every
 // followed one over the last ten minutes, read from the service every few seconds while
-// the section is open. Lines are neutral; a metric in alert takes the violet of "waiting
-// for you", the only colour that means the user should look.
-import { useEffect, useState } from 'react'
+// the section is open, and below them the newest of what its system says beyond that
+// (pressure, swap, disk...). Lines are neutral; a metric in alert takes the violet of
+// "waiting for you", the only colour that means the user should look. The memory pressure
+// word has a colour of its own: green, amber, red, as the system rates it.
+import { type ReactNode, useEffect, useState } from 'react'
 import { ms } from '@/data'
 import { useT } from '@/i18n'
-import { metrics as loadMetrics } from '@/runtime'
+import { metrics as loadMetrics, metricsHistory } from '@/runtime'
 import type { Limit, MachineMetrics, Metric, MetricSample, MetricsReport, Thresholds } from '@/types'
 import { MachineChip } from './bits'
 
@@ -40,6 +42,81 @@ function Spark({ samples, metric, limit, label }: { samples: MetricSample[]; met
   )
 }
 
+const DAY = 24 * 60 * 60 * 1000
+
+/**
+ * CPU and memory over the last 24 hours, one point a minute from the history the service
+ * keeps on disk: two lines in one small inline SVG, memory in the water colour so the two
+ * tell apart. A gap of more than two minutes (the machine was away) breaks the lines.
+ * Read when the card shows and every minute after (one new line a minute).
+ */
+function DayChart({ machine }: { machine: string }) {
+  const { t } = useT()
+  const [points, setPoints] = useState<MetricSample[] | null>(null)
+  useEffect(() => {
+    let stopped = false
+    const read = () => metricsHistory(machine, 24).then(p => { if (!stopped) setPoints(p) }, () => {})
+    read()
+    const timer = setInterval(read, 60_000)
+    return () => { stopped = true; clearInterval(timer) }
+  }, [machine])
+  const now = Date.now()
+  const x = (at: number) => ((at - (now - DAY)) / DAY) * 240
+  const y = (v: number) => 31.5 - (Math.min(Math.max(v, 0), 100) / 100) * 31
+  const path = (metric: Metric) => {
+    let d = ''
+    let before = -Infinity
+    for (const p of points ?? []) {
+      const v = valueOf(p, metric)
+      if (v == null) { before = -Infinity; continue }
+      d += `${p.at - before > 120_000 ? 'M' : 'L'}${x(p.at).toFixed(1)} ${y(v).toFixed(1)} `
+      before = p.at
+    }
+    return d
+  }
+  return (
+    <div className="mline mday">
+      <span className="k">{t('metrics.day')}</span>
+      <svg className="spark day" viewBox="0 0 240 32" preserveAspectRatio="none" role="img" aria-label={t('metrics.dayChart')}>
+        <path className="ln" d={path('cpu')} vectorEffect="non-scaling-stroke" />
+        <path className="ln mem" d={path('memory')} vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span className="v legend">
+        {points && !points.length ? t('metrics.noHistory') : <><i className="sw" />{t('metrics.cpu')} <i className="sw mem" />{t('metrics.memory')}</>}
+      </span>
+    </div>
+  )
+}
+
+/** The newest sample's readings beyond CPU and memory, those its system has. */
+function Facts({ s }: { s: MetricSample }) {
+  const { t, lang } = useT()
+  const one = { maximumFractionDigits: 1 }
+  const unit = (u: string) => new Intl.NumberFormat(lang, { style: 'unit', unit: u, ...one })
+  // Bytes in the largest unit under 1024 of it, in steps of 1024 as the memory line counts.
+  const bytes = (b: number) => (b >= 1024 * GB ? unit('terabyte').format(b / 1024 / GB) : b >= GB ? unit('gigabyte').format(b / GB) : unit('megabyte').format(b / 1024 ** 2))
+  const pct = new Intl.NumberFormat(lang, { maximumFractionDigits: 2 })
+  const facts: [string, ReactNode, string?][] = []
+  if (s.memTotal) facts.push([t('metrics.available'), bytes(s.memTotal - s.memUsed)])
+  if (s.pressure) facts.push([t('metrics.pressure'), <span className="pressure" data-level={s.pressure}>{t(`metrics.pressureLevel.${s.pressure}`)}</span>])
+  else if (s.os === 'linux')
+    facts.push(s.pressureSome != null && s.pressureFull != null
+      ? [t('metrics.pressure'), t('metrics.pressureStall', { some: pct.format(s.pressureSome), full: pct.format(s.pressureFull) }), t('metrics.pressureStallHint')]
+      : [t('metrics.pressure'), t('metrics.pressureUnknown')])
+  if (s.memCompressed != null) facts.push([t('metrics.compressed'), bytes(s.memCompressed)])
+  if (s.oomKills != null) facts.push([t('metrics.oomKills'), t('metrics.oomValue', { total: s.oomKills, watched: s.oomKillsWatched ?? 0 })])
+  if (s.swapTotal) facts.push([t('metrics.swap'), t('metrics.swapValue', { used: bytes(s.swapUsed ?? 0), total: bytes(s.swapTotal) })])
+  s.disks.forEach((d, k) => facts.push([k ? t('metrics.diskAt', { mount: d.mount }) : t('metrics.disk'), t('metrics.diskFree', { free: bytes(d.free) }), d.mount]))
+  if (!facts.length) return null
+  return (
+    <dl className="mfacts">
+      {facts.map(([k, v, title]) => (
+        <div key={k} title={title}><dt>{k}</dt><dd>{v}</dd></div>
+      ))}
+    </dl>
+  )
+}
+
 function MachineRow({ m, thresholds }: { m: MachineMetrics; thresholds: Thresholds }) {
   const { t, lang, date, waited } = useT()
   const last = m.samples.at(-1)
@@ -68,6 +145,8 @@ function MachineRow({ m, thresholds }: { m: MachineMetrics; thresholds: Threshol
           <span className="v">{shown(x)}</span>
         </div>
       ))}
+      <DayChart machine={m.label} />
+      {last && <Facts s={last} />}
     </div>
   )
 }

@@ -115,6 +115,26 @@ looked at now and then.
   dashed chip and "disconnected since …". Memory used is total minus available, the same
   on every machine: one small sh probe reads them all through the runner git uses, here
   or over the machine's ssh connection, and nothing is installed anywhere.
+  Under the two lines, a third, "24 h": CPU (neutral) and memory (water) over the last 24
+  hours in one small inline SVG, one point a minute, broken where the machine was away;
+  read when the card shows and every minute after. Under that, small key–value pairs of
+  the newest reading, only those the machine's system has, wrapping: Available (total −
+  used, on Linux MemAvailable); Pressure, on macOS the kernel's level as a word, normal
+  green (`--add`), warning amber (`--amber-ink`), critical red (`--del`), on Linux PSI's
+  "some 0.59 % · full 0.12 %" (the last 10 s), or "unknown" without PSI; Compressed
+  (macOS); OOM kills (Linux: since boot · while watched); Swap used / total (left out
+  without swap); Disk free of the home folder's filesystem, and of `/` by its mount point
+  when that is another one. Sizes in MB, GB or TB (steps of 1024). The pressure word is
+  the one colour here that is not violet: it is the system's own rating, not an alert.
+  The same probe reads it all (one round trip per sample); a piece a kernel lacks is a
+  field without a value, never a failed reading.
+  **History**: each machine's samples are folded into one line a minute (the mean of each
+  reading, the worst pressure level, counters and disks at the minute's end) appended to
+  `<data dir>/metrics/<label>.jsonl` (0600), kept 7 days: at most once an hour the file
+  is rewritten without older lines (one file, not one per day, so a look back is one
+  read). About 0.5 MB per machine per day. Not in the event store, and never read back
+  into the 5 s samples alerts judge. `GET /api/metrics/history?machine=&hours=` (1–168)
+  reads it, with the access of `GET /api/metrics`.
 - **Needs you** is the workspace's inbox. One person works one queue across all units, so
   what asks something of them is one list, not a row of chips per unit: a list keeps order
   and age and still reads with twenty agents, chips only pile up. One row per item: the

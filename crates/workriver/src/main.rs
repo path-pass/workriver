@@ -273,10 +273,15 @@ enum MachineCmd {
     },
     /// The machines, whether each can be reached, and why not.
     List,
-    /// CPU and memory of this machine and the followed ones, newest reading, and which are
-    /// over their alert thresholds. Read-only: agents may run it too (the user sets the
+    /// CPU and memory of this machine and the followed ones, newest reading (with memory
+    /// pressure, swap, OOM kills and free disk), and which are over their alert thresholds. Read-only: agents may run it too (the user sets the
     /// thresholds, in Settings).
-    Load,
+    Load {
+        /// Also the mean and highest CPU and memory of each machine over the last N hours
+        /// (1 to 168), from the minute history workriver keeps.
+        #[arg(long, value_name = "N")]
+        hours: Option<u32>,
+    },
     /// Follow a machine: its agents show up, and its `workriver` CLI reaches this service.
     Enable { label: String },
     /// Stop following a machine; nothing over there is stopped.
@@ -888,13 +893,22 @@ fn main() -> anyhow::Result<()> {
             }
             return Ok(());
         }
-        Cmd::Machine(MachineCmd::Load) => {
-            print!("{}", load_text(&d.get("/api/metrics")?));
+        Cmd::Machine(MachineCmd::Load { hours }) => {
+            let report = d.get("/api/metrics")?;
+            print!("{}", load_text(&report));
+            if let Some(hours) = hours {
+                println!("over the last {hours} h (minute means):");
+                for m in report["machines"].as_array().into_iter().flatten() {
+                    let label = m["label"].as_str().unwrap_or_default();
+                    let h = d.get(&format!("/api/metrics/history?machine={label}&hours={hours}"))?;
+                    println!("{}", history_text(m, &h["points"]));
+                }
+            }
             return Ok(());
         }
         Cmd::Machine(cmd) => {
             let (label, action, extra) = match cmd {
-                MachineCmd::Load => unreachable!("handled above"),
+                MachineCmd::Load { .. } => unreachable!("handled above"),
                 MachineCmd::List => (String::new(), "", json!({})),
                 MachineCmd::Add { label, ssh, herdr_socket } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket })),
                 MachineCmd::Enable { label } => (label, "enable", json!({})),
@@ -1791,6 +1805,16 @@ fn read_answer(res: &mut ureq::http::Response<ureq::Body>) -> anyhow::Result<Str
     res.body_mut().with_config().limit(256 * 1024 * 1024).read_to_string().map_err(|e| anyhow!("the service answered, but its answer could not be read: {e}"))
 }
 
+/// One machine's history in a line: mean and highest CPU and memory share over the minutes.
+fn history_text(m: &Value, points: &Value) -> String {
+    let name = format!("{}{}", m["label"].as_str().unwrap_or("?"), if m["here"] == true { " (here)" } else { "" });
+    let points = points.as_array().map(Vec::as_slice).unwrap_or_default();
+    let stats = |v: Vec<f64>| if v.is_empty() { "-".to_string() } else { format!("mean {:.0}% max {:.0}%", v.iter().sum::<f64>() / v.len() as f64, v.iter().copied().fold(0.0, f64::max)) };
+    let cpu = stats(points.iter().filter_map(|p| p["cpu"].as_f64()).collect());
+    let mem = stats(points.iter().filter_map(|p| Some(p["memUsed"].as_f64()? * 100.0 / p["memTotal"].as_f64().filter(|t| *t > 0.0)?)).collect());
+    if points.is_empty() { format!("{name}  no history yet") } else { format!("{name}  cpu {cpu}  memory {mem}  ({} min)", points.len()) }
+}
+
 /// `machine load` as text: one line per machine, its newest CPU and memory and alerts.
 fn load_text(r: &Value) -> String {
     use std::fmt::Write as _;
@@ -1809,6 +1833,34 @@ fn load_text(r: &Value) -> String {
         let alerts: Vec<String> = m["alerts"].as_object().into_iter().flatten().map(|(k, v)| format!("{k} over its threshold since {}", v.as_str().unwrap_or("?"))).collect();
         let alerts = if alerts.is_empty() { String::new() } else { format!("  ALERT: {}", alerts.join(", ")) };
         let _ = writeln!(out, "{name}  cpu {cpu}  memory {mem}{alerts}");
+        // Below it, what this machine's system says beyond that; a missing piece is left out,
+        // except Linux pressure, which says it is unknown (no PSI there).
+        let mut more = vec![];
+        if total > 0.0 {
+            more.push(format!("available {:.1} GB", total - gb(&s["memUsed"])));
+        }
+        if let Some(p) = s["pressure"].as_str() {
+            more.push(format!("pressure {p}"));
+        } else if s["os"] == "linux" {
+            more.push(match (s["pressureSome"].as_f64(), s["pressureFull"].as_f64()) {
+                (Some(some), Some(full)) => format!("pressure some {some:.2}% full {full:.2}% (last 10 s)"),
+                _ => "pressure unknown".into(),
+            });
+        }
+        if !s["memCompressed"].is_null() {
+            more.push(format!("compressed {:.1} GB", gb(&s["memCompressed"])));
+        }
+        if let Some(n) = s["oomKills"].as_u64() {
+            more.push(format!("oom kills {n} ({} while watched)", s["oomKillsWatched"].as_u64().unwrap_or(0)));
+        }
+        if s["swapTotal"].as_u64().is_some_and(|t| t > 0) {
+            more.push(format!("swap {:.1}/{:.1} GB", gb(&s["swapUsed"]), gb(&s["swapTotal"])));
+        }
+        for (k, d) in s["disks"].as_array().into_iter().flatten().enumerate() {
+            let at = if k == 0 { String::new() } else { format!(" {}", d["mount"].as_str().unwrap_or("?")) };
+            more.push(format!("disk{at} {:.1} GB free of {:.1} GB", gb(&d["free"]), gb(&d["total"])));
+        }
+        let _ = writeln!(out, "  {}", more.join("  "));
     }
     let t = &r["thresholds"];
     let lim = |m: &Value| if m["on"] == true { format!("{}% for {} min", m["percent"], m["minutes"]) } else { "off".into() };

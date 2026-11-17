@@ -16,9 +16,17 @@ What a manager or worker can do:
 How loaded each machine is (read-only, for you too; the user sets the alert thresholds):
 
     workriver machine load                    # CPU and memory per machine, and alerts
+    workriver machine load --hours 24         # also mean / max CPU and memory over 24 h (max 168)
+
+Under each machine's line, a second one: available memory, memory pressure (macOS:
+normal / warning / critical; Linux: PSI "some … full …", or "unknown"), compressed memory
+(macOS), OOM kills (Linux: since boot, and while watched), swap, free disk of the home
+folder's filesystem (and `/` if another).
 
 Before handing heavy work (a build, a test run, a browser) to an agent on a machine in
-alert, prefer another machine or wait.
+alert, prefer another machine or wait. Also wait or pick another machine when its
+pressure is warning or critical, its OOM kills grew while watched, or its disk is nearly
+full.
 
 A workspace on another machine is one with yours only if linked; do not hand work to agents
 in unlinked ones. Units there: `units-other-machine`.
