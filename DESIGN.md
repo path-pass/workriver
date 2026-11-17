@@ -205,7 +205,24 @@ looked at now and then.
   1. **Activity** – the flow of work: how the nodes changed. Its key (what the colours,
      marks and lines mean) is a row under the graph's canvas, wrapping as it needs, never
      over it: no node can hide behind it. Only React Flow's credit stays inside the canvas,
-     in its own bottom-right corner, with room left for it when the graph is fitted.
+     in its own bottom-right corner, with room left for it when the graph is fitted; room is
+     left too for the zoom buttons at the top right, so they never cover the last node.
+     **Where the view settles**: the whole graph, centred, when it fits at a readable zoom
+     (0.75 or more, never above 1: below 0.75 a card's 12 px title drops under 9 px). When it
+     does not (a long unit), the view settles on the latest work at 0.75 instead of the
+     centre: the graph's right end against the right edge, moved only as far as it takes to
+     show where the running work and waiting gates start, never past the graph's own ends;
+     at the top when the height fits, else centred on that work. The rest is a pan away, and
+     every node stays drawn. The view settles again when the graph grows (a new task, another
+     shape; not on a refresh that changes neither), when the room changes (the rail or side
+     panel, the window), and with the fit button – but never once the user has moved the view
+     (dragged, pinched, zoomed with the buttons, used the overview): it is theirs until they
+     pick another unit or press the fit button. While the graph does not fit, React Flow's
+     overview (MiniMap) sits in the bottom-left corner, 240 × 48 px, under the graph (the
+     canvas takes the zoomed graph's height plus room for it): the nodes in their state
+     colours (done water, running amber, a waiting gate violet, the rest neutral), the part
+     in view clear and the rest shaded; a drag or a click there moves the view. It is hidden
+     when the whole graph fits, where it would only repeat it.
   2. **Code** – the file tree on the left and the changes on the right, as in a pull
      request's "Files changed". A bar at the block's top (it stays in view while the diff
      scrolls) holds a toggle that hides or shows the tree (remembered). Where the block is
@@ -241,6 +258,14 @@ looked at now and then.
   running or still to do, the header names its agent and, while the session lives, a
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
+  Longer text written by agents or the user – a task's input, a delivery or gate note, an
+  answer in Ask why – is short Markdown, rendered compact by the same safe renderer as
+  Markdown attachments (see Attachments): the surrounding size, headings no bigger than the
+  text, tight lists, and a single line break kept as one. In the detail a long one shows its
+  first six lines fading out, with "Show more"; until the renderer has loaded, the plain
+  text with its line breaks. Shorter text (a finding's problem, impact and reason, a
+  decision's note, a question, a chore's or gate's step, a reason for dropping) is plain,
+  its line breaks kept. Agents are told to write it so (a line or two of what, then bullets).
 - **Other machines.** Agents may run on other machines, each with its own Herdr. Whatever is
   on another machine carries a small chip with the machine's name (a server glyph): an
   agent's line in Agents, a unit's header and its line in the rail; an agent mark's tooltip
@@ -466,7 +491,7 @@ records it and delivers it to the agents through Herdr.
   name (mono) as its title, "2 / 5" with previous / next (← and → too, wrapping round; the
   position and name are read out), for a picture the zoom toggle and "open original",
   "Ask why", and a download button for every file. Markdown is rendered (tables, code,
-  links) by react-markdown with remark-gfm, loaded only when one is opened (49 kB gzip,
+  links) by react-markdown with remark-gfm, loaded only when one is shown (49 kB gzip,
   against 24 kB for marked + DOMPurify: chosen because it never puts an HTML string into
   the page, and the text is an agent's): raw HTML is dropped, links open in a new tab with
   `noopener noreferrer`, and images in it are not fetched but shown as links. Plain text is

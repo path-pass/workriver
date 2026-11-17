@@ -493,7 +493,8 @@ export const en = {
     controls: 'Graph controls',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
-    fit: 'Fit the whole graph'
+    fit: 'Show the whole graph, or its latest work when it does not fit',
+    overview: 'Overview of the graph'
   },
   io: {
     input: 'Input',

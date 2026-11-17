@@ -3,14 +3,14 @@
 // selection, shown as chips above it. A temporary agent
 // answers from the records and the code, and asks the agent that did the work only when it
 // is idle, so an agent at work is never interrupted.
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { askeeOf, baseName, finderLabel, findingsOf, ms, type Lines } from '@/data'
 import { useT } from '@/i18n'
 import { focusAgent } from '@/runtime'
 import type { AskContext, Session, Thread, Turn, Task, Unit } from '@/types'
-import { ChipName, Icon, Tip, Who } from './bits'
+import { ChipName, Icon, Prose, Tip, Who } from './bits'
 
 /** What a conclusion request says to the agent; content, not UI text. */
 const CONCLUDE = 'Draft a conclusion of this discussion.'
@@ -40,19 +40,8 @@ export interface Talk {
 export const isField = (el: EventTarget | null) =>
   el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)
 
-/** File paths in an answer become links that pick the file. */
-function Answer({ text, onFile }: { text: string; onFile: (path: string) => void }) {
-  const parts: ReactNode[] = []
-  let last = 0
-  for (const m of text.matchAll(/[\w-]+(?:\/[\w.-]+)+\.\w+/g)) {
-    parts.push(text.slice(last, m.index))
-    parts.push(<button key={m.index} type="button" className="font-mono text-[12px] text-you-ink underline-offset-3 hover:underline" onClick={() => onFile(m[0])}>{m[0]}</button>)
-    last = m.index + m[0].length
-  }
-  parts.push(text.slice(last))
-  // A long path or word breaks where it must rather than run out of the answer.
-  return <p className="whitespace-pre-wrap wrap-anywhere">{parts}</p>
-}
+/** An answer: short Markdown, its file paths links that pick the file. */
+const Answer = ({ text, onFile }: { text: string; onFile: (path: string) => void }) => <Prose text={text} fold={false} onFile={onFile} />
 
 function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext) => void }) {
   const { t } = useT()
@@ -91,7 +80,7 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         {/* Asked by another agent (through workriver): its mark, where the user's question has none. */}
         {turn.by && <span className="self-center"><Who name={turn.by} /></span>}
-        <span className={turn.conclude ? 'text-ink-2' : 'font-semibold'}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</span>
+        <span className={turn.conclude ? 'text-ink-2' : 'font-semibold whitespace-pre-line wrap-anywhere'}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</span>
         <Chips chips={turn.context} />
       </div>
       {turn.failed ? (

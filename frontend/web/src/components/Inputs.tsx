@@ -155,7 +155,7 @@ export function Decided({ unit, task, f }: { unit: Unit; task: Task; f: Finding 
   const { t } = useT()
   return (
     <>
-      {f.note && <div><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span>{f.note}</div>}
+      {f.note && <div className="whitespace-pre-line"><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span>{f.note}</div>}
       <DeliveryLine id={findingKey(unit, task, f)} sent={f.delivery} message />
     </>
   )

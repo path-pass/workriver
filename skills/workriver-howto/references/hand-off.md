@@ -9,7 +9,8 @@ started by typing `claude` in a pane has none): others reach a worker by its nam
     workriver guide worker                 # the worker's instructions: paste them whole
     herdr agent prompt <name> "<one paragraph>"
 
-Requirements go into the task's `--text` when you add it, not into the message. The
+Requirements go into the task's `--text` when you add it (short Markdown: see `units`), not
+into the message. The
 message stays short, one paragraph: the ref (`u1#3`), its goal in one line, the machine,
 repository path and branch (`git checkout <branch>` there), "run `workriver task show
 u1#3` and read it fully before you start", and the worker instructions.

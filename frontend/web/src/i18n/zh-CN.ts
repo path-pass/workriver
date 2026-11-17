@@ -481,7 +481,8 @@ export const zhCN: Same<typeof en> = {
     controls: '图的控制',
     zoomIn: '放大',
     zoomOut: '缩小',
-    fit: '显示整张图',
+    fit: '显示整张图；放不下时显示最新的工作',
+    overview: '整张图的缩略图',
     start: '开始'
   },
   io: {

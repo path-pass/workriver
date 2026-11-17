@@ -23,12 +23,12 @@ pub const IDLE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 fn how_to_answer(q: &Question) -> String {
     if q.conclude {
         format!(
-            "The user asks for the conclusion of this discussion ({}): in a few sentences, what was decided, what changes, and what stays open. Record it with `workriver answer {} --conclusion --text \"...\"`.",
+            "The user asks for the conclusion of this discussion ({}): in a few sentences or short Markdown bullets, what was decided, what changes, and what stays open. Record it with `workriver answer {} --conclusion --text \"...\"`.",
             q.id, q.id
         )
     } else {
         format!(
-            "Answer briefly, in the language of the question, naming file paths where they help: `workriver answer {} --text \"...\"`.",
+            "Answer briefly, in the language of the question, naming file paths where they help, in short Markdown (a sentence or two, then bullets if needed; no wall of text): `workriver answer {} --text \"...\"`.",
             q.id
         )
     }

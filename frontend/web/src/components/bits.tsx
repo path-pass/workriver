@@ -1,6 +1,6 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
 import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -130,7 +130,7 @@ export function Steps({ steps }: { steps: Step[] }) {
     <ol className="steps">
       {steps.map((s, k) => (
         <li key={k}>
-          {s.text}
+          <span className="whitespace-pre-line">{s.text}</span>
           {s.command && <div className="cmd"><code>{s.command}</code><CopyButton text={s.command} /></div>}
         </li>
       ))}
@@ -312,6 +312,46 @@ export function IntentNote({ text, tone }: { text: string; tone: 'rail' | 'page'
       <p ref={box} className={cn('whitespace-pre-line wrap-anywhere', !all && 'line-clamp-3')}>{parts}</p>
       {(long || all) && (
         <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold" onClick={() => setAll(a => !a)}>
+          {t(all ? 'rail.noteLess' : 'rail.noteMore')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+const MarkdownView = lazy(() => import('./Markdown'))
+
+/**
+ * Longer text an agent or the user wrote (a task's input, a delivery note, a gate's note, an
+ * answer): short Markdown, rendered compact by the safe renderer, which loads the first time
+ * one shows; until then the plain text with its line breaks. With `fold`, a long one shows its
+ * first lines, with "show more".
+ */
+export function Prose({ text, fold = true, onFile }: { text: string; fold?: boolean; onFile?: (path: string) => void }) {
+  const { t } = useT()
+  const outer = useRef<HTMLDivElement>(null)
+  const inner = useRef<HTMLDivElement>(null)
+  const [long, setLong] = useState(false)
+  // Opened for this text: another task's text starts cut again.
+  const [opened, setOpened] = useState<string | null>(null)
+  const all = opened === text
+  // Measured while cut, and again when the rendered Markdown replaces the plain text.
+  useEffect(() => {
+    const o = outer.current, i = inner.current
+    if (!o || !i) return
+    const check = () => setLong(i.offsetHeight > o.clientHeight + 1)
+    const watch = new ResizeObserver(check)
+    watch.observe(i)
+    watch.observe(o)
+    return () => watch.disconnect()
+  }, [fold])
+  const body = <Suspense fallback={<div className="whitespace-pre-line">{text}</div>}><MarkdownView text={text} compact onFile={onFile} /></Suspense>
+  if (!fold) return body
+  return (
+    <div>
+      <div ref={outer} className="prose-fold" data-cut={(!all && long) || undefined} data-all={all || undefined}><div ref={inner}>{body}</div></div>
+      {(long || all) && (
+        <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold text-ink-2 hover:text-ink" onClick={() => setOpened(all ? null : text)}>
           {t(all ? 'rail.noteLess' : 'rail.noteMore')}
         </button>
       )}

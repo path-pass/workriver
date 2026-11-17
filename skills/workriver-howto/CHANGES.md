@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Task text and delivery notes are short Markdown**: the user's page now renders a task's
+  `--text` and a delivery's `--note` (and answers to questions) as Markdown, keeping line
+  breaks; a long one is cut to a few lines with "show more". Write them as a line or two of
+  what, then bullets; no wall of text. `workriver task show` still prints the raw text.
+  (`units`, `hand-off`; worker guide)
 - **A later task says what it follows**: once a unit (or intent) has a task, `workriver task
   add` without `--after` or a same-unit `--cause` is refused ("u1 already has tasks: say which
   one this follows with --after <n> (the latest is #N), or --after start to run beside the

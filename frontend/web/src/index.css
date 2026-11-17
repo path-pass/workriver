@@ -354,6 +354,12 @@
   .flow .react-flow__handle { opacity: 0; pointer-events: none; }
   /* The library's own credit: kept, small and quiet, in its corner. */
   .flow .react-flow__attribution { margin: 0 16px 10px 0; background: transparent; color: var(--ink-2); font-size: 10px; }
+  /* The overview, bottom left: the nodes in their state colours, the part in view clear,
+     the rest shaded. */
+  .flow .react-flow__minimap { margin: 0 0 10px 16px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; --xy-minimap-background-color: var(--surface); --xy-minimap-mask-background-color: color-mix(in oklch, var(--ink-2) 16%, transparent); --xy-minimap-node-background-color: var(--line-2); }
+  .flow .react-flow__minimap-node.mini-done, .flow .react-flow__minimap-node.mini-start { fill: var(--water); }
+  .flow .react-flow__minimap-node.mini-running { fill: var(--amber); }
+  .flow .react-flow__minimap-node.mini-you { fill: var(--you); }
 
   /* ---- asking why: conversations folded to a line each, one open at a time ---- */
   .thread + .thread { border-top: 1px solid var(--line); }
@@ -483,6 +489,22 @@
   .md th, .md td { padding: 4px 10px; border: 1px solid var(--line-2); text-align: left; }
   .md th { background: var(--sunken); font-weight: 600; }
   .md hr { border: 0; border-top: 1px solid var(--line); }
+  /* Compact, inside a task's detail or an answer: the surrounding size, small headings, tight
+     lists; a single line break an agent typed stays a line break. */
+  .md.md-sm { max-width: none; font-size: inherit; line-height: 1.5; }
+  .md.md-sm > * + * { margin-top: 6px; }
+  .md.md-sm :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; font-weight: 650; }
+  .md.md-sm :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 10px; }
+  .md.md-sm :is(ul, ol) { padding-left: 18px; }
+  .md.md-sm li + li { margin-top: 2px; }
+  .md.md-sm p { white-space: pre-line; }
+  .md.md-sm pre { padding: 6px 8px; }
+  .md .md-file { font: 12px var(--font-mono); color: var(--you-ink); text-align: left; text-underline-offset: 3px; }
+  .md .md-file:hover { text-decoration: underline; }
+  /* A long text cut to its first lines, fading out, until "show more". */
+  .prose-fold { max-height: 9em; overflow: hidden; }
+  .prose-fold[data-all] { max-height: none; }
+  .prose-fold[data-cut] { mask-image: linear-gradient(to bottom, #000 65%, transparent); }
 
   /* ---- the commits feed in the side panel ---- */
   .crow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px 6px 12px; border-radius: 6px; text-align: left; font-size: 13px; }

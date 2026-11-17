@@ -18,7 +18,11 @@ unit's own, never its base, and says what it holds: `feat/<name>` for new work,
 (`git fetch`, then `git switch -c feat/<name> origin/main`).
 
     workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch feat/mention [--base main] [--repo PATH]
-    workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder [--plan src/notify]
+    workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder [--plan src/notify] [--text "…"]
+
+`--text` is what the worker and the user read in the task's detail. Write it as short
+Markdown: a line or two of what is wanted, then bullets (requirements, constraints, where to
+start); no wall of text.
 
 Work of the intent, not of one unit (comparing approaches, a design across repositories):
 
