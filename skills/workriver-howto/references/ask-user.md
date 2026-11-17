@@ -1,6 +1,6 @@
 # Asking the user to decide
 
-**When:** a unit is ready to merge, something is to be deployed, the goal or the agreed
+**When:** a unit is ready to push or merge (one gate per step: `push-pr-merge`), something is to be deployed, the goal or the agreed
 units would change, anything destructive, or a task failed the same way twice. The user
 does not watch your pane; they watch Needs you. Ask there, with a decide gate, never only in
 your pane.

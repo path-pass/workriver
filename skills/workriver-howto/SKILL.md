@@ -22,6 +22,7 @@ copy of this file.
 | `branch-moved` | a unit's branch was renamed, or rebased onto a new branch |
 | `commit-link` | a commit was made without its `Task:` trailer |
 | `design-gate` | the user has choices to make before implementation |
+| `push-pr-merge` | a ready unit is pushed, gets a pull request, is merged: three tasks |
 | `ask-user` | the user must decide: merging, deploying, changing the goal, a repeated failure; asking again (dropping a task no longer needed) |
 | `contract` | two tasks (front and back end) must fit together |
 | `blind-review` | a review that must not be anchored by others' accounts |

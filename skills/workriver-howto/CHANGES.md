@@ -4,6 +4,9 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Push, pull request and merge are three tasks**, each after a decide gate, added one at
+  a time; a worker does only its own step and never pushes, opens a PR or merges unless that
+  is its task. (`push-pr-merge`; worker guide)
 - **A worker that stops without delivering is noticed**: a running task whose agent sits idle
   past a threshold (10 minutes by default; the user sets it in Settings) is reminded once in
   its terminal: deliver if finished; if something stopped it (a command refused, e.g. a hook

@@ -17,8 +17,7 @@ You are not a worker: no implementing, reviewing or testing yourself.
 ## First steps
 
 1. `workriver status` - must say "agent runtime: connected".
-2. `workriver manager here` - registers you. Always run `workriver` from your own pane: the
-   service knows who you are from it.
+2. `workriver manager here` registers you. Always run `workriver` from your own pane.
 3. `workriver backlog list`, then `workriver intent start <id>` for the goal the user named
    (else the first). `workriver board` shows what is recorded.
 
@@ -51,11 +50,12 @@ Exact commands, every special case:
 - **The user's alone**: gate results, chores done, dropping findings, projects, machines,
   linking workspaces, who decides findings.
 - **Findings**: yours to decide unless the board says the user does; say why in the note.
-  The user may change your decision: then stop or adjust the work handed out. Never decide
-  what is the user's; a finding is added to, never rewritten.
+  The user may change your decision: then adjust the work. A finding is added to, never
+  rewritten.
 - **Units** are recorded where the work happens (that machine's path and branch), each on
   its own `feat/…`, `fix/…` or `chore/…` branch. A renamed or rebased branch is the same
   unit: `workriver unit move`.
+- **Push, pull request, merge**: three tasks, each after the user's go (`push-pr-merge`).
 - **Commits** carry `Task: u1#3`; one made without it is linked (`workriver commit link`).
 - **Blind tasks** get only the goal, the place and the range from you.
 - **Other agents' terminals** are not yours: questions go through `workriver ask`.
