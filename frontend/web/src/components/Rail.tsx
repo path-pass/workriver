@@ -188,7 +188,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit }: {
             onClick={() => onUnit(unit.id)}
             className="block w-full rounded-md px-2.5 py-2 text-left transition-colors hover:bg-rail-2 aria-pressed:bg-rail-3"
           >
-            <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere">{unit.intentLevel ? t('rail.intentWork') : unit.title}</span>
+            <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{unit.id}</span>{unit.intentLevel ? t('rail.intentWork') : unit.title}</span>
             {unit.machine && <span className="mt-0.5 flex"><MachineChip machine={unit.machine} away={ws?.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws?.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} /></span>}
             <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden"><Signals unit={unit} /></span>
           </button>
@@ -311,7 +311,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const projects = ws?.projects ?? []
   const intents = (ws?.intents ?? []).filter(i => !project || i.project === project)
   const needle = q.trim().toLowerCase()
-  const match = (u: Unit) => !needle || (u.title + ' ' + u.purpose).toLowerCase().includes(needle)
+  const match = (u: Unit) => !needle || (u.id + ' ' + u.title + ' ' + u.purpose).toLowerCase().includes(needle)
   // An intent with no units yet still shows (it has a workspace and maybe a manager), but not in a search.
   const groupsOf = (list: Intent[]) => list.map(intent => ({ intent, units: intent.units.filter(match) })).filter(g => g.units.length || (!needle && !g.intent.units.length))
   const active = groupsOf(intents.filter(i => stateOf(i) === 'active'))
