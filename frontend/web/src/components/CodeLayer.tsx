@@ -5,7 +5,7 @@
 import { hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature } from '@headless-tree/core'
 import { useTree } from '@headless-tree/react'
 import { html } from 'diff2html'
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -42,13 +42,35 @@ function digits(lines: string[]): number {
   return Math.max(3, String(max).length)
 }
 
+/**
+ * Whether the element has come within a few screens of the view; stays true after. A unit's
+ * list can hold hundreds of diffs (one unit: 120,000 elements, a second per pick when all
+ * were drawn), so each is drawn only once it comes near.
+ */
+function useNear(skip: boolean) {
+  const [near, setNear] = useState(skip)
+  const seen = useRef<IntersectionObserver>(null)
+  // A callback ref: the spot comes and goes as the file is folded and opened.
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    seen.current?.disconnect()
+    if (!el) return
+    seen.current = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setNear(true); seen.current?.disconnect() } }, { rootMargin: '2000px 0px' })
+    seen.current.observe(el)
+  }, [])
+  return [ref, near] as const
+}
+
+// One row of diff2html's table, measured (13px mono): what a diff not yet drawn holds open.
+const ROW_PX = 20.7
+
 function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
   const { t, num } = useT()
+  const [spot, near] = useNear(whole)
   // diff2html escapes the diff's text itself; its output is markup, not repository content.
   // Its own file list is left out: the tree is the list.
   const body = useMemo(
-    () => (file.lines.length ? html(unified(file), { drawFileList: false, outputFormat: 'line-by-line', matching: 'lines', diffStyle: 'word' }) : ''),
-    [file],
+    () => (near && file.lines.length ? html(unified(file), { drawFileList: false, outputFormat: 'line-by-line', matching: 'lines', diffStyle: 'word' }) : ''),
+    [file, near],
   )
   const head = (
     <>
@@ -60,13 +82,15 @@ function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
     </>
   )
   const gutter = { '--ln': `${digits(file.lines)}ch` } as CSSProperties
-  if (!body) return <div className="fview"><div className="fhead">{head}</div></div>
+  if (!file.lines.length) return <div className="fview"><div className="fhead">{head}</div></div>
   // The whole file is one view; it does not fold away.
   if (whole) return <div className="fview"><div className="fhead">{head}</div><div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /></div>
   return (
     <Collapsible className="fview" defaultOpen>
       <CollapsibleTrigger className="fhead"><Icon name="chev" className="chev" />{head}</CollapsibleTrigger>
-      <CollapsibleContent><div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /></CollapsibleContent>
+      <CollapsibleContent>
+        {body ? <div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /> : <div ref={spot} style={{ height: file.lines.length * ROW_PX }} />}
+      </CollapsibleContent>
     </Collapsible>
   )
 }
@@ -183,6 +207,13 @@ function Pickable({ path, commit, lines, onLines, onAsk, children }: LinePicking
   const mine = lines && lines.path === path && lines.commit === commit ? lines : null
   const [top, setTop] = useState<number | null>(null)
   useEffect(() => {
+    // Nothing picked here: only let go of what was, without reading every row and the layout
+    // (this runs for every diff in the list whenever it is drawn again).
+    if (!mine) {
+      wrap.current?.querySelectorAll('[data-picked]').forEach(row => row.removeAttribute('data-picked'))
+      setTop(null)
+      return
+    }
     let first: Element | null = null
     wrap.current?.querySelectorAll('.d2h-diff-tbody tr').forEach(row => {
       const n = lineOf(row)

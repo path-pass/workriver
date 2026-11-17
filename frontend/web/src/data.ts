@@ -629,9 +629,22 @@ export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta 
   const touched = scope.filter(k => unit.commits[k].files.some(f => f.path === path))
   if (!touched.length) return null
   const at = (k: number) => unit.commits[k].files.find(f => f.path === path)!
-  const before = at(touched[0]).before, after = at(touched.at(-1)!).after
-  const { add, del } = changeOf(before, after)
+  const first = at(touched[0]), last = at(touched.at(-1)!)
+  const before = first.before, after = last.after
+  const { add, del } = counted(first, last)
   return { touched, before, after, status: before === null ? 'A' : after === null ? 'D' : 'M', add, del }
+}
+
+// Line counts from one file version's `before` to another's `after`, kept per pair: a file's
+// versions stay the same objects while its unit's code is unchanged, and diffing whole texts
+// again on every pick made picking a task in a big unit take up to a second.
+const counts = new WeakMap<FileChange, WeakMap<FileChange, { add: number; del: number }>>()
+function counted(first: FileChange, last: FileChange) {
+  let to = counts.get(first)
+  if (!to) counts.set(first, (to = new WeakMap()))
+  let c = to.get(last)
+  if (!c) { const { add, del } = changeOf(first.before, last.after); to.set(last, (c = { add, del })) }
+  return c
 }
 
 /**
@@ -650,7 +663,7 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   // files it touched, the whole unit's for the others. The single-file view shows the same.
   const did = new Map<string, FileDelta & { inPick: boolean }>()
   for (const path of new Set(unit.commits.flatMap(c => c.files.map(f => f.path))))
-    did.set(path, { ...shownDelta(unit, sel, path)!, inPick: !!fileDelta(unit, path, sel.commits) })
+    did.set(path, { ...shownDelta(unit, sel, path)!, inPick: sel.commits.some(k => unit.commits[k].files.some(f => f.path === path)) })
   const open = unit.tasks.filter(n => n.state !== 'done')
   const plans = open.flatMap(n => n.plans)
   const writers = new Map<string, string[]>()
