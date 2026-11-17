@@ -290,7 +290,7 @@ mod tests {
         assert!(idle_workers(s.state(), &live, &idle, minute, &[None]).is_empty(), "box not read");
         let found = idle_workers(s.state(), &live, &idle, minute, &[None, Some("box".into())]);
         assert!(matches!(&found[..], [IdleWorker { session, manager, last, .. }] if session == "w" && manager == "boss" && last == &("u1".to_string(), 1)));
-        at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "y", "agent": "w"}}));
+        at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "y", "agent": "w", "inputs": [{"from": "1"}]}}));
         assert!(idle_workers(s.state(), &live, &idle, minute, &[None, Some("box".into())]).is_empty(), "it has a task");
     }
 

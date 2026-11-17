@@ -490,8 +490,9 @@ enum TaskCmd {
     /// Record a task in a unit, or (research, design, their reviews and gates) in an intent;
     /// prints its ref (u1#3, i2#1).
     ///
-    /// Without --after or --cause the task starts from the unit itself. With --cause and
-    /// no --after it follows the tasks whose findings it answers. A cause must name
+    /// The first task of a unit (or intent) starts from the unit itself. A later one says
+    /// what it follows: --after N, or --after start to run beside the first; with --cause
+    /// and no --after it follows the tasks whose findings it answers. A cause must name
     /// accepted, revised or scheduled findings.
     Add {
         /// The unit (u1…); without it, the task belongs to the intent itself (--intent, or
@@ -508,8 +509,9 @@ enum TaskCmd {
         /// The full ask, as handed to the agent; default: the title.
         #[arg(long, default_value = "")]
         text: String,
-        /// Task number this one follows; repeat for more. The first is the direct cause, the
-        /// rest are merely involved.
+        /// Task number this one follows, or `start`; repeat for more. The first is the direct
+        /// cause, the rest are merely involved. Needed once the unit (or intent) has a task,
+        /// unless --cause names one in it.
         #[arg(long, value_name = "N")]
         after: Vec<String>,
         /// Findings this task answers: `N:ID[,ID…]` in this unit (`4:P2-1,P3-1`),

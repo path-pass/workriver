@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **A later task says what it follows**: once a unit (or intent) has a task, `workriver task
+  add` without `--after` or a same-unit `--cause` is refused ("u1 already has tasks: say which
+  one this follows with --after <n> (the latest is #N), or --after start to run beside the
+  first"). It used to hang off the start beside the first task, away from the work it
+  continues. Give `--after <n>`, or `--after start` for work that really runs beside the
+  first. (`units`, `ask-user`)
 - **Close workers you no longer need**: idle agents hold the user's memory. When a unit is
   merged or done, or the intent done, you are told which workers on it are still running with
   no other task (`[workriver] u2 is merged: ja-impl, ja-test worked on it and are still

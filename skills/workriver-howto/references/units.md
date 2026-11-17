@@ -24,10 +24,15 @@ Work of the intent, not of one unit (comparing approaches, a design across repos
 
     workriver task add --kind research --title "Compare sync engines" --agent scout
 
+The first task of a unit (or of the intent) starts from it. Every later one says what it
+follows: `--after <n>` (the task it continues; repeat for several), `--after start` to run
+beside the first, or `--cause` naming findings of a task in the same unit or intent.
+
 **You will see:** the unit id (`u1`), task refs (`u1#1`, `i3#1`).
 
 **Refusals:** "no intent given, and Herdr workspace … has no current intent" -
 `start-intent`. "… is not a git repository" / "base … is not a commit or branch" - fix
-`--repo` or `--base`. "implement and tests tasks belong to a unit". "a unit's branch starts
+`--repo` or `--base`. "implement and tests tasks belong to a unit". "u1 already has tasks: say which one this
+follows with --after <n> …" - add `--after`, as above. "a unit's branch starts
 with feat/, chore/ or fix/" / "a unit's branch must not be its base" - name the unit's own
 branch so, as the message says.

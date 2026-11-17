@@ -47,7 +47,7 @@ fn rules_reject_bad_input() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
     // A second review (#3), left open for the delivery below.
-    s.append(&"agent-b".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review"}}))).unwrap();
+    s.append(&"agent-b".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}}))).unwrap();
     let mut rejects = |v: serde_json::Value, says: &str| {
         let err = s.append(&"agent-a".into(), body(v)).unwrap_err().to_string();
         assert!(err.contains(says), "{err:?} does not say {says:?}");
@@ -168,7 +168,7 @@ fn questions_are_answered_by_their_own_agent_or_the_user() {
 fn design_tasks_decide_gates_and_revised_findings() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
-    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store"}}))).unwrap();
+    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store", "inputs": [{"from": "2"}]}}))).unwrap();
     let no_note = s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3}}))).unwrap_err().to_string();
     assert!(no_note.contains("design as the note"), "{no_note}");
     s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "One table."}}))).unwrap();
@@ -709,7 +709,7 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "start"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "1"}, {"from": "2", "primary": false}]}})).unwrap();
     let gate = |s: &Store| s.state().task("u1", 3).unwrap().clone();
     assert_eq!((gate(&s).state, gate(&s).waiting_since.clone()), (TaskState::Todo, None));
@@ -764,7 +764,7 @@ fn a_task_no_longer_needed_is_dropped() {
     // Asked twice: the branch changed after the first merge gate.
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?", "inputs": [{"from": "1"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main? (again)", "inputs": [{"from": "1"}]}})).unwrap();
-    add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "1"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "After the merge", "inputs": [{"from": "2"}]}})).unwrap();
     let drop = |n: u32, reason: &str| json!({"kind": "task.dropped", "body": {"unit": "u1", "task": n, "reason": reason}});
 
@@ -791,7 +791,7 @@ fn a_task_no_longer_needed_is_dropped() {
     assert!(add(&mut s, "user", drop(3, "late")).unwrap_err().contains("is done"), "a submitted gate is done");
 
     // A gate opens once what it follows is dropped.
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Polish"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Polish", "inputs": [{"from": "1"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "6"}]}})).unwrap();
     assert_eq!(s.state().task("u1", 7).unwrap().state, TaskState::Todo);
     add(&mut s, "user", drop(6, "not worth it")).unwrap();
@@ -826,4 +826,29 @@ fn a_dropped_follow_up_answers_nothing() {
     assert_eq!(s.state().progress(&s.state().units[0]), Progress::Waiting);
     // Dropping a task leaves the findings it was about as they are.
     assert_eq!(s.state().task("u1", 2).unwrap().findings[1].state, FindingState::Accepted);
+}
+
+/// The first task of a unit or intent starts at the start; a later one says what it follows
+/// (a task, `start` to run beside the first, or a cause in the same unit), else it is refused
+/// rather than hung off the start away from the work it continues.
+#[test]
+fn a_later_task_says_what_it_follows() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let task = |v: serde_json::Value| json!({"kind": "task.created", "body": v});
+    let e = add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "More"}))).unwrap_err();
+    assert!(e.contains("u1 already has tasks") && e.contains("--after <n> (the latest is #2)") && e.contains("--after start"), "{e}");
+    let inputs = |s: &Store, u: &str, n: u32| s.state().task(u, n).unwrap().inputs.iter().map(|i| i.from.clone()).collect::<Vec<_>>();
+    add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "Beside", "inputs": [{"from": "start"}]}))).unwrap();
+    assert_eq!(inputs(&s, "u1", 3), ["start"]);
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
+    add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "Fix", "causes": [{"task": 2, "findings": ["P2-1"]}]}))).unwrap();
+    assert_eq!(inputs(&s, "u1", 4), ["2"]);
+    // The intent's own tasks: the first starts at the start, the next must say; a cause in a
+    // unit is not one of the intent's tasks.
+    add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Look"}))).unwrap();
+    assert_eq!(inputs(&s, "i1", 1), ["start"]);
+    let e = add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Again", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}]}))).unwrap_err();
+    assert!(e.contains("i1 already has tasks"), "{e}");
+    add(&mut s, "boss", task(json!({"unit": "i1", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
 }

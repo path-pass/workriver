@@ -1373,7 +1373,7 @@ fn a_machines_listener_serves_only_agents() {
     assert!(here.output.unwrap().files[0].starts_with(&tmp.path().join("attachments").display().to_string()), "a path on this machine");
     // The same view rules over there: on a blind task, only its own.
     assert!(there.get("/api/state").unwrap()["reduced"].is_null());
-    there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look again", "agent": "s-far", "blind": true })).unwrap();
+    there.append("", "task.created", json!({ "unit": "i1", "kind": "research", "title": "Look again", "agent": "s-far", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
     let view = there.get("/api/state").unwrap();
     assert_eq!((view["reduced"].as_bool(), view["intents"][0]["tasks"].as_array().unwrap().len()), (Some(true), 1), "{view}");
     assert_eq!(there.get("/api/workspace").unwrap()["reduced"], true);
@@ -1732,8 +1732,8 @@ fn linked_commits_and_rebased_branches() {
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
-    for title in ["First", "Second"] {
-        boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w" })).unwrap();
+    for (title, after) in [("First", "start"), ("Second", "1")] {
+        boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w", "inputs": [{ "from": after }] })).unwrap();
     }
     let unit = || user.get("/api/workspace").unwrap()["intents"][0]["units"][0].clone();
     let tasks = |u: &serde_json::Value| u["tasks"].as_array().unwrap().iter().map(|t| (t["state"].as_str().unwrap().to_string(), t["output"]["commits"].as_array().map(|c| c.len()).unwrap_or(0))).collect::<Vec<_>>();
@@ -2070,7 +2070,7 @@ fn a_dropped_task_is_told_and_shown() {
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
-    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?", "inputs": [{ "from": "1" }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
 
     let drop = |n: u32, reason: &str| json!({ "unit": "u1", "task": n, "reason": reason });
@@ -2122,8 +2122,8 @@ fn stopped_workers_are_reminded_then_escalated() {
     assert_eq!(saved["stallMinutes"], 2);
 
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
-    for title in ["push it", "again", "deploy"] {
-        d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "ja-impl" })).unwrap();
+    for (title, after) in [("push it", "start"), ("again", "1"), ("deploy", "2")] {
+        d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "ja-impl", "inputs": [{ "from": after }] })).unwrap();
     }
     d.append("s-w", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     let task = |n: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][n].clone();
@@ -2161,7 +2161,7 @@ fn stopped_workers_are_reminded_then_escalated() {
 
     // Waiting on a gate it asked for after its task started: left alone.
     set(Idle);
-    d.append("s-w", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy it" })).unwrap();
+    d.append("s-w", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy it", "inputs": [{ "from": "1" }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(5000));
     assert!(task(1)["stalled"].is_null() && to("s-w", "Your task u1#2") == 1, "{}", task(1));
 
@@ -2276,8 +2276,8 @@ fn idle_workers_are_told_to_their_manager() {
     for b in ["feat/a", "feat/b"] {
         d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "T", "repo": repo.to_string_lossy(), "branch": b, "base": "main" })).unwrap();
     }
-    for (unit, agent) in [("u1", "boss"), ("u1", "ja-impl"), ("u1", "ja-test"), ("u1", "ja-busy"), ("u2", "ja-busy")] {
-        d.append("s-boss", "task.created", json!({ "unit": unit, "kind": "implement", "title": "Do it", "agent": agent })).unwrap();
+    for (unit, agent, after) in [("u1", "boss", "start"), ("u1", "ja-impl", "1"), ("u1", "ja-test", "2"), ("u1", "ja-busy", "3"), ("u2", "ja-busy", "start")] {
+        d.append("s-boss", "task.created", json!({ "unit": unit, "kind": "implement", "title": "Do it", "agent": agent, "inputs": [{ "from": after }] })).unwrap();
     }
     for (n, agent) in [(1, "s-boss"), (2, "s-ja-impl"), (3, "s-ja-test"), (4, "s-ja-busy")] {
         d.append(agent, "task.started", json!({ "unit": "u1", "task": n })).unwrap();

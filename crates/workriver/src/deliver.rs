@@ -607,8 +607,8 @@ mod tests {
         at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
         at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions", "agent": "worker"}}));
         at(&mut s, "worker", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
-        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Emoji", "agent": "worker"}}));
-        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge?"}}));
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Emoji", "agent": "worker", "inputs": [{"from": "1"}]}}));
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge?", "inputs": [{"from": "2"}]}}));
         let live = [agent("worker"), agent("boss")];
         let told = |s: &Store, e: &Event| dropped(s.state(), Some(&live), e);
 

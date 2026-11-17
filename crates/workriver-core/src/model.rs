@@ -2217,6 +2217,11 @@ impl State {
         if t.inputs.is_empty() {
             t.inputs = t.causes.iter().filter(|c| c.unit.is_none() && c.task != 0).enumerate().map(|(k, c)| Input { from: c.task.to_string(), primary: k == 0 }).collect();
         }
+        // The first task starts at the start; a later one must say what it follows, else it
+        // would hang off the start beside the first, away from the work it continues.
+        if t.inputs.is_empty() && count > 0 {
+            return no(format!("{owner} already has tasks: say which one this follows with --after <n> (the latest is #{count}), or --after start to run beside the first"));
+        }
         if t.inputs.is_empty() {
             t.inputs.push(Input { from: "start".into(), primary: true });
         }
