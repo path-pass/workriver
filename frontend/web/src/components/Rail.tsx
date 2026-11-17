@@ -28,7 +28,6 @@ export function needs(units: Unit[]) {
   return {
     blocking: all.reduce((s, n) => s + n.gates.length, 0),
     waiting: all.reduce((s, n) => s + n.asked.reduce((t, a) => t + a.count, 0) + n.loose.length, 0),
-    grew: all.reduce((s, n) => s + n.out.length, 0),
   }
 }
 
@@ -71,7 +70,7 @@ export function Quiet({ since }: { since: number | null }) {
 }
 
 /**
- * What a unit's line says: its two violet marks and branches that grew beyond the plan;
+ * What a unit's line says: its two violet marks;
  * merged, its date; quiet for a while, since when; with nothing to say, whether it has started.
  */
 function Signals({ unit }: { unit: Unit }) {
@@ -85,12 +84,11 @@ function Signals({ unit }: { unit: Unit }) {
   if (finished) return <><Progress unit={unit} />{on && <span className="text-xs text-rail-ink-2">{date(on, false)}</span>}</>
   // The intent's own work has no branch or commits: nothing to say unless something waits.
   if (unit.intentLevel && !n.blocking && !n.waiting) return quiet
-  if (!n.blocking && !n.waiting && !n.grew) return unit.progress && unit.progress !== 'working' ? <><Progress unit={unit} />{quiet}</> : quietSince(unit) !== null ? quiet : <span className="tag">{t((noCode(unit) ? unit.status === 'active' : unit.commits.length) ? 'unit.active' : 'unit.untouched')}</span>
+  if (!n.blocking && !n.waiting) return unit.progress && unit.progress !== 'working' ? <><Progress unit={unit} />{quiet}</> : quietSince(unit) !== null ? quiet : <span className="tag">{t((noCode(unit) ? unit.status === 'active' : unit.commits.length) ? 'unit.active' : 'unit.untouched')}</span>
   return (
     <>
       {unit.progress && unit.progress !== 'working' && <Progress unit={unit} />}
       <Marks {...n} />
-      {n.grew > 0 && <Tip text={t('unit.grewHint')}><span className="tag" data-tone="far">{t('unit.grew', { count: n.grew })}</span></Tip>}
       {quiet}
     </>
   )

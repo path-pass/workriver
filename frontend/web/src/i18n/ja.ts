@@ -63,6 +63,7 @@ export const ja: OneForm<typeof en> = {
     note: 'メモ',
     where: '実行場所',
     workspace: 'ワークスペース',
+    worksOn: '{{project}} を担当',
     manager: 'マネージャー',
     notStarted: 'まだ開始していません。ロードマップにあります。',
     talk: 'マネージャーに書く',
@@ -217,9 +218,7 @@ export const ja: OneForm<typeof en> = {
     blocking_other: 'エージェントが待っている手動ステップ {{count, number}} 件',
     active: '進行中',
     untouched: '未着手',
-    waiting_other: 'あなた待ち {{count, number}} 件',
-    grew_other: '計画外 {{count, number}}',
-    grewHint: 'ブランチが当初の計画を超えて広がっています'
+    waiting_other: 'あなた待ち {{count, number}} 件'
   },
   agents: {
     blocked: 'ターミナルであなたを待っています',
@@ -252,7 +251,22 @@ export const ja: OneForm<typeof en> = {
     none: '{{label}} にはマネージャーがいないため、作業を分ける人がいません。先にそこで起動してください：',
     started: '{{label}} で開始しました。',
     failed: '開始できませんでした：{{error}}',
-    close: '閉じる'
+    close: '閉じる',
+    optionUnknown: '{{option}} · プロジェクト不明',
+    optionOther: '{{option}} · {{project}} を担当',
+    others: '他のプロジェクトのワークスペース',
+    showOthers_other: '他のプロジェクトのワークスペース（{{count, number}}）',
+    pickOther: 'ワークスペースを選択',
+    otherAsk: 'マネージャー {{manager}} は {{theirs}} を担当しています。{{mine}} のインテントを任せますか？',
+    goOther: 'はい、そこで開始'
+  },
+  wsProject: {
+    title: 'ワークスペースのプロジェクト',
+    lead: '各ワークスペースが担当するプロジェクトです。workriver はマネージャーが動いている場所から、なければ現在のインテントから判断します。ここでの設定が優先されます。別のプロジェクトのインテントをそこで開始するときは、先に確認します。',
+    pick: '{{workspace}} が担当するプロジェクト',
+    auto: '自動判定：{{project}}（{{from}}）',
+    autoUnknown: '自動判定：不明',
+    from: { manager: 'マネージャーのフォルダ', intents: '現在のインテント', user: 'あなたが設定' }
   },
   backlog: {
     title: 'バックログ',
@@ -419,8 +433,7 @@ export const ja: OneForm<typeof en> = {
     suggested_other: 'エージェントの提案あり {{count, number}} 件'
   },
   need: {
-    loose: '未登録',
-    far: '計画外に拡大'
+    loose: '未登録'
   },
   kind: {
     implement: '実装',
@@ -566,6 +579,7 @@ export const ja: OneForm<typeof en> = {
   },
   flow: {
     empty: 'このユニットにはまだタスクが記録されていません。',
+    grew: '{{tasks}} を超えて {{folders}} にも及びました',
     start: '開始',
     controls: 'グラフの操作',
     zoomIn: '拡大',
@@ -606,6 +620,7 @@ export const ja: OneForm<typeof en> = {
     running: '進行中',
     todo: '未着手',
     waiting: 'あなた待ちの指摘',
+    grew: 'その流れで初めてのフォルダに及んだ',
     flowed: '受け渡し済み',
     flowing: '受け渡し中',
     also: '副次的な入力'

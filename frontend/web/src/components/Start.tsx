@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useT } from '@/i18n'
 import { RUN_GROUP, startIntent, type StartDelivery } from '@/runtime'
-import type { Intent, Session, Workspace } from '@/types'
+import type { Intent, RuntimeWorkspace, Session, Workspace } from '@/types'
 import { Choice } from './Choice'
-import { Content, Icon, Slot, SLOT, Steps } from './bits'
+import { Content, Icon, Slot, slot, SLOT, Steps } from './bits'
 
 /** `project`: the title of the project shown, when only it has nothing yet. */
 export function Start({ project }: { project?: string }) {
@@ -32,17 +32,17 @@ export function Start({ project }: { project?: string }) {
   )
 }
 
-/** A runtime workspace an intent can start in, with its manager if it has one. */
-interface Place { id: string; label: string; machine?: string; manager?: Session }
+/** A runtime workspace an intent can start in, with its manager if it has one and the project it works on if known. */
+interface Place extends RuntimeWorkspace { manager?: Session }
 
-/** Every workspace (the shells' own left out), those with a manager first. */
-function placesOf(ws: Workspace): Place[] {
+/** Every workspace (the shells' own left out): those of `project` first, then those with a manager. */
+function placesOf(ws: Workspace, project: string): Place[] {
   const live = ws.sessions.filter(s => !s.ended)
-  const seen = ws.workspaces ?? live.flatMap(s => (s.group ? [s.group] : [])).filter((g, k, all) => all.findIndex(x => x.id === g.id) === k)
+  const seen: RuntimeWorkspace[] = ws.workspaces ?? live.flatMap(s => (s.group ? [s.group] : [])).filter((g, k, all) => all.findIndex(x => x.id === g.id) === k)
   return seen
-    .filter(w => w.label !== RUN_GROUP && !('linkedTo' in w && w.linkedTo))
+    .filter(w => w.label !== RUN_GROUP && !w.linkedTo)
     .map(w => ({ ...w, manager: live.find(s => s.manager && s.group?.id === w.id) }))
-    .sort((a, b) => Number(!a.manager) - Number(!b.manager) || a.label.localeCompare(b.label))
+    .sort((a, b) => Number(a.project !== project) - Number(b.project !== project) || Number(!a.manager) - Number(!b.manager) || a.label.localeCompare(b.label))
 }
 
 /**
@@ -52,13 +52,26 @@ function placesOf(ws: Workspace): Place[] {
  */
 export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace | null; intent: Intent | null; onClose: () => void; onStarted: (intent: string, w: { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }) => void }) {
   const { t } = useT()
-  const places = ws ? placesOf(ws) : []
+  const project = intent?.project ?? ''
+  const places = ws ? placesOf(ws, project) : []
+  // Known to work on another project than the intent's: folded away, and asked about again.
+  const other = (p: Place) => !!project && !!p.project && p.project !== project
+  const own = places.filter(p => !other(p))
+  const others = places.filter(other)
   const [picked, setPicked] = useState('')
+  const [showOthers, setShowOthers] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState<{ label: string; delivery: StartDelivery } | null>(null)
-  useEffect(() => { setPicked(''); setBusy(false); setError(''); setDone(null) }, [intent])
-  const at = places.find(p => p.id === picked) ?? places[0]
+  useEffect(() => { setPicked(''); setShowOthers(false); setBusy(false); setError(''); setDone(null) }, [intent])
+  const at: Place | undefined = places.find(p => p.id === picked) ?? own[0]
+  const unfolded = showOthers || !own.length || (!!at && other(at))
+  const titleOf = (folder: string) => ws?.projects?.find(p => p.id === folder)?.title ?? folder.split('/').pop() ?? folder
+  const option = (p: Place) => {
+    const label = p.machine ? `${p.label} @${p.machine}` : p.label
+    const base = p.manager ? t('plan.option', { label, manager: p.manager.agent, state: t(`manager.state.${p.manager.state ?? 'unknown'}`) }) : t('plan.optionNone', { label })
+    return { value: p.id, label: !p.project ? t('plan.optionUnknown', { option: base }) : other(p) ? t('plan.optionOther', { option: base, project: p.projectTitle ?? titleOf(p.project) }) : base }
+  }
   const steps = (id: string) => (
     <Steps
       steps={[
@@ -71,7 +84,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
   const start = () => {
     if (!intent || !at?.manager) return
     setBusy(true)
-    startIntent(intent.id, at.id, at.manager.agent).then(
+    startIntent(intent.id, at.id, at.manager.agent, other(at)).then(
       delivery => { setDone({ label: at.label, delivery }); onStarted(intent.id, { id: at.id, label: at.label, manager: at.manager?.agent, managerState: at.manager?.state }) },
       e => { setBusy(false); setError(t('plan.failed', { error: String(e) })) },
     )
@@ -91,7 +104,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
                 <p role="status" className={done.delivery.step === 'not-delivered' ? 'text-sm text-del' : 'text-sm text-ink-2'} title={done.delivery.reason}>{said(done.delivery)}</p>
                 <div className="flex justify-end"><DialogClose asChild><Button size="sm" variant="ghost">{t('plan.close')}</Button></DialogClose></div>
               </>
-            ) : !at ? (
+            ) : !places.length ? (
               <>
                 <DialogDescription>{t('plan.noWorkspace')}</DialogDescription>
                 <Steps steps={[{ text: t('plan.workspace') }]} />
@@ -104,16 +117,22 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
                   <span className="flex-none">{t('plan.pickLabel')}</span>
                   <Choice
                     label={t('plan.pickLabel')}
-                    value={at.id}
+                    value={at?.id ?? ''}
                     onChange={setPicked}
-                    options={places.map(p => {
-                      const label = p.machine ? `${p.label} @${p.machine}` : p.label
-                      return { value: p.id, label: p.manager ? t('plan.option', { label, manager: p.manager.agent, state: t(`manager.state.${p.manager.state ?? 'unknown'}`) }) : t('plan.optionNone', { label }) }
-                    })}
+                    options={own.map(option)}
+                    groups={unfolded ? [{ label: t('plan.others'), options: others.map(option) }] : []}
+                    placeholder={t('plan.pickOther')}
                     className="h-8 flex-1"
                   />
                 </label>
-                {at.manager ? (
+                {others.length > 0 && !unfolded && (
+                  <button type="button" className="justify-self-start rounded-sm text-xs text-ink-2 underline-offset-2 hover:text-ink hover:underline" onClick={() => setShowOthers(true)}>
+                    {t('plan.showOthers', { count: others.length })}
+                  </button>
+                )}
+                {!at ? null : other(at) && at.manager ? (
+                  <p className="text-sm"><Slot text={t('plan.otherAsk', { manager: at.manager.agent, theirs: slot(0), mine: slot(1) })}>{[<Content key="theirs" text={at.projectTitle ?? titleOf(at.project ?? '')} />, <Content key="mine" text={titleOf(project)} />]}</Slot></p>
+                ) : at.manager ? (
                   <p className="text-sm text-ink-2">{t('plan.goHint', { manager: at.manager.agent })}</p>
                 ) : (
                   <>
@@ -124,7 +143,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
                 {error && <p role="alert" className="text-xs text-del wrap-anywhere">{error}</p>}
                 <div className="flex justify-end gap-2">
                   <DialogClose asChild><Button type="button" variant="ghost" size="sm">{t('rail.addCancel')}</Button></DialogClose>
-                  {at.manager && <Button type="button" size="sm" disabled={busy} onClick={start}><Icon name="play" className="size-3.5" />{t('plan.go')}</Button>}
+                  {at?.manager && <Button type="button" size="sm" disabled={busy} onClick={start}><Icon name="play" className="size-3.5" />{other(at) ? t('plan.goOther') : t('plan.go')}</Button>}
                 </div>
               </>
             )}

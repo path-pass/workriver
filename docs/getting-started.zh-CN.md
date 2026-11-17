@@ -100,6 +100,11 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 然后告诉它，例如："你是这个工作区的 workriver 管理者。开始路线图里的第一个意图，规划单元和
 任务，交给 worker agent 去做。"页面上计划中的意图旁边的"开始"会列出同样的步骤和可复制的命令。
 
+每个工作区只做一个项目。workriver 按它的管理者在哪个文件夹里运行来判断（否则按它当前的意图）；
+你可以在设置的"工作区在做的项目"里设定，或者用 `workriver workspace project <工作区> <p1>`
+（`--clear` 交回给 workriver 判断）。"开始"会先列出这个意图所属项目的工作区；要把意图交给在做
+别的项目的管理者之前会先问你。
+
 可选：如果 agent 用 Playwright MCP 截图，它的文件默认会落在项目里（`.playwright-mcp/`）。
 可以把它自己命名的文件指到 workriver 的目录，例如 Claude Code：
 `claude mcp add playwright -- npx @playwright/mcp@latest --output-dir ~/workriver-data/attachments/inbox/playwright`

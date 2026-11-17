@@ -99,6 +99,8 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
   const { t, num } = useT()
   const { groups, own } = agentTree(ws)
   const line = (a: TreeAgent) => <AgentLine key={a.s.session ?? a.s.agent} a={a} here={here} onOpen={onOpen} />
+  // The project a workspace works on, on its label's hover.
+  const worksOn = (id: string) => { const w = ws.workspaces?.find(x => x.id === id); return w?.projectTitle ? t('intent.worksOn', { project: w.projectTitle }) : undefined }
   return (
     <div className="agents flex flex-col gap-2">
       {groups.map(g => (
@@ -106,7 +108,7 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
           {g.label && (
             <h3 className="flex items-center gap-1.5 px-3.5 pt-2 pb-0.5 text-xs font-semibold text-ink-2">
               {/* The workspace's label keeps its room; the intent's title gives way. */}
-              <span className="max-w-1/2 flex-none truncate" lang={contentLang(g.label)}>{g.label}</span>
+              <span className="max-w-1/2 flex-none truncate" title={worksOn(g.key)} lang={contentLang(g.label)}>{g.label}</span>
               {/* A workspace of another machine, not linked to one here: its own group. */}
               <MachineChip machine={g.machine} />
               {/* Where the workspace's new work goes: its current intent. */}

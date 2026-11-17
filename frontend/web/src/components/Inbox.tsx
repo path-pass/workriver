@@ -5,7 +5,7 @@ import { useMemo } from 'react'
 import { useAct } from '@/act'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { baseName, finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
+import { finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
@@ -98,15 +98,14 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
   const suggested = open.filter(f => f.recommendation).length
   const icon = !n ? 'chev'
     : r.kind === 'gate' || r.kind === 'decision' ? (n.gate ? `gate-${n.gate}` : n.reviewer ?? 'ring')
-    : r.kind === 'loose' ? 'no' : 'far'
+    : 'no'
   const title = r.chore ? r.chore.title
     : r.kind === 'decision' ? `${finderLabel(t, n!)}${follows ? ` #${follows}` : ''}`
-    : r.kind === 'far' ? `${t('need.far')}${n!.taskId ? ` #${n!.taskId}` : ''}`
     : n!.title
   const body = (
     <>
       <Icon name={icon} />
-      <span className="title" lang={r.kind === 'decision' || r.kind === 'far' ? undefined : contentLang(title)}>{title}</span>
+      <span className="title" lang={r.kind === 'decision' ? undefined : contentLang(title)}>{title}</span>
       <span className="meta">
         {n?.blind && <Mark name="blind" label={t('task.blindHint')} />}
         {open.length > 0 && <span className="flex-none font-mono">{severityCounts(open)}</span>}
@@ -119,7 +118,6 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
           </Tip>
         )}
         {r.kind === 'loose' && <span className="flex-none">{t('need.loose')}</span>}
-        {r.far.length > 0 && <span className="truncate font-mono">{r.far.map(baseName).join(' ')}</span>}
         {r.chore && <Who name={r.chore.by} />}
         {/* Where it is: the intent quietly, then the unit. */}
         <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent?.title ?? r.project)}>{r.intent?.title ?? r.project}</span>{r.unit && ' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>

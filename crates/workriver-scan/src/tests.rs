@@ -343,7 +343,8 @@ fn commits_read_at_once_as_one_by_one() {
     let one_by_one: Vec<Commit> = all.iter().map(|h| commit(&at, repo, h).unwrap()).collect();
     let at_once = commits(&at, repo, &all).unwrap();
     for (a, b) in one_by_one.iter().zip(&at_once) {
-        assert_eq!((&a.hash, &a.subject, &a.author, &a.date, &a.task), (&b.hash, &b.subject, &b.author, &b.date, &b.task));
+        assert_eq!((&a.hash, &a.subject, &a.author, &a.date, &a.task, a.merge), (&b.hash, &b.subject, &b.author, &b.date, &b.task, b.merge));
+        assert_eq!(b.merge, b.subject == "Merge main", "{}", b.subject);
         assert!(b.id.len() >= 9 && a.hash.starts_with(&b.id));
         let paths = |c: &Commit| c.files.iter().map(|f| (f.path.clone(), f.status.clone(), f.before.clone(), f.after.clone())).collect::<Vec<_>>();
         assert_eq!(paths(a), paths(b), "{}", a.subject);

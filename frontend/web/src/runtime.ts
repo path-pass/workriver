@@ -318,9 +318,9 @@ export type StartDelivery = Omit<Sent, 'toManager'>
  * Starts a planned intent in a runtime workspace, as the user: recorded as theirs, and its
  * manager is told to split it. `manager` names that manager for the sample.
  */
-export async function startIntent(intent: string, workspace: string, manager?: string): Promise<StartDelivery> {
+export async function startIntent(intent: string, workspace: string, manager?: string, confirmOtherProject = false): Promise<StartDelivery> {
   if (MOCK) return manager ? { step: 'delivered', to: manager, message: '' } : { step: 'not-delivered', to: null, reasonCode: 'no-manager', message: '' }
-  return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace })).delivery
+  return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace, confirmOtherProject })).delivery
 }
 
 /** A command to run as the user, and where: a unit's work tree, or a project's folder. */

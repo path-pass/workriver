@@ -1,4 +1,4 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from 'cn'
 
 /** One option of a Choice: Radix takes no empty value, so "none" is a word of its own. */
@@ -12,18 +12,24 @@ export interface Option {
 /**
  * A pick from a short list, in our colours (Radix Select: keyboard and screen readers as
  * the platform's own, a menu that is ours rather than the system's). `tone`: on the dark
- * rail, or on the page.
+ * rail, or on the page. `groups`: more options after them, each group under its heading.
  */
-export function Choice({ value, onChange, options, label, tone = 'page', placeholder, className }: {
+export function Choice({ value, onChange, options, groups = [], label, tone = 'page', placeholder, className }: {
   value: string
   onChange: (v: string) => void
   options: Option[]
+  groups?: { label: string; options: Option[] }[]
   label: string
   tone?: 'rail' | 'page'
   placeholder?: string
   className?: string
 }) {
   const rail = tone === 'rail'
+  // The menu is portalled out of the rail, so the base item's `**:text-accent-foreground`
+  // would be the page's dark ink here: override it for the item's text too.
+  const item = rail
+    ? 'focus:bg-rail-3 focus:text-rail-ink not-data-[variant=destructive]:focus:**:text-rail-ink'
+    : 'focus:bg-sunken focus:text-ink not-data-[variant=destructive]:focus:**:text-ink'
   return (
     <Select value={value || undefined} onValueChange={onChange}>
       <SelectTrigger
@@ -47,13 +53,19 @@ export function Choice({ value, onChange, options, label, tone = 'page', placeho
         )}
       >
         {options.map(o => (
-          <SelectItem key={o.value} value={o.value} className={rail
-            // The menu is portalled out of the rail, so the base item's `**:text-accent-foreground`
-            // would be the page's dark ink here: override it for the item's text too.
-            ? 'focus:bg-rail-3 focus:text-rail-ink not-data-[variant=destructive]:focus:**:text-rail-ink'
-            : 'focus:bg-sunken focus:text-ink not-data-[variant=destructive]:focus:**:text-ink'}>
+          <SelectItem key={o.value} value={o.value} className={item}>
             <span lang={o.lang}>{o.label}</span>
           </SelectItem>
+        ))}
+        {groups.filter(g => g.options.length).map(g => (
+          <SelectGroup key={g.label} className="border-t border-line pt-1 mt-1">
+            <SelectLabel className={rail ? 'text-rail-ink-2' : 'text-ink-2'}>{g.label}</SelectLabel>
+            {g.options.map(o => (
+              <SelectItem key={o.value} value={o.value} className={item}>
+                <span lang={o.lang}>{o.label}</span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
         ))}
       </SelectContent>
     </Select>

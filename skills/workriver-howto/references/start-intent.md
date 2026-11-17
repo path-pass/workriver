@@ -19,8 +19,17 @@ user's to merge (ask them; "Merge…" in the roadmap). The merged ones are dropp
 into i3", their text in i3's note; `--title` renames i3. `workriver board i3` prints the note.
 
 **Started by the user:** the user may start a planned intent in your workspace from the page;
-then you get `[workriver] The user started i3 «title» in your workspace …`. It is already
-active here: do not start it again; `workriver board i3`, then split it into units and tasks.
+then you get `[workriver] The user started i3 «title» of project «workriver» (folder
+«/path/to/workriver») in your workspace …`. It is already active here: do not start it again;
+`workriver board i3`, then split it into units and tasks.
+
+**Another project:** check the project the message (or `workriver board i3`) names against the
+one you work on (the folder your pane runs in). If they differ, do not split it: add a
+research unit and a decide gate `--after start` asking the user whether to go on here or start
+it in a workspace of that project (`ask-user`), and wait. `workriver intent start` says the
+same on a `warning:` line when workriver knows your workspace works on another project
+(from your pane's folder, else your intents, or as the user set it:
+`workriver workspace list`).
 
 **You will see:** `i3 active`. New units here go to the intent started last, unless you
 name one. Research or design for the intent as a whole is a research unit (`units`), not a

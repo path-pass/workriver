@@ -202,6 +202,11 @@ export interface RuntimeWorkspace {
   machine?: string;
   /** A remote one: the label of the workspace of this machine it is one with. */
   linkedTo?: string;
+  /** The project (its folder) it works on, its title, and how workriver knows; absent: unknown. */
+  project?: string;
+  projectTitle?: string;
+  /** manager: its manager runs in the project's folder; intents: its current intent's; user: set by the user. */
+  projectFrom?: 'manager' | 'intents' | 'user';
 }
 
 /** Another machine whose agents are followed over ssh. */
@@ -688,6 +693,8 @@ export interface Commit {
   linked?: boolean;
   /** The same change as this commit of a branch the unit left (a rebase): its old hash. */
   rebasedFrom?: string;
+  /** A merge commit (the base merged into the branch): its files are not work of its own. */
+  merge?: boolean;
   files: FileChange[];
 }
 

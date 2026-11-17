@@ -69,6 +69,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
   const state = intent.state ?? 'active'
   const units = intent.units.filter(u => !u.intentLevel)
   const session = intent.manager ? ws.sessions.find(s => s.manager && !s.ended && s.agent === intent.manager) : undefined
+  const worksOn = ws.workspaces?.find(w => w.id === intent.workspace?.id)?.projectTitle
   const note = intent.note?.trim()
   return (
     <>
@@ -105,7 +106,13 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
             <p className="text-sm text-ink-2">{t('intent.notStarted')}</p>
           ) : (
             <dl className="flex flex-col gap-1.5 text-sm">
-              {intent.workspace && <Row label={t('intent.workspace')}><span className="font-mono text-xs">{intent.workspace.label}</span></Row>}
+              {intent.workspace && (
+                <Row label={t('intent.workspace')}>
+                  <span className="font-mono text-xs">{intent.workspace.label}</span>
+                  {/* The project its manager works on, when workriver knows it. */}
+                  {worksOn && <span className="text-xs text-ink-2"><Slot text={t('intent.worksOn', { project: SLOT })}><Content text={worksOn} /></Slot></span>}
+                </Row>
+              )}
               <Row label={t('intent.manager')}>
                 {intent.manager && <span className="font-[550]">{intent.manager}</span>}
                 <span className="text-ink-2"><ManagerState intent={intent} /></span>

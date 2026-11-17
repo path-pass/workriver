@@ -43,7 +43,17 @@ looked at now and then.
   tracked elsewhere, and "Start", which opens a dialog to pick
   the Herdr workspace it starts in: a select, workspaces with a manager first, each with its
   manager's name and state ("chat · boss: idle"), those without saying "no manager"
-  (workriver's own "workriver-commands" workspace of command shells is left out). With a manager,
+  (workriver's own "workriver-commands" workspace of command shells is left out). Each
+  workspace works on one project, which workriver works out: from the folder its manager runs
+  in (a registered project, or the repository it is in; another machine's folders only as the
+  repositories of units recorded there), else its current intent's project; what the user
+  sets in Settings ("Workspaces' projects", a select per workspace) wins. The workspaces of
+  the intent's project come first, the first preselected; those known to work on another
+  project are folded under "Other projects' workspaces" (a link under the select opens them as
+  a group of the select), each saying which project; one picked asks again in a line ("Its
+  manager … works on memriver; give it a workriver intent?") and "Start" reads "Yes, start it
+  there". An unknown one says "project unknown" and asks nothing more. The service refuses a
+  start into another project's workspace unless the page says the user confirmed it. With a manager,
   "Start" records the start as the user's (as `workriver intent start` would) and types into
   that manager's terminal "[workriver] The user started i3 «title» in your workspace … split
   it into units and tasks (`workriver guide how start-intent`)", its goal quoted; the dialog
@@ -69,10 +79,10 @@ looked at now and then.
   the same under its title when nothing moved for 3 days in any of its units (a merge
   counts) or its own tasks, and none has a running task with its agent at it; units that
   never moved do not hold it back. Not for merged or done units, nor planned or done
-  intents. The 3 days are fixed for now. Each unit's line carries at most three marks, none drawn at zero: tasks an agent is
-  stuck on behind the user (filled violet, a hand, the count), everything else waiting for
-  the user – open findings and commits that name no task – (an outlined violet count), and
-  "beyond plan" (amber). Before them, where the unit stands as a dot and a word, except
+  intents. The 3 days are fixed for now. Each unit's line carries at most two marks, none drawn at zero: tasks an agent is
+  stuck on behind the user (filled violet, a hand, the count) and everything else waiting for
+  the user – open findings and commits that name no task – (an outlined violet count). Where
+  the work grew in scope is shown on the graph, not here (see "Where the scope grew"). Before them, where the unit stands as a dot and a word, except
   while it is simply being worked on: waiting, ready to merge (in the done tone, so what
   can be merged stands out; it counts nowhere as attention), merged (with its date) or done
   (why, on hover). The unit header carries the same word. An active intent whose units are
@@ -97,7 +107,7 @@ looked at now and then.
   and title with "copy link", its state, "Finished", its link chip; its goal under it. Then a
   block with its note (short Markdown with links, as an agent's longer text; folded past six
   lines; `workriver intent set i3 --add-note` adds a paragraph) and where it runs: the
-  workspace, the manager (name, state, the terminal button, and "Write to the manager",
+  workspace (and quietly "works on <project>", when known), the manager (name, state, the terminal button, and "Write to the manager",
   which opens the side panel's Ask section on the manager conversation for that workspace),
   and who decides its findings (the select that was in the rail). A planned intent says it
   is not started yet and has "Start" in its header (the same dialog). Then its units as a
@@ -242,7 +252,7 @@ looked at now and then.
      Machines section and leaves by itself once the alert clears.
   3. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
-  4. **Gaps** – commits that name no node, branches that grew beyond the original plan.
+  4. **Gaps** – commits that name no node.
   5. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
      its project where others name their intent, or nothing when it has none. Then, for an
      intent with no manager, ready units that look squash-merged or have been ready for
@@ -251,8 +261,8 @@ looked at now and then.
   unit at the node (a review at its first open finding). With nothing to show, one short line says so.
 - **Agents** are not in a unit, because a session crosses units. They are a tree, as a list
   (indentation and thin guide lines, no cards; it reads at 340 px and up to 720 px), by the
-  Herdr workspace each runs in. A group's heading is the workspace's label and, quietly, the
-  title of its current intent (or "no manager"); groups with someone working come first,
+  Herdr workspace each runs in. A group's heading is the workspace's label (the project it
+  works on in its tooltip) and, quietly, the title of its current intent (or "no manager"); groups with someone working come first,
   then by name. Under it the manager (with a small crown), and indented under the manager
   its workers: those that took a task (recorded on the task, since Herdr does not say who
   started a session), blocked first (a violet hand: the Blocking meaning), then working,
@@ -462,7 +472,7 @@ looked at now and then.
 | Role | Meaning | Where |
 |---|---|---|
 | Water (`--water`) | It has flowed: done | Done nodes, lines that have flowed, the start |
-| Amber (`--amber`) | Flowing now: someone is on it | Running nodes, the line into them, the ring around a writing agent's mark, "grew beyond the plan" |
+| Amber (`--amber`) | Flowing now: someone is on it | Running nodes, the line into them, the ring around a writing agent's mark |
 | Violet (`--you`) | Waiting for you, and what you picked | Gates waiting for the user, the count of findings waiting for a decision, selection outline, the file selected in the tree, focus ring, primary button |
 | Neutrals | Not started, or just ground | Everything else |
 
@@ -661,6 +671,28 @@ never name a raw colour.
 - Pickers (the project switch, who decides findings, a workspace link, the task a commit
   belongs to, the intent of a batch) are Radix Select in our colours, never the system's
   menu: on the rail in the rail's colours, elsewhere on the page's.
+
+## Where the scope grew
+
+Along each line of work (the paths through a unit's graph from the start) the folders its
+tasks' commits changed add up. A task whose commits reach folders outside everything
+changed before it on its line carries a small neutral mark at the bottom middle of its
+node: an expand icon and "+N", N the new folders. Its tooltip, its screen-reader text and
+the task's output say which folders and beyond which earlier work ("Also reached src/auth/,
+docs/ — beyond #1, #3": the tasks before it that widened the scope). Tasks that stay within
+the scope so far carry nothing, so the marks show where the scope grew, step by step; it
+is information, not a call to act: no colour, no motion, not counted in Needs you.
+
+- Only commits count, by their files' folders: not plans (nothing changed yet), not
+  uncommitted work, not merge commits (the base merged into the branch brings the base's
+  work, not the task's; the service marks a commit with more than one parent `merge`).
+- Reviews and gates change no files: never compared, never marked. Tests tasks are compared
+  like the rest. A task with nothing changed before it on its line (the first) is not marked.
+- Where lines join, "before" is everything before any of them.
+- Worked out once per unit per change of its graph's shape or its tasks' commits, in one
+  pass over the graph in order, never per render or per node (`src/scope.ts`).
+- The legend shows the mark with "+" and no number, as it shows the findings count without
+  one: a sample, not a count.
 
 ## The signature: lines are a river
 

@@ -7,10 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { commitStats, ms, untested, finderLabel, findingsOf, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
+import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
 import { dropTask, record } from '@/runtime'
 import { Input } from '@/components/ui/input'
-import { contentLang, useT } from '@/i18n'
+import { contentLang, useT, type T } from '@/i18n'
+import { growth, type Growth } from '@/scope'
 import { linkTo, pathOf } from '@/link'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
@@ -71,7 +72,7 @@ async function layoutFlow(unit: Unit): Promise<Layout> {
 
 // ---- node and line types ----
 
-type CardData = { node: Task; dim: boolean; picked: boolean; onPick: (id: string) => void; talks: number }
+type CardData = { node: Task; dim: boolean; picked: boolean; onPick: (id: string) => void; talks: number; grew?: Growth }
 type DotData = { title: string }
 type LineData = { state?: 'flowed' | 'flowing'; also: boolean; off: boolean }
 
@@ -106,12 +107,17 @@ function ReviewLabel({ n }: { n: Task }) {
   const end = i + by.length + label.slice(i + by.length).match(/^\p{P}*/u)![0].length
   return <>{label.slice(0, i)}<span className="whitespace-nowrap">{label.slice(i, end)}</span>{label.slice(end)}</>
 }
+/** Where the scope grew at a task: which folders, beyond which work before it. */
+const grewText = (t: T, g: Growth) => t('flow.grew', {
+  folders: g.folders.map(f => f || './').join(t('list.sep')),
+  tasks: g.beyond.map(x => (x.taskId ? `#${x.taskId}` : nodeLabel(t, x))).join(t('list.sep')),
+})
 
 // What kind of work is a shape (set in CSS from data-kind): square corners for
 // implementing, a pill for a review, a double frame for a gate. A review says how much it found per severity and
 // carries a violet count while findings of it wait for the user.
 function WorkCard({ data }: NodeProps<Node<CardData>>) {
-  const { node: n, dim, picked, onPick, talks } = data
+  const { node: n, dim, picked, onPick, talks, grew } = data
   const { t, num } = useT()
   const open = openCount(n)
   return (
@@ -145,6 +151,11 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         {untested(n) && <span className="untested"><Mark name="untested" label={t('evidence.none')} /></span>}
         {n.blind && <span className="blind"><Mark name="blind" label={t('task.blindHint')} /></span>}
         {n.state === 'dropped' && <span className="dropped"><Mark name="dropped" label={t('task.dropped')} /></span>}
+        {grew && (
+          <Tip text={grewText(t, grew)}>
+            <span className="grew"><Icon name="grew" /><span aria-hidden>+{num(grew.folders.length)}</span><span className="sr-only">{grewText(t, grew)}</span></span>
+          </Tip>
+        )}
         {talks > 0 && (
           <span className="talks"><Icon name="talk" className="size-2.5" /><span aria-hidden>{num(talks)}</span><span className="sr-only">{t('ask.count', { count: talks })}</span></span>
         )}
@@ -344,6 +355,7 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
     const lit = picked ? related(unit, picked, finding) : null
     const isLit = (id: string) => !lit || id === 'start' || lit.has(id)
     const byId = new Map(unit.tasks.map(n => [n.id, n]))
+    const grew = growth(unit)
     const at = (id: string) => layout.pos.get(id) ?? { x: 0, y: 0 }
     const fixed = { selectable: false, focusable: false }
     const nodes: Node[] = [
@@ -351,7 +363,7 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
       // A node the layout has not placed yet (it just arrived) waits for the next layout.
       ...unit.tasks.filter(n => layout.pos.has(n.id)).map(n => ({
         id: n.id, type: n.kind, position: at(n.id), width: W, height: H, ...fixed,
-        data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n, talk).length } satisfies CardData,
+        data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n, talk).length, grew: grew.get(n.id) } satisfies CardData,
       })),
     ]
     // A line takes the state of the work it leads into.
@@ -623,6 +635,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
         </>
   } else {
     const commits = commitsOf(n)
+    const grew = growth(unit).get(n.id)
     const causes = n.input.causes.flatMap(c => {
       const by = byId(c.review)
       return by ? findingsOf(by).filter(f => c.findings.includes(f.id)).map(f => ({ by, f })) : []
@@ -676,6 +689,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
           })
         : (n.lostCommits?.length ?? 0) > 0 ? quiet(t('io.lostCommits', { commits: n.lostCommits!.join(t('list.sep')) }))
         : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
+      {grew && <div className="mt-1 flex items-start gap-1.5 text-xs text-ink-2"><Icon name="grew" className="mt-px size-3.5 flex-none" />{grewText(t, grew)}</div>}
       {n.output.note && <div className="mt-1"><Prose text={n.output.note} /></div>}
       <Thumbs list={n.output.attachments ?? []} />
       <Checks n={n} />
@@ -746,13 +760,13 @@ function DropTask({ unit, n }: { unit: Unit; n: Task }) {
 }
 
 function Legend() {
-  const { t, num } = useT()
+  const { t } = useT()
   const sw = (state: string, text: string) => <span className="key"><i className="sw" data-state={state} />{text}</span>
   const stroke = (state: string, text: string) => <span className="key"><i className="stroke" data-state={state} />{text}</span>
   const mark = (name: string, text: string) => <span className="key"><Icon name={name} />{text}</span>
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
-      {sw('done', t('legend.done'))}{sw('running', t('legend.running'))}{sw('', t('legend.todo'))}{sw('review', t('kind.review'))}{sw('gate', t('kind.gate'))}<span className="key"><i className="count" aria-hidden>{num(1)}</i>{t('legend.waiting')}</span>
+      {sw('done', t('legend.done'))}{sw('running', t('legend.running'))}{sw('', t('legend.todo'))}{sw('review', t('kind.review'))}{sw('gate', t('kind.gate'))}<span className="key"><i className="count" aria-hidden />{t('legend.waiting')}</span><span className="key"><i className="grew" aria-hidden><Icon name="grew" />+</i>{t('legend.grew')}</span>
       {mark('security-review', t('reviewer.security-review'))}{mark('code-review', t('reviewer.code-review'))}{mark('test', t('reviewer.test'))}
       {stroke('flowed', t('legend.flowed'))}{stroke('flowing', t('legend.flowing'))}{stroke('also', t('legend.also'))}
     </div>
