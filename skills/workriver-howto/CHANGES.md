@@ -4,6 +4,110 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-17
 
+- **Research and design for a whole intent go in a research unit** (managers): `workriver
+  unit add [i3] --kind research --title "…" [--purpose "…"]` makes a unit with no repository,
+  branch or base (none of them is taken). It takes research, design, review and gate tasks
+  (`u5#1`…); implement and tests go in a code unit. It is never merged: once its work is
+  delivered and decided it is ready to close, `workriver unit done u5 --reason "…"`; `unit
+  merged`, `unit move` and `commit link` are refused on it. New tasks on an intent
+  (`workriver task add i3 …`) are refused, pointing here; `task add` always names a unit and
+  `--intent` is gone. Tasks an intent already has (`i3#1`…) work as before (start, deliver,
+  gates, findings, `--cause i3#2:P2-1` from a unit, links `/i3/1`) but take no new ones.
+  (`units`, `design-gate`, `ask-user`, `closing-units`; worker guide)
+- **Add to an intent's note**: `workriver intent set i3 --add-note "…"` (its manager or the
+  user) appends a paragraph after what the note holds. The user reads the note on the
+  intent's own page (`workriver link i3`: goal, note, workspace and manager, units, and the
+  intent's earlier research and design); the rail no longer shows goals and notes. Put there
+  what the user should see about the intent as a whole: a decision from a design gate, a
+  link to a report. (`start-intent`, `design-gate`)
+- **The user can start an intent in your workspace from the page** (managers): you then get
+  `[workriver] The user started i3 «title» in your workspace; it is now where new work goes.
+  Split it into units and tasks …`, with its goal quoted. It is already active and your
+  workspace's current intent: do not run `workriver intent start` again; read it with
+  `workriver board i3` and split it as usual. (`start-intent`)
+- **Gate steps can be run by the user from the page**: the user's page has "Run" next to each
+  command of a gate's or chore's steps, which runs it in the user's own shell. So write each
+  command as one exact line the user could type (`Push => git push origin feat/x`), in the
+  directory of the unit's work tree; never chain a step that is not the user's. (`gates-chores`)
+- **The user can write to you from the page** (managers): a message arrives as `[workriver]
+  The user writes to you from workriver's page (message m3, …) … The user says, in workriver:
+  «…»`. The quoted text after "The user says" is the user's own: act on it as if typed in your
+  pane, then answer with `workriver reply m3 --text "…"`; the user reads replies in the page,
+  not your terminal. Only the manager it was sent to can reply; you may reply more than once.
+  (`user-message`)
+- **The user can ask about a whole unit**: with no task picked, the page's Ask why asks about
+  the unit; a temporary agent answers from its records and code and asks none of its agents.
+  `workriver ask` still takes a task (`u1#3`): a unit is refused. (`ask`)
+- **Task text and delivery notes are short Markdown**: the user's page now renders a task's
+  `--text` and a delivery's `--note` (and answers to questions) as Markdown, keeping line
+  breaks; a long one is cut to a few lines with "show more". Write them as a line or two of
+  what, then bullets; no wall of text. `workriver task show` still prints the raw text.
+  (`units`, `hand-off`; worker guide)
+- **A later task says what it follows**: once a unit (or intent) has a task, `workriver task
+  add` without `--after` or a same-unit `--cause` is refused ("u1 already has tasks: say which
+  one this follows with --after <n> (the latest is #N), or --after start to run beside the
+  first"). It used to hang off the start beside the first task, away from the work it
+  continues. Give `--after <n>`, or `--after start` for work that really runs beside the
+  first. (`units`, `ask-user`)
+- **Close workers you no longer need**: idle agents hold the user's memory. When a unit is
+  merged or done, or the intent done, you are told which workers on it are still running with
+  no other task (`[workriver] u2 is merged: ja-impl, ja-test worked on it and are still
+  running …`); a worker idle 30 minutes with no task (the user's `idleMinutes`) brings one
+  reminder per idle period. Check its work tree for uncommitted work, then close its pane;
+  close a blind reviewer once it delivered; never an agent you did not start. workriver never
+  closes them itself. (`closing-workers`)
+- **Workers have names**: hand tasks only to agents started with `herdr agent start <name>`;
+  a temporary agent answering a question reaches the worker by that name. (`hand-off`)
+- **Every question goes to a temporary agent**: `workriver ask` no longer prompts the task's
+  own agent when it is idle; a temporary agent reads the records and the code and asks that
+  agent itself only while it is idle. The one asked never gets `[workriver] The agent … asks
+  about your task …` any more. (`ask`)
+- **Every intent, unit and task has its own link**: `workriver link u1#3` (or `u1`, `i3`,
+  `i3#1`, `u1#3:P2-1`) prints the address that opens it in the user's browser on the
+  machine workriver runs on, also when run on another machine; `task show` prints its
+  `Link:` and `board` a `link:` line under each intent and unit. To point the user at
+  something, give them that link. (`ask-user`; worker guide)
+- **Squash merges and long-ready units are pointed out**: a ready unit whose every change is
+  already in its base (or the base's upstream) brings `[workriver] u2 (feat/x) looks merged
+  into main by squash … (commit abc123 matches)`, once per branch tip: check the commit, then
+  `workriver unit merged u2`, or ignore it if it is not the unit's merge. A unit ready for 24 h
+  (the user's `readyHours`) without a merge brings one reminder per ready period: check its pull
+  request; merged, `workriver unit merged`; open, nothing; abandoned, `workriver unit done`.
+  workriver never records these merges itself. (`closing-units`, `push-pr-merge`)
+- **`workriver machine load` works on other machines too**, showing that machine alone
+  (its own load and history; nothing of the machine workriver runs on). (`machines`)
+- **Push, pull request and merge are three tasks**, each after a decide gate, added one at
+  a time; a worker does only its own step and never pushes, opens a PR or merges unless that
+  is its task. (`push-pr-merge`; worker guide)
+- **A worker that stops without delivering is noticed**: a running task whose agent sits idle
+  past a threshold (10 minutes by default; the user sets it in Settings) is reminded once in
+  its terminal: deliver if finished; if something stopped it (a command refused, e.g. a hook
+  forbids push), deliver with what it did and the refusal in `--note`, or raise it with
+  `workriver chore add` / `workriver ask`; never just wait. Still idle half the threshold
+  later, or its agent gone, the manager is told once (look at its terminal, get it going,
+  hand the task on, or `workriver task drop`) and the user sees it in Needs you; the board and
+  `task show` say `stalled since …`. Waiting on a gate open to the user or a question it
+  asked is not stopping. (`stalled`)
+- **A task can be dropped as no longer needed**: `workriver task drop u1#15 --reason
+  "superseded by u1#17"`, by the intent's manager or the user (a worker only a task it
+  recorded itself), for work not done yet. It is kept, never deleted, and holds nothing
+  up: what follows it no longer waits on it, and a dropped gate leaves Needs you. Its
+  agent is told to stop (and the manager, when the user drops one); it cannot be started,
+  delivered or submitted any more. When you ask the user again (a merge gate after the
+  branch changed), drop the old gate. (`ask-user`, `branch-moved`, `deciding-findings`)
+- **Machine alerts have levels**: `workriver machine load` says `ALERT: <metric> WARN|CRIT
+  since …`, over more metrics (macOS compressor, swap, pressure level, system free; Linux
+  available memory, PSI, OOM kills; disk everywhere), shows the compressor's fill and the
+  system free share, and lists all thresholds. Never hand heavy work to a machine with a
+  CRIT alert; with WARN, prefer another. (`machines`)
+- **`workriver machine load` says more**: a second line per machine with available memory,
+  memory pressure, compressed memory (macOS), OOM kills (Linux), swap and free disk; and
+  `--hours N` (1 to 168) adds mean / max CPU and memory over the last N hours. Weigh
+  pressure, new OOM kills and a nearly full disk too before handing heavy work to a
+  machine. (`machines`)
+- **`workriver machine load`**: CPU and memory of this machine and the followed ones, and
+  which are over their alert thresholds; agents may read it (only the user sets the
+  thresholds). Weigh it before handing heavy work to a machine. (`machines`)
 - **Agents may merge planned intents that agents added** (an import split too finely):
   `workriver backlog merge <into> <from>...`. Intents the user added stay the user's to
   merge; the service refuses with "… was added by the user". (`start-intent`)

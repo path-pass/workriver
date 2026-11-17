@@ -51,6 +51,12 @@ pub enum RuntimeError {
     NoAgent(String),
     #[error("{0}")]
     Failed(String),
+    /// The agent waits for a person in its terminal and takes no message now; the runtime's words.
+    #[error("{0}")]
+    Blocked(String),
+    /// The agent is starting and takes no message yet; the runtime's words.
+    #[error("{0}")]
+    NotReady(String),
 }
 
 /// Sync on purpose: the daemon calls it from a blocking task.
@@ -69,6 +75,26 @@ pub trait Runtime: Send + Sync {
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError>;
     /// Close an agent started with `start_temporary`, and its place (session or name).
     fn close(&self, agent: &str) -> Result<(), RuntimeError>;
+    /// Each live agent on `machine` (none: this one) with the ids the operating system gives
+    /// the processes at the root of its place (its shell): every process the agent starts
+    /// descends from one of them. Read only when a machine alert needs it; by default, none.
+    fn processes(&self, _machine: Option<&str>) -> Result<Vec<(RuntimeAgent, Vec<u32>)>, RuntimeError> {
+        Ok(vec![])
+    }
+    /// Types `line` into a new plain shell of the user's (no agent) on `machine` (none: this
+    /// one), in a place of its own inside the group named `group` (made on first use), started
+    /// in `dir`, and submits it; returns the place. By default, no runtime can.
+    fn run_shell(&self, _machine: Option<&str>, _group: &str, _dir: &str, _line: &str) -> Result<String, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// The last `lines` lines a place on `machine` shows, as plain text.
+    fn read_place(&self, _machine: Option<&str>, _place: &str, _lines: u32) -> Result<String, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// Brings a place on `machine` to the front.
+    fn focus_place(&self, _machine: Option<&str>, _place: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
     /// Every group there is, with or without agents; by default, those of the agents.
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
         let mut all: Vec<RuntimeRef> = vec![];

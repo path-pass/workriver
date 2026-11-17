@@ -12,7 +12,8 @@ intent's manager decides**; the delivery message lists them.
 
 **You will see:** `recorded`. The user can decide any finding instead and change yours:
 "The user rejected finding … This changes the earlier decision …" - stop or adjust the work
-handed out. The user's switch: `workriver intent set i3 --findings user|manager`.
+handed out (`workriver task drop u1#5 --reason "P2-1 rejected by the user"` for work no longer
+needed; its agent is told). The user's switch: `workriver intent set i3 --findings user|manager`.
 
 **Refusals:** "revise needs a note". "… is the user's to decide (intent i3: findings user)" -
 wait. "… is for the manager of intent i3 to decide (or the user), not for other agents".

@@ -50,7 +50,7 @@ pub struct Setting {
     pub enabled: bool,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 struct Settings {
     /// By the machine's name.
     #[serde(default)]
@@ -58,6 +58,62 @@ struct Settings {
     /// When a machine's CPU or memory alerts: for this machine and every followed one.
     #[serde(default)]
     alerts: Thresholds,
+    /// Minutes an agent may sit idle on a running task before it counts as stopped.
+    #[serde(default = "stall_default", rename = "stallMinutes")]
+    stall_minutes: u32,
+    /// Hours a unit may stay ready to merge before its manager is asked to check it.
+    #[serde(default = "ready_default", rename = "readyHours")]
+    ready_hours: u32,
+    /// Minutes a worker may sit idle with no task before its manager is told.
+    #[serde(default = "idle_default", rename = "idleMinutes")]
+    idle_minutes: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES }
+    }
+}
+
+/// A ready unit is merged within a working day when it goes through push, pull request and
+/// merge (each a gate the user answers), and a merge git sees is recorded within seconds; a
+/// day without one is a squash merge git cannot see, or a pull request stuck or abandoned.
+/// Any less would ask again about a pull request left overnight for review.
+pub const READY_HOURS: u32 = 24;
+
+fn ready_default() -> u32 {
+    READY_HOURS
+}
+
+/// After how many hours a unit ready to merge and not merged has its manager asked to check
+/// it (at least one). Set by hand in settings.json; read when the service starts.
+pub fn ready_hours(home: &Path) -> u32 {
+    read_settings(home).ready_hours.max(1)
+}
+
+/// In the records of real use a worker got its next task a median 4 minutes after it
+/// delivered, 15 times in 21 within 30 minutes; the other 6 waited 37 minutes to 15 hours.
+/// Thirty stays quiet through the usual quick hand-on and tells of a worker left holding
+/// memory for hours; telling is all it does, the manager decides.
+pub const IDLE_MINUTES: u32 = 30;
+
+fn idle_default() -> u32 {
+    IDLE_MINUTES
+}
+
+/// After how many minutes idle with no task a worker's manager is told to close it (at least
+/// one). Set by hand in settings.json; read when the service starts.
+pub fn idle_minutes(home: &Path) -> u32 {
+    read_settings(home).idle_minutes.max(1)
+}
+
+/// See `crate::stall`: why ten.
+pub const STALL_MINUTES: u32 = 10;
+/// The most the stall threshold may be set to: four hours.
+pub const STALL_MAX: u32 = 240;
+
+fn stall_default() -> u32 {
+    STALL_MINUTES
 }
 
 /// Held while `settings.json` is read and written back: machines and thresholds share it.
@@ -83,6 +139,22 @@ pub fn set_thresholds(home: &Path, alerts: Thresholds) -> Result<(), String> {
     let _held = SETTINGS.lock().unwrap();
     let mut all = read_settings(home);
     all.alerts = alerts;
+    write_settings(home, &all)
+}
+
+/// After how many idle minutes a running task's agent counts as stopped.
+pub fn stall_minutes(home: &Path) -> u32 {
+    read_settings(home).stall_minutes
+}
+
+/// Saves the stall threshold (1 to `STALL_MAX` minutes); the rest of the file stays.
+pub fn set_stall_minutes(home: &Path, minutes: u32) -> Result<(), String> {
+    if !(1..=STALL_MAX).contains(&minutes) {
+        return Err(format!("the stall threshold is 1 to {STALL_MAX} minutes, not {minutes}"));
+    }
+    let _held = SETTINGS.lock().unwrap();
+    let mut all = read_settings(home);
+    all.stall_minutes = minutes;
     write_settings(home, &all)
 }
 
@@ -410,6 +482,14 @@ impl Machines {
         }
     }
 
+    /// Runs `f` on `machine`'s runtime (none: this one's).
+    fn at<T>(&self, machine: Option<&str>, f: impl Fn(&dyn Runtime) -> Result<T, RuntimeError>) -> Result<T, RuntimeError> {
+        match machine {
+            None => f(self.local.as_ref()),
+            Some(m) => on(&*self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?, &f),
+        }
+    }
+
     /// For tests: machines whose runtimes are given, read once, with no threads or ssh.
     #[cfg(test)]
     pub fn with(local: Arc<dyn Runtime>, remotes: Vec<(&str, Arc<dyn Runtime>)>) -> Arc<Machines> {
@@ -662,6 +742,30 @@ impl Runtime for Machines {
 
     fn close(&self, agent: &str) -> Result<(), RuntimeError> {
         self.route(agent, |r| r.close(agent))
+    }
+
+    /// Asked of that machine's own runtime: the ids are its operating system's.
+    fn processes(&self, machine: Option<&str>) -> Result<Vec<(RuntimeAgent, Vec<u32>)>, RuntimeError> {
+        match machine {
+            None => self.local.processes(None),
+            Some(m) => {
+                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
+                Ok(on(&e, &|r: &dyn Runtime| r.processes(None))?.into_iter().map(|(a, pids)| (their_agent(a, m), pids)).collect())
+            }
+        }
+    }
+
+    /// On the machine named, through its own runtime: the shell is the user's over there.
+    fn run_shell(&self, machine: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.run_shell(None, group, dir, line))
+    }
+
+    fn read_place(&self, machine: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.read_place(None, place, lines))
+    }
+
+    fn focus_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.focus_place(None, place))
     }
 
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {

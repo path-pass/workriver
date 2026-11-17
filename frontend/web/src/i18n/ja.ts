@@ -18,6 +18,8 @@ export const ja: OneForm<typeof en> = {
     clearSearch: '検索をクリア',
     none: 'まだユニットが記録されていません。',
     noUnits: 'ユニットはまだありません',
+    quiet: '{{time}} 動きなし',
+    quietSince: '{{date}} から動きがありません',
     project: 'プロジェクト',
     allProjects: 'すべてのプロジェクト',
     active: '進行中',
@@ -32,6 +34,7 @@ export const ja: OneForm<typeof en> = {
     drag: 'ドラッグで並べ替え',
     start: '開始',
     intentWork: '調査と設計',
+    foldGroup: '「{{title}}」のユニットを表示／非表示',
     failed: '保存できませんでした：{{error}}',
     mergeOpen: '統合…',
     mergeTitle: '計画中のインテントを統合',
@@ -54,9 +57,25 @@ export const ja: OneForm<typeof en> = {
     of: 'マネージャー {{name}}：{{state}}',
     state: { working: '作業中', idle: '待機中', done: '待機中', blocked: '停止中', unknown: '状態不明', gone: '実行されていません', none: 'マネージャーなし' }
   },
+  intent: {
+    state: { planned: '計画中', active: '進行中', done: '完了', dropped: '取り下げ' },
+    dropped: '取り下げ：{{reason}}',
+    note: 'メモ',
+    where: '実行場所',
+    workspace: 'ワークスペース',
+    manager: 'マネージャー',
+    notStarted: 'まだ開始していません。ロードマップにあります。',
+    talk: 'マネージャーに書く',
+    units: 'ユニット',
+    moved: '{{time}} 前に動きあり',
+    neverMoved: 'まだ動きなし',
+    earlier: '以前の調査と設計',
+    earlierHint: '調査と設計がそれぞれのユニットになる前に、インテント自体に記録されたものです。'
+  },
   start: {
     title: 'はじめに',
     lead: 'まだ何も記録されていません。エージェントは自分の作業を自分で記録し、Herdr ワークスペースごとに 1 つのマネージャーエージェントが計画します。',
+    leadProject: '{{project}} にはまだ何も記録されていません。エージェントは自分の作業を自分で記録し、Herdr ワークスペースごとに 1 つのマネージャーエージェントが計画します。',
     agent: 'Herdr ワークスペースでコーディングエージェントを起動し、そのマネージャーにします。',
     skill: 'マネージャースキルを渡します：skills/workriver-manager をそのスキルフォルダにリンクするか、このコマンドの出力を貼り付けます。',
     register: 'ワークスペースのマネージャーとして登録させます：',
@@ -81,15 +100,33 @@ export const ja: OneForm<typeof en> = {
     theme: 'テーマ',
     themes: { system: 'システム', light: 'ライト', dark: 'ダーク' },
     notify: 'エージェントやマシンが私を待っているときに通知する',
-    notifyDenied: 'このページの通知はブラウザで許可されていません。'
+    notifyDenied: 'このページの通知はブラウザで許可されていません。',
+    stall: {
+      title: '止まったワーカー',
+      sentence: '進行中のタスクでエージェントが <minutes/> 分間待機していたら知らせます。さらにその半分の時間たっても待機中なら、マネージャーに伝えてここに表示します。',
+      minutes: '進行中のタスクでエージェントが待機してよい時間（分）',
+      failed: '保存できませんでした：{{error}}'
+    }
   },
   alerts: {
     title: 'マシンのアラート',
-    lead: 'このマシンと、追跡しているすべてのマシンに適用されます。値がその時間ずっとしきい値以上だとアラートになり、しきい値を下回って 1 分たつと解除されます。',
+    lead: 'このマシンと、追跡しているすべてのマシンに適用されます（その値があるシステムのみ）。警告は黄、重大は赤で表示します。値がその時間ずっとレベルを超えていると（「即時」とあるものはすぐに）そのレベルになり、戻って 1 分たつと解除されます。',
     on: '{{metric}} のアラート',
     percent: '{{metric}} のしきい値（パーセント）',
     minutes: '{{metric}}：続く時間（分）',
+    warn: '{{metric}}：警告のしきい値',
+    crit: '{{metric}}：重大のしきい値',
+    warnFree: '{{metric}}：警告、空き GB',
+    critFree: '{{metric}}：重大、空き GB',
+    group: { all: 'すべてのマシン', mac: 'macOS', linux: 'Linux' },
     threshold: '<minutes/> 分間 <percent/> % 以上',
+    overPercent: '<minutes/> 分間、<warn/> % 超で警告、<crit/> % 超で重大',
+    overPercentNow: '<warn/> % 超で警告、<crit/> % 超で重大（即時）',
+    overGb: '<minutes/> 分間、<warn/> GB 超で警告、<crit/> GB 超で重大',
+    underPercent: '<minutes/> 分間、<warn/> % 未満で警告、<crit/> % 未満で重大',
+    pressure: '<minutes/> 分間、カーネルの警告で警告、重大で重大',
+    oom: 'プロセスが強制終了されたら即時に重大、<minutes/> 分間保持',
+    disk: '<minutes/> 分間、使用 <warn/> % 超か空き <warnFree/> GB 未満で警告、<crit/> % 超か <critFree/> GB 未満で重大',
     failed: '保存できませんでした：{{error}}'
   },
   metrics: {
@@ -101,11 +138,41 @@ export const ja: OneForm<typeof en> = {
     percent: '{{value}} %',
     memoryValue: '{{used}} / {{total}} GB',
     noValue: '–',
-    alert: '{{metric}} {{value}} · {{time}}',
+    alert: '{{what}} · {{time}}',
+    level: { warn: '警告', crit: '重大' },
+    compressor: '圧縮メモリ',
+    compressorValue: '上限の {{value}} %',
+    compressorHint: 'メモリ圧縮の使用量。100 % になると macOS は圧縮できなくなり、カーネルパニックを起こすことがあります',
+    systemFree: 'システムの空き',
+    systemFreeHint: 'macOS が空きとみなすメモリの割合（memory_pressure）',
+    psi: 'メモリ待ち',
+    oom: 'OOM 強制終了',
+    gb: '{{value}} GB',
+    kills_other: '{{count, number}} 回',
+    diskAlert: '{{mount}} 使用 {{used}} %、空き {{free}}',
+    top: 'メモリ使用量の上位：{{list}}',
+    proc: '{{name}} {{size}}',
+    procAgent: '{{name}} {{size}}（{{agent}}）',
     probeFailed: '読み取れません：{{error}}',
     chart: '直近 10 分間の{{metric}}',
     notice: '{{machine}}：{{metric}} {{value}}',
-    noticeBody: '{{minutes}} 分間 {{percent}} % 以上が続いています'
+    available: '利用可能',
+    pressure: 'メモリ圧迫',
+    pressureLevel: { normal: '正常', warning: '警告', critical: '重大' },
+    pressureStall: 'some {{some}} % · full {{full}} %',
+    pressureStallHint: '直近 10 秒間に、一部またはすべてのタスクがメモリを待っていた時間の割合（PSI）',
+    pressureUnknown: '不明',
+    compressed: '圧縮済み',
+    oomKills: 'OOM 強制終了',
+    oomValue: '{{total}} · 監視中 {{watched}}',
+    swap: 'スワップ',
+    swapValue: '{{used}} / {{total}}',
+    disk: 'ディスク',
+    diskAt: 'ディスク {{mount}}',
+    diskFree: '空き {{free}}',
+    day: '24 時間',
+    dayChart: '直近 24 時間の CPU とメモリ（1 分ごとの平均）',
+    noHistory: 'まだありません'
   },
   machines: {
     title: '他のマシン',
@@ -137,12 +204,16 @@ export const ja: OneForm<typeof en> = {
       working: '作業中',
       waiting: '待ち',
       ready: 'マージ可能',
+      readyClose: '終了可能',
       merged: 'マージ済み',
       done: '終了'
     },
     complete: 'すべてのユニットが終わりました。マネージャーがこのインテントを閉じられます',
     finished: '完了',
     previously: '以前のブランチ：{{branches}}',
+    squashed: 'squash マージ済みのようです',
+    squashedWhy: '変更はすべて {{into}} にすでに入っています（コミット {{commit}}）。おそらく squash でマージされたもので、git からはわかりません。そうであれば、このコマンドで記録してください。マネージャーにも伝わります。',
+    mergedCommand: 'workriver unit merged {{unit}}',
     blocking_other: 'エージェントが待っている手動ステップ {{count, number}} 件',
     active: '進行中',
     untouched: '未着手',
@@ -154,7 +225,16 @@ export const ja: OneForm<typeof en> = {
     blocked: 'ターミナルであなたを待っています',
     notice: '{{agent}} があなたを待っています',
     title: 'エージェント',
-    idle: '待機中'
+    state: { working: '作業中', idle: '待機中', blocked: '停止中', gone: '終了済み' },
+    idleFor: '待機中 {{time}}',
+    blockedFor: '停止中 {{time}}',
+    closable: '閉じてよい',
+    closableFor: '閉じてよい · {{time}}',
+    last: '前回',
+    askedBy: '{{who}} の質問',
+    askedByYou: 'あなたの質問',
+    own: 'workriver の管理外',
+    ownHint: 'タスクを受けたことのないセッション：あなた自身のもの、または手動で起動したもの。'
   },
   plan: {
     title: '「{{title}}」を開始',
@@ -162,7 +242,17 @@ export const ja: OneForm<typeof en> = {
     workspace: 'このための Herdr ワークスペースを開くか、マネージャーにまだインテントを任せられるワークスペースを選びます。',
     agent: 'ワークスペースにまだマネージャーがいなければ、そこでコーディングエージェントを起動してマネージャースキルを渡します：',
     register: 'マネージャーのペインで登録します：',
-    start: 'そこでこのインテントを開始します。そのワークスペースの新しいユニットとタスクはこのインテントに入ります：'
+    start: 'そこでこのインテントを開始します。そのワークスペースの新しいユニットとタスクはこのインテントに入ります：',
+    pickLabel: '開始する場所',
+    option: '{{label}} · {{manager}}：{{state}}',
+    optionNone: '{{label}} · マネージャーなし',
+    noWorkspace: 'Herdr にまだワークスペースがありません。次の手順で進めます：',
+    go: '開始',
+    goHint: 'あなたの操作として記録され、{{manager}} にユニットとタスクへ分けるよう伝えます。',
+    none: '{{label}} にはマネージャーがいないため、作業を分ける人がいません。先にそこで起動してください：',
+    started: '{{label}} で開始しました。',
+    failed: '開始できませんでした：{{error}}',
+    close: '閉じる'
   },
   backlog: {
     title: 'バックログ',
@@ -196,6 +286,36 @@ export const ja: OneForm<typeof en> = {
     openFor: '{{agent}} をターミナルで開く',
     note: '{{agent}} のターミナルを前面に表示します（未接続）'
   },
+  run: {
+    title: 'あなたとして実行',
+    lead: 'Herdr の「workriver」ワークスペースにあるあなた自身のシェルで、あなたの認証情報とフックを使って実行されます。そこで自分で入力したのとまったく同じです。',
+    command: 'コマンド',
+    dir: 'ディレクトリ',
+    machine: 'マシン',
+    here: 'このマシン',
+    by: '書いた人',
+    byAgent: 'エージェントの {{agent}}：実行する前に読んでください',
+    byYou: 'あなた',
+    danger: 'このコマンドは作業を取り返しのつかない形で消す可能性があります（ファイルの削除、履歴の書き換え）。まさにこれを意図した場合にだけ実行してください。',
+    go: '実行',
+    cancel: 'キャンセル',
+    running: '実行中…',
+    ok: '完了（終了コード 0）',
+    exit: '失敗（終了コード {{code}}）',
+    lost: 'ターミナルを読み取れなくなりました。Herdr で確認してください。',
+    open: 'ターミナルで開く',
+    close: '閉じる',
+    failed: '実行されませんでした：{{error}}',
+    button: '実行',
+    buttonFor: '「{{command}}」をあなたとして実行',
+    section: 'コマンドを実行',
+    where: '場所',
+    placeholder: 'コマンド（あなたとして実行）',
+    hint: '確認したあと、あなた自身のシェルで実行されます。',
+    unit: '{{unit}} · {{title}}',
+    project: 'プロジェクト：{{title}}',
+    nowhere: '実行先になるユニットやプロジェクトがまだありません。'
+  },
   evidence: {
     label: '実行したチェック',
     passed: '成功',
@@ -212,11 +332,20 @@ export const ja: OneForm<typeof en> = {
     remove: '{{label}} を外す',
     how: '一時的なエージェントが記録とコードから回答します。{{agent}} が待機中のときだけ {{agent}} に確認します。',
     howAlone: '一時的なエージェントが記録とコードから回答します。',
+    howUnit: '一時的なエージェントがユニットの記録とコードから回答します。ユニットのエージェントには確認しません。',
+    placeholderUnit: '{{unit}}について理由を質問…',
+    unitHint: 'ユニット全体についての質問です。1 つのタスクについて聞くには、グラフでそのタスクを選んでください。',
+    you: 'あなた',
+    answerer: '一時的なエージェント',
+    log: '会話',
+    mode: { label: '話す相手', why: '理由', manager: 'マネージャー' },
     step: {
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
-      asking: '{{agent}} に確認中…'
+      asking: '{{agent}} に確認中…',
+      blocked: 'Herdr であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたら質問が入ります。'
     },
+    toTerminal: 'ターミナルへ',
     asked: '{{agent}} に確認済み',
     busy: '{{agent}} が作業中のため、記録から回答しました',
     ended: '{{agent}} のセッションは終了しているため、記録から回答しました',
@@ -240,22 +369,49 @@ export const ja: OneForm<typeof en> = {
     conversations_other: '会話 {{count, number}} 件',
     count_other: '質問 {{count, number}} 件'
   },
+  talk: {
+    workspace: 'ワークスペース',
+    label: 'マネージャーへのメッセージ',
+    placeholder: '{{agent}}に書く…',
+    how: '{{agent}} のターミナルに入力され、返信はここに表示されます。',
+    none: 'このワークスペースではマネージャーが動いていないため、誰も読みません。',
+    noWorkspace: 'マネージャーのいるワークスペースはまだありません。',
+    empty: '{{workspace}} のマネージャーに書きます。マネージャーはターミナルで読み、ここに返信します。',
+    step: {
+      sending: '{{agent}} に送信中…',
+      blocked: 'Herdr であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたらメッセージが入ります。',
+      delivered: '{{agent}} のターミナルに入りました',
+      'not-delivered': '届きませんでした：{{reason}}'
+    }
+  },
   chore: {
     done: '完了'
   },
   commits: {
     title: 'コミット',
-    writing: '作成中',
-    today: '今日',
-    yesterday: '昨日'
+    writing: '作成中'
   },
   inbox: {
     title: '要対応',
     blocking: 'ブロック中',
     blockedAgent: '{{agent}} がターミナルであなたを待っています',
+    stalled: '{{task}}：{{agent}} が {{ago}} 前に納品せずに止まりました',
+    stalledGone: '{{task}}：{{agent}} はもういません',
+    reminded: '{{time}} に通知済み',
+    mergeSquash: '{{unit}} は {{into}} に squash マージ済みのようです',
+    mergeOverdue: '{{unit}} は {{ago}} 前からマージ可能のままです',
+    mergeCheck: 'マネージャーなし：マージ済みか確認してください',
     machines: 'マシン',
     machineAlert: '{{machine}}：{{metric}} {{value}}',
     machineLimit: '{{minutes}} 分間 {{percent}} % 以上',
+    limit: {
+      over: '{{minutes}} 分間 {{value}} 超',
+      overNow: '{{value}} 超（即時）',
+      under: '{{minutes}} 分間 {{value}} 未満',
+      pressure: '{{minutes}} 分間カーネルが「{{level}}」',
+      oom: 'プロセスが強制終了されました。{{minutes}} 分間保持',
+      disk: '{{minutes}} 分間、使用 {{used}} % 超か空き {{free}} GB 未満'
+    },
     decisions: '判断待ち',
     gaps: '抜け',
     later: '急ぎではない',
@@ -278,7 +434,8 @@ export const ja: OneForm<typeof en> = {
     running: '進行中',
     done: '完了',
     waiting: 'あなた待ち',
-    unregistered: '未登録'
+    unregistered: '未登録',
+    dropped: '不要'
   },
   reviewer: {
     'security-review': 'セキュリティレビュー',
@@ -308,7 +465,17 @@ export const ja: OneForm<typeof en> = {
     remove: '{{name}} を削除',
     zoomIn: '幅いっぱいに表示（画像のクリックでも切り替え）',
     zoomOut: '画像全体を表示（画像のクリックでも切り替え）',
-    original: '元の画像を新しいタブで開く'
+    original: '元の画像を新しいタブで開く',
+    prev: '前の添付（←）',
+    next: '次の添付（→）',
+    counter: '{{n}} / {{count}}',
+    now: '{{count}} 件中 {{n}} 件目：{{name}}',
+    download: 'ダウンロード',
+    ask: 'この添付について理由を聞く（質問に添えて送られます）',
+    loading: '読み込み中…',
+    failed: 'このファイルを読み込めませんでした。ダウンロードして見てください。',
+    cut: '{{size}} のうち先頭の {{shown}} を表示しています。残りはダウンロードしてください。',
+    mdImage: '画像：{{name}}'
   },
   deliver: {
     pending: '未送信',
@@ -327,6 +494,8 @@ export const ja: OneForm<typeof en> = {
       'no-workspace': 'インテントに Herdr ワークスペースがありません',
       timeout: '時間内に応答がありません',
       restarted: 'サービスが再起動しました',
+      blocked: '担当のエージェントがその間ずっとターミナルで回答を待っていました',
+      'not-ready': '新しいエージェントがプロンプトを受け付ける状態になりませんでした。そのタブは Herdr に残してあります',
       unknown: '理由が不明です'
     },
     failed: '記録できませんでした：サービスが受け付けませんでした'
@@ -346,10 +515,15 @@ export const ja: OneForm<typeof en> = {
     copy: 'コマンドをコピー',
     copied: 'コピーしました'
   },
+  link: {
+    copy: 'リンクをコピー',
+    notFound: 'ここには何もありません：{{ref}} は見つかりません（まだないのかもしれません）。左でユニットを選んでください。'
+  },
   review: {
     found_other: '{{by}}：指摘 {{count, number}} 件',
     passed: '{{by}}：問題なし',
-    running: '{{by}}：進行中'
+    running: '{{by}}：進行中',
+    dropped: '{{by}}：不要'
   },
   finding: {
     open: 'あなた待ち',
@@ -376,7 +550,16 @@ export const ja: OneForm<typeof en> = {
   task: {
     blind: 'ブラインド',
     blindHint: 'ブラインド：他の作業を見ずに行ったため、指摘はこのレビュー独自の見方です',
-    unregistered: '未登録：{{title}}'
+    unregistered: '未登録：{{title}}',
+    dropped: '不要',
+    droppedBy: '{{by}} が不要にしました（{{when}}）',
+    droppedByYou: 'あなたが不要にしました（{{when}}）',
+    drop: '不要にする…',
+    dropReason: '不要になった理由',
+    dropReasonHint: '例：#17 に置き換え。担当のエージェントとマネージャーに伝わります',
+    dropConfirm: '不要にする',
+    dropCancel: 'キャンセル',
+    dropFailed: '記録できませんでした：{{error}}'
   },
   who: {
     writing: '{{name}}、作成中'
@@ -387,7 +570,8 @@ export const ja: OneForm<typeof en> = {
     controls: 'グラフの操作',
     zoomIn: '拡大',
     zoomOut: '縮小',
-    fit: 'グラフ全体を表示'
+    fit: 'グラフ全体を表示（収まらないときは最新の作業）',
+    overview: 'グラフの全体図'
   },
   io: {
     input: '入力',
@@ -433,7 +617,9 @@ export const ja: OneForm<typeof en> = {
   file: {
     back: 'すべての変更',
     from: '変更元',
-    unchanged: 'このユニットはまだ {{path}} を変更していません。'
+    unchanged: 'このユニットはまだ {{path}} を変更していません。',
+    onlyChanges: '変更のみ',
+    whole: 'ファイル全体'
   },
   tree: {
     label: 'ファイル',

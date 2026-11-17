@@ -95,6 +95,14 @@ impl Store {
         Ok(self.conn.query_row("SELECT count(*) FROM events", [], |r| r.get(0))?)
     }
 
+    /// The bodies of every event of `kind` as stored, oldest first: what is only in the record
+    /// (commands the user ran), for tests and tools.
+    pub fn bodies(&self, kind: &str) -> Result<Vec<serde_json::Value>, Error> {
+        let mut stmt = self.conn.prepare("SELECT body FROM events WHERE kind = ?1 ORDER BY seq")?;
+        let rows = stmt.query_map([kind], |r| r.get::<_, String>(0))?;
+        rows.map(|b| Ok(serde_json::from_str(&b?).unwrap_or_default())).collect()
+    }
+
     /// Checks `body` against the rules, stores it and adds it to the state.
     /// `who` is who the caller was found to be, never who it says it is.
     pub fn append(&mut self, who: &Principal, body: Body) -> Result<Event, Error> {

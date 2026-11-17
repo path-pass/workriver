@@ -31,6 +31,68 @@ pub struct Workspace {
     /// Machines past an alert threshold now: for the user only (Needs you).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub alerts: Vec<crate::metrics::Alert>,
+    /// The user's messages to managers, with their replies, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    messages: Vec<MessageOut>,
+}
+
+/// The user's message to a workspace's manager, as the page shows it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageOut {
+    id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    intent: String,
+    workspace: String,
+    /// The manager's name.
+    manager: String,
+    text: String,
+    at: String,
+    /// sending, blocked (the manager waits for a person in its terminal; it goes in once
+    /// free), delivered or not-delivered.
+    step: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_code: Option<core::ReasonCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<Blocked>,
+    replies: Vec<ReplyOut>,
+}
+
+#[derive(Serialize)]
+struct ReplyOut {
+    by: String,
+    text: String,
+    at: String,
+}
+
+fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<MessageOut> {
+    state
+        .messages
+        .iter()
+        .map(|m| {
+            let stuck = live.iter().find(|a| a.session == m.manager && a.state == AgentState::Blocked).filter(|_| m.delivery.is_none());
+            MessageOut {
+                id: m.id.clone(),
+                intent: m.intent.clone(),
+                workspace: m.workspace.clone(),
+                manager: names.of(&m.manager),
+                text: m.text.clone(),
+                at: m.at.clone(),
+                step: match m.delivery.as_ref().map(|d| d.step) {
+                    None if stuck.is_some() => "blocked",
+                    None => "sending",
+                    Some(core::DeliveryStep::NotDelivered) => "not-delivered",
+                    Some(_) => "delivered",
+                },
+                reason_code: m.delivery.as_ref().and_then(|d| d.reason_code),
+                reason: m.delivery.as_ref().and_then(|d| d.reason.clone()),
+                blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
+                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone() }).collect(),
+            }
+        })
+        .collect()
 }
 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
@@ -44,6 +106,8 @@ pub fn hide(ws: &mut Workspace) {
     }
     for s in &mut ws.sessions {
         s.topic = None;
+        // When another agent went idle would say when it delivered.
+        s.idle_since = None;
     }
 }
 
@@ -77,7 +141,7 @@ struct CommitCode {
 /// The texts of unit `id` as `state` lets its reader see them (none of a blind view's),
 /// but for the commits in `have` (short hashes), which the reader has.
 pub fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, id: &str, have: &[&str]) -> Option<Code> {
-    let u = state.units.iter().find(|u| u.id == id)?;
+    let u = state.units.iter().find(|u| u.id == id && u.has_code())?;
     cache.refs.clear();
     cache.worktrees.clear();
     (cache.recomputed, cache.reused) = (0, 0);
@@ -143,6 +207,12 @@ struct Session {
     /// Waiting for a person in its terminal since then (a question, an approval).
     #[serde(rename = "blockedSince", skip_serializing_if = "Option::is_none")]
     blocked_since: Option<String>,
+    /// Idle (or done) in its terminal since then, while it lives.
+    #[serde(rename = "idleSince", skip_serializing_if = "Option::is_none")]
+    idle_since: Option<String>,
+    /// The harness that runs it (claude, codex), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    harness: Option<String>,
     /// The runtime group (Herdr workspace) it runs in.
     #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<core::RuntimeRef>,
@@ -250,6 +320,9 @@ struct Unit {
     /// The intent's own work (research, design) shown as a unit without a repository.
     #[serde(rename = "intentLevel", skip_serializing_if = "std::ops::Not::not")]
     intent_level: bool,
+    /// Research and design, with no branch; absent: code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<core::UnitKind>,
     title: String,
     purpose: String,
     repo: String,
@@ -257,6 +330,12 @@ struct Unit {
     #[serde(skip_serializing_if = "Option::is_none")]
     machine: Option<String>,
     branch: Option<String>,
+    /// The branch it leaves from and is merged into.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base: Option<String>,
+    /// When it was recorded as merged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merged: Option<String>,
     /// The branches its work was on before (a rebase onto a new branch, a rename).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     previously: Vec<String>,
@@ -272,6 +351,15 @@ struct Unit {
     /// them (`code`) again only when this changes.
     #[serde(skip_serializing_if = "String::is_empty")]
     code: String,
+    /// Ready, and it looks squash-merged (`scan::squashed`): where, and by which commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    squash: Option<Squash>,
+    /// Ready for longer than the user's `readyHours` without a merge: since when.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overdue: Option<String>,
+    /// Conversations about the unit as a whole ("ask why" with no task picked), oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    threads: Vec<ThreadOut>,
 }
 
 #[derive(Serialize)]
@@ -293,6 +381,11 @@ struct Task {
     gate: Option<core::GateKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
+    /// When its agent started it, and when it was delivered (a gate: submitted).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivered: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -326,6 +419,12 @@ struct Task {
     /// When its output was last corrected.
     #[serde(skip_serializing_if = "Option::is_none")]
     amended: Option<String>,
+    /// Dropped as no longer needed: when, by whom (by name), why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dropped: Option<core::Closed>,
+    /// Running, and its agent stopped without delivering (idle too long, or gone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stalled: Option<crate::stall::Stall>,
 }
 
 #[derive(Serialize)]
@@ -395,6 +494,9 @@ struct Finding {
     leads_to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     decided_by: Option<core::Who>,
+    /// When it was last decided.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decided: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     recommendation: Option<core::Suggestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -486,9 +588,18 @@ struct Turn {
     question: String,
     context: Vec<core::AskContext>,
     answer: Option<String>,
-    /// While it comes: starting (the agent), reading (it works on it).
+    /// Who answered (the agent's name, or "user") and when.
+    #[serde(rename = "answerBy", skip_serializing_if = "Option::is_none")]
+    answer_by: Option<String>,
+    #[serde(rename = "answeredAt", skip_serializing_if = "Option::is_none")]
+    answered_at: Option<String>,
+    /// While it comes: starting (the agent), reading (it works on it), blocked (its agent
+    /// waits for a person in its terminal: the question waits too).
     #[serde(skip_serializing_if = "Option::is_none")]
     step: Option<&'static str>,
+    /// While blocked: the agent that waits, to bring its terminal to the front.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<Blocked>,
     #[serde(skip_serializing_if = "Option::is_none")]
     consulted: Option<Consulted>,
     at: String,
@@ -497,6 +608,12 @@ struct Turn {
     /// A request for the thread's conclusion.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     conclude: bool,
+}
+
+#[derive(Serialize)]
+struct Blocked {
+    agent: String,
+    session: String,
 }
 
 #[derive(Serialize)]
@@ -528,17 +645,25 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                     .questions
                     .iter()
                     .filter(|q| q.thread == t.id)
-                    .map(|q| Turn {
+                    .map(|q| {
+                        // The agent answering it, when the runtime says it waits for a person.
+                        let stuck = q.agent.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).filter(|a| q.open() && a.state == AgentState::Blocked);
+                        Turn {
                         id: q.id.clone(),
                         by: (q.by != "user").then(|| names.of(&q.by)),
                         question: q.text.clone(),
                         context: q.context.clone(),
                         answer: q.answer.clone(),
-                        step: q.open().then_some(if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        // The agent started for it is known by the name it was given.
+                        answer_by: q.answered_by.as_ref().map(|a| q.name.clone().filter(|_| q.agent.as_ref() == Some(a)).unwrap_or_else(|| names.of(a))),
+                        answered_at: q.answered_at.clone(),
+                        step: q.open().then_some(if stuck.is_some() { "blocked" } else if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
                         consulted: q.asked.as_ref().map(|a| Consulted { agent: names.of(a), outcome: "asked" }),
                         at: q.at.clone(),
                         failed: q.failed.as_ref().map(|(code, reason)| Failed { code: *code, reason: reason.clone() }),
                         conclude: q.conclude,
+                        }
                     })
                     .collect(),
             }
@@ -574,6 +699,8 @@ pub struct Cache {
     worktrees: HashMap<String, HashMap<String, std::path::PathBuf>>,
     /// Units found merged in git and not yet recorded so: (unit, its commits).
     pub merged_now: Vec<(String, Vec<String>)>,
+    /// How long a unit may be ready before it is overdue (the page shows it); none: never.
+    pub ready_after: Option<std::time::Duration>,
     /// This build: units whose commits were worked out again, and those reused.
     pub recomputed: usize,
     pub reused: usize,
@@ -599,6 +726,18 @@ struct Stored {
     meta: HashMap<String, scan::Named>,
     #[serde(default)]
     patch: HashMap<String, String>,
+    /// Whether each ready unit looked squash-merged, under the key of its commits (`Memo`).
+    #[serde(default)]
+    squash: HashMap<String, (String, Option<Squash>)>,
+}
+
+/// A unit that looks squash-merged: its branch's tip when it was seen so, where its change
+/// is (its base, or the base's upstream) and the commit there that brought it.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
+pub struct Squash {
+    pub tip: String,
+    pub into: String,
+    pub commit: String,
 }
 
 /// A unit's commits for one state of its branch and base (`key`).
@@ -618,6 +757,8 @@ pub type RemoteUnit = (Vec<scan::Commit>, Vec<scan::FileChange>, HashMap<String,
 pub struct Shared {
     pub units: HashMap<String, RemoteUnit>,
     pub trees: HashMap<String, scan::Module>,
+    /// Ready units, on any machine, that looked squash-merged when last read.
+    pub squash: HashMap<String, Squash>,
 }
 
 /// A unit's branch as last read.
@@ -708,18 +849,20 @@ impl Names {
     }
 }
 
-/// `blocked`: when each blocked live agent (by session) was first seen blocked.
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, groups: &[core::RuntimeRef]) -> Workspace {
+/// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
+/// (or done) the same way; `stalls`: the
+/// running tasks whose agent stopped, by (unit or intent, task).
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::stall::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();
     (cache.recomputed, cache.reused) = (0, 0);
     let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
-    let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
+    let repos: BTreeSet<(Option<&str>, &str)> = state.units.iter().filter(|u| u.has_code()).map(|u| (u.machine.as_deref(), u.repo.as_str())).collect();
     let repos = repos.into_iter().map(|(m, r)| repo(m, r, cache)).collect();
     let repos: Vec<Repo> = repos;
-    let intents = state
+    let mut intents = state
         .intents
         .iter()
         .map(|i| Intent {
@@ -739,7 +882,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             reason: i.reason.clone(),
             units: intent_unit(state, live, i, &names)
                 .into_iter()
-                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| unit(state, live, u, cache, &names, state.manager_of(&i.id))))
+                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names, false) }))
                 .collect(),
             chores: state
                 .chores
@@ -751,7 +894,12 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
             manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
             complete: i.state == core::IntentState::Active && state.finished(&i.id),
         })
-        .collect();
+        .collect::<Vec<Intent>>();
+    for u in intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
+        for t in &mut u.tasks {
+            t.stalled = t.id.parse().ok().and_then(|n| stalls.get(&(u.id.clone(), n))).cloned();
+        }
+    }
     // Live agents, then those the records name that are gone.
     let mut sessions: Vec<Session> = live
         .iter()
@@ -769,6 +917,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                 topic: a.topic.clone(),
                 // An agent that cannot be seen now is not known to wait.
                 blocked_since: (a.state == AgentState::Blocked && !away).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
+                idle_since: idle.get(&a.session).filter(|_| !away && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned(),
+                harness: (!a.harness.is_empty()).then(|| a.harness.clone()),
                 group,
                 ended: false,
                 state: Some(if away { "unknown".into() } else { name(&a.state) }),
@@ -781,7 +931,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
     for session in recorded {
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
-            sessions.push(Session { agent, session, topic: None, blocked_since: None, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
+            let harness = state.agents.iter().find(|a| a.session == session).map(|a| a.harness.clone()).filter(|h| !h.is_empty());
+            sessions.push(Session { agent, session, topic: None, blocked_since: None, idle_since: None, harness, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
         }
     }
     let backlog = state
@@ -803,6 +954,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
                     state: f.state,
                     leads_to: vec![],
                     decided_by: None,
+                    decided: None,
                     recommendation: None,
                     note: f.note.clone(),
                     delivery: names.sent(&f.delivery, b.intent.as_deref().and_then(|i| state.manager_of(i))),
@@ -824,7 +976,8 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .filter(|c| c.intent.is_empty())
         .map(|c| chore(c, &names, Some(crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![] }
+    let messages = messages(state, live, &names);
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages }
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
@@ -859,46 +1012,43 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
     out
 }
 
-/// An intent's own tasks (research, design and their reviews and gates) as a unit without a
-/// repository, listed first under the intent; none when it has none.
+/// An intent's own tasks (research, design and their reviews and gates, recorded before
+/// research units) as a unit without a repository, listed first under the intent; none when
+/// it has none.
 fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, names: &Names) -> Option<Unit> {
     if i.tasks.is_empty() {
         return None;
     }
-    let u = core::Unit {
-        id: i.id.clone(),
-        intent: i.id.clone(),
-        title: i.title.clone(),
-        purpose: i.goal.clone(),
-        repo: String::new(),
-        branch: String::new(),
-        base: String::new(),
-        machine: None,
-        at: i.at.clone(),
-        merged: None,
-        merged_commits: vec![],
-        tasks: i.tasks.clone(),
-        earlier: vec![],
-        links: vec![],
-        done: None,
-    };
-    let manager = state.manager_of(&i.id);
-    Some(Unit {
-        id: i.id.clone(),
-        intent_level: true,
-        title: i.title.clone(),
-        purpose: i.goal.clone(),
+    let u = state.unit_or_intent(&i.id)?;
+    Some(branchless(state, live, &u, names, true))
+}
+
+/// A unit with no branch: a research unit, or (`intent_level`) an intent's own work. No
+/// commits, no code, nothing to merge.
+fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names: &Names, intent_level: bool) -> Unit {
+    let manager = state.manager_of(&u.intent);
+    Unit {
+        id: u.id.clone(),
+        intent_level,
+        kind: (!u.kind.is_code()).then_some(u.kind),
+        title: u.title.clone(),
+        purpose: u.purpose.clone(),
         repo: String::new(),
         machine: None,
         branch: None,
+        base: None,
+        merged: None,
         previously: vec![],
-        status: if i.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
-        progress: state.progress(&u),
-        done_reason: None,
-        tasks: i.tasks.iter().map(|t| task(state, live, &u, t, names, manager, vec![])).collect(),
+        status: if u.tasks.iter().any(|t| t.state != TaskState::Todo) { "active" } else { "planned" },
+        progress: state.progress(u),
+        done_reason: u.done.as_ref().map(|d| d.reason.clone()),
+        tasks: u.tasks.iter().map(|t| task(state, live, u, t, names, manager, vec![])).collect(),
         commits: vec![],
         code: String::new(),
-    })
+        squash: None,
+        overdue: None,
+        threads: if intent_level { vec![] } else { threads(state, live, names, &u.id, 0) },
+    }
 }
 
 fn repo(machine: Option<&str>, path: &str, cache: &mut Cache) -> Repo {
@@ -1007,7 +1157,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
     cache.worktrees.clear();
     (cache.recomputed, cache.reused) = (0, 0);
     let (mut changed, mut skipped) = (false, false);
-    for u in state.units.iter().filter(|u| u.machine.is_some()) {
+    for u in state.units.iter().filter(|u| u.machine.is_some() && u.has_code()) {
         let Some(at) = cache.runner(u.machine.as_deref()) else {
             skipped = true;
             // Not reachable (yet): what was read before the last restart, without texts.
@@ -1021,7 +1171,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
             }
             continue;
         };
-        let (c, f) = read_unit(&at, u, cache);
+        let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
         let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
         let mut shared = cache.shared.lock().unwrap();
         let same = shared.units.get(&u.id).is_some_and(|(oc, of, op)| oc.iter().map(|x| &x.hash).eq(c.iter().map(|x| &x.hash)) && *of == f && *op == p);
@@ -1030,7 +1180,7 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
             changed = true;
         }
     }
-    let repos: BTreeSet<(&str, &str)> = state.units.iter().filter_map(|u| Some((u.machine.as_deref()?, u.repo.as_str()))).collect();
+    let repos: BTreeSet<(&str, &str)> = state.units.iter().filter(|u| u.has_code()).filter_map(|u| Some((u.machine.as_deref()?, u.repo.as_str()))).collect();
     for (m, r) in repos {
         let key = format!("{m}\0{r}");
         let before = cache.trees.get(&key).map(|(h, _)| h.clone());
@@ -1042,7 +1192,8 @@ pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
 
 /// A unit's commits and its uncommitted work, read from git where its repository is: the
 /// commits' texts only for those not read before, all in one go; none in a light build.
-fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
+/// `ready`: the unit is ready to merge, so whether it looks squash-merged is looked at too.
+fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
     let started = std::time::Instant::now();
     let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
     let repo = Path::new(&u.repo);
@@ -1050,6 +1201,9 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
         Ok((hashes, merged)) => {
             if merged && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
                 cache.merged_now.push((u.id.clone(), hashes.clone()));
+            }
+            if ready && !merged && u.merged.is_none() {
+                squash_check(at, u, cache);
             }
             hashes
         }
@@ -1113,6 +1267,37 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> (Vec<scan:
     (commits, files)
 }
 
+/// Whether a ready unit git does not show merged looks squash-merged (`scan::squashed`):
+/// worked out once per state of its branch and base (the key of its commits), and kept in
+/// `Shared::squash`, where the page and the service's reminder read it.
+fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
+    let Some(key) = cache.stored.memo.get(&u.id).map(|m| m.key.clone()) else { return };
+    let found = match cache.stored.squash.get(&u.id) {
+        Some((k, f)) if *k == key => f.clone(),
+        _ => {
+            // Its branch gone, or where its commits start not known: nothing to compare.
+            let tip = cache.refs(at, u).and_then(|r| scan::tip(&r, &u.branch).map(str::to_string));
+            let fork = cache.stored.seen.get(&u.id).and_then(|s| s.fork.clone());
+            let (Some(tip), Some(fork)) = (tip, fork) else { return };
+            let found = match scan::squashed(at, Path::new(&u.repo), &u.base, &u.branch, &fork) {
+                Ok(f) => f.map(|(into, commit)| Squash { tip, into, commit }),
+                Err(e) => {
+                    tracing::warn!("unit {}: {e}", u.id);
+                    return;
+                }
+            };
+            cache.stored.squash.insert(u.id.clone(), (key, found.clone()));
+            cache.dirty = true;
+            found
+        }
+    };
+    let mut shared = cache.shared.lock().unwrap();
+    match found {
+        Some(s) => shared.squash.insert(u.id.clone(), s),
+        None => shared.squash.remove(&u.id),
+    };
+}
+
 fn bare_commit(c: &scan::Commit) -> scan::Commit {
     scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), files: c.files.iter().map(scan::FileChange::bare).collect() }
 }
@@ -1146,7 +1331,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         match cache.runner(u.machine.as_deref()) {
             None => Default::default(),
             Some(at) => {
-                let (c, f) = read_unit(&at, u, cache);
+                let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
                 let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
                 if u.machine.is_some() {
                     cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone()));
@@ -1212,14 +1397,19 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     }
 
     let started = u.tasks.iter().any(|t| t.state != TaskState::Todo && t.kind != TaskKind::Gate) || !shown.is_empty();
+    // Found merged in git: so already, before the record of it lands.
+    let progress_now = if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) };
     Unit {
         id: u.id.clone(),
         intent_level: false,
+        kind: None,
         title: u.title.clone(),
         purpose: u.purpose.clone(),
         repo: u.repo.clone(),
         machine: u.machine.clone(),
         branch: (!merged).then(|| u.branch.clone()),
+        base: (!u.base.is_empty()).then(|| u.base.clone()),
+        merged: u.merged.clone(),
         previously: {
             let mut b: Vec<String> = vec![];
             for e in u.earlier.iter().filter(|e| e.branch != u.branch) {
@@ -1230,12 +1420,18 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             b
         },
         status: if merged { "merged" } else if started { "active" } else { "planned" },
-        // Found merged in git: so already, before the record of it lands.
-        progress: if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) },
+        progress: progress_now,
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks,
         commits: shown,
         code,
+        squash: (progress_now == core::Progress::Ready).then(|| cache.shared.lock().unwrap().squash.get(&u.id).cloned()).flatten(),
+        overdue: cache.ready_after.filter(|_| progress_now == core::Progress::Ready).and_then(|after| {
+            let since = state.ready_since(u)?;
+            let ago = humantime::parse_rfc3339(&since).ok()?.elapsed().ok()?;
+            (ago >= after).then_some(since)
+        }),
+        threads: threads(state, live, names, &u.id, 0),
     }
 }
 
@@ -1312,6 +1508,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
                 .map(|x| x.n.to_string())
                 .collect(),
             decided_by: f.decided_by,
+            decided: f.decisions.last().map(|d| d.at.clone()),
             recommendation: if f.state == FindingState::Open { f.found.suggestion.clone() } else { None },
             note: f.note.clone(),
             delivery: names.sent(&f.delivery, manager),
@@ -1341,8 +1538,10 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         raised_by,
         gate: t.gate,
         since,
+        started: t.started.clone(),
+        delivered: t.done.clone(),
         reviewer,
-        result: (kind == "review").then_some(match t.state {
+        result: (kind == "review" && t.state != TaskState::Dropped).then_some(match t.state {
             TaskState::Done if !t.findings.is_empty() => "found",
             TaskState::Done => "passed",
             _ => "running",
@@ -1384,6 +1583,8 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         }).flatten(),
         delivery: if t.kind == TaskKind::Gate && t.state == TaskState::Done { names.sent(&t.delivery, manager) } else { None },
         amended: t.amended.clone(),
+        dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
+        stalled: None,
     }
 }
 
@@ -1401,6 +1602,8 @@ fn unregistered(c: &scan::Commit) -> Task {
         raised_by: None,
         gate: None,
         since: None,
+        started: None,
+        delivered: None,
         reviewer: None,
         result: None,
         inputs: vec![core::Input { from: "start".into(), primary: true }],
@@ -1415,6 +1618,8 @@ fn unregistered(c: &scan::Commit) -> Task {
         threads: vec![],
         draft: None,
         amended: None,
+        dropped: None,
+        stalled: None,
     }
 }
 

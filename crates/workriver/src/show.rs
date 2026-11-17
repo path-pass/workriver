@@ -14,6 +14,9 @@ use workriver_core::{self as core, FindingRef, State, Task, Who, name};
 pub struct TaskShow {
     #[serde(rename = "ref")]
     pub reference: String,
+    /// Where the user opens it in the page (the service's address on its machine).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub link: String,
     pub kind: String,
     pub state: String,
     pub title: String,
@@ -39,6 +42,12 @@ pub struct TaskShow {
     /// Its commits that were only on a branch the unit has left.
     pub lost_commits: Vec<String>,
     pub questions: Vec<QuestionShow>,
+    /// Dropped as no longer needed: when, by whom (by name), why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<core::Closed>,
+    /// Running, and its agent stopped without delivering: since when, or it is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled: Option<crate::stall::Stall>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -232,6 +241,7 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
     let done = t.state == core::TaskState::Done || t.done.is_some();
     Ok(TaskShow {
         reference: format!("{unit}#{n}"),
+        link: String::new(),
         kind: name(&t.kind),
         state: name(&t.state),
         title: t.title.clone(),
@@ -278,6 +288,8 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             .filter(|q| q.unit == unit && q.task == n)
             .map(|q| QuestionShow { id: q.id.clone(), question: q.text.clone(), asked_by: who(state, &q.by), at: q.at.clone(), answer: q.answer.clone(), answered_by: q.answered_by.as_deref().map(|a| who(state, a)) })
             .collect(),
+        dropped: t.dropped.clone().map(|d| core::Closed { by: who(state, &d.by), ..d }),
+        stalled: mine.and_then(|m| serde_json::from_value(m["stalled"].clone()).ok()),
     })
 }
 
@@ -324,12 +336,28 @@ pub fn finding_text(f: &FindingShow, pad: &str) -> String {
     out
 }
 
+/// A stopped worker, as the board and `task show` say it.
+pub fn stalled_line(s: &crate::stall::Stall) -> String {
+    let reminded = s.reminded.as_ref().map(|at| format!("; reminded at {at}")).unwrap_or_default();
+    match (s.escalated, s.gone) {
+        (_, true) => format!("stalled since {}: its agent is gone{reminded}", s.since),
+        (true, false) => format!("stalled since {}: its agent stopped without delivering{reminded}", s.since),
+        (false, false) => format!("idle since {} without delivering{reminded}", s.since),
+    }
+}
+
 /// `workriver task show`, as text.
 pub fn text(s: &TaskShow) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{}  {}  {}{}", s.reference, s.kind, s.state, if s.blind { "  [blind]" } else { "" });
+    if !s.link.is_empty() {
+        let _ = writeln!(out, "Link: {}", s.link);
+    }
     if !s.title.is_empty() {
         let _ = writeln!(out, "Title: {}", s.title);
+    }
+    if let Some(d) = &s.dropped {
+        block(&mut out, &format!("Dropped as no longer needed by {} at {}, because", d.by, d.at), &d.reason);
     }
     let _ = writeln!(out, "Intent {} \"{}\": {}", s.intent.id, s.intent.title, s.intent.about);
     if !s.intent.note.is_empty() {
@@ -347,6 +375,9 @@ pub fn text(s: &TaskShow) -> String {
         }
     }
     let _ = writeln!(out, "Agent: {}", s.agent.as_deref().unwrap_or("(none yet)"));
+    if let Some(st) = &s.stalled {
+        let _ = writeln!(out, "{}", stalled_line(st));
+    }
     if !s.text.is_empty() && s.text != s.title {
         block(&mut out, &format!("What it asks (written by {})", s.written_by), &s.text);
     }

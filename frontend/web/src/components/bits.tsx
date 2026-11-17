@@ -1,6 +1,6 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { Archive, ArrowLeft, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
-import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, CornerUpRight, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
+import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -36,12 +36,15 @@ const ICONS: Record<string, LucideIcon> = {
   fold: PanelRightClose,
   idle: Moon,
   copy: Copy,
+  permalink: Link2,
   terminal: SquareTerminal,
   talk: MessageSquare,
   send: ArrowUp,
   attach: ImagePlus,
+  file: FileText,
   plus: Plus,
   untested: FlaskConicalOff,
+  dropped: Ban,
   commits: GitCommitHorizontal,
   rail: PanelLeftClose,
   'rail-open': PanelLeftOpen,
@@ -51,7 +54,10 @@ const ICONS: Record<string, LucideIcon> = {
   test: FlaskConical,
   far: CornerUpRight,
   chev: ChevronRight,
+  merge: GitMerge,
   back: ArrowLeft,
+  foldLines: FoldVertical,
+  unfold: UnfoldVertical,
 }
 
 export function Icon({ name, className }: { name: string; className?: string }) {
@@ -103,8 +109,11 @@ export function Waiting({ count }: { count: number }) {
   )
 }
 
-/** Copies `text`; with a `label` it is a small text button, without, an icon for a command. */
-export function CopyButton({ text, label }: { text: string; label?: string }) {
+/**
+ * Copies `text`; with a `label` it is a small text button, without, an icon (for a command,
+ * or what `aria` names, which its tooltip says too).
+ */
+export function CopyButton({ text, label, aria, className }: { text: string; label?: string; aria?: string; className?: string }) {
   const { t } = useT()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
@@ -120,21 +129,40 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
         <Icon name={copied ? 'check' : 'copy'} className="size-3" />{copied ? t('steps.copied') : label}
       </Button>
     )
-  return (
-    <Button variant="ghost" size="icon-xs" className="flex-none" aria-label={t(copied ? 'steps.copied' : 'steps.copy')} onClick={copy}>
-      <Icon name={copied ? 'check' : 'copy'} className="size-3.5" />
+  const icon = (
+    <Button variant="ghost" size="icon-xs" className={cn('flex-none', className)} aria-label={copied ? t('steps.copied') : aria ?? t('steps.copy')} onClick={copy}>
+      <Icon name={copied ? 'check' : aria ? 'permalink' : 'copy'} className="size-3.5" />
     </Button>
   )
+  if (!aria) return icon
+  // A changed name is not read out: the confirmation is said once, politely.
+  return <><Tip text={copied ? t('steps.copied') : aria}>{icon}</Tip><span role="status" className="sr-only">{copied ? t('steps.copied') : ''}</span></>
 }
 
-/** What an agent prepared for the user to do by hand: the same for a gate and for a chore. */
-export function Steps({ steps }: { steps: Step[] }) {
+/**
+ * What an agent prepared for the user to do by hand: the same for a gate and for a chore.
+ * With `onRun`, each command also has "Run", which asks to run it as the user.
+ */
+export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string) => void }) {
+  const { t } = useT()
   return (
     <ol className="steps">
       {steps.map((s, k) => (
         <li key={k}>
-          <span lang={contentLang(s.text)}>{s.text}</span>
-          {s.command && <div className="cmd"><code>{s.command}</code><CopyButton text={s.command} /></div>}
+          <span className="whitespace-pre-line" lang={contentLang(s.text)}>{s.text}</span>
+          {s.command && (
+            <div className="cmd">
+              <code>{s.command}</code>
+              <CopyButton text={s.command} />
+              {onRun && (
+                <Tip text={t('run.buttonFor', { command: s.command })}>
+                  <Button variant="ghost" size="xs" className="flex-none rounded-sm" aria-label={t('run.buttonFor', { command: s.command })} onClick={() => onRun(s.command!)}>
+                    <Icon name="play" className="size-3" />{t('run.button')}
+                  </Button>
+                </Tip>
+              )}
+            </div>
+          )}
         </li>
       ))}
     </ol>
@@ -238,8 +266,26 @@ export function Progress({ unit }: { unit: Unit }) {
   const { t } = useT()
   const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
   if (!p) return null
-  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(`unit.progress.${p}`)}</span>
+  // Research is never merged: ready, it is closed.
+  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind === 'research' ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
   return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
+}
+
+/**
+ * A ready unit whose every change is already in its base: merged by squash, most likely,
+ * which git cannot show. Said next to "Ready to merge", with the command that records it.
+ */
+export function Squashed({ unit }: { unit: Unit }) {
+  const { t } = useT()
+  const s = unit.squash!
+  const command = t('unit.mergedCommand', { unit: unit.id })
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-normal tracking-normal text-ink-2">
+      <Tip text={t('unit.squashedWhy', { into: s.into, commit: s.commit.slice(0, 9) })}><span className="tag font-normal tracking-normal">{t('unit.squashed')}</span></Tip>
+      <code className="font-mono">{command}</code>
+      <CopyButton text={command} />
+    </span>
+  )
 }
 
 /** Longer than this, a name in a chip is shortened in the middle. */
@@ -298,6 +344,46 @@ export function IntentNote({ text, tone }: { text: string; tone: 'rail' | 'page'
       <p ref={box} lang={contentLang(text)} className={cn('whitespace-pre-line wrap-anywhere', !all && 'line-clamp-3')}>{parts}</p>
       {(long || all) && (
         <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold" onClick={() => setAll(a => !a)}>
+          {t(all ? 'rail.noteLess' : 'rail.noteMore')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+const MarkdownView = lazy(() => import('./Markdown'))
+
+/**
+ * Longer text an agent or the user wrote (a task's input, a delivery note, a gate's note, an
+ * answer): short Markdown, rendered compact by the safe renderer, which loads the first time
+ * one shows; until then the plain text with its line breaks. With `fold`, a long one shows its
+ * first lines, with "show more".
+ */
+export function Prose({ text, fold = true, onFile }: { text: string; fold?: boolean; onFile?: (path: string) => void }) {
+  const { t } = useT()
+  const outer = useRef<HTMLDivElement>(null)
+  const inner = useRef<HTMLDivElement>(null)
+  const [long, setLong] = useState(false)
+  // Opened for this text: another task's text starts cut again.
+  const [opened, setOpened] = useState<string | null>(null)
+  const all = opened === text
+  // Measured while cut, and again when the rendered Markdown replaces the plain text.
+  useEffect(() => {
+    const o = outer.current, i = inner.current
+    if (!o || !i) return
+    const check = () => setLong(i.offsetHeight > o.clientHeight + 1)
+    const watch = new ResizeObserver(check)
+    watch.observe(i)
+    watch.observe(o)
+    return () => watch.disconnect()
+  }, [fold])
+  const body = <Suspense fallback={<div className="whitespace-pre-line" lang={contentLang(text)}>{text}</div>}><MarkdownView text={text} compact onFile={onFile} /></Suspense>
+  if (!fold) return body
+  return (
+    <div>
+      <div ref={outer} className="prose-fold" data-cut={(!all && long) || undefined} data-all={all || undefined}><div ref={inner}>{body}</div></div>
+      {(long || all) && (
+        <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold text-ink-2 hover:text-ink" onClick={() => setOpened(all ? null : text)}>
           {t(all ? 'rail.noteLess' : 'rail.noteMore')}
         </button>
       )}

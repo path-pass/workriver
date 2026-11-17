@@ -2,7 +2,7 @@
 // the views derive from it. Apart from the loading, pure functions only.
 import { diffLines, structuredPatch } from 'diff'
 import type { T } from './i18n'
-import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAlert, Unit, ModuleNode, Severity, Task, Workspace } from './types'
+import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAlert, Unit, ModuleNode, Repo, Session, Severity, Task, Workspace } from './types'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
@@ -62,7 +62,7 @@ async function loadWorkspace(): Promise<Workspace> {
   const ws = demo as unknown as Workspace
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
-  for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const f of n.output.findings ?? []) for (const a of f.attachments ?? []) a.url = pictures[a.url] ?? a.url
+  for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const a of [...(n.output.attachments ?? []), ...(n.output.findings ?? []).flatMap(f => f.attachments ?? [])]) a.url = pictures[a.url] ?? a.url
   ws.alerts = (await import('./mock/metrics')).mockAlerts()
   return prepare(ws)
 }
@@ -107,7 +107,7 @@ export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path =
  * picked), each file's count in the tree equals the change the single-file view shows.
  */
 function checkCounts(ws: Workspace) {
-  for (const unit of unitsOf(ws).filter(u => !u.intentLevel))
+  for (const unit of unitsOf(ws).filter(u => !noCode(u)))
     for (const pick of [null, ...unit.tasks.map(n => ({ kind: 'task', id: n.id }) as const)]) {
       const sel = selectionOf(unit, pick)
       for (const r of fileTree(repoOf(ws, unit).modules, unit, sel, true).rows.values()) {
@@ -127,10 +127,17 @@ export function changeOf(before: string | null, after: string | null, context = 
 
 export const baseName = (p: string) => p.split('/').pop() ?? p
 
-/** Every unit, across intents. */
+/** Every unit, across intents (with each intent's own earlier work, `intentLevel`). */
 export const unitsOf = (ws: Workspace | null) => ws?.intents.flatMap(i => i.units) ?? []
-/** The intent a unit belongs to. */
-export const intentOf = (ws: Workspace, unitId: string) => ws.intents.find(i => i.units.some(u => u.id === unitId))
+/** A unit with no branch and no code: research and design, or an intent's own earlier work. */
+export const noCode = (u: Unit) => !!u.intentLevel || u.kind === 'research'
+/** The first unit the rail shows for a project (or for all): of its active intents, then of its done ones. */
+export function firstUnit(ws: Workspace, project: string | null): Unit | undefined {
+  const mine = ws.intents.filter(i => !project || i.project === project)
+  return [...mine.filter(i => (i.state ?? 'active') === 'active'), ...mine.filter(i => i.state === 'done')].flatMap(i => i.units).find(u => !u.intentLevel)
+}
+/** The intent a unit belongs to, or the intent itself (its page). */
+export const intentOf = (ws: Workspace, unitId: string) => ws.intents.find(i => i.id === unitId || i.units.some(u => u.id === unitId))
 
 /** The data's times (`YYYY-MM-DD HH:mm` or ISO) as milliseconds. */
 export const ms = (s: string | undefined) => (s ? new Date(s.replace(' ', 'T')).getTime() : NaN)
@@ -161,6 +168,7 @@ export const finderLabel = (t: T, n: Task): string =>
 
 export function reviewLabel(t: T, n: Task): string {
   const by = finderLabel(t, n)
+  if (n.state === 'dropped') return t('review.dropped', { by })
   if (n.result === 'running') return t('review.running', { by })
   if (n.result === 'found') return t('review.found', { by, count: findingsOf(n).length })
   return t('review.passed', { by })
@@ -322,6 +330,113 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
   return list.sort((a, b) => busy(a) - busy(b) || a.label.localeCompare(b.label))
 }
 
+/**
+ * An agent in the panel's tree: its state in a word, idle (or blocked) since when, and the
+ * task it is on or holds, else the last it worked on. A question agent's task is the one
+ * asked about, and `asker` says who asked (null: the user).
+ */
+export interface TreeAgent {
+  s: Session
+  state: 'working' | 'idle' | 'blocked' | 'gone'
+  /** Idle or blocked since, in milliseconds; NaN when nothing says. */
+  since: number
+  at: { unit: Unit; node: Task } | null
+  /** `at` is work it is on or holds, not the last it finished. */
+  current: boolean
+  /** Idle and holding no work: closing it loses nothing. */
+  closable: boolean
+  asker?: string | null
+  /** Question agents asking about its tasks. */
+  kids: TreeAgent[]
+}
+
+/** A runtime workspace: its manager, and the workers (with their question agents) under it. */
+export interface TreeGroup {
+  key: string
+  label: string
+  /** A workspace of another machine that is not linked to one of this machine. */
+  machine?: string
+  /** The workspace's current intent. */
+  intent: Intent | null
+  manager: TreeAgent | null
+  workers: TreeAgent[]
+}
+
+const QUESTION = /^why-(q\d+)$/
+
+/**
+ * Who runs under whom, worked out from tasks (the runtime does not say who started a
+ * session): per workspace its manager, then the workers of tasks, each with the question
+ * agents (`why-qN`) asking about its work. A gone worker shows only while it holds
+ * unfinished work. Sessions that never took a task are `own`: the user's, not workriver's.
+ */
+export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[] } {
+  const tasks = unitsOf(ws).flatMap(unit => unit.tasks.map(node => ({ unit, node })))
+  const intentOfUnit = (u: Unit) => ws.intents.find(i => i.units.includes(u))!
+  const mine = (s: Session) => tasks.filter(({ node }) => (s.session && node.agentSession ? node.agentSession === s.session : node.agent === s.agent))
+  const agent = (s: Session, held: TreeAgent['at'][]): TreeAgent => {
+    const own = held.filter((a): a is NonNullable<TreeAgent['at']> => !!a)
+    const live = own.find(a => a.node.state === 'running') ?? own.find(a => a.node.state === 'todo')
+    const last = own.filter(a => a.node.state === 'done').sort((a, b) => (ms(a.node.delivered) || 0) - (ms(b.node.delivered) || 0)).at(-1) ?? null
+    const state = s.ended ? 'gone' : s.state === 'blocked' ? 'blocked' : s.state === 'working' ? 'working' : 'idle'
+    const since = state === 'blocked' ? ms(s.blockedSince) : ms(s.idleSince) || ms(last?.node.delivered)
+    return { s, state, since, at: live ?? last, current: !!live, closable: state === 'idle' && !live && own.length > 0, kids: [] }
+  }
+  const groups = new Map<string, TreeGroup>()
+  const group = (key: string, label: string, intent: Intent | null, machine?: string) => {
+    if (!groups.has(key)) groups.set(key, { key, label, machine, intent, manager: null, workers: [] })
+    return groups.get(key)!
+  }
+  const groupOf = (s: Session) => {
+    const intent = ws.intents.find(i => i.id === s.intent) ?? null
+    return group(s.group?.id ?? intent?.id ?? '', s.group?.label ?? intent?.title ?? '', intent, s.group?.machine)
+  }
+  const own: TreeAgent[] = [], questions: TreeAgent[] = []
+  for (const s of ws.sessions) {
+    const q = QUESTION.exec(s.agent)?.[1]
+    if (q) {
+      if (s.ended) continue
+      const about = tasks.find(({ node }) => node.threads?.some(t => t.id === q))
+      const a = agent(s, [])
+      // About a unit as a whole: in its workspace, saying who asked.
+      const unitThread = about ? undefined : unitsOf(ws).flatMap(u => u.threads ?? []).find(t => t.id === q)
+      if (unitThread) { groupOf(s).workers.push({ ...a, asker: unitThread.turns[0]?.by ?? null }); continue }
+      if (!about) { own.push(a); continue }
+      questions.push({ ...a, at: about, current: true, asker: about.node.threads!.find(t => t.id === q)!.turns[0]?.by ?? null })
+      continue
+    }
+    if (s.manager && !s.ended) {
+      const g = groupOf(s)
+      if (!g.manager) { g.manager = agent(s, []); continue }
+    }
+    const held = mine(s)
+    if (s.ended) {
+      // Gone: shown only while it holds unfinished work, in the workspace of that work.
+      const open = held.find(a => a.node.state === 'running' || a.node.state === 'todo')
+      if (!open) continue
+      const i = intentOfUnit(open.unit)
+      group(i.workspace?.id ?? i.id, i.workspace?.label ?? i.title, i).workers.push(agent(s, held))
+      continue
+    }
+    if (!held.length) { own.push(agent(s, [])); continue }
+    groupOf(s).workers.push(agent(s, held))
+  }
+  // A question agent hangs under the worker whose task was asked about, else in its own workspace.
+  const workers = [...groups.values()].flatMap(g => g.workers)
+  for (const q of questions) {
+    const n = q.at!.node
+    const parent = workers.find(w => w.state !== 'gone' && (n.agentSession && w.s.session ? w.s.session === n.agentSession : w.s.agent === n.agent))
+    if (parent) parent.kids.push(q)
+    else groupOf(q.s).workers.push(q)
+  }
+  const rank = (a: TreeAgent) => (a.state === 'gone' ? 4 : a.closable ? 3 : { blocked: 0, working: 1, idle: 2 }[a.state])
+  const list = [...groups.values()]
+  for (const g of list) g.workers.sort((a, b) => rank(a) - rank(b) || a.s.agent.localeCompare(b.s.agent))
+  const busy = (g: TreeGroup) => (g.manager?.state === 'working' || g.workers.some(w => w.state === 'working') ? 0 : 1)
+  list.sort((a, b) => busy(a) - busy(b) || a.label.localeCompare(b.label))
+  return { groups: list, own: own.sort((a, b) => a.s.agent.localeCompare(b.s.agent)) }
+}
+
 export interface Attention {
   now: Working[]
   /** Gates the user has not passed yet: agents are stuck behind them. */
@@ -368,7 +483,7 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'far' | 'chore' | 'merge'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
@@ -401,7 +516,7 @@ export interface Inbox {
   decisions: InboxRow[]
   /** Commits that name no node, branches that grew beyond the plan. */
   gaps: InboxRow[]
-  /** Chores: they block nobody. */
+  /** Chores, and ready units of an intent with no manager that may be merged already: they block nobody. */
   later: InboxRow[]
 }
 
@@ -411,14 +526,21 @@ export const openFindings = (n: Task) =>
 
 export function inbox(ws: Workspace): Inbox {
   const box: Inbox = { blocking: [], machines: [], decisions: [], gaps: [], later: [] }
+  const stalled: InboxRow[] = []
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
       ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, far: [], since })
     const a = attention(unit)
     for (const n of a.gates) box.blocking.push(row('gate', unit, n, ms(n.since)))
+    // A worker that stopped without delivering, and a reminder did not help (or it is gone).
+    for (const n of unit.tasks.filter(n => n.stalled?.escalated)) stalled.push(row('stalled', unit, n, ms(n.stalled!.since)))
     for (const { review: n } of a.asked) box.decisions.push(row('decision', unit, n, ms(n.since), openFindings(n)[0].id))
     for (const n of a.loose) box.gaps.push(row('loose', unit, n, Math.min(...unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date)))))
     for (const o of a.out) box.gaps.push({ ...row('far', unit, o.root, o.since), far: o.far })
+    // Ready and maybe merged where git cannot see it (a squash), or ready for long: with no
+    // manager to tell, the user is the one to check.
+    if (!intent.manager && unit.progress === 'ready' && (unit.squash || unit.overdue))
+      box.later.push({ key: `merge:${unit.id}`, kind: 'merge', intent, unit, node: null, pick: null, chore: null, far: [], since: ms(unit.overdue) || ms(unit.commits.at(-1)?.date) || Date.now() })
   }
   for (const intent of ws.intents)
     for (const c of intent.chores.filter(c => c.state === 'open'))
@@ -437,7 +559,7 @@ export function inbox(ws: Workspace): Inbox {
     }
   }).sort(oldest)
   box.blocking.sort(oldest)
-  box.blocking.unshift(...waiting)
+  box.blocking.unshift(...waiting, ...stalled.sort(oldest))
   box.machines = (ws.alerts ?? [])
     .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, far: [], since: ms(a.since) }))
     .sort(oldest)
@@ -657,9 +779,11 @@ export interface Edits {
   chores: string[]
   /** Planned intents merged into another (as the service records it: dropped, with this reason). */
   merges: { into: string; from: string[]; title?: string }[]
+  /** Planned intents started in a runtime workspace, by intent. */
+  starts: Record<string, { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }>
 }
 
-export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [] }
+export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {} }
 
 const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
@@ -703,6 +827,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
     intents: ws.intents.map(i => ({
       ...i,
       ...(mergedInto(i) && { state: 'dropped' as const, reason: `merged into ${mergedInto(i)}` }),
+      ...(i.state === 'planned' && edits.starts[i.id] && { state: 'active' as const, workspace: { id: edits.starts[i.id].id, label: edits.starts[i.id].label }, manager: edits.starts[i.id].manager, managerState: edits.starts[i.id].managerState }),
       note: noteOf(i),
       title: titleOf(i),
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),
@@ -727,3 +852,138 @@ export function feed(ws: Workspace): FeedRow[] {
 /** Agents with uncommitted changes right now, and the files they are writing. */
 export const writingNow = (ws: Workspace) =>
   ws.intents.flatMap(intent => intent.units.flatMap(unit => working(unit).filter(w => w.files.length).map(w => ({ intent, unit, ...w }))))
+
+// ---- the commits as a git graph ----
+
+/** A unit's lane in one row: whether it goes on into the row above and the row below. */
+export interface GraphSeg {
+  lane: number
+  unit: Unit
+  /** line: on to a newer row of its unit; join: it merges into the base here. */
+  up: 'line' | 'join' | null
+  /** line: on to an older row; fork: it leaves the base here. */
+  down: 'line' | 'fork' | null
+  /** Dashed: what is not committed yet. */
+  upDash: boolean
+  downDash: boolean
+}
+export interface GraphRow {
+  unit: Unit
+  /** A commit, with its task (null: none found) … */
+  commit?: Commit
+  task: Task | null
+  /** … or an agent's uncommitted work. */
+  writing?: Working
+  /** The row's own lane (from 1; 0 is the base). */
+  lane: number
+  /** Every unit lane drawn in this row, its own included. */
+  segs: GraphSeg[]
+}
+export interface Graph {
+  repo: Repo | undefined
+  /** The base branch the units leave from (several, joined, when they differ). */
+  base: string
+  rows: GraphRow[]
+  lanes: number
+}
+
+/** Which of the lane colours (`--lane-0` … `--lane-5`) a unit's branch takes: from its id, so it stays put. */
+export const laneTone = (unit: string) => [...unit].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) % 997, 7) % 6
+
+/**
+ * Every unit's commits as `git log --graph` draws them, newest first, one graph per
+ * repository: the base as lane 0 (a plain line, labelled with its name: its own commits are not drawn), one
+ * lane per unit from its first commit, where it leaves the base, to its last, where a merged
+ * unit joins it again (at `merged` when known). Uncommitted work is on top, dashed. A lane is
+ * used again once the unit on it has ended, so the graph is as wide as the most units
+ * running side by side.
+ */
+export function commitGraph(ws: Workspace): Graph[] {
+  const live = writingNow(ws)
+  const repos = [...new Set(unitsOf(ws).filter(u => u.commits.length).map(u => u.repo))]
+  return repos.map(repo => {
+    const rows: GraphRow[] = [
+      ...live.filter(w => w.unit.repo === repo).map(w => ({ unit: w.unit, writing: { node: w.node, files: w.files }, task: w.node, lane: 0, segs: [] })),
+      ...feed(ws).filter(r => r.unit.repo === repo).map(r => ({ unit: r.unit, commit: r.commit, task: r.task, lane: 0, segs: [] })),
+    ]
+    const time = (r: GraphRow) => (r.writing ? Infinity : ms(r.commit!.date))
+    const spans = new Map<Unit, { top: number; bottom: number; join: boolean; dash: [number, number] | null }>()
+    rows.forEach((r, i) => {
+      const s = spans.get(r.unit)
+      if (s) s.bottom = i
+      else spans.set(r.unit, { top: i, bottom: i, join: false, dash: null })
+    })
+    for (const [u, s] of spans) {
+      s.join = u.status === 'merged' || u.progress === 'merged'
+      // Merged later than its last commit: its lane runs on up to where it was merged.
+      const at = ms(u.merged)
+      const k = s.join && Number.isFinite(at) ? rows.findIndex(r => time(r) <= at) : -1
+      if (k >= 0) s.top = Math.min(s.top, k)
+      // Uncommitted work is dashed down to the unit's newest commit (or to where it forks).
+      const w = rows.findIndex(r => r.unit === u && r.writing)
+      if (w >= 0) { const c = rows.findIndex((r, i) => i > w && r.unit === u && !r.writing); s.dash = [w, c < 0 ? s.bottom + 1 : c] }
+    }
+    // Lanes, first fit by where each unit starts (from the top): one ended frees its lane.
+    const lane = new Map<Unit, number>(), ends: number[] = []
+    for (const [u, s] of [...spans].sort((a, b) => a[1].top - b[1].top)) {
+      let k = ends.findIndex(e => e < s.top)
+      if (k < 0) k = ends.length
+      ends[k] = s.bottom
+      lane.set(u, k + 1)
+    }
+    rows.forEach((r, i) => {
+      r.lane = lane.get(r.unit)!
+      for (const [u, s] of spans) {
+        if (i < s.top || i > s.bottom) continue
+        const d = s.dash
+        r.segs.push({
+          lane: lane.get(u)!, unit: u,
+          up: i > s.top ? 'line' : s.join ? 'join' : null,
+          down: i < s.bottom ? 'line' : 'fork',
+          upDash: !!d && i > d[0] && i <= d[1],
+          downDash: !!d && i >= d[0] && i < d[1],
+        })
+      }
+    })
+    const base = [...new Set(unitsOf(ws).filter(u => u.repo === repo && u.base).map(u => u.base!))].join(', ')
+    return { repo: ws.repos.find(x => x.path === repo), base, rows, lanes: ends.length }
+  })
+}
+
+// ---- quiet: nothing has moved for a while ----
+
+/** No movement for this long is quiet. ponytail: fixed at 3 days; a setting if users ask. */
+export const QUIET = 3 * 864e5
+
+const finished = (u: Unit) => u.progress === 'merged' || u.progress === 'done' || u.status === 'merged'
+/** Work running with its agent at it. */
+const busy = (u: Unit) => u.tasks.some(n => n.state === 'running' && !n.stalled)
+
+/** When a unit last moved (a task started, delivered or dropped, a gate opened, a finding decided, a commit, its merge); NaN: never. */
+export function lastMove(u: Unit): number {
+  const times = [
+    ...u.tasks.flatMap(n => [ms(n.started), ms(n.delivered), ms(n.dropped?.at), n.kind === 'gate' ? ms(n.since) : NaN, ms(n.stalled?.since), ...findingsOf(n).map(f => ms(f.decided))]),
+    ...u.commits.filter(c => !c.live).map(c => ms(c.date)),
+    ms(u.merged),
+  ].filter(Number.isFinite)
+  return times.length ? Math.max(...times) : NaN
+}
+
+const quiet = (last: number, now: number) => (Number.isFinite(last) && now - last > QUIET ? last : null)
+
+/**
+ * Since when a unit has not moved, in milliseconds; null when it is not quiet: merged or
+ * done, work running with an agent at it, never moved, or moved within `QUIET`.
+ */
+export function quietSince(u: Unit, now = Date.now()): number | null {
+  return finished(u) || busy(u) ? null : quiet(lastMove(u), now)
+}
+
+/**
+ * An active intent where nothing moved for `QUIET`, in any of its units or its own tasks
+ * (its intent-level unit): since the latest movement. Units that never moved do not count.
+ */
+export function intentQuietSince(i: Intent, now = Date.now()): number | null {
+  if ((i.state ?? 'active') !== 'active' || i.units.some(busy)) return null
+  return quiet(Math.max(-Infinity, ...i.units.map(lastMove).filter(Number.isFinite)), now)
+}

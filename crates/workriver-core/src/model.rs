@@ -25,6 +25,23 @@ pub enum TaskKind {
     Research,
 }
 
+/// What a unit holds: code on a branch of its own, or research and design with no branch.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UnitKind {
+    #[default]
+    Code,
+    /// Research and design for the intent: no repository of its own, no branch, never merged;
+    /// closed with `unit.done`.
+    Research,
+}
+
+impl UnitKind {
+    pub fn is_code(&self) -> bool {
+        *self == UnitKind::Code
+    }
+}
+
 /// Where an intent is: in the backlog, being worked on, finished, or given up.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -135,6 +152,15 @@ pub enum TaskState {
     /// Gates only: the user has not done it yet.
     Waiting,
     Done,
+    /// No longer needed (`task.dropped`); kept, never deleted. See `Task::dropped`.
+    Dropped,
+}
+
+impl TaskState {
+    /// Done or dropped: nothing more comes of it, and nothing waits on it.
+    pub fn over(self) -> bool {
+        matches!(self, TaskState::Done | TaskState::Dropped)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -324,7 +350,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | CommandRan { .. }
         )
     }
 }
@@ -451,14 +477,23 @@ pub enum ReasonCode {
     Timeout,
     /// The service restarted while waiting.
     Restarted,
+    /// The agent waited for a person in its terminal (a permission or first-run prompt) the
+    /// whole time: the message never reached it.
+    Blocked,
+    /// A new agent never became ready to take its first message.
+    NotReady,
 }
 
-/// What a question is about besides its task: a finding, a file, or lines of a file.
+/// What a question is about besides its task: a finding, a file, lines of a file, or one of
+/// the task's attachments.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct AskContext {
-    /// "task", "finding", "file" or "lines".
+    /// "task", "finding", "file", "lines" or "attachment".
     pub kind: String,
     pub label: String,
+    /// attachment: its id in the store (one shown with the task, see `State::attachments_of`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -609,6 +644,9 @@ pub enum Body {
         /// Who decides its findings from now on; the user's alone to set.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         findings: Option<FindingsPolicy>,
+        /// A paragraph added at the end of its note (a blank line before it).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        add_note: Option<String>,
     },
     /// A unit's repository is somewhere else than recorded: another machine, path or branch.
     #[serde(rename = "unit.relocated")]
@@ -658,13 +696,20 @@ pub enum Body {
         title: String,
         #[serde(default)]
         purpose: String,
-        /// Absolute path of the repository (or a worktree of it).
+        /// Absolute path of the repository (or a worktree of it). A research unit: its
+        /// intent's project folder, filled in here (may be empty).
+        #[serde(default)]
         repo: String,
+        /// Empty for a research unit, as is `base`.
+        #[serde(default)]
         branch: String,
+        #[serde(default)]
         base: String,
         /// The machine the repository is on; none: this one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
+        #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+        kind: UnitKind,
     },
     /// Finished without a merge.
     #[serde(rename = "unit.done")]
@@ -703,6 +748,10 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<String>,
     },
+    /// A task no longer needed (a gate asked again, a plan changed): kept, never deleted;
+    /// what follows it no longer waits on it.
+    #[serde(rename = "task.dropped")]
+    TaskDropped { unit: String, task: u32, reason: String },
     /// A correction to a delivered task: what is given replaces what was delivered.
     #[serde(rename = "task.amended")]
     TaskAmended {
@@ -777,6 +826,25 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         finding: Option<String>,
     },
+    /// The user ran a command in a shell of their own, from the page, after confirming its
+    /// exact text: what, where, and who wrote it. Recorded before it runs; never its output.
+    #[serde(rename = "command.ran")]
+    CommandRan {
+        id: String,
+        command: String,
+        dir: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+        /// The unit whose work tree it ran in, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        /// Who wrote it (an agent's session, or "user").
+        #[serde(default)]
+        by: String,
+    },
+    /// Such a command ended, with its exit status, as workriver saw it end.
+    #[serde(rename = "command.ended")]
+    CommandEnded { id: String, exit: i32 },
     /// Where a message is: about a task (a decision when `finding` is set, a gate result, a
     /// delivered task, a gate asked for), or about a chore (`chore` set; then no unit/task).
     #[serde(rename = "delivery.updated")]
@@ -792,7 +860,8 @@ pub enum Body {
         #[serde(flatten)]
         delivery: Delivery,
     },
-    /// The user asks why about a task; a temporary agent answers.
+    /// The user asks why about a task, or (task 0, the user only) about a unit itself; a
+    /// temporary agent answers.
     #[serde(rename = "question.asked")]
     QuestionAsked {
         #[serde(default)]
@@ -801,6 +870,8 @@ pub enum Body {
         #[serde(default)]
         thread: String,
         unit: String,
+        /// 0: about the unit, not one of its tasks.
+        #[serde(default)]
         task: u32,
         text: String,
         #[serde(default)]
@@ -853,6 +924,35 @@ pub enum Body {
     },
     #[serde(rename = "chore.done")]
     ChoreDone { chore: String },
+    /// The user writes to a workspace's manager from the page; workriver types it into the
+    /// manager's terminal. Given an intent (its workspace's manager) or a workspace's label;
+    /// the rest is filled in here.
+    #[serde(rename = "message.sent")]
+    MessageSent {
+        #[serde(default)]
+        id: String,
+        /// The intent it is about, if any.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        intent: String,
+        /// The workspace (runtime group) whose manager it goes to, by label.
+        #[serde(default)]
+        workspace: String,
+        /// That manager's session.
+        #[serde(default)]
+        manager: String,
+        text: String,
+    },
+    /// Where the user's message to a manager is; workriver's alone to record.
+    #[serde(rename = "message.delivery")]
+    MessageDelivery {
+        /// The message's id (its text as typed is the delivery's `message`).
+        id: String,
+        #[serde(flatten)]
+        delivery: Delivery,
+    },
+    /// The manager the message went to answers it (`workriver reply`); it may answer more than once.
+    #[serde(rename = "message.replied")]
+    MessageReplied { message: String, text: String },
 }
 
 impl Body {
@@ -864,6 +964,9 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
+            MessageDelivery { .. } | MessageReplied { .. } => (None, None, None),
+            MessageSent { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
+            QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } => (intent.clone(), None, None),
             IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
@@ -878,6 +981,7 @@ impl Body {
             TaskCreated(t) => ((!t.intent.is_empty()).then(|| t.intent.clone()), Some(t.unit.clone()), task(&t.unit, t.n)),
             TaskStarted { unit, task: n, .. }
             | TaskDelivered { unit, task: n, .. }
+            | TaskDropped { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }
             | FindingNoted { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
@@ -886,6 +990,8 @@ impl Body {
             ChoreCreated { intent, unit, .. } => ((!intent.is_empty()).then(|| intent.clone()), unit.clone(), None),
             ChoreDone { .. } => (None, None, None),
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
+            CommandRan { unit, .. } => (None, unit.clone(), None),
+            CommandEnded { .. } => (None, None, None),
         }
     }
 }
@@ -926,6 +1032,9 @@ pub struct State {
     pub backlog: Vec<BacklogFinding>,
     #[serde(default)]
     pub links: Vec<Link>,
+    /// The user's messages to managers, with their replies.
+    #[serde(default)]
+    pub messages: Vec<Message>,
     /// Not the records but a part of them: what an agent on a blind task may see.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reduced: bool,
@@ -943,7 +1052,30 @@ pub struct Attachment {
     pub at: String,
 }
 
-/// A conversation about a task: its questions share one temporary agent while it lives.
+/// The user's message to a workspace's manager, and what it answered.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Message {
+    pub id: String,
+    pub intent: String,
+    pub workspace: String,
+    /// The manager's session it went to: only that one replies.
+    pub manager: String,
+    pub text: String,
+    pub at: String,
+    pub delivery: Option<Delivery>,
+    #[serde(default)]
+    pub replies: Vec<Reply>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Reply {
+    pub by: String,
+    pub text: String,
+    pub at: String,
+}
+
+/// A conversation about a task (or, task 0, its unit): its questions share one temporary
+/// agent while it lives.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Thread {
     pub id: String,
@@ -956,7 +1088,7 @@ pub struct Thread {
     pub conclusion: Option<String>,
 }
 
-/// A question about a task and how it fared.
+/// A question about a task (task 0: its unit) and how it fared.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Question {
     pub id: String,
@@ -977,6 +1109,8 @@ pub struct Question {
     #[serde(default = "yes")]
     pub temporary: bool,
     pub answer: Option<String>,
+    #[serde(default)]
+    pub answered_at: Option<String>,
     pub asked: Option<String>,
     pub answered_by: Option<String>,
     pub failed: Option<(ReasonCode, String)>,
@@ -1069,9 +1203,19 @@ pub struct Unit {
     /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done: Option<Closed>,
+    #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+    pub kind: UnitKind,
 }
 
-/// A unit closed by hand.
+impl Unit {
+    /// Code on a branch: what git is read for. A research unit and an intent's own work
+    /// (seen as a unit) have none.
+    pub fn has_code(&self) -> bool {
+        self.kind.is_code() && !self.branch.is_empty()
+    }
+}
+
+/// A unit closed by hand, or a task dropped.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Closed {
     pub at: String,
@@ -1138,6 +1282,9 @@ pub struct Task {
     /// Stored attachments of its output (a gate's note, a task's screenshots).
     #[serde(default)]
     pub attachments: Vec<String>,
+    /// Dropped as no longer needed: when, by whom, why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<Closed>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1279,6 +1426,7 @@ impl State {
             earlier: vec![],
             links: vec![],
             done: None,
+            kind: UnitKind::Code,
         })
     }
 
@@ -1307,10 +1455,31 @@ impl State {
         self.workspace_at(r).map(|k| &self.workspaces[k])
     }
 
+    /// The stored attachments shown with a task: its output's, its checks', its findings' and
+    /// those added to them later, then those of the findings it answers, unless it is blind
+    /// and not delivered (its agent is told nothing of other work). Empty for no such task.
+    pub fn attachments_of(&self, unit: &str, n: u32) -> Vec<&str> {
+        let Ok(t) = self.task(unit, n) else { return vec![] };
+        fn of<'a>(fs: &'a [Finding], ids: Option<&[String]>) -> Vec<&'a String> {
+            let fs = fs.iter().filter(|f| ids.is_none_or(|ids| ids.contains(&f.found.id)));
+            fs.flat_map(|f| f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))).collect()
+        }
+        let mut out: Vec<&String> = t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(of(&t.findings, None)).collect();
+        if !(t.blind && !t.state.over()) {
+            for c in &t.causes {
+                if let Ok(by) = self.task(c.unit.as_deref().unwrap_or(unit), c.task) {
+                    out.extend(of(&by.findings, Some(&c.findings)));
+                }
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
+    }
+
     /// The blind tasks an agent is on: assigned to it or started by it, not delivered yet.
     pub fn blind_tasks(&self, session: &str) -> Vec<(String, u32)> {
         let name = self.name_of(session);
-        let mine = |t: &&Task| t.blind && t.state != TaskState::Done && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
+        let mine = |t: &&Task| t.blind && !t.state.over() && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
         let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(mine).map(|t| (u.id.clone(), t.n)));
         units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(mine).map(|t| (i.id.clone(), t.n)))).collect()
     }
@@ -1401,7 +1570,8 @@ impl State {
         if u.merged.is_some() {
             return Progress::Merged;
         }
-        let answered = |t: &Task, f: &Finding| !self.follow_ups(&u.id, t.n, &f.found.id).is_empty();
+        // Dropped work answers nothing: the finding waits for work again.
+        let answered = |t: &Task, f: &Finding| self.follow_ups(&u.id, t.n, &f.found.id).iter().any(|(_, x)| x.state != TaskState::Dropped);
         let waits = u.tasks.iter().any(|t| {
             t.state == TaskState::Waiting
                 || t.findings.iter().any(|f| f.state == FindingState::Open || (matches!(f.state, FindingState::Accepted | FindingState::Revised) && !answered(t, f)))
@@ -1413,6 +1583,16 @@ impl State {
         } else {
             Progress::Ready
         }
+    }
+
+    /// Since when a ready unit has been ready: the last time one of its tasks was delivered,
+    /// submitted, corrected or dropped, or one of their findings decided. None unless ready.
+    pub fn ready_since(&self, u: &Unit) -> Option<String> {
+        if self.progress(u) != Progress::Ready {
+            return None;
+        }
+        let times = u.tasks.iter().flat_map(|t| t.done.iter().chain(&t.amended).chain(t.dropped.as_ref().map(|d| &d.at)).chain(t.findings.iter().flat_map(|f| f.decisions.iter().map(|d| &d.at))));
+        times.max().cloned()
     }
 
     /// Whether every unit of `intent` is merged or done (and it has one).
@@ -1681,7 +1861,7 @@ impl State {
                 }
                 AgentSeen { session, name, harness }
             }
-            IntentUpdated { intent, title, goal, findings } => {
+            IntentUpdated { intent, title, goal, findings, add_note } => {
                 self.intent(&intent)?;
                 if !user && self.manager_of(&intent) != Some(actor) {
                     return no(format!("only the user or the manager of intent {intent} may change it"));
@@ -1693,13 +1873,19 @@ impl State {
                 if title.as_deref().is_some_and(blank) {
                     return no("an intent needs a title");
                 }
-                if title.is_none() && goal.is_none() && findings.is_none() {
-                    return no("nothing to change: give a title, a goal or --findings");
+                if add_note.as_deref().is_some_and(blank) {
+                    return no("the note to add is empty: --add-note \"...\"");
                 }
-                IntentUpdated { intent, title, goal, findings }
+                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() {
+                    return no("nothing to change: give a title, a goal, --add-note or --findings");
+                }
+                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()) }
             }
             UnitRelocated { unit, machine, repo, branch, base, previous } => {
                 let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it has no repository or branch to move"));
+                }
                 if u.merged.is_some() {
                     return no(format!("unit {unit} is merged; its place no longer matters"));
                 }
@@ -1722,6 +1908,9 @@ impl State {
             }
             CommitLinked { unit, hash, patch_id, subject, date, task } => {
                 let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it has no branch, so no commits to link"));
+                }
                 let t = match u.tasks.iter().find(|t| t.n == task) {
                     Some(t) => t,
                     None => return no(format!("no task {unit}#{task}")),
@@ -1765,10 +1954,23 @@ impl State {
                 };
                 ManagerRegistered { intent, agent, workspace }
             }
-            UnitCreated { intent, title, purpose, repo, branch, base, machine, .. } => {
+            UnitCreated { intent, title, purpose, repo, branch, base, machine, kind, .. } => {
                 let i = self.intent(&intent)?;
                 if matches!(i.state, IntentState::Done | IntentState::Dropped) {
                     return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
+                }
+                let id = format!("u{}", self.units.len() + 1);
+                // Research and design: no repository, branch or machine of its own; it reads
+                // in its intent's project folder.
+                if kind == UnitKind::Research {
+                    if blank(&title) {
+                        return no("a unit needs a title");
+                    }
+                    if !blank(&branch) || !blank(&base) || !blank(&repo) || machine.is_some() {
+                        return no("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
+                    }
+                    let folder = self.projects.iter().find(|p| p.id == i.project).map_or(&i.project, |p| &p.path).clone();
+                    return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind });
                 }
                 for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
                     if blank(v) {
@@ -1777,11 +1979,14 @@ impl State {
                 }
                 unit_branch(&branch, &base, true)?;
                 self.may_place(who, &intent, machine.as_deref())?;
-                let id = format!("u{}", self.units.len() + 1);
-                UnitCreated { id, intent, title, purpose, repo, branch, base, machine }
+                UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
             }
             UnitMerged { unit, commits } => {
-                if self.unit(&unit)?.merged.is_some() {
+                let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it is never merged; close it with `workriver unit done {unit} --reason \"...\"`"));
+                }
+                if u.merged.is_some() {
                     return no(format!("unit {unit} is already merged"));
                 }
                 UnitMerged { unit, commits }
@@ -1800,6 +2005,7 @@ impl State {
             TaskCreated(t) => TaskCreated(self.prepare_task(t)?),
             TaskStarted { unit, task, agent } => {
                 let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: only the user does it, with gate submit"));
                 }
@@ -1810,6 +2016,7 @@ impl State {
             }
             TaskDelivered { unit, task, note, evidence, findings, attachments } => {
                 let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate {
                     return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
                 }
@@ -1825,6 +2032,22 @@ impl State {
                     return no("a research task delivers what it found: a --note, and its report attached (workriver attach --dir)");
                 }
                 TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
+            }
+            TaskDropped { unit, task, reason } => {
+                let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
+                if t.state == TaskState::Done {
+                    return no(format!("{unit}#{task} is done; only work not done yet is dropped"));
+                }
+                if blank(&reason) {
+                    return no("dropping a task needs a reason: --reason \"...\" (e.g. superseded by u1#17)");
+                }
+                // The manager re-plans; a worker takes back only what it asked for itself.
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager && t.by != actor {
+                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed"));
+                }
+                TaskDropped { unit, task, reason }
             }
             TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
                 let t = self.task(&unit, task)?;
@@ -1911,6 +2134,7 @@ impl State {
             GateSubmitted { unit, task, result, note, findings, attachments } => {
                 self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
                 let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate && t.state == TaskState::Todo {
                     return no(format!("gate {unit}#{task} is not open yet: it follows {}, not done yet", self.unfinished_inputs(&unit, t).join(", ")));
                 }
@@ -1945,6 +2169,21 @@ impl State {
                     _ => return no("an attachment is linked to a task (unit and number), or to nothing"),
                 }
                 AttachmentAdded { id, name, mime, size, unit, task, finding }
+            }
+            CommandRan { id, command, dir, machine, unit, by } => {
+                if blank(&id) || blank(&command) || blank(&dir) {
+                    return no("a command run needs its id, its text and its directory");
+                }
+                if let Some(u) = &unit {
+                    self.unit(u)?;
+                }
+                CommandRan { id, command, dir, machine, unit, by }
+            }
+            CommandEnded { id, exit } => {
+                if *who != Principal::Service {
+                    return no("only workriver records how a command ended");
+                }
+                CommandEnded { id, exit }
             }
             DeliveryUpdated { unit, task, finding, chore, delivery } => {
                 if let Some(c) = &chore {
@@ -1981,16 +2220,36 @@ impl State {
                 ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, project, unit, title, steps }
             }
             QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
-                let about = self.task(&unit, task)?;
+                // Task 0 is the unit itself: the user's to ask about; an agent asks about a task.
+                let about = match task {
+                    0 if !user => return no("a question is about a task: workriver ask <unit>#<n> \"...\""),
+                    0 => {
+                        self.unit(&unit)?;
+                        None
+                    }
+                    n => Some(self.task(&unit, n)?),
+                };
                 // Blind work neither asks nor is asked by other agents: both would tell it things.
                 if !self.blind_tasks(actor).is_empty() {
                     return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead");
                 }
-                if about.blind && about.state != TaskState::Done && !user {
+                if about.is_some_and(|t| t.blind && !t.state.over()) && !user {
                     return no(format!("{unit}#{task} is a blind task in progress: its agent is not to be told about other work. Ask once it is delivered"));
                 }
                 if blank(&text) {
                     return no("a question needs its text");
+                }
+                // An attachment it points at is one shown with that task (with the unit: with one
+                // of its tasks): the temporary agent is given its path, so nothing else gets out.
+                let shown: Vec<&str> = match about {
+                    Some(_) => self.attachments_of(&unit, task),
+                    None => self.unit(&unit)?.tasks.iter().flat_map(|t| self.attachments_of(&unit, t.n)).collect(),
+                };
+                for c in context.iter().filter(|c| c.kind == "attachment") {
+                    let a = c.id.as_deref().unwrap_or_default();
+                    if !shown.contains(&a) {
+                        return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a question points only at what is shown with its task"));
+                    }
                 }
                 let id = format!("q{}", self.questions.len() + 1);
                 let thread = if thread.is_empty() {
@@ -2055,7 +2314,50 @@ impl State {
                 Some(c) if c.done => return no(format!("chore {chore} is already done")),
                 Some(_) => ChoreDone { chore },
             },
+            MessageSent { intent, workspace, text, .. } => {
+                if blank(&text) {
+                    return no("a message needs its text");
+                }
+                // To the manager of the intent's workspace, or of the workspace named (here).
+                let (workspace, manager) = if intent.is_empty() {
+                    let w = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == workspace);
+                    (workspace, w.and_then(|w| w.manager.clone()))
+                } else {
+                    let i = self.intent(&intent)?;
+                    let label = i.workspace.as_ref().map(|g| self.workspace_of(g).map_or(&g.label, |w| &w.group.label).clone()).unwrap_or_default();
+                    (label, self.manager_of(&intent).map(str::to_string))
+                };
+                let Some(manager) = manager else {
+                    return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
+                };
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text }
+            }
+            MessageDelivery { id, delivery } => {
+                if *who != Principal::Service {
+                    return no("only workriver records where a message is");
+                }
+                self.message(&id)?;
+                MessageDelivery { id, delivery }
+            }
+            MessageReplied { message, text } => {
+                let m = self.message(&message)?;
+                // Only the manager it was typed to: nobody else answers for it, the user included.
+                if m.manager != actor {
+                    return no(format!("message {message} went to {}; only that manager replies to it", self.name_of(&m.manager).unwrap_or(&m.manager)));
+                }
+                if blank(&text) {
+                    return no("a reply needs its text");
+                }
+                MessageReplied { message, text }
+            }
         })
+    }
+
+    pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
+        match self.messages.iter().find(|m| m.id == id) {
+            Some(m) => Ok(m),
+            None => no(format!("no message {id}")),
+        }
     }
 
     fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
@@ -2064,13 +2366,18 @@ impl State {
             if u.merged.is_some() {
                 return no(format!("unit {} is merged; record new work in a new unit", u.id));
             }
+            if !u.kind.is_code() && matches!(t.kind, TaskKind::Implement | TaskKind::Tests) {
+                return no(format!("{} is a research unit: it takes research, design, review and gate tasks; implement and tests tasks belong to a unit with a branch", u.id));
+            }
             (u.id.clone(), u.intent.clone(), u.tasks.len())
         } else {
-            let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit or intent {}", t.unit)))?;
-            if matches!(t.kind, TaskKind::Implement | TaskKind::Tests) {
-                return no(format!("implement and tests tasks belong to a unit; {} takes research, design, review and gate tasks", i.id));
-            }
-            (i.id.clone(), i.id.clone(), i.tasks.len())
+            // Before 2026-11-17 research and design went into the intent itself (`i3#1`); those
+            // tasks still replay and work, but new ones go into a research unit.
+            let i = self.intent(&t.unit).map_err(|_| Rejected(format!("no unit {}", t.unit)))?;
+            return no(format!(
+                "{} is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add {} --kind research --title \"...\", then workriver task add u<N> ...",
+                i.id, i.id
+            ));
         };
         if let Some(i) = self.intents.iter().find(|i| i.id == intent)
             && matches!(i.state, IntentState::Done | IntentState::Dropped)
@@ -2130,6 +2437,11 @@ impl State {
         // Inputs default to the causes in the same unit (the first one primary), or to the start.
         if t.inputs.is_empty() {
             t.inputs = t.causes.iter().filter(|c| c.unit.is_none() && c.task != 0).enumerate().map(|(k, c)| Input { from: c.task.to_string(), primary: k == 0 }).collect();
+        }
+        // The first task starts at the start; a later one must say what it follows, else it
+        // would hang off the start beside the first, away from the work it continues.
+        if t.inputs.is_empty() && count > 0 {
+            return no(format!("{owner} already has tasks: say which one this follows with --after <n> (the latest is #{count}), or --after start to run beside the first"));
         }
         if t.inputs.is_empty() {
             t.inputs.push(Input { from: "start".into(), primary: true });
@@ -2286,8 +2598,12 @@ impl State {
                     f.reason = Some(reason.clone());
                 }
             }
-            IntentUpdated { intent, title, goal, findings } => {
+            IntentUpdated { intent, title, goal, findings, add_note } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    if let Some(n) = add_note {
+                        let own = i.note.trim_end();
+                        i.note = if own.is_empty() { n.clone() } else { format!("{own}\n\n{n}") };
+                    }
                     if let Some(t) = title {
                         i.title = t.clone();
                     }
@@ -2352,7 +2668,8 @@ impl State {
                     self.workspace_mut(&g).manager = Some(agent.clone());
                 }
             }
-            UnitCreated { id, intent, title, purpose, repo, branch, base, machine } => self.units.push(Unit {
+            UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind } => self.units.push(Unit {
+                kind: *kind,
                 machine: machine.clone(),
                 id: id.clone(),
                 intent: intent.clone(),
@@ -2416,6 +2733,7 @@ impl State {
                         amended: None,
                         waiting_since: None,
                         attachments: vec![],
+                        dropped: None,
                     })
                 }
             }
@@ -2470,6 +2788,12 @@ impl State {
                     f.decisions.push(Decided { state: f.state, by: *by, agent: agent_of(&e.actor), note: note.clone(), at: at.clone() });
                 }
             }
+            TaskDropped { unit, task, reason } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Dropped;
+                    t.dropped = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
+                }
+            }
             GateSubmitted { unit, task, result, note, findings, attachments } => {
                 if let Some(t) = self.task_mut(unit, *task) {
                     t.state = TaskState::Done;
@@ -2496,6 +2820,8 @@ impl State {
                     }
                 }
             }
+            // In the record only: what ran is read from the events, nothing on the page keeps it.
+            CommandRan { .. } | CommandEnded { .. } => {}
             DeliveryUpdated { chore: Some(c), delivery, .. } => {
                 if let Some(x) = self.chores.iter_mut().find(|x| &x.id == c) {
                     x.delivery = Some(delivery.clone());
@@ -2567,6 +2893,7 @@ impl State {
                 agent: None,
                 name: None,
                 answer: None,
+                answered_at: None,
                 asked: None,
                 answered_by: None,
                 failed: None,
@@ -2589,6 +2916,7 @@ impl State {
             QuestionAnswered { question, text, asked, conclusion } => {
                 if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
                     q.answer = Some(text.clone());
+                    q.answered_at = Some(at.clone());
                     q.asked = asked.clone();
                     q.answered_by = Some(e.actor.clone());
                     if *conclusion && let Some(t) = self.threads.iter_mut().find(|t| t.id == q.thread) {
@@ -2611,16 +2939,37 @@ impl State {
                     c.done = true;
                 }
             }
+            MessageSent { id, intent, workspace, manager, text } => self.messages.push(Message {
+                id: id.clone(),
+                intent: intent.clone(),
+                workspace: workspace.clone(),
+                manager: manager.clone(),
+                text: text.clone(),
+                at: at.clone(),
+                delivery: None,
+                replies: vec![],
+            }),
+            MessageDelivery { id, delivery } => {
+                if let Some(m) = self.messages.iter_mut().find(|m| &m.id == id) {
+                    m.delivery = Some(delivery.clone());
+                }
+            }
+            MessageReplied { message, text } => {
+                if let Some(m) = self.messages.iter_mut().find(|m| &m.id == message) {
+                    m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone() });
+                }
+            }
         }
         self.open_gates(at);
     }
 
-    /// The tasks a task follows that are not done yet (`start` is always done).
+    /// The tasks a task follows that are not done yet (`start` is always done; a dropped
+    /// task holds nothing up).
     pub fn unfinished_inputs(&self, owner: &str, t: &Task) -> Vec<String> {
         t.inputs
             .iter()
             .filter(|i| i.from != "start")
-            .filter(|i| i.from.parse().ok().and_then(|n| self.task(owner, n).ok()).is_none_or(|x| x.state != TaskState::Done))
+            .filter(|i| i.from.parse().ok().and_then(|n| self.task(owner, n).ok()).is_none_or(|x| !x.state.over()))
             .map(|i| format!("{owner}#{}", i.from))
             .collect()
     }
@@ -2689,6 +3038,14 @@ fn unit_branch(branch: &str, base: &str, named: bool) -> Result<(), Rejected> {
         return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest); {branch} does not: name it so, e.g. --branch feat/{}", branch.rsplit('/').next().unwrap_or(branch)));
     }
     Ok(())
+}
+
+/// A dropped task is no longer worked on: refused, saying why it was dropped.
+fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
+    match &t.dropped {
+        Some(d) => no(format!("{unit}#{} was dropped as no longer needed ({}); it is not started, delivered or submitted any more", t.n, d.reason)),
+        None => Ok(()),
+    }
 }
 
 /// What a delivery or its correction may carry.

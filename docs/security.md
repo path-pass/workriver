@@ -32,10 +32,12 @@ decisions into their terminals, so the question it must answer is: **was that re
 ## What only you can do
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
-drop them, end a conversation, focus a terminal from the page, add projects, add or enable
-machines, link workspaces, read the machines' CPU and memory or set when they alert
-(`/api/metrics`, `/api/metrics/thresholds`: not even an agent of this machine may, and
-another machine's listener does not serve them). The service asks for the token or session on those routes, and
+drop them, end a conversation, focus a terminal from the page, start a planned intent in a
+workspace from the page (`/api/intent/start`), run a command (below), add projects, add or
+enable machines, link workspaces, set when the machines alert (`/api/metrics/thresholds`).
+Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
+`workriver machine load`) the user and an agent of this machine may; an agent on another
+machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
 
@@ -47,6 +49,35 @@ mark, never told to anyone as yours, and you can change any of them, which the m
 told. To decide everything yourself for an intent, set "Findings: Manual"
 (`workriver intent set <intent> --findings user`). There is no rule by severity: a
 finding's severity is its reviewer's own rating, not a control.
+
+## Running a command as you
+
+Some steps an agent may not take itself (on a work machine a hook blocks agents from
+pushing); the manager makes them a gate step with the command, and the page can run it for
+you. That is the most powerful thing the page does, so:
+
+- **Only you.** The routes (`/api/run/prepare`, `/api/run`, reading a run and focusing its
+  terminal) ask for your token or session, refuse a caller whose pane holds an agent, and
+  are not served on another machine's listener. An agent cannot run anything this way, even
+  with the token in reach.
+- **Only what you confirmed.** Preparing a run runs nothing: the service works out the
+  directory (the unit's work tree, or a project's folder; never a path the page sends) and
+  the machine, and who wrote the command, and the page shows them with the exact text. The
+  run then goes only with that preparation's id **and** the same text, once, within ten
+  minutes; any other text is refused and nothing runs. A command is one line without control
+  characters. Why the confirmation: the text was written by an agent, which may have been
+  misled by what it read (prompt injection) or be simply wrong, and it runs with your
+  credentials; you are the check. The dialog says "written by agent X: read it before you run
+  it" and flags obviously destructive commands (`rm -rf`, `push --force`, `reset --hard`,
+  `clean -fd`…) in red – a heuristic, not a guard.
+- **Your shell, nothing more.** It is typed into a new plain shell of yours (no agent) in a
+  Herdr workspace named "workriver-commands" on the unit's machine, so your credentials, hooks and
+  checks apply exactly as when you type it there; workriver adds none of its own and removes
+  none. A remote machine's command runs in that machine's Herdr, as you are there.
+- **In the record.** Each run is an event, `command.ran` (id, command, directory, machine,
+  unit, who wrote it), recorded as yours, and `command.ended` (its exit status) once the
+  service sees it end; never the output, which may hold secrets. The output is shown to you
+  live and kept only in memory.
 
 ## What agents are told
 

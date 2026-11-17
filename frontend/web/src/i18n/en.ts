@@ -20,6 +20,8 @@ export const en = {
     clearSearch: 'Clear search',
     none: 'No units recorded yet.',
     noUnits: 'No units yet',
+    quiet: 'quiet {{time}}',
+    quietSince: 'Nothing has moved since {{date}}',
     project: 'Project',
     allProjects: 'All projects',
     active: 'Active',
@@ -34,6 +36,7 @@ export const en = {
     drag: 'Drag to reorder',
     start: 'Start',
     intentWork: 'Research and design',
+    foldGroup: 'Show or hide the units of {{title}}',
     failed: 'Not saved: {{error}}',
     mergeOpen: 'Merge…',
     mergeTitle: 'Merge planned intents',
@@ -57,9 +60,25 @@ export const en = {
     of: 'Manager {{name}}: {{state}}',
     state: { working: 'working', idle: 'idle', done: 'idle', blocked: 'blocked', unknown: 'unknown', gone: 'not running', none: 'no manager' }
   },
+  intent: {
+    state: { planned: 'Planned', active: 'Active', done: 'Done', dropped: 'Dropped' },
+    dropped: 'Dropped: {{reason}}',
+    note: 'Note',
+    where: 'Where it runs',
+    workspace: 'Workspace',
+    manager: 'Manager',
+    notStarted: 'Not started yet: it is in the roadmap.',
+    talk: 'Write to the manager',
+    units: 'Units',
+    moved: 'moved {{time}} ago',
+    neverMoved: 'nothing yet',
+    earlier: 'Earlier research and design',
+    earlierHint: 'Recorded on the intent itself, before research and design became units of their own.'
+  },
   start: {
     title: 'Start here',
     lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
+    leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
     agent: 'In a Herdr workspace, start a coding agent to be its manager.',
     skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
     register: 'Have it register as the manager of the workspace:',
@@ -84,15 +103,33 @@ export const en = {
     theme: 'Theme',
     themes: { system: 'System', light: 'Light', dark: 'Dark' },
     notify: 'Notify me when an agent or a machine needs me',
-    notifyDenied: 'The browser does not allow notifications for this page.'
+    notifyDenied: 'The browser does not allow notifications for this page.',
+    stall: {
+      title: 'Stopped workers',
+      sentence: 'Remind an agent idle on a running task after <minutes/> min; still idle half that again later, tell its manager and show it here.',
+      minutes: 'Minutes an agent may be idle on a running task',
+      failed: 'Could not save: {{error}}'
+    }
   },
   alerts: {
     title: 'Machine alerts',
-    lead: 'For this machine and every machine you follow. A value alerts once it stays at or above its threshold the whole time, and clears after a minute below.',
+    lead: 'For this machine and every machine you follow, each where its system has the value. A warning shows amber, critical red. A level rises once the value stays past it the whole time (or at once where it says so), and clears after a minute back.',
     on: 'Alert on {{metric}}',
     percent: '{{metric}} threshold, in percent',
     minutes: '{{metric}}: how long, in minutes',
+    warn: '{{metric}}: warning threshold',
+    crit: '{{metric}}: critical threshold',
+    warnFree: '{{metric}}: warning, GB free',
+    critFree: '{{metric}}: critical, GB free',
+    group: { all: 'Every machine', mac: 'macOS', linux: 'Linux' },
     threshold: '≥ <percent/> % for <minutes/> min',
+    overPercent: 'warn over <warn/> %, critical over <crit/> %, for <minutes/> min',
+    overPercentNow: 'warn over <warn/> %, critical over <crit/> %, at once',
+    overGb: 'warn over <warn/> GB, critical over <crit/> GB, for <minutes/> min',
+    underPercent: 'warn under <warn/> %, critical under <crit/> %, for <minutes/> min',
+    pressure: 'the kernel’s warning warns, its critical is critical, for <minutes/> min',
+    oom: 'a process killed is critical at once, held <minutes/> min',
+    disk: 'warn over <warn/> % used or under <warnFree/> GB free, critical over <crit/> % or under <critFree/> GB, for <minutes/> min',
     failed: 'Not saved: {{error}}'
   },
   metrics: {
@@ -104,11 +141,42 @@ export const en = {
     percent: '{{value}} %',
     memoryValue: '{{used}} / {{total}} GB',
     noValue: '–',
-    alert: '{{metric}} {{value}} · {{time}}',
+    alert: '{{what}} · {{time}}',
+    level: { warn: 'Warning', crit: 'Critical' },
+    compressor: 'Compressor',
+    compressorValue: '{{value}} % of its limit',
+    compressorHint: 'How full the memory compressor is; at 100 % macOS runs out of it and can panic',
+    systemFree: 'System free',
+    systemFreeHint: 'The share of memory macOS counts as free (memory_pressure)',
+    psi: 'Memory stall',
+    oom: 'OOM kills',
+    gb: '{{value}} GB',
+    kills_one: '{{count, number}} kill',
+    kills_other: '{{count, number}} kills',
+    diskAlert: '{{mount}} {{used}} % used, {{free}} free',
+    top: 'Most memory: {{list}}',
+    proc: '{{name}} {{size}}',
+    procAgent: '{{name}} {{size}} ({{agent}})',
     probeFailed: 'Cannot read it: {{error}}',
     chart: '{{metric}} over the last 10 minutes',
     notice: '{{machine}}: {{metric}} at {{value}}',
-    noticeBody: 'At or above {{percent}} % for {{minutes}} min'
+    available: 'Available',
+    pressure: 'Pressure',
+    pressureLevel: { normal: 'normal', warning: 'warning', critical: 'critical' },
+    pressureStall: 'some {{some}} % · full {{full}} %',
+    pressureStallHint: 'Share of the last 10 s in which some or all tasks waited for memory (PSI)',
+    pressureUnknown: 'unknown',
+    compressed: 'Compressed',
+    oomKills: 'OOM kills',
+    oomValue: '{{total}} · {{watched}} while watched',
+    swap: 'Swap',
+    swapValue: '{{used}} / {{total}}',
+    disk: 'Disk',
+    diskAt: 'Disk {{mount}}',
+    diskFree: '{{free}} free',
+    day: '24 h',
+    dayChart: 'CPU and memory over the last 24 hours, minute means',
+    noHistory: 'none yet'
   },
   machines: {
     title: 'Other machines',
@@ -142,12 +210,16 @@ export const en = {
       working: 'Working',
       waiting: 'Waiting',
       ready: 'Ready to merge',
+      readyClose: 'Ready to close',
       merged: 'Merged',
       done: 'Done'
     },
     complete: 'All units finished: the manager can close it',
     finished: 'Finished',
     previously: 'previously on {{branches}}',
+    squashed: 'Looks squash-merged',
+    squashedWhy: 'Every change of it is already in {{into}} (commit {{commit}}): merged by squash, most likely, which git cannot show. If it was, record it with this command; its manager is told too.',
+    mergedCommand: 'workriver unit merged {{unit}}',
     blocking_one: '{{count, number}} manual step an agent is waiting on',
     blocking_other: '{{count, number}} manual steps agents are waiting on',
     active: 'Active',
@@ -161,7 +233,16 @@ export const en = {
     blocked: 'Waiting for you in its terminal',
     notice: '{{agent}} is waiting for you',
     title: 'Agents',
-    idle: 'Idle'
+    state: { working: 'working', idle: 'idle', blocked: 'blocked', gone: 'gone' },
+    idleFor: 'idle {{time}}',
+    blockedFor: 'blocked {{time}}',
+    closable: 'can be closed',
+    closableFor: 'can be closed · {{time}}',
+    last: 'last:',
+    askedBy: 'asked by {{who}}',
+    askedByYou: 'you asked',
+    own: 'Not workriver’s',
+    ownHint: 'Sessions that never took a task: yours, or started by hand.'
   },
   plan: {
     title: 'Start “{{title}}”',
@@ -169,7 +250,17 @@ export const en = {
     workspace: 'Open a Herdr workspace for it, or pick one whose manager has room for another intent.',
     agent: 'If the workspace has no manager yet, start a coding agent there and give it the manager skill:',
     register: 'In the manager’s pane, register it:',
-    start: 'Then start this intent there; new units and tasks in that workspace go to it:'
+    start: 'Then start this intent there; new units and tasks in that workspace go to it:',
+    pickLabel: 'Start it in',
+    option: '{{label}} · {{manager}}: {{state}}',
+    optionNone: '{{label}} · no manager',
+    noWorkspace: 'Herdr has no workspace yet. These are the steps:',
+    go: 'Start',
+    goHint: 'Recorded as yours; {{manager}} is told to split it into units and tasks.',
+    none: '{{label}} has no manager, so nobody would split the work. Start one there first:',
+    started: 'Started in {{label}}.',
+    failed: 'Not started: {{error}}',
+    close: 'Close'
   },
   backlog: {
     title: 'Backlog',
@@ -205,6 +296,36 @@ export const en = {
     openFor: 'Open {{agent}} in terminal',
     note: 'Would bring {{agent}}’s terminal to the front – not connected yet'
   },
+  run: {
+    title: 'Run as you',
+    lead: 'It runs in a shell of your own, in Herdr’s “workriver” workspace, with your credentials and hooks, exactly as if you typed it there.',
+    command: 'Command',
+    dir: 'Directory',
+    machine: 'Machine',
+    here: 'this machine',
+    by: 'Written by',
+    byAgent: '{{agent}}, an agent: read it before you run it',
+    byYou: 'you',
+    danger: 'This can destroy work for good (delete files, rewrite history). Run it only if you meant exactly this.',
+    go: 'Run',
+    cancel: 'Cancel',
+    running: 'Running…',
+    ok: 'Done (exit 0)',
+    exit: 'Failed (exit {{code}})',
+    lost: 'Its terminal can no longer be read; look in Herdr.',
+    open: 'Open in terminal',
+    close: 'Close',
+    failed: 'Not run: {{error}}',
+    button: 'Run',
+    buttonFor: 'Run “{{command}}” as you',
+    section: 'Run a command',
+    where: 'Where',
+    placeholder: 'A command, run as you',
+    hint: 'Runs in a shell of your own, after you confirm it.',
+    unit: '{{unit}} · {{title}}',
+    project: 'Project: {{title}}',
+    nowhere: 'No unit or project to run in yet.'
+  },
   evidence: {
     label: 'Checks run',
     passed: 'Passed',
@@ -221,11 +342,20 @@ export const en = {
     remove: 'Leave {{label}} out',
     how: 'A temporary agent answers from the records and the code; it asks {{agent}} only when {{agent}} is idle.',
     howAlone: 'A temporary agent answers from the records and the code.',
+    howUnit: 'A temporary agent answers from the unit’s records and code; it asks none of its agents.',
+    placeholderUnit: 'Ask why about {{unit}}…',
+    unitHint: 'About the whole unit. To ask about one task, pick it in the graph.',
+    you: 'You',
+    answerer: 'Temporary agent',
+    log: 'Conversation',
+    mode: { label: 'Talk with', why: 'Why', manager: 'Manager' },
     step: {
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
-      asking: 'Asking {{agent}}…'
+      asking: 'Asking {{agent}}…',
+      blocked: 'Waiting for you in Herdr: {{agent}} needs an answer in its terminal. The question goes in once it is free.'
     },
+    toTerminal: 'Go to the terminal',
     asked: 'Asked {{agent}}',
     busy: '{{agent}} was busy; answered from the records',
     ended: '{{agent}}’s session has ended; answered from the records',
@@ -253,22 +383,49 @@ export const en = {
     count_one: '{{count, number}} question asked',
     count_other: '{{count, number}} questions asked'
   },
+  talk: {
+    workspace: 'Workspace',
+    label: 'Message to the manager',
+    placeholder: 'Write to {{agent}}…',
+    how: 'Typed into {{agent}}’s terminal; it replies here.',
+    none: 'No manager is running in this workspace: nobody would read it.',
+    noWorkspace: 'No workspace has a manager yet.',
+    empty: 'Write to the manager of {{workspace}}: it reads it in its terminal and replies here.',
+    step: {
+      sending: 'Sending to {{agent}}…',
+      blocked: 'Waiting for you in Herdr: {{agent}} needs an answer in its terminal. The message goes in once it is free.',
+      delivered: 'In {{agent}}’s terminal',
+      'not-delivered': 'Not delivered: {{reason}}'
+    }
+  },
   chore: {
     done: 'Done'
   },
   commits: {
     title: 'Commits',
-    writing: 'Writing now',
-    today: 'Today',
-    yesterday: 'Yesterday'
+    writing: 'Writing now'
   },
   inbox: {
     title: 'Needs you',
     blocking: 'Blocking',
     blockedAgent: '{{agent}} is waiting for you in its terminal',
+    stalled: '{{task}}: {{agent}} stopped {{ago}} ago without delivering',
+    stalledGone: '{{task}}: {{agent}} is gone',
+    reminded: 'reminded {{time}}',
+    mergeSquash: '{{unit}} looks squash-merged into {{into}}',
+    mergeOverdue: '{{unit}} has been ready to merge for {{ago}}',
+    mergeCheck: 'No manager: check whether it was merged',
     machines: 'Machines',
     machineAlert: '{{machine}}: {{metric}} {{value}}',
     machineLimit: 'at or above {{percent}} % for {{minutes}} min',
+    limit: {
+      over: 'over {{value}} for {{minutes}} min',
+      overNow: 'over {{value}}, at once',
+      under: 'under {{value}} for {{minutes}} min',
+      pressure: 'the kernel says {{level}} for {{minutes}} min',
+      oom: 'a process was killed; held {{minutes}} min',
+      disk: 'over {{used}} % used or under {{free}} GB free for {{minutes}} min'
+    },
     decisions: 'Decisions',
     gaps: 'Gaps',
     later: 'Not urgent',
@@ -292,7 +449,8 @@ export const en = {
     running: 'In progress',
     done: 'Done',
     waiting: 'Waiting for you',
-    unregistered: 'Unregistered'
+    unregistered: 'Unregistered',
+    dropped: 'No longer needed'
   },
   reviewer: {
     'security-review': 'Security review',
@@ -322,7 +480,17 @@ export const en = {
     remove: 'Remove {{name}}',
     zoomIn: 'Full width (click the picture too)',
     zoomOut: 'Whole picture (click the picture too)',
-    original: 'Open the original in a new tab'
+    original: 'Open the original in a new tab',
+    prev: 'Previous attachment (←)',
+    next: 'Next attachment (→)',
+    counter: '{{n}} / {{count}}',
+    now: '{{n}} of {{count}}: {{name}}',
+    download: 'Download',
+    ask: 'Ask why about this attachment: it goes with the question',
+    loading: 'Loading…',
+    failed: 'Could not load this file. Download it instead.',
+    cut: 'Shows the first {{shown}} of {{size}}; download it for the rest.',
+    mdImage: 'Image: {{name}}'
   },
   deliver: {
     pending: 'Not delivered yet',
@@ -341,6 +509,8 @@ export const en = {
       'no-workspace': 'its intent has no Herdr workspace',
       timeout: 'no answer in time',
       restarted: 'the service restarted',
+      blocked: 'its agent waited for an answer in its terminal the whole time',
+      'not-ready': 'its new agent never got ready for a prompt; its tab is left open in Herdr',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'
@@ -360,11 +530,16 @@ export const en = {
     copy: 'Copy command',
     copied: 'Copied'
   },
+  link: {
+    copy: 'Copy link',
+    notFound: 'Nothing here: {{ref}} is not known (or not yet). Pick a unit on the left.'
+  },
   review: {
     found_one: '{{by}}: {{count, number}} finding',
     found_other: '{{by}}: {{count, number}} findings',
     passed: '{{by}}: no problems',
-    running: '{{by}}: in progress'
+    running: '{{by}}: in progress',
+    dropped: '{{by}}: no longer needed'
   },
   finding: {
     open: 'Waiting for you',
@@ -393,7 +568,16 @@ export const en = {
   task: {
     blind: 'Blind',
     blindHint: 'Blind: done without seeing other work, so its findings are its own view',
-    unregistered: 'Unregistered: {{title}}'
+    unregistered: 'Unregistered: {{title}}',
+    dropped: 'No longer needed',
+    droppedBy: 'Marked no longer needed by {{by}}, {{when}}',
+    droppedByYou: 'You marked it no longer needed, {{when}}',
+    drop: 'No longer needed…',
+    dropReason: 'Why it is no longer needed',
+    dropReasonHint: 'e.g. superseded by #17; the agent on it and the manager are told',
+    dropConfirm: 'Mark no longer needed',
+    dropCancel: 'Cancel',
+    dropFailed: 'Not recorded: {{error}}'
   },
   who: {
     writing: '{{name}}, writing now'
@@ -404,7 +588,8 @@ export const en = {
     controls: 'Graph controls',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
-    fit: 'Fit the whole graph'
+    fit: 'Show the whole graph, or its latest work when it does not fit',
+    overview: 'Overview of the graph'
   },
   io: {
     input: 'Input',
@@ -451,7 +636,9 @@ export const en = {
   file: {
     back: 'All changes',
     from: 'Changed by',
-    unchanged: 'This unit has not changed {{path}} yet.'
+    unchanged: 'This unit has not changed {{path}} yet.',
+    onlyChanges: 'Only the changes',
+    whole: 'Whole file'
   },
   tree: {
     label: 'Files',

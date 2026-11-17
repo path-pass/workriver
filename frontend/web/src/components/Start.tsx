@@ -1,16 +1,22 @@
-// What to do first, shown in the main area while nothing is recorded yet; and the steps to
-// start one planned intent, which workriver cannot do itself (it never starts agents).
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+// What to do first, shown in the main area while nothing is recorded yet; and starting one
+// planned intent in a Herdr workspace that has a manager (workriver never starts agents: a
+// workspace without one gets the steps to start it).
+import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useT } from '@/i18n'
-import type { Intent } from '@/types'
-import { Content, Slot, SLOT, Steps } from './bits'
+import { RUN_GROUP, startIntent, type StartDelivery } from '@/runtime'
+import type { Intent, Session, Workspace } from '@/types'
+import { Choice } from './Choice'
+import { Content, Icon, Slot, SLOT, Steps } from './bits'
 
-export function Start() {
+/** `project`: the title of the project shown, when only it has nothing yet. */
+export function Start({ project }: { project?: string }) {
   const { t } = useT()
   return (
     <section aria-labelledby="start" className="flex max-w-[70ch] flex-col gap-3 pt-2">
       <h1 id="start" className="text-xl font-[650] tracking-[-0.012em]">{t('start.title')}</h1>
-      <p className="text-sm text-ink-2">{t('start.lead')}</p>
+      <p className="text-sm text-ink-2">{project ? <Slot text={t('start.leadProject', { project: SLOT })}><Content text={project} /></Slot> : t('start.lead')}</p>
       <Steps
         steps={[
           { text: t('start.agent') },
@@ -26,24 +32,102 @@ export function Start() {
   )
 }
 
-/** The steps to start a planned intent in a Herdr workspace, each command with a copy button. */
-export function StartIntent({ intent, onClose }: { intent: Intent | null; onClose: () => void }) {
+/** A runtime workspace an intent can start in, with its manager if it has one. */
+interface Place { id: string; label: string; machine?: string; manager?: Session }
+
+/** Every workspace (the shells' own left out), those with a manager first. */
+function placesOf(ws: Workspace): Place[] {
+  const live = ws.sessions.filter(s => !s.ended)
+  const seen = ws.workspaces ?? live.flatMap(s => (s.group ? [s.group] : [])).filter((g, k, all) => all.findIndex(x => x.id === g.id) === k)
+  return seen
+    .filter(w => w.label !== RUN_GROUP && !('linkedTo' in w && w.linkedTo))
+    .map(w => ({ ...w, manager: live.find(s => s.manager && s.group?.id === w.id) }))
+    .sort((a, b) => Number(!a.manager) - Number(!b.manager) || a.label.localeCompare(b.label))
+}
+
+/**
+ * Starting a planned intent: pick the Herdr workspace (those with a manager first, with its
+ * state); workriver records the start as the user's and tells that manager to split it. A
+ * workspace with no manager gets the steps to start one instead.
+ */
+export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace | null; intent: Intent | null; onClose: () => void; onStarted: (intent: string, w: { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }) => void }) {
   const { t } = useT()
+  const places = ws ? placesOf(ws) : []
+  const [picked, setPicked] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState<{ label: string; delivery: StartDelivery } | null>(null)
+  useEffect(() => { setPicked(''); setBusy(false); setError(''); setDone(null) }, [intent])
+  const at = places.find(p => p.id === picked) ?? places[0]
+  const steps = (id: string) => (
+    <Steps
+      steps={[
+        { text: t('plan.agent'), command: 'workriver guide manager' },
+        { text: t('plan.register'), command: 'workriver manager here' },
+        { text: t('plan.start'), command: `workriver intent start ${id}` },
+      ]}
+    />
+  )
+  const start = () => {
+    if (!intent || !at?.manager) return
+    setBusy(true)
+    startIntent(intent.id, at.id, at.manager.agent).then(
+      delivery => { setDone({ label: at.label, delivery }); onStarted(intent.id, { id: at.id, label: at.label, manager: at.manager?.agent, managerState: at.manager?.state }) },
+      e => { setBusy(false); setError(t('plan.failed', { error: String(e) })) },
+    )
+  }
+  const said = (d: StartDelivery) => d.step === 'not-delivered'
+    ? t('deliver.notDelivered', { reason: t(`deliver.reason.${d.reasonCode ?? 'unknown'}`) })
+    : t('deliver.delivered', { agent: d.to ?? '' })
   return (
     <Dialog open={!!intent} onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent closeLabel={t('settings.close')}>
         {intent && (
           <>
             <DialogTitle><Slot text={t('plan.title', { title: SLOT })}><Content text={intent.title} /></Slot></DialogTitle>
-            <DialogDescription>{t('plan.lead')}</DialogDescription>
-            <Steps
-              steps={[
-                { text: t('plan.workspace') },
-                { text: t('plan.agent'), command: 'workriver guide manager' },
-                { text: t('plan.register'), command: 'workriver manager here' },
-                { text: t('plan.start'), command: `workriver intent start ${intent.id}` },
-              ]}
-            />
+            {done ? (
+              <>
+                <DialogDescription>{t('plan.started', { label: done.label })}</DialogDescription>
+                <p role="status" className={done.delivery.step === 'not-delivered' ? 'text-sm text-del' : 'text-sm text-ink-2'} title={done.delivery.reason}>{said(done.delivery)}</p>
+                <div className="flex justify-end"><DialogClose asChild><Button size="sm" variant="ghost">{t('plan.close')}</Button></DialogClose></div>
+              </>
+            ) : !at ? (
+              <>
+                <DialogDescription>{t('plan.noWorkspace')}</DialogDescription>
+                <Steps steps={[{ text: t('plan.workspace') }]} />
+                {steps(intent.id)}
+              </>
+            ) : (
+              <>
+                <DialogDescription className="sr-only">{t('plan.pickLabel')}</DialogDescription>
+                <label className="flex items-center gap-2 text-xs text-ink-2">
+                  <span className="flex-none">{t('plan.pickLabel')}</span>
+                  <Choice
+                    label={t('plan.pickLabel')}
+                    value={at.id}
+                    onChange={setPicked}
+                    options={places.map(p => {
+                      const label = p.machine ? `${p.label} @${p.machine}` : p.label
+                      return { value: p.id, label: p.manager ? t('plan.option', { label, manager: p.manager.agent, state: t(`manager.state.${p.manager.state ?? 'unknown'}`) }) : t('plan.optionNone', { label }) }
+                    })}
+                    className="h-8 flex-1"
+                  />
+                </label>
+                {at.manager ? (
+                  <p className="text-sm text-ink-2">{t('plan.goHint', { manager: at.manager.agent })}</p>
+                ) : (
+                  <>
+                    <p className="text-sm text-ink-2">{t('plan.none', { label: at.label })}</p>
+                    {steps(intent.id)}
+                  </>
+                )}
+                {error && <p role="alert" className="text-xs text-del wrap-anywhere">{error}</p>}
+                <div className="flex justify-end gap-2">
+                  <DialogClose asChild><Button type="button" variant="ghost" size="sm">{t('rail.addCancel')}</Button></DialogClose>
+                  {at.manager && <Button type="button" size="sm" disabled={busy} onClick={start}><Icon name="play" className="size-3.5" />{t('plan.go')}</Button>}
+                </div>
+              </>
+            )}
           </>
         )}
       </DialogContent>

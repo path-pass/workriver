@@ -1,21 +1,24 @@
 // Layer 1, activity: the pieces of work handed to agents as a flow. Each is a node with
 // something going in and something coming out; a line is one handing over to the next.
 // It starts in one circle and has no end: a finished branch simply stops, in water colour.
-import { applyNodeChanges, Controls, getBezierPath, Handle, Position, ReactFlow, useNodes, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, type FitViewOptions } from '@xyflow/react'
+import { applyNodeChanges, ControlButton, Controls, getBezierPath, Handle, MiniMap, Position, ReactFlow, useNodes, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react'
 import { AntVDagreLayout } from '@antv/layout'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { commitStats, ms, untested, finderLabel, findingsOf, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
-import { record } from '@/runtime'
+import { dropTask, record } from '@/runtime'
+import { Input } from '@/components/ui/input'
 import { contentLang, useT } from '@/i18n'
+import { linkTo, pathOf } from '@/link'
 import { cn } from '@/lib/utils'
 import type { Finding, Unit, Task } from '@/types'
 import { threadsOf, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
-import { Content, CopyButton, ExternalChip, Icon, Mark, Slot, SLOT, Steps, TerminalButton, Tip, Waiting, Who } from './bits'
+import { Content, CopyButton, ExternalChip, Icon, Mark, Prose, Slot, SLOT, TerminalButton, Tip, Waiting, Who } from './bits'
+import { RunSteps } from './Run'
 import { Choice } from './Choice'
 
 const W = 176, H = 48, R = 18
@@ -77,7 +80,7 @@ const glyph = (n: Task) =>
   : n.kind === 'gate' ? `gate-${n.gate}`
   : n.design && (n.state === 'done' || n.state === 'todo') ? 'design'
   : n.research && (n.state === 'done' || n.state === 'todo') ? 'research'
-  : ({ done: 'check', running: 'pen', unregistered: 'no', todo: 'ring', waiting: 'ring' })[n.state]
+  : ({ done: 'check', running: 'pen', unregistered: 'no', todo: 'ring', waiting: 'ring', dropped: 'ring' })[n.state]
 
 const ports = (
   <>
@@ -87,7 +90,7 @@ const ports = (
 )
 
 /** A task's name: a review's label is UI text; a task's title is content, in its own language. */
-function NodeName({ n }: { n: Task }) {
+export function NodeName({ n }: { n: Task }) {
   const { t } = useT()
   if (n.kind === 'review') return reviewLabel(t, n)
   const title = <Content text={n.title} />
@@ -120,6 +123,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         data-kind={n.kind}
         data-state={n.kind === 'review' ? undefined : n.state}
         data-dim={dim || undefined}
+        data-dropped={n.state === 'dropped' || undefined}
         aria-pressed={picked}
         // The mouse picks through React Flow's node click, which a drag does not trigger;
         // this handler is for the keyboard (detail 0).
@@ -127,7 +131,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
       >
         <Icon
           name={glyph(n)}
-          className={n.kind === 'review' ? (n.result === 'running' ? 'text-amber!' : 'text-water!') : ''}
+          className={n.kind === 'review' && n.state !== 'dropped' ? (n.result === 'running' ? 'text-amber!' : 'text-water!') : ''}
         />
         <span className="lb">
           {n.kind === 'review'
@@ -140,6 +144,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         {/* Work handed in with no check run: information, not a call to act. */}
         {untested(n) && <span className="untested"><Mark name="untested" label={t('evidence.none')} /></span>}
         {n.blind && <span className="blind"><Mark name="blind" label={t('task.blindHint')} /></span>}
+        {n.state === 'dropped' && <span className="dropped"><Mark name="dropped" label={t('task.dropped')} /></span>}
         {talks > 0 && (
           <span className="talks"><Icon name="talk" className="size-2.5" /><span aria-hidden>{num(talks)}</span><span className="sr-only">{t('ask.count', { count: talks })}</span></span>
         )}
@@ -152,7 +157,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
 function Dot({ data }: NodeProps<Node<DotData>>) {
   return (
     <>
-      <Tip text={data.title}><div className="wdot" /></Tip>
+      <Tip text={<Content text={data.title} />}><div className="wdot" /></Tip>
       {ports}
     </>
   )
@@ -217,27 +222,122 @@ const edgeTypes = { river: River }
 
 // ---- the graph ----
 
-// Room at the bottom for the library's credit only: the legend is a row below the canvas.
-const FIT: FitViewOptions = { padding: { top: '16px', right: '24px', bottom: '32px', left: '16px' }, maxZoom: 1 }
+// ---- where the view settles ----
+
+/** Below this zoom a card's 12 px title drops under 9 px and stops being readable. */
+const READABLE = 0.75
+/** Room kept clear around the graph, in px: the zoom buttons at the top right (26 px wide,
+ *  15 px from the edge; a card's badge sticks out 7 px) and React Flow's credit at the
+ *  bottom right. The legend is a row below the canvas. */
+const PAD = { top: 16, right: 56, bottom: 32, left: 16 }
+/** The overview, at the bottom left: shown only when the graph does not fit. */
+const MINI = { width: 240, height: 48 }
+
+type Rect = { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * The whole graph when it fits at a readable zoom (centred, never above 1). Otherwise the
+ * latest work at that zoom: the graph's right end against the right edge, moved right only as
+ * far as it takes to show where `latest` starts, when all of `latest` fits (otherwise the
+ * older part is the one cut); at the top when the height fits, else centred on `latest`. The
+ * graph is never pulled away from its own ends; the rest is a pan away.
+ */
+function settle(all: Rect, latest: Rect, w: number, h: number): { x: number; y: number; zoom: number; whole: boolean } {
+  const rw = w - PAD.left - PAD.right, rh = h - PAD.top - PAD.bottom
+  const bw = all.x1 - all.x0, bh = all.y1 - all.y0
+  const fit = Math.min(rw / bw, rh / bh, 1)
+  const centre = (z: number, p: number, room: number, a0: number, size: number) => p + (room - size * z) / 2 - a0 * z
+  if (fit >= READABLE) return { x: centre(fit, PAD.left, rw, all.x0, bw), y: centre(fit, PAD.top, rh, all.y0, bh), zoom: fit, whole: true }
+  const z = READABLE
+  // Between showing the graph's start at the left edge and its end at the right one.
+  const keep = (want: number, p0: number, size: number, p1: number, a0: number, a1: number) => Math.min(p0 - a0 * z, Math.max(size - p1 - a1 * z, want))
+  const end = w - PAD.right - all.x1 * z
+  const x = bw * z <= rw ? centre(z, PAD.left, rw, all.x0, bw)
+    : keep((latest.x1 - latest.x0) * z <= rw ? Math.max(end, PAD.left - latest.x0 * z) : end, PAD.left, w, PAD.right, all.x0, all.x1)
+  const y = bh * z <= rh ? PAD.top - all.y0 * z : keep(PAD.top + rh / 2 - ((latest.y0 + latest.y1) / 2) * z, PAD.top, h, PAD.bottom, all.y0, all.y1)
+  return { x, y, zoom: z, whole: false }
+}
+
+/** The box around the given nodes as the layout placed them. */
+function rectOf(layout: Layout, ids: string[]): Rect {
+  const r = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+  for (const id of ids) {
+    const p = layout.pos.get(id)
+    if (!p) continue
+    const [w, h] = isStart(id) ? [R, R] : [W, H]
+    r.x0 = Math.min(r.x0, p.x); r.y0 = Math.min(r.y0, p.y); r.x1 = Math.max(r.x1, p.x + w); r.y1 = Math.max(r.y1, p.y + h)
+  }
+  return r
+}
+
+/** The latest work: what is running or waits for the user, else the last column. */
+function latestOf(unit: Unit, layout: Layout): string[] {
+  const live = unit.tasks.filter(n => n.state === 'running' || n.result === 'running' || (n.kind === 'gate' && n.state === 'waiting')).map(n => n.id)
+  if (live.some(id => layout.pos.has(id))) return live
+  const end = Math.max(...[...layout.pos.values()].map(p => p.x))
+  return [...layout.pos].filter(([, p]) => p.x === end).map(([id]) => id)
+}
+
+/** React Flow's own fit icon: the button is ours, so that it settles the view our way. */
+const FitIcon = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 30" aria-hidden>
+    <path d="M3.692 4.63c0-.53.4-.938.939-.938h5.215V0H4.708C2.13 0 0 2.054 0 4.63v5.216h3.692V4.631zM27.354 0h-5.2v3.692h5.17c.53 0 .984.4.984.939v5.215H32V4.631A4.624 4.624 0 0027.354 0zm.954 24.83c0 .532-.4.94-.939.94h-5.215v3.768h5.215c2.577 0 4.631-2.13 4.631-4.707v-5.139h-3.692v5.139zm-23.677.94c-.531 0-.939-.4-.939-.94v-5.138H0v5.139c0 2.577 2.13 4.707 4.708 4.707h5.138V25.77H4.631z" />
+  </svg>
+)
+
+/** A node's colour in the overview, by the same state as on the graph. */
+const miniClass = (n: Node) => {
+  if (n.type === 'start') return 'mini-start'
+  const task = (n.data as CardData).node
+  return task.state === 'dropped' ? '' : task.kind === 'gate' && task.state === 'waiting' ? 'mini-you' : task.kind !== 'review' && (task.state === 'done' || task.state === 'running') ? `mini-${task.state}` : ''
+}
 
 function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; picked: string | null; finding?: string; onPick: (id: string | null) => void; talk: Talk; fitKey: unknown }) {
   const { t } = useT()
-  // When the room around the graph changes (the rail folds), the graph fits it again.
   const flow = useRef<ReactFlowInstance<Node, Edge<LineData>> | null>(null)
-  useEffect(() => {
-    const later = setTimeout(() => flow.current?.fitView(FIT), 80)
-    return () => clearTimeout(later)
-  }, [fitKey])
+  const box = useRef<HTMLDivElement>(null)
+  // Once the user moves the view (drag, pinch, the buttons, the overview), it is theirs until
+  // they pick another unit or press the fit button. `ours` tells our own moves apart: a
+  // viewport set without a duration moves at once, inside the call.
+  const moved = useRef(false)
+  const ours = useRef(false)
+  const [mini, setMini] = useState(false)
   const [layout, setLayout] = useState<Layout | null>(null)
-  // Laid out again only when the graph's shape changes, not on every refresh of the data.
-  const shape = unit.id + '|' + unit.tasks.map(n => `${n.id}<${n.inputs.map(i => i.from + (i.primary ? '' : '~')).join(',')}`).join(';')
   const latest = useRef(unit)
   latest.current = unit
+  const shownLayout = useRef(layout)
+  shownLayout.current = layout
+  const place = useCallback((force = false) => {
+    const l = shownLayout.current, inst = flow.current, el = box.current
+    if (!l || !inst || !el || l.unitId !== latest.current.id || (moved.current && !force)) return
+    moved.current = false
+    const v = settle(rectOf(l, [...l.pos.keys()]), rectOf(l, latestOf(latest.current, l)), el.clientWidth, el.clientHeight)
+    ours.current = true
+    inst.setViewport({ x: v.x, y: v.y, zoom: v.zoom })
+    ours.current = false
+    setMini(!v.whole)
+  }, [])
+  // Another unit: a fresh view, the user's moves forgotten.
+  useEffect(() => { flow.current = null; moved.current = false }, [unit.id])
+  // When the room around the graph changes (the rail folds, a panel's drag ends, the window
+  // is resized), the view settles again; and once more when the overview comes or goes, since
+  // the canvas then takes the zoomed graph's height and room for the overview below it.
+  useEffect(() => {
+    let later = setTimeout(place, 80)
+    const again = () => { clearTimeout(later); later = setTimeout(place, 150) }
+    window.addEventListener('resize', again)
+    return () => { clearTimeout(later); window.removeEventListener('resize', again) }
+  }, [fitKey, place])
+  useEffect(() => { place() }, [mini, place])
+  // Laid out again only when the graph's shape changes, not on every refresh of the data.
+  const shape = unit.id + '|' + unit.tasks.map(n => `${n.id}<${n.inputs.map(i => i.from + (i.primary ? '' : '~')).join(',')}`).join(';')
   useEffect(() => {
     let current = true
     layoutFlow(latest.current).then(l => current && setLayout(l))
     return () => { current = false }
   }, [shape])
+  // A new layout (the graph grew, or another unit) settles the view, unless the user moved it.
+  useEffect(() => { place() }, [layout, place])
 
   const { nodes: placed, edges } = useMemo(() => {
     if (!layout || layout.unitId !== unit.id) return { nodes: [], edges: [] }
@@ -290,7 +390,7 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
   const ready = layout && layout.unitId === unit.id
   return (
     <>
-    <div className="flow -mx-4" style={{ height: ready ? `min(${layout.h + 48}px, 70vh)` : 240 }}>
+    <div ref={box} className="flow -mx-4" style={{ height: ready ? `min(${Math.round(mini ? layout.h * READABLE + 48 + MINI.height : layout.h + 48)}px, 70vh)` : 240 }}>
       {ready && (
         <ReactFlow
           key={unit.id}
@@ -310,19 +410,31 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
           zoomOnScroll={false}
           zoomOnDoubleClick={false}
           preventScrolling={false}
-          fitView
-          onInit={inst => { flow.current = inst }}
-          fitViewOptions={FIT}
+          onInit={inst => { flow.current = inst; place() }}
+          onMoveStart={() => { if (!ours.current) moved.current = true }}
           minZoom={0.3}
           maxZoom={1.5}
           ariaLabelConfig={{
             'controls.ariaLabel': t('flow.controls'),
             'controls.zoomIn.ariaLabel': t('flow.zoomIn'),
             'controls.zoomOut.ariaLabel': t('flow.zoomOut'),
-            'controls.fitView.ariaLabel': t('flow.fit'),
+            'minimap.ariaLabel': t('flow.overview'),
           }}
         >
-          <Controls showInteractive={false} position="top-right" />
+          <Controls showInteractive={false} showFitView={false} position="top-right">
+            <ControlButton className="react-flow__controls-fitview" onClick={() => place(true)} title={t('flow.fit')} aria-label={t('flow.fit')}>{FitIcon}</ControlButton>
+          </Controls>
+          {/* Only when the graph does not fit: where the view is in the whole, and a way there. */}
+          {mini && (
+            <MiniMap
+              position="bottom-left"
+              style={MINI}
+              nodeClassName={miniClass}
+              nodeBorderRadius={4}
+              pannable
+              onClick={(_, at) => flow.current?.setCenter(at.x, at.y, { zoom: flow.current.getZoom() })}
+            />
+          )}
         </ReactFlow>
       )}
     </div>
@@ -369,7 +481,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         <CollapsibleTrigger className="fchev" aria-label={t('finding.details', { id: f.id })}><Icon name="chev" /></CollapsibleTrigger>
         <button type="button" className="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm py-1 text-left" aria-pressed={picked} onClick={onSelect}>
           <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
-          <span className={cn('truncate group-data-[state=open]:whitespace-normal', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')} lang={contentLang(f.problem)}>{f.problem}</span>
+          <span className={cn('truncate group-data-[state=open]:whitespace-pre-line', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')} lang={contentLang(f.problem)}>{f.problem}</span>
         </button>
         {/* What was added to it since: a small count; the additions are in its details. */}
         {(f.notes?.length ?? 0) > 0 && (
@@ -408,7 +520,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
           </span>
         )}
       </div>
-      <CollapsibleContent className="pb-1.5 pl-6 text-xs">
+      <CollapsibleContent className="pb-1.5 pl-6 text-xs whitespace-pre-line">
         {suggests && <div><span className="text-ink-2">{t('io.field', { name: suggests })}</span><span lang={contentLang(f.recommendation?.reason)}>{f.recommendation?.reason}</span></div>}
         {f.reason && <div><span className="text-ink-2">{t('io.field', { name: t('finding.dropped') })}</span><span lang={contentLang(f.reason)}>{f.reason}</span></div>}
         {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span><span lang={contentLang(f.impact)}>{f.impact}</span></div>}
@@ -494,16 +606,17 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
   if (n.kind === 'review') {
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).flatMap(c => c.files.map(f => f.path)))]
-    head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.result === 'running' ? 'state.running' : 'state.done')}</>
+    head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
     input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
-    input = <><div lang={contentLang(n.input.text || n.title)}>{n.input.text || n.title}</div><Steps steps={n.input.steps ?? []} /></>
+    // Whoever did the work the gate follows wrote its steps (the sample's guess; the service knows).
+    input = <><Prose text={n.input.text || n.title} /><RunSteps steps={n.input.steps ?? []} ask={{ unit: unit.id, from: `${unit.id}#${n.id}`, by: byId(n.inputs.find(i => i.primary)?.from)?.agent ?? undefined }} /></>
     output = n.state === 'waiting'
       ? <GateForm key={gateKey(unit, n)} unit={unit} gate={n} />
       : <>
-          {n.output.note && <div lang={contentLang(n.output.note)}>{n.output.note}</div>}
+          {n.output.note && <Prose text={n.output.note} />}
           <Thumbs list={n.output.attachments ?? []} />
           <GateSent unit={unit} gate={n} />
           {found && <div className="mt-3">{found}</div>}
@@ -516,7 +629,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     })
     head = <>{n.agent ? <Who name={n.agent} /> : <Icon name={glyph(n)} />}{[t(n.design ? 'kind.design' : n.research ? 'kind.research' : 'kind.implement'), n.agent, t(`state.${n.state}`)].filter(Boolean).join(' · ')}</>
     input = <>
-      <div lang={contentLang(n.input.text || n.title)}>{n.input.text || n.title}</div>
+      <Prose text={n.input.text || n.title} />
       {n.state === 'unregistered' && quiet(t('io.unknownInput'))}
       {/* The gap is closed by saying which task the commit belongs to; nothing is rewritten. */}
       {n.state === 'unregistered' && n.output.commits?.[0] && (
@@ -540,7 +653,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
               <Icon name={glyph(by)} />
               <span className="flex-none">{finderLabel(t, by)}</span>
               <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
-              <span className="min-w-0" lang={contentLang(f.problem)}>{f.problem}</span>
+              <span className="min-w-0 whitespace-pre-line" lang={contentLang(f.problem)}>{f.problem}</span>
             </button>
           ))}
           {/* What was added to those findings later is part of what this work must meet. */}
@@ -563,7 +676,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
           })
         : (n.lostCommits?.length ?? 0) > 0 ? quiet(t('io.lostCommits', { commits: n.lostCommits!.join(t('list.sep')) }))
         : n.state !== 'done' && <>{quiet(t('io.notStarted'))}{n.plans.length > 0 && <div className="font-mono text-xs text-ink-2">{t('io.willChange', { paths: n.plans.join(t('list.sep')) })}</div>}</>}
-      {n.output.note && <div className="mt-1" lang={contentLang(n.output.note)}>{n.output.note}</div>}
+      {n.output.note && <div className="mt-1"><Prose text={n.output.note} /></div>}
       <Thumbs list={n.output.attachments ?? []} />
       <Checks n={n} />
     </>
@@ -574,11 +687,25 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
         {head}
         {/* Blind: its findings were made without seeing other work; weigh agreement accordingly. */}
         {n.blind && <Tip text={t('task.blindHint')}><span className="flex items-center gap-1 font-normal"><Icon name="blind" className="size-3.5" />{t('task.blind')}</span></Tip>}
-        {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
-        {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
-          <TerminalButton agent={n.agent} session={n.agentSession} className="ml-auto text-you-ink hover:bg-surface/60" />
-        )}
+        <span className="ml-auto flex items-center gap-1">
+          {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
+          {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
+            <TerminalButton agent={n.agent} session={n.agentSession} className="text-you-ink hover:bg-surface/60" />
+          )}
+          {/* Its own link: to send someone straight here. */}
+          <CopyButton text={linkTo(pathOf(unit.id, { kind: 'task', id: n.id }))} aria={t('link.copy')} className="text-you-ink hover:bg-surface/60" />
+        </span>
       </div>
+      {/* No longer needed: by whom and when, then why in their words. */}
+      {n.dropped && (
+        <div className="flex flex-col gap-0.5 border-b border-line px-3 py-2 text-sm wrap-anywhere">
+          <span className="flex items-center gap-1.5 text-xs text-ink-2">
+            <Icon name="dropped" className="size-3.5" />
+            {n.dropped.by === 'user' ? t('task.droppedByYou', { when: when(ms(n.dropped.at)) }) : t('task.droppedBy', { by: n.dropped.by, when: when(ms(n.dropped.at)) })}
+          </span>
+          <span className="whitespace-pre-line" lang={contentLang(n.dropped.reason)}>{n.dropped.reason}</span>
+        </div>
+      )}
       <div className={cn('grid text-sm wrap-anywhere', n.kind === 'review' ? 'min-[701px]:grid-cols-[1fr_2fr]' : 'grid-cols-[repeat(auto-fit,minmax(260px,1fr))]')}>
         <div className="min-w-0 p-3"><h3 className="mb-1.5 text-xs font-semibold text-ink-2">{t('io.input')}</h3>{input}</div>
         <div className="min-w-0 border-line p-3 max-[700px]:border-t min-[701px]:border-l">
@@ -594,8 +721,27 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
       <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-2">
         <Button variant="outline" size="xs" className="rounded-sm" onClick={talk.onOpen}><Icon name="talk" className="size-3" />{t('ask.why')}</Button>
         {threads > 0 && <span>{t('ask.conversations', { count: threads })}</span>}
+        {(n.state === 'todo' || n.state === 'running' || n.state === 'waiting') && <DropTask key={unit.id + n.id} unit={unit} n={n} />}
       </div>
     </div>
+  )
+}
+
+/** The user marks work not done yet as no longer needed, saying why; nothing is deleted. */
+function DropTask({ unit, n }: { unit: Unit; n: Task }) {
+  const { t } = useT()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  if (!open) return <Button variant="ghost" size="xs" className="ml-auto rounded-sm" onClick={() => setOpen(true)}><Icon name="dropped" className="size-3" />{t('task.drop')}</Button>
+  const submit = () => { dropTask(unit, n, reason.trim()).then(() => setOpen(false), (e: Error) => setError(e.message)) }
+  return (
+    <form className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" onSubmit={e => { e.preventDefault(); if (reason.trim()) submit() }}>
+      <Input autoFocus aria-label={t('task.dropReason')} placeholder={t('task.dropReasonHint')} value={reason} onChange={e => setReason(e.target.value)} className="h-7 min-w-48 flex-1 text-xs" />
+      <Button type="submit" size="xs" className="rounded-sm" disabled={!reason.trim()}>{t('task.dropConfirm')}</Button>
+      <Button type="button" variant="ghost" size="xs" className="rounded-sm" onClick={() => { setOpen(false); setError('') }}>{t('task.dropCancel')}</Button>
+      {error && <p role="alert" className="w-full text-xs wrap-anywhere text-del">{t('task.dropFailed', { error })}</p>}
+    </form>
   )
 }
 
@@ -613,14 +759,16 @@ function Legend() {
   )
 }
 
-export function Activity({ unit, pick, onPick, talk, fitKey }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown }) {
+/** `title` and `hint`: another heading than "Activity", with a quiet line under it. */
+export function Activity({ unit, pick, onPick, talk, fitKey, title, hint }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; title?: string; hint?: string }) {
   const { t } = useT()
   const pickedId = pick?.kind === 'task' ? pick.id : null
   const picked = unit.tasks.find(n => n.id === pickedId)
   const pickNode = useMemo(() => (id: string | null) => onPick(id ? { kind: 'task', id } : null), [onPick])
   return (
     <section className="block-box">
-      <h2 className="mb-2 text-lg font-[650]">{t('block.activity')}</h2>
+      <h2 className="mb-2 text-lg font-[650]">{title ?? t('block.activity')}</h2>
+      {hint && <p className="-mt-1 mb-2 text-sm text-ink-2">{hint}</p>}
       {unit.tasks.length ? (
         <>
           <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} talk={talk} fitKey={fitKey} />

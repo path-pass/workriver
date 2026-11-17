@@ -47,7 +47,7 @@ fn rules_reject_bad_input() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
     // A second review (#3), left open for the delivery below.
-    s.append(&"agent-b".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review"}}))).unwrap();
+    s.append(&"agent-b".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}}))).unwrap();
     let mut rejects = |v: serde_json::Value, says: &str| {
         let err = s.append(&"agent-a".into(), body(v)).unwrap_err().to_string();
         assert!(err.contains(says), "{err:?} does not say {says:?}");
@@ -168,7 +168,7 @@ fn questions_are_answered_by_their_own_agent_or_the_user() {
 fn design_tasks_decide_gates_and_revised_findings() {
     let (_dir, mut s) = temp_store();
     seeded(&mut s);
-    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store"}}))).unwrap();
+    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store", "inputs": [{"from": "2"}]}}))).unwrap();
     let no_note = s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3}}))).unwrap_err().to_string();
     assert!(no_note.contains("design as the note"), "{no_note}");
     s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "One table."}}))).unwrap();
@@ -198,8 +198,58 @@ fn attachments_are_stored_before_they_are_used() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["abc"]);
 }
 
+/// A question may point at an attachment shown with its task (its own, its findings', those of
+/// the findings it answers), never at another's; a blind task not delivered, not even at those
+/// of the findings it answers.
+#[test]
+fn questions_point_only_at_their_tasks_attachments() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let file = |id: &str, link: serde_json::Value| {
+        let mut b = json!({"id": id, "name": format!("{id}.md"), "type": "text/markdown", "size": 3});
+        b.as_object_mut().unwrap().extend(link.as_object().unwrap().clone());
+        json!({"kind": "attachment.added", "body": b})
+    };
+    add(&mut s, "agent-a", file("own", json!({"unit": "u1", "task": 1}))).unwrap();
+    add(&mut s, "agent-a", file("found", json!({"unit": "u1", "task": 2, "finding": "P2-1"}))).unwrap();
+    add(&mut s, "agent-a", file("loose", json!({}))).unwrap();
+    let ask = |task: u32, id: Option<&str>| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "text": "What does it say?", "context": [{"kind": "attachment", "label": "report.md", "id": id}]}});
+    add(&mut s, "user", ask(1, Some("own"))).unwrap();
+    assert_eq!(s.state().questions[0].context[0].id.as_deref(), Some("own"));
+    for wrong in [Some("found"), Some("loose"), Some("nope"), None] {
+        assert!(add(&mut s, "user", ask(1, wrong)).unwrap_err().contains("is not one of u1#1's"), "{wrong:?}");
+    }
+    add(&mut s, "user", ask(2, Some("found"))).unwrap();
+    // Work that answers a finding shows that finding's attachments.
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Dedupe", "causes": [{"task": 2, "findings": ["P2-1"]}]}})).unwrap();
+    add(&mut s, "user", ask(3, Some("found"))).unwrap();
+    assert_eq!(s.state().attachments_of("u1", 3), ["found"]);
+    // A blind review in progress: nothing of other work, not even through the user's question.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "3"}], "causes": [{"task": 2, "findings": ["P2-1"]}], "agent": "sec", "blind": true}})).unwrap();
+    assert!(s.state().attachments_of("u1", 4).is_empty());
+    assert!(add(&mut s, "user", ask(4, Some("found"))).unwrap_err().contains("is not one of u1#4's"));
+    add(&mut s, "sec", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "findings": []}})).unwrap();
+    add(&mut s, "user", ask(4, Some("found"))).unwrap();
+    assert!(replayed(&s).questions.iter().all(|q| q.context[0].kind == "attachment"));
+}
+
 fn add(s: &mut Store, actor: &str, v: serde_json::Value) -> Result<Event, String> {
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
+}
+
+/// An event as an old database has it, straight into the records past today's rules (the
+/// body as it was stored, ids and numbers filled in); the store is opened again from them.
+fn recorded_before(s: Store, actor: &str, v: serde_json::Value) -> Store {
+    let (intent, unit, task) = body(v.clone()).refs();
+    let conn = rusqlite::Connection::open(s.path()).unwrap();
+    conn.execute(
+        "INSERT INTO events (at, kind, actor, intent, unit, task, body) VALUES ('2026-01-01T00:00:00Z', ?1, ?2, ?3, ?4, ?5, ?6)",
+        (v["kind"].as_str(), actor, intent, unit, task, v["body"].to_string()),
+    )
+    .unwrap();
+    drop(conn);
+    Store::open(s.path()).unwrap()
 }
 
 /// A unit's branch is its own and says what it holds; units named before that rule still
@@ -304,7 +354,8 @@ fn planned_intents_merge() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Ranking", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "user", plan("Other project", "/q")).unwrap(); // i4
     add(&mut s, "user", plan("Has a task", "/p")).unwrap(); // i5
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i5", "kind": "research", "title": "Look"}})).unwrap();
+    // Tasks of the intent itself, from before research units.
+    let mut s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i5", "intent": "i5", "n": 1, "kind": "research", "title": "Look", "inputs": [{"from": "start"}]}}));
     add(&mut s, "user", plan("Has a chore", "/p")).unwrap(); // i6
     add(&mut s, "user", json!({"kind": "chore.created", "body": {"intent": "i6", "title": "Rotate"}})).unwrap();
     add(&mut s, "user", plan("Has a finding", "/p")).unwrap(); // i7
@@ -365,27 +416,81 @@ fn planned_intents_merge() {
     assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
 
-/// Research and design belong to an intent without a unit; research hands in a note or a report.
+/// Research and design are a unit of their own with no branch; research hands in a note or a
+/// report. Nothing new goes into an intent itself, but its tasks recorded before that replay
+/// and keep working.
 #[test]
-fn intent_level_research() {
+fn research_units_and_old_intent_level_work() {
     let (_dir, mut s) = temp_store();
-    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync", "project": "/p", "state": "planned"}})).unwrap();
-    let e = add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "implement", "title": "x"}})).unwrap_err();
-    assert!(e.contains("belong to a unit"), "{e}");
-    let t = add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "research", "title": "Compare sync engines"}})).unwrap();
-    assert_eq!(t.body.refs(), (Some("i1".into()), Some("i1".into()), Some("i1#1".into())));
-    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1}})).unwrap_err();
+    add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync", "project": "p1", "state": "planned"}})).unwrap();
+    for kind in ["research", "design", "review", "implement"] {
+        let e = add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": kind, "title": "x"}})).unwrap_err();
+        assert!(e.contains("tasks go into a unit") && e.contains("workriver unit add i1 --kind research"), "{e}");
+    }
+    let research = |extra: serde_json::Value| {
+        let mut b = json!({"intent": "i1", "title": "Compare sync engines", "kind": "research"});
+        b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        json!({"kind": "unit.created", "body": b})
+    };
+    for extra in [json!({"branch": "feat/x"}), json!({"repo": "/r"}), json!({"base": "main"}), json!({"machine": "box"})] {
+        assert!(add(&mut s, "boss", research(extra.clone())).unwrap_err().contains("has no repository, branch"), "{extra}");
+    }
+    let e = add(&mut s, "boss", research(json!({}))).unwrap();
+    assert_eq!(e.body.refs(), (Some("i1".into()), Some("u1".into()), None));
+    let u = s.state().unit("u1").unwrap().clone();
+    assert_eq!((u.kind, u.repo.as_str(), u.branch.as_str(), u.has_code()), (UnitKind::Research, "/p", "", false), "it reads in the project's folder");
+    // No implement or tests work, no commits, no merge, no move.
+    for kind in ["implement", "tests"] {
+        assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": kind, "title": "x"}})).unwrap_err().contains("is a research unit"));
+    }
+    assert!(add(&mut s, "user", json!({"kind": "unit.merged", "body": {"unit": "u1"}})).unwrap_err().contains("unit done u1"));
+    assert!(add(&mut s, "user", json!({"kind": "unit.relocated", "body": {"unit": "u1", "repo": "/r", "branch": "feat/x", "base": "main"}})).unwrap_err().contains("research unit"));
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "Compare sync engines"}})).unwrap();
+    assert!(add(&mut s, "user", json!({"kind": "commit.linked", "body": {"unit": "u1", "hash": "abc", "task": 1}})).unwrap_err().contains("research unit"));
+    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1}})).unwrap_err();
     assert!(e.contains("research task delivers"), "{e}");
-    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "n", "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap_err();
+    let e = add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "n", "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap_err();
     assert!(e.contains("findings"), "{e}");
-    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "Use CRDTs; see report"}})).unwrap();
-    let st = s.state();
-    let t = st.task("i1", 1).unwrap();
-    assert_eq!((t.state, t.intent.as_str()), (TaskState::Done, "i1"));
-    // A unit's tasks record their intent too.
+    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "Use CRDTs; see report"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{"from": "1"}]}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().unit("u1").unwrap().clone()), Progress::Waiting);
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 2, "result": "done", "note": "CRDTs"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().unit("u1").unwrap().clone()), Progress::Ready);
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "decided"}})).unwrap();
+    assert_eq!(s.state().unit("u1").unwrap().tasks.len(), 2);
+
+    // Recorded before research units: the intent's own tasks replay and still take the
+    // rest of their life (start, deliver, decide, a cause of work in a unit).
+    let s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "intent": "i1", "n": 1, "kind": "research", "title": "Look", "inputs": [{"from": "start"}]}}));
+    let s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "intent": "i1", "n": 2, "kind": "review", "reviewer": "code-review", "inputs": [{"from": "1"}]}}));
+    let mut s = s;
+    let t = s.state().task("i1", 1).unwrap();
+    assert_eq!((t.state, t.intent.as_str()), (TaskState::Todo, "i1"));
+    add(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "i1", "task": 1}})).unwrap();
+    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "Found it"}})).unwrap();
+    add(&mut s, "r2", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 2, "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "i1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x"}})).unwrap();
-    assert_eq!(s.state().task("u1", 1).unwrap().intent, "i1");
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "Fix", "causes": [{"unit": "i1", "task": 2, "findings": ["P2-1"]}]}})).unwrap();
+    assert_eq!(s.state().task("u2", 1).unwrap().intent, "i1", "a unit's tasks record their intent too");
+    assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "research", "title": "More", "inputs": [{"from": "1"}]}})).unwrap_err().contains("tasks go into a unit"));
+    assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
+}
+
+/// The intent's manager or the user adds a paragraph to its note; nobody else.
+#[test]
+fn a_note_grows_by_paragraphs() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let more = |text: &str| json!({"kind": "intent.updated", "body": {"intent": "i1", "add_note": text}});
+    assert!(add(&mut s, "agent-b", more("x")).unwrap_err().contains("only the user or the manager"));
+    assert!(add(&mut s, "user", more("  ")).unwrap_err().contains("empty"));
+    add(&mut s, "user", more("First: see https://x/1\n")).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "First: see https://x/1");
+    add(&mut s, "user", more("Second\nline")).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "First: see https://x/1\n\nSecond\nline");
+    assert_eq!(replayed(&s).intent("i1").unwrap().note, s.state().intent("i1").unwrap().note);
 }
 
 /// Deferred findings, from a task or added to the backlog, are batched (scheduled), and done
@@ -673,7 +778,7 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "start"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "1"}, {"from": "2", "primary": false}]}})).unwrap();
     let gate = |s: &Store| s.state().task("u1", 3).unwrap().clone();
     assert_eq!((gate(&s).state, gate(&s).waiting_since.clone()), (TaskState::Todo, None));
@@ -710,4 +815,185 @@ fn the_user_renames_a_project() {
         add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "p1", "title": "R"}})).unwrap();
     }
     assert_eq!(Store::open(&path).unwrap().state().projects[0].title, "R", "replayed");
+}
+
+/// A task no longer needed is dropped, never deleted: by the intent's manager, the user, or
+/// the agent that recorded it, with a reason, while it is not done. It then holds nothing
+/// up (a gate after it opens, its blind agent sees again), leaves what waits for the user,
+/// is not started, delivered or submitted any more, and replays the same.
+#[test]
+fn a_task_no_longer_needed_is_dropped() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build", "agent": "w"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    // Asked twice: the branch changed after the first merge gate.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main? (again)", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "After the merge", "inputs": [{"from": "2"}]}})).unwrap();
+    let drop = |n: u32, reason: &str| json!({"kind": "task.dropped", "body": {"unit": "u1", "task": n, "reason": reason}});
+
+    // Who, and with what.
+    assert!(add(&mut s, "boss", drop(2, " ")).unwrap_err().contains("needs a reason"));
+    assert!(add(&mut s, "x", drop(2, "mine now")).unwrap_err().contains("by the manager of its intent or the user"));
+    assert!(add(&mut s, "w", drop(2, "not mine")).unwrap_err().contains("by the manager of its intent or the user"));
+    assert!(add(&mut s, "boss", drop(1, "late")).unwrap_err().contains("u1#1 is done"));
+    add(&mut s, "w", drop(4, "folded into #1")).unwrap();
+    let e = add(&mut s, "boss", drop(2, "superseded by u1#3")).unwrap();
+    let gate = s.state().task("u1", 2).unwrap().clone();
+    assert_eq!(gate.state, TaskState::Dropped);
+    assert_eq!(gate.dropped, Some(Closed { at: e.at.clone(), by: "boss".into(), reason: "superseded by u1#3".into() }));
+    assert!(add(&mut s, "boss", drop(2, "again")).unwrap_err().contains("was dropped as no longer needed (superseded by u1#3)"));
+
+    // Nothing waits on it: what follows it may start; only the second gate waits for the user.
+    assert!(s.state().unfinished_inputs("u1", s.state().task("u1", 5).unwrap()).is_empty());
+    let waiting: Vec<u32> = s.state().units[0].tasks.iter().filter(|t| t.state == TaskState::Waiting).map(|t| t.n).collect();
+    assert_eq!(waiting, [3]);
+    assert!(add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 2, "result": "done"}})).unwrap_err().contains("was dropped"));
+    assert!(add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 4}})).unwrap_err().contains("u1#4 was dropped"));
+    assert!(add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "note": "x"}})).unwrap_err().contains("u1#4 was dropped"));
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "done"}})).unwrap();
+    assert!(add(&mut s, "user", drop(3, "late")).unwrap_err().contains("is done"), "a submitted gate is done");
+
+    // A gate opens once what it follows is dropped.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Polish", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try", "inputs": [{"from": "6"}]}})).unwrap();
+    assert_eq!(s.state().task("u1", 7).unwrap().state, TaskState::Todo);
+    add(&mut s, "user", drop(6, "not worth it")).unwrap();
+    assert_eq!(s.state().task("u1", 7).unwrap().state, TaskState::Waiting);
+
+    // A blind agent whose task is dropped is no longer blind.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}], "agent": "rev", "blind": true}})).unwrap();
+    assert!(!s.state().blind_tasks("rev").is_empty());
+    add(&mut s, "boss", drop(8, "the code changed")).unwrap();
+    assert!(s.state().blind_tasks("rev").is_empty());
+
+    let again = replayed(&s);
+    assert_eq!(again.task("u1", 2).unwrap(), &gate);
+    assert_eq!(again.task("u1", 7).unwrap().state, TaskState::Waiting);
+}
+
+/// Work handed out for an accepted finding and then dropped answers nothing: the unit waits
+/// for work on the finding again.
+#[test]
+fn a_dropped_follow_up_answers_nothing() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    for f in ["P2-1", "P2-2"] {
+        add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": f, "decision": "accept"}})).unwrap();
+    }
+    for f in ["P2-1", "P2-2"] {
+        add(&mut s, "user", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": f, "causes": [{"task": 2, "findings": [f]}]}})).unwrap();
+    }
+    add(&mut s, "user", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 4, "reason": "fixed by #3"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 3}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Waiting);
+    // Dropping a task leaves the findings it was about as they are.
+    assert_eq!(s.state().task("u1", 2).unwrap().findings[1].state, FindingState::Accepted);
+}
+
+/// The first task of a unit or intent starts at the start; a later one says what it follows
+/// (a task, `start` to run beside the first, or a cause in the same unit), else it is refused
+/// rather than hung off the start away from the work it continues.
+#[test]
+fn a_later_task_says_what_it_follows() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let task = |v: serde_json::Value| json!({"kind": "task.created", "body": v});
+    let e = add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "More"}))).unwrap_err();
+    assert!(e.contains("u1 already has tasks") && e.contains("--after <n> (the latest is #2)") && e.contains("--after start"), "{e}");
+    let inputs = |s: &Store, u: &str, n: u32| s.state().task(u, n).unwrap().inputs.iter().map(|i| i.from.clone()).collect::<Vec<_>>();
+    add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "Beside", "inputs": [{"from": "start"}]}))).unwrap();
+    assert_eq!(inputs(&s, "u1", 3), ["start"]);
+    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
+    add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "Fix", "causes": [{"task": 2, "findings": ["P2-1"]}]}))).unwrap();
+    assert_eq!(inputs(&s, "u1", 4), ["2"]);
+    // A research unit the same: the first starts at the start, the next must say; a cause in
+    // another unit is not one of its tasks.
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Look around", "kind": "research"}})).unwrap();
+    add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Look"}))).unwrap();
+    assert_eq!(inputs(&s, "u2", 1), ["start"]);
+    let e = add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}]}))).unwrap_err();
+    assert!(e.contains("u2 already has tasks"), "{e}");
+    add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
+}
+
+/// The user asks about a unit itself (task 0): its own threads, attachments of its tasks;
+/// agents still ask about a task. Old questions (every one names a task) replay unchanged.
+#[test]
+fn the_user_asks_about_a_unit() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let ask = |task: u32, thread: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "thread": thread, "text": "Why this order?", "context": [{"kind": "unit", "label": "Mentions"}]}});
+    let e = add(&mut s, "user", ask(0, "")).unwrap();
+    assert_eq!(e.body.refs(), (None, Some("u1".into()), None), "about the unit, no task");
+    // Without `task` at all: the unit too.
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "text": "And?"}})).unwrap();
+    assert_eq!((s.state().questions[1].task, s.state().threads[1].task), (0, 0));
+    // A follow-up stays in the unit's thread; a task's thread is another conversation.
+    add(&mut s, "user", ask(0, "q1")).unwrap();
+    assert!(add(&mut s, "user", ask(1, "q1")).unwrap_err().contains("about another task"));
+    add(&mut s, "user", ask(1, "")).unwrap();
+    assert!(add(&mut s, "user", ask(0, "q4")).unwrap_err().contains("about another task"));
+    // Agents do not ask about whole units; nobody asks about a unit that is not there.
+    assert!(add(&mut s, "agent-b", ask(0, "")).unwrap_err().contains("workriver ask <unit>#<n>"));
+    assert!(add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u9", "text": "?"}})).unwrap_err().contains("no unit u9"));
+    // An attachment shown with one of its tasks may be pointed at; another one not.
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "rep", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "loose", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
+    let at = |id: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": 0, "text": "?", "context": [{"kind": "attachment", "label": "r.md", "id": id}]}});
+    add(&mut s, "user", at("rep")).unwrap();
+    assert!(add(&mut s, "user", at("loose")).unwrap_err().contains("not one of u1#0's"));
+    // Answered by the agent started for it, with when.
+    add(&mut s, "workriver", json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}})).unwrap();
+    add(&mut s, "s-why", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Parse first."}})).unwrap();
+    assert!(s.state().question("q1").unwrap().answered_at.is_some());
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// The user writes to a workspace's manager; only that manager replies, workriver alone
+/// records where the message is, and it all replays.
+#[test]
+fn the_user_talks_to_a_manager() {
+    let (_dir, mut s) = temp_store();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
+    let say = |intent: &str, workspace: &str| json!({"kind": "message.sent", "body": {"intent": intent, "workspace": workspace, "manager": "forged", "text": "Pause u2 until the API settles."}});
+    // Nobody to tell yet.
+    assert!(add(&mut s, "user", say("i1", "")).unwrap_err().contains("intent i1 has no manager"));
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    // Only the user writes; the manager is the workspace's, whatever the request says.
+    assert!(add(&mut s, "boss", say("i1", "")).unwrap_err().contains("only the user does this (message.sent)"));
+    let e = add(&mut s, "user", say("i1", "")).unwrap();
+    let Body::MessageSent { id, workspace, manager, .. } = &e.body else { panic!() };
+    assert_eq!((id.as_str(), workspace.as_str(), manager.as_str()), ("m1", "chat", "boss"));
+    assert_eq!(e.body.refs().0.as_deref(), Some("i1"));
+    // By workspace alone, when nothing of an intent is picked.
+    add(&mut s, "user", say("", "chat")).unwrap();
+    assert!(add(&mut s, "user", say("", "nowhere")).unwrap_err().contains("workspace \"nowhere\" has no manager"));
+    assert!(add(&mut s, "user", say("i2", "")).unwrap_err().contains("intent i2 has no manager"), "planned: it runs nowhere");
+    // Where it is: workriver's word only.
+    let delivery = |m: &str| json!({"kind": "message.delivery", "body": {"id": m, "step": "delivered", "to": "boss", "reason": null, "message": "[workriver] ..."}});
+    assert!(add(&mut s, "boss", delivery("m1")).unwrap_err().contains("only workriver"));
+    assert!(add(&mut s, "user", delivery("m1")).unwrap_err().contains("only workriver"));
+    assert!(add(&mut s, "workriver", delivery("m9")).unwrap_err().contains("no message m9"));
+    add(&mut s, "workriver", delivery("m1")).unwrap();
+    assert_eq!(s.state().message("m1").unwrap().delivery.as_ref().map(|d| d.step), Some(DeliveryStep::Delivered));
+    // Replies: the manager it went to, and nobody else.
+    let reply = |m: &str| json!({"kind": "message.replied", "body": {"message": m, "text": "Paused."}});
+    assert!(add(&mut s, "worker", reply("m1")).unwrap_err().contains("only that manager replies"));
+    assert!(add(&mut s, "user", reply("m1")).unwrap_err().contains("only that manager replies"));
+    assert!(add(&mut s, "boss", reply("m9")).unwrap_err().contains("no message m9"));
+    add(&mut s, "boss", reply("m1")).unwrap();
+    add(&mut s, "boss", reply("m1")).unwrap();
+    let m = s.state().message("m1").unwrap();
+    assert_eq!((m.replies.len(), m.replies[0].by.as_str(), m.replies[0].text.as_str()), (2, "boss", "Paused."));
+    assert_eq!(replayed(&s), *s.state());
 }

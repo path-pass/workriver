@@ -49,6 +49,15 @@
   --add-gut: light-dark(oklch(90% 0.08 150), oklch(31% 0.07 150));
   --del-row: light-dark(oklch(95.5% 0.03 26), oklch(26% 0.05 26));
   --del-gut: light-dark(oklch(90% 0.06 26), oklch(31% 0.07 26));
+  /* A unit's branch in the commit graph: its own tone, picked from its id, telling branches
+     apart and nothing else. Three hue families none of the state colours use (blue, rose,
+     olive), each dark and light; the base is neutral. */
+  --lane-0: light-dark(oklch(48% 0.17 262), oklch(70% 0.14 262));
+  --lane-1: light-dark(oklch(55% 0.19 354), oklch(72% 0.15 354));
+  --lane-2: light-dark(oklch(52% 0.12 120), oklch(76% 0.13 120));
+  --lane-3: light-dark(oklch(66% 0.12 262), oklch(84% 0.08 262));
+  --lane-4: light-dark(oklch(69% 0.13 354), oklch(84% 0.08 354));
+  --lane-5: light-dark(oklch(40% 0.08 120), oklch(62% 0.1 120));
   --shadow: 0 1px 2px light-dark(oklch(24% 0.02 242 / .08), oklch(0% 0 0 / .4)),
     0 6px 16px -6px light-dark(oklch(24% 0.02 242 / .18), oklch(0% 0 0 / .6));
 
@@ -135,6 +144,7 @@
   --color-add: var(--add);
   --color-del: var(--del);
   --color-del-row: var(--del-row);
+  --color-add-row: var(--add-row);
   --shadow-pick: var(--shadow);
   /* Radius: 6 small controls, 8 nodes, 10 blocks. */
   --radius-sm: 6px;
@@ -240,34 +250,33 @@
   /* An agent's mark. Its colour comes from its name and is used nowhere else. */
   .who { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: .02em; box-shadow: 0 0 0 2px var(--who-ground, var(--surface)); }
   .rail .who { --who-ground: var(--rail); }
-  /* An agent in the side panel, quieter the further it is from working: holding work that
-     has not started, then idle. The line that led to what is open shows as picked. The left
-     padding leaves room for the writing ring as it grows (about 15px past the mark), which
-     the panel's scroll area would otherwise cut. */
+  /* The agents in the side panel, as a tree: a workspace's manager, its workers indented
+     under it, their question agents under them; thin guide lines from the parent's mark.
+     A line is a grid, so nothing is drawn over anything: the mark; the name (its marks and
+     machine chip never shrink) over what it is on; its state in a word. The left padding
+     leaves room for the writing ring as it grows, which the scroll area would otherwise cut. */
+  .tree { margin: 0; padding: 0; list-style: none; }
+  .tree .tree { margin-left: 24px; border-left: 1px solid var(--line-2); }
+  .tree .tree .agent { padding-left: 9px; }
   .agent-row { display: flex; align-items: center; gap: 2px; padding-right: 4px; }
-  .agent-row .agent { flex: 1; min-width: 0; }
-  /* A grid, so nothing is drawn over anything: the mark; the name (with its marks and
-     machine chip, which never shrink) over the topic; where it works, in a column of its
-     own that truncates. */
-  .agent { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 45%); align-items: center; column-gap: 6px; width: 100%; min-height: 30px; padding: 2px 10px 2px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
+  .agent { display: grid; flex: 1; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 6px; min-width: 0; min-height: 30px; padding: 3px 6px 3px 14px; border-radius: 6px; font-size: 12px; text-align: left; }
   .agent .agent-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .agent .agent-name > :not(:first-child) { flex: none; }
-  /* A narrow panel: where it works goes to a third line, under the topic. */
-  .agents { container-type: inline-size; }
-  @container (max-width: 340px) {
-    .agent { grid-template-columns: auto minmax(0, 1fr) auto; }
-    .agent .at { grid-column: 2 / 4; margin-left: 0; }
-    /* Idle says so with a mark only: it stays at the end of the first line. */
-    .agent .at[data-idle] { grid-column: 3; grid-row: 1; }
-  }
+  .agent > .who { grid-row: span 2; }
+  .agent .sub { grid-column: 2 / 4; display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11px; color: var(--ink-2); }
+  .agent .word { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
   .agent:not(:disabled):hover { background: var(--sunken); }
+  .agent:not(:disabled):hover .task { text-decoration: underline; }
   .agent[aria-pressed="true"] { background: var(--you-bg); color: var(--you-ink); }
-  .agent .at { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; overflow: hidden; color: var(--ink-2); }
-  @container (max-width: 340px) { .agent .at { justify-content: flex-start; } }
-  .agent[data-place="queued"] { color: var(--ink-2); }
-  .agent[data-place="queued"] .who { opacity: .55; }
-  .agent[data-place="idle"] { color: var(--ink-2); }
-  .agent[data-place="idle"] .who { opacity: .45; filter: grayscale(1); }
+  .agent[data-state="working"] .word { color: var(--ink); }
+  .agent[data-state="blocked"] .word { color: var(--you-ink); font-weight: 600; }
+  .agent[data-state="idle"] .who { opacity: .45; filter: grayscale(1); }
+  /* Gone, still holding unfinished work: greyed. */
+  .agent[data-state="gone"] { color: var(--ink-2); }
+  .agent[data-state="gone"] > * { opacity: .6; }
+  .agent[data-state="gone"] .who { filter: grayscale(1); }
+  /* Idle and holding nothing: it can be closed, quietly. */
+  .closable { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 6px; border-radius: 8px; background: var(--sunken); font-size: 10px; font-weight: 600; }
   /* An agent that is writing right now: the mark breathes. */
   .who[data-live]::after { content: ''; position: absolute; inset: -2px; border-radius: 12px; border: 2px solid var(--amber); animation: writing 1.8s cubic-bezier(.2, .7, .2, 1) infinite; }
 
@@ -285,8 +294,15 @@
   .irow[data-kind="gate"]:hover { box-shadow: var(--shadow); }
   .irow[data-kind="gate"] .ic { color: var(--you); }
   .irow[data-kind="gate"] .meta, .irow[data-kind="gate"] .age { color: inherit; font-weight: 400; }
+  /* A worker that stopped: its terminal is where to look. */
+  .irow[data-kind="stalled"] .ic { color: var(--you); }
   .irow[data-kind="loose"] .ic { color: var(--del); }
   .irow[data-kind="far"] .ic { color: var(--amber); }
+  .irow[data-kind="machine"][data-level=warn] :is(.ic, .level) { color: var(--amber-ink); }
+  .irow[data-kind="machine"][data-level=crit] :is(.ic, .level) { color: var(--del); }
+  .irow[data-kind="machine"] .level { flex: none; font-weight: 600; }
+  .irow .meta.top { grid-column: 2 / -1; }
+  .sidepane .irow .meta.top { grid-row: 3; }
   /* Blocks nobody: the quietest rows; the chevron opens its steps. */
   .irow[data-kind="chore"] { color: var(--ink-2); }
   .irow[data-kind="chore"] .ic { transition: transform .15s; }
@@ -321,6 +337,12 @@
   /* Finished work handed in with no check run: a small neutral mark at the bottom left. */
   .wnode .untested { position: absolute; left: -6px; bottom: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
   .wnode .untested .ic { width: 11px; height: 11px; }
+  /* No longer needed: greyed, dashed, with its mark where an untested one would be (it never is). */
+  .wnode[data-dropped] { border-style: dashed; background: var(--surface); color: var(--ink-2); --gate-bg: var(--surface); --gate-line: var(--line-2); }
+  .wnode[data-dropped] .ic { color: var(--ink-2) !important; }
+  .wnode[data-dropped] .lb { text-decoration: line-through; }
+  .wnode .dropped { position: absolute; left: -6px; bottom: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
+  .wnode .dropped .ic { width: 11px; height: 11px; }
   /* A blind review: a neutral mark at the top left, information like the others. */
   .wnode .blind { position: absolute; left: -6px; top: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
   .wnode .blind .ic { width: 11px; height: 11px; }
@@ -347,8 +369,17 @@
   .flow .react-flow__handle { opacity: 0; pointer-events: none; }
   /* The library's own credit: kept, small and quiet, in its corner. */
   .flow .react-flow__attribution { margin: 0 16px 10px 0; background: transparent; color: var(--ink-2); font-size: 10px; }
+  /* The overview, bottom left: the nodes in their state colours, the part in view clear,
+     the rest shaded. */
+  .flow .react-flow__minimap { margin: 0 0 10px 16px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; --xy-minimap-background-color: var(--surface); --xy-minimap-mask-background-color: color-mix(in oklch, var(--ink-2) 16%, transparent); --xy-minimap-node-background-color: var(--line-2); }
+  .flow .react-flow__minimap-node.mini-done, .flow .react-flow__minimap-node.mini-start { fill: var(--water); }
+  .flow .react-flow__minimap-node.mini-running { fill: var(--amber); }
+  .flow .react-flow__minimap-node.mini-you { fill: var(--you); }
 
-  /* ---- asking why: conversations folded to a line each, one open at a time ---- */
+  /* ---- asking why: conversations folded to a line each, one open at a time; the open one
+     takes the height left in the panel ---- */
+  .thread { flex: none; }
+  .thread[data-open] { flex: 1 1 auto; min-height: 12rem; display: flex; flex-direction: column; }
   .thread + .thread { border-top: 1px solid var(--line); }
   .thread-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; font-size: 13px; text-align: left; }
   .thread-row:hover { background: var(--sunken); }
@@ -356,8 +387,17 @@
   .thread-row .thread-state { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--sunken); color: var(--ink-2); }
   .thread-row .thread-state[data-state="waiting"] { background: var(--amber-bg); color: var(--amber-ink); }
   .thread-row .thread-state[data-state="failed"] { color: var(--del); }
-  /* An open one scrolls on its own: the detail never grows past it. */
-  .thread-scroll { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; }
+  /* A chat scrolls on its own, in whatever height it is given. */
+  .chat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; border-radius: 6px; }
+  .chat-scroll:focus-visible { outline: 2px solid var(--you); outline-offset: -2px; }
+  .chat { display: flex; flex-direction: column; gap: 12px; }
+  /* The user's (or asking agent's) words on the right, on their own ground; the answer on the left. */
+  .msg { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .msg[data-side="mine"] { align-items: flex-end; margin-left: 24px; }
+  .msg-head { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 11px; color: var(--ink-2); }
+  .msg .bubble { max-width: 100%; min-width: 0; padding: 6px 10px; border-radius: 10px; }
+  .msg[data-side="mine"] .bubble { background: var(--sunken); border-top-right-radius: 3px; }
+  .msg[data-side="theirs"] .bubble { align-self: stretch; border: 1px solid var(--line); border-top-left-radius: 3px; }
 
   /* ---- the findings of the picked review ---- */
   .fgroup + .fgroup { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
@@ -458,11 +498,55 @@
   .thumb img { width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--line-2); border-radius: 6px; background: var(--sunken); }
   .thumb .x { position: absolute; top: -6px; right: -6px; display: inline-flex; padding: 2px; border-radius: 8px; background: var(--ink); color: var(--canvas); }
 
-  /* ---- the commits feed in the side panel ---- */
-  .crow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px 6px 12px; border-radius: 6px; text-align: left; font-size: 13px; }
-  button.crow:hover { background: var(--sunken); }
-  .crow[aria-pressed="true"] { background: var(--you-bg); }
-  .crow[data-live] { color: var(--amber-ink); }
+  /* ---- the attachment viewer: plain text, and Markdown rendered ---- */
+  .viewer-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono); color: var(--ink); }
+  .md { max-width: 80ch; font-size: 14px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
+  .md > * + * { margin-top: 12px; }
+  .md h1, .md h2, .md h3, .md h4 { font-weight: 650; line-height: 1.3; }
+  .md h1 { font-size: 20px; } .md h2 { font-size: 15px; } .md h3, .md h4 { font-size: 14px; }
+  .md :is(h1, h2, h3, h4):not(:first-child) { margin-top: 20px; }
+  .md ul { padding-left: 20px; list-style: disc; } .md ol { padding-left: 20px; list-style: decimal; }
+  .md li + li { margin-top: 4px; }
+  .md a { color: var(--you-ink); text-decoration: underline; text-underline-offset: 3px; }
+  .md code { padding: 1px 4px; border-radius: 4px; background: var(--sunken); font: 12px var(--font-mono); }
+  .md pre { overflow-x: auto; padding: 8px 12px; border-radius: 6px; background: var(--sunken); scrollbar-width: thin; }
+  .md pre code { padding: 0; background: none; white-space: pre; overflow-wrap: normal; }
+  .md blockquote { padding-left: 12px; border-left: 3px solid var(--line-2); color: var(--ink-2); }
+  .md table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .md th, .md td { padding: 4px 10px; border: 1px solid var(--line-2); text-align: left; }
+  .md th { background: var(--sunken); font-weight: 600; }
+  .md hr { border: 0; border-top: 1px solid var(--line); }
+  /* Compact, inside a task's detail or an answer: the surrounding size, small headings, tight
+     lists; a single line break an agent typed stays a line break. */
+  .md.md-sm { max-width: none; font-size: inherit; line-height: 1.5; }
+  .md.md-sm > * + * { margin-top: 6px; }
+  .md.md-sm :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; font-weight: 650; }
+  .md.md-sm :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 10px; }
+  .md.md-sm :is(ul, ol) { padding-left: 18px; }
+  .md.md-sm li + li { margin-top: 2px; }
+  .md.md-sm p { white-space: pre-line; }
+  .md.md-sm pre { padding: 6px 8px; }
+  .md .md-file { font: 12px var(--font-mono); color: var(--you-ink); text-align: left; text-underline-offset: 3px; }
+  .md .md-file:hover { text-decoration: underline; }
+  /* A long text cut to its first lines, fading out, until "show more". */
+  .prose-fold { max-height: 9em; overflow: hidden; }
+  .prose-fold[data-all] { max-height: none; }
+  .prose-fold[data-cut] { mask-image: linear-gradient(to bottom, #000 65%, transparent); }
+
+  /* ---- the commits in the side panel, as a git graph: one row a commit, the lanes on the
+     left drawn row by row (inline SVG), so rows touch and the lines run on. ---- */
+  .grow { --row-bg: var(--surface); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 6px; width: 100%; height: 44px; padding: 0 10px 0 2px; border-radius: 6px; text-align: left; font-size: 13px; }
+  button.grow:not(:disabled):hover { --row-bg: var(--sunken); background: var(--row-bg); }
+  .grow[aria-pressed="true"] { --row-bg: var(--you-bg); background: var(--row-bg); }
+  .grow:focus-visible { outline-offset: -2px; }
+  .grow[data-live] { color: var(--amber-ink); }
+  .graph { display: block; flex: none; }
+  .graph line, .graph path { fill: none; stroke: currentColor; stroke-width: 2; }
+  .graph .base { stroke: var(--line-2); }
+  .graph [data-dash] { stroke-dasharray: 3 3; }
+  /* A commit's dot, ringed in the row's ground so the lines stop short of it. */
+  .graph .dot { fill: currentColor; stroke: var(--row-bg); stroke-width: 2; }
+  .graph .dot[data-live] { fill: var(--row-bg); stroke: currentColor; stroke-dasharray: 2 1.5; }
 
   /* ---- the diff. diff2html draws the lines; these point it at our tokens. ---- */
   .fview { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -497,11 +581,12 @@
   .diff .d2h-file-wrapper { border: 0; border-radius: 0; margin: 0; }
   .diff .d2h-file-diff { overflow-x: auto; }
   .diff .d2h-diff-table { font: 12px/20px var(--font-mono); tab-size: 2; }
-  .diff .d2h-code-linenumber { width: 88px; border: 0; cursor: default; user-select: none; }
+  /* The gutter fits the widest line number (`--ln`, in ch, set per file; 3 at least). */
+  .diff .d2h-code-linenumber { width: calc(2 * var(--ln, 3ch) + 32px); border: 0; cursor: default; user-select: none; }
   .diff .d2h-code-linenumber.d2h-ins { background: var(--add-gut); }
   .diff .d2h-code-linenumber.d2h-del { background: var(--del-gut); }
-  .diff .line-num1, .diff .line-num2 { width: 44px; padding: 0 8px; }
-  .diff .d2h-code-line { padding: 0 12px 0 96px; width: auto; }
+  .diff .line-num1, .diff .line-num2 { width: calc(var(--ln, 3ch) + 16px); padding: 0 8px; }
+  .diff .d2h-code-line { padding: 0 12px 0 calc(2 * var(--ln, 3ch) + 40px); width: auto; }
   .diff .d2h-code-line-prefix { display: inline-block; width: 2ch; }
   .diff .d2h-ins .d2h-code-line-prefix { color: var(--add); }
   .diff .d2h-del .d2h-code-line-prefix { color: var(--del); }
@@ -532,16 +617,39 @@
   .mrow:first-of-type { border-top: 0; }
   .mrow[data-away] :is(.mline, .name) { opacity: .55; }
   .mhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 22px; font-size: 13px; font-weight: 600; }
-  .mpill { margin-left: auto; padding: 0 7px; border-radius: 999px; background: var(--you-bg); color: var(--you-ink); font-size: 11px; font-weight: 600; line-height: 18px; white-space: nowrap; }
+  /* A machine alert takes its level's colour: a warning amber, critical red. */
+  .mpill { padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px; white-space: nowrap; }
+  .mhead > :first-child { margin-right: auto; }
+  .mhead .mnote { margin-left: 0; }
+  .mpill[data-level=warn] { background: var(--amber-bg); color: var(--amber-ink); }
+  .mpill[data-level=crit] { background: var(--del-row); color: var(--del); }
   .mnote { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--ink-2); }
   .mline { display: grid; grid-template-columns: 4.5em minmax(0, 1fr) 7.5em; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
   .mline .k { color: var(--ink-2); }
   .mline .v { text-align: right; white-space: nowrap; }
-  .mline[data-hot] .v { color: var(--you-ink); font-weight: 650; }
+  .mline[data-level=warn] { --level: var(--amber); --level-ink: var(--amber-ink); }
+  .mline[data-level=crit] { --level: var(--del); --level-ink: var(--del); }
+  .mline[data-level] .v { color: var(--level-ink); font-weight: 650; }
   .spark { display: block; width: 100%; height: 22px; overflow: visible; }
   .spark .area { fill: color-mix(in oklch, var(--ink-2) 14%, transparent); }
   .spark .ln { fill: none; stroke: var(--ink-2); stroke-width: 1.25; }
   .spark .th { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 3; }
-  .mline[data-hot] .spark .area { fill: color-mix(in oklch, var(--you) 18%, transparent); }
-  .mline[data-hot] .spark .ln { stroke: var(--you); }
+  .mline[data-level] .spark .area { fill: color-mix(in oklch, var(--level) 18%, transparent); }
+  .mline[data-level] .spark .ln { stroke: var(--level); }
+  .spark.day { height: 32px; }
+  .spark .ln.mem { stroke: var(--water); }
+  .mday .legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; font-size: 10px; color: var(--ink-2); }
+  .mday .sw { display: inline-block; width: 8px; height: 2px; background: var(--ink-2); }
+  .mday .sw.mem { margin-left: 4px; background: var(--water); }
+  .mfacts { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .mfacts > div { display: flex; gap: 4px; white-space: nowrap; }
+  .mfacts dt { color: var(--ink-2); }
+  .mfacts dd[data-level] { font-weight: 600; }
+  .mfacts dd[data-level=warn] { color: var(--amber-ink); }
+  .mfacts dd[data-level=crit] { color: var(--del); }
+  .mrow[data-away] .mfacts { opacity: .55; }
+  .pressure { font-weight: 600; }
+  .pressure[data-level=normal] { color: var(--add); }
+  .pressure[data-level=warning] { color: var(--amber-ink); }
+  .pressure[data-level=critical] { color: var(--del); }
 }

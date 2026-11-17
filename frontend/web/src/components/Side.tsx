@@ -4,19 +4,22 @@
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { agentGroups, baseName, commitStats, feed, ms, writingNow, type Pick } from '@/data'
+import { agentTree, baseName, commitGraph, commitStats, laneTone, ms, type GraphRow, type Pick, type TreeAgent } from '@/data'
 import { contentLang, useT } from '@/i18n'
 import { useResize } from '@/lib/useResize'
 import type { Workspace } from '@/types'
+import { NodeName } from './Flow'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { MachinesList } from './Machines'
+import { RunBox } from './Run'
 import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
 
-export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'ask'
-export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'ask']
+export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'ask'
+export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'run', 'ask']
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }
@@ -37,126 +40,198 @@ interface ContentProps {
   onSection: (s: Section) => void
 }
 
+/** One agent of the tree: the line opens its work, the icon at its end its terminal; under it, its question agents. */
+function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: ContentProps['here']; onOpen: ContentProps['onOpen'] }) {
+  const { t, waited } = useT()
+  const { s, state, at } = a
+  const ago = Number.isFinite(a.since) ? waited(a.since) : ''
+  const word = a.closable
+    ? <span className="closable"><Icon name="idle" className="size-3" />{ago ? t('agents.closableFor', { time: ago }) : t('agents.closable')}</span>
+    : state === 'idle' ? (ago ? t('agents.idleFor', { time: ago }) : t('agents.state.idle'))
+    : state === 'blocked' && ago ? t('agents.blockedFor', { time: ago }) : t(`agents.state.${state}`)
+  // What it is on (or held, or last did); a question agent, who asked.
+  const sub = [
+    s.harness && <span key="h" className="flex-none font-mono">{s.harness}</span>,
+    a.asker !== undefined && <span key="q" className="flex-none">{a.asker ? t('agents.askedBy', { who: a.asker }) : t('agents.askedByYou')}</span>,
+    at ? (
+      <span key="t" className="task min-w-0 truncate">
+        {!a.current && <span className="mr-1">{t('agents.last')}</span>}
+        <NodeName n={at.node} /> · <span lang={contentLang(at.unit.title)}>{at.unit.title}</span>
+      </span>
+    ) : s.topic && <span key="p" className="min-w-0 truncate" lang={contentLang(s.topic)}>{s.topic}</span>,
+  ].filter(Boolean)
+  return (
+    <li>
+      <div className="agent-row" data-away={s.unreachable || undefined}>
+        <button
+          type="button"
+          className="agent"
+          data-state={state}
+          disabled={!at}
+          aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
+          onClick={() => at && onOpen(at.unit.id, { kind: 'task', id: at.node.id })}
+        >
+          <Who name={s.agent} topic={s.topic} live={state === 'working' && !!at?.node.writing} />
+          <span className="agent-name">
+            <span className="min-w-0 truncate font-[550]">{s.agent}</span>
+            {s.manager && <Mark name="manager" label={t('manager.mark')} />}
+            {/* Waiting for a person in its terminal: the Blocking meaning, in violet. */}
+            {state === 'blocked' && <span className="text-you-ink"><Mark name="blocked" label={t('agents.blocked')} /></span>}
+            <MachineChip machine={s.machine} away={s.unreachable} />
+          </span>
+          <span className="word">{word}</span>
+          {/* Under the name and the word: it takes the whole width left of the terminal button. */}
+          {sub.length > 0 && <span className="sub">{sub.flatMap((x, k) => (k ? [<span key={`d${k}`} aria-hidden className="flex-none">·</span>, x] : [x]))}</span>}
+        </button>
+        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} />}
+      </div>
+      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={k.s.session ?? k.s.agent} a={k} here={here} onOpen={onOpen} />)}</ul>}
+    </li>
+  )
+}
+
 /**
- * Every live agent on one line, by the runtime workspace it runs in: where it works, holds
- * work, or that it is idle, with what its session is about underneath.
+ * The agents as a tree, by the runtime workspace they run in: the workspace and its manager,
+ * the workers under it, the question agents under the worker whose task they ask about. Last,
+ * folded, the sessions that never took a task.
  */
 function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project' | 'ask' | 'onSection'>) {
-  const { t } = useT()
+  const { t, num } = useT()
+  const { groups, own } = agentTree(ws)
+  const line = (a: TreeAgent) => <AgentLine key={a.s.session ?? a.s.agent} a={a} here={here} onOpen={onOpen} />
   return (
-    <div className="agents flex flex-col">
-      {agentGroups(ws).map(g => (
+    <div className="agents flex flex-col gap-2">
+      {groups.map(g => (
         <section key={g.key} aria-label={g.label || undefined} className="flex flex-col">
           {g.label && (
-            <h3 className="flex items-center gap-1.5 px-3.5 pt-3 pb-1 text-xs font-semibold text-ink-2">
-              <span className="min-w-0 truncate" lang={contentLang(g.label)}>{g.label}</span>
+            <h3 className="flex items-center gap-1.5 px-3.5 pt-2 pb-0.5 text-xs font-semibold text-ink-2">
+              {/* The workspace's label keeps its room; the intent's title gives way. */}
+              <span className="max-w-1/2 flex-none truncate" lang={contentLang(g.label)}>{g.label}</span>
               {/* A workspace of another machine, not linked to one here: its own group. */}
               <MachineChip machine={g.machine} />
               {/* Where the workspace's new work goes: its current intent. */}
               {g.intent && g.intent.title !== g.label && <span className="min-w-0 truncate font-normal">· <span lang={contentLang(g.intent.title)}>{g.intent.title}</span></span>}
-              {!g.agents.some(a => a.manager) && !g.intent?.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
+              {!g.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
             </h3>
           )}
-          {g.agents.map(({ agent, session, topic, state, at, manager, blocked, machine, unreachable }) => (
-            // The line opens the agent's work; the icon at its end, its terminal.
-            <div key={session ?? agent} className="agent-row" data-away={unreachable || undefined}>
-            <button
-              type="button"
-              className="agent"
-              data-place={state}
-              disabled={!at}
-              aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
-              onClick={() => at && onOpen(at.unit.id, { kind: 'task', id: at.node.id })}
-            >
-              <Who name={agent} topic={topic} live={state === 'working' && !!at?.node.writing} />
-              <span className="flex min-w-0 flex-col">
-                <span className="agent-name">
-                  <span className="min-w-0 truncate">{agent}</span>
-                  {manager && <Mark name="manager" label={t('manager.mark')} />}
-                  <MachineChip machine={machine} away={unreachable} />
-                  {/* Waiting for a person in its terminal: the Blocking meaning, in violet. */}
-                  {blocked && <span className="text-you-ink"><Mark name="blocked" label={t('agents.blocked')} /></span>}
-                </span>
-                {topic && <span className="truncate text-[11px] text-ink-2" lang={contentLang(topic)}>{topic}</span>}
-              </span>
-              <span className="at" data-idle={state === 'idle' || undefined}>
-                {state === 'idle'
-                  ? <Mark name="idle" label={t('agents.idle')} />
-                  : <><span className="truncate" lang={contentLang(at?.unit.title)}>{at?.unit.title}</span>{at?.node.taskId && <span className="flex-none font-mono">#{at.node.taskId}</span>}</>}
-              </span>
-            </button>
-            <TerminalButton agent={agent} session={session} />
-            </div>
-          ))}
+          <ul className="tree" data-root>
+            {g.manager ? <AgentLine a={{ ...g.manager, kids: g.workers }} here={here} onOpen={onOpen} /> : g.workers.map(line)}
+          </ul>
         </section>
       ))}
+      {own.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger className="group/own flex w-full items-center gap-1 rounded-sm px-3.5 pt-2 pb-0.5 text-xs font-semibold text-ink-2 hover:text-ink">
+            <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/own:rotate-90" />
+            {t('agents.own')}<span className="font-normal">{num(own.length)}</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <p className="px-3.5 pb-1 text-[11px] text-ink-2">{t('agents.ownHint')}</p>
+            <ul className="tree" data-root>{own.map(line)}</ul>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   )
 }
 
-/** Commits across every unit, newest first, by day; on top, who is writing right now. */
-function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen' | 'project' | 'ask' | 'onSection'>) {
-  const { t, num, waited, date } = useT()
-  const rows = feed(ws)
-  const now = writingNow(ws)
-  // Days by the calendar: today, yesterday, then dates.
-  const dayOf = (s: string) => new Date(ms(s)).toDateString()
-  const label = (s: string) => {
-    const d = new Date(ms(s)), today = new Date()
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
-    return d.toDateString() === today.toDateString() ? t('commits.today') : d.toDateString() === yesterday.toDateString() ? t('commits.yesterday') : date(s, false)
-  }
-  const days = [...new Set(rows.map(r => dayOf(r.commit.date)))]
+/** Lane spacing, the base's x, and a row's height in the commit graph (px; integers keep 2 px lines crisp). */
+const LANE = 12, X0 = 8, ROW = 44
+
+/** One row of the graph: the base, every lane passing through, the row's own dot. */
+function GraphCell({ row, lanes }: { row: GraphRow; lanes: number }) {
+  const x = (k: number) => X0 + k * LANE
+  const mid = ROW / 2, b = x(0)
   return (
-    <div className="flex flex-col gap-4">
-      {now.length > 0 && (
-        <section aria-labelledby="commits-now">
-          <h3 id="commits-now" className="mb-1 px-2.5 text-xs font-semibold text-amber-ink">{t('commits.writing')}</h3>
-          {now.map(w => (
-            <div key={w.unit.id + w.node.id} className="crow" data-live>
-              <Who name={w.node.agent ?? '?'} live />
-              <span className="min-w-0">
-                <span className="block truncate font-mono text-xs">{w.files.map(baseName).join(' ')}</span>
-                <span className="block truncate text-xs text-ink-2" lang={contentLang(w.unit.title)}>{w.unit.title}{w.node.taskId && ` #${w.node.taskId}`}</span>
-              </span>
-            </div>
-          ))}
-        </section>
-      )}
-      {days.map(day => {
-        const list = rows.filter(r => dayOf(r.commit.date) === day)
+    <svg aria-hidden className="graph" width={x(lanes) + X0} height={ROW}>
+      <line className="base" x1={b} y1={0} x2={b} y2={ROW} />
+      {row.segs.map(g => {
+        const c = x(g.lane)
         return (
-          <section key={day} aria-label={label(list[0].commit.date)}>
-            <h3 className="mb-1 px-2.5 text-xs font-semibold text-ink-2">{label(list[0].commit.date)}</h3>
-            {list.map(({ unit, commit, task }) => {
-              const s = commitStats(commit)
-              return (
-                <button
-                  key={unit.id + commit.id}
-                  type="button"
-                  className="crow"
-                  disabled={!task}
-                  aria-pressed={focus?.id === commit.id && here?.unit === unit.id}
-                  onClick={() => task && onCommit(unit.id, task.id, commit.id)}
-                >
-                  <Who name={commit.author || '?'} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate" lang={contentLang(commit.subject)}>{commit.subject}</span>
-                    <span className="flex items-center gap-1.5 text-xs text-ink-2">
-                      <span className="truncate" lang={contentLang(unit.title)}>{unit.title}</span>
-                      {task?.state === 'unregistered'
-                        ? <span className="flex flex-none items-center gap-0.5 text-del"><Icon name="no" className="size-3" />{t('need.loose')}</span>
-                        : task?.taskId && <span className="flex-none font-mono">#{task.taskId}</span>}
-                      <span className="flex-none font-mono"><span className="text-add">+{num(s.add)}</span> <span className="text-del">−{num(s.del)}</span></span>
-                    </span>
-                  </span>
-                  <span className="flex-none text-xs text-ink-2">{waited(ms(commit.date))}</span>
-                </button>
-              )
-            })}
-          </section>
+          <g key={g.unit.id} style={{ color: `var(--lane-${laneTone(g.unit.id)})` }}>
+            {g.up === 'line' && <line x1={c} y1={0} x2={c} y2={mid} data-dash={g.upDash || undefined} />}
+            {g.up === 'join' && <path d={`M${c} ${mid}C${c} ${mid / 2} ${b} ${mid / 2} ${b} 0`} data-dash={g.upDash || undefined} />}
+            {g.down === 'line' && <line x1={c} y1={mid} x2={c} y2={ROW} data-dash={g.downDash || undefined} />}
+            {g.down === 'fork' && <path d={`M${c} ${mid}C${c} ${mid * 1.5} ${b} ${mid * 1.5} ${b} ${ROW}`} data-dash={g.downDash || undefined} />}
+          </g>
         )
       })}
+      <circle className="dot" data-live={row.writing ? true : undefined} style={{ color: `var(--lane-${laneTone(row.unit.id)})` }} cx={x(row.lane)} cy={mid} r={4} />
+    </svg>
+  )
+}
+
+/** A line of the graph without a commit: the base runs through it (from its middle, at the top), with what it holds beside. */
+function BaseLine({ lanes, top = false, children }: { lanes: number; top?: boolean; children: ReactNode }) {
+  return (
+    <div className="flex h-6 items-center gap-1.5 pl-0.5">
+      <svg aria-hidden className="graph" width={X0 + lanes * LANE + X0} height={24}><line className="base" x1={X0} y1={top ? 12 : 0} x2={X0} y2={24} /></svg>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Every unit's commits as a git graph, newest first: the base on the left, a lane per unit
+ * branch in its colour, leaving the base at its first commit and, merged, joining it again.
+ * On top, dashed, the work agents are writing right now.
+ */
+function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen' | 'project' | 'ask' | 'onSection'>) {
+  const { t, num, waited, date } = useT()
+  const graphs = commitGraph(ws)
+  return (
+    <div className="flex flex-col gap-4">
+      {graphs.map(({ repo, base, rows, lanes }) => (
+        <section key={repo?.path ?? ''} aria-label={graphs.length > 1 ? repo?.name : undefined}>
+          {graphs.length > 1 && <h3 className="mb-1 px-2.5 font-mono text-xs font-semibold text-ink-2">{repo?.name}</h3>}
+          {/* The base lane, labelled with its branch. */}
+          <BaseLine lanes={lanes} top><span className="min-w-0 truncate font-mono text-[11px] text-ink-2">{base}</span></BaseLine>
+          {rows[0]?.writing && <BaseLine lanes={lanes}><h3 className="text-xs font-semibold text-amber-ink">{t('commits.writing')}</h3></BaseLine>}
+          <div role="list">
+            {rows.map(row => {
+              const { unit, commit, task, writing } = row
+              const cell = <GraphCell row={row} lanes={lanes} />
+              if (writing)
+                return (
+                  <div key={unit.id + writing.node.id} role="listitem" className="grow" data-live>
+                    {cell}
+                    <span className="min-w-0">
+                      <span className="block truncate font-mono text-xs">{writing.files.map(baseName).join(' ')}</span>
+                      <span className="block truncate text-xs text-ink-2" lang={contentLang(unit.title)}>{unit.title}{writing.node.taskId && ` #${writing.node.taskId}`}</span>
+                    </span>
+                    {/* In the last column, where a commit's age is: its ring never reaches the lanes. */}
+                    <span className="flex-none px-1"><Who name={writing.node.agent ?? '?'} live /></span>
+                  </div>
+                )
+              const c = commit!, s = commitStats(c)
+              return (
+                <div key={unit.id + c.id} role="listitem">
+                  <button
+                    type="button"
+                    className="grow"
+                    disabled={!task}
+                    aria-pressed={focus?.id === c.id && here?.unit === unit.id}
+                    onClick={() => task && onCommit(unit.id, task.id, c.id)}
+                  >
+                    {cell}
+                    <span className="min-w-0">
+                      <span className="block truncate" lang={contentLang(c.subject)}>{c.subject}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-ink-2">
+                        <span className="truncate" lang={contentLang(unit.title)}>{unit.title}</span>
+                        {task?.state === 'unregistered'
+                          ? <span className="flex flex-none items-center gap-0.5 text-del"><Icon name="no" className="size-3" />{t('need.loose')}</span>
+                          : task?.taskId && <span className="flex-none font-mono">#{task.taskId}</span>}
+                        <span className="flex-none font-mono"><span className="text-add">+{num(s.add)}</span> <span className="text-del">−{num(s.del)}</span></span>
+                      </span>
+                    </span>
+                    <Tip text={date(c.date)}><span className="flex-none self-start pt-[5px] text-xs text-ink-2">{waited(ms(c.date))}</span></Tip>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -181,6 +256,11 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
           <h2 id="side-backlog" className="mb-2 px-2.5 text-sm font-[650]">{t('backlog.title')}</h2>
           <BacklogList ws={ws} project={project} onOpen={onOpen} />
         </section>
+      ) : section === 'run' ? (
+        <section aria-labelledby="side-run">
+          <h2 id="side-run" className="mb-2 px-2.5 text-sm font-[650]">{t('run.section')}</h2>
+          <RunBox ws={ws} unit={here?.unit ?? null} project={project} />
+        </section>
       ) : section === 'commits' ? (
         <section aria-labelledby="side-commits">
           <h2 id="side-commits" className="mb-2 px-2.5 text-sm font-[650]">{t('commits.title')}</h2>
@@ -204,7 +284,7 @@ function Body(props: ContentProps) {
   return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
 }
 
-/** The six buttons work as a switch: one section at a time; the open one again folds it. */
+/** The buttons work as a switch: one section at a time; the open one again folds it. */
 export function SideButtons({ active, onPick }: { active: Section | null; onPick: (s: Section) => void }) {
   const { t } = useT()
   const button = (s: Section, icon: string, label: string) => (
@@ -214,7 +294,7 @@ export function SideButtons({ active, onPick }: { active: Section | null; onPick
       </Button>
     </Tip>
   )
-  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('machines', 'machine', t('metrics.title'))}{button('ask', 'talk', t('ask.why'))}</>
+  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('machines', 'machine', t('metrics.title'))}{button('run', 'terminal', t('run.section'))}{button('ask', 'talk', t('ask.why'))}</>
 }
 
 interface PanelProps extends Omit<ContentProps, 'section'> {
