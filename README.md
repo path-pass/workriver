@@ -41,42 +41,48 @@ Three things feed it:
   messages to agents.
 - **One manager agent per Herdr workspace plans.** It splits an intent into units and
   tasks and hands the tasks to worker agents it starts by name. When it needs you (before a
-  merge, a deploy, anything destructive) it asks through Needs you, not in its terminal.
-  workriver records and delivers; the manager schedules.
+  merge, a deploy, anything destructive) it asks through Needs you, not in its terminal,
+  and what it has to tell you arrives there too. A worker stuck on what only you can do
+  (a refused push, a missing login) puts a blocker before its own task, and goes on once
+  you have done it. workriver records and delivers; the manager schedules.
 
 What they report becomes one picture, in a few terms. A **project** is a folder of
 repositories. An **intent** is a goal in it. A **unit** is a piece of an intent built on
-its own branch; research and design for the whole intent go in a research unit, which has
-no branch and is never merged. A **task** is one piece of work handed to one agent
-(implement, review, tests, research) or to you: a **gate** ("Manual step" in the UI), a
-step only you can do, such as a manual deploy, a try-out or a decision, that an agent
-waits on. A **finding** is a problem a review, tests or a gate found. **Evidence** is a check run on a task's work, the command and its
-result.
+its own branch, in a worktree of its own; research and design for the whole intent go in a
+research unit, which has no branch and is never merged, and an experiment goes in a spike,
+whose code is kept on its branch to show how and never merged. A **task** is one piece of
+work handed to one agent (implement, review, tests, research) or to you: a **gate**
+("Manual step" in the UI), a step only you can do, such as a manual deploy, a try-out or a
+decision, that an agent waits on; one an agent puts before its own task when it is stuck
+is a blocker. A **finding** is a problem a review, tests or a gate found. **Evidence** is
+a check run on a task's work, the command and its result.
 
 ## One intent, from goal to merge
 
 The pictures come from the sample data built into the UI: a chat app, its content written
 in Chinese.
 
-**The goal.** The chat app needs @-mentions, message recall and search. The intent
-"聊天 v2" waits in the project's roadmap with a one-sentence goal. You press "Start" next to
-it and pick the Herdr workspace "chat"; its manager, mgr-chat, is told and splits the
-intent into units, one of them "加一个 @ 功能" (add @-mentions) on the branch
-`feat/mention`. The intent has a page of its own: the goal, a note that grows as decisions
-are made, where it runs, who decides its findings, and its units with where each stands.
-"Write to the manager" opens a conversation beside it: what you write is typed into
-mgr-chat's terminal, and its replies come back to the page.
+**The goal.** The chat app needs @-mentions, message recall and search. The intent "聊天 v2"
+waits in the project's roadmap with a one-sentence goal. You press "Start" next to it and
+pick the Herdr workspace "chat"; its manager, mgr-chat, is told and splits the intent into
+units, one of them "加一个 @ 功能" (add @-mentions) on the branch `feat/mention`. The intent
+has a page of its own: the goal, a note that grows as decisions are made, where it runs,
+who decides its findings, and its units with where each stands. "Write to the manager"
+opens a conversation beside it: what you write is typed into mgr-chat's terminal, and its
+replies come back to the page. The manager can start a message too; here it tells you that
+a push in another unit is waiting for you.
 
-![The page of the intent 聊天 v2: its goal, note, workspace and manager, findings set to Manual, its three units, and beside it a conversation with its manager](docs/images/intent-page.en.png)
+![The page of the intent 聊天 v2: its goal, note, workspace and manager, findings set to Manual, its three units, and beside it a conversation with its manager, who answered and later wrote unasked](docs/images/intent-page.en.png)
 
 **The work as a graph.** Inside the unit, every task is a node in the activity graph, with
 an input and an output. #1 finds the people a message mentions, #2 notifies them, and a
-review follows each. When a review raises findings the flow branches: each accepted finding
-leads to new tasks, and the lines join again where the work does. An amber dotted line is
-work flowing now, dashed lines are secondary inputs, and a violet count marks findings
-waiting for you. A small "+N" under a node says its commits reached N folders that nothing
-before it on its line had touched: there the work grew in scope. A long graph opens on its
-latest work, with a minimap of the whole; zoomed out, as here, all of it shows.
+review follows each. When a review raises findings the flow branches: each accepted
+finding leads to new tasks, and the lines join again where the work does. An amber dotted
+line is work flowing now, dashed lines are secondary inputs, and a violet count marks
+findings waiting for you. A blocker carries a "!" mark, and the task it holds up a violet
+hand. A small "+N" under a node says its commits reached N folders that nothing before it
+on its line had touched: there the work grew in scope. A long graph opens on its latest
+work, with a minimap of the whole; zoomed out, as here, all of it shows.
 
 ![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, two marked where the scope grew, a dropped question to merge, and a try-out gate near the end](docs/images/activity-graph.en.png)
 
@@ -105,13 +111,19 @@ since that work must meet it.
 **What is waiting on you.** Needs you is one queue across every workspace. First what
 blocks someone: agents waiting for a person in their terminal, workers that stopped
 without delivering, and gates, among them the questions a manager asks you (merge now?
-which design?). Here agent-E asks whether it may run `npm test`, and a gate waits for you
-to try whether an @ notification says who mentioned you; its steps say what to do, and a
-step with a command has "Run", which runs it in a shell of your own once you confirm it. Then machines past an
-alert threshold, then decisions on findings, then gaps such as a commit that names no
-task, and last the chores that block nobody.
+which design?) and the blockers workers put. Here agent-E asks whether it may run
+`npm test`, a gate waits for you to try whether an @ notification says who mentioned you,
+and a blocker from the unit "消息支持撤回" (message recall) asks you to push its branch:
+the repository's hook lets only people push. A gate's steps say what to do, and a step
+with a command has "Run", which runs it in a shell of your own once you confirm it. While
+you look at the confirm dialog, a temporary agent reads the command and the scripts it
+calls and says what it will change, with a verdict: ok, caution or danger. It only warns;
+you decide. The last runs stay listed under "Run a command" in the side panel. Then come
+machines past an alert threshold, decisions on findings, the messages managers wrote that
+you have not read, gaps such as a commit that names no task, and last the chores that
+block nobody. Each group folds by its heading; here Machines and Decisions are folded.
 
-<img src="docs/images/needs-you.en.png" width="340" alt="Needs you: three rows blocking (an agent waiting in its terminal, a worker that stopped, a try-out gate), four machine alerts, and the first decisions on findings">
+<img src="docs/images/needs-you.en.png" width="340" alt="Needs you: four rows blocking (an agent waiting in its terminal, a worker that stopped, a try-out gate, a blocker asking for a push), Machines and Decisions folded, two managers' unread messages, two gaps and four chores">
 
 **Who is doing what.** Agents are a tree by Herdr workspace: the manager, the workers under
 it with the task each is on, and the temporary agents answering questions under the worker
@@ -134,19 +146,20 @@ what agents are writing right now on top.
 manager asks in Needs you whether to merge; after your yes, push, pull request and merge
 are each a task of their own. workriver sees the merge in git and the unit reads "Merged"
 with its date; a squash merge, which git cannot show, is pointed out for the manager to
-record. A research unit is never merged: once its work is decided it reads "Ready to
-close". When every unit of the intent is merged or done, its header says "Finished", for
-its manager to close it, along with the workers it no longer needs.
+record. The manager then removes the unit's worktree. A research unit or a spike is never
+merged: once its work is decided it reads "Ready to close". When every unit of the intent
+is merged or done, its header says "Finished", for its manager to close it, along with the
+workers it no longer needs.
 
 ## Status
 
 First version, usable. The service records intents, units, tasks, findings and chores,
 reads the units' commits from git, follows the agents running in Herdr, keeps each
 project's roadmap and backlog, delivers your decisions, gate results and messages to the
-right agent, runs the commands you confirm in your own shell, watches the machines' load,
-and serves the web UI on real data in English and Chinese. Agents on other machines (each
-with its own Herdr) can be followed over ssh; that part is new and has only been tested
-against stand-ins.
+right agent, runs the commands you confirm in your own shell after an agent has read what
+they do, watches the machines' load, and serves the web UI on real data in English and
+Chinese. Agents on other machines (each with its own Herdr) can be followed over ssh; that
+part is new and has only been tested against stand-ins.
 
 ## Build and run
 
@@ -168,10 +181,10 @@ other machines cannot. What that does and does not protect: [Security model](doc
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
 `workriver --help` explains the commands. The manager of a workspace registers with
-`workriver manager here`, and `workriver guide manager` / `workriver guide worker` print the
-instructions for agents. Herdr's socket is `~/.config/herdr/herdr.sock` (or
-`HERDR_SOCKET_PATH`); without Herdr the service still records and shows, it just sees no
-agents.
+`workriver manager here` from its own pane, one per workspace, and `workriver guide
+manager` / `workriver guide worker` print the instructions for agents. Herdr's socket is
+`~/.config/herdr/herdr.sock` (or `HERDR_SOCKET_PATH`); without Herdr the service still
+records and shows, it just sees no agents.
 
 Working on the UI: `npm run dev` in `frontend/web` uses a running `workriver serve`;
 `npm run dev:mock` uses the sample data instead.
