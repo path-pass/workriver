@@ -2227,6 +2227,48 @@ fn stopped_workers_are_reminded_then_escalated() {
     assert_eq!(to("s-w", "Your task u1#3"), 0);
 }
 
+/// A worker stuck on what only the user can do puts a blocker before its task: the manager is
+/// told which task is stuck and what was asked, quoted; the user's result goes to the worker.
+/// A worker reaches its manager with `manager tell`, quoted; the user writes from the page.
+#[test]
+fn a_stuck_worker_puts_a_blocker_and_tells_its_manager() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "ja-impl", "w1", Working))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::serve::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
+    // The worker records from its own pane, as an agent does.
+    let worker = Daemon { port: d.port, place: Some("p2".into()), home: Some(tmp.path().to_path_buf()) };
+    worker.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let to = |who: &str, what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == who && m.contains(what)).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+
+    worker.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Allow git push", "text": "git push was refused: a hook forbids it", "blocks": 1 })).unwrap();
+    wait_until("the manager is told", || to("s-boss", "is stuck on").len() == 1);
+    let told = to("s-boss", "is stuck on")[0].clone();
+    assert!(told.starts_with("[workriver] ja-impl is stuck on u1#1 \"push it\": it put gate u1#2 \"Allow git push\""), "{told}");
+    assert!(told.contains("«Allow git push: git push was refused: a hook forbids it»"), "{told}");
+    let tasks = d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"].clone();
+    assert_eq!((tasks[1]["blocks"].as_str(), tasks[1]["state"].as_str()), (Some("1"), Some("waiting")), "{}", tasks[1]);
+
+    d.call("/api/gate", Some(json!({ "unit": "u1", "task": 2, "result": "done", "note": "Allowed for this repo" }))).unwrap();
+    wait_until("the worker gets the result", || !to("s-w", "u1#2").is_empty());
+    assert!(to("s-boss", "finished gate").is_empty(), "the result goes to the stuck worker, not the manager");
+
+    worker.append("", "manager.told", json!({ "unit": "u1", "task": 1, "text": "The branch is now feat/f2" })).unwrap();
+    wait_until("the manager hears it", || to("s-boss", "tells you about").len() == 1);
+    let told = to("s-boss", "tells you about")[0].clone();
+    assert!(told.starts_with("[workriver] ja-impl tells you about u1#1 \"push it\".") && told.ends_with("«The branch is now feat/f2»"), "{told}");
+    let e = d.append("user", "manager.told", json!({ "unit": "u1", "task": 1, "text": "x" })).unwrap_err().to_string();
+    assert!(e.contains("the user writes to a manager in workriver's page"), "{e}");
+}
+
 /// A unit merged by squash, which git cannot show as merged: its manager is told once per
 /// branch tip, and the page shows it; one merged by fast-forward is recorded as before and
 /// told nothing. Ready for longer than the ready period (an hour here, set in settings.json,

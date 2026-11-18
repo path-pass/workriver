@@ -299,6 +299,10 @@ pub struct NewTask {
     /// delivered, its agent is shown only this task, its unit and its intent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub blind: bool,
+    /// A gate put before a running task that is stuck on what only the user can do (a
+    /// blocker): the task follows it from then on, so the gate's result goes to its agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocks: Option<u32>,
 }
 
 /// Who a request was found to come from. The daemon works this out (a session of the web
@@ -961,6 +965,10 @@ pub enum Body {
     /// The manager the message went to answers it (`workriver reply`); it may answer more than once.
     #[serde(rename = "message.replied")]
     MessageReplied { message: String, text: String },
+    /// An agent tells the manager of a task's intent something (`workriver manager tell`):
+    /// typed into the manager's terminal, quoted. The way a worker reaches its manager.
+    #[serde(rename = "manager.told")]
+    ManagerTold { unit: String, task: u32, text: String },
 }
 
 impl Body {
@@ -973,6 +981,7 @@ impl Body {
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
             MessageDelivery { .. } | MessageReplied { .. } => (None, None, None),
+            ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageSent { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
             QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
@@ -1269,6 +1278,9 @@ pub struct Task {
     /// Done without seeing other work (see `State::blind_view`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub blind: bool,
+    /// A blocker: the running task this gate was put before (see `NewTask::blocks`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocks: Option<u32>,
     pub state: TaskState,
     /// Who recorded it.
     pub by: String,
@@ -1918,7 +1930,7 @@ impl State {
                 if !user && self.manager_of(&u.intent) != Some(actor) {
                     let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
                     return no(format!(
-                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch: workriver unit move {unit} --branch <new> [--base <new base>]",
+                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch (workriver manager tell <your task> --text \"...\"), who runs: workriver unit move {unit} --branch <new> [--base <new base>]",
                         u.intent
                     ));
                 }
@@ -2028,7 +2040,19 @@ impl State {
                 }
                 UnitDone { unit, reason }
             }
-            TaskCreated(t) => TaskCreated(self.prepare_task(t)?),
+            TaskCreated(t) => {
+                // A blocker is put by the agent stuck on that task, its manager or the user.
+                if let Some(b) = t.blocks
+                    && !user
+                    && let Ok(stuck) = self.task(&t.unit, b)
+                    && !self.is_agent_of(stuck, actor)
+                    && self.intent_of(&t.unit).and_then(|i| self.manager_of(i)) != Some(actor)
+                {
+                    let r = format!("{}#{b}", t.unit);
+                    return no(format!("a blocker before {r} is put by the agent of {r}, the manager of its intent, or the user; to tell the manager: workriver manager tell {r} --text \"...\""));
+                }
+                TaskCreated(self.prepare_task(t)?)
+            }
             TaskStarted { unit, task, agent } => {
                 let t = self.task(&unit, task)?;
                 not_dropped(&unit, t)?;
@@ -2071,7 +2095,7 @@ impl State {
                 // The manager re-plans; a worker takes back only what it asked for itself.
                 let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
                 if !user && !manager && t.by != actor {
-                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed"));
+                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed: workriver manager tell {unit}#{task} --text \"...\""));
                 }
                 TaskDropped { unit, task, reason }
             }
@@ -2257,7 +2281,7 @@ impl State {
                 };
                 // Blind work neither asks nor is asked by other agents: both would tell it things.
                 if !self.blind_tasks(actor).is_empty() {
-                    return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead");
+                    return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead: workriver manager tell <your task> --text \"...\"");
                 }
                 if about.is_some_and(|t| t.blind && !t.state.over()) && !user {
                     return no(format!("{unit}#{task} is a blind task in progress: its agent is not to be told about other work. Ask once it is delivered"));
@@ -2365,6 +2389,19 @@ impl State {
                 self.message(&id)?;
                 MessageDelivery { id, delivery }
             }
+            ManagerTold { unit, task, text } => {
+                if user {
+                    return no("the user writes to a manager in workriver's page (Ask, Manager)");
+                }
+                self.task(&unit, task)?;
+                if self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor) {
+                    return no("you are the manager of this intent");
+                }
+                if blank(&text) {
+                    return no("say what: --text \"...\"");
+                }
+                ManagerTold { unit, task, text }
+            }
             MessageReplied { message, text } => {
                 let m = self.message(&message)?;
                 // Only the manager it was typed to: nobody else answers for it, the user included.
@@ -2409,6 +2446,19 @@ impl State {
             && matches!(i.state, IntentState::Done | IntentState::Dropped)
         {
             return no(format!("intent {intent} is {}; it takes no new tasks", name(&i.state)));
+        }
+        // A blocker stands where the task it blocks starts: it follows what that task follows.
+        if let Some(b) = t.blocks {
+            if t.kind != TaskKind::Gate {
+                return no("only a gate blocks a task: --kind gate --gate deploy|test|decide");
+            }
+            let stuck = self.task(&owner, b)?;
+            if stuck.kind == TaskKind::Gate || stuck.state.over() {
+                return no(format!("{owner}#{b} is {}: a blocker goes before a task still to do or running", if stuck.kind == TaskKind::Gate { "a gate".to_string() } else { name(&stuck.state) }));
+            }
+            if t.inputs.is_empty() {
+                t.inputs = if stuck.inputs.is_empty() { vec![Input { from: "start".into(), primary: true }] } else { stuck.inputs.clone() };
+            }
         }
         match t.kind {
             TaskKind::Implement | TaskKind::Gate | TaskKind::Design | TaskKind::Research if blank(&t.title) => {
@@ -2746,6 +2796,7 @@ impl State {
                         steps: t.steps.clone(),
                         plans: t.plans.clone(),
                         blind: t.blind,
+                        blocks: t.blocks,
                         // A gate opens (waits for the user) once what it follows is done.
                         state: TaskState::Todo,
                         by: e.actor.clone(),
@@ -2762,6 +2813,12 @@ impl State {
                         attachments: vec![],
                         dropped: None,
                     })
+                }
+                // The task it blocks follows it from now on.
+                if let Some(b) = t.blocks
+                    && let Some(stuck) = self.task_mut(&t.unit, b)
+                {
+                    stuck.inputs.push(Input { from: t.n.to_string(), primary: false });
                 }
             }
             TaskStarted { unit, task, agent } => {
@@ -2986,6 +3043,8 @@ impl State {
                     m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone() });
                 }
             }
+            // Only told: the record is the event itself.
+            ManagerTold { .. } => {}
         }
         self.open_gates(at);
     }

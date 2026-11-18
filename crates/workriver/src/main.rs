@@ -561,6 +561,13 @@ enum TaskCmd {
         /// A path the work expects to change (file or folder). Repeatable.
         #[arg(long)]
         plan: Vec<String>,
+        /// Gate tasks: put this gate before task N (or u1#N), a task still to do or running
+        /// that is stuck on what only the user can do (a blocker). The task follows the gate
+        /// from then on and its agent gets the user's result; the manager is told. Without
+        /// --after it follows what that task follows. By the task's agent, the manager or
+        /// the user.
+        #[arg(long, value_name = "N")]
+        blocks: Option<String>,
         /// For a review, tests, research or design task: its agent sees nothing of other
         /// work (notes, evidence, findings, decisions, questions) until it delivers, so its
         /// view is its own. Blindness guards against bias, not against an agent that sets
@@ -736,6 +743,16 @@ enum ManagerCmd {
         /// `intent start`.
         #[arg(long)]
         goal: Option<String>,
+    },
+    /// Tell the manager of a task's intent something, from a worker: typed into the
+    /// manager's terminal, quoted, while it runs. The way to reach your manager (never type
+    /// into its terminal yourself). Stuck on what only the user can do: put a blocker
+    /// instead (`workriver guide how blocked`); the manager is told of it.
+    Tell {
+        /// The task it is about (u1#3): yours, usually.
+        task: String,
+        #[arg(long)]
+        text: String,
     },
 }
 
@@ -913,6 +930,10 @@ fn main() -> anyhow::Result<()> {
             }
             println!("Opened workriver in your browser.");
             return Ok(());
+        }
+        Cmd::Manager(ManagerCmd::Tell { task, text }) => {
+            let (unit, n) = task_ref(&task)?;
+            d.append(actor, "manager.told", json!({ "unit": unit, "task": n, "text": text }))?
         }
         Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
             if group.is_none() && intent.is_none() {
@@ -1108,13 +1129,21 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
         Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
-        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
+        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind, blocks }) => {
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
+            // `N` or `u1#N`, in this unit.
+            let blocks = blocks
+                .map(|b| match b.split_once('#') {
+                    Some((u, n)) if u == unit => n.parse::<u32>().map_err(|_| anyhow!("--blocks takes a task number: {b}")),
+                    Some(_) => Err(anyhow!("--blocks names a task of {unit}, the unit the gate goes into: {b}")),
+                    None => b.parse::<u32>().map_err(|_| anyhow!("--blocks takes a task number: {b}")),
+                })
+                .transpose()?;
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
             d.append(actor, "task.created", json!({
                 "unit": unit, "kind": kind, "title": title, "text": text, "inputs": inputs, "causes": causes,
-                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind,
+                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks,
             }))?
         }
         Cmd::Task(TaskCmd::Start { task, agent }) => {
@@ -1255,6 +1284,7 @@ fn main() -> anyhow::Result<()> {
         Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
         Some("message.replied") => "replied".into(),
+        Some("manager.told") => "told the manager (if it runs)".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }

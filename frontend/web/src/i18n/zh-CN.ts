@@ -581,6 +581,8 @@ export const zhCN: Same<typeof en> = {
   flow: {
     empty: '这个单元还没有记录任何任务。',
     grew: '还改到了 {{folders}}——超出了 {{tasks}} 的范围',
+    blocker: '阻塞',
+    held: '在等你',
     controls: '图的控制',
     zoomIn: '放大',
     zoomOut: '缩小',

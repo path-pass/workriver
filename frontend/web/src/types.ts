@@ -561,6 +561,12 @@ export interface Task {
   /** Gate nodes only. */
   gate?: GateKind;
   /**
+   * Gate nodes only: a blocker. An agent's running task got stuck on something only the user
+   * can do (a refused command, a missing permission); this is the id of that task, which has
+   * the gate as an extra non-primary input.
+   */
+  blocks?: string;
+  /**
    * When the node came to wait for the user: a gate became waiting, a review or gate with
    * open findings finished. Absent when nothing waits.
    */

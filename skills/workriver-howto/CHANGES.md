@@ -2,6 +2,21 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-18
+
+- **Stuck on the user: a blocker, not a chore** (workers, managers): a task that cannot go
+  on until the user does something (a refused command, a missing permission or login) gets a
+  gate put before it at once: `workriver task add u2 --kind gate --gate test --blocks 5
+  --title "…" --text "<command, refusal>" --step "…"`. It waits for the user at once (Needs
+  you, blocking), the task follows it, and its agent gets the user's result; the manager is
+  told which task is stuck, with what is asked quoted. By the task's agent, the manager or the
+  user. A worker waiting on a blocker is not reminded as stopped. Chores are only for what
+  blocks nobody. The idle reminder and the worker guide say so. (`blocked`, `stalled`,
+  `gates-chores`; worker guide)
+- **A worker reaches its manager**: `workriver manager tell u2#5 --text "…"` types it into
+  the manager's terminal, quoted, while it runs. Everywhere workriver says "tell your
+  manager" (a renamed branch, a blind task, a task no longer needed), this is how.
+
 ## 2026-11-17
 
 - **An intent of another project** (managers): workriver works out which project your

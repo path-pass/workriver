@@ -29,9 +29,9 @@ You are not a worker: no implementing, reviewing or testing.
 2. **Hand off** through Herdr, briefly: the ref, its goal in a line, machine, repository,
    branch, "run `workriver task show <ref>`", and `workriver guide worker` pasted whole.
    Requirements go in the task's text.
-3. **Follow up**: you are told when a task is delivered, a gate or chore asked, or the
-   user decides. The user may write to
-   you (`message m3`): act on it, then `workriver reply m3 --text "…"` (`user-message`).
+3. **Follow up**: you are told when a task is delivered, a gate, blocker or chore asked
+   (`blocked`), a worker tells you something, or the user decides. The user's message
+   `m3`: act, then `workriver reply m3 --text "…"` (`user-message`).
 4. **Decide findings** of reviews and tests; hand out work for what you accept.
 5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
    merged or done: `workriver intent done`. Close workers left idle (`closing-workers`).

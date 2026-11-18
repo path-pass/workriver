@@ -1232,12 +1232,13 @@ impl App {
         // ponytail: these are not followed up as "delivered / picked up" like decisions are.
         // A dropped task likewise: its agent (to stop) and the manager.
         // Work over: the manager hears which of its workers it may close.
-        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. }) {
+        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
             let to = {
                 let store = self.store.lock().unwrap();
                 match e.body {
                     Body::FindingNoted { .. } => deliver::notes(store.state(), live.as_deref(), &self.home, e),
                     Body::TaskDropped { .. } => deliver::dropped(store.state(), live.as_deref(), e),
+                    Body::ManagerTold { .. } => deliver::told(store.state(), live.as_deref(), e),
                     _ => deliver::finished(store.state(), live.as_deref(), e),
                 }
             };

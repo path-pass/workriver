@@ -800,6 +800,38 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
     assert_eq!(s.state().task("u1", 4).unwrap().state, TaskState::Waiting);
 }
 
+/// A running task stuck on what only the user can do: a gate put before it (a blocker) waits
+/// for the user at once and the task now follows it, so the gate's result goes to its agent.
+/// Its own agent, its manager or the user puts it there; nobody else.
+#[test]
+fn a_blocker_is_put_before_a_running_task() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Push", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}})).unwrap();
+    let blocker = || json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Allow push", "blocks": 2}});
+    let e = add(&mut s, "x", blocker()).unwrap_err();
+    assert!(e.contains("a blocker before u1#2 is put by the agent of u1#2"), "{e}");
+    let e = add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "X", "blocks": 2}})).unwrap_err();
+    assert!(e.contains("only a gate blocks a task"), "{e}");
+    let e = add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Y", "blocks": 1}})).unwrap_err();
+    assert!(e.contains("u1#1 is done"), "{e}");
+    add(&mut s, "w", blocker()).unwrap();
+    let gate = s.state().task("u1", 3).unwrap().clone();
+    assert_eq!((gate.state, gate.blocks), (TaskState::Waiting, Some(2)), "it waits for the user at once");
+    assert_eq!(gate.inputs, vec![Input { from: "1".into(), primary: true }], "it stands where the blocked task starts");
+    let stuck = s.state().task("u1", 2).unwrap().clone();
+    assert!(stuck.inputs.contains(&Input { from: "3".into(), primary: false }), "the blocked task follows it: {:?}", stuck.inputs);
+    assert_eq!(stuck.state, TaskState::Running, "and goes on running");
+    assert_eq!(replayed(&s).task("u1", 2).unwrap().inputs, stuck.inputs);
+    // The user may put one too.
+    add(&mut s, "user", blocker()).unwrap();
+}
+
 #[test]
 fn the_user_renames_a_project() {
     let dir = tempfile::tempdir().unwrap();

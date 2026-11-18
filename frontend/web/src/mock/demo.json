@@ -2441,6 +2441,10 @@
         {
          "from": "start",
          "primary": true
+        },
+        {
+         "from": "g1|deploy",
+         "primary": false
         }
        ],
        "input": {
@@ -2456,6 +2460,43 @@
         "app/store/messages.ts"
        ],
        "started": "2026-11-15 09:40"
+      },
+      {
+       "id": "g1|deploy",
+       "kind": "gate",
+       "gate": "deploy",
+       "state": "waiting",
+       "taskId": null,
+       "title": "允许在这个仓库里 git push",
+       "agent": null,
+       "writing": false,
+       "blocks": "s1",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "#1 做完了，要把分支推上去开拉取请求，但 `git push -u origin recall` 被拒绝了：这个仓库的 pre-push 钩子只允许人来推（`hooks/pre-push: pushes from agents are not allowed`）。推上去之前 #1 没法交付。",
+        "causes": [],
+        "steps": [
+         {
+          "text": "看一眼要推的提交",
+          "command": "git log --oneline origin/main..recall"
+         },
+         {
+          "text": "推送分支",
+          "command": "git push -u origin recall"
+         },
+         {
+          "text": "推好了就在这里点“完成”，agent-D 会接着开拉取请求"
+         }
+        ]
+       },
+       "output": {},
+       "plans": [],
+       "since": "2026-11-16T09:12"
       },
       {
        "id": "s2",

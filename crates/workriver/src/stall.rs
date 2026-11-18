@@ -152,8 +152,9 @@ pub fn step(state: &State, live: &[RuntimeAgent], idle: &HashMap<String, (String
 fn waits_on_user(state: &State, owner: &str, t: &Task, who: &[&str], manager: Option<&str>) -> bool {
     let started = t.started.as_deref().unwrap_or_default();
     let asked = state.questions.iter().any(|q| q.open() && who.contains(&q.by.as_str()));
+    // Or a blocker put before this task, by anyone.
     let gate = state.tasks_of(owner).into_iter().flatten().any(|g| {
-        g.kind == TaskKind::Gate && g.state == TaskState::Waiting && g.at.as_str() >= started && (who.contains(&g.by.as_str()) || Some(g.by.as_str()) == manager)
+        g.kind == TaskKind::Gate && g.state == TaskState::Waiting && (g.blocks == Some(t.n) || g.at.as_str() >= started && (who.contains(&g.by.as_str()) || Some(g.by.as_str()) == manager))
     });
     asked || gate
 }
@@ -167,8 +168,9 @@ pub fn message(state: &State, f: &Found) -> Option<String> {
     let minutes = humantime::parse_rfc3339(&f.stall.since).ok().and_then(|s| s.elapsed().ok()).map_or(0, |d| d.as_secs() / 60);
     if matches!(f.act, Act::Remind) {
         // Only its own task: nothing of other work, so a blind task is told no more than it may know.
+        let (owner, n) = (&f.owner, f.task);
         return Some(format!(
-            "[workriver] Your task {what} is still running and nothing was delivered; you have been idle for {minutes} min. If it is finished, deliver it (`workriver task deliver {r} ...`). If something stopped you (a command was refused, e.g. a hook forbids push; a permission is missing), deliver with what you did and the refusal in `--note`, or raise it: `workriver chore add --title \"...\"` for the user, `workriver ask <task> \"...\"` about another task. Do not just wait. Details: `workriver task show {r}`."
+            "[workriver] Your task {what} is still running and nothing was delivered; you have been idle for {minutes} min. If it is finished, deliver it (`workriver task deliver {r} ...`). If something stopped you that only the user can clear (a command was refused, e.g. a hook forbids push; a permission or a login is missing), put a blocker before your task: `workriver task add {owner} --kind gate --gate test --blocks {n} --title \"...\" --text \"<the command and the refusal>\" --step \"...\"` (`workriver guide how blocked`); the user sees it at once and you get the result. To reach your manager: `workriver manager tell {r} --text \"...\"`; about another task: `workriver ask <task> \"...\"`. Do not just wait. Details: `workriver task show {r}`."
         ));
     }
     let reminded = f.stall.reminded.as_ref().map(|at| format!(" It was reminded of its task at {at} and did not go on.")).unwrap_or_default();

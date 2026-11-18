@@ -9,7 +9,8 @@ try-out, confirming a design):
 The user submits the result in the browser. **You will see:** "… finished gate …: done" (to
 the agent waiting behind it, or you): go on. "found a problem": its findings are decided first.
 
-**A chore** is something the user should do that blocks nobody:
+**A chore** is something the user should do that blocks nobody (stuck on the user yourself: a
+blocker, `blocked`):
 
     workriver chore add --title "Rotate the staging key" [--unit u1] --step "Open the console => open https://example.com"
     workriver chore add --project <path or name> --title "Renew the certificate"    # no intent

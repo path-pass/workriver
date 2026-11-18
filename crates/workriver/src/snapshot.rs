@@ -412,6 +412,9 @@ struct Task {
     /// Done without seeing other work: its findings are its own view.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     blind: bool,
+    /// A blocker (a gate): the task it was put before, by its id as in `inputs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocks: Option<String>,
     /// It has no commits on the unit's branch now, but had these on a branch the unit left.
     #[serde(rename = "lostCommits", skip_serializing_if = "Vec::is_empty")]
     lost_commits: Vec<String>,
@@ -1672,6 +1675,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         design,
         research,
         blind: t.blind,
+        blocks: t.blocks.map(|b| b.to_string()),
         lost_commits: vec![],
         threads: threads(state, live, names, &u.id, t.n),
         // The latest conclusion about the gate or the work it follows starts the user's note.
@@ -1712,6 +1716,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         design: false,
         research: false,
         blind: false,
+        blocks: None,
         lost_commits: vec![],
         threads: vec![],
         draft: None,

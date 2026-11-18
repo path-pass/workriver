@@ -593,6 +593,8 @@ export const en = {
   flow: {
     empty: 'No tasks recorded for this unit yet.',
     grew: 'Also reached {{folders}} — beyond {{tasks}}',
+    blocker: 'Blocker',
+    held: 'Waiting for you',
     start: 'Start',
     controls: 'Graph controls',
     zoomIn: 'Zoom in',

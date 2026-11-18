@@ -16,5 +16,5 @@ answered" with the answer quoted. With `--wait` the command prints it.
 If the answer means an agreed contract or plan must change, do not agree it between you:
 the manager decides (`contract`).
 
-**Refusals:** "you are on a blind task: …" - tell your manager instead. "u1#3 is a blind
+**Refusals:** "you are on a blind task: …" - tell your manager instead (`workriver manager tell <task> --text "…"`). "u1#3 is a blind
 task in progress: …" - ask once it is delivered. "no answer to q7 within … s" - it comes later.
