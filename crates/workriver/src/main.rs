@@ -208,6 +208,14 @@ enum Cmd {
         #[arg(long)]
         text: String,
     },
+    /// As a workspace's manager, tell the user something without being asked: it shows in
+    /// your workspace's conversation in workriver's page, and in the user's Needs you until
+    /// read. For what the user should know (a milestone, a changed plan, a finished intent);
+    /// a decision goes in a decide gate (`workriver guide how ask-user`).
+    Say {
+        #[arg(long)]
+        text: String,
+    },
     /// Print the instructions for an agent working with workriver.
     ///
     /// What it prints matches this binary, which a copied skill file may not: `manager` (the
@@ -1295,6 +1303,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Reply { message, text } => d.append(actor, "message.replied", json!({ "message": message, "text": text }))?,
+        Cmd::Say { text } => d.append(actor, "message.said", json!({ "text": text }))?,
     };
     // What was recorded, by the id an agent uses next.
     let b = &out["body"];
@@ -1319,6 +1328,7 @@ fn main() -> anyhow::Result<()> {
         Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
         Some("message.replied") => "replied".into(),
+        Some("message.said") => format!("said in workspace {} ({})", b["workspace"].as_str().unwrap_or("?"), b["id"].as_str().unwrap_or("?")),
         Some("manager.told") => "told the manager (if it runs)".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();

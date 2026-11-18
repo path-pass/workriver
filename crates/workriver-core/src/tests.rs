@@ -1087,3 +1087,41 @@ fn the_user_talks_to_a_manager() {
     assert_eq!((m.replies.len(), m.replies[0].by.as_str(), m.replies[0].text.as_str()), (2, "boss", "Paused."));
     assert_eq!(replayed(&s), *s.state());
 }
+
+/// A workspace's manager starts a message to the user (into its workspace's conversation);
+/// nobody else does. Only the user records reading a conversation; it only moves forward,
+/// and it all replays.
+#[test]
+fn a_manager_says_and_the_user_reads() {
+    let (_dir, mut s) = temp_store();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
+    let say = |text: &str| json!({"kind": "message.said", "body": {"workspace": "forged", "text": text}});
+    assert!(add(&mut s, "boss", say("Hi")).unwrap_err().contains("only a workspace's manager"), "not registered yet");
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    // A worker is pointed to its manager; the user writes from the page; nothing blank.
+    assert!(add(&mut s, "worker", say("Hi")).unwrap_err().contains("workriver manager tell"));
+    assert!(add(&mut s, "user", say("Hi")).unwrap_err().contains("workriver's page"));
+    assert!(add(&mut s, "boss", say("  ")).unwrap_err().contains("--text"));
+    // Into the workspace it manages, about its current intent, whatever the request says.
+    let e = add(&mut s, "boss", say("u1 is merged.")).unwrap();
+    let Body::MessageSaid { id, intent, workspace, .. } = &e.body else { panic!() };
+    assert_eq!((id.as_str(), intent.as_str(), workspace.as_str()), ("m1", "i1", "chat"));
+    assert_eq!(e.body.refs().0.as_deref(), Some("i1"));
+    let m = s.state().message("m1").unwrap();
+    assert!(m.by_manager && m.delivery.is_none());
+    assert_eq!((m.manager.as_str(), m.text.as_str()), ("boss", "u1 is merged."));
+    // The user answers it from the same box: an ordinary message; the manager may follow up.
+    add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "Thanks."}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "message.replied", "body": {"message": "m1", "text": "Also u2."}})).unwrap();
+    // Reading: the user's alone; a time, kept as the service writes times; never backwards.
+    let read = |at: &str| json!({"kind": "messages.read", "body": {"workspace": "chat", "at": at}});
+    assert!(add(&mut s, "boss", read("2026-11-18T10:00:00Z")).unwrap_err().contains("only the user does this (messages.read)"));
+    assert!(add(&mut s, "user", read("soon")).unwrap_err().contains("not a time"));
+    add(&mut s, "user", read("2026-11-18T10:00:05.250Z")).unwrap();
+    assert_eq!(s.state().read["chat"], "2026-11-18T10:00:05Z");
+    add(&mut s, "user", read("2026-11-18T09:00:00Z")).unwrap();
+    assert_eq!(s.state().read["chat"], "2026-11-18T10:00:05Z");
+    assert_eq!(replayed(&s), *s.state());
+}

@@ -92,6 +92,12 @@ struct MessageOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     blocked: Option<Blocked>,
     replies: Vec<ReplyOut>,
+    /// Started by the manager (`workriver say`): `text` is the manager's.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    by_manager: bool,
+    /// The manager's message, not read by the user yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unread: bool,
 }
 
 #[derive(Serialize)]
@@ -99,6 +105,9 @@ struct ReplyOut {
     by: String,
     text: String,
     at: String,
+    /// Not read by the user yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unread: bool,
 }
 
 fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<MessageOut> {
@@ -106,6 +115,10 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
         .messages
         .iter()
         .map(|m| {
+            // The manager's words the user has not read: written after the user last read
+            // the workspace's conversation (times are the service's, so they compare as text).
+            let read = state.read.get(&m.workspace);
+            let unread = |at: &String| read.is_none_or(|r| at > r);
             let stuck = live.iter().find(|a| a.session == m.manager && a.state == AgentState::Blocked).filter(|_| m.delivery.is_none());
             MessageOut {
                 id: m.id.clone(),
@@ -115,6 +128,8 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 text: m.text.clone(),
                 at: m.at.clone(),
                 step: match m.delivery.as_ref().map(|d| d.step) {
+                    // Nothing to deliver: it is the manager's.
+                    _ if m.by_manager => "delivered",
                     None if stuck.is_some() => "blocked",
                     None => "sending",
                     Some(core::DeliveryStep::NotDelivered) => "not-delivered",
@@ -123,7 +138,9 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 reason_code: m.delivery.as_ref().and_then(|d| d.reason_code),
                 reason: m.delivery.as_ref().and_then(|d| d.reason.clone()),
                 blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
-                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone() }).collect(),
+                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect(),
+                by_manager: m.by_manager,
+                unread: m.by_manager && unread(&m.at),
             }
         })
         .collect()

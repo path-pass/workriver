@@ -38,7 +38,7 @@ copy of this file.
 | `ask` | asking about another task |
 | `machines` | other machines and linked workspaces (the user's to set up) |
 | `not-delivered` | a decision or result did not reach an agent |
-| `user-message` | the user wrote to you from the page (`message m3`); replying with `workriver reply` |
+| `user-message` | the user wrote to you from the page (`message m3`); replying with `workriver reply`; telling the user something unasked with `workriver say` |
 | `stalled` | a worker stopped without delivering, or is gone |
 | `updating` | after workriver was updated |
 

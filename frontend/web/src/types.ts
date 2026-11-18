@@ -49,7 +49,7 @@ export interface RecentRun {
 /** What workriver's review of a command found: ok (nothing risky), caution (worth a look), danger (destructive or irreversible). */
 export type Verdict = 'ok' | 'caution' | 'danger';
 
-/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. */
+/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). */
 export interface ManagerMessage {
   /** "m3"; a local one the service refused has none. */
   id?: string;
@@ -66,7 +66,12 @@ export interface ManagerMessage {
   reasonCode?: ReasonCode;
   reason?: string;
   blocked?: { agent: string; session: string };
-  replies: { by: string; text: string; at: string }[];
+  /** Each reply is the manager's; unread: written after the user last read this workspace's conversation. */
+  replies: { by: string; text: string; at: string; unread?: boolean }[];
+  /** Started by the manager (`workriver say`): `text` is the manager's, and nothing above it is the user's. */
+  byManager?: boolean;
+  /** The manager's message (byManager), not read yet. */
+  unread?: boolean;
 }
 
 /** What a machine alerts on: macOS has compressor, swap, pressure and systemFree; Linux

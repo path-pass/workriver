@@ -200,6 +200,11 @@ export async function tellManager(to: { intent?: string; workspace: string }, te
   await post('/api/message', { ...to, text })
 }
 
+/** The user has read a workspace's conversation with its manager, up to `at`. */
+export function readMessages(workspace: string, at: string) {
+  if (!MOCK) post('/api/messages/read', { workspace, at }).catch(e => console.warn(e))
+}
+
 /** The sample's made-up reply from a manager; content, not UI text. */
 export const mockReply = (text: string) => `（示例回复，还没有接到真正的 manager）收到：「${text}」，我会安排。`
 

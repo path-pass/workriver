@@ -3764,7 +3764,14 @@
    "text": "搜索那个单元，评审能不能也让 agent-G 看一眼？",
    "at": "2026-11-17T10:05:00Z",
    "step": "delivered",
-   "replies": []
+   "replies": [
+    {
+     "by": "mgr-chat",
+     "text": "可以，我给搜索单元加了一个评审任务派给 agent-G，结果出来会进「待决定」。",
+     "at": "2026-11-17T10:12:00Z",
+     "unread": true
+    }
+   ]
   },
   {
    "id": "m3",
@@ -3780,6 +3787,30 @@
      "at": "2026-11-17T07:12:00Z"
     }
    ]
+  },
+  {
+   "id": "m4",
+   "intent": "chat-v2",
+   "workspace": "chat",
+   "manager": "mgr-chat",
+   "text": "`mention` 已经合并到 main。\n\n接下来开始 `recall`，按你之前说的顺序。",
+   "at": "2026-11-17T11:40:00Z",
+   "step": "delivered",
+   "replies": [],
+   "byManager": true,
+   "unread": true
+  },
+  {
+   "id": "m5",
+   "intent": "hardening",
+   "workspace": "hardening",
+   "manager": "mgr-hard",
+   "text": "计划有变：限流先只做登录接口，其他接口等压测结果再定。",
+   "at": "2026-11-17T09:20:00Z",
+   "step": "delivered",
+   "replies": [],
+   "byManager": true,
+   "unread": true
   }
  ],
  "workspaces": [

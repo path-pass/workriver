@@ -429,7 +429,8 @@ export const en = {
   },
   commits: {
     title: 'Commits',
-    writing: 'Writing now'
+    writing: 'Writing now',
+    none: 'No commits in this project yet.'
   },
   inbox: {
     title: 'Needs you',
@@ -453,6 +454,9 @@ export const en = {
       disk: 'over {{used}} % used or under {{free}} GB free for {{minutes}} min'
     },
     decisions: 'Decisions',
+    messages: 'Messages',
+    unread_one: '{{count, number}} new',
+    unread_other: '{{count, number}} new',
     gaps: 'Gaps',
     later: 'Not urgent',
     empty: 'Nothing needs you.',

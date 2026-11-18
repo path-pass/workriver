@@ -13,11 +13,27 @@ import { Icon, Mark, TerminalButton, Tip, Who } from './bits'
 import { RunSteps } from './Run'
 import { alertLimit, alertValue, topLine } from './Machines'
 
-const GROUPS = ['blocking', 'machines', 'decisions', 'gaps', 'later'] as const
+const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
 
-function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
+function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, lang, num, waited, when, date } = useT()
   const act = useAct()
+  // A workspace's manager wrote what the user has not read: the row opens that conversation.
+  if (r.talk) {
+    const m = r.talk
+    return (
+      <button type="button" className="irow" data-kind="message" onClick={() => onTalk(m.workspace)}>
+        <Icon name="talk" />
+        <span className="title">{m.text}</span>
+        <span className="meta">
+          <span className="flex-none font-semibold text-you-ink">{t('inbox.unread', { count: m.count })}</span>
+          <span className="flex min-w-0 items-center gap-1"><Who name={m.manager} /><span className="truncate">{m.manager}</span></span>
+          <span className="unit">{m.workspace}</span>
+        </span>
+        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+      </button>
+    )
+  }
   // A machine past an alert threshold: the row opens the Machines section.
   // Its level is its colour and its first word; the processes using the most memory follow.
   if (r.alert) {
@@ -144,7 +160,7 @@ const readFolds = (): Folds => { try { return JSON.parse(localStorage.getItem(FO
 
 /** The inbox as a list in groups, an empty group not drawn; one short line when nothing waits.
  *  Each group folds by its heading; gaps start folded past five rows. */
-export function InboxList({ ws, onOpen, onMachines }: { ws: Workspace; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
+export function InboxList({ ws, onOpen, onMachines, onTalk }: { ws: Workspace; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, num } = useT()
   const box = useMemo(() => inbox(ws), [ws])
   const [folds, setFolds] = useState(readFolds)
@@ -164,7 +180,7 @@ export function InboxList({ ws, onOpen, onMachines }: { ws: Workspace; onOpen: (
           </CollapsibleTrigger>
         </h3>
         <CollapsibleContent asChild>
-          <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} /></li>)}</ul>
+          <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
         </CollapsibleContent>
       </section>
     </Collapsible>

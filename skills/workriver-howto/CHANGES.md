@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
+- **A manager can start a message to the user** (managers): `workriver say --text "…"` puts
+  it in your workspace's conversation in the page and in the user's Needs you until read
+  (replies too now show there). For what the user should know without acting: a milestone, a
+  changed plan, a finished intent; not every step. A decision still goes in a decide gate.
+  (`user-message`)
 - **A done unit given a new task is open again** (managers): it no longer stays "done"
   with work in it; its state is worked out from its tasks as before. Make its worktree again
   if it was removed. (`closing-units`)

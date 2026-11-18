@@ -2,7 +2,7 @@
 // the views derive from it. Apart from the loading, pure functions only.
 import { diffLines, structuredPatch } from 'diff'
 import type { T } from './i18n'
-import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAlert, Unit, ModuleNode, Repo, Session, Severity, Task, Workspace } from './types'
+import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAlert, ManagerMessage, Unit, ModuleNode, Repo, Session, Severity, Task, Workspace } from './types'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
@@ -478,7 +478,7 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge' | 'message'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
@@ -487,6 +487,8 @@ export interface InboxRow {
   agent?: { name: string; session?: string; topic?: string; place: string }
   /** machine: a machine past an alert threshold. */
   alert?: MachineAlert
+  /** message: a workspace's conversation with unread words of its manager: how many, the newest. */
+  talk?: { workspace: string; manager: string; count: number; text: string }
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
   unit: Unit | null
   /** What a click opens; null for a chore. */
@@ -507,6 +509,8 @@ export interface Inbox {
   machines: InboxRow[]
   /** Reviews and gates with open findings, the highest open severity first. */
   decisions: InboxRow[]
+  /** Workspaces whose manager wrote what the user has not read: one row each. */
+  messages: InboxRow[]
   /** Commits that name no node. */
   gaps: InboxRow[]
   /** Chores, and ready units of an intent with no manager that may be merged already: they block nobody. */
@@ -518,7 +522,7 @@ export const openFindings = (n: Task) =>
   findingsOf(n).filter(waits).sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
 
 export function inbox(ws: Workspace): Inbox {
-  const box: Inbox = { blocking: [], machines: [], decisions: [], gaps: [], later: [] }
+  const box: Inbox = { blocking: [], machines: [], decisions: [], messages: [], gaps: [], later: [] }
   const stalled: InboxRow[] = []
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
@@ -556,6 +560,19 @@ export function inbox(ws: Workspace): Inbox {
     .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, since: ms(a.since) }))
     .sort(oldest)
   box.decisions.sort((a, b) => top(a) - top(b) || oldest(a, b))
+  // The manager's words not read yet (a message it started, replies), by workspace.
+  const unread = new Map<string, { m: ManagerMessage; by: string; text: string; at: string }[]>()
+  for (const m of ws.messages ?? []) {
+    const said = [...(m.byManager && m.unread ? [{ m, by: m.manager, text: m.text, at: m.at }] : []), ...m.replies.filter(r => r.unread).map(r => ({ m, ...r }))]
+    if (said.length) unread.set(m.workspace, [...(unread.get(m.workspace) ?? []), ...said])
+  }
+  box.messages = [...unread].map(([workspace, said]): InboxRow => {
+    const last = said.reduce((a, b) => (ms(b.at) >= ms(a.at) ? b : a))
+    return {
+      key: `message:${workspace}`, kind: 'message', intent: ws.intents.find(i => i.id === last.m.intent) ?? null, unit: null, node: null, pick: null, chore: null, since: ms(last.at),
+      talk: { workspace, manager: last.by, count: said.length, text: last.text.trim().split('\n')[0].replace(/`/g, '') },
+    }
+  }).sort((a, b) => b.since - a.since)
   box.gaps.sort(oldest)
   box.later.sort(oldest)
   return box
@@ -787,9 +804,11 @@ export interface Edits {
   merges: { into: string; from: string[]; title?: string }[]
   /** Planned intents started in a runtime workspace, by intent. */
   starts: Record<string, { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }>
+  /** Up to when the user has read each workspace's conversation with its manager, by label. */
+  read: Record<string, string>
 }
 
-export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {} }
+export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {}, read: {} }
 
 const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
@@ -827,8 +846,11 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
   }
   // And its new title, if one was given.
   const titleOf = (i: Intent) => edits.merges.find(m => m.into === i.id && m.title && ws.intents.some(x => mergedInto(x) === i.id))?.title ?? i.title
+  // Read: the manager's words up to then are no longer new.
+  const fresh = (workspace: string, at: string) => !(ms(at) <= ms(edits.read[workspace]))
   return {
     ...ws,
+    messages: ws.messages?.map(m => ({ ...m, unread: m.unread && fresh(m.workspace, m.at), replies: m.replies.map(r => ({ ...r, unread: r.unread && fresh(m.workspace, r.at) })) })),
     chores: ws.chores?.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     intents: ws.intents.map(i => ({
       ...i,

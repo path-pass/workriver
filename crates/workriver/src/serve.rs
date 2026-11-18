@@ -421,7 +421,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
     }
     // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
-    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none()).map(|m| m.id.clone()).collect();
+    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect();
     for id in held {
         app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
     }
@@ -1427,6 +1427,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/ask", post(ask_why))
         .route("/api/thread/end", post(end_thread))
         .route("/api/message", post(message))
+        .route("/api/messages/read", post(messages_read))
         .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
@@ -2556,6 +2557,18 @@ struct Say {
 async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text }).map(Json)).await
+}
+
+#[derive(Deserialize)]
+struct Read {
+    workspace: String,
+    at: String,
+}
+
+/// The page shows the user a workspace's conversation with its manager: read up to `at`.
+async fn messages_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<Read>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::MessagesRead { workspace: r.workspace, at: r.at }).map(Json)).await
 }
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.

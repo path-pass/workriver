@@ -380,7 +380,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | CommandRan { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | CommandRan { .. }
         )
     }
 }
@@ -1001,6 +1001,24 @@ pub enum Body {
     /// The manager the message went to answers it (`workriver reply`); it may answer more than once.
     #[serde(rename = "message.replied")]
     MessageReplied { message: String, text: String },
+    /// A workspace's manager starts a message to the user (`workriver say`): shown in that
+    /// workspace's conversation on the page, as the manager's. Nothing is typed anywhere.
+    #[serde(rename = "message.said")]
+    MessageSaid {
+        #[serde(default)]
+        id: String,
+        /// The workspace's current intent, if any; filled in here.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        intent: String,
+        /// The workspace the caller manages, by label; filled in here.
+        #[serde(default)]
+        workspace: String,
+        text: String,
+    },
+    /// The user has read a workspace's conversation with its manager up to `at` (the time of
+    /// the newest message of the manager's the page showed); the page records it.
+    #[serde(rename = "messages.read")]
+    MessagesRead { workspace: String, at: String },
     /// An agent tells the manager of a task's intent something (`workriver manager tell`):
     /// typed into the manager's terminal, quoted. The way a worker reaches its manager.
     #[serde(rename = "manager.told")]
@@ -1016,9 +1034,9 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
-            MessageDelivery { .. } | MessageReplied { .. } => (None, None, None),
+            MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
             ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
-            MessageSent { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
+            MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
             QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } => (intent.clone(), None, None),
@@ -1088,6 +1106,9 @@ pub struct State {
     /// The user's messages to managers, with their replies.
     #[serde(default)]
     pub messages: Vec<Message>,
+    /// Up to when the user has read each workspace's conversation with its manager, by label.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub read: std::collections::BTreeMap<String, String>,
     /// Not the records but a part of them: what an agent on a blind task may see.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reduced: bool,
@@ -1145,6 +1166,9 @@ pub struct Message {
     pub delivery: Option<Delivery>,
     #[serde(default)]
     pub replies: Vec<Reply>,
+    /// Started by the manager (`workriver say`): its text is the manager's, and it went nowhere.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_manager: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -2492,6 +2516,26 @@ impl State {
                 }
                 MessageReplied { message, text }
             }
+            MessageSaid { text, .. } => {
+                if user {
+                    return no("the user writes to a manager in workriver's page (Ask, Manager)");
+                }
+                let Some(w) = self.workspaces.iter().find(|w| w.manager.as_deref() == Some(actor)) else {
+                    return no("only a workspace's manager says something to the user; a worker tells its manager: `workriver manager tell <task> --text \"...\"`");
+                };
+                if blank(&text) {
+                    return no("say what: --text \"...\"");
+                }
+                MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.group.label.clone(), text }
+            }
+            MessagesRead { workspace, at } => {
+                if blank(&workspace) {
+                    return no("which workspace's conversation was read");
+                }
+                // Stored as the service writes times, so that they compare as text.
+                let Ok(t) = humantime::parse_rfc3339_weak(&at) else { return no(format!("{at:?} is not a time")) };
+                MessagesRead { workspace, at: humantime::format_rfc3339_seconds(t).to_string() }
+            }
         })
     }
 
@@ -3132,7 +3176,25 @@ impl State {
                 at: at.clone(),
                 delivery: None,
                 replies: vec![],
+                by_manager: false,
             }),
+            MessageSaid { id, intent, workspace, text } => self.messages.push(Message {
+                id: id.clone(),
+                intent: intent.clone(),
+                workspace: workspace.clone(),
+                manager: e.actor.clone(),
+                text: text.clone(),
+                at: at.clone(),
+                delivery: None,
+                replies: vec![],
+                by_manager: true,
+            }),
+            MessagesRead { workspace, at: upto } => {
+                let r = self.read.entry(workspace.clone()).or_default();
+                if *upto > *r {
+                    *r = upto.clone();
+                }
+            }
             MessageDelivery { id, delivery } => {
                 if let Some(m) = self.messages.iter_mut().find(|m| &m.id == id) {
                     m.delivery = Some(delivery.clone());

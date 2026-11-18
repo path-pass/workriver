@@ -421,7 +421,8 @@ export const zhCN: Same<typeof en> = {
   },
   commits: {
     title: '提交',
-    writing: '正在写'
+    writing: '正在写',
+    none: '这个项目还没有提交。'
   },
   inbox: {
     title: '需要你',
@@ -445,6 +446,8 @@ export const zhCN: Same<typeof en> = {
       disk: '连续 {{minutes}} 分钟已用超过 {{used}}% 或剩余不足 {{free}} GB'
     },
     decisions: '待决定',
+    messages: '消息',
+    unread_other: '{{count, number}} 条新消息',
     gaps: '缺口',
     later: '不急',
     empty: '没有需要你处理的事。',

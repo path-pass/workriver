@@ -2812,6 +2812,44 @@ fn talking_to_a_manager() {
     assert_eq!(message(1)["reasonCode"], "manager-gone");
 }
 
+/// A manager starts a message (`workriver say`); a worker cannot. The user's snapshot shows
+/// the manager's words unread until the user reads the conversation (the page records it;
+/// an agent cannot); a reply after that is unread again.
+#[test]
+fn a_manager_says_and_the_user_reads_it() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
+    let db = tmp.path().join("w.db");
+    let d = daemon_with(fake.clone(), &db, Default::default());
+    manage(&d, "p1", "s-boss");
+    let message = |k: usize| d.get("/api/workspace").unwrap()["messages"][k].clone();
+    let read = |d: &Daemon, at: &serde_json::Value| d.call("/api/messages/read", Some(json!({ "workspace": "chat", "at": at })));
+
+    assert!(d.append("s-w", "message.said", json!({ "text": "Done." })).unwrap_err().to_string().contains("workriver manager tell"));
+    d.append("s-boss", "message.said", json!({ "text": "u1 is merged." })).unwrap();
+    let m = message(0);
+    assert_eq!((m["byManager"].as_bool(), m["unread"].as_bool(), m["workspace"].as_str(), m["manager"].as_str(), m["intent"].as_str()), (Some(true), Some(true), Some("chat"), Some("boss"), Some("i1")));
+    assert!(fake.sent.lock().unwrap().is_empty(), "typed nowhere");
+
+    // An agent does not read for the user: not from its pane, not as itself.
+    let worker = Daemon { port: d.port, place: Some("p2".into()), home: Some(tmp.path().to_path_buf()) };
+    assert!(read(&worker, &m["at"]).unwrap_err().to_string().contains("only the user does this"));
+    assert!(d.append("s-w", "messages.read", json!({ "workspace": "chat", "at": m["at"] })).unwrap_err().to_string().contains("only the user does this"));
+    assert_eq!(message(0)["unread"], true);
+    read(&d, &m["at"]).unwrap();
+    assert!(message(0)["unread"].is_null());
+
+    // A reply after the read is unread again, until read.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    d.append("s-boss", "message.replied", json!({ "message": "m1", "text": "Also u2." })).unwrap();
+    let m = message(0);
+    assert_eq!((m["unread"].is_null(), m["replies"][0]["unread"].as_bool()), (true, Some(true)));
+    read(&d, &m["replies"][0]["at"]).unwrap();
+    assert!(message(0)["replies"][0]["unread"].is_null());
+}
+
 /// Which project a workspace works on: what the user set; else where its manager runs (a
 /// registered project, or a repository outside every one; another machine's paths only as
 /// the repositories of units recorded there); else its current intent's project.
