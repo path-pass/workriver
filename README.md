@@ -51,7 +51,7 @@ repositories. An **intent** is a goal in it. A **unit** is a piece of an intent 
 its own branch, in a worktree of its own; research and design for the whole intent go in a
 research unit, which has no branch and is never merged, and an experiment goes in a spike,
 whose code is kept on its branch to show how and never merged. A **task** is one piece of
-work handed to one agent (implement, review, tests, research) or to you: a **gate**
+work handed to one agent (implement, review, tests, design, research) or to you: a **gate**
 ("Manual step" in the UI), a step only you can do, such as a manual deploy, a try-out or a
 decision, that an agent waits on; one an agent puts before its own task when it is stuck
 is a blocker. A **finding** is a problem a review, tests or a gate found. **Evidence** is
@@ -80,9 +80,11 @@ review follows each. When a review raises findings the flow branches: each accep
 finding leads to new tasks, and the lines join again where the work does. An amber dotted
 line is work flowing now, dashed lines are secondary inputs, and a violet count marks
 findings waiting for you. A blocker carries a "!" mark, and the task it holds up a violet
-hand. A small "+N" under a node says its commits reached N folders that nothing before it
-on its line had touched: there the work grew in scope. A long graph opens on its latest
-work, with a minimap of the whole; zoomed out, as here, all of it shows.
+hand; this unit has none (the unit "消息支持撤回" does), and the hand on the try-out gate
+near the end is that gate's own sign. A small "+N" under a node says its commits reached N
+folders that nothing before it on its line had touched: there the work grew in scope. A
+long graph opens on its latest work, with a minimap of the whole; zoomed out, as here, all
+of it shows.
 
 ![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, two marked where the scope grew, a dropped question to merge, and a try-out gate near the end](docs/images/activity-graph.en.png)
 
