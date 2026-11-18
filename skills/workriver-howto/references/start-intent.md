@@ -38,4 +38,6 @@ should read there with `workriver intent set i3 --add-note "…"`.
 
 **Refusals:** "only the manager of workspace … starts intents there" - run
 `workriver manager here` first, in your own pane. "intent i3 is done; it cannot become
-active" - add a new one.
+active" - add a new one. "workspace … has a manager running: X" - a workspace has one
+manager; you are a worker there, not its manager: tell the user, who closes X first if you
+are to take over. "an agent manages the workspace it runs in" - run it in your own pane.

@@ -4,6 +4,10 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
+- **One workspace, one manager** (managers): `workriver manager here` registers you for the
+  workspace your pane is in, and is refused while another manager of it is running (it
+  names that agent). Registering again yourself is fine; a manager no longer running is
+  taken over. (`start-intent`)
 - **What only the user runs, the user runs in a terminal of its own** (managers, workers):
   `workriver project add`, `machine add`, `workspace link` and the like are refused from an
   agent's pane, and so is `!` in your session (it runs in your pane). Ask the user to run

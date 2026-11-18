@@ -936,9 +936,33 @@ impl App {
         Ok(())
     }
 
+    /// One workspace, one manager: an agent manages the workspace it runs in (not the one its
+    /// CLI names), and takes it over only from a manager no longer running.
+    fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<(), ApiError> {
+        let state = self.store.lock().unwrap().state().clone();
+        // Before 0.2 a manager named its intent; it manages that intent's workspace.
+        let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(()) };
+        let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        let me = live.iter().find(|a| a.session == session && a.machine.as_deref() == machine);
+        if !me.and_then(|a| a.group.as_ref()).is_some_and(|m| m.id == g.id && m.machine == g.machine) {
+            return Err(ApiError(StatusCode::FORBIDDEN, "an agent manages the workspace it runs in: run `workriver manager here` in your own pane".into()));
+        }
+        let current = state.workspace_of(&g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
+        if let Some(other) = current.and_then(|m| live.iter().find(|a| a.session == m)) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!("workspace {} has a manager running: {}. A workspace has one manager; tell the user, who closes that agent first if you are to take over", g.label, other.name),
+            ));
+        }
+        Ok(())
+    }
+
     /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
     fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
         let (actor, machine) = (who.actor(), who.machine());
+        if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&body, who) {
+            self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
+        }
         let body = self.complete(actor, body, machine)?;
         let e = self.store.lock().unwrap().append(who, body)?;
         self.deliver(&e);

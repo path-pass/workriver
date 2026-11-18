@@ -339,6 +339,35 @@ fn manage(d: &Daemon, place: &str, agent: &str) -> String {
     id
 }
 
+/// One workspace, one manager: an agent manages only the workspace it runs in, and takes it
+/// over only when its manager is gone.
+#[test]
+fn a_workspace_has_one_manager() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() =
+        vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-far", "far", "w2", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    let w1 = d.call("/api/here", Some(json!({ "place": "p1" }))).unwrap()["group"].clone();
+    let manager = |d: &Daemon| d.get("/api/state").unwrap()["workspaces"][0]["manager"].clone();
+
+    let err = d.append("s-far", "manager.registered", json!({ "workspace": w1 })).unwrap_err().to_string();
+    assert!(err.contains("the workspace it runs in"), "{err}");
+    let err = d.append("s-far", "manager.registered", json!({ "intent": "i1" })).unwrap_err().to_string();
+    assert!(err.contains("the workspace it runs in"), "an old intent-only registration too: {err}");
+    let err = d.append("s-rev", "manager.registered", json!({ "workspace": w1 })).unwrap_err().to_string();
+    assert!(err.contains("boss"), "the running manager is named: {err}");
+    d.append("s-boss", "manager.registered", json!({ "workspace": w1 })).expect("a manager registers again");
+    assert_eq!(manager(&d), "s-boss");
+
+    // Its manager gone, another agent of the workspace takes it over.
+    fake.agents.lock().unwrap().remove(0);
+    d.append("s-rev", "manager.registered", json!({ "workspace": w1 })).unwrap();
+    assert_eq!(manager(&d), "s-rev");
+}
+
 /// Starts a daemon on a free port over a fake runtime with short waits; returns its client.
 fn daemon_with(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::serve::Waits) -> Daemon {
     let store = workriver_core::Store::open(db).unwrap();
@@ -946,7 +975,12 @@ fn machines_are_separate_until_linked() {
     via_box.append("s-far", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P2", "problem": "p", "impact": "i", "where": ["a"], "attachments": [up["id"]] }] })).unwrap();
     let told = local.sent.lock().unwrap().last().unwrap().clone();
     assert!(told.0 == "s-boss" && told.1.contains("delivered by far") && told.1.contains(&tmp.path().join("attachments").display().to_string()), "{told:?}");
-    // The far agent becomes the linked workspace's manager: decisions go to its machine.
+    // The far agent becomes the linked workspace's manager once the local one is gone (one
+    // workspace, one manager): decisions go to its machine.
+    let err = via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap_err().to_string();
+    assert!(err.contains("boss"), "{err}");
+    local.agents.lock().unwrap().clear();
+    all.poll_all();
     via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
     let got = far.sent.lock().unwrap().last().unwrap().clone();
