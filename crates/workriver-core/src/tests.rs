@@ -833,6 +833,31 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
     assert_eq!(s.state().task("u1", 4).unwrap().state, TaskState::Waiting);
 }
 
+/// A unit closed as done takes a new task as more work: it is open again, its state worked out
+/// from its tasks as before (the closing is kept as what it was, `reopened`); a merged one
+/// takes none.
+#[test]
+fn a_task_added_to_a_done_unit_opens_it_again() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "enough"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Done);
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "One more", "inputs": [{"from": "1"}]}})).unwrap();
+    let u = s.state().units[0].clone();
+    assert_eq!((u.done.is_none(), s.state().progress(&u)), (true, Progress::Working), "open again, working on the new task");
+    assert_eq!(u.reopened.as_ref().map(|c| c.reason.as_str()), Some("enough"), "what it was closed as is kept");
+    assert_eq!(replayed(&s).progress(&replayed(&s).units[0]), Progress::Working);
+    // Closed again once that is through.
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 2, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "now"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Done);
+}
+
 /// A running task stuck on what only the user can do: a gate put before it (a blocker) waits
 /// for the user at once and the task now follows it, so the gate's result goes to its agent.
 /// Its own agent, its manager or the user puts it there; nobody else.

@@ -4,6 +4,9 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
+- **A done unit given a new task is open again** (managers): it no longer stays "done"
+  with work in it; its state is worked out from its tasks as before. Make its worktree again
+  if it was removed. (`closing-units`)
 - **Every command the user runs is reviewed first** (managers, workers): when the user opens
   "Run" on a gate's or chore's step, a workriver agent reads the command (and the scripts it
   calls) and tells the user what it will do; it only warns, the user still decides. So write
