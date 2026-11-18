@@ -169,6 +169,10 @@
 
 @layer base {
   * { @apply border-border; }
+  /* No rubber band up and down: on a Mac, scrolling on past the end of a list in a panel
+     dragged the whole page, panels pinned to the window too, over empty space. Sideways
+     stays, for swiping back and forward. */
+  html, body { overscroll-behavior-y: none; }
   html { scrollbar-color: var(--line-2) transparent; }
   body {
     margin: 0;
