@@ -159,9 +159,9 @@ First version, usable. The service records intents, units, tasks, findings and c
 reads the units' commits from git, follows the agents running in Herdr, keeps each
 project's roadmap and backlog, delivers your decisions, gate results and messages to the
 right agent, runs the commands you confirm in your own shell after an agent has read what
-they do, watches the machines' load, and serves the web UI on real data in English and
-Chinese. Agents on other machines (each with its own Herdr) can be followed over ssh; that
-part is new and has only been tested against stand-ins.
+they do, watches the machines' load, and serves the web UI on real data in English,
+Chinese and Japanese. Agents on other machines (each with its own Herdr) can be followed
+over ssh; that part is new and has only been tested against stand-ins.
 
 ## Build and run
 
