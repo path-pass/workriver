@@ -1,17 +1,18 @@
 // Running a command as the user: a gate's or chore's step, or one typed in the side panel.
 // Nothing runs before the user has seen the exact text, where it runs and who wrote it, and
 // confirmed; then the service types it into a plain shell of the user's in Herdr and the
-// dialog follows what that shell shows until the command ends.
+// dialog follows what that shell shows until the command ends. Meanwhile a workriver agent
+// reviews what the command will do; it only warns, Run never waits for it.
 import { createContext, useContext, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ms, noCode, unitsOf } from '@/data'
 import { useT } from '@/i18n'
-import { focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunView } from '@/runtime'
-import type { RecentRun, Step, Workspace } from '@/types'
+import { focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunReview, type RunView } from '@/runtime'
+import type { RecentRun, Step, Verdict, Workspace } from '@/types'
 import { Choice } from './Choice'
-import { Icon, Steps, Tip } from './bits'
+import { Icon, Prose, Steps, Tip } from './bits'
 
 /** Asks to run a command (opens the confirm dialog); App provides it. */
 export const RunContext = createContext<(a: RunAsk) => void>(() => {})
@@ -51,11 +52,12 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
     ;(ask.id ? readRun(ask.id) : prepareRun(ask)).then(v => { if (!gone) setView(v) }, e => { if (!gone) setError(String(e)) })
     return () => { gone = true }
   }, [ask])
-  // While it runs, what its shell shows, every second, until it ends or cannot be read.
-  const id = view?.started && view.exit === null && view.watching ? view.id : null
+  // While it runs, what its shell shows, every second, until it ends or cannot be read; and
+  // while its review is being written. A read sent before Run does not undo it.
+  const id = view && ((view.started && view.exit === null && view.watching) || view.review?.state === 'pending') ? view.id : null
   useEffect(() => {
     if (!id) return
-    const k = setInterval(() => readRun(id).then(setView, e => setError(String(e))), 1000)
+    const k = setInterval(() => readRun(id).then(v => setView(was => was?.started && !v.started ? { ...v, started: true, watching: true } : v), e => setError(String(e))), 1000)
     return () => clearInterval(k)
   }, [id])
   const go = () => {
@@ -76,7 +78,7 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
     : <span className="text-ink-2">{t('run.lost')}</span>
   return (
     <Dialog open={!!ask} onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent closeLabel={t('settings.close')} className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent closeLabel={t('settings.close')} className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('run.title')}</DialogTitle>
           <DialogDescription className="text-xs text-ink-2">{t('run.lead')}</DialogDescription>
@@ -94,6 +96,7 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
               <dt className="text-ink-2">{t('run.by')}</dt>
               <dd className={view.by === 'user' ? '' : 'text-amber-ink'}>{view.by === 'user' ? t('run.byYou') : t('run.byAgent', { agent: view.by })}</dd>
             </dl>
+            {view.review && <Review review={view.review} />}
             {view.started && (
               <div className="flex flex-col gap-1.5">
                 {view.kept === false
@@ -120,6 +123,38 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The verdict of a command's review, as a chip: ok in the done tone, caution amber, danger red. */
+export function VerdictChip({ verdict }: { verdict: Verdict }) {
+  const { t } = useT()
+  const label = { ok: t('run.verdictOk'), caution: t('run.verdictCaution'), danger: t('run.verdictDanger') }[verdict]
+  return (
+    <span data-verdict={verdict} className="flex-none rounded-[9px] px-1.5 text-[11px] data-[verdict=caution]:bg-amber-bg data-[verdict=caution]:text-amber-ink data-[verdict=danger]:bg-del-row data-[verdict=danger]:text-del data-[verdict=ok]:bg-sunken data-[verdict=ok]:text-water-ink">
+      {label}
+    </span>
+  )
+}
+
+/** What a workriver agent says the command will do: being written, its verdict and text, or why there is none. */
+function Review({ review }: { review: RunReview }) {
+  const { t } = useT()
+  return (
+    <section aria-labelledby="run-review" aria-live="polite" className="flex flex-col gap-1">
+      <h3 id="run-review" className="flex items-center gap-2 text-xs text-ink-2">
+        {t('run.review')}
+        {review.state === 'done' && <VerdictChip verdict={review.verdict} />}
+      </h3>
+      {review.state === 'pending' && <p className="text-xs text-ink-2"><span className="pending" aria-hidden />{t('run.reviewing')}</p>}
+      {review.state === 'failed' && <p className="text-xs text-ink-2 wrap-anywhere">{t('run.reviewFailed', { reason: review.reason })}</p>}
+      {review.state === 'done' && (
+        <div className="rounded-md border px-2.5 py-1.5 text-[13px] wrap-anywhere data-[verdict=caution]:border-amber data-[verdict=danger]:border-del" data-verdict={review.verdict}>
+          <Prose text={review.text} fold={false} />
+        </div>
+      )}
+      {review.state === 'done' && <p className="text-[11px] text-ink-2">{t('run.reviewBy')}</p>}
+    </section>
   )
 }
 
@@ -179,6 +214,7 @@ export function RecentRuns({ runs }: { runs: RecentRun[] }) {
                   {r.state === 'running' && <span className="pending" aria-hidden />}
                   {r.state === 'running' ? t('run.stateRunning') : r.state === 'unknown' ? t('run.stateUnknown') : r.exit === 0 ? t('run.stateOk') : t('run.stateExit', { code: r.exit })}
                 </span>
+                {r.verdict && <VerdictChip verdict={r.verdict} />}
                 {Number.isFinite(at) && <Tip text={when(at)}><span className="w-8 flex-none text-right text-xs text-ink-2">{waited(at)}</span></Tip>}
               </button>
             </li>

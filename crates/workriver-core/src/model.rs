@@ -120,6 +120,18 @@ pub enum Reviewer {
     SecurityReview,
 }
 
+/// What a review of a command the user is about to run found it to be.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Verdict {
+    /// It does what it says, nothing risky.
+    Ok,
+    /// Worth a look: changes outside its folder, network, installs, deletes.
+    Caution,
+    /// Destructive or irreversible.
+    Danger,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Severity {
     P1,
@@ -877,6 +889,10 @@ pub enum Body {
     /// Such a command ended, with its exit status, as workriver saw it end.
     #[serde(rename = "command.ended")]
     CommandEnded { id: String, exit: i32 },
+    /// What the agent workriver started to review such a command said it does, recorded by
+    /// workriver once that agent (and only it) gave it and the command ran.
+    #[serde(rename = "command.reviewed")]
+    CommandReviewed { id: String, verdict: Verdict, text: String },
     /// Where a message is: about a task (a decision when `finding` is set, a gate result, a
     /// delivered task, a gate asked for), or about a chore (`chore` set; then no unit/task).
     #[serde(rename = "delivery.updated")]
@@ -1028,7 +1044,7 @@ impl Body {
             ChoreDone { .. } => (None, None, None),
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
             CommandRan { unit, .. } => (None, unit.clone(), None),
-            CommandEnded { .. } => (None, None, None),
+            CommandEnded { .. } | CommandReviewed { .. } => (None, None, None),
         }
     }
 }
@@ -1100,6 +1116,8 @@ pub struct CommandRun {
     pub step: Option<u32>,
     pub at: String,
     pub exit: Option<i32>,
+    /// What its review found, and said.
+    pub review: Option<(Verdict, String)>,
 }
 
 /// A stored file. Never deleted, like the records.
@@ -2283,6 +2301,15 @@ impl State {
                 }
                 CommandEnded { id, exit }
             }
+            CommandReviewed { id, verdict, text } => {
+                if *who != Principal::Service {
+                    return no("only workriver records a command's review, from the agent it started for it");
+                }
+                if blank(&text) {
+                    return no("a review says what the command does");
+                }
+                CommandReviewed { id, verdict, text }
+            }
             DeliveryUpdated { unit, task, finding, chore, delivery } => {
                 if let Some(c) = &chore {
                     if !self.chores.iter().any(|x| &x.id == c) {
@@ -2954,13 +2981,18 @@ impl State {
             }
             // The latest few only (the user's recent runs); never their output.
             CommandRan { id, command, dir, machine, unit, by, from, step } => {
-                self.runs.push(CommandRun { id: id.clone(), command: command.clone(), dir: dir.clone(), machine: machine.clone(), unit: unit.clone(), by: by.clone(), from: from.clone(), step: *step, at: at.clone(), exit: None });
+                self.runs.push(CommandRun { id: id.clone(), command: command.clone(), dir: dir.clone(), machine: machine.clone(), unit: unit.clone(), by: by.clone(), from: from.clone(), step: *step, at: at.clone(), exit: None, review: None });
                 let over = self.runs.len().saturating_sub(RUNS_KEPT);
                 self.runs.drain(..over);
             }
             CommandEnded { id, exit } => {
                 if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
                     r.exit = Some(*exit);
+                }
+            }
+            CommandReviewed { id, verdict, text } => {
+                if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
+                    r.review = Some((*verdict, text.clone()));
                 }
             }
             DeliveryUpdated { chore: Some(c), delivery, .. } => {

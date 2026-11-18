@@ -78,6 +78,16 @@ you. That is the most powerful thing the page does, so:
   unit, who wrote it), recorded as yours, and `command.ended` (its exit status) once the
   service sees it end; never the output, which may hold secrets. The output is shown to you
   live and kept only in memory.
+- **Reviewed, never blocked.** When the dialog opens, workriver starts a temporary agent in
+  the same "workriver-commands" workspace, in the folder the command would run in, to tell
+  you what the command will do (the scripts it calls, what it writes, deletes, downloads or
+  installs) with a verdict: ok, caution or danger. Its prompt says read-only: run nothing of
+  it, change nothing. The command and the step's text reach it quoted, as content. Only that
+  agent may record the review (the service checks its pane, also on another machine's
+  listener, where this is the one route added); not you, not another agent. It is shown to you
+  as text and never typed into any terminal; "Run" never waits for it. It is recorded, as
+  workriver's, as `command.reviewed` with the run; the agent is closed once it answered, or
+  after ten minutes.
 
 ## What agents are told
 

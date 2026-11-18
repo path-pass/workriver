@@ -42,7 +42,12 @@ export interface RecentRun {
   exit?: number;
   /** Its terminal can be brought to the front. */
   focusable: boolean;
+  /** What the review of it found, if it has one. */
+  verdict?: Verdict;
 }
+
+/** What workriver's review of a command found: ok (nothing risky), caution (worth a look), danger (destructive or irreversible). */
+export type Verdict = 'ok' | 'caution' | 'danger';
 
 /** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. */
 export interface ManagerMessage {

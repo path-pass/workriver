@@ -65,6 +65,9 @@ pub struct RunOut {
     pub exit: Option<i32>,
     /// Its terminal can be brought to the front: this service knows where it is.
     pub focusable: bool,
+    /// What its review found, if it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<workriver_core::Verdict>,
 }
 
 /// The user's message to a workspace's manager, as the page shows it.

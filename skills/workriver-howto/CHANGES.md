@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
+- **Every command the user runs is reviewed first** (managers, workers): when the user opens
+  "Run" on a gate's or chore's step, a workriver agent reads the command (and the scripts it
+  calls) and tells the user what it will do; it only warns, the user still decides. So write
+  steps as the real commands, not a script that hides them (`bash ./scripts/setup.sh`): a
+  script is opened and explained, but the user reads the commands themselves more easily.
+  (`gates-chores`)
 - **Spike units** (managers): an experiment whose code is kept but never merged: `workriver
   unit add --kind spike --branch spike/<topic> …`, its own worktree like a code unit, any
   kind of task (implement for the code, research for the write-up with the numbers in

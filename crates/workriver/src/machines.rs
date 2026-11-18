@@ -740,6 +740,16 @@ impl Runtime for Machines {
         }
     }
 
+    /// On the machine named, in its own runtime's group of that label.
+    fn start_temporary_at(&self, machine: Option<&str>, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
+        let Some(m) = machine else { return self.local.start_temporary_at(None, group, harness, name, cwd) };
+        let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
+        let a = their_agent(on(&e, &|r: &dyn Runtime| r.start_temporary_at(None, group, harness, name, cwd))?, &e.label);
+        // Known at once, so a message to it by name finds its machine before the next read.
+        e.seen.lock().unwrap().agents.push(a.clone());
+        Ok(a)
+    }
+
     fn close(&self, agent: &str) -> Result<(), RuntimeError> {
         self.route(agent, |r| r.close(agent))
     }

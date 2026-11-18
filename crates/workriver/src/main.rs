@@ -197,6 +197,9 @@ enum Cmd {
         #[arg(long)]
         conclusion: bool,
     },
+    /// Commands the user runs from workriver's page.
+    #[command(subcommand)]
+    Run(RunCmd),
     /// Reply to the user's message (m3) that workriver typed into your terminal, for the
     /// manager it was sent to; the user reads it in workriver's page.
     Reply {
@@ -229,6 +232,21 @@ enum Cmd {
     Link {
         /// An intent (i3), unit (u1), task (u1#3, i3#1), or a finding of a task (u1#3:P2-1).
         target: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RunCmd {
+    /// Record what a command the user is about to run will do: only for the agent workriver
+    /// started to review it, as its prompt says.
+    Review {
+        /// The run (its id, from the prompt).
+        run: String,
+        #[arg(long, value_parser = ["ok", "caution", "danger"])]
+        verdict: String,
+        /// Short Markdown: what it does, then bullets.
+        #[arg(long)]
+        text: String,
     },
 }
 
@@ -1265,6 +1283,17 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
+        Cmd::Run(RunCmd::Review { run, verdict, text }) => {
+            if run.is_empty() || !run.chars().all(|c| c.is_ascii_alphanumeric()) {
+                bail!("{run:?} is not a run id");
+            }
+            let mut review = d.me(actor);
+            review["verdict"] = json!(verdict);
+            review["text"] = json!(text);
+            d.call(&format!("/api/run/{run}/review"), Some(review))?;
+            println!("recorded");
+            return Ok(());
+        }
         Cmd::Reply { message, text } => d.append(actor, "message.replied", json!({ "message": message, "text": text }))?,
     };
     // What was recorded, by the id an agent uses next.

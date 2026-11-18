@@ -298,6 +298,48 @@ fn agents_of(snap: &Snap, machine: Option<&str>) -> Vec<(String, RuntimeAgent)> 
         .collect()
 }
 
+impl Herdr {
+    /// A new tab labelled `label` in the workspace labelled `group`, or the first tab of that
+    /// workspace, made now when there is none; Herdr's answer, which names its root pane.
+    fn tab_in(&self, group: &str, dir: &str, label: &str) -> Result<Value, RuntimeError> {
+        let snap = self.snapshot()?;
+        match snap.workspaces.iter().find(|w| w.label == group) {
+            Some(w) => self.call("tab.create", json!({ "workspace_id": w.workspace_id, "cwd": dir, "label": label, "focus": false })),
+            None => self.call("workspace.create", json!({ "label": group, "cwd": dir, "focus": false })),
+        }
+    }
+
+    /// Starts `harness` as `name` in the root pane of a tab just made (`tab`, Herdr's answer).
+    fn launch(&self, tab: &Value, harness: &str, name: &str) -> Result<RuntimeAgent, RuntimeError> {
+        let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();
+        let started = self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": pane, "timeout_ms": 60_000 }), Duration::from_secs(75));
+        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state
+        // and, where Herdr says so (AgentInfo's `launch_pending` / `interactive_ready`, in its
+        // schema), its launch is over. Blocked is taken at once: it waits for a person, and the
+        // caller holds its message. One still not ready after a minute may sit on a first-run
+        // prompt ("trust this folder?") Herdr does not report: it is returned as it is, its tab
+        // left open for the user; the caller holds the message until it is free. Only an agent
+        // that never showed up in the pane is given up, and its tab closed.
+        let found = started.and_then(|_| {
+            let mut seen = None;
+            for _ in 0..120 {
+                let (snap, list) = self.read()?;
+                let launched = snap.agents.iter().find(|i| i.pane_id == pane).is_some_and(|i| i.launch_pending != Some(true) && i.interactive_ready != Some(false));
+                seen = list.into_iter().find(|(p, _)| *p == pane).map(|(_, a)| a);
+                if let Some(a) = seen.take_if(|a| a.state == AgentState::Blocked || (a.state != AgentState::Unknown && launched)) {
+                    return Ok(a);
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            seen.ok_or_else(|| RuntimeError::NoAgent(name.into()))
+        });
+        if found.is_err() {
+            let _ = self.call("pane.close", json!({ "pane_id": pane }));
+        }
+        found
+    }
+}
+
 impl Runtime for Herdr {
     fn agents(&self) -> Result<Vec<RuntimeAgent>, RuntimeError> {
         Ok(self.read()?.1.into_iter().map(|(_, a)| a).collect())
@@ -328,32 +370,13 @@ impl Runtime for Herdr {
     /// A new tab in the workspace, so nobody's pane is split; the agent starts in its shell.
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
         let tab = self.call("tab.create", json!({ "workspace_id": group, "cwd": cwd, "label": name, "focus": false }))?;
-        let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();
-        let started = self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": pane, "timeout_ms": 60_000 }), Duration::from_secs(75));
-        // Herdr may answer before the agent is ready for a prompt; wait until it shows a state
-        // and, where Herdr says so (AgentInfo's `launch_pending` / `interactive_ready`, in its
-        // schema), its launch is over. Blocked is taken at once: it waits for a person, and the
-        // caller holds its message. One still not ready after a minute may sit on a first-run
-        // prompt ("trust this folder?") Herdr does not report: it is returned as it is, its tab
-        // left open for the user; the caller holds the message until it is free. Only an agent
-        // that never showed up in the pane is given up, and its tab closed.
-        let found = started.and_then(|_| {
-            let mut seen = None;
-            for _ in 0..120 {
-                let (snap, list) = self.read()?;
-                let launched = snap.agents.iter().find(|i| i.pane_id == pane).is_some_and(|i| i.launch_pending != Some(true) && i.interactive_ready != Some(false));
-                seen = list.into_iter().find(|(p, _)| *p == pane).map(|(_, a)| a);
-                if let Some(a) = seen.take_if(|a| a.state == AgentState::Blocked || (a.state != AgentState::Unknown && launched)) {
-                    return Ok(a);
-                }
-                std::thread::sleep(Duration::from_millis(500));
-            }
-            seen.ok_or_else(|| RuntimeError::NoAgent(name.into()))
-        });
-        if found.is_err() {
-            let _ = self.call("pane.close", json!({ "pane_id": pane }));
-        }
-        found
+        self.launch(&tab, harness, name)
+    }
+
+    /// A tab of its own in the workspace labelled `group`, as a run's shell gets.
+    fn start_temporary_at(&self, _: Option<&str>, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
+        let tab = self.tab_in(group, cwd, name)?;
+        self.launch(&tab, harness, name)
     }
 
     fn close(&self, agent: &str) -> Result<(), RuntimeError> {
@@ -387,11 +410,7 @@ impl Runtime for Herdr {
     /// prompt, a pager), and each run's output starts clean. Herdr queues the text and Enter
     /// together, so they wait in the terminal until the new shell reads them.
     fn run_shell(&self, _: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
-        let snap = self.snapshot()?;
-        let made = match snap.workspaces.iter().find(|w| w.label == group) {
-            Some(w) => self.call("tab.create", json!({ "workspace_id": w.workspace_id, "cwd": dir, "label": "run", "focus": false }))?,
-            None => self.call("workspace.create", json!({ "label": group, "cwd": dir, "focus": false }))?,
-        };
+        let made = self.tab_in(group, dir, "run")?;
         let pane = made["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr: no pane in the answer".into()))?.to_string();
         self.call("pane.send_input", json!({ "pane_id": pane, "text": line, "keys": ["enter"] }))?;
         Ok(pane)

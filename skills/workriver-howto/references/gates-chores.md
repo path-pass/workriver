@@ -20,7 +20,9 @@ It prints the chore's id (`c1`).
 **Commands in steps** (`TEXT => COMMAND`): the user's page has "Run" next to each, which runs
 it as the user, in the user's own shell, in the unit's work tree (a chore with no unit: its
 project's folder), after the user reads and confirms it. Write one exact line the user could
-type there; nothing destructive the step does not need.
+type there; nothing destructive the step does not need. Before it runs, a workriver agent
+reads it and tells the user what it will do, so write the real commands, not a script that
+hides them: a script is opened and explained, but the user reads the commands more easily.
 
 **Refusals:** "only the user does this (gate.submitted)" / "(chore.done)": results and
 ticking off are the user's.
