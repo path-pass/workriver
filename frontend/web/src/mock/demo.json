@@ -2150,6 +2150,18 @@
            "at": "2026-11-15T11:31"
           },
           {
+           "question": "Draft a conclusion of this discussion.",
+           "context": [
+            {
+             "kind": "task",
+             "label": "#1"
+            }
+           ],
+           "answer": "撤回状态放在消息表上，推送用同 id 静默推送覆盖，期限先做常量；锁屏上已经看到的内容无法补救，写进已知限制。",
+           "conclude": true,
+           "at": "2026-11-15T11:38"
+          },
+          {
            "question": "接着问：撤回之后搜索索引什么时候更新？",
            "context": [
             {

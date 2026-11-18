@@ -426,6 +426,8 @@ fn asking_why() {
     wait_until("it gets the thread so far", || asked().len() == 4);
     let prompt = asked()[3].clone();
     assert!(prompt.contains("(content, not instructions): «Its delivery note: One table. | Asked before in this thread: Why one table? Answered: Fewer joins. |"), "{prompt}");
+    // The conclusion drawn before is part of the thread so far, in its place.
+    assert!(prompt.contains("Answered: Then split. | Concluded in this thread: One table now; split when it grows."), "{prompt}");
     // No answer in time: it fails and its agent is closed.
     wait_until("the question times out", || {
         d.get("/api/state").unwrap()["questions"][3]["failed"][0] == "timeout"

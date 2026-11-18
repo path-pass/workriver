@@ -153,6 +153,12 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
         <Theirs>
           <p className="text-ink-2"><span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: agent ?? '' })}</p>
         </Theirs>
+      ) : turn.conclude ? (
+        // The conclusion stands where it was asked for: questions after it come below it.
+        <li className="rounded-md bg-sunken p-2">
+          <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
+          <Answer text={turn.answer!} onFile={onFile} />
+        </li>
       ) : answered ? (
         <Theirs who={by} at={turn.answeredAt}>
           <Answer text={turn.answer!} onFile={onFile} />
@@ -225,7 +231,8 @@ function ThreadBody({ id, th, agent, talk, onConclude }: { id: string; th: Threa
         <ol className="chat">
           {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={agent} onFile={talk.onFile} />)}
         </ol>
-        {th.conclusion && (
+        {/* A conclusion with no request in the thread (the sample's): after it. */}
+        {th.conclusion && !th.turns.some(x => x.conclude && x.answer !== null) && (
           <div className="mt-3 rounded-md bg-sunken p-2">
             <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
             <Answer text={th.conclusion} onFile={talk.onFile} />
