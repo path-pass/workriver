@@ -427,7 +427,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       />
 
       {/* The viewport's inner box is a block, not Radix's table: titles then wrap or cut at the rail's width. */}
-      <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh] [&>[data-slot=scroll-area-viewport]>div]:block!">
+      <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh] [&>[data-slot=scroll-area-viewport]]:overscroll-contain [&>[data-slot=scroll-area-viewport]>div]:block!">
       <div className="flex flex-col gap-1 px-1 py-0.5">
         {active.length > 0 && <section aria-label={t('rail.active')} className="flex flex-col gap-1"><Heading>{t('rail.active')}</Heading>{active.map(group)}</section>}
         {ws && (planned.length > 0 || addTo) && <Roadmap ws={ws} list={planned} all={intents} addTo={addTo} onStart={onStart} onIntent={onIntent} here={unitId} onError={setError} />}

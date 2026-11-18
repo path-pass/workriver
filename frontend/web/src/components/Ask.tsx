@@ -410,7 +410,9 @@ function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task | null;
 
   return (
     <>
-      {/* The thread list stays compact; the open conversation takes the rest of the height. */}
+      {/* The thread list stays compact; the open conversation takes the rest of the height.
+          Its scrolling stops at its ends, as the chat's does: passed on, a Mac's rubber band
+          dragged the whole page, the panel with it, over empty space. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-3 text-sm">
         {earlier > 0 && (
           <button type="button" className="mb-1 flex-none self-start text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>

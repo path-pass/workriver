@@ -282,7 +282,9 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
 /** Ask keeps its box at the bottom, so it scrolls inside itself; the others scroll whole. */
 function Body(props: ContentProps) {
   if (props.section === 'ask') return props.ask
-  return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
+  // Scrolling stops at the panel's ends: passed on, a Mac's rubber band dragged the whole
+  // page, this panel pinned to the window with it, over empty space.
+  return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]]:overscroll-contain [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
 }
 
 /** The buttons work as a switch: one section at a time; the open one again folds it. */
