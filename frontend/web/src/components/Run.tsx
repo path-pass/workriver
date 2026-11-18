@@ -213,8 +213,9 @@ export function RecentRuns({ runs }: { runs: RecentRun[] }) {
           return (
             <li key={r.id}>
               <button type="button" className="thread-row" onClick={() => run({ id: r.id, command: r.command })}>
-                <Tip text={r.command}><span className="min-w-0 flex-1 truncate font-mono text-xs">{r.command}</span></Tip>
-                {from && <span className="max-w-[40%] flex-none truncate font-mono text-xs text-ink-2">{from}</span>}
+                {/* When the row is short of room the origin gives way first; the command always keeps a few characters. */}
+                <Tip text={r.command}><span className="min-w-[6ch] flex-1 truncate font-mono text-xs">{r.command}</span></Tip>
+                {from && <span className="min-w-0 max-w-[40%] truncate font-mono text-xs text-ink-2">{from}</span>}
                 <span className="flex-none rounded-[9px] bg-sunken px-1.5 text-[11px] data-[state=done]:text-water-ink data-[state=failed]:text-del data-[state=running]:bg-amber-bg data-[state=running]:text-amber-ink data-[state=unknown]:text-ink-2"
                   data-state={r.state === 'done' && r.exit !== 0 ? 'failed' : r.state}>
                   {r.state === 'running' && <span className="pending" aria-hidden />}
