@@ -36,6 +36,38 @@ pub struct Workspace {
     /// The user's messages to managers, with their replies, oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     messages: Vec<MessageOut>,
+    /// The commands the user ran from the page, newest first: for the user only.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub runs: Vec<RunOut>,
+}
+
+/// A command the user ran from the page, as the Run section lists it; never its output.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunOut {
+    pub id: String,
+    pub command: String,
+    pub dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Whose step it was (`u1#3`, `c2`) and which step; none: typed by the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<u32>,
+    pub at: String,
+    /// "running" (its terminal is read, no end yet), "done" (`exit` set), or "unknown" (not
+    /// followed: the service restarted, or its terminal closed before the end was seen).
+    pub state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
+    /// Its terminal can be brought to the front: this service knows where it is.
+    pub focusable: bool,
+    /// What its review found, if it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<workriver_core::Verdict>,
 }
 
 /// The user's message to a workspace's manager, as the page shows it.
@@ -60,6 +92,12 @@ struct MessageOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     blocked: Option<Blocked>,
     replies: Vec<ReplyOut>,
+    /// Started by the manager (`workriver say`): `text` is the manager's.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    by_manager: bool,
+    /// The manager's message, not read by the user yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unread: bool,
 }
 
 #[derive(Serialize)]
@@ -67,6 +105,9 @@ struct ReplyOut {
     by: String,
     text: String,
     at: String,
+    /// Not read by the user yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unread: bool,
 }
 
 fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<MessageOut> {
@@ -74,6 +115,10 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
         .messages
         .iter()
         .map(|m| {
+            // The manager's words the user has not read: written after the user last read
+            // the workspace's conversation (times are the service's, so they compare as text).
+            let read = state.read.get(&m.workspace);
+            let unread = |at: &String| read.is_none_or(|r| at > r);
             let stuck = live.iter().find(|a| a.session == m.manager && a.state == AgentState::Blocked).filter(|_| m.delivery.is_none());
             MessageOut {
                 id: m.id.clone(),
@@ -83,6 +128,8 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 text: m.text.clone(),
                 at: m.at.clone(),
                 step: match m.delivery.as_ref().map(|d| d.step) {
+                    // Nothing to deliver: it is the manager's.
+                    _ if m.by_manager => "delivered",
                     None if stuck.is_some() => "blocked",
                     None => "sending",
                     Some(core::DeliveryStep::NotDelivered) => "not-delivered",
@@ -91,7 +138,9 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 reason_code: m.delivery.as_ref().and_then(|d| d.reason_code),
                 reason: m.delivery.as_ref().and_then(|d| d.reason.clone()),
                 blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
-                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone() }).collect(),
+                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect(),
+                by_manager: m.by_manager,
+                unread: m.by_manager && unread(&m.at),
             }
         })
         .collect()
@@ -329,7 +378,7 @@ struct Unit {
     /// The intent's own work (research, design) shown as a unit without a repository.
     #[serde(rename = "intentLevel", skip_serializing_if = "std::ops::Not::not")]
     intent_level: bool,
-    /// Research and design, with no branch; absent: code.
+    /// Research and design, with no branch, or a spike, never merged; absent: code.
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<core::UnitKind>,
     title: String,
@@ -412,6 +461,9 @@ struct Task {
     /// Done without seeing other work: its findings are its own view.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     blind: bool,
+    /// A blocker (a gate): the task it was put before, by its id as in `inputs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocks: Option<String>,
     /// It has no commits on the unit's branch now, but had these on a branch the unit left.
     #[serde(rename = "lostCommits", skip_serializing_if = "Vec::is_empty")]
     lost_commits: Vec<String>,
@@ -995,7 +1047,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .map(|c| chore(c, &names, Some(crate::serve::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
     let messages = messages(state, live, &names);
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
 }
 
 /// How workriver knows which project a workspace works on.
@@ -1297,10 +1349,11 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) 
     let repo = Path::new(&u.repo);
     let hashes = match unit_hashes(at, u, cache) {
         Ok((hashes, merged)) => {
-            if merged && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
+            // A spike is never merged: neither recorded so nor looked at for a squash.
+            if merged && u.kind.merges() && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
                 cache.merged_now.push((u.id.clone(), hashes.clone()));
             }
-            if ready && !merged && u.merged.is_none() {
+            if ready && u.kind.merges() && !merged && u.merged.is_none() {
                 squash_check(at, u, cache);
             }
             hashes
@@ -1500,7 +1553,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     Unit {
         id: u.id.clone(),
         intent_level: false,
-        kind: None,
+        kind: (!u.kind.merges()).then_some(u.kind),
         title: u.title.clone(),
         purpose: u.purpose.clone(),
         repo: u.repo.clone(),
@@ -1524,7 +1577,8 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         commits: shown,
         code,
         squash: (progress_now == core::Progress::Ready).then(|| cache.shared.lock().unwrap().squash.get(&u.id).cloned()).flatten(),
-        overdue: cache.ready_after.filter(|_| progress_now == core::Progress::Ready).and_then(|after| {
+        // Waiting for a merge too long; a spike waits for none.
+        overdue: cache.ready_after.filter(|_| progress_now == core::Progress::Ready && u.kind.merges()).and_then(|after| {
             let since = state.ready_since(u)?;
             let ago = humantime::parse_rfc3339(&since).ok()?.elapsed().ok()?;
             (ago >= after).then_some(since)
@@ -1672,6 +1726,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         design,
         research,
         blind: t.blind,
+        blocks: t.blocks.map(|b| b.to_string()),
         lost_commits: vec![],
         threads: threads(state, live, names, &u.id, t.n),
         // The latest conclusion about the gate or the work it follows starts the user's note.
@@ -1712,6 +1767,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         design: false,
         research: false,
         blind: false,
+        blocks: None,
         lost_commits: vec![],
         threads: vec![],
         draft: None,

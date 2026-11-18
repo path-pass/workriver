@@ -58,6 +58,23 @@ pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path
         Body::TaskCreated(t) if t.kind == TaskKind::Gate && e.actor != "user" && not_manager(&intent_of(&t.unit)?) => {
             let to = target(state, live, &intent_of(&t.unit)?, None);
             let gate = state.task(&t.unit, t.n).ok()?;
+            // A blocker: which task is stuck, and what its agent wrote, quoted.
+            if let Some(stuck) = t.blocks.and_then(|b| state.task(&t.unit, b).ok()) {
+                let mut m = Msg::default();
+                m.own.push(format!(
+                    "[workriver] {} is stuck on {}: it put gate {} ({}) before it for the user, and that task now waits on it; the user's result goes to it. Nothing to do unless you change the plan (`workriver task drop {}#{} --reason \"...\"`, or hand the task to someone else). Check with `workriver board {}`.",
+                    who(state, &e.actor),
+                    label(state, &t.unit, stuck),
+                    label(state, &t.unit, gate),
+                    t.gate.map(|g| name(&g)).unwrap_or_default(),
+                    t.unit,
+                    t.n,
+                    t.unit
+                ));
+                let said = if gate.text.is_empty() || gate.text == gate.title { gate.title.clone() } else { format!("{}: {}", gate.title, gate.text) };
+                m.quotes.push(quoted(&format!("What {} asks the user", who(state, &e.actor)), &said));
+                return Some(on(&t.unit, t.n, None, to, m.text("")));
+            }
             let message = format!(
                 "[workriver] {} asked the user for gate {} ({}); the work after it waits until the user submits it. Check with `workriver board {}`.",
                 who(state, &e.actor),
@@ -303,6 +320,22 @@ pub fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(
     out.retain(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty());
     out.dedup_by(|a, b| a.0 == b.0);
     out
+}
+
+/// What an agent told the manager of a task's intent (`workriver manager tell`): to that
+/// manager while it runs and is not on a blind task, the agent's words quoted.
+pub fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+    let Body::ManagerTold { unit, task, text } = &e.body else { return vec![] };
+    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+    let Some(m) = state.intent_of(unit).and_then(|i| state.manager_of(i)) else { return vec![] };
+    if !live.iter().any(|a| a.session == m) || !state.blind_tasks(m).is_empty() {
+        return vec![];
+    }
+    let by = who(state, &e.actor);
+    vec![(
+        m.to_string(),
+        format!("[workriver] {by} tells you about {}. {} {}", label(state, unit, t), details(unit, *task), quoted(&format!("Quoted from {by}"), text)),
+    )]
 }
 
 /// Who is told that work is over (a unit merged or done, an intent done): its manager, of the

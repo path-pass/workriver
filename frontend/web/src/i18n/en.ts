@@ -212,6 +212,8 @@ export const en = {
     complete: 'All units finished: the manager can close it',
     finished: 'Finished',
     previously: 'previously on {{branches}}',
+    spike: 'Spike',
+    spikeWhy: 'An experiment: its code is kept on its branch to show how, and never merged. Closed when what it found is written down.',
     squashed: 'Looks squash-merged',
     squashedWhy: 'Every change of it is already in {{into}} (commit {{commit}}): merged by squash, most likely, which git cannot show. If it was, record it with this command; its manager is told too.',
     mergedCommand: 'workriver unit merged {{unit}}',
@@ -303,11 +305,13 @@ export const en = {
   terminal: {
     open: 'Open in terminal',
     openFor: 'Open {{agent}} in terminal',
-    note: 'Would bring {{agent}}’s terminal to the front – not connected yet'
+    note: 'Would bring {{agent}}’s terminal to the front – not connected yet',
+    remote: '{{what}} is on {{machine}}: it is in front there, in workspace {{workspace}}. In Herdr, switch to {{machine}} to see it.',
+    command: 'The command'
   },
   run: {
     title: 'Run as you',
-    lead: 'It runs in a shell of your own, in Herdr’s “workriver” workspace, with your credentials and hooks, exactly as if you typed it there.',
+    lead: 'It runs in a shell of your own, in Herdr’s “workriver-commands” workspace, with your credentials and hooks, exactly as if you typed it there.',
     command: 'Command',
     dir: 'Directory',
     machine: 'Machine',
@@ -316,6 +320,14 @@ export const en = {
     byAgent: '{{agent}}, an agent: read it before you run it',
     byYou: 'you',
     danger: 'This can destroy work for good (delete files, rewrite history). Run it only if you meant exactly this.',
+    review: 'What it will do',
+    reviewing: 'Reviewing what this command does…',
+    reviewFailed: 'Could not review it: {{reason}}',
+    reviewBlocked: 'The review agent {{agent}} waits for you in its terminal (a first-run question, such as trusting this folder). Answer it there and the review goes on; you can run the command meanwhile.',
+    reviewBy: 'A workriver agent read the command and the scripts it calls; it only warns, you decide.',
+    verdictOk: 'ok',
+    verdictCaution: 'caution',
+    verdictDanger: 'danger',
     go: 'Run',
     cancel: 'Cancel',
     running: 'Running…',
@@ -333,7 +345,14 @@ export const en = {
     hint: 'Runs in a shell of your own, after you confirm it.',
     unit: '{{unit}} · {{title}}',
     project: 'Project: {{title}}',
-    nowhere: 'No unit or project to run in yet.'
+    nowhere: 'No unit or project to run in yet.',
+    recent: 'Recent runs',
+    fromStep: '{{from}} step {{step}}',
+    stateRunning: 'running',
+    stateOk: '✓ ok',
+    stateExit: 'exit {{code}}',
+    stateUnknown: 'unknown',
+    notKept: 'The output was not kept: the service restarted since it ran. Its terminal is in Herdr’s “workriver-commands” workspace.'
   },
   evidence: {
     label: 'Checks run',
@@ -412,7 +431,8 @@ export const en = {
   },
   commits: {
     title: 'Commits',
-    writing: 'Writing now'
+    writing: 'Writing now',
+    none: 'No commits in this project yet.'
   },
   inbox: {
     title: 'Needs you',
@@ -436,6 +456,9 @@ export const en = {
       disk: 'over {{used}} % used or under {{free}} GB free for {{minutes}} min'
     },
     decisions: 'Decisions',
+    messages: 'Messages',
+    unread_one: '{{count, number}} new',
+    unread_other: '{{count, number}} new',
     gaps: 'Gaps',
     later: 'Not urgent',
     empty: 'Nothing needs you.',
@@ -593,6 +616,8 @@ export const en = {
   flow: {
     empty: 'No tasks recorded for this unit yet.',
     grew: 'Also reached {{folders}} — beyond {{tasks}}',
+    blocker: 'Blocker',
+    held: 'Waiting for you',
     start: 'Start',
     controls: 'Graph controls',
     zoomIn: 'Zoom in',

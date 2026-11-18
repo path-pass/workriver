@@ -27,7 +27,9 @@ one code unit are a **research unit**: a unit like any other in the rail, with n
 repository, branch or code layer, never merged ("Ready to close" where a code unit says
 "Ready to merge"; its manager closes it). Before research units such work was recorded on the
 intent itself (`i3#1`); those tasks still work, and show on the intent's page as "Earlier
-research and design", never in the rail.
+research and design", never in the rail. A **spike** is an experiment kept as code: a unit
+with a `spike/` branch, shown like a code unit (commits, code layer) with a small "Spike" tag
+in its rail line and heading, never merged ("Ready to close", no squash or merge reminder).
 
 Three columns: the rail picks a unit, the main area shows it, the side panel holds what is
 looked at now and then.
@@ -144,7 +146,14 @@ looked at now and then.
   trusted. A command that can destroy work for good (`rm -r`/`-f`, `push --force`/`-f`/`+ref`,
   `reset --hard`, `clean -f…`, `branch -D`, `mkfs`, `dd of=`) is flagged in red: the box red,
   a line saying what it can do, the Run button the destructive one. A heuristic for the
-  obvious ones, not a guard. Run and Cancel; nothing runs before Run. Then workriver types it
+  obvious ones, not a guard. Under it, **What it will do**: when the dialog opens, workriver
+  starts a temporary agent (in "workriver-commands", in the command's folder, read-only) that
+  follows the command into the scripts it calls; "Reviewing what this command does…" with the
+  pending dot, then its verdict as a chip ("ok" in the done tone, "caution" amber, "danger"
+  red) and its short Markdown, or "Could not review it: …". It only warns: Run is never
+  disabled or delayed by it, and a review that comes after Run still shows. The dialog is
+  wide (`sm:max-w-3xl`) so commands and output read on one line. Run and Cancel; nothing runs
+  before Run. Then workriver types it
   into a new tab of a plain shell (no agent) in a Herdr workspace named "workriver-commands" on the
   unit's machine (made on first use, reused after) as `cd -- '<dir>' && eval '<command>';
   echo "__workriver_end_<id>_$?__"`: a tab per run, so a run never types into a shell an
@@ -156,6 +165,15 @@ looked at now and then.
   counts; the id is random, so the command's own output cannot fake it); "Open in terminal"
   brings that tab to the front. A tab that cannot be read for five seconds (closed, or its
   shell exited) says so. The marker needs a POSIX shell (zsh, bash, sh).
+  Under the Run section's box, **Recent runs** (the newest 20, newest first; nothing when
+  there are none): one row each with the command (monospace, one line, the whole text on
+  hover), whose step it was (`u3#4 step 2`, a chore's id, or nothing when typed there), a
+  state chip ("running" amber with the pulse, "✓ ok", "exit N" in red, "unknown" when the
+  service restarted or the terminal closed before the end was seen), the review's verdict chip
+  when it has one, and how long ago. A row
+  opens the same dialog on that run. They come in the user's snapshot only (agents never see
+  them), from the recorded runs and ends; the output lives in the service's memory, so after
+  a restart the dialog says it was not kept and offers no terminal.
 - **Commits** is every unit's commits as a git graph, newest first, like `git log --graph`
   or GitHub's network view: the base on the left as a plain neutral line labelled at its
   top with the base branch's name (its own commits are not drawn), one lane per unit branch

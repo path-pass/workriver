@@ -11,7 +11,13 @@ A unit stands (board, `workriver task show`, the page):
   be merged.
 - **merged**: git shows its branch in its base (fast-forward or merge commit); workriver
   records this itself, with the unit's commits.
-- **done**: closed without a merge.
+- **done**: closed without a merge. A task added to a done unit opens it again (its state is
+  worked out from its tasks once more); make its worktree again if it was removed
+  (`git -C <repo> worktree add <repo>.worktrees/<unit> <branch>`).
+
+Once a unit is merged or done, remove its worktree after checking nothing is left
+uncommitted there (`git -C <repo>.worktrees/<unit> status`): `git -C <repo> worktree remove
+<repo>.worktrees/<unit>`.
 
 A research unit (`units`) has no branch: it goes from ready ("ready to close") to done with
 `workriver unit done`; it is never merged.

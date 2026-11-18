@@ -21,3 +21,15 @@ gate (`ask-user`); say in the reply that it waits there.
 **Refusals:** "message m3 went to … only that manager replies to it" - it was sent to
 another manager (an earlier one of this workspace); the user can write again. "no message
 m3" - check the id in the message.
+
+## Telling the user something unasked
+
+To tell the user something without being asked, start a message yourself:
+
+    workriver say --text "u1 is merged; u2 starts next, on the new API."
+
+It shows in your workspace's conversation in the page, as yours, and in the user's Needs you
+until read; the user may answer it, which arrives like any message of theirs. Use it for what
+the user should know without acting: a milestone, a changed plan, a finished intent. Not
+every step: the board shows those. A decision still goes in a decide gate (`ask-user`). Only
+a workspace's manager says something; a worker tells its manager (`workriver manager tell`).

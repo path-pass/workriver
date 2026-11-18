@@ -197,11 +197,22 @@ enum Cmd {
         #[arg(long)]
         conclusion: bool,
     },
+    /// Commands the user runs from workriver's page.
+    #[command(subcommand)]
+    Run(RunCmd),
     /// Reply to the user's message (m3) that workriver typed into your terminal, for the
     /// manager it was sent to; the user reads it in workriver's page.
     Reply {
         /// The message (m3).
         message: String,
+        #[arg(long)]
+        text: String,
+    },
+    /// As a workspace's manager, tell the user something without being asked: it shows in
+    /// your workspace's conversation in workriver's page, and in the user's Needs you until
+    /// read. For what the user should know (a milestone, a changed plan, a finished intent);
+    /// a decision goes in a decide gate (`workriver guide how ask-user`).
+    Say {
         #[arg(long)]
         text: String,
     },
@@ -229,6 +240,21 @@ enum Cmd {
     Link {
         /// An intent (i3), unit (u1), task (u1#3, i3#1), or a finding of a task (u1#3:P2-1).
         target: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RunCmd {
+    /// Record what a command the user is about to run will do: only for the agent workriver
+    /// started to review it, as its prompt says.
+    Review {
+        /// The run (its id, from the prompt).
+        run: String,
+        #[arg(long, value_parser = ["ok", "caution", "danger"])]
+        verdict: String,
+        /// Short Markdown: what it does, then bullets.
+        #[arg(long)]
+        text: String,
     },
 }
 
@@ -449,11 +475,16 @@ enum UnitCmd {
     /// `--kind research`: research and design for the intent, with no repository, branch or
     /// machine (leave those out). It takes research, design, review and gate tasks, is never
     /// merged, and is closed with `workriver unit done` once its work is delivered and decided.
+    ///
+    /// `--kind spike`: an experiment (measure, compare, try an approach) whose code is kept on
+    /// a branch of its own, spike/<name>, and shown like a code unit's, but never merged; it
+    /// takes every task kind and is closed with `workriver unit done --reason "<what was learned>"`.
     Add {
         /// The intent it serves (i1…); default: the current intent of this Herdr workspace.
         intent: Option<String>,
-        /// code: work on a branch of its own; research: research and design, no branch.
-        #[arg(long, value_parser = ["code", "research"], default_value = "code")]
+        /// code: work on a branch of its own; research: research and design, no branch;
+        /// spike: an experiment on a spike/ branch, never merged.
+        #[arg(long, value_parser = ["code", "research", "spike"], default_value = "code")]
         kind: String,
         #[arg(long)]
         title: String,
@@ -464,7 +495,8 @@ enum UnitCmd {
         #[arg(long)]
         repo: Option<String>,
         /// The unit's own branch, where the work happens; it may not exist yet. It starts
-        /// with feat/, chore/ or fix/ (feat/mention) and is not the base. Needed for code.
+        /// with feat/, chore/ or fix/ (feat/mention), or spike/ for --kind spike, and is not
+        /// the base. Needed for code and spikes.
         #[arg(long)]
         branch: Option<String>,
         /// The branch it starts from and merges into; default: main.
@@ -479,7 +511,7 @@ enum UnitCmd {
     /// Record that a unit's branch was merged. Not needed after a fast-forward or a merge
     /// commit: workriver sees those and records them itself; a squash merge it cannot see.
     Merged { unit: String },
-    /// Close a unit finished without a merge: research done, abandoned, superseded. By the
+    /// Close a unit finished without a merge: research or spike done, abandoned, superseded. By the
     /// manager of its intent, or the user.
     Done {
         unit: String,
@@ -561,6 +593,13 @@ enum TaskCmd {
         /// A path the work expects to change (file or folder). Repeatable.
         #[arg(long)]
         plan: Vec<String>,
+        /// Gate tasks: put this gate before task N (or u1#N), a task still to do or running
+        /// that is stuck on what only the user can do (a blocker). The task follows the gate
+        /// from then on and its agent gets the user's result; the manager is told. Without
+        /// --after it follows what that task follows. By the task's agent, the manager or
+        /// the user.
+        #[arg(long, value_name = "N")]
+        blocks: Option<String>,
         /// For a review, tests, research or design task: its agent sees nothing of other
         /// work (notes, evidence, findings, decisions, questions) until it delivers, so its
         /// view is its own. Blindness guards against bias, not against an agent that sets
@@ -736,6 +775,16 @@ enum ManagerCmd {
         /// `intent start`.
         #[arg(long)]
         goal: Option<String>,
+    },
+    /// Tell the manager of a task's intent something, from a worker: typed into the
+    /// manager's terminal, quoted, while it runs. The way to reach your manager (never type
+    /// into its terminal yourself). Stuck on what only the user can do: put a blocker
+    /// instead (`workriver guide how blocked`); the manager is told of it.
+    Tell {
+        /// The task it is about (u1#3): yours, usually.
+        task: String,
+        #[arg(long)]
+        text: String,
     },
 }
 
@@ -914,6 +963,10 @@ fn main() -> anyhow::Result<()> {
             println!("Opened workriver in your browser.");
             return Ok(());
         }
+        Cmd::Manager(ManagerCmd::Tell { task, text }) => {
+            let (unit, n) = task_ref(&task)?;
+            d.append(actor, "manager.told", json!({ "unit": unit, "task": n, "text": text }))?
+        }
         Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
             if group.is_none() && intent.is_none() {
                 bail!("not inside a Herdr workspace: run `workriver manager here` in the manager's Herdr pane");
@@ -1089,7 +1142,7 @@ fn main() -> anyhow::Result<()> {
             let intent = here_intent(intent)?;
             d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research" }))?
         }
-        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine, .. }) => {
+        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) => {
             let (repo, branch, base) = (repo.unwrap_or_else(|| ".".into()), branch.unwrap_or_default(), base.unwrap_or_else(|| "main".into()));
             let intent = here_intent(intent)?;
             // On another machine the path is that machine's: taken as written, checked there.
@@ -1098,7 +1151,7 @@ fn main() -> anyhow::Result<()> {
                 Some(_) => json!(repo),
                 None => json!(std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?),
             };
-            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine }))?
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine, "kind": kind }))?
         }
         Cmd::Unit(UnitCmd::Move { unit, machine, repo, branch, base }) => {
             if machine.is_none() && repo.is_none() && branch.is_none() && base.is_none() {
@@ -1108,13 +1161,21 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Unit(UnitCmd::Merged { unit }) => d.append(actor, "unit.merged", json!({ "unit": unit }))?,
         Cmd::Unit(UnitCmd::Done { unit, reason }) => d.append(actor, "unit.done", json!({ "unit": unit, "reason": reason }))?,
-        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind }) => {
+        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind, blocks }) => {
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
+            // `N` or `u1#N`, in this unit.
+            let blocks = blocks
+                .map(|b| match b.split_once('#') {
+                    Some((u, n)) if u == unit => n.parse::<u32>().map_err(|_| anyhow!("--blocks takes a task number: {b}")),
+                    Some(_) => Err(anyhow!("--blocks names a task of {unit}, the unit the gate goes into: {b}")),
+                    None => b.parse::<u32>().map_err(|_| anyhow!("--blocks takes a task number: {b}")),
+                })
+                .transpose()?;
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
             d.append(actor, "task.created", json!({
                 "unit": unit, "kind": kind, "title": title, "text": text, "inputs": inputs, "causes": causes,
-                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind,
+                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks,
             }))?
         }
         Cmd::Task(TaskCmd::Start { task, agent }) => {
@@ -1230,7 +1291,19 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
+        Cmd::Run(RunCmd::Review { run, verdict, text }) => {
+            if run.is_empty() || !run.chars().all(|c| c.is_ascii_alphanumeric()) {
+                bail!("{run:?} is not a run id");
+            }
+            let mut review = d.me(actor);
+            review["verdict"] = json!(verdict);
+            review["text"] = json!(text);
+            d.call(&format!("/api/run/{run}/review"), Some(review))?;
+            println!("recorded");
+            return Ok(());
+        }
         Cmd::Reply { message, text } => d.append(actor, "message.replied", json!({ "message": message, "text": text }))?,
+        Cmd::Say { text } => d.append(actor, "message.said", json!({ "text": text }))?,
     };
     // What was recorded, by the id an agent uses next.
     let b = &out["body"];
@@ -1255,6 +1328,8 @@ fn main() -> anyhow::Result<()> {
         Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
         Some("message.replied") => "replied".into(),
+        Some("message.said") => format!("said in workspace {} ({})", b["workspace"].as_str().unwrap_or("?"), b["id"].as_str().unwrap_or("?")),
+        Some("manager.told") => "told the manager (if it runs)".into(),
         Some("task.delivered") => {
             let ids: Vec<&str> = b["findings"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }
@@ -1862,7 +1937,11 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             let why = u.done.as_ref().filter(|d| !d.reason.is_empty()).map(|d| format!(" ({})", d.reason)).unwrap_or_default();
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
-            let place = if u.kind.is_code() { format!("{on}{}, branch {} from {}", u.repo, u.branch, u.base) } else { "research, no branch: close it with `workriver unit done`".into() };
+            let place = match u.kind {
+                core::UnitKind::Code => format!("{on}{}, branch {} from {}", u.repo, u.branch, u.base),
+                core::UnitKind::Spike => format!("{on}{}, branch {} from {}; spike, never merged: close it with `workriver unit done`", u.repo, u.branch, u.base),
+                core::UnitKind::Research => "research, no branch: close it with `workriver unit done`".into(),
+            };
             let _ = writeln!(out, "  {} {}  [{place}]  {progress}{why}", u.id, u.title);
             link(&mut out, "    ", &u.id);
             // Its machine is disconnected: what is shown is as last read, and nothing waited on it.

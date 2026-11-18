@@ -17,7 +17,7 @@ import { IntentPage } from '@/components/IntentPage'
 import { agents, askeeOf, blame, blockedAgents, firstUnit, inbox, intentOf, loadCode, MOCK, NO_EDITS, noCode, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
 import { useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from '@/link'
-import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, submitGate, tellManager, type Delivery } from '@/runtime'
+import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery } from '@/runtime'
 import type { AskContext, Attachment, Intent, MachineAlert, ManagerMessage, Task, Turn, Unit, Workspace } from '@/types'
 
 const SIDE = 'workriver.side'
@@ -157,6 +157,9 @@ export default function App() {
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
   // A request for the Ask section to show the conversation with a manager (from an intent's page).
   const [managerAt, setManagerAt] = useState(0)
+  // The workspace whose conversation it shows (from Needs you); none: the one on screen.
+  const [talkTo, setTalkTo] = useState<string | undefined>()
+  const showTalk = (workspace?: string) => { openAsk(false); setTalkTo(workspace); setManagerAt(Date.now()) }
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
   // The stored attachment the viewer shows, if any: a question can be about it.
   const [viewing, setViewing] = useState<Attachment | null>(null)
@@ -320,10 +323,17 @@ export default function App() {
     }
     tellManager(to, text).catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
   }
-  const talk: Talk | null = ws && (unit || page)
+  // Read: the manager's words up to `at` are no longer new, here at once (the sample keeps it
+  // only in memory), and in every browser of the user's once the service has it.
+  const onRead = (workspace: string, at: string) => {
+    setEdits(e => ({ ...e, read: { ...e.read, [workspace]: at } }))
+    readMessages(workspace, at)
+  }
+  // The manager conversation needs no unit on screen (Needs you opens it from anywhere).
+  const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines, asked: asked[unitId ?? ''] ?? {}, onAsk,
-        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt,
+        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
         intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell,
         onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
         live: !MOCK,
@@ -344,7 +354,7 @@ export default function App() {
 
   // The Ask section asks about the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, ask: <Ask unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, ask: <Ask unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
 
   // A command the user asked to run: the confirm dialog shows it. A gate or chore of the
   // intent's own work has no work tree: it runs in the intent's project folder.
@@ -420,7 +430,7 @@ export default function App() {
             fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`}
             onUnit={id => pickUnit(ws, id)}
             onStart={setStarting}
-            onTalk={() => { openAsk(false); setManagerAt(Date.now()) }}
+            onTalk={() => showTalk()}
             aside={<SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} />}
           />
         )}
@@ -432,6 +442,7 @@ export default function App() {
                   <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span>{unit.title}</span>
                   <CopyButton text={linkTo(pathOf(unit.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
                   {unit.branch && <span className="max-w-full min-w-0 truncate font-mono text-xs font-normal tracking-normal text-ink-2" title={unit.branch}>{unit.branch}</span>}
+                  {unit.kind === 'spike' && <span className="tag font-normal tracking-normal" title={t('unit.spikeWhy')}>{t('unit.spike')}</span>}
                   <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} />
                   <Progress unit={unit} />
                   {unit.squash && unit.progress === 'ready' && <Squashed unit={unit} />}

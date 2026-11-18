@@ -1,12 +1,12 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
+import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
 import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { focusAgent, NOTE } from '@/runtime'
+import { focusAgent, NOTE, type Remote } from '@/runtime'
 import type { External, Step, Unit } from '@/types'
 
 // Who raised it is an icon; so is the state of a piece of work. All from lucide, one size, one stroke.
@@ -30,6 +30,7 @@ const ICONS: Record<string, LucideIcon> = {
   play: Play,
   link: ExternalLink,
   blocked: Hand,
+  blocker: OctagonAlert,
   chore: ListTodo,
   inbox: Inbox,
   agents: Users,
@@ -128,7 +129,7 @@ export function CopyButton({ text, label, aria, className }: { text: string; lab
  * What an agent prepared for the user to do by hand: the same for a gate and for a chore.
  * With `onRun`, each command also has "Run", which asks to run it as the user.
  */
-export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string) => void }) {
+export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string, step: number) => void }) {
   const { t } = useT()
   return (
     <ol className="steps">
@@ -141,7 +142,7 @@ export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: strin
               <CopyButton text={s.command} />
               {onRun && (
                 <Tip text={t('run.buttonFor', { command: s.command })}>
-                  <Button variant="ghost" size="xs" className="flex-none rounded-sm" aria-label={t('run.buttonFor', { command: s.command })} onClick={() => onRun(s.command!)}>
+                  <Button variant="ghost" size="xs" className="flex-none rounded-sm" aria-label={t('run.buttonFor', { command: s.command })} onClick={() => onRun(s.command!, k + 1)}>
                     <Icon name="play" className="size-3" />{t('run.button')}
                   </Button>
                 </Tip>
@@ -201,23 +202,26 @@ export function TerminalButton({ agent, session, className }: { agent: string; s
   )
 }
 
-/** A short note at the bottom of the screen for what the UI cannot do itself yet. */
+/** A short note at the bottom of the screen: what the UI cannot do itself yet, or where a
+ *  terminal brought to the front on another machine is (read longer). */
 export function Notes() {
   const { t } = useT()
-  const [agent, setAgent] = useState<string | null>(null)
+  const [text, setText] = useState<string | null>(null)
   useEffect(() => {
     let timer = 0
     const on = (e: Event) => {
-      setAgent((e as CustomEvent<{ agent: string }>).detail.agent)
+      const d = (e as CustomEvent<{ agent?: string; remote?: Remote }>).detail
+      const r = d.remote
+      setText(r ? t('terminal.remote', { what: r.agent ?? t('terminal.command'), machine: r.machine, workspace: r.workspace ?? '?' }) : t('terminal.note', { agent: d.agent }))
       clearTimeout(timer)
-      timer = window.setTimeout(() => setAgent(null), 2500)
+      timer = window.setTimeout(() => setText(null), r ? 8000 : 2500)
     }
     window.addEventListener(NOTE, on)
     return () => { window.removeEventListener(NOTE, on); clearTimeout(timer) }
-  }, [])
+  }, [t])
   return (
     <div role="status" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-      {agent && <div className="rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{t('terminal.note', { agent })}</div>}
+      {text && <div className="max-w-xl rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{text}</div>}
     </div>
   )
 }
@@ -251,8 +255,8 @@ export function Progress({ unit }: { unit: Unit }) {
   const { t } = useT()
   const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
   if (!p) return null
-  // Research is never merged: ready, it is closed.
-  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind === 'research' ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
+  // Research and spikes are never merged: ready, they are closed.
+  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
   return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
 }
 

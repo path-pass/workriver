@@ -112,12 +112,41 @@ struct Run {
     unit: Option<String>,
     /// Who wrote it: an agent's session, or "user".
     by: String,
+    /// Whose step it is (`u1#3`, `c2`) and which (from 1); none: typed by the user.
+    from: Option<String>,
+    step: Option<u32>,
+    /// That step's text, as its author wrote it: what the command is for.
+    step_text: Option<String>,
+    /// The language of the user's page, for the review.
+    lang: Option<String>,
     prepared: std::time::Instant,
     place: Option<String>,
     output: String,
     exit: Option<i32>,
     /// Its pane is still read.
     watching: bool,
+    /// `command.ran` is recorded: its review, once there, is recorded too.
+    ran: bool,
+    review: Review,
+}
+
+/// What a workriver agent says a command will do, before the user runs it: it only warns.
+#[derive(Clone, Default)]
+struct Review {
+    /// The agent started for it: only it may record the review; closed once it did.
+    agent: Option<RuntimeAgent>,
+    /// When it is given up.
+    until: Option<std::time::Instant>,
+    verdict: Option<core::Verdict>,
+    text: String,
+    /// Why there is no review.
+    failed: Option<String>,
+}
+
+impl Review {
+    fn pending(&self) -> bool {
+        self.verdict.is_none() && self.failed.is_none()
+    }
 }
 
 /// This build of the service, as `workriver status` and the guides name it.
@@ -161,9 +190,9 @@ struct Via {
 /// waits for a person in its terminal.
 // ponytail: in memory; after a restart the question fails as `restarted`, like any open one.
 struct Held {
-    /// The question's id, or with `message` the user's message's.
+    /// The question's id; the user's message's; or the run's whose command is to be reviewed.
     question: String,
-    message: bool,
+    kind: For,
     /// The session or live name it goes to, and the name to say.
     to: String,
     name: String,
@@ -171,6 +200,16 @@ struct Held {
     /// A new agent not ready for a prompt: retried at each poll until then; after it, it may
     /// sit on a prompt the runtime does not report and waits for the user like a blocked one.
     not_ready: Option<std::time::Instant>,
+}
+
+/// What a held message is for.
+#[derive(Clone, Copy, PartialEq)]
+enum For {
+    Question,
+    /// The user's message to a manager.
+    Message,
+    /// A command for its review agent (`App::review_run`).
+    Review,
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -382,13 +421,18 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
     }
     // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
-    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none()).map(|m| m.id.clone()).collect();
+    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect();
     for id in held {
         app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
     }
     // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
     // the next question starts a new one with the thread so far.
     let left: Vec<String> = app.store.lock().unwrap().state().threads.iter().filter_map(|t| t.name.clone()).collect();
+    for name in left {
+        let _ = app.runtime.close(&name);
+    }
+    // So is an agent a previous run started to review a command: what it would say is lost.
+    let left: Vec<String> = app.runtime.agents().unwrap_or_default().into_iter().filter(|a| a.name.starts_with(&run::reviewer("")) && a.group.as_ref().is_some_and(|g| g.label == run::GROUP)).map(|a| a.name).collect();
     for name in left {
         let _ = app.runtime.close(&name);
     }
@@ -557,8 +601,11 @@ impl App {
             };
             for h in ready {
                 match state(&h) {
-                    None if h.message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
-                    None => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
+                    None => match h.kind {
+                        For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
+                        For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
+                        For::Review => self.review_failed(&h.question, &format!("{} closed before it could be given the command", h.name)),
+                    },
                     Some(_) => self.hand(h),
                 }
             }
@@ -577,6 +624,11 @@ impl App {
             }
         }
         let recorded = recorded || !late.is_empty();
+        // Reviews of commands not given in time: their agents go.
+        let late: Vec<String> = self.runs.lock().unwrap().iter().filter(|(_, r)| r.review.pending() && r.review.until.is_some_and(|u| u <= now)).map(|(id, _)| id.clone()).collect();
+        for id in late {
+            self.review_failed(&id, &format!("no review within {} seconds", self.waits.answer.as_secs()));
+        }
         // Threads idle for too long: their temporary agent goes; the thread stays open.
         let gone: Vec<String> = {
             let mut idle = self.idle.lock().unwrap();
@@ -691,7 +743,8 @@ impl App {
             let store = self.store.lock().unwrap();
             let state = store.state();
             let told = self.merge_told.lock().unwrap();
-            for u in state.units.iter().filter(|u| u.has_code()) {
+            // A spike is never merged: nothing to remind of.
+            for u in state.units.iter().filter(|u| u.has_code() && u.kind.merges()) {
                 let Some(since) = state.ready_since(u) else { continue };
                 let Some(to) = state.manager_of(&u.intent).filter(|m| live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty()) else { continue };
                 let (id, branch) = (&u.id, crate::quote::name(&u.branch));
@@ -808,7 +861,7 @@ impl App {
         if let Some(place) = caller.place.as_deref().filter(|_| caller.machine.is_none())
             && self.runtime.locate(None, place).is_ok_and(|at| at.agent.is_some())
         {
-            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's".into()));
+            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command".into()));
         }
         match (&caller.machine, caller.user) {
             (None, true) => Ok(Principal::User),
@@ -883,9 +936,33 @@ impl App {
         Ok(())
     }
 
+    /// One workspace, one manager: an agent manages the workspace it runs in (not the one its
+    /// CLI names), and takes it over only from a manager no longer running.
+    fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<(), ApiError> {
+        let state = self.store.lock().unwrap().state().clone();
+        // Before 0.2 a manager named its intent; it manages that intent's workspace.
+        let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(()) };
+        let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        let me = live.iter().find(|a| a.session == session && a.machine.as_deref() == machine);
+        if !me.and_then(|a| a.group.as_ref()).is_some_and(|m| m.id == g.id && m.machine == g.machine) {
+            return Err(ApiError(StatusCode::FORBIDDEN, "an agent manages the workspace it runs in: run `workriver manager here` in your own pane".into()));
+        }
+        let current = state.workspace_of(&g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
+        if let Some(other) = current.and_then(|m| live.iter().find(|a| a.session == m)) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!("workspace {} has a manager running: {}. A workspace has one manager; tell the user, who closes that agent first if you are to take over", g.label, other.name),
+            ));
+        }
+        Ok(())
+    }
+
     /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
     fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
         let (actor, machine) = (who.actor(), who.machine());
+        if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&body, who) {
+            self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
+        }
         let body = self.complete(actor, body, machine)?;
         let e = self.store.lock().unwrap().append(who, body)?;
         self.deliver(&e);
@@ -1040,7 +1117,7 @@ impl App {
                 let store = self.store.lock().unwrap();
                 store.state().question(id).ok().map(|q| ask::follow_up(store.state(), q, &self.home)).unwrap_or_default()
             };
-            self.hand(Held { question: id.into(), message: false, to: name.clone(), name, text, not_ready: None });
+            self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None });
             return;
         }
         let (q, unit, task_agent, manager, group) = {
@@ -1092,7 +1169,7 @@ impl App {
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
-        self.hand(Held { question: id.into(), message: false, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
+        self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
     }
 
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
@@ -1111,12 +1188,17 @@ impl App {
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
             _ => match self.send(&h.to, &h.text) {
-                Ok(()) if h.message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
+                Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
                 Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
-                Err(e) if h.message => return self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
-                Err(e) => return self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                Err(e) => {
+                    return match h.kind {
+                        For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
+                        For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                        For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
+                    };
+                }
             },
         }
         self.held.lock().unwrap().push(h);
@@ -1136,7 +1218,7 @@ impl App {
         match self.runtime.agents() {
             Err(_) => self.message_not_delivered(id, None, ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected"),
             Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
-            Ok(_) => self.hand(Held { question: id.into(), message: true, to, name, text, not_ready: None }),
+            Ok(_) => self.hand(Held { question: id.into(), kind: For::Message, to, name, text, not_ready: None }),
         }
     }
 
@@ -1232,12 +1314,13 @@ impl App {
         // ponytail: these are not followed up as "delivered / picked up" like decisions are.
         // A dropped task likewise: its agent (to stop) and the manager.
         // Work over: the manager hears which of its workers it may close.
-        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. }) {
+        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
             let to = {
                 let store = self.store.lock().unwrap();
                 match e.body {
                     Body::FindingNoted { .. } => deliver::notes(store.state(), live.as_deref(), &self.home, e),
                     Body::TaskDropped { .. } => deliver::dropped(store.state(), live.as_deref(), e),
+                    Body::ManagerTold { .. } => deliver::told(store.state(), live.as_deref(), e),
                     _ => deliver::finished(store.state(), live.as_deref(), e),
                 }
             };
@@ -1363,10 +1446,12 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/run", post(run_command))
         .route("/api/run/{id}", get(run_read))
         .route("/api/run/{id}/focus", post(run_focus))
+        .route("/api/run/{id}/review", post(run_review))
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
         .route("/api/thread/end", post(end_thread))
         .route("/api/message", post(message))
+        .route("/api/messages/read", post(messages_read))
         .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
@@ -1397,8 +1482,8 @@ async fn timing(req: Request, next: Next) -> Response {
 }
 
 /// The routes of a followed machine's listener: only what an agent's CLI over there needs.
-/// An allow-list: who it is, recording as that agent, asking, attachments, and reading the
-/// board. Nothing here is ever done as the user (no session, no token), and what the user
+/// An allow-list: who it is, recording as that agent, asking, attachments, reading the
+/// board, and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
 /// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
 fn machine_router(app: Shared, via: Via) -> Router {
     Router::new()
@@ -1415,6 +1500,7 @@ fn machine_router(app: Shared, via: Via) -> Router {
         // Its own load only (the handlers keep a machine's caller to that machine).
         .route("/api/metrics", get(metrics))
         .route("/api/metrics/history", get(metrics_history))
+        .route("/api/run/{id}/review", post(run_review))
         .route_layer(middleware::from_fn(timing))
         .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
         .layer(middleware::from_fn_with_state(app.clone(), guard))
@@ -1521,8 +1607,10 @@ async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Calle
         let state = app.view(&caller, &r)?;
         let mut ws = app.snapshot(&state, r.light, "workspace");
         // Machines in alert are the user's to see (Needs you), like their CPU and memory.
+        // So are the commands they ran from the page.
         if app.user(&caller).is_ok() {
             ws.alerts = app.metrics.alerts();
+            ws.runs = app.recent_runs(&state);
         }
         let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
         app.record_merges(found);
@@ -1950,12 +2038,19 @@ struct Focus {
     agent: String,
 }
 
-async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
+async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<axum::response::Response, ApiError> {
     app.user(&caller)?;
     blocking(move || {
         // The page knows agents by name.
-        app.runtime.focus(&app.session_of(&f.agent, None)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        Ok(StatusCode::NO_CONTENT)
+        let session = app.session_of(&f.agent, None);
+        app.runtime.focus(&session).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        // On another machine it comes to the front there, in that machine's Herdr: the user's own
+        // client stays where it is (Herdr has no way to switch it), so the page says where.
+        let there = app.live().unwrap_or_default().into_iter().find(|a| a.session == session && a.machine.is_some());
+        Ok(match there {
+            Some(a) => Json(json!({ "machine": a.machine, "workspace": a.group.map(|g| g.label), "agent": a.name })).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
+        })
     })
     .await
 }
@@ -2014,16 +2109,75 @@ struct RunPrepare {
     /// Whose step it is: a task's (`u1#3`) or a chore's (`c2`); none: the user's own.
     #[serde(default)]
     from: Option<String>,
+    /// Which of its steps (from 1).
+    #[serde(default)]
+    step: Option<u32>,
+    /// The language of the page (`en`, `zh-CN`): its review is written in it.
+    #[serde(default)]
+    lang: Option<String>,
 }
 
 /// How long a prepared command may wait for the user's confirmation.
 const CONFIRM: Duration = Duration::from_secs(600);
 
 /// A run as the page shows it: in the confirm dialog, then with what its pane shows.
-fn run_view(id: &str, r: &Run, state: &core::State) -> serde_json::Value {
+/// `waiting`: its review agent, when it waits for a person in its terminal (a first-run
+/// prompt such as "trust this folder?"): the page says so and leads there.
+fn run_view(id: &str, r: &Run, state: &core::State, waiting: Option<&RuntimeAgent>) -> serde_json::Value {
     let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
+    let v = &r.review;
+    let review = match (&v.verdict, &v.failed) {
+        (Some(verdict), _) => json!({ "state": "done", "verdict": verdict, "text": v.text }),
+        (None, Some(why)) => json!({ "state": "failed", "reason": why }),
+        (None, None) => match waiting {
+            Some(a) => json!({ "state": "blocked", "agent": a.name, "session": a.session }),
+            None => json!({ "state": "pending" }),
+        },
+    };
     json!({ "id": id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
-            "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching })
+            "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching,
+            "kept": true, "focusable": r.place.is_some(), "review": review })
+}
+
+/// A run this service no longer follows (it restarted since): only what the record says,
+/// without its output or its terminal.
+fn recorded_view(r: &core::CommandRun, state: &core::State) -> serde_json::Value {
+    let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
+    let review = r.review.as_ref().map(|(verdict, text)| json!({ "state": "done", "verdict": verdict, "text": text }));
+    json!({ "id": r.id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
+            "started": true, "output": "", "exit": r.exit, "watching": false, "kept": false, "focusable": false, "review": review })
+}
+
+impl App {
+    /// The user's recent runs, newest first: the record's, with what this service still
+    /// follows of them (whether a pane is read, where it is).
+    fn recent_runs(&self, state: &core::State) -> Vec<snapshot::RunOut> {
+        let live = self.runs.lock().unwrap();
+        state
+            .runs
+            .iter()
+            .rev()
+            .map(|r| {
+                let here = live.get(&r.id);
+                let exit = r.exit.or(here.and_then(|x| x.exit));
+                let now = if exit.is_some() { "done" } else if here.is_some_and(|x| x.watching) { "running" } else { "unknown" };
+                snapshot::RunOut {
+                    id: r.id.clone(),
+                    command: r.command.clone(),
+                    dir: r.dir.clone(),
+                    machine: r.machine.clone(),
+                    unit: r.unit.clone(),
+                    from: r.from.clone(),
+                    step: r.step,
+                    at: r.at.clone(),
+                    state: now,
+                    exit,
+                    focusable: here.is_some_and(|x| x.place.is_some()),
+                    verdict: r.review.as_ref().map(|(v, _)| *v).or(here.and_then(|x| x.review.verdict)),
+                }
+            })
+            .collect()
+    }
 }
 
 /// The user is about to run a command: where it would run and who wrote it, for the confirm
@@ -2051,19 +2205,30 @@ async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Cal
             }
             (None, None) => return Err(bad("say where it runs: a unit (its work tree) or a project's folder".into())),
         };
-        let by = match p.from.as_deref() {
-            None => "user".to_string(),
+        let step = p.from.as_ref().and(p.step);
+        let (by, steps) = match p.from.as_deref() {
+            None => ("user".to_string(), &[][..]),
             Some(f) => match core::parse_task_ref(f) {
-                Some((u, n)) => state.task(u, n)?.by.clone(),
-                None => state.chores.iter().find(|c| c.id == f).map(|c| c.by.clone()).ok_or_else(|| bad(format!("no chore {f}")))?,
+                Some((u, n)) => state.task(u, n).map(|t| (t.by.clone(), &t.steps[..]))?,
+                None => state.chores.iter().find(|c| c.id == f).map(|c| (c.by.clone(), &c.steps[..])).ok_or_else(|| bad(format!("no chore {f}")))?,
             },
         };
+        let step_text = step.and_then(|n| steps.get(n.checked_sub(1)? as usize)).map(|s| s.text.clone());
         let id = auth::random_hex(8).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let r = Run { command: p.command, dir, machine, unit, by, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false };
-        let view = run_view(&id, &r, &state);
-        let mut runs = app.runs.lock().unwrap();
-        runs.retain(|_, r| r.place.is_some() || r.prepared.elapsed() < CONFIRM);
-        runs.insert(id, r);
+        let r = Run { command: p.command, dir, machine, unit, by, from: p.from, step, step_text, lang: p.lang, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false, ran: false, review: Review::default() };
+        let view = run_view(&id, &r, &state, None);
+        {
+            let mut runs = app.runs.lock().unwrap();
+            // Kept: what waits for its confirmation or its review, what is watched, and the
+            // recent runs' output.
+            runs.retain(|id, r| match r.place {
+                None => r.prepared.elapsed() < CONFIRM || r.review.pending(),
+                Some(_) => r.watching || state.runs.iter().any(|x| &x.id == id),
+            });
+            runs.insert(id.clone(), r);
+        }
+        // Every command is reviewed, in the background: the user may run it before that ends.
+        std::thread::spawn(move || app.review_run(&id));
         Ok(Json(view))
     })
     .await
@@ -2097,15 +2262,27 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
         let place = match app.runtime.run_shell(r.machine.as_deref(), run::GROUP, &r.dir, &line) {
             Ok(p) => p,
             Err(e) => {
-                app.runs.lock().unwrap().remove(&c.id);
+                // Nothing to review any more.
+                let gone = app.runs.lock().unwrap().remove(&c.id).filter(|x| x.review.pending());
+                if let Some(a) = gone.and_then(|x| x.review.agent) {
+                    app.close_later(a.name);
+                }
                 return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("nothing ran: {e}")));
             }
         };
         if let Some(x) = app.runs.lock().unwrap().get_mut(&c.id) {
             x.place = Some(place);
         }
-        app.record(&who, Body::CommandRan { id: c.id.clone(), command: r.command, dir: r.dir, machine: r.machine, unit: r.unit, by: r.by })
+        app.record(&who, Body::CommandRan { id: c.id.clone(), command: r.command, dir: r.dir, machine: r.machine, unit: r.unit, by: r.by, from: r.from, step: r.step })
             .map_err(|e| ApiError(e.0, format!("it runs, but could not be recorded: {}", e.1)))?;
+        // A review that came before it ran is recorded now; one still to come, when it comes.
+        let reviewed = app.runs.lock().unwrap().get_mut(&c.id).and_then(|x| {
+            x.ran = true;
+            Some((x.review.verdict?, x.review.text.clone()))
+        });
+        if let Some((verdict, text)) = reviewed {
+            app.record_review(&c.id, verdict, text);
+        }
         let watcher = app.clone();
         let id = c.id.clone();
         std::thread::spawn(move || watcher.watch_run(&id));
@@ -2117,18 +2294,33 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
 /// A run: what its pane shows now, and its exit status once it ended.
 async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
-    let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
-    Ok(Json(run_view(&id, &r, app.store.lock().unwrap().state())))
+    let live = app.runs.lock().unwrap().get(&id).cloned();
+    let store = app.store.lock().unwrap();
+    let state = store.state();
+    match (live, state.runs.iter().find(|r| r.id == id)) {
+        (Some(r), _) => {
+            // Its review agent as the runtime last saw it, when it waits for a person.
+            let waiting = r.review.agent.as_ref().filter(|_| r.review.pending()).and_then(|a| app.live()?.into_iter().find(|x| x.name == a.name && x.machine == a.machine && x.state == AgentState::Blocked));
+            Ok(Json(run_view(&id, &r, state, waiting.as_ref())))
+        }
+        // Recorded before this service started: its output was never read here.
+        (None, Some(r)) => Ok(Json(recorded_view(r, state))),
+        (None, None) => Err(ApiError(StatusCode::NOT_FOUND, format!("no run {id}"))),
+    }
 }
 
 /// Brings a run's terminal to the front.
-async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<StatusCode, ApiError> {
+async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<axum::response::Response, ApiError> {
     app.user(&caller)?;
     let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
     let place = r.place.ok_or_else(|| bad(format!("run {id} has not started")))?;
     blocking(move || {
         app.runtime.focus_place(r.machine.as_deref(), &place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        Ok(StatusCode::NO_CONTENT)
+        // On another machine: in front there; the page says where (see `focus`).
+        Ok(match r.machine {
+            Some(m) => Json(json!({ "machine": m, "workspace": run::GROUP })).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
+        })
     })
     .await
 }
@@ -2161,7 +2353,120 @@ impl App {
         if let Some(r) = self.runs.lock().unwrap().get_mut(id) {
             r.watching = false;
         }
+        // No longer followed: the page's recent runs show it (an end recorded says so too).
+        let _ = self.changed.send(());
     }
+
+    /// Starts the agent that tells the user what a prepared command will do, where it would
+    /// run (in workriver's own runtime group of that machine), and gives it the command; any
+    /// failure is kept on the run. Blocking: it waits for the agent to be ready.
+    fn review_run(&self, id: &str) {
+        let Some(r) = self.runs.lock().unwrap().get(id).cloned() else { return };
+        // The author's harness, which that machine has; else claude.
+        let (harness, by) = {
+            let store = self.store.lock().unwrap();
+            let s = store.state();
+            let harness = s.agents.iter().find(|a| a.session == r.by).map(|a| a.harness.clone()).filter(|h| !h.is_empty()).unwrap_or_else(|| "claude".into());
+            (harness, if r.by == "user" { "user".to_string() } else { s.name_of(&r.by).unwrap_or(&r.by).to_string() })
+        };
+        let name = run::reviewer(id);
+        let agent = match self.runtime.start_temporary_at(r.machine.as_deref(), run::GROUP, &harness, &name, &r.dir) {
+            Ok(a) => a,
+            Err(e) => return self.review_failed(id, &format!("cannot start {harness} as {name}: {e}")),
+        };
+        {
+            let mut runs = self.runs.lock().unwrap();
+            match runs.get_mut(id) {
+                Some(x) => (x.review.agent, x.review.until) = (Some(agent.clone()), Some(std::time::Instant::now() + self.waits.answer)),
+                None => {
+                    drop(runs);
+                    return self.close_later(agent.name);
+                }
+            }
+        }
+        let text = run::review_prompt(id, &r.command, &r.dir, &by, r.step_text.as_deref(), r.lang.as_deref());
+        // As a question's prompt: held while the agent waits for a person (a first-run prompt).
+        self.hand(Held { question: id.into(), kind: For::Review, to: agent.name.clone(), name: agent.name, text, not_ready: None });
+    }
+
+    /// There will be no review of run `id`: why, for the page; its agent goes.
+    fn review_failed(&self, id: &str, why: &str) {
+        self.held.lock().unwrap().retain(|h| !(h.kind == For::Review && h.question == id));
+        let agent = {
+            let mut runs = self.runs.lock().unwrap();
+            let Some(r) = runs.get_mut(id).filter(|r| r.review.pending()) else { return };
+            r.review.failed = Some(why.into());
+            r.review.agent.clone()
+        };
+        if let Some(a) = agent {
+            self.close_later(a.name);
+        }
+        let _ = self.changed.send(());
+    }
+
+    /// Records run `id`'s review, as workriver: it checked who gave it.
+    fn record_review(&self, id: &str, verdict: core::Verdict, text: String) {
+        if let Err(e) = self.record(&Principal::Service, Body::CommandReviewed { id: id.into(), verdict, text }) {
+            tracing::warn!("cannot record the review of run {id}: {}", e.1);
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RunReview {
+    /// The reviewing agent's place in the runtime.
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default, rename = "as")]
+    named: Option<String>,
+    verdict: core::Verdict,
+    text: String,
+}
+
+/// The review of a command the user is about to run, from the agent workriver started for it
+/// and from nobody else (not even the user): shown in the run's dialog, recorded with the run.
+/// On a machine's listener too, for a review agent of that machine.
+async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Json(v): Json<RunReview>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || {
+        let who = app.who(&caller, v.place.as_deref(), v.named.as_deref())?;
+        let text = v.text.trim().to_string();
+        if text.is_empty() || text.chars().count() > run::REVIEW_CAP {
+            return Err(bad(format!("a review says what the command does, in at most {} characters", run::REVIEW_CAP)));
+        }
+        // The agent at the caller's place, as the runtime names it now: an agent started on a
+        // first-run prompt was known by its pane then and by its harness's own session since.
+        let named = match &who {
+            Principal::Agent { session, machine } => app.runtime.agents().ok().and_then(|l| l.into_iter().find(|a| &a.session == session && &a.machine == machine)).map(|a| a.name),
+            _ => None,
+        };
+        let (agent, ran) = {
+            let mut runs = app.runs.lock().unwrap();
+            let r = runs.get_mut(&id).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id} waits for a review")))?;
+            let theirs = r.review.agent.as_ref().is_some_and(|a| {
+                matches!(&who, Principal::Agent { session, machine } if *machine == a.machine && (*session == a.session || named.as_deref() == Some(a.name.as_str())))
+            });
+            if !theirs {
+                return Err(ApiError(StatusCode::FORBIDDEN, format!("only the agent workriver started to review run {id} records its review")));
+            }
+            if !r.review.pending() {
+                return Err(bad(format!("run {id} has its review already, or it was given up")));
+            }
+            (r.review.verdict, r.review.text) = (Some(v.verdict), text.clone());
+            (r.review.agent.clone(), r.ran)
+        };
+        app.held.lock().unwrap().retain(|h| !(h.kind == For::Review && h.question == id));
+        if ran {
+            app.record_review(&id, v.verdict, text);
+        } else {
+            let _ = app.changed.send(());
+        }
+        // Its work is done; a moment later, so this command returns first.
+        if let Some(a) = agent {
+            app.close_later(a.name);
+        }
+        Ok(Json(json!({ "id": id })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -2287,6 +2592,18 @@ struct Say {
 async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text }).map(Json)).await
+}
+
+#[derive(Deserialize)]
+struct Read {
+    workspace: String,
+    at: String,
+}
+
+/// The page shows the user a workspace's conversation with its manager: read up to `at`.
+async fn messages_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<Read>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::MessagesRead { workspace: r.workspace, at: r.at }).map(Json)).await
 }
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.

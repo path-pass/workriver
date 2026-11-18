@@ -3,7 +3,7 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Sent, Task, Thresholds, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Sent, Task, Thresholds, Turn, Unit, Verdict, Workspace } from './types'
 
 /** Sent on the window when the service says this page is not the user (any more). */
 export const SIGNED_OUT = 'workriver:signed-out'
@@ -52,12 +52,18 @@ function recallWanted(): string | null {
 /** The event the UI listens to for a short note at the bottom of the screen. */
 export const NOTE = 'workriver:note'
 
+/** Where a terminal brought to the front is, when it is on another machine. */
+export interface Remote { machine: string; workspace?: string | null; agent?: string }
+// Herdr brings it to the front in that machine's Herdr; the user's own client cannot be
+// switched there from outside, so the note says where it is.
+const remoteNote = (r: Remote | undefined) => r?.machine && window.dispatchEvent(new CustomEvent(NOTE, { detail: { remote: r } }))
+
 /** Bring the agent's terminal to the front. */
 export function focusAgent(agent: string) {
   // Without a runtime behind the service, say what would have happened.
   const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent } }))
   if (MOCK) note()
-  else post('/api/focus', { agent }).catch(note)
+  else call<Remote | undefined>('/api/focus', { agent }).then(remoteNote, note)
 }
 
 /**
@@ -200,6 +206,11 @@ export async function tellManager(to: { intent?: string; workspace: string }, te
   await post('/api/message', { ...to, text })
 }
 
+/** The user has read a workspace's conversation with its manager, up to `at`. */
+export function readMessages(workspace: string, at: string) {
+  if (!MOCK) post('/api/messages/read', { workspace, at }).catch(e => console.warn(e))
+}
+
 /** The sample's made-up reply from a manager; content, not UI text. */
 export const mockReply = (text: string) => `（示例回复，还没有接到真正的 manager）收到：「${text}」，我会安排。`
 
@@ -326,10 +337,14 @@ export async function startIntent(intent: string, workspace: string, manager?: s
 /** A command to run as the user, and where: a unit's work tree, or a project's folder. */
 export interface RunAsk {
   command: string
+  /** A run already made (from the recent runs): shown, not prepared again. */
+  id?: string
   unit?: string
   project?: string
   /** Whose step it is: a task (`u1#3`) or a chore (`c2`); none: the user's own. */
   from?: string
+  /** Which of its steps (from 1). */
+  step?: number
   /** For the sample only: who wrote it, the folder and machine it would run in. */
   by?: string
   dir?: string
@@ -349,19 +364,50 @@ export interface RunView {
   exit: number | null
   /** Its pane is still read. */
   watching: boolean
+  /** False: recorded before the service restarted; its output was not kept. */
+  kept?: boolean
+  /** Its terminal can be brought to the front. */
+  focusable?: boolean
+  /** What a workriver agent says it will do; none for a run recorded without one. */
+  review?: RunReview | null
 }
 
-// The sample makes runs up, in memory.
-const mockRuns = new Map<string, RunView & { at: number }>()
+/** A command's review: being written, written (a verdict and short Markdown), or given up. */
+export type RunReview =
+  | { state: 'pending' }
+  /** Its agent waits for a person in its terminal (a first-run prompt): `session` to go there. */
+  | { state: 'blocked'; agent: string; session: string }
+  | { state: 'done'; verdict: Verdict; text: string }
+  | { state: 'failed'; reason: string }
+
+// The sample makes runs up, in memory; a review comes a moment after the dialog opens.
+const mockRuns = new Map<string, RunView & { at: number; prepared: number }>()
+
+function mockReview(command: string): RunReview & { state: 'done' } {
+  if (/\brm\s+-\S*[rf]|--force\b|reset\s+--hard/.test(command)) {
+    return { state: 'done', verdict: 'danger', text: `Deletes or rewrites work for good: \`${command}\` cannot be undone.\n\n- Removes files or history in the folder\n- Nothing to get it back from but a backup\n\nRun it only if this is exactly what the step needs.` }
+  }
+  if (/\b(push|install|curl|wget)\b/.test(command)) {
+    return { state: 'done', verdict: 'caution', text: `Runs \`${command}\` in the work tree; it reaches past this folder.\n\n- Network: talks to a remote server (pushes or downloads)\n- Writes only inside the folder; nothing installed globally\n- No history rewritten, no force\n\nMatches the step.` }
+  }
+  if (/\.sh\b/.test(command)) {
+    return { state: 'done', verdict: 'caution', text: `Runs the script \`${command.split(/\s+/).find(w => w.endsWith('.sh'))}\`: it installs the web app's packages and creates the local database.\n\n- Writes \`node_modules/\` and \`.local/dev.db\` inside the folder; nothing outside it\n- Network: downloads packages from the npm registry\n- No git changes, nothing installed globally\n\nMatches the step: it sets the project up.` }
+  }
+  if (/\bdeploy\b/.test(command)) {
+    return { state: 'done', verdict: 'caution', text: `Runs \`${command}\`: \`package.json\` → \`scripts/deploy.sh\`, which builds the web app and uploads it to staging.\n\n- Writes \`dist/\` inside the folder; nothing outside it\n- Network: uploads the build to \`staging.example.com\` with the key in \`~/.config/demo/staging\`\n- No git changes, nothing installed\n\nMatches the step: it deploys to staging, not to production.` }
+  }
+  return { state: 'done', verdict: 'ok', text: `Only reads: \`${command}\` prints what it finds and changes nothing.\n\n- No files written or deleted, no git changes\n- No network, nothing installed\n\nMatches the step.` }
+}
 
 /** Where and as whose a command would run; nothing runs yet. */
 export async function prepareRun(a: RunAsk): Promise<RunView> {
   if (MOCK) {
-    const r = { id: Math.random().toString(16).slice(2, 10), command: a.command, dir: a.dir ?? '~', machine: a.machine ?? null, by: a.by ?? 'user', started: false, output: '', exit: null, watching: false, at: 0 }
+    const r = { id: Math.random().toString(16).slice(2, 10), command: a.command, dir: a.dir ?? '~', machine: a.machine ?? null, by: a.by ?? 'user', started: false, output: '', exit: null, watching: false, at: 0, prepared: Date.now(), review: { state: 'pending' } as RunReview }
     mockRuns.set(r.id, r)
     return r
   }
-  return call('/api/run/prepare', { command: a.command, unit: a.unit, project: a.project, from: a.from })
+  // Its review is written in the language the page shows.
+  return call('/api/run/prepare', { command: a.command, unit: a.unit, project: a.project, from: a.from, step: a.step, lang: document.documentElement.lang })
 }
 
 /** Runs what was prepared, with the exact text the user confirmed. */
@@ -377,10 +423,19 @@ export async function runCommand(id: string, command: string): Promise<void> {
 /** What a run's pane shows now, and its exit status once it ended. */
 export async function readRun(id: string): Promise<RunView> {
   if (MOCK) {
-    const r = mockRuns.get(id)!
-    const k = Math.floor((Date.now() - r.at) / 1000)
     const lines = ['Enumerating objects: 9, done.', 'Writing objects: 100% (5/5), 612 bytes | 612.00 KiB/s, done.', 'To example.com:demo.git', '   1a2b3c4..5d6e7f8  HEAD -> feat/branch']
-    return { ...r, output: lines.slice(0, k).join('\n'), exit: k > lines.length ? 0 : null, watching: k <= lines.length }
+    const r = mockRuns.get(id)
+    if (!r) {
+      // One of the sample's recent runs.
+      const s = ((await import('./mock/demo.json')).default as unknown as Workspace).runs!.find(x => x.id === id)!
+      const kept = s.state !== 'unknown'
+      const review = s.verdict ? { ...mockReview(s.command), verdict: s.verdict } : null
+      return { id, command: s.command, dir: s.dir, machine: s.machine ?? null, by: s.from ? 'agent-A' : 'user', started: true, output: kept ? lines.slice(0, s.state === 'running' ? 2 : 4).join('\n') : '', exit: s.exit ?? null, watching: s.state === 'running', kept, focusable: s.focusable, review }
+    }
+    const review = Date.now() - r.prepared > 2500 ? mockReview(r.command) : r.review
+    if (!r.started) return { ...r, review }
+    const k = Math.floor((Date.now() - r.at) / 1000)
+    return { ...r, review, output: lines.slice(0, k).join('\n'), exit: k > lines.length ? 0 : null, watching: k <= lines.length }
   }
   const res = await fetch(`/api/run/${encodeURIComponent(id)}`)
   if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
@@ -392,5 +447,5 @@ export async function readRun(id: string): Promise<RunView> {
 export function focusRun(id: string) {
   const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent: 'workriver' } }))
   if (MOCK) note()
-  else call(`/api/run/${encodeURIComponent(id)}/focus`, {}).catch(note)
+  else call<Remote | undefined>(`/api/run/${encodeURIComponent(id)}/focus`, {}).then(remoteNote, note)
 }

@@ -1,17 +1,18 @@
 // Running a command as the user: a gate's or chore's step, or one typed in the side panel.
 // Nothing runs before the user has seen the exact text, where it runs and who wrote it, and
 // confirmed; then the service types it into a plain shell of the user's in Herdr and the
-// dialog follows what that shell shows until the command ends.
+// dialog follows what that shell shows until the command ends. Meanwhile a workriver agent
+// reviews what the command will do; it only warns, Run never waits for it.
 import { createContext, useContext, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { noCode, unitsOf } from '@/data'
+import { ms, noCode, unitsOf } from '@/data'
 import { useT } from '@/i18n'
-import { focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunView } from '@/runtime'
-import type { Step, Workspace } from '@/types'
+import { focusAgent, focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunReview, type RunView } from '@/runtime'
+import type { RecentRun, Step, Verdict, Workspace } from '@/types'
 import { Choice } from './Choice'
-import { Icon, Steps } from './bits'
+import { Icon, Prose, Steps, Tip } from './bits'
 
 /** Asks to run a command (opens the confirm dialog); App provides it. */
 export const RunContext = createContext<(a: RunAsk) => void>(() => {})
@@ -33,7 +34,7 @@ export const dangerous = (command: string) => DANGER.some(r => r.test(command))
 /** A gate's or chore's steps, each command with "Run" next to its copy button. */
 export function RunSteps({ steps, ask }: { steps: Step[]; ask: Omit<RunAsk, 'command'> }) {
   const run = useContext(RunContext)
-  return <Steps steps={steps} onRun={command => run({ ...ask, command })} />
+  return <Steps steps={steps} onRun={(command, step) => run({ ...ask, command, step })} />
 }
 
 /** The confirm dialog, then the run's output, its exit status and its terminal. */
@@ -42,19 +43,21 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
   const [view, setView] = useState<RunView | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  // Each new ask is prepared afresh: the service says where it runs and who wrote it.
+  // Each new ask is prepared afresh: the service says where it runs and who wrote it. A run
+  // already made (from the recent runs) is read as it is now.
   useEffect(() => {
     setView(null); setError(''); setBusy(false)
     if (!ask) return
     let gone = false
-    prepareRun(ask).then(v => { if (!gone) setView(v) }, e => { if (!gone) setError(String(e)) })
+    ;(ask.id ? readRun(ask.id) : prepareRun(ask)).then(v => { if (!gone) setView(v) }, e => { if (!gone) setError(String(e)) })
     return () => { gone = true }
   }, [ask])
-  // While it runs, what its shell shows, every second, until it ends or cannot be read.
-  const id = view?.started && view.exit === null && view.watching ? view.id : null
+  // While it runs, what its shell shows, every second, until it ends or cannot be read; and
+  // while its review is being written. A read sent before Run does not undo it.
+  const id = view && ((view.started && view.exit === null && view.watching) || view.review?.state === 'pending' || view.review?.state === 'blocked') ? view.id : null
   useEffect(() => {
     if (!id) return
-    const k = setInterval(() => readRun(id).then(setView, e => setError(String(e))), 1000)
+    const k = setInterval(() => readRun(id).then(v => setView(was => was?.started && !v.started ? { ...v, started: true, watching: true } : v), e => setError(String(e))), 1000)
     return () => clearInterval(k)
   }, [id])
   const go = () => {
@@ -71,10 +74,11 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
     : view.exit === 0 ? <span className="text-water-ink">{t('run.ok')}</span>
     : view.exit !== null ? <span className="text-del">{t('run.exit', { code: view.exit })}</span>
     : view.watching ? <span className="text-amber-ink">{t('run.running')}</span>
+    : view.kept === false ? null
     : <span className="text-ink-2">{t('run.lost')}</span>
   return (
     <Dialog open={!!ask} onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent closeLabel={t('settings.close')} className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent closeLabel={t('settings.close')} className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('run.title')}</DialogTitle>
           <DialogDescription className="text-xs text-ink-2">{t('run.lead')}</DialogDescription>
@@ -92,12 +96,15 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
               <dt className="text-ink-2">{t('run.by')}</dt>
               <dd className={view.by === 'user' ? '' : 'text-amber-ink'}>{view.by === 'user' ? t('run.byYou') : t('run.byAgent', { agent: view.by })}</dd>
             </dl>
+            {view.review && <Review review={view.review} />}
             {view.started && (
               <div className="flex flex-col gap-1.5">
-                <pre aria-live="polite" className="max-h-80 min-h-12 overflow-auto rounded-md bg-sunken px-2.5 py-1.5 font-mono text-xs whitespace-pre-wrap wrap-anywhere">{view.output}</pre>
+                {view.kept === false
+                  ? <p className="text-xs text-ink-2">{t('run.notKept')}</p>
+                  : <pre aria-live="polite" className="max-h-80 min-h-12 overflow-auto rounded-md bg-sunken px-2.5 py-1.5 font-mono text-xs whitespace-pre-wrap wrap-anywhere">{view.output}</pre>}
                 <div className="flex items-center gap-2 text-xs">
                   <span role="status" className="flex-1">{status}</span>
-                  <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusRun(view.id)}><Icon name="terminal" className="size-3" />{t('run.open')}</Button>
+                  {view.focusable !== false && <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusRun(view.id)}><Icon name="terminal" className="size-3" />{t('run.open')}</Button>}
                 </div>
               </div>
             )}
@@ -116,6 +123,44 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The verdict of a command's review, as a chip: ok in the done tone, caution amber, danger red. */
+export function VerdictChip({ verdict }: { verdict: Verdict }) {
+  const { t } = useT()
+  const label = { ok: t('run.verdictOk'), caution: t('run.verdictCaution'), danger: t('run.verdictDanger') }[verdict]
+  return (
+    <span data-verdict={verdict} className="flex-none rounded-[9px] px-1.5 text-[11px] data-[verdict=caution]:bg-amber-bg data-[verdict=caution]:text-amber-ink data-[verdict=danger]:bg-del-row data-[verdict=danger]:text-del data-[verdict=ok]:bg-sunken data-[verdict=ok]:text-water-ink">
+      {label}
+    </span>
+  )
+}
+
+/** What a workriver agent says the command will do: being written, its verdict and text, or why there is none. */
+function Review({ review }: { review: RunReview }) {
+  const { t } = useT()
+  return (
+    <section aria-labelledby="run-review" aria-live="polite" className="flex flex-col gap-1">
+      <h3 id="run-review" className="flex items-center gap-2 text-xs text-ink-2">
+        {t('run.review')}
+        {review.state === 'done' && <VerdictChip verdict={review.verdict} />}
+      </h3>
+      {review.state === 'pending' && <p className="text-xs text-ink-2"><span className="pending" aria-hidden />{t('run.reviewing')}</p>}
+      {review.state === 'blocked' && (
+        <div className="flex flex-col items-start gap-1.5">
+          <p className="text-xs text-you-ink"><span className="pending" aria-hidden />{t('run.reviewBlocked', { agent: review.agent })}</p>
+          <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(review.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
+        </div>
+      )}
+      {review.state === 'failed' && <p className="text-xs text-ink-2 wrap-anywhere">{t('run.reviewFailed', { reason: review.reason })}</p>}
+      {review.state === 'done' && (
+        <div className="rounded-md border px-2.5 py-1.5 text-[13px] wrap-anywhere data-[verdict=caution]:border-amber data-[verdict=danger]:border-del" data-verdict={review.verdict}>
+          <Prose text={review.text} fold={false} />
+        </div>
+      )}
+      {review.state === 'done' && <p className="text-[11px] text-ink-2">{t('run.reviewBy')}</p>}
+    </section>
   )
 }
 
@@ -150,6 +195,39 @@ export function RunBox({ ws, unit, project }: { ws: Workspace; unit: string | nu
       </div>
       <p className="text-xs text-ink-2">{t('run.hint')}</p>
     </form>
+  )
+}
+
+/** The commands the user ran, newest first; a row opens its run (output, end, terminal). */
+export function RecentRuns({ runs }: { runs: RecentRun[] }) {
+  const { t, waited, when } = useT()
+  const run = useContext(RunContext)
+  if (!runs.length) return null
+  return (
+    <section aria-labelledby="side-run-recent" className="mt-4 px-2.5">
+      <h3 id="side-run-recent" className="mb-1 text-xs text-ink-2">{t('run.recent')}</h3>
+      <ul>
+        {runs.map(r => {
+          const at = ms(r.at)
+          const from = r.from && (r.step ? t('run.fromStep', { from: r.from, step: r.step }) : r.from)
+          return (
+            <li key={r.id}>
+              <button type="button" className="thread-row" onClick={() => run({ id: r.id, command: r.command })}>
+                <Tip text={r.command}><span className="min-w-0 flex-1 truncate font-mono text-xs">{r.command}</span></Tip>
+                {from && <span className="max-w-[40%] flex-none truncate font-mono text-xs text-ink-2">{from}</span>}
+                <span className="flex-none rounded-[9px] bg-sunken px-1.5 text-[11px] data-[state=done]:text-water-ink data-[state=failed]:text-del data-[state=running]:bg-amber-bg data-[state=running]:text-amber-ink data-[state=unknown]:text-ink-2"
+                  data-state={r.state === 'done' && r.exit !== 0 ? 'failed' : r.state}>
+                  {r.state === 'running' && <span className="pending" aria-hidden />}
+                  {r.state === 'running' ? t('run.stateRunning') : r.state === 'unknown' ? t('run.stateUnknown') : r.exit === 0 ? t('run.stateOk') : t('run.stateExit', { code: r.exit })}
+                </span>
+                {r.verdict && <VerdictChip verdict={r.verdict} />}
+                {Number.isFinite(at) && <Tip text={when(at)}><span className="w-8 flex-none text-right text-xs text-ink-2">{waited(at)}</span></Tip>}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 
