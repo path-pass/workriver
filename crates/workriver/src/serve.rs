@@ -2089,13 +2089,18 @@ struct RunPrepare {
 const CONFIRM: Duration = Duration::from_secs(600);
 
 /// A run as the page shows it: in the confirm dialog, then with what its pane shows.
-fn run_view(id: &str, r: &Run, state: &core::State) -> serde_json::Value {
+/// `waiting`: its review agent, when it waits for a person in its terminal (a first-run
+/// prompt such as "trust this folder?"): the page says so and leads there.
+fn run_view(id: &str, r: &Run, state: &core::State, waiting: Option<&RuntimeAgent>) -> serde_json::Value {
     let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
     let v = &r.review;
     let review = match (&v.verdict, &v.failed) {
         (Some(verdict), _) => json!({ "state": "done", "verdict": verdict, "text": v.text }),
         (None, Some(why)) => json!({ "state": "failed", "reason": why }),
-        (None, None) => json!({ "state": "pending" }),
+        (None, None) => match waiting {
+            Some(a) => json!({ "state": "blocked", "agent": a.name, "session": a.session }),
+            None => json!({ "state": "pending" }),
+        },
     };
     json!({ "id": id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
             "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching,
@@ -2179,7 +2184,7 @@ async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Cal
         let step_text = step.and_then(|n| steps.get(n.checked_sub(1)? as usize)).map(|s| s.text.clone());
         let id = auth::random_hex(8).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let r = Run { command: p.command, dir, machine, unit, by, from: p.from, step, step_text, lang: p.lang, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false, ran: false, review: Review::default() };
-        let view = run_view(&id, &r, &state);
+        let view = run_view(&id, &r, &state, None);
         {
             let mut runs = app.runs.lock().unwrap();
             // Kept: what waits for its confirmation or its review, what is watched, and the
@@ -2261,7 +2266,11 @@ async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller
     let store = app.store.lock().unwrap();
     let state = store.state();
     match (live, state.runs.iter().find(|r| r.id == id)) {
-        (Some(r), _) => Ok(Json(run_view(&id, &r, state))),
+        (Some(r), _) => {
+            // Its review agent as the runtime last saw it, when it waits for a person.
+            let waiting = r.review.agent.as_ref().filter(|_| r.review.pending()).and_then(|a| app.live()?.into_iter().find(|x| x.name == a.name && x.machine == a.machine && x.state == AgentState::Blocked));
+            Ok(Json(run_view(&id, &r, state, waiting.as_ref())))
+        }
         // Recorded before this service started: its output was never read here.
         (None, Some(r)) => Ok(Json(recorded_view(r, state))),
         (None, None) => Err(ApiError(StatusCode::NOT_FOUND, format!("no run {id}"))),
@@ -2388,10 +2397,18 @@ async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Call
         if text.is_empty() || text.chars().count() > run::REVIEW_CAP {
             return Err(bad(format!("a review says what the command does, in at most {} characters", run::REVIEW_CAP)));
         }
+        // The agent at the caller's place, as the runtime names it now: an agent started on a
+        // first-run prompt was known by its pane then and by its harness's own session since.
+        let named = match &who {
+            Principal::Agent { session, machine } => app.runtime.agents().ok().and_then(|l| l.into_iter().find(|a| &a.session == session && &a.machine == machine)).map(|a| a.name),
+            _ => None,
+        };
         let (agent, ran) = {
             let mut runs = app.runs.lock().unwrap();
             let r = runs.get_mut(&id).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id} waits for a review")))?;
-            let theirs = r.review.agent.as_ref().is_some_and(|a| matches!(&who, Principal::Agent { session, machine } if *session == a.session && *machine == a.machine));
+            let theirs = r.review.agent.as_ref().is_some_and(|a| {
+                matches!(&who, Principal::Agent { session, machine } if *machine == a.machine && (*session == a.session || named.as_deref() == Some(a.name.as_str())))
+            });
             if !theirs {
                 return Err(ApiError(StatusCode::FORBIDDEN, format!("only the agent workriver started to review run {id} records its review")));
             }

@@ -317,6 +317,7 @@ export const zhCN: Same<typeof en> = {
     review: '它会做什么',
     reviewing: '正在审读这条命令会做什么…',
     reviewFailed: '没能审读：{{reason}}',
+    reviewBlocked: '审读 agent {{agent}} 在它的终端里等你确认（第一次进这个文件夹时会问，比如是否信任这个文件夹）。在那里确认后审读会继续；这期间你也可以直接运行。',
     reviewBy: '一个 workriver agent 读了这条命令和它调用的脚本；它只提醒，由你决定。',
     verdictOk: '没问题',
     verdictCaution: '留意',

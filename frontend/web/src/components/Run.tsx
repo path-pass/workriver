@@ -9,7 +9,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 import { Input } from '@/components/ui/input'
 import { ms, noCode, unitsOf } from '@/data'
 import { useT } from '@/i18n'
-import { focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunReview, type RunView } from '@/runtime'
+import { focusAgent, focusRun, prepareRun, readRun, runCommand, type RunAsk, type RunReview, type RunView } from '@/runtime'
 import type { RecentRun, Step, Verdict, Workspace } from '@/types'
 import { Choice } from './Choice'
 import { Icon, Prose, Steps, Tip } from './bits'
@@ -54,7 +54,7 @@ export function RunDialog({ ask, onClose }: { ask: RunAsk | null; onClose: () =>
   }, [ask])
   // While it runs, what its shell shows, every second, until it ends or cannot be read; and
   // while its review is being written. A read sent before Run does not undo it.
-  const id = view && ((view.started && view.exit === null && view.watching) || view.review?.state === 'pending') ? view.id : null
+  const id = view && ((view.started && view.exit === null && view.watching) || view.review?.state === 'pending' || view.review?.state === 'blocked') ? view.id : null
   useEffect(() => {
     if (!id) return
     const k = setInterval(() => readRun(id).then(v => setView(was => was?.started && !v.started ? { ...v, started: true, watching: true } : v), e => setError(String(e))), 1000)
@@ -147,6 +147,12 @@ function Review({ review }: { review: RunReview }) {
         {review.state === 'done' && <VerdictChip verdict={review.verdict} />}
       </h3>
       {review.state === 'pending' && <p className="text-xs text-ink-2"><span className="pending" aria-hidden />{t('run.reviewing')}</p>}
+      {review.state === 'blocked' && (
+        <div className="flex flex-col items-start gap-1.5">
+          <p className="text-xs text-you-ink"><span className="pending" aria-hidden />{t('run.reviewBlocked', { agent: review.agent })}</p>
+          <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(review.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
+        </div>
+      )}
       {review.state === 'failed' && <p className="text-xs text-ink-2 wrap-anywhere">{t('run.reviewFailed', { reason: review.reason })}</p>}
       {review.state === 'done' && (
         <div className="rounded-md border px-2.5 py-1.5 text-[13px] wrap-anywhere data-[verdict=caution]:border-amber data-[verdict=danger]:border-del" data-verdict={review.verdict}>

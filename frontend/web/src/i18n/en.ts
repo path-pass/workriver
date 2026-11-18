@@ -321,6 +321,7 @@ export const en = {
     review: 'What it will do',
     reviewing: 'Reviewing what this command does…',
     reviewFailed: 'Could not review it: {{reason}}',
+    reviewBlocked: 'The review agent {{agent}} waits for you in its terminal (a first-run question, such as trusting this folder). Answer it there and the review goes on; you can run the command meanwhile.',
     reviewBy: 'A workriver agent read the command and the scripts it calls; it only warns, you decide.',
     verdictOk: 'ok',
     verdictCaution: 'caution',

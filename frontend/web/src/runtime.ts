@@ -364,6 +364,8 @@ export interface RunView {
 /** A command's review: being written, written (a verdict and short Markdown), or given up. */
 export type RunReview =
   | { state: 'pending' }
+  /** Its agent waits for a person in its terminal (a first-run prompt): `session` to go there. */
+  | { state: 'blocked'; agent: string; session: string }
   | { state: 'done'; verdict: Verdict; text: string }
   | { state: 'failed'; reason: string }
 

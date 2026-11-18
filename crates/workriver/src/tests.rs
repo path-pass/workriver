@@ -2639,6 +2639,23 @@ fn a_command_is_reviewed_before_it_runs() {
     assert!(refused(&user, json!({ "place": "p1" })).contains("only the agent workriver started to review"));
     assert!(refused(&user, json!({ "as": "s-boss" })).contains("only the agent workriver started to review"));
     assert!(refused(&user, json!({ "place": "nowhere" })).contains("only the agent workriver started to review"), "the user at a shell");
+    // Waiting for a person in its terminal (a first-run prompt): the page says so and leads there.
+    let set_review = |f: &dyn Fn(&mut workriver_core::runtime::RuntimeAgent)| {
+        for (p, a) in fake.agents.lock().unwrap().iter_mut() {
+            if *p == format!("place-{name}") {
+                f(a);
+            }
+        }
+    };
+    set_review(&|a| a.state = Blocked);
+    wait_until("the page hears it waits", || user.get(&format!("/api/run/{id}")).unwrap()["review"]["state"] == "blocked");
+    assert_eq!(user.get(&format!("/api/run/{id}")).unwrap()["review"]["agent"], name.as_str());
+    // Its session id changes once the harness has one of its own (Claude, after a first-run
+    // prompt the agent was started on): it is still the agent started for the run, by name.
+    set_review(&|a| {
+        a.state = Working;
+        a.session = "claude-session-1".into();
+    });
     // The agent records it before the command runs: shown, not recorded yet.
     let agent = Daemon { port: user.port, place: Some(format!("place-{name}")), home: None };
     agent.call(&path, Some(review(json!({ "place": format!("place-{name}") })))).unwrap();
