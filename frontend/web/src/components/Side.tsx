@@ -2,7 +2,7 @@
 // where the agents are, what was committed lately, the backlog, the machines' CPU and memory,
 // or asking why about the picked task – one at a time. Neither is looked at all the time, so the panel folds
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -15,7 +15,7 @@ import { NodeName } from './Flow'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { MachinesList } from './Machines'
-import { RunBox } from './Run'
+import { RecentRuns, RunBox } from './Run'
 import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
 
 export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'ask'
@@ -38,6 +38,8 @@ interface ContentProps {
   ask: ReactNode
   /** Shows another section (a machine's alert in Needs you opens Machines). */
   onSection: (s: Section) => void
+  /** Opens Ask on a workspace's conversation with its manager (unread messages in Needs you). */
+  onTalk: (workspace: string) => void
 }
 
 /** One agent of the tree: the line opens its work, the icon at its end its terminal; under it, its question agents. */
@@ -95,7 +97,7 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: ContentProps['here
  * the workers under it, the question agents under the worker whose task they ask about. Last,
  * folded, the sessions that never took a task.
  */
-function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project' | 'ask' | 'onSection'>) {
+function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' | 'commit' | 'project' | 'ask' | 'onSection' | 'onTalk'>) {
   const { t, num } = useT()
   const { groups, own } = agentTree(ws)
   const line = (a: TreeAgent) => <AgentLine key={a.s.session ?? a.s.agent} a={a} here={here} onOpen={onOpen} />
@@ -176,11 +178,13 @@ function BaseLine({ lanes, top = false, children }: { lanes: number; top?: boole
 /**
  * Every unit's commits as a git graph, newest first: the base on the left, a lane per unit
  * branch in its colour, leaving the base at its first commit and, merged, joining it again.
- * On top, dashed, the work agents are writing right now.
+ * On top, dashed, the work agents are writing right now. Only the project picked in the rail,
+ * when one is.
  */
-function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'section' | 'onOpen' | 'project' | 'ask' | 'onSection'>) {
+function Commits({ ws, here, onCommit, commit: focus, project }: Omit<ContentProps, 'section' | 'onOpen' | 'ask' | 'onSection' | 'onTalk'>) {
   const { t, num, waited, date } = useT()
-  const graphs = commitGraph(ws)
+  const graphs = useMemo(() => commitGraph(project ? { ...ws, intents: ws.intents.filter(i => i.project === project) } : ws), [ws, project])
+  if (!graphs.length) return <p className="px-2.5 text-sm text-ink-2">{t('commits.none')}</p>
   return (
     <div className="flex flex-col gap-4">
       {graphs.map(({ repo, base, rows, lanes }) => (
@@ -238,7 +242,7 @@ function Commits({ ws, here, onCommit, commit: focus }: Omit<ContentProps, 'sect
   )
 }
 
-function Content({ ws, here, onOpen, section, onCommit, commit, project, onSection }: Omit<ContentProps, 'ask'>) {
+function Content({ ws, here, onOpen, section, onCommit, commit, project, onSection, onTalk }: Omit<ContentProps, 'ask'>) {
   const { t, num } = useT()
   const live = ws.sessions.filter(s => !s.ended).length
   return (
@@ -246,7 +250,7 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
       {section === 'inbox' ? (
         <section aria-labelledby="side-inbox">
           <h2 id="side-inbox" className="mb-2 px-2.5 text-sm font-[650]">{t('inbox.title')}</h2>
-          <InboxList ws={ws} onOpen={onOpen} onMachines={() => onSection('machines')} />
+          <InboxList ws={ws} onOpen={onOpen} onMachines={() => onSection('machines')} onTalk={onTalk} />
         </section>
       ) : section === 'machines' ? (
         <section aria-labelledby="side-machines">
@@ -262,11 +266,12 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
         <section aria-labelledby="side-run">
           <h2 id="side-run" className="mb-2 px-2.5 text-sm font-[650]">{t('run.section')}</h2>
           <RunBox ws={ws} unit={here?.unit ?? null} project={project} />
+          <RecentRuns runs={ws.runs ?? []} />
         </section>
       ) : section === 'commits' ? (
         <section aria-labelledby="side-commits">
           <h2 id="side-commits" className="mb-2 px-2.5 text-sm font-[650]">{t('commits.title')}</h2>
-          <Commits ws={ws} here={here} onCommit={onCommit} commit={commit} />
+          <Commits ws={ws} here={here} onCommit={onCommit} commit={commit} project={project} />
         </section>
       ) : (
         <section aria-labelledby="side-agents">

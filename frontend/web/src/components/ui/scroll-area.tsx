@@ -13,9 +13,13 @@ function ScrollArea({
       className={cn("relative", className)}
       {...props}
     >
+      {/* Relative (workriver): what is placed absolutely inside (a screen-reader label) is
+          placed in the viewport, so it scrolls and clips with the content. Placed by the
+          root instead, it stood where the end of a long list would be and made the page
+          that much longer, empty below. */}
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow]"
+        className="relative size-full rounded-[inherit] transition-[color,box-shadow]"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

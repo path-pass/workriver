@@ -1,7 +1,9 @@
 # Other machines and linked workspaces
 
 **When:** agents run on another machine. Setting this up is **the user's**, from a terminal
-that is not an agent's pane, on the machine workriver runs on:
+that is not an agent's pane, on the machine workriver runs on: a new terminal window, or a
+Herdr pane with no agent (`!` in your session runs in your pane and is refused). Give the
+user the exact lines:
 
     workriver machine add box --ssh me@box [--herdr-socket PATH]
     workriver machine enable box          # waits, then says connected or why not

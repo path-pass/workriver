@@ -2,6 +2,56 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-18
+
+- **One workspace, one manager** (managers): `workriver manager here` registers you for the
+  workspace your pane is in, and is refused while another manager of it is running (it
+  names that agent). Registering again yourself is fine; a manager no longer running is
+  taken over. Handing over to another pane: write down what workriver does not hold, the
+  user closes you, the new one registers at once (`start-intent`, "Changing managers").
+- **What only the user runs, the user runs in a terminal of its own** (managers, workers):
+  `workriver project add`, `machine add`, `workspace link` and the like are refused from an
+  agent's pane, and so is `!` in your session (it runs in your pane). Ask the user to run
+  the exact line in a new terminal window or a Herdr pane with no agent. (manager guide,
+  `machines`, backlog import)
+- **A manager can start a message to the user** (managers): `workriver say --text "…"` puts
+  it in your workspace's conversation in the page and in the user's Needs you until read
+  (replies too now show there). For what the user should know without acting: a milestone, a
+  changed plan, a finished intent; not every step. A decision still goes in a decide gate.
+  (`user-message`)
+- **A done unit given a new task is open again** (managers): it no longer stays "done"
+  with work in it; its state is worked out from its tasks as before. Make its worktree again
+  if it was removed. (`closing-units`)
+- **Every command the user runs is reviewed first** (managers, workers): when the user opens
+  "Run" on a gate's or chore's step, a workriver agent reads the command (and the scripts it
+  calls) and tells the user what it will do; it only warns, the user still decides. So write
+  steps as the real commands, not a script that hides them (`bash ./scripts/setup.sh`): a
+  script is opened and explained, but the user reads the commands themselves more easily.
+  (`gates-chores`)
+- **Spike units** (managers): an experiment whose code is kept but never merged: `workriver
+  unit add --kind spike --branch spike/<topic> …`, its own worktree like a code unit, any
+  kind of task (implement for the code, research for the write-up with the numbers in
+  `--note`). Never "ready to merge" and never reminded of a merge; `unit merged` is refused.
+  Close it with `workriver unit done <u> --reason "<what was learned>"`. A code unit's branch
+  may not start with `spike/`. (`spike`, `units`)
+- **One worktree per code unit** (managers): make it when you add the unit, next to the
+  repository (`git -C <repo> worktree add <repo>.worktrees/<unit> -b feat/<name>
+  origin/main`); the unit still names the repository. Hand the worker that folder, never the
+  repository's own, which stays on the base; remove the worktree once the unit is merged or
+  done. (`units`, `hand-off`, `closing-units`)
+- **Stuck on the user: a blocker, not a chore** (workers, managers): a task that cannot go
+  on until the user does something (a refused command, a missing permission or login) gets a
+  gate put before it at once: `workriver task add u2 --kind gate --gate test --blocks 5
+  --title "…" --text "<command, refusal>" --step "…"`. It waits for the user at once (Needs
+  you, blocking), the task follows it, and its agent gets the user's result; the manager is
+  told which task is stuck, with what is asked quoted. By the task's agent, the manager or the
+  user. A worker waiting on a blocker is not reminded as stopped. Chores are only for what
+  blocks nobody. The idle reminder and the worker guide say so. (`blocked`, `stalled`,
+  `gates-chores`; worker guide)
+- **A worker reaches its manager**: `workriver manager tell u2#5 --text "…"` types it into
+  the manager's terminal, quoted, while it runs. Everywhere workriver says "tell your
+  manager" (a renamed branch, a blind task, a task no longer needed), this is how.
+
 ## 2026-11-17
 
 - **An intent of another project** (managers): workriver works out which project your

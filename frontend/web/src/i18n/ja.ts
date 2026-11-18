@@ -212,6 +212,8 @@ export const ja: OneForm<typeof en> = {
     complete: 'すべてのユニットが終わりました。マネージャーがこのインテントを閉じられます',
     finished: '完了',
     previously: '以前のブランチ：{{branches}}',
+    spike: '実験',
+    spikeWhy: '実験です。やり方を示すためにコードはブランチに残し、マージはしません。わかったことを書き留めたら閉じます。',
     squashed: 'squash マージ済みのようです',
     squashedWhy: '変更はすべて {{into}} にすでに入っています（コミット {{commit}}）。おそらく squash でマージされたもので、git からはわかりません。そうであれば、このコマンドで記録してください。マネージャーにも伝わります。',
     mergedCommand: 'workriver unit merged {{unit}}',
@@ -298,11 +300,13 @@ export const ja: OneForm<typeof en> = {
   terminal: {
     open: 'ターミナルで開く',
     openFor: '{{agent}} をターミナルで開く',
-    note: '{{agent}} のターミナルを前面に表示します（未接続）'
+    note: '{{agent}} のターミナルを前面に表示します（未接続）',
+    remote: '{{what}} は {{machine}} にあります。そちらのワークスペース {{workspace}} で前面に表示しました。Herdr で {{machine}} に切り替えると見られます。',
+    command: 'このコマンド'
   },
   run: {
     title: 'あなたとして実行',
-    lead: 'Herdr の「workriver」ワークスペースにあるあなた自身のシェルで、あなたの認証情報とフックを使って実行されます。そこで自分で入力したのとまったく同じです。',
+    lead: 'Herdr の「workriver-commands」ワークスペースにあるあなた自身のシェルで、あなたの認証情報とフックを使って実行されます。そこで自分で入力したのとまったく同じです。',
     command: 'コマンド',
     dir: 'ディレクトリ',
     machine: 'マシン',
@@ -311,6 +315,14 @@ export const ja: OneForm<typeof en> = {
     byAgent: 'エージェントの {{agent}}：実行する前に読んでください',
     byYou: 'あなた',
     danger: 'このコマンドは作業を取り返しのつかない形で消す可能性があります（ファイルの削除、履歴の書き換え）。まさにこれを意図した場合にだけ実行してください。',
+    review: '何をするか',
+    reviewing: 'このコマンドが何をするか確認しています…',
+    reviewFailed: '確認できませんでした：{{reason}}',
+    reviewBlocked: '確認役のエージェント {{agent}} がターミナルであなたを待っています（このフォルダを信頼するかなど、初回の質問）。そこで答えると確認が続きます。その間にコマンドを実行してもかまいません。',
+    reviewBy: 'workriver のエージェントがコマンドと、それが呼び出すスクリプトを読みました。警告するだけで、決めるのはあなたです。',
+    verdictOk: '問題なし',
+    verdictCaution: '注意',
+    verdictDanger: '危険',
     go: '実行',
     cancel: 'キャンセル',
     running: '実行中…',
@@ -328,7 +340,14 @@ export const ja: OneForm<typeof en> = {
     hint: '確認したあと、あなた自身のシェルで実行されます。',
     unit: '{{unit}} · {{title}}',
     project: 'プロジェクト：{{title}}',
-    nowhere: '実行先になるユニットやプロジェクトがまだありません。'
+    nowhere: '実行先になるユニットやプロジェクトがまだありません。',
+    recent: '最近の実行',
+    fromStep: '{{from}} のステップ {{step}}',
+    stateRunning: '実行中',
+    stateOk: '✓ 成功',
+    stateExit: '終了コード {{code}}',
+    stateUnknown: '不明',
+    notKept: '出力は残っていません。実行後にサービスが再起動しました。ターミナルは Herdr の「workriver-commands」ワークスペースにあります。'
   },
   evidence: {
     label: '実行したチェック',
@@ -403,7 +422,8 @@ export const ja: OneForm<typeof en> = {
   },
   commits: {
     title: 'コミット',
-    writing: '作成中'
+    writing: '作成中',
+    none: 'このプロジェクトにはまだコミットがありません。'
   },
   inbox: {
     title: '要対応',
@@ -427,6 +447,8 @@ export const ja: OneForm<typeof en> = {
       disk: '{{minutes}} 分間、使用 {{used}} % 超か空き {{free}} GB 未満'
     },
     decisions: '判断待ち',
+    messages: 'メッセージ',
+    unread_other: '新着 {{count, number}} 件',
     gaps: '抜け',
     later: '急ぎではない',
     empty: '対応が必要なものはありません。',
@@ -580,6 +602,8 @@ export const ja: OneForm<typeof en> = {
   flow: {
     empty: 'このユニットにはまだタスクが記録されていません。',
     grew: '{{tasks}} を超えて {{folders}} にも及びました',
+    blocker: 'ブロッカー',
+    held: 'あなた待ち',
     start: '開始',
     controls: 'グラフの操作',
     zoomIn: '拡大',

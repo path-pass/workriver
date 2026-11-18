@@ -22,9 +22,34 @@ export interface Workspace {
   alerts?: MachineAlert[];
   /** The user's messages to managers, with their replies, oldest first. */
   messages?: ManagerMessage[];
+  /** The commands the user ran from the page, newest first (the user's view only). */
+  runs?: RecentRun[];
 }
 
-/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. */
+/** A command the user ran from the page; its output is read with `/api/run/{id}`. */
+export interface RecentRun {
+  id: string;
+  command: string;
+  dir: string;
+  machine?: string;
+  unit?: string;
+  /** Whose step it was (`u1#3`, `c2`) and which step (from 1); none: typed in the Run section. */
+  from?: string;
+  step?: number;
+  at: string;
+  /** running: its terminal is read; done: it ended (`exit`); unknown: no longer followed (the service restarted, or its terminal closed) and no end seen. */
+  state: 'running' | 'done' | 'unknown';
+  exit?: number;
+  /** Its terminal can be brought to the front. */
+  focusable: boolean;
+  /** What the review of it found, if it has one. */
+  verdict?: Verdict;
+}
+
+/** What workriver's review of a command found: ok (nothing risky), caution (worth a look), danger (destructive or irreversible). */
+export type Verdict = 'ok' | 'caution' | 'danger';
+
+/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). */
 export interface ManagerMessage {
   /** "m3"; a local one the service refused has none. */
   id?: string;
@@ -41,7 +66,12 @@ export interface ManagerMessage {
   reasonCode?: ReasonCode;
   reason?: string;
   blocked?: { agent: string; session: string };
-  replies: { by: string; text: string; at: string }[];
+  /** Each reply is the manager's; unread: written after the user last read this workspace's conversation. */
+  replies: { by: string; text: string; at: string; unread?: boolean }[];
+  /** Started by the manager (`workriver say`): `text` is the manager's, and nothing above it is the user's. */
+  byManager?: boolean;
+  /** The manager's message (byManager), not read yet. */
+  unread?: boolean;
 }
 
 /** What a machine alerts on: macOS has compressor, swap, pressure and systemFree; Linux
@@ -403,8 +433,9 @@ export interface Unit {
   /** The intent's own work (research, design), recorded before research units: shown on the
    *  intent's page, with no repository or branch, and never in the rail. */
   intentLevel?: boolean;
-  /** Research and design, with no repository, branch or code; closed by hand, never merged. Absent: code. */
-  kind?: 'research';
+  /** Research and design, with no repository, branch or code; closed by hand, never merged.
+   *  Spike: an experiment with code on a spike/ branch, shown like code, never merged. Absent: code. */
+  kind?: 'research' | 'spike';
   title: string;
   /** One sentence on what the unit is for; may be empty. */
   purpose: string;
@@ -560,6 +591,12 @@ export interface Task {
   raisedBy?: Reviewer | 'user' | 'plan';
   /** Gate nodes only. */
   gate?: GateKind;
+  /**
+   * Gate nodes only: a blocker. An agent's running task got stuck on something only the user
+   * can do (a refused command, a missing permission); this is the id of that task, which has
+   * the gate as an extra non-primary input.
+   */
+  blocks?: string;
   /**
    * When the node came to wait for the user: a gate became waiting, a review or gate with
    * open findings finished. Absent when nothing waits.

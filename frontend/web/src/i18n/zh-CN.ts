@@ -212,6 +212,8 @@ export const zhCN: OneForm<typeof en> = {
     complete: '所有单元都已完成：管理者可以结束这个意图',
     finished: '已完成',
     previously: '之前在 {{branches}}',
+    spike: '实验',
+    spikeWhy: '一次实验：代码留在它的分支上以示做法，永不合并。写下发现后关闭。',
     squashed: '看起来已 squash 合并',
     squashedWhy: '它的每处改动都已在 {{into}} 里（提交 {{commit}}）：多半是 squash 合并的，git 看不出来。如果是，用这条命令记下；它的管理者也会收到提醒。',
     mergedCommand: 'workriver unit merged {{unit}}',
@@ -298,11 +300,13 @@ export const zhCN: OneForm<typeof en> = {
   terminal: {
     open: '在终端里打开',
     openFor: '在终端里打开 {{agent}}',
-    note: '将把 {{agent}} 的终端切到前台（还没有接上）'
+    note: '将把 {{agent}} 的终端切到前台（还没有接上）',
+    remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于工作区 {{workspace}}。在 Herdr 左侧切到 {{machine}} 就能看到。',
+    command: '这条命令'
   },
   run: {
     title: '以你的身份运行',
-    lead: '在 Herdr 的「workriver」工作区里你自己的 shell 中运行，用你的凭据和 hook，和你亲手在那里输入完全一样。',
+    lead: '在 Herdr 的「workriver-commands」工作区里你自己的 shell 中运行，用你的凭据和 hook，和你亲手在那里输入完全一样。',
     command: '命令',
     dir: '目录',
     machine: '机器',
@@ -311,6 +315,14 @@ export const zhCN: OneForm<typeof en> = {
     byAgent: '{{agent}}（agent）：运行前请先读一遍',
     byYou: '你',
     danger: '这条命令可能永久毁掉工作（删除文件、改写历史）。只有确实就是要这样做时才运行。',
+    review: '它会做什么',
+    reviewing: '正在审读这条命令会做什么…',
+    reviewFailed: '没能审读：{{reason}}',
+    reviewBlocked: '审读 agent {{agent}} 在它的终端里等你确认（第一次进这个文件夹时会问，比如是否信任这个文件夹）。在那里确认后审读会继续；这期间你也可以直接运行。',
+    reviewBy: '一个 workriver agent 读了这条命令和它调用的脚本；它只提醒，由你决定。',
+    verdictOk: '没问题',
+    verdictCaution: '留意',
+    verdictDanger: '危险',
     go: '运行',
     cancel: '取消',
     running: '运行中…',
@@ -328,7 +340,14 @@ export const zhCN: OneForm<typeof en> = {
     hint: '确认之后在你自己的 shell 里运行。',
     unit: '{{unit}} · {{title}}',
     project: '项目：{{title}}',
-    nowhere: '还没有可以运行的单元或项目。'
+    nowhere: '还没有可以运行的单元或项目。',
+    recent: '最近运行',
+    fromStep: '{{from}} 第 {{step}} 步',
+    stateRunning: '运行中',
+    stateOk: '✓ 成功',
+    stateExit: '退出码 {{code}}',
+    stateUnknown: '未知',
+    notKept: '没有保留输出：服务在它运行之后重启过。它的终端在 Herdr 的「workriver-commands」工作区里。'
   },
   evidence: {
     label: '跑过的检查',
@@ -403,7 +422,8 @@ export const zhCN: OneForm<typeof en> = {
   },
   commits: {
     title: '提交',
-    writing: '正在写'
+    writing: '正在写',
+    none: '这个项目还没有提交。'
   },
   inbox: {
     title: '需要你',
@@ -427,6 +447,8 @@ export const zhCN: OneForm<typeof en> = {
       disk: '连续 {{minutes}} 分钟已用超过 {{used}}% 或剩余不足 {{free}} GB'
     },
     decisions: '待决定',
+    messages: '消息',
+    unread_other: '{{count, number}} 条新消息',
     gaps: '缺口',
     later: '不急',
     empty: '没有需要你处理的事。',
@@ -580,6 +602,8 @@ export const zhCN: OneForm<typeof en> = {
   flow: {
     empty: '这个单元还没有记录任何任务。',
     grew: '还改到了 {{folders}}——超出了 {{tasks}} 的范围',
+    blocker: '阻塞',
+    held: '在等你',
     controls: '图的控制',
     zoomIn: '放大',
     zoomOut: '缩小',

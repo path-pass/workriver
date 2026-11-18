@@ -345,6 +345,14 @@
   /* A blind review: a neutral mark at the top left, information like the others. */
   .wnode .blind { position: absolute; left: -6px; top: -7px; display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
   .wnode .blind .ic { width: 11px; height: 11px; }
+  /* A blocker gate: an agent's work got stuck on something only the user can do. Neutral at the
+     top left (gates are never blind); the work it holds up carries a violet hand at the bottom
+     left while it is open (that work is not done or dropped, so never untested or dropped). */
+  .blocker, .held { display: inline-flex; padding: 1px 3px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); }
+  .held { border-color: var(--you); background: var(--you-bg); color: var(--you); }
+  :is(.blocker, .held) .ic { width: 11px; height: 11px; color: inherit !important; }
+  .wnode .blocker { position: absolute; left: -6px; top: -7px; }
+  .wnode .held { position: absolute; left: -6px; bottom: -7px; }
   /* A check run on the work: passed in the done tone, failed in the diff's red. */
   .check { display: flex; align-items: center; gap: 6px; font-size: 12px; }
   .check code { font-family: var(--font-mono); font-size: 11.5px; }
@@ -395,7 +403,10 @@
   .thread-row .thread-age { width: 2rem; }
   :root:lang(ja) .thread-row .thread-age { width: 2.75rem; }
   /* A chat scrolls on its own, in whatever height it is given. */
-  .chat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; border-radius: 6px; }
+  /* Relative: what is placed absolutely inside (a chip's screen-reader name) is placed in
+     here and scrolls and clips with the chat. Placed by the sticky panel instead, it stood at
+     the end of a long chat and made the whole page that long, empty below. */
+  .chat-scroll { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; border-radius: 6px; }
   .chat-scroll:focus-visible { outline: 2px solid var(--you); outline-offset: -2px; }
   .chat { display: flex; flex-direction: column; gap: 12px; }
   /* The user's (or asking agent's) words on the right, on their own ground; the answer on the left. */

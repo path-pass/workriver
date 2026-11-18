@@ -478,6 +478,39 @@ fn research_units_and_old_intent_level_work() {
     assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
 
+/// A spike is code on a spike/ branch of its own: it takes every kind of task and commits,
+/// moves like a code unit, is never merged, and is closed with what was learned.
+#[test]
+fn spike_units_keep_code_but_are_never_merged() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync"}})).unwrap();
+    let unit = |kind: &str, branch: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Try CRDTs", "repo": "/r", "branch": branch, "base": "main", "kind": kind}});
+    for (kind, branch, says) in [("spike", "feat/crdt", "--branch spike/crdt"), ("spike", "spike/", "a spike's branch starts with spike/"), ("spike", "main", "must not be its base"), ("code", "spike/crdt", "spike/<name> is for --kind spike")] {
+        let e = add(&mut s, "boss", unit(kind, branch)).unwrap_err();
+        assert!(e.contains(says), "{kind} {branch}: {e}");
+    }
+    add(&mut s, "boss", unit("spike", "spike/crdt")).unwrap();
+    let u = s.state().unit("u1").unwrap().clone();
+    assert_eq!((u.kind, u.branch.as_str(), u.has_code(), u.kind.merges()), (UnitKind::Spike, "spike/crdt", true, false));
+    // Every kind of task.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Prototype"}})).unwrap();
+    for (kind, extra) in [("research", json!({"title": "Measure"})), ("review", json!({})), ("tests", json!({})), ("design", json!({"title": "Shape"})), ("gate", json!({"gate": "decide", "title": "Look"}))] {
+        let mut b = json!({"unit": "u1", "kind": kind, "inputs": [{"from": "1"}]});
+        b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        add(&mut s, "boss", json!({"kind": "task.created", "body": b})).unwrap_or_else(|e| panic!("{kind}: {e}"));
+    }
+    add(&mut s, "user", json!({"kind": "commit.linked", "body": {"unit": "u1", "hash": "abc", "task": 1}})).unwrap();
+    let moved = |branch: &str| json!({"kind": "unit.relocated", "body": {"unit": "u1", "repo": "/r", "branch": branch, "base": "main"}});
+    assert!(add(&mut s, "user", moved("feat/crdt2")).unwrap_err().contains("spike/crdt2"));
+    add(&mut s, "user", moved("spike/crdt2")).unwrap();
+    let e = add(&mut s, "user", json!({"kind": "unit.merged", "body": {"unit": "u1"}})).unwrap_err();
+    assert!(e.contains("is a spike") && e.contains("workriver unit done u1 --reason \"<what was learned>\""), "{e}");
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "CRDTs are 3x slower"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().unit("u1").unwrap().clone()), Progress::Done);
+    assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
+    assert_eq!(replayed(&s).unit("u1").unwrap().kind, UnitKind::Spike);
+}
+
 /// The intent's manager or the user adds a paragraph to its note; nobody else.
 #[test]
 fn a_note_grows_by_paragraphs() {
@@ -800,6 +833,63 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
     assert_eq!(s.state().task("u1", 4).unwrap().state, TaskState::Waiting);
 }
 
+/// A unit closed as done takes a new task as more work: it is open again, its state worked out
+/// from its tasks as before (the closing is kept as what it was, `reopened`); a merged one
+/// takes none.
+#[test]
+fn a_task_added_to_a_done_unit_opens_it_again() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "enough"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Done);
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "One more", "inputs": [{"from": "1"}]}})).unwrap();
+    let u = s.state().units[0].clone();
+    assert_eq!((u.done.is_none(), s.state().progress(&u)), (true, Progress::Working), "open again, working on the new task");
+    assert_eq!(u.reopened.as_ref().map(|c| c.reason.as_str()), Some("enough"), "what it was closed as is kept");
+    assert_eq!(replayed(&s).progress(&replayed(&s).units[0]), Progress::Working);
+    // Closed again once that is through.
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 2, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "now"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().units[0]), Progress::Done);
+}
+
+/// A running task stuck on what only the user can do: a gate put before it (a blocker) waits
+/// for the user at once and the task now follows it, so the gate's result goes to its agent.
+/// Its own agent, its manager or the user puts it there; nobody else.
+#[test]
+fn a_blocker_is_put_before_a_running_task() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Push", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}})).unwrap();
+    let blocker = || json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Allow push", "blocks": 2}});
+    let e = add(&mut s, "x", blocker()).unwrap_err();
+    assert!(e.contains("a blocker before u1#2 is put by the agent of u1#2"), "{e}");
+    let e = add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "X", "blocks": 2}})).unwrap_err();
+    assert!(e.contains("only a gate blocks a task"), "{e}");
+    let e = add(&mut s, "w", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Y", "blocks": 1}})).unwrap_err();
+    assert!(e.contains("u1#1 is done"), "{e}");
+    add(&mut s, "w", blocker()).unwrap();
+    let gate = s.state().task("u1", 3).unwrap().clone();
+    assert_eq!((gate.state, gate.blocks), (TaskState::Waiting, Some(2)), "it waits for the user at once");
+    assert_eq!(gate.inputs, vec![Input { from: "1".into(), primary: true }], "it stands where the blocked task starts");
+    let stuck = s.state().task("u1", 2).unwrap().clone();
+    assert!(stuck.inputs.contains(&Input { from: "3".into(), primary: false }), "the blocked task follows it: {:?}", stuck.inputs);
+    assert_eq!(stuck.state, TaskState::Running, "and goes on running");
+    assert_eq!(replayed(&s).task("u1", 2).unwrap().inputs, stuck.inputs);
+    // The user may put one too.
+    add(&mut s, "user", blocker()).unwrap();
+}
+
 #[test]
 fn the_user_renames_a_project() {
     let dir = tempfile::tempdir().unwrap();
@@ -995,5 +1085,43 @@ fn the_user_talks_to_a_manager() {
     add(&mut s, "boss", reply("m1")).unwrap();
     let m = s.state().message("m1").unwrap();
     assert_eq!((m.replies.len(), m.replies[0].by.as_str(), m.replies[0].text.as_str()), (2, "boss", "Paused."));
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// A workspace's manager starts a message to the user (into its workspace's conversation);
+/// nobody else does. Only the user records reading a conversation; it only moves forward,
+/// and it all replays.
+#[test]
+fn a_manager_says_and_the_user_reads() {
+    let (_dir, mut s) = temp_store();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
+    let say = |text: &str| json!({"kind": "message.said", "body": {"workspace": "forged", "text": text}});
+    assert!(add(&mut s, "boss", say("Hi")).unwrap_err().contains("only a workspace's manager"), "not registered yet");
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    // A worker is pointed to its manager; the user writes from the page; nothing blank.
+    assert!(add(&mut s, "worker", say("Hi")).unwrap_err().contains("workriver manager tell"));
+    assert!(add(&mut s, "user", say("Hi")).unwrap_err().contains("workriver's page"));
+    assert!(add(&mut s, "boss", say("  ")).unwrap_err().contains("--text"));
+    // Into the workspace it manages, about its current intent, whatever the request says.
+    let e = add(&mut s, "boss", say("u1 is merged.")).unwrap();
+    let Body::MessageSaid { id, intent, workspace, .. } = &e.body else { panic!() };
+    assert_eq!((id.as_str(), intent.as_str(), workspace.as_str()), ("m1", "i1", "chat"));
+    assert_eq!(e.body.refs().0.as_deref(), Some("i1"));
+    let m = s.state().message("m1").unwrap();
+    assert!(m.by_manager && m.delivery.is_none());
+    assert_eq!((m.manager.as_str(), m.text.as_str()), ("boss", "u1 is merged."));
+    // The user answers it from the same box: an ordinary message; the manager may follow up.
+    add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "Thanks."}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "message.replied", "body": {"message": "m1", "text": "Also u2."}})).unwrap();
+    // Reading: the user's alone; a time, kept as the service writes times; never backwards.
+    let read = |at: &str| json!({"kind": "messages.read", "body": {"workspace": "chat", "at": at}});
+    assert!(add(&mut s, "boss", read("2026-11-18T10:00:00Z")).unwrap_err().contains("only the user does this (messages.read)"));
+    assert!(add(&mut s, "user", read("soon")).unwrap_err().contains("not a time"));
+    add(&mut s, "user", read("2026-11-18T10:00:05.250Z")).unwrap();
+    assert_eq!(s.state().read["chat"], "2026-11-18T10:00:05Z");
+    add(&mut s, "user", read("2026-11-18T09:00:00Z")).unwrap();
+    assert_eq!(s.state().read["chat"], "2026-11-18T10:00:05Z");
     assert_eq!(replayed(&s), *s.state());
 }

@@ -34,10 +34,24 @@ pub enum UnitKind {
     /// Research and design for the intent: no repository of its own, no branch, never merged;
     /// closed with `unit.done`.
     Research,
+    /// An experiment (measure, compare, try an approach): code on a `spike/` branch of its
+    /// own, scanned and shown like a code unit's, but never merged; closed with `unit.done`.
+    Spike,
 }
 
 impl UnitKind {
+    /// Code on a branch of its own: a code unit or a spike.
     pub fn is_code(&self) -> bool {
+        matches!(self, UnitKind::Code | UnitKind::Spike)
+    }
+
+    /// Merged when done: a code unit. A spike and a research unit are closed with `unit.done`.
+    pub fn merges(&self) -> bool {
+        *self == UnitKind::Code
+    }
+
+    /// The default kind, left out when written.
+    fn is_default(&self) -> bool {
         *self == UnitKind::Code
     }
 }
@@ -104,6 +118,18 @@ pub enum GateKind {
 pub enum Reviewer {
     CodeReview,
     SecurityReview,
+}
+
+/// What a review of a command the user is about to run found it to be.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Verdict {
+    /// It does what it says, nothing risky.
+    Ok,
+    /// Worth a look: changes outside its folder, network, installs, deletes.
+    Caution,
+    /// Destructive or irreversible.
+    Danger,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -299,6 +325,10 @@ pub struct NewTask {
     /// delivered, its agent is shown only this task, its unit and its intent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub blind: bool,
+    /// A gate put before a running task that is stuck on what only the user can do (a
+    /// blocker): the task follows it from then on, so the gate's result goes to its agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocks: Option<u32>,
 }
 
 /// Who a request was found to come from. The daemon works this out (a session of the web
@@ -350,7 +380,7 @@ impl Body {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | CommandRan { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | CommandRan { .. }
         )
     }
 }
@@ -716,7 +746,7 @@ pub enum Body {
         /// The machine the repository is on; none: this one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
-        #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+        #[serde(default, skip_serializing_if = "UnitKind::is_default")]
         kind: UnitKind,
     },
     /// Finished without a merge.
@@ -849,10 +879,20 @@ pub enum Body {
         /// Who wrote it (an agent's session, or "user").
         #[serde(default)]
         by: String,
+        /// Whose step it was: a task (`u1#3`) or a chore (`c2`); none: typed by the user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+        /// Which of that task's or chore's steps (from 1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<u32>,
     },
     /// Such a command ended, with its exit status, as workriver saw it end.
     #[serde(rename = "command.ended")]
     CommandEnded { id: String, exit: i32 },
+    /// What the agent workriver started to review such a command said it does, recorded by
+    /// workriver once that agent (and only it) gave it and the command ran.
+    #[serde(rename = "command.reviewed")]
+    CommandReviewed { id: String, verdict: Verdict, text: String },
     /// Where a message is: about a task (a decision when `finding` is set, a gate result, a
     /// delivered task, a gate asked for), or about a chore (`chore` set; then no unit/task).
     #[serde(rename = "delivery.updated")]
@@ -961,6 +1001,28 @@ pub enum Body {
     /// The manager the message went to answers it (`workriver reply`); it may answer more than once.
     #[serde(rename = "message.replied")]
     MessageReplied { message: String, text: String },
+    /// A workspace's manager starts a message to the user (`workriver say`): shown in that
+    /// workspace's conversation on the page, as the manager's. Nothing is typed anywhere.
+    #[serde(rename = "message.said")]
+    MessageSaid {
+        #[serde(default)]
+        id: String,
+        /// The workspace's current intent, if any; filled in here.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        intent: String,
+        /// The workspace the caller manages, by label; filled in here.
+        #[serde(default)]
+        workspace: String,
+        text: String,
+    },
+    /// The user has read a workspace's conversation with its manager up to `at` (the time of
+    /// the newest message of the manager's the page showed); the page records it.
+    #[serde(rename = "messages.read")]
+    MessagesRead { workspace: String, at: String },
+    /// An agent tells the manager of a task's intent something (`workriver manager tell`):
+    /// typed into the manager's terminal, quoted. The way a worker reaches its manager.
+    #[serde(rename = "manager.told")]
+    ManagerTold { unit: String, task: u32, text: String },
 }
 
 impl Body {
@@ -972,8 +1034,9 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
-            MessageDelivery { .. } | MessageReplied { .. } => (None, None, None),
-            MessageSent { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
+            MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
+            ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
+            MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
             QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             ManagerRegistered { intent, .. } => (intent.clone(), None, None),
@@ -999,7 +1062,7 @@ impl Body {
             ChoreDone { .. } => (None, None, None),
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
             CommandRan { unit, .. } => (None, unit.clone(), None),
-            CommandEnded { .. } => (None, None, None),
+            CommandEnded { .. } | CommandReviewed { .. } => (None, None, None),
         }
     }
 }
@@ -1043,9 +1106,39 @@ pub struct State {
     /// The user's messages to managers, with their replies.
     #[serde(default)]
     pub messages: Vec<Message>,
+    /// Up to when the user has read each workspace's conversation with its manager, by label.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub read: std::collections::BTreeMap<String, String>,
     /// Not the records but a part of them: what an agent on a blind task may see.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reduced: bool,
+    /// The newest commands the user ran from the page (at most `RUNS_KEPT`), oldest first.
+    /// Never serialized: only the user sees them, and the service adds them to the user's
+    /// view itself.
+    #[serde(skip)]
+    pub runs: Vec<CommandRun>,
+}
+
+/// How many of the latest command runs the state keeps.
+pub const RUNS_KEPT: usize = 20;
+
+/// A command the user ran from the page, as recorded, with its exit once it was seen.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct CommandRun {
+    pub id: String,
+    pub command: String,
+    pub dir: String,
+    pub machine: Option<String>,
+    pub unit: Option<String>,
+    /// Who wrote it: an agent's session, or "user".
+    pub by: String,
+    /// Whose step it was (`u1#3`, `c2`) and which step (from 1); none: typed by the user.
+    pub from: Option<String>,
+    pub step: Option<u32>,
+    pub at: String,
+    pub exit: Option<i32>,
+    /// What its review found, and said.
+    pub review: Option<(Verdict, String)>,
 }
 
 /// A stored file. Never deleted, like the records.
@@ -1073,6 +1166,9 @@ pub struct Message {
     pub delivery: Option<Delivery>,
     #[serde(default)]
     pub replies: Vec<Reply>,
+    /// Started by the manager (`workriver say`): its text is the manager's, and it went nowhere.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_manager: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1214,7 +1310,10 @@ pub struct Unit {
     /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done: Option<Closed>,
-    #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+    /// Closed as done before, then given a new task, which opened it again: that closing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reopened: Option<Closed>,
+    #[serde(default, skip_serializing_if = "UnitKind::is_default")]
     pub kind: UnitKind,
 }
 
@@ -1269,6 +1368,9 @@ pub struct Task {
     /// Done without seeing other work (see `State::blind_view`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub blind: bool,
+    /// A blocker: the running task this gate was put before (see `NewTask::blocks`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocks: Option<u32>,
     pub state: TaskState,
     /// Who recorded it.
     pub by: String,
@@ -1437,6 +1539,7 @@ impl State {
             earlier: vec![],
             links: vec![],
             done: None,
+            reopened: None,
             kind: UnitKind::Code,
         })
     }
@@ -1918,7 +2021,7 @@ impl State {
                 if !user && self.manager_of(&u.intent) != Some(actor) {
                     let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
                     return no(format!(
-                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch: workriver unit move {unit} --branch <new> [--base <new base>]",
+                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch (workriver manager tell <your task> --text \"...\"), who runs: workriver unit move {unit} --branch <new> [--base <new base>]",
                         u.intent
                     ));
                 }
@@ -1929,7 +2032,7 @@ impl State {
                     }
                 }
                 // A branch named before the rule keeps its name while only the rest moves.
-                unit_branch(&branch, &base, branch != u.branch)?;
+                unit_branch(&branch, &base, branch != u.branch, u.kind)?;
                 UnitRelocated { unit, machine, repo, branch, base, previous }
             }
             CommitLinked { unit, hash, patch_id, subject, date, task } => {
@@ -2003,13 +2106,16 @@ impl State {
                         return no(format!("a unit needs a {field}"));
                     }
                 }
-                unit_branch(&branch, &base, true)?;
+                unit_branch(&branch, &base, true, kind)?;
                 self.may_place(who, &intent, machine.as_deref())?;
                 UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
             }
             UnitMerged { unit, commits } => {
                 let u = self.unit(&unit)?;
-                if !u.kind.is_code() {
+                if u.kind == UnitKind::Spike {
+                    return no(format!("unit {unit} is a spike: it is never merged; close it with `workriver unit done {unit} --reason \"<what was learned>\"`"));
+                }
+                if !u.kind.merges() {
                     return no(format!("unit {unit} is a research unit: it is never merged; close it with `workriver unit done {unit} --reason \"...\"`"));
                 }
                 if u.merged.is_some() {
@@ -2028,7 +2134,19 @@ impl State {
                 }
                 UnitDone { unit, reason }
             }
-            TaskCreated(t) => TaskCreated(self.prepare_task(t)?),
+            TaskCreated(t) => {
+                // A blocker is put by the agent stuck on that task, its manager or the user.
+                if let Some(b) = t.blocks
+                    && !user
+                    && let Ok(stuck) = self.task(&t.unit, b)
+                    && !self.is_agent_of(stuck, actor)
+                    && self.intent_of(&t.unit).and_then(|i| self.manager_of(i)) != Some(actor)
+                {
+                    let r = format!("{}#{b}", t.unit);
+                    return no(format!("a blocker before {r} is put by the agent of {r}, the manager of its intent, or the user; to tell the manager: workriver manager tell {r} --text \"...\""));
+                }
+                TaskCreated(self.prepare_task(t)?)
+            }
             TaskStarted { unit, task, agent } => {
                 let t = self.task(&unit, task)?;
                 not_dropped(&unit, t)?;
@@ -2071,7 +2189,7 @@ impl State {
                 // The manager re-plans; a worker takes back only what it asked for itself.
                 let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
                 if !user && !manager && t.by != actor {
-                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed"));
+                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed: workriver manager tell {unit}#{task} --text \"...\""));
                 }
                 TaskDropped { unit, task, reason }
             }
@@ -2196,20 +2314,29 @@ impl State {
                 }
                 AttachmentAdded { id, name, mime, size, unit, task, finding }
             }
-            CommandRan { id, command, dir, machine, unit, by } => {
+            CommandRan { id, command, dir, machine, unit, by, from, step } => {
                 if blank(&id) || blank(&command) || blank(&dir) {
                     return no("a command run needs its id, its text and its directory");
                 }
                 if let Some(u) = &unit {
                     self.unit(u)?;
                 }
-                CommandRan { id, command, dir, machine, unit, by }
+                CommandRan { id, command, dir, machine, unit, by, from, step }
             }
             CommandEnded { id, exit } => {
                 if *who != Principal::Service {
                     return no("only workriver records how a command ended");
                 }
                 CommandEnded { id, exit }
+            }
+            CommandReviewed { id, verdict, text } => {
+                if *who != Principal::Service {
+                    return no("only workriver records a command's review, from the agent it started for it");
+                }
+                if blank(&text) {
+                    return no("a review says what the command does");
+                }
+                CommandReviewed { id, verdict, text }
             }
             DeliveryUpdated { unit, task, finding, chore, delivery } => {
                 if let Some(c) = &chore {
@@ -2257,7 +2384,7 @@ impl State {
                 };
                 // Blind work neither asks nor is asked by other agents: both would tell it things.
                 if !self.blind_tasks(actor).is_empty() {
-                    return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead");
+                    return no("you are on a blind task: other work is hidden until you deliver, and so are questions. If you cannot go on without one, tell your manager instead: workriver manager tell <your task> --text \"...\"");
                 }
                 if about.is_some_and(|t| t.blind && !t.state.over()) && !user {
                     return no(format!("{unit}#{task} is a blind task in progress: its agent is not to be told about other work. Ask once it is delivered"));
@@ -2365,6 +2492,19 @@ impl State {
                 self.message(&id)?;
                 MessageDelivery { id, delivery }
             }
+            ManagerTold { unit, task, text } => {
+                if user {
+                    return no("the user writes to a manager in workriver's page (Ask, Manager)");
+                }
+                self.task(&unit, task)?;
+                if self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor) {
+                    return no("you are the manager of this intent");
+                }
+                if blank(&text) {
+                    return no("say what: --text \"...\"");
+                }
+                ManagerTold { unit, task, text }
+            }
             MessageReplied { message, text } => {
                 let m = self.message(&message)?;
                 // Only the manager it was typed to: nobody else answers for it, the user included.
@@ -2375,6 +2515,26 @@ impl State {
                     return no("a reply needs its text");
                 }
                 MessageReplied { message, text }
+            }
+            MessageSaid { text, .. } => {
+                if user {
+                    return no("the user writes to a manager in workriver's page (Ask, Manager)");
+                }
+                let Some(w) = self.workspaces.iter().find(|w| w.manager.as_deref() == Some(actor)) else {
+                    return no("only a workspace's manager says something to the user; a worker tells its manager: `workriver manager tell <task> --text \"...\"`");
+                };
+                if blank(&text) {
+                    return no("say what: --text \"...\"");
+                }
+                MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.group.label.clone(), text }
+            }
+            MessagesRead { workspace, at } => {
+                if blank(&workspace) {
+                    return no("which workspace's conversation was read");
+                }
+                // Stored as the service writes times, so that they compare as text.
+                let Ok(t) = humantime::parse_rfc3339_weak(&at) else { return no(format!("{at:?} is not a time")) };
+                MessagesRead { workspace, at: humantime::format_rfc3339_seconds(t).to_string() }
             }
         })
     }
@@ -2409,6 +2569,19 @@ impl State {
             && matches!(i.state, IntentState::Done | IntentState::Dropped)
         {
             return no(format!("intent {intent} is {}; it takes no new tasks", name(&i.state)));
+        }
+        // A blocker stands where the task it blocks starts: it follows what that task follows.
+        if let Some(b) = t.blocks {
+            if t.kind != TaskKind::Gate {
+                return no("only a gate blocks a task: --kind gate --gate deploy|test|decide");
+            }
+            let stuck = self.task(&owner, b)?;
+            if stuck.kind == TaskKind::Gate || stuck.state.over() {
+                return no(format!("{owner}#{b} is {}: a blocker goes before a task still to do or running", if stuck.kind == TaskKind::Gate { "a gate".to_string() } else { name(&stuck.state) }));
+            }
+            if t.inputs.is_empty() {
+                t.inputs = if stuck.inputs.is_empty() { vec![Input { from: "start".into(), primary: true }] } else { stuck.inputs.clone() };
+            }
         }
         match t.kind {
             TaskKind::Implement | TaskKind::Gate | TaskKind::Design | TaskKind::Research if blank(&t.title) => {
@@ -2712,6 +2885,7 @@ impl State {
                 earlier: vec![],
                 links: vec![],
                 done: None,
+                reopened: None,
             }),
             UnitMerged { unit, commits } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
@@ -2746,6 +2920,7 @@ impl State {
                         steps: t.steps.clone(),
                         plans: t.plans.clone(),
                         blind: t.blind,
+                        blocks: t.blocks,
                         // A gate opens (waits for the user) once what it follows is done.
                         state: TaskState::Todo,
                         by: e.actor.clone(),
@@ -2762,6 +2937,18 @@ impl State {
                         attachments: vec![],
                         dropped: None,
                     })
+                }
+                // More work for a unit closed as done: it is open again, its state from its tasks.
+                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit)
+                    && let Some(was) = u.done.take()
+                {
+                    u.reopened = Some(was);
+                }
+                // The task it blocks follows it from now on.
+                if let Some(b) = t.blocks
+                    && let Some(stuck) = self.task_mut(&t.unit, b)
+                {
+                    stuck.inputs.push(Input { from: t.n.to_string(), primary: false });
                 }
             }
             TaskStarted { unit, task, agent } => {
@@ -2847,8 +3034,22 @@ impl State {
                     }
                 }
             }
-            // In the record only: what ran is read from the events, nothing on the page keeps it.
-            CommandRan { .. } | CommandEnded { .. } => {}
+            // The latest few only (the user's recent runs); never their output.
+            CommandRan { id, command, dir, machine, unit, by, from, step } => {
+                self.runs.push(CommandRun { id: id.clone(), command: command.clone(), dir: dir.clone(), machine: machine.clone(), unit: unit.clone(), by: by.clone(), from: from.clone(), step: *step, at: at.clone(), exit: None, review: None });
+                let over = self.runs.len().saturating_sub(RUNS_KEPT);
+                self.runs.drain(..over);
+            }
+            CommandEnded { id, exit } => {
+                if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
+                    r.exit = Some(*exit);
+                }
+            }
+            CommandReviewed { id, verdict, text } => {
+                if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
+                    r.review = Some((*verdict, text.clone()));
+                }
+            }
             DeliveryUpdated { chore: Some(c), delivery, .. } => {
                 if let Some(x) = self.chores.iter_mut().find(|x| &x.id == c) {
                     x.delivery = Some(delivery.clone());
@@ -2975,7 +3176,25 @@ impl State {
                 at: at.clone(),
                 delivery: None,
                 replies: vec![],
+                by_manager: false,
             }),
+            MessageSaid { id, intent, workspace, text } => self.messages.push(Message {
+                id: id.clone(),
+                intent: intent.clone(),
+                workspace: workspace.clone(),
+                manager: e.actor.clone(),
+                text: text.clone(),
+                at: at.clone(),
+                delivery: None,
+                replies: vec![],
+                by_manager: true,
+            }),
+            MessagesRead { workspace, at: upto } => {
+                let r = self.read.entry(workspace.clone()).or_default();
+                if *upto > *r {
+                    *r = upto.clone();
+                }
+            }
             MessageDelivery { id, delivery } => {
                 if let Some(m) = self.messages.iter_mut().find(|m| &m.id == id) {
                     m.delivery = Some(delivery.clone());
@@ -2986,6 +3205,8 @@ impl State {
                     m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone() });
                 }
             }
+            // Only told: the record is the event itself.
+            ManagerTold { .. } => {}
         }
         self.open_gates(at);
     }
@@ -3055,14 +3276,20 @@ impl State {
 const BRANCH_PREFIXES: [&str; 3] = ["feat/", "chore/", "fix/"];
 
 /// A unit's branch is its own: never its base (that would count everyone's commits on it as
-/// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name. Checked when an
-/// event is written, never on replay: units named before the rule keep loading.
-fn unit_branch(branch: &str, base: &str, named: bool) -> Result<(), Rejected> {
+/// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name (a spike's:
+/// `spike/` and a name, which no other unit takes). Checked when an event is written, never
+/// on replay: units named before the rule keep loading.
+fn unit_branch(branch: &str, base: &str, named: bool, kind: UnitKind) -> Result<(), Rejected> {
     if branch == base || base.strip_prefix("origin/") == Some(branch) {
         return no(format!("a unit's branch must not be its base ({base}): create the unit's own branch from {base} (git switch -c feat/<name> {base}) and give that: --branch feat/<name>"));
     }
-    if named && !BRANCH_PREFIXES.iter().any(|p| branch.strip_prefix(p).is_some_and(|rest| !rest.is_empty())) {
-        return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest); {branch} does not: name it so, e.g. --branch feat/{}", branch.rsplit('/').next().unwrap_or(branch)));
+    let named_with = |p: &str| branch.strip_prefix(p).is_some_and(|rest| !rest.is_empty());
+    let name = branch.rsplit('/').next().unwrap_or(branch);
+    if named && kind == UnitKind::Spike && !named_with("spike/") {
+        return no(format!("a spike's branch starts with spike/ and a name; {branch} does not: name it so, e.g. --branch spike/{name}"));
+    }
+    if named && kind != UnitKind::Spike && !BRANCH_PREFIXES.iter().any(|p| named_with(p)) {
+        return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest; spike/<name> is for --kind spike); {branch} does not: name it so, e.g. --branch feat/{name}"));
     }
     Ok(())
 }

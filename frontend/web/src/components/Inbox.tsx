@@ -1,7 +1,7 @@
 // The inbox: everything that asks something of the user, across all units, as one list in
 // the side panel. One person works one queue; a list keeps order and age where chips would
 // only pile up.
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useAct } from '@/act'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -13,11 +13,27 @@ import { Content, Icon, Mark, Slot, SLOT, TerminalButton, Tip, Who } from './bit
 import { RunSteps } from './Run'
 import { alertLimit, alertValue, topLine } from './Machines'
 
-const GROUPS = ['blocking', 'machines', 'decisions', 'gaps', 'later'] as const
+const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
 
-function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
+function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, lang, num, waited, when, date } = useT()
   const act = useAct()
+  // A workspace's manager wrote what the user has not read: the row opens that conversation.
+  if (r.talk) {
+    const m = r.talk
+    return (
+      <button type="button" className="irow" data-kind="message" onClick={() => onTalk(m.workspace)}>
+        <Icon name="talk" />
+        <span className="title" lang={contentLang(m.text)}>{m.text}</span>
+        <span className="meta">
+          <span className="flex-none font-semibold text-you-ink">{t('inbox.unread', { count: m.count })}</span>
+          <span className="flex min-w-0 items-center gap-1"><Who name={m.manager} /><span className="truncate">{m.manager}</span></span>
+          <span className="unit" lang={contentLang(m.workspace)}>{m.workspace}</span>
+        </span>
+        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+      </button>
+    )
+  }
   // A machine past an alert threshold: the row opens the Machines section.
   // Its level is its colour and its first word; the processes using the most memory follow.
   if (r.alert) {
@@ -140,17 +156,36 @@ function Row({ r, onOpen, onMachines }: { r: InboxRow; onOpen: (unit: string, pi
   return <button type="button" className="irow" data-kind={r.kind} onClick={() => onOpen(r.unit!.id, r.pick)}>{body}</button>
 }
 
-/** The inbox as a list in groups, an empty group not drawn; one short line when nothing waits. */
-export function InboxList({ ws, onOpen, onMachines }: { ws: Workspace; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void }) {
+// Which groups the user folded (true) or opened (false); a group never touched takes its default.
+const FOLDED = 'workriver.inbox.folded'
+type Folds = Partial<Record<(typeof GROUPS)[number], boolean>>
+const readFolds = (): Folds => { try { return JSON.parse(localStorage.getItem(FOLDED) ?? '{}') ?? {} } catch { return {} } }
+
+/** The inbox as a list in groups, an empty group not drawn; one short line when nothing waits.
+ *  Each group folds by its heading; gaps start folded past five rows. */
+export function InboxList({ ws, onOpen, onMachines, onTalk }: { ws: Workspace; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, num } = useT()
   const box = useMemo(() => inbox(ws), [ws])
+  const [folds, setFolds] = useState(readFolds)
+  const fold = (g: (typeof GROUPS)[number], folded: boolean) => {
+    const next = { ...folds, [g]: folded }
+    setFolds(next)
+    try { localStorage.setItem(FOLDED, JSON.stringify(next)) } catch { /* not remembered */ }
+  }
   if (!GROUPS.some(g => box[g].length)) return <p className="px-2.5 text-sm text-ink-2">{t('inbox.empty')}</p>
   return GROUPS.map(g => box[g].length > 0 && (
-    <section key={g} className="igroup" aria-labelledby={`inbox-${g}`}>
-      <h3 id={`inbox-${g}`} className="mb-1 flex items-baseline gap-1.5 px-2.5 text-xs font-semibold text-ink-2">
-        {t(`inbox.${g}`)}<span className="font-normal">{num(box[g].length)}</span>
-      </h3>
-      <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} /></li>)}</ul>
-    </section>
+    <Collapsible key={g} asChild open={!(folds[g] ?? (g === 'gaps' && box[g].length > 5))} onOpenChange={open => fold(g, !open)}>
+      <section className="igroup" aria-labelledby={`inbox-${g}`}>
+        <h3 className="mb-1 px-2.5 text-xs font-semibold text-ink-2">
+          <CollapsibleTrigger id={`inbox-${g}`} className="group/ihead flex items-baseline gap-1.5 rounded-sm hover:text-ink">
+            <Icon name="chev" className="size-3.5 self-center transition-transform group-data-[state=open]/ihead:rotate-90" />
+            {t(`inbox.${g}`)}<span className="font-normal">{num(box[g].length)}</span>
+          </CollapsibleTrigger>
+        </h3>
+        <CollapsibleContent asChild>
+          <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   ))
 }

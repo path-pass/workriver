@@ -72,7 +72,7 @@ async function layoutFlow(unit: Unit): Promise<Layout> {
 
 // ---- node and line types ----
 
-type CardData = { node: Task; dim: boolean; picked: boolean; onPick: (id: string) => void; talks: number; grew?: Growth }
+type CardData = { node: Task; dim: boolean; picked: boolean; onPick: (id: string) => void; talks: number; grew?: Growth; held?: boolean }
 type DotData = { title: string }
 type LineData = { state?: 'flowed' | 'flowing'; also: boolean; off: boolean }
 
@@ -117,7 +117,7 @@ const grewText = (t: T, g: Growth) => t('flow.grew', {
 // implementing, a pill for a review, a double frame for a gate. A review says how much it found per severity and
 // carries a violet count while findings of it wait for the user.
 function WorkCard({ data }: NodeProps<Node<CardData>>) {
-  const { node: n, dim, picked, onPick, talks, grew } = data
+  const { node: n, dim, picked, onPick, talks, grew, held } = data
   const { t, num } = useT()
   const open = openCount(n)
   return (
@@ -151,6 +151,10 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         {untested(n) && <span className="untested"><Mark name="untested" label={t('evidence.none')} /></span>}
         {n.blind && <span className="blind"><Mark name="blind" label={t('task.blindHint')} /></span>}
         {n.state === 'dropped' && <span className="dropped"><Mark name="dropped" label={t('task.dropped')} /></span>}
+        {/* A blocker gate (top left; gates are never blind), and the work it holds up while it is
+            open (bottom left; only work not done or dropped, so never with untested or dropped). */}
+        {n.blocks && <span className="blocker"><Mark name="blocker" label={t('flow.blocker')} /></span>}
+        {held && <span className="held"><Mark name="blocked" label={t('flow.held')} /></span>}
         {grew && (
           <Tip text={grewText(t, grew)}>
             <span className="grew"><Icon name="grew" /><span aria-hidden>+{num(grew.folders.length)}</span><span className="sr-only">{grewText(t, grew)}</span></span>
@@ -356,6 +360,8 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
     const isLit = (id: string) => !lit || id === 'start' || lit.has(id)
     const byId = new Map(unit.tasks.map(n => [n.id, n]))
     const grew = growth(unit)
+    // Work held up by an open blocker gate.
+    const held = new Set(unit.tasks.filter(n => n.blocks && n.state !== 'done' && n.state !== 'dropped').map(n => n.blocks!))
     const at = (id: string) => layout.pos.get(id) ?? { x: 0, y: 0 }
     const fixed = { selectable: false, focusable: false }
     const nodes: Node[] = [
@@ -363,7 +369,7 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
       // A node the layout has not placed yet (it just arrived) waits for the next layout.
       ...unit.tasks.filter(n => layout.pos.has(n.id)).map(n => ({
         id: n.id, type: n.kind, position: at(n.id), width: W, height: H, ...fixed,
-        data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n, talk).length, grew: grew.get(n.id) } satisfies CardData,
+        data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n, talk).length, grew: grew.get(n.id), held: held.has(n.id) && n.state !== 'done' && n.state !== 'dropped' } satisfies CardData,
       })),
     ]
     // A line takes the state of the work it leads into.
@@ -766,7 +772,7 @@ function Legend() {
   const mark = (name: string, text: string) => <span className="key"><Icon name={name} />{text}</span>
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
-      {sw('done', t('legend.done'))}{sw('running', t('legend.running'))}{sw('', t('legend.todo'))}{sw('review', t('kind.review'))}{sw('gate', t('kind.gate'))}<span className="key"><i className="count" aria-hidden />{t('legend.waiting')}</span><span className="key"><i className="grew" aria-hidden><Icon name="grew" />+</i>{t('legend.grew')}</span>
+      {sw('done', t('legend.done'))}{sw('running', t('legend.running'))}{sw('', t('legend.todo'))}{sw('review', t('kind.review'))}{sw('gate', t('kind.gate'))}<span className="key"><i className="count" aria-hidden />{t('legend.waiting')}</span><span className="key"><i className="grew" aria-hidden><Icon name="grew" />+</i>{t('legend.grew')}</span><span className="key"><i className="blocker" aria-hidden><Icon name="blocker" /></i>{t('flow.blocker')}</span>
       {mark('security-review', t('reviewer.security-review'))}{mark('code-review', t('reviewer.code-review'))}{mark('test', t('reviewer.test'))}
       {stroke('flowed', t('legend.flowed'))}{stroke('flowing', t('legend.flowing'))}{stroke('also', t('legend.also'))}
     </div>

@@ -14,8 +14,17 @@
 
 A unit is built, reviewed and merged on its own, on its own branch. The branch is the
 unit's own, never its base, and says what it holds: `feat/<name>` for new work,
-`fix/<name>` for a fix, `chore/<name>` for the rest. Make it from the base's newest commit
-(`git fetch`, then `git switch -c feat/<name> origin/main`).
+`fix/<name>` for a fix, `chore/<name>` for the rest. Each code unit gets a git worktree of its own, next
+to the repository, made from the base's newest commit:
+
+    git -C <repo> fetch && git -C <repo> worktree add <repo>.worktrees/<unit> -b feat/<name> origin/main
+
+The worker works there, never in the repository's own folder, which stays on the base:
+two units of one repository in one folder would switch each other's branch and mix their
+changes. The unit still names the repository (`--repo <repo>`, not the worktree): workriver
+finds its branch in whichever worktree has it, uncommitted work included. A project folder
+holding several repositories: one worktree folder next to each (`proj/front.worktrees/u3`),
+never a worktree directly in the project folder (it would read as another repository).
 
     workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch feat/mention [--base main] [--repo PATH]
     workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder [--plan src/notify] [--text "…"]
@@ -35,6 +44,11 @@ When its work is delivered and decided it is "ready to close": `workriver unit d
 --reason "…"`. What the user should see on the intent's page (the decision, a link to the
 report) goes into the intent's note: `workriver intent set i3 --add-note "…"` (a paragraph
 added after what is there).
+
+Finding out by trying (measure, compare, prototype) with code worth keeping to show how is
+a **spike**: a unit with a `spike/<topic>` branch and its own worktree like a code unit,
+any kind of task, never merged; closed with `workriver unit done <u> --reason "<what was
+learned>"`. `workriver guide how spike`.
 
 Tasks are always in a unit: `workriver task add i3 …` is refused. Older intents may have
 tasks of their own (`i3#1`): they still work as before (start, deliver, gates, findings,

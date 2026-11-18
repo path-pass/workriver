@@ -221,7 +221,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
           >
             <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{unit.id}</span><span lang={contentLang(unit.title)}>{unit.title}</span></span>
             {unit.machine && <span className="mt-0.5 flex"><MachineChip machine={unit.machine} away={ws?.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws?.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} /></span>}
-            <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden"><Signals unit={unit} /></span>
+            <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden">{unit.kind === 'spike' && <span className="tag font-normal">{t('unit.spike')}</span>}<Signals unit={unit} /></span>
           </button>
         ))}
       </CollapsibleContent>

@@ -31,6 +31,10 @@ export interface Talk {
   intent?: string
   /** Set to now to show the conversation with the manager. */
   managerAt?: number
+  /** With `managerAt`: the workspace whose conversation to show; none: the one on screen. */
+  to?: string
+  /** The user has seen a workspace's conversation, up to the manager's newest words shown. */
+  onRead: (workspace: string, at: string) => void
   /** Ends a conversation (with the service). */
   onEnd: (thread: string) => void
   /** Questions go to the service and real agents (not the sample). */
@@ -153,6 +157,12 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
         <Theirs>
           <p className="text-ink-2"><span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: agent ?? '' })}</p>
         </Theirs>
+      ) : turn.conclude ? (
+        // The conclusion stands where it was asked for: questions after it come below it.
+        <li className="rounded-md bg-sunken p-2">
+          <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
+          <Answer text={turn.answer!} onFile={onFile} />
+        </li>
       ) : answered ? (
         <Theirs who={by} at={turn.answeredAt}>
           <Answer text={turn.answer!} onFile={onFile} />
@@ -225,7 +235,8 @@ function ThreadBody({ id, th, agent, talk, onConclude }: { id: string; th: Threa
         <ol className="chat">
           {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={agent} onFile={talk.onFile} />)}
         </ol>
-        {th.conclusion && (
+        {/* A conclusion with no request in the thread (the sample's): after it. */}
+        {th.conclusion && !th.turns.some(x => x.conclude && x.answer !== null) && (
           <div className="mt-3 rounded-md bg-sunken p-2">
             <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
             <Answer text={th.conclusion} onFile={talk.onFile} />
@@ -403,8 +414,9 @@ function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task | null;
 
   return (
     <>
-      {/* The thread list stays compact; the open conversation takes the rest of the height. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-3 text-sm">
+      {/* The thread list stays compact; the open conversation takes the rest of the height.
+          Relative, as the chat is: see `.chat-scroll`. */}
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-3 text-sm">
         {earlier > 0 && (
           <button type="button" className="mb-1 flex-none self-start text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
         )}
@@ -455,6 +467,9 @@ function Step({ m }: { m: ManagerMessage }) {
   return <p className="mt-1 text-xs text-ink-2">{m.step === 'sending' && <span className="pending" aria-hidden />}{t(`talk.step.${m.step}`, { agent: m.manager })}</p>
 }
 
+/** How long a conversation is on screen before its new messages count as read, in ms. */
+const READ_AFTER = 1500
+
 /**
  * A conversation with a workspace's manager: the picked unit's intent's workspace, or one
  * picked from those with a manager. What the user writes is typed into the manager's
@@ -466,10 +481,29 @@ function ManagerTalk({ unit, talk }: { unit: Unit | null; talk: Talk }) {
   const own = intent?.state === 'active' ? intent.workspace?.label : undefined
   const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
   const labels = [...new Set([own, ...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter((l): l is string => !!l))]
-  const [chosen, setChosen] = useState<string | null>(null)
+  const [chosen, setChosen] = useState<string | null>(talk.to ?? null)
+  // Asked for again (Needs you, an intent's page): the workspace named, or the one on screen.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setChosen(talk.to ?? null), [talk.managerAt])
   const label = (chosen && labels.includes(chosen) ? chosen : null) ?? own ?? labels[0] ?? null
   const manager = running.find(s => s.group!.label === label)
   const list = talk.messages.filter(m => m.workspace === label)
+  // The manager's newest words not read yet: read once the conversation has been on screen a
+  // moment (not in a hidden tab, nor in the panel hidden on a narrow screen).
+  const newest = list.flatMap(m => [...(m.byManager && m.unread ? [m.at] : []), ...m.replies.filter(r => r.unread).map(r => r.at)]).sort((a, b) => ms(a) - ms(b)).at(-1)
+  const shown = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!label || !newest) return
+    let k = 0
+    const look = () => {
+      clearTimeout(k)
+      k = window.setTimeout(() => { if (!document.hidden && shown.current?.getClientRects().length) talk.onRead(label, newest) }, READ_AFTER)
+    }
+    look()
+    document.addEventListener('visibilitychange', look)
+    return () => { clearTimeout(k); document.removeEventListener('visibilitychange', look) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [label, newest])
   const size = list.length + ':' + list.map(m => m.step + m.replies.length).join(',')
   const options = labels.map(l => {
     const m = running.find(s => s.group!.label === l)
@@ -477,7 +511,7 @@ function ManagerTalk({ unit, talk }: { unit: Unit | null; talk: Talk }) {
   })
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col px-4 pb-3 text-sm">
+      <div ref={shown} className="flex min-h-0 flex-1 flex-col px-4 pb-3 text-sm">
         {labels.length > 1 && <Choice value={label ?? ''} onChange={setChosen} options={options} label={t('talk.workspace')} className="mb-2 flex-none" />}
         {label === null
           ? <p className="text-ink-2">{t('talk.noWorkspace')}</p>
@@ -509,10 +543,15 @@ function MessageView({ m }: { m: ManagerMessage }) {
   const { t } = useT()
   return (
     <>
-      <Mine who={t('ask.you')} at={m.at}>
-        <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
-        <Step m={m} />
-      </Mine>
+      {/* One the manager started: its words alone, nothing of the user's above them. */}
+      {m.byManager
+        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /></Theirs>
+        : (
+          <Mine who={t('ask.you')} at={m.at}>
+            <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
+            <Step m={m} />
+          </Mine>
+        )}
       {m.replies.map((r, j) => (
         <Theirs key={j} who={<Named name={r.by} manager />} at={r.at}>
           <Prose text={r.text} fold={false} />
