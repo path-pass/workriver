@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { focusAgent, NOTE } from '@/runtime'
+import { focusAgent, NOTE, type Remote } from '@/runtime'
 import type { External, Step, Unit } from '@/types'
 
 // Who raised it is an icon; so is the state of a piece of work. All from lucide, one size, one stroke.
@@ -202,23 +202,26 @@ export function TerminalButton({ agent, session, className }: { agent: string; s
   )
 }
 
-/** A short note at the bottom of the screen for what the UI cannot do itself yet. */
+/** A short note at the bottom of the screen: what the UI cannot do itself yet, or where a
+ *  terminal brought to the front on another machine is (read longer). */
 export function Notes() {
   const { t } = useT()
-  const [agent, setAgent] = useState<string | null>(null)
+  const [text, setText] = useState<string | null>(null)
   useEffect(() => {
     let timer = 0
     const on = (e: Event) => {
-      setAgent((e as CustomEvent<{ agent: string }>).detail.agent)
+      const d = (e as CustomEvent<{ agent?: string; remote?: Remote }>).detail
+      const r = d.remote
+      setText(r ? t('terminal.remote', { what: r.agent ?? t('terminal.command'), machine: r.machine, workspace: r.workspace ?? '?' }) : t('terminal.note', { agent: d.agent }))
       clearTimeout(timer)
-      timer = window.setTimeout(() => setAgent(null), 2500)
+      timer = window.setTimeout(() => setText(null), r ? 8000 : 2500)
     }
     window.addEventListener(NOTE, on)
     return () => { window.removeEventListener(NOTE, on); clearTimeout(timer) }
-  }, [])
+  }, [t])
   return (
     <div role="status" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-      {agent && <div className="rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{t('terminal.note', { agent })}</div>}
+      {text && <div className="max-w-xl rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{text}</div>}
     </div>
   )
 }

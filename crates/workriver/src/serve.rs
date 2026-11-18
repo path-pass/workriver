@@ -2014,12 +2014,19 @@ struct Focus {
     agent: String,
 }
 
-async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<StatusCode, ApiError> {
+async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<axum::response::Response, ApiError> {
     app.user(&caller)?;
     blocking(move || {
         // The page knows agents by name.
-        app.runtime.focus(&app.session_of(&f.agent, None)).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        Ok(StatusCode::NO_CONTENT)
+        let session = app.session_of(&f.agent, None);
+        app.runtime.focus(&session).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        // On another machine it comes to the front there, in that machine's Herdr: the user's own
+        // client stays where it is (Herdr has no way to switch it), so the page says where.
+        let there = app.live().unwrap_or_default().into_iter().find(|a| a.session == session && a.machine.is_some());
+        Ok(match there {
+            Some(a) => Json(json!({ "machine": a.machine, "workspace": a.group.map(|g| g.label), "agent": a.name })).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
+        })
     })
     .await
 }
@@ -2279,13 +2286,17 @@ async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller
 }
 
 /// Brings a run's terminal to the front.
-async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<StatusCode, ApiError> {
+async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<axum::response::Response, ApiError> {
     app.user(&caller)?;
     let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
     let place = r.place.ok_or_else(|| bad(format!("run {id} has not started")))?;
     blocking(move || {
         app.runtime.focus_place(r.machine.as_deref(), &place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        Ok(StatusCode::NO_CONTENT)
+        // On another machine: in front there; the page says where (see `focus`).
+        Ok(match r.machine {
+            Some(m) => Json(json!({ "machine": m, "workspace": run::GROUP })).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
+        })
     })
     .await
 }

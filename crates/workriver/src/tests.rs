@@ -1378,6 +1378,11 @@ fn a_machines_listener_serves_only_agents() {
         let (status, text) = http(box_port, method, path, &creds, body.as_deref());
         assert_eq!(status, 403, "{method} {path}: {text}");
     }
+    // Here, the user brings that agent's terminal to the front: it is, over there, and the page
+    // is told where (the user's own Herdr cannot be switched to that machine from outside).
+    wait_until("the agent over there is seen", || user.get("/api/workspace").unwrap()["sessions"].as_array().is_some_and(|s| s.iter().any(|x| x["agent"] == "far")));
+    let shown = user.call("/api/focus", Some(json!({ "agent": "far" }))).unwrap();
+    assert_eq!((shown["machine"].as_str(), shown["agent"].as_str(), shown["workspace"].as_str()), (Some("box"), Some("far"), Some("chat")), "{shown}");
     // What is allowed: reading the board and recording, as the agent of the pane over there.
     for path in ["/api/state", "/api/workspace"] {
         assert_eq!(http(box_port, "GET", path, &creds, None).0, 403, "{path} as nobody, token and all");

@@ -305,7 +305,9 @@ export const en = {
   terminal: {
     open: 'Open in terminal',
     openFor: 'Open {{agent}} in terminal',
-    note: 'Would bring {{agent}}’s terminal to the front – not connected yet'
+    note: 'Would bring {{agent}}’s terminal to the front – not connected yet',
+    remote: '{{what}} is on {{machine}}: it is in front there, in workspace {{workspace}}. In Herdr, switch to {{machine}} to see it.',
+    command: 'The command'
   },
   run: {
     title: 'Run as you',

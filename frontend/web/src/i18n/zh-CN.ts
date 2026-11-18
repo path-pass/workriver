@@ -301,7 +301,9 @@ export const zhCN: Same<typeof en> = {
   terminal: {
     open: '在终端里打开',
     openFor: '在终端里打开 {{agent}}',
-    note: '将把 {{agent}} 的终端切到前台（还没有接上）'
+    note: '将把 {{agent}} 的终端切到前台（还没有接上）',
+    remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于工作区 {{workspace}}。在 Herdr 左侧切到 {{machine}} 就能看到。',
+    command: '这条命令'
   },
   run: {
     title: '以你的身份运行',

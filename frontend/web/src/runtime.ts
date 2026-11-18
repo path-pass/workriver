@@ -52,12 +52,18 @@ function recallWanted(): string | null {
 /** The event the UI listens to for a short note at the bottom of the screen. */
 export const NOTE = 'workriver:note'
 
+/** Where a terminal brought to the front is, when it is on another machine. */
+export interface Remote { machine: string; workspace?: string | null; agent?: string }
+// Herdr brings it to the front in that machine's Herdr; the user's own client cannot be
+// switched there from outside, so the note says where it is.
+const remoteNote = (r: Remote | undefined) => r?.machine && window.dispatchEvent(new CustomEvent(NOTE, { detail: { remote: r } }))
+
 /** Bring the agent's terminal to the front. */
 export function focusAgent(agent: string) {
   // Without a runtime behind the service, say what would have happened.
   const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent } }))
   if (MOCK) note()
-  else post('/api/focus', { agent }).catch(note)
+  else call<Remote | undefined>('/api/focus', { agent }).then(remoteNote, note)
 }
 
 /**
@@ -441,5 +447,5 @@ export async function readRun(id: string): Promise<RunView> {
 export function focusRun(id: string) {
   const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent: 'workriver' } }))
   if (MOCK) note()
-  else call(`/api/run/${encodeURIComponent(id)}/focus`, {}).catch(note)
+  else call<Remote | undefined>(`/api/run/${encodeURIComponent(id)}/focus`, {}).then(remoteNote, note)
 }
