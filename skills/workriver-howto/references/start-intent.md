@@ -36,6 +36,14 @@ name one. Research or design for the intent as a whole is a research unit (`unit
 task on the intent. Its page is `workriver link i3` (goal, note, units); add what the user
 should read there with `workriver intent set i3 --add-note "…"`.
 
+**Changing managers** (one handing over to another pane): a workspace has one manager, so
+the new one registers only after the old one is closed. The old manager writes down what
+workriver does not hold (why things were decided, what it was about to do) in your shared
+memory, if you have one, else as a note on the intent (`workriver intent set i3 --add-note
+"…"`); the user closes it; the new one runs `workriver manager here` at once, then
+`workriver board`, and reads the memory or note. A message sent in between shows as not
+delivered on the page: ask the user to paste it to you.
+
 **Refusals:** "only the manager of workspace … starts intents there" - run
 `workriver manager here` first, in your own pane. "intent i3 is done; it cannot become
 active" - add a new one. "workspace … has a manager running: X" - a workspace has one
