@@ -213,6 +213,8 @@ export const zhCN: Same<typeof en> = {
     complete: '所有单元都已完成：管理者可以结束这个意图',
     finished: '已完成',
     previously: '之前在 {{branches}}',
+    spike: '实验',
+    spikeWhy: '一次实验：代码留在它的分支上以示做法，永不合并。写下发现后关闭。',
     squashed: '看起来已 squash 合并',
     squashedWhy: '它的每处改动都已在 {{into}} 里（提交 {{commit}}）：多半是 squash 合并的，git 看不出来。如果是，用这条命令记下；它的管理者也会收到提醒。',
     mergedCommand: 'workriver unit merged {{unit}}',
@@ -329,7 +331,14 @@ export const zhCN: Same<typeof en> = {
     hint: '确认之后在你自己的 shell 里运行。',
     unit: '{{unit}} · {{title}}',
     project: '项目：{{title}}',
-    nowhere: '还没有可以运行的单元或项目。'
+    nowhere: '还没有可以运行的单元或项目。',
+    recent: '最近运行',
+    fromStep: '{{from}} 第 {{step}} 步',
+    stateRunning: '运行中',
+    stateOk: '✓ 成功',
+    stateExit: '退出码 {{code}}',
+    stateUnknown: '未知',
+    notKept: '没有保留输出：服务在它运行之后重启过。它的终端在 Herdr 的「workriver-commands」工作区里。'
   },
   evidence: {
     label: '跑过的检查',

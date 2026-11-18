@@ -112,6 +112,9 @@ struct Run {
     unit: Option<String>,
     /// Who wrote it: an agent's session, or "user".
     by: String,
+    /// Whose step it is (`u1#3`, `c2`) and which (from 1); none: typed by the user.
+    from: Option<String>,
+    step: Option<u32>,
     prepared: std::time::Instant,
     place: Option<String>,
     output: String,
@@ -691,7 +694,8 @@ impl App {
             let store = self.store.lock().unwrap();
             let state = store.state();
             let told = self.merge_told.lock().unwrap();
-            for u in state.units.iter().filter(|u| u.has_code()) {
+            // A spike is never merged: nothing to remind of.
+            for u in state.units.iter().filter(|u| u.has_code() && u.kind.merges()) {
                 let Some(since) = state.ready_since(u) else { continue };
                 let Some(to) = state.manager_of(&u.intent).filter(|m| live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty()) else { continue };
                 let (id, branch) = (&u.id, crate::quote::name(&u.branch));
@@ -1522,8 +1526,10 @@ async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Calle
         let state = app.view(&caller, &r)?;
         let mut ws = app.snapshot(&state, r.light, "workspace");
         // Machines in alert are the user's to see (Needs you), like their CPU and memory.
+        // So are the commands they ran from the page.
         if app.user(&caller).is_ok() {
             ws.alerts = app.metrics.alerts();
+            ws.runs = app.recent_runs(&state);
         }
         let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
         app.record_merges(found);
@@ -2015,6 +2021,9 @@ struct RunPrepare {
     /// Whose step it is: a task's (`u1#3`) or a chore's (`c2`); none: the user's own.
     #[serde(default)]
     from: Option<String>,
+    /// Which of its steps (from 1).
+    #[serde(default)]
+    step: Option<u32>,
 }
 
 /// How long a prepared command may wait for the user's confirmation.
@@ -2024,7 +2033,47 @@ const CONFIRM: Duration = Duration::from_secs(600);
 fn run_view(id: &str, r: &Run, state: &core::State) -> serde_json::Value {
     let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
     json!({ "id": id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
-            "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching })
+            "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching,
+            "kept": true, "focusable": r.place.is_some() })
+}
+
+/// A run this service no longer follows (it restarted since): only what the record says,
+/// without its output or its terminal.
+fn recorded_view(r: &core::CommandRun, state: &core::State) -> serde_json::Value {
+    let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
+    json!({ "id": r.id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
+            "started": true, "output": "", "exit": r.exit, "watching": false, "kept": false, "focusable": false })
+}
+
+impl App {
+    /// The user's recent runs, newest first: the record's, with what this service still
+    /// follows of them (whether a pane is read, where it is).
+    fn recent_runs(&self, state: &core::State) -> Vec<snapshot::RunOut> {
+        let live = self.runs.lock().unwrap();
+        state
+            .runs
+            .iter()
+            .rev()
+            .map(|r| {
+                let here = live.get(&r.id);
+                let exit = r.exit.or(here.and_then(|x| x.exit));
+                let now = if exit.is_some() { "done" } else if here.is_some_and(|x| x.watching) { "running" } else { "unknown" };
+                snapshot::RunOut {
+                    id: r.id.clone(),
+                    command: r.command.clone(),
+                    dir: r.dir.clone(),
+                    machine: r.machine.clone(),
+                    unit: r.unit.clone(),
+                    from: r.from.clone(),
+                    step: r.step,
+                    at: r.at.clone(),
+                    state: now,
+                    exit,
+                    focusable: here.is_some_and(|x| x.place.is_some()),
+                }
+            })
+            .collect()
+    }
 }
 
 /// The user is about to run a command: where it would run and who wrote it, for the confirm
@@ -2060,10 +2109,15 @@ async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Cal
             },
         };
         let id = auth::random_hex(8).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let r = Run { command: p.command, dir, machine, unit, by, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false };
+        let step = p.from.as_ref().and(p.step);
+        let r = Run { command: p.command, dir, machine, unit, by, from: p.from, step, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false };
         let view = run_view(&id, &r, &state);
         let mut runs = app.runs.lock().unwrap();
-        runs.retain(|_, r| r.place.is_some() || r.prepared.elapsed() < CONFIRM);
+        // Kept: what waits for its confirmation, what is watched, and the recent runs' output.
+        runs.retain(|id, r| match r.place {
+            None => r.prepared.elapsed() < CONFIRM,
+            Some(_) => r.watching || state.runs.iter().any(|x| &x.id == id),
+        });
         runs.insert(id, r);
         Ok(Json(view))
     })
@@ -2105,7 +2159,7 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
         if let Some(x) = app.runs.lock().unwrap().get_mut(&c.id) {
             x.place = Some(place);
         }
-        app.record(&who, Body::CommandRan { id: c.id.clone(), command: r.command, dir: r.dir, machine: r.machine, unit: r.unit, by: r.by })
+        app.record(&who, Body::CommandRan { id: c.id.clone(), command: r.command, dir: r.dir, machine: r.machine, unit: r.unit, by: r.by, from: r.from, step: r.step })
             .map_err(|e| ApiError(e.0, format!("it runs, but could not be recorded: {}", e.1)))?;
         let watcher = app.clone();
         let id = c.id.clone();
@@ -2118,8 +2172,15 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
 /// A run: what its pane shows now, and its exit status once it ended.
 async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
-    let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
-    Ok(Json(run_view(&id, &r, app.store.lock().unwrap().state())))
+    let live = app.runs.lock().unwrap().get(&id).cloned();
+    let store = app.store.lock().unwrap();
+    let state = store.state();
+    match (live, state.runs.iter().find(|r| r.id == id)) {
+        (Some(r), _) => Ok(Json(run_view(&id, &r, state))),
+        // Recorded before this service started: its output was never read here.
+        (None, Some(r)) => Ok(Json(recorded_view(r, state))),
+        (None, None) => Err(ApiError(StatusCode::NOT_FOUND, format!("no run {id}"))),
+    }
 }
 
 /// Brings a run's terminal to the front.
@@ -2162,6 +2223,8 @@ impl App {
         if let Some(r) = self.runs.lock().unwrap().get_mut(id) {
             r.watching = false;
         }
+        // No longer followed: the page's recent runs show it (an end recorded says so too).
+        let _ = self.changed.send(());
     }
 }
 

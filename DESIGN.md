@@ -27,7 +27,9 @@ one code unit are a **research unit**: a unit like any other in the rail, with n
 repository, branch or code layer, never merged ("Ready to close" where a code unit says
 "Ready to merge"; its manager closes it). Before research units such work was recorded on the
 intent itself (`i3#1`); those tasks still work, and show on the intent's page as "Earlier
-research and design", never in the rail.
+research and design", never in the rail. A **spike** is an experiment kept as code: a unit
+with a `spike/` branch, shown like a code unit (commits, code layer) with a small "Spike" tag
+in its rail line and heading, never merged ("Ready to close", no squash or merge reminder).
 
 Three columns: the rail picks a unit, the main area shows it, the side panel holds what is
 looked at now and then.
@@ -156,6 +158,14 @@ looked at now and then.
   counts; the id is random, so the command's own output cannot fake it); "Open in terminal"
   brings that tab to the front. A tab that cannot be read for five seconds (closed, or its
   shell exited) says so. The marker needs a POSIX shell (zsh, bash, sh).
+  Under the Run section's box, **Recent runs** (the newest 20, newest first; nothing when
+  there are none): one row each with the command (monospace, one line, the whole text on
+  hover), whose step it was (`u3#4 step 2`, a chore's id, or nothing when typed there), a
+  state chip ("running" amber with the pulse, "✓ ok", "exit N" in red, "unknown" when the
+  service restarted or the terminal closed before the end was seen) and how long ago. A row
+  opens the same dialog on that run. They come in the user's snapshot only (agents never see
+  them), from the recorded runs and ends; the output lives in the service's memory, so after
+  a restart the dialog says it was not kept and offers no terminal.
 - **Commits** is every unit's commits as a git graph, newest first, like `git log --graph`
   or GitHub's network view: the base on the left as a plain neutral line labelled at its
   top with the base branch's name (its own commits are not drawn), one lane per unit branch

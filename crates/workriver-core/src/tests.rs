@@ -478,6 +478,39 @@ fn research_units_and_old_intent_level_work() {
     assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
 
+/// A spike is code on a spike/ branch of its own: it takes every kind of task and commits,
+/// moves like a code unit, is never merged, and is closed with what was learned.
+#[test]
+fn spike_units_keep_code_but_are_never_merged() {
+    let (_dir, mut s) = temp_store();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync"}})).unwrap();
+    let unit = |kind: &str, branch: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Try CRDTs", "repo": "/r", "branch": branch, "base": "main", "kind": kind}});
+    for (kind, branch, says) in [("spike", "feat/crdt", "--branch spike/crdt"), ("spike", "spike/", "a spike's branch starts with spike/"), ("spike", "main", "must not be its base"), ("code", "spike/crdt", "spike/<name> is for --kind spike")] {
+        let e = add(&mut s, "boss", unit(kind, branch)).unwrap_err();
+        assert!(e.contains(says), "{kind} {branch}: {e}");
+    }
+    add(&mut s, "boss", unit("spike", "spike/crdt")).unwrap();
+    let u = s.state().unit("u1").unwrap().clone();
+    assert_eq!((u.kind, u.branch.as_str(), u.has_code(), u.kind.merges()), (UnitKind::Spike, "spike/crdt", true, false));
+    // Every kind of task.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Prototype"}})).unwrap();
+    for (kind, extra) in [("research", json!({"title": "Measure"})), ("review", json!({})), ("tests", json!({})), ("design", json!({"title": "Shape"})), ("gate", json!({"gate": "decide", "title": "Look"}))] {
+        let mut b = json!({"unit": "u1", "kind": kind, "inputs": [{"from": "1"}]});
+        b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        add(&mut s, "boss", json!({"kind": "task.created", "body": b})).unwrap_or_else(|e| panic!("{kind}: {e}"));
+    }
+    add(&mut s, "user", json!({"kind": "commit.linked", "body": {"unit": "u1", "hash": "abc", "task": 1}})).unwrap();
+    let moved = |branch: &str| json!({"kind": "unit.relocated", "body": {"unit": "u1", "repo": "/r", "branch": branch, "base": "main"}});
+    assert!(add(&mut s, "user", moved("feat/crdt2")).unwrap_err().contains("spike/crdt2"));
+    add(&mut s, "user", moved("spike/crdt2")).unwrap();
+    let e = add(&mut s, "user", json!({"kind": "unit.merged", "body": {"unit": "u1"}})).unwrap_err();
+    assert!(e.contains("is a spike") && e.contains("workriver unit done u1 --reason \"<what was learned>\""), "{e}");
+    add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "CRDTs are 3x slower"}})).unwrap();
+    assert_eq!(s.state().progress(&s.state().unit("u1").unwrap().clone()), Progress::Done);
+    assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
+    assert_eq!(replayed(&s).unit("u1").unwrap().kind, UnitKind::Spike);
+}
+
 /// The intent's manager or the user adds a paragraph to its note; nobody else.
 #[test]
 fn a_note_grows_by_paragraphs() {

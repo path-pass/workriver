@@ -2341,6 +2341,46 @@ fn squash_merges_and_long_ready_units_are_told() {
     assert!(unit("u1")["squash"].is_null());
 }
 
+/// A spike is shown like code (its kind, its commits) but nothing about merging applies: all
+/// delivered it is ready (to close), its branch found in the base is not recorded merged, and
+/// its manager is told nothing however long it stays ready.
+#[test]
+fn spikes_are_never_merged_or_reminded_of() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "spike/crdt", "main"]);
+    std::fs::write(repo.join("bench.rs"), "x\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "Bench\n\nTask: u1#1"]);
+    git(&repo, &["switch", "-q", "main"]);
+    std::fs::write(tmp.path().join("settings.json"), r#"{"readyHours": 1}"#).unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
+    let waits = crate::serve::Waits { hour: std::time::Duration::from_secs(1), ..Default::default() };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Try CRDTs", "repo": repo.to_string_lossy(), "branch": "spike/crdt", "base": "main", "kind": "spike" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Bench it", "agent": "s-w" })).unwrap();
+    d.append("s-w", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "3x slower" })).unwrap();
+    let unit = || d.get("/api/workspace").unwrap()["intents"][0]["units"][0].clone();
+    let u = unit();
+    assert_eq!((u["kind"].as_str(), u["progress"].as_str(), u["commits"].as_array().map(Vec::len)), (Some("spike"), Some("ready"), Some(1)), "{u}");
+    // Its branch in the base (a fast-forward): still not merged.
+    git(&repo, &["merge", "-q", "--ff-only", "spike/crdt"]);
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let u = unit();
+    assert_eq!((u["progress"].as_str(), u["squash"].is_null(), u["overdue"].is_null()), (Some("ready"), true, true), "{u}");
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert!(!fake.sent.lock().unwrap().iter().any(|(t, m)| t == "s-boss" && m.contains("u1 (spike/crdt)")), "{:?}", fake.sent.lock().unwrap());
+    let u = unit();
+    assert_eq!((u["progress"].as_str(), u["merged"].is_null()), (Some("ready"), true), "{u}");
+}
+
 /// Workers left running with nothing to do: when a unit is merged its manager hears which of
 /// its workers are still running with no other task (not the manager, not one with work
 /// elsewhere); a worker idle past the threshold with no task is told of once per idle
@@ -2475,7 +2515,7 @@ fn the_user_runs_a_command() {
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Push it", "steps": [{ "text": "Push", "command": "git push origin feat/f" }] })).unwrap();
 
-    let ask = json!({ "command": "git push origin feat/f", "unit": "u1", "from": "u1#1" });
+    let ask = json!({ "command": "git push origin feat/f", "unit": "u1", "from": "u1#1", "step": 1 });
     // Nobody, and an agent (token in reach, or not), may not even prepare one.
     assert_eq!(http(port, "POST", "/api/run/prepare", &[], Some(&ask.to_string())).0, 401);
     assert!(boss.call("/api/run/prepare", Some(ask.clone())).unwrap_err().to_string().contains("only the user does this"));
@@ -2492,6 +2532,11 @@ fn the_user_runs_a_command() {
     assert!(local.shells.lock().unwrap().is_empty() && far.shells.lock().unwrap().is_empty(), "nothing ran");
     user.call("/api/run", Some(json!({ "id": id, "command": "git push origin feat/f" }))).unwrap();
     assert!(user.call("/api/run", Some(json!({ "id": id, "command": "git push origin feat/f" }))).is_err(), "a confirmation runs once");
+    // The user's recent runs: in their snapshot only, with whose step it was and its state.
+    let runs = user.get("/api/workspace").unwrap()["runs"].clone();
+    assert_eq!((runs.as_array().unwrap().len(), &runs[0]["id"], &runs[0]["from"], &runs[0]["step"], &runs[0]["state"], &runs[0]["focusable"]), (1, &json!(id), &json!("u1#1"), &json!(1), &json!("running"), &json!(true)), "{runs}");
+    assert!(boss.get("/api/workspace").unwrap().get("runs").is_none(), "an agent does not see the user's runs");
+    assert!(boss.get(&format!("/api/run/{id}")).unwrap_err().to_string().contains("only the user does this"));
     let (machine, group, dir, line) = local.shells.lock().unwrap()[0].clone();
     assert_eq!((machine, group.as_str(), dir.as_str()), (None, "workriver-commands", shown["dir"].as_str().unwrap()));
     assert_eq!(line, format!("cd -- '{dir}' && eval 'git push origin feat/f'; echo \"__workriver_end_{id}_$?__\""));
@@ -2503,8 +2548,10 @@ fn the_user_runs_a_command() {
     assert_eq!(http(port, "GET", &format!("/api/run/{id}"), &[], None).0, 401);
     let store = workriver_core::Store::open(&db).unwrap();
     let ran = store.bodies("command.ran").unwrap();
-    assert_eq!(ran, [json!({ "id": id, "command": "git push origin feat/f", "dir": dir, "unit": "u1", "by": "s-boss" })]);
+    assert_eq!(ran, [json!({ "id": id, "command": "git push origin feat/f", "dir": dir, "unit": "u1", "by": "s-boss", "from": "u1#1", "step": 1 })]);
     wait_until("the end is recorded", || workriver_core::Store::open(&db).unwrap().bodies("command.ended").unwrap() == [json!({ "id": id, "exit": 1 })]);
+    let runs = user.get("/api/workspace").unwrap()["runs"].clone();
+    assert_eq!((&runs[0]["state"], &runs[0]["exit"]), (&json!("done"), &json!(1)), "{runs}");
 
     // A unit on another machine: the shell is that machine's, through its runtime.
     // (In tests a machine's git runs here, so its repository is a folder here.)
@@ -2515,6 +2562,16 @@ fn the_user_runs_a_command() {
     user.call("/api/run", Some(json!({ "id": shown["id"], "command": "make deploy" }))).unwrap();
     assert_eq!(far.shells.lock().unwrap().len(), 1, "run over there");
     assert_eq!(local.shells.lock().unwrap().len(), 1, "not here");
+    let runs = user.get("/api/workspace").unwrap()["runs"].clone();
+    assert_eq!((&runs[0]["command"], &runs[0]["from"], &runs[1]["id"]), (&json!("make deploy"), &json!(null), &json!(id)), "newest first; typed by the user: {runs}");
+
+    // After a restart: the record's runs, their ends; what was not seen to end is unknown, and
+    // no output or terminal is kept.
+    let again = client(daemon_over(std::sync::Arc::new(Fake::default()), None, &db), tmp.path());
+    let runs = again.get("/api/workspace").unwrap()["runs"].clone();
+    assert_eq!((&runs[0]["state"], &runs[0]["focusable"], &runs[1]["state"], &runs[1]["exit"]), (&json!("unknown"), &json!(false), &json!("done"), &json!(1)), "{runs}");
+    let seen = again.get(&format!("/api/run/{id}")).unwrap();
+    assert_eq!((&seen["exit"], &seen["kept"], &seen["started"], &seen["by"]), (&json!(1), &json!(false), &json!(true), &json!("boss")), "{seen}");
 }
 
 /// The agent at `boss` registers as its workspace's manager and starts a new intent there.

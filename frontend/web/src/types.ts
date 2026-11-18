@@ -22,6 +22,26 @@ export interface Workspace {
   alerts?: MachineAlert[];
   /** The user's messages to managers, with their replies, oldest first. */
   messages?: ManagerMessage[];
+  /** The commands the user ran from the page, newest first (the user's view only). */
+  runs?: RecentRun[];
+}
+
+/** A command the user ran from the page; its output is read with `/api/run/{id}`. */
+export interface RecentRun {
+  id: string;
+  command: string;
+  dir: string;
+  machine?: string;
+  unit?: string;
+  /** Whose step it was (`u1#3`, `c2`) and which step (from 1); none: typed in the Run section. */
+  from?: string;
+  step?: number;
+  at: string;
+  /** running: its terminal is read; done: it ended (`exit`); unknown: no longer followed (the service restarted, or its terminal closed) and no end seen. */
+  state: 'running' | 'done' | 'unknown';
+  exit?: number;
+  /** Its terminal can be brought to the front. */
+  focusable: boolean;
 }
 
 /** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. */
@@ -403,8 +423,9 @@ export interface Unit {
   /** The intent's own work (research, design), recorded before research units: shown on the
    *  intent's page, with no repository or branch, and never in the rail. */
   intentLevel?: boolean;
-  /** Research and design, with no repository, branch or code; closed by hand, never merged. Absent: code. */
-  kind?: 'research';
+  /** Research and design, with no repository, branch or code; closed by hand, never merged.
+   *  Spike: an experiment with code on a spike/ branch, shown like code, never merged. Absent: code. */
+  kind?: 'research' | 'spike';
   title: string;
   /** One sentence on what the unit is for; may be empty. */
   purpose: string;

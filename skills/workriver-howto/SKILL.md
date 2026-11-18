@@ -1,6 +1,6 @@
 ---
 name: workriver-howto
-description: Exact commands for a situation under workriver - starting an intent, units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, a worker stuck on what only the user can do (a blocker), reaching the manager, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
+description: Exact commands for a situation under workriver - starting an intent, a spike (an experiment kept as code, never merged), units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, a worker stuck on what only the user can do (a blocker), reaching the manager, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
 ---
 
 # workriver: how to
@@ -17,6 +17,7 @@ copy of this file.
 |---|---|
 | `start-intent` | starting a goal from the project's backlog |
 | `units` | splitting an intent into units; research and design for the whole intent (a research unit) |
+| `spike` | finding out by trying (measure, compare, prototype), keeping the code: a spike unit, never merged |
 | `hand-off` | giving a task to a worker agent |
 | `units-other-machine` | the workers run on another machine than you |
 | `branch-moved` | a unit's branch was renamed, or rebased onto a new branch |

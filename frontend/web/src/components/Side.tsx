@@ -14,7 +14,7 @@ import type { Workspace } from '@/types'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { MachinesList } from './Machines'
-import { RunBox } from './Run'
+import { RecentRuns, RunBox } from './Run'
 import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
 
 export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'ask'
@@ -261,6 +261,7 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
         <section aria-labelledby="side-run">
           <h2 id="side-run" className="mb-2 px-2.5 text-sm font-[650]">{t('run.section')}</h2>
           <RunBox ws={ws} unit={here?.unit ?? null} project={project} />
+          <RecentRuns runs={ws.runs ?? []} />
         </section>
       ) : section === 'commits' ? (
         <section aria-labelledby="side-commits">

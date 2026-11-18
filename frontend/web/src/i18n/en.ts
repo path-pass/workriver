@@ -212,6 +212,8 @@ export const en = {
     complete: 'All units finished: the manager can close it',
     finished: 'Finished',
     previously: 'previously on {{branches}}',
+    spike: 'Spike',
+    spikeWhy: 'An experiment: its code is kept on its branch to show how, and never merged. Closed when what it found is written down.',
     squashed: 'Looks squash-merged',
     squashedWhy: 'Every change of it is already in {{into}} (commit {{commit}}): merged by squash, most likely, which git cannot show. If it was, record it with this command; its manager is told too.',
     mergedCommand: 'workriver unit merged {{unit}}',
@@ -333,7 +335,14 @@ export const en = {
     hint: 'Runs in a shell of your own, after you confirm it.',
     unit: '{{unit}} · {{title}}',
     project: 'Project: {{title}}',
-    nowhere: 'No unit or project to run in yet.'
+    nowhere: 'No unit or project to run in yet.',
+    recent: 'Recent runs',
+    fromStep: '{{from}} step {{step}}',
+    stateRunning: 'running',
+    stateOk: '✓ ok',
+    stateExit: 'exit {{code}}',
+    stateUnknown: 'unknown',
+    notKept: 'The output was not kept: the service restarted since it ran. Its terminal is in Herdr’s “workriver-commands” workspace.'
   },
   evidence: {
     label: 'Checks run',

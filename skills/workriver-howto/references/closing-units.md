@@ -13,6 +13,10 @@ A unit stands (board, `workriver task show`, the page):
   records this itself, with the unit's commits.
 - **done**: closed without a merge.
 
+Once a unit is merged or done, remove its worktree after checking nothing is left
+uncommitted there (`git -C <repo>.worktrees/<unit> status`): `git -C <repo> worktree remove
+<repo>.worktrees/<unit>`.
+
 A research unit (`units`) has no branch: it goes from ready ("ready to close") to done with
 `workriver unit done`; it is never merged.
 

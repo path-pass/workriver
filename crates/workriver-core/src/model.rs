@@ -34,10 +34,24 @@ pub enum UnitKind {
     /// Research and design for the intent: no repository of its own, no branch, never merged;
     /// closed with `unit.done`.
     Research,
+    /// An experiment (measure, compare, try an approach): code on a `spike/` branch of its
+    /// own, scanned and shown like a code unit's, but never merged; closed with `unit.done`.
+    Spike,
 }
 
 impl UnitKind {
+    /// Code on a branch of its own: a code unit or a spike.
     pub fn is_code(&self) -> bool {
+        matches!(self, UnitKind::Code | UnitKind::Spike)
+    }
+
+    /// Merged when done: a code unit. A spike and a research unit are closed with `unit.done`.
+    pub fn merges(&self) -> bool {
+        *self == UnitKind::Code
+    }
+
+    /// The default kind, left out when written.
+    fn is_default(&self) -> bool {
         *self == UnitKind::Code
     }
 }
@@ -720,7 +734,7 @@ pub enum Body {
         /// The machine the repository is on; none: this one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
-        #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+        #[serde(default, skip_serializing_if = "UnitKind::is_default")]
         kind: UnitKind,
     },
     /// Finished without a merge.
@@ -853,6 +867,12 @@ pub enum Body {
         /// Who wrote it (an agent's session, or "user").
         #[serde(default)]
         by: String,
+        /// Whose step it was: a task (`u1#3`) or a chore (`c2`); none: typed by the user.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+        /// Which of that task's or chore's steps (from 1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<u32>,
     },
     /// Such a command ended, with its exit status, as workriver saw it end.
     #[serde(rename = "command.ended")]
@@ -1055,6 +1075,31 @@ pub struct State {
     /// Not the records but a part of them: what an agent on a blind task may see.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reduced: bool,
+    /// The newest commands the user ran from the page (at most `RUNS_KEPT`), oldest first.
+    /// Never serialized: only the user sees them, and the service adds them to the user's
+    /// view itself.
+    #[serde(skip)]
+    pub runs: Vec<CommandRun>,
+}
+
+/// How many of the latest command runs the state keeps.
+pub const RUNS_KEPT: usize = 20;
+
+/// A command the user ran from the page, as recorded, with its exit once it was seen.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct CommandRun {
+    pub id: String,
+    pub command: String,
+    pub dir: String,
+    pub machine: Option<String>,
+    pub unit: Option<String>,
+    /// Who wrote it: an agent's session, or "user".
+    pub by: String,
+    /// Whose step it was (`u1#3`, `c2`) and which step (from 1); none: typed by the user.
+    pub from: Option<String>,
+    pub step: Option<u32>,
+    pub at: String,
+    pub exit: Option<i32>,
 }
 
 /// A stored file. Never deleted, like the records.
@@ -1223,7 +1268,7 @@ pub struct Unit {
     /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done: Option<Closed>,
-    #[serde(default, skip_serializing_if = "UnitKind::is_code")]
+    #[serde(default, skip_serializing_if = "UnitKind::is_default")]
     pub kind: UnitKind,
 }
 
@@ -1941,7 +1986,7 @@ impl State {
                     }
                 }
                 // A branch named before the rule keeps its name while only the rest moves.
-                unit_branch(&branch, &base, branch != u.branch)?;
+                unit_branch(&branch, &base, branch != u.branch, u.kind)?;
                 UnitRelocated { unit, machine, repo, branch, base, previous }
             }
             CommitLinked { unit, hash, patch_id, subject, date, task } => {
@@ -2015,13 +2060,16 @@ impl State {
                         return no(format!("a unit needs a {field}"));
                     }
                 }
-                unit_branch(&branch, &base, true)?;
+                unit_branch(&branch, &base, true, kind)?;
                 self.may_place(who, &intent, machine.as_deref())?;
                 UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
             }
             UnitMerged { unit, commits } => {
                 let u = self.unit(&unit)?;
-                if !u.kind.is_code() {
+                if u.kind == UnitKind::Spike {
+                    return no(format!("unit {unit} is a spike: it is never merged; close it with `workriver unit done {unit} --reason \"<what was learned>\"`"));
+                }
+                if !u.kind.merges() {
                     return no(format!("unit {unit} is a research unit: it is never merged; close it with `workriver unit done {unit} --reason \"...\"`"));
                 }
                 if u.merged.is_some() {
@@ -2220,14 +2268,14 @@ impl State {
                 }
                 AttachmentAdded { id, name, mime, size, unit, task, finding }
             }
-            CommandRan { id, command, dir, machine, unit, by } => {
+            CommandRan { id, command, dir, machine, unit, by, from, step } => {
                 if blank(&id) || blank(&command) || blank(&dir) {
                     return no("a command run needs its id, its text and its directory");
                 }
                 if let Some(u) = &unit {
                     self.unit(u)?;
                 }
-                CommandRan { id, command, dir, machine, unit, by }
+                CommandRan { id, command, dir, machine, unit, by, from, step }
             }
             CommandEnded { id, exit } => {
                 if *who != Principal::Service {
@@ -2904,8 +2952,17 @@ impl State {
                     }
                 }
             }
-            // In the record only: what ran is read from the events, nothing on the page keeps it.
-            CommandRan { .. } | CommandEnded { .. } => {}
+            // The latest few only (the user's recent runs); never their output.
+            CommandRan { id, command, dir, machine, unit, by, from, step } => {
+                self.runs.push(CommandRun { id: id.clone(), command: command.clone(), dir: dir.clone(), machine: machine.clone(), unit: unit.clone(), by: by.clone(), from: from.clone(), step: *step, at: at.clone(), exit: None });
+                let over = self.runs.len().saturating_sub(RUNS_KEPT);
+                self.runs.drain(..over);
+            }
+            CommandEnded { id, exit } => {
+                if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
+                    r.exit = Some(*exit);
+                }
+            }
             DeliveryUpdated { chore: Some(c), delivery, .. } => {
                 if let Some(x) = self.chores.iter_mut().find(|x| &x.id == c) {
                     x.delivery = Some(delivery.clone());
@@ -3114,14 +3171,20 @@ impl State {
 const BRANCH_PREFIXES: [&str; 3] = ["feat/", "chore/", "fix/"];
 
 /// A unit's branch is its own: never its base (that would count everyone's commits on it as
-/// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name. Checked when an
-/// event is written, never on replay: units named before the rule keep loading.
-fn unit_branch(branch: &str, base: &str, named: bool) -> Result<(), Rejected> {
+/// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name (a spike's:
+/// `spike/` and a name, which no other unit takes). Checked when an event is written, never
+/// on replay: units named before the rule keep loading.
+fn unit_branch(branch: &str, base: &str, named: bool, kind: UnitKind) -> Result<(), Rejected> {
     if branch == base || base.strip_prefix("origin/") == Some(branch) {
         return no(format!("a unit's branch must not be its base ({base}): create the unit's own branch from {base} (git switch -c feat/<name> {base}) and give that: --branch feat/<name>"));
     }
-    if named && !BRANCH_PREFIXES.iter().any(|p| branch.strip_prefix(p).is_some_and(|rest| !rest.is_empty())) {
-        return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest); {branch} does not: name it so, e.g. --branch feat/{}", branch.rsplit('/').next().unwrap_or(branch)));
+    let named_with = |p: &str| branch.strip_prefix(p).is_some_and(|rest| !rest.is_empty());
+    let name = branch.rsplit('/').next().unwrap_or(branch);
+    if named && kind == UnitKind::Spike && !named_with("spike/") {
+        return no(format!("a spike's branch starts with spike/ and a name; {branch} does not: name it so, e.g. --branch spike/{name}"));
+    }
+    if named && kind != UnitKind::Spike && !BRANCH_PREFIXES.iter().any(|p| named_with(p)) {
+        return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest; spike/<name> is for --kind spike); {branch} does not: name it so, e.g. --branch feat/{name}"));
     }
     Ok(())
 }

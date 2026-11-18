@@ -432,6 +432,7 @@ export default function App() {
                   <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span>{unit.title}</span>
                   <CopyButton text={linkTo(pathOf(unit.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
                   {unit.branch && <span className="max-w-full min-w-0 truncate font-mono text-xs font-normal tracking-normal text-ink-2" title={unit.branch}>{unit.branch}</span>}
+                  {unit.kind === 'spike' && <span className="tag font-normal tracking-normal" title={t('unit.spikeWhy')}>{t('unit.spike')}</span>}
                   <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} />
                   <Progress unit={unit} />
                   {unit.squash && unit.progress === 'ready' && <Squashed unit={unit} />}

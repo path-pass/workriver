@@ -129,7 +129,7 @@ export function CopyButton({ text, label, aria, className }: { text: string; lab
  * What an agent prepared for the user to do by hand: the same for a gate and for a chore.
  * With `onRun`, each command also has "Run", which asks to run it as the user.
  */
-export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string) => void }) {
+export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string, step: number) => void }) {
   const { t } = useT()
   return (
     <ol className="steps">
@@ -142,7 +142,7 @@ export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: strin
               <CopyButton text={s.command} />
               {onRun && (
                 <Tip text={t('run.buttonFor', { command: s.command })}>
-                  <Button variant="ghost" size="xs" className="flex-none rounded-sm" aria-label={t('run.buttonFor', { command: s.command })} onClick={() => onRun(s.command!)}>
+                  <Button variant="ghost" size="xs" className="flex-none rounded-sm" aria-label={t('run.buttonFor', { command: s.command })} onClick={() => onRun(s.command!, k + 1)}>
                     <Icon name="play" className="size-3" />{t('run.button')}
                   </Button>
                 </Tip>
@@ -252,8 +252,8 @@ export function Progress({ unit }: { unit: Unit }) {
   const { t } = useT()
   const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
   if (!p) return null
-  // Research is never merged: ready, it is closed.
-  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind === 'research' ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
+  // Research and spikes are never merged: ready, they are closed.
+  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
   return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
 }
 

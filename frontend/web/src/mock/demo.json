@@ -3397,6 +3397,98 @@
      "commits": []
     },
     {
+     "id": "list-bench",
+     "kind": "spike",
+     "title": "试一试：不用虚拟列表，只用 content-visibility",
+     "purpose": "量一量浏览器自带的 content-visibility 能不能代替虚拟列表。",
+     "repo": "demo",
+     "branch": "spike/list-bench",
+     "base": "main",
+     "status": "active",
+     "progress": "ready",
+     "tasks": [
+      {
+       "id": "s1",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "1",
+       "title": "用 content-visibility 做一版消息列表，加上测量脚本",
+       "agent": "agent-I",
+       "writing": false,
+       "raisedBy": "plan",
+       "started": "2026-10-27 10:00",
+       "delivered": "2026-10-27 16:40",
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "消息列表的每条加 content-visibility: auto，写一个脚本量十万条消息时的首屏时间和滚动帧率。",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "b7c8d9e0f"
+        ],
+        "evidence": [
+         {
+          "command": "node bench/list.mjs",
+          "result": "passed",
+          "summary": "首屏 1.8 s，滚动 41 帧"
+         }
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "s2",
+       "kind": "implement",
+       "state": "done",
+       "taskId": "2",
+       "title": "写下测出来的数字",
+       "agent": "agent-I",
+       "writing": false,
+       "raisedBy": "plan",
+       "started": "2026-10-27 16:50",
+       "delivered": "2026-10-27 17:30",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "和现在的列表比，给出结论。",
+        "causes": []
+       },
+       "output": {
+        "note": "十万条消息：首屏 1.8 秒（现在 4.2 秒），滚动 41 帧（现在 18 帧）。比现在好，但离 300 毫秒和 60 帧还远，还是要做虚拟列表。"
+       },
+       "plans": [],
+       "research": true
+      }
+     ],
+     "commits": [
+      {
+       "id": "b7c8d9e0f",
+       "subject": "spike(list): content-visibility and a benchmark",
+       "date": "2026-10-27 16:30",
+       "author": "agent-I",
+       "live": false,
+       "files": [
+        {
+         "path": "bench/list.mjs",
+         "status": "A",
+         "before": null,
+         "after": "// Opens a channel of 100k messages and reports first paint and scroll frame rate.\nimport { measure } from './measure.mjs'\n\nconst r = await measure({ messages: 100_000, scroll: 5_000 })\nconsole.log(`first paint ${r.firstPaint} ms, scroll ${r.fps} fps`)\n"
+        }
+       ]
+      }
+     ]
+    },
+    {
      "id": "virtual-list",
      "title": "长消息列表只渲染看得见的部分",
      "purpose": "上千条消息的频道滚动不再卡顿。",
@@ -3736,6 +3828,50 @@
   {
    "id": "w7",
    "label": "sandbox"
+  }
+ ],
+ "runs": [
+  {
+   "id": "a1f0c3d2",
+   "command": "npm run deploy -- --env staging",
+   "dir": "demo",
+   "unit": "mention",
+   "from": "mention#g13|deploy",
+   "step": 2,
+   "at": "2026-11-15 20:46",
+   "state": "running",
+   "focusable": true
+  },
+  {
+   "id": "b72e9d41",
+   "command": "git worktree list",
+   "dir": "demo",
+   "from": "c1",
+   "step": 1,
+   "at": "2026-11-15 20:31",
+   "state": "done",
+   "exit": 0,
+   "focusable": true
+  },
+  {
+   "id": "c5d18a07",
+   "command": "npm run build:mobile -- --device",
+   "dir": "demo",
+   "unit": "mention",
+   "from": "mention#g6|test",
+   "step": 1,
+   "at": "2026-11-15 19:58",
+   "state": "done",
+   "exit": 1,
+   "focusable": true
+  },
+  {
+   "id": "d9e3b6f5",
+   "command": "cargo test -p search -- --nocapture --test-threads=1 ranking::boosts_recent_messages",
+   "dir": "demo",
+   "at": "2026-11-15 18:12",
+   "state": "unknown",
+   "focusable": false
   }
  ]
 }

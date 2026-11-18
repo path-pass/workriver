@@ -449,11 +449,16 @@ enum UnitCmd {
     /// `--kind research`: research and design for the intent, with no repository, branch or
     /// machine (leave those out). It takes research, design, review and gate tasks, is never
     /// merged, and is closed with `workriver unit done` once its work is delivered and decided.
+    ///
+    /// `--kind spike`: an experiment (measure, compare, try an approach) whose code is kept on
+    /// a branch of its own, spike/<name>, and shown like a code unit's, but never merged; it
+    /// takes every task kind and is closed with `workriver unit done --reason "<what was learned>"`.
     Add {
         /// The intent it serves (i1…); default: the current intent of this Herdr workspace.
         intent: Option<String>,
-        /// code: work on a branch of its own; research: research and design, no branch.
-        #[arg(long, value_parser = ["code", "research"], default_value = "code")]
+        /// code: work on a branch of its own; research: research and design, no branch;
+        /// spike: an experiment on a spike/ branch, never merged.
+        #[arg(long, value_parser = ["code", "research", "spike"], default_value = "code")]
         kind: String,
         #[arg(long)]
         title: String,
@@ -464,7 +469,8 @@ enum UnitCmd {
         #[arg(long)]
         repo: Option<String>,
         /// The unit's own branch, where the work happens; it may not exist yet. It starts
-        /// with feat/, chore/ or fix/ (feat/mention) and is not the base. Needed for code.
+        /// with feat/, chore/ or fix/ (feat/mention), or spike/ for --kind spike, and is not
+        /// the base. Needed for code and spikes.
         #[arg(long)]
         branch: Option<String>,
         /// The branch it starts from and merges into; default: main.
@@ -479,7 +485,7 @@ enum UnitCmd {
     /// Record that a unit's branch was merged. Not needed after a fast-forward or a merge
     /// commit: workriver sees those and records them itself; a squash merge it cannot see.
     Merged { unit: String },
-    /// Close a unit finished without a merge: research done, abandoned, superseded. By the
+    /// Close a unit finished without a merge: research or spike done, abandoned, superseded. By the
     /// manager of its intent, or the user.
     Done {
         unit: String,
@@ -1110,7 +1116,7 @@ fn main() -> anyhow::Result<()> {
             let intent = here_intent(intent)?;
             d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "kind": "research" }))?
         }
-        Cmd::Unit(UnitCmd::Add { intent, title, purpose, repo, branch, base, machine, .. }) => {
+        Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) => {
             let (repo, branch, base) = (repo.unwrap_or_else(|| ".".into()), branch.unwrap_or_default(), base.unwrap_or_else(|| "main".into()));
             let intent = here_intent(intent)?;
             // On another machine the path is that machine's: taken as written, checked there.
@@ -1119,7 +1125,7 @@ fn main() -> anyhow::Result<()> {
                 Some(_) => json!(repo),
                 None => json!(std::fs::canonicalize(&repo).with_context(|| format!("no folder {repo}"))?),
             };
-            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine }))?
+            d.append(actor, "unit.created", json!({ "intent": intent, "title": title, "purpose": purpose, "repo": repo, "branch": branch, "base": base, "machine": machine, "kind": kind }))?
         }
         Cmd::Unit(UnitCmd::Move { unit, machine, repo, branch, base }) => {
             if machine.is_none() && repo.is_none() && branch.is_none() && base.is_none() {
@@ -1892,7 +1898,11 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
             let why = u.done.as_ref().filter(|d| !d.reason.is_empty()).map(|d| format!(" ({})", d.reason)).unwrap_or_default();
             // Where the work is, as whoever does it sees it: the machine, the path and the branch there.
             let on = u.machine.as_ref().map(|m| format!("on {m}: ")).unwrap_or_default();
-            let place = if u.kind.is_code() { format!("{on}{}, branch {} from {}", u.repo, u.branch, u.base) } else { "research, no branch: close it with `workriver unit done`".into() };
+            let place = match u.kind {
+                core::UnitKind::Code => format!("{on}{}, branch {} from {}", u.repo, u.branch, u.base),
+                core::UnitKind::Spike => format!("{on}{}, branch {} from {}; spike, never merged: close it with `workriver unit done`", u.repo, u.branch, u.base),
+                core::UnitKind::Research => "research, no branch: close it with `workriver unit done`".into(),
+            };
             let _ = writeln!(out, "  {} {}  [{place}]  {progress}{why}", u.id, u.title);
             link(&mut out, "    ", &u.id);
             // Its machine is disconnected: what is shown is as last read, and nothing waited on it.

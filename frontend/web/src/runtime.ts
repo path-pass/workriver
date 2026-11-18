@@ -3,7 +3,7 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Sent, Task, Thresholds, Turn, Unit } from './types'
+import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Sent, Task, Thresholds, Turn, Unit, Workspace } from './types'
 
 /** Sent on the window when the service says this page is not the user (any more). */
 export const SIGNED_OUT = 'workriver:signed-out'
@@ -326,10 +326,14 @@ export async function startIntent(intent: string, workspace: string, manager?: s
 /** A command to run as the user, and where: a unit's work tree, or a project's folder. */
 export interface RunAsk {
   command: string
+  /** A run already made (from the recent runs): shown, not prepared again. */
+  id?: string
   unit?: string
   project?: string
   /** Whose step it is: a task (`u1#3`) or a chore (`c2`); none: the user's own. */
   from?: string
+  /** Which of its steps (from 1). */
+  step?: number
   /** For the sample only: who wrote it, the folder and machine it would run in. */
   by?: string
   dir?: string
@@ -349,6 +353,10 @@ export interface RunView {
   exit: number | null
   /** Its pane is still read. */
   watching: boolean
+  /** False: recorded before the service restarted; its output was not kept. */
+  kept?: boolean
+  /** Its terminal can be brought to the front. */
+  focusable?: boolean
 }
 
 // The sample makes runs up, in memory.
@@ -361,7 +369,7 @@ export async function prepareRun(a: RunAsk): Promise<RunView> {
     mockRuns.set(r.id, r)
     return r
   }
-  return call('/api/run/prepare', { command: a.command, unit: a.unit, project: a.project, from: a.from })
+  return call('/api/run/prepare', { command: a.command, unit: a.unit, project: a.project, from: a.from, step: a.step })
 }
 
 /** Runs what was prepared, with the exact text the user confirmed. */
@@ -377,9 +385,15 @@ export async function runCommand(id: string, command: string): Promise<void> {
 /** What a run's pane shows now, and its exit status once it ended. */
 export async function readRun(id: string): Promise<RunView> {
   if (MOCK) {
-    const r = mockRuns.get(id)!
-    const k = Math.floor((Date.now() - r.at) / 1000)
     const lines = ['Enumerating objects: 9, done.', 'Writing objects: 100% (5/5), 612 bytes | 612.00 KiB/s, done.', 'To example.com:demo.git', '   1a2b3c4..5d6e7f8  HEAD -> feat/branch']
+    const r = mockRuns.get(id)
+    if (!r) {
+      // One of the sample's recent runs.
+      const s = ((await import('./mock/demo.json')).default as unknown as Workspace).runs!.find(x => x.id === id)!
+      const kept = s.state !== 'unknown'
+      return { id, command: s.command, dir: s.dir, machine: s.machine ?? null, by: s.from ? 'agent-A' : 'user', started: true, output: kept ? lines.slice(0, s.state === 'running' ? 2 : 4).join('\n') : '', exit: s.exit ?? null, watching: s.state === 'running', kept, focusable: s.focusable }
+    }
+    const k = Math.floor((Date.now() - r.at) / 1000)
     return { ...r, output: lines.slice(0, k).join('\n'), exit: k > lines.length ? 0 : null, watching: k <= lines.length }
   }
   const res = await fetch(`/api/run/${encodeURIComponent(id)}`)

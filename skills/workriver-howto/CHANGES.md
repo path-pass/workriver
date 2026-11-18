@@ -4,6 +4,17 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
+- **Spike units** (managers): an experiment whose code is kept but never merged: `workriver
+  unit add --kind spike --branch spike/<topic> …`, its own worktree like a code unit, any
+  kind of task (implement for the code, research for the write-up with the numbers in
+  `--note`). Never "ready to merge" and never reminded of a merge; `unit merged` is refused.
+  Close it with `workriver unit done <u> --reason "<what was learned>"`. A code unit's branch
+  may not start with `spike/`. (`spike`, `units`)
+- **One worktree per code unit** (managers): make it when you add the unit, next to the
+  repository (`git -C <repo> worktree add <repo>.worktrees/<unit> -b feat/<name>
+  origin/main`); the unit still names the repository. Hand the worker that folder, never the
+  repository's own, which stays on the base; remove the worktree once the unit is merged or
+  done. (`units`, `hand-off`, `closing-units`)
 - **Stuck on the user: a blocker, not a chore** (workers, managers): a task that cannot go
   on until the user does something (a refused command, a missing permission or login) gets a
   gate put before it at once: `workriver task add u2 --kind gate --gate test --blocks 5
