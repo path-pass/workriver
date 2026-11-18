@@ -7,10 +7,17 @@ import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAle
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
 
-/** A file with its texts: the hunks and line counts are worked out from them. */
+/**
+ * A file with its texts. Its diff lines are worked out when first read, which is when its diff
+ * is drawn: diffing every file of a big unit up front held its first showing for half a
+ * second. The line counts are the service's (a minimal diff, as here); the sample has none.
+ */
 const withLines = (f: FileChange): FileChange => {
   const before = f.before ?? null, after = f.after ?? null
-  return { ...f, before, after, ...changeOf(before, after) }
+  let lines: string[] | undefined
+  const out = { ...f, before, after }
+  if (f.add === undefined || f.del === undefined) { const c = changeOf(before, after); Object.assign(out, { add: c.add, del: c.del }); lines = c.lines }
+  return Object.defineProperty(out, 'lines', { get: () => (lines ??= changeOf(before, after).lines), enumerable: true })
 }
 
 /**
@@ -640,6 +647,7 @@ export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta 
 // again on every pick made picking a task in a big unit take up to a second.
 const counts = new WeakMap<FileChange, WeakMap<FileChange, { add: number; del: number }>>()
 function counted(first: FileChange, last: FileChange) {
+  if (first === last) return first
   let to = counts.get(first)
   if (!to) counts.set(first, (to = new WeakMap()))
   let c = to.get(last)

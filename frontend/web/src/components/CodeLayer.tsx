@@ -69,7 +69,7 @@ function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
   // diff2html escapes the diff's text itself; its output is markup, not repository content.
   // Its own file list is left out: the tree is the list.
   const body = useMemo(
-    () => (near && file.lines.length ? html(unified(file), { drawFileList: false, outputFormat: 'line-by-line', matching: 'lines', diffStyle: 'word' }) : ''),
+    () => (near && (file.add || file.del) ? html(unified(file), { drawFileList: false, outputFormat: 'line-by-line', matching: 'lines', diffStyle: 'word' }) : ''),
     [file, near],
   )
   const head = (
@@ -81,15 +81,18 @@ function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
       </span>
     </>
   )
-  const gutter = { '--ln': `${digits(file.lines)}ch` } as CSSProperties
-  if (!file.lines.length) return <div className="fview"><div className="fhead">{head}</div></div>
+  // A diff's lines are worked out when first read: only for a diff drawn.
+  const gutter = () => ({ '--ln': `${digits(file.lines)}ch` }) as CSSProperties
+  if (!file.add && !file.del) return <div className="fview"><div className="fhead">{head}</div></div>
   // The whole file is one view; it does not fold away.
-  if (whole) return <div className="fview"><div className="fhead">{head}</div><div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /></div>
+  if (whole) return <div className="fview"><div className="fhead">{head}</div><div className="diff" style={gutter()} dangerouslySetInnerHTML={{ __html: body }} /></div>
   return (
     <Collapsible className="fview" defaultOpen>
       <CollapsibleTrigger className="fhead"><Icon name="chev" className="chev" />{head}</CollapsibleTrigger>
       <CollapsibleContent>
-        {body ? <div className="diff" style={gutter} dangerouslySetInnerHTML={{ __html: body }} /> : <div ref={spot} style={{ height: file.lines.length * ROW_PX }} />}
+        {/* Not drawn yet: its changed lines and one hunk's context, about; the browser keeps
+            what is in view in place when the drawn diff turns out taller. */}
+        {body ? <div className="diff" style={gutter()} dangerouslySetInnerHTML={{ __html: body }} /> : <div ref={spot} style={{ height: (file.add + file.del + 7) * ROW_PX }} />}
       </CollapsibleContent>
     </Collapsible>
   )
