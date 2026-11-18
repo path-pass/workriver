@@ -33,8 +33,10 @@ function prepare(ws: Workspace): Workspace {
 /** A unit's file texts, by commit id and path, as of its `code`. */
 export interface UnitCode { code: string; files: Map<string, FileChange> }
 const fileKey = (commit: string, path: string) => `${commit}\0${path}`
-// The units looked at in this sitting, each as last read.
+// The units looked at last, each as last read: a unit's texts can be tens of MB, so only the
+// last few are kept (going back and forth between two stays instant).
 const codes = new Map<string, UnitCode>()
+const KEEP_CODES = 2
 
 /**
  * A unit's file texts, read when its code is shown; read again only once its `code` changed,
@@ -42,6 +44,9 @@ const codes = new Map<string, UnitCode>()
  */
 export async function loadCode(unit: Unit): Promise<UnitCode> {
   const had = codes.get(unit.id)
+  // Read again or not, it is now the latest looked at.
+  codes.delete(unit.id)
+  if (had) codes.set(unit.id, had)
   if (had && had.code === (unit.code ?? '')) return had
   const have = unit.commits.filter(c => !c.live && had?.files.has(fileKey(c.id, c.files[0]?.path ?? ''))).map(c => c.id)
   const res = await fetch(`/api/unit/${encodeURIComponent(unit.id)}/code${have.length ? `?have=${have.join(',')}` : ''}`)
@@ -51,7 +56,9 @@ export async function loadCode(unit: Unit): Promise<UnitCode> {
   const files = new Map([...(had?.files ?? [])].filter(([k]) => kept.has(k.slice(0, k.indexOf('\0')))))
   for (const c of got.commits) for (const f of c.files) files.set(fileKey(c.id, f.path), withLines(f))
   const code = { code: got.code ?? '', files }
+  codes.delete(unit.id)
   codes.set(unit.id, code)
+  for (const old of [...codes.keys()].slice(0, -KEEP_CODES)) codes.delete(old)
   return code
 }
 

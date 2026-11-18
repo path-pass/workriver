@@ -43,29 +43,34 @@ function digits(lines: string[]): number {
 }
 
 /**
- * Whether the element has come within a few screens of the view; stays true after. A unit's
- * list can hold hundreds of diffs (one unit: 120,000 elements, a second per pick when all
- * were drawn), so each is drawn only once it comes near.
+ * Whether the element is within a few screens of the view, and the height it last had there.
+ * A unit's list can hold hundreds of diffs (one unit: 120,000 elements, a second per pick and
+ * hundreds of MB when all were drawn), so a diff is drawn only while it is near.
  */
-function useNear(skip: boolean) {
-  const [near, setNear] = useState(skip)
+function useNear() {
+  const [at, setAt] = useState<{ near: boolean; height: number | null }>({ near: false, height: null })
   const seen = useRef<IntersectionObserver>(null)
   // A callback ref: the spot comes and goes as the file is folded and opened.
   const ref = useCallback((el: HTMLDivElement | null) => {
     seen.current?.disconnect()
     if (!el) return
-    seen.current = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setNear(true); seen.current?.disconnect() } }, { rootMargin: '2000px 0px' })
+    seen.current = new IntersectionObserver(([e]) => {
+      // Leaving: the diff is still drawn, so this is the space to hold once it is not.
+      setAt(a => (e.isIntersecting ? { ...a, near: true } : { near: false, height: e.boundingClientRect.height || a.height }))
+    }, { rootMargin: '2000px 0px' })
     seen.current.observe(el)
   }, [])
-  return [ref, near] as const
+  return [ref, at.near, at.height] as const
 }
 
-// One row of diff2html's table, measured (13px mono): what a diff not yet drawn holds open.
+// One row of diff2html's table, measured (13px mono): what a diff never drawn holds open.
 const ROW_PX = 20.7
 
-function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
+/** A file's diff; `keep` keeps it drawn away from the view (it has picked lines). */
+function FileDiff({ file, whole = false, keep = false }: { file: Change; whole?: boolean; keep?: boolean }) {
   const { t, num } = useT()
-  const [spot, near] = useNear(whole)
+  const [spot, isNear, held] = useNear()
+  const near = whole || keep || isNear
   // diff2html escapes the diff's text itself; its output is markup, not repository content.
   // Its own file list is left out: the tree is the list.
   const body = useMemo(
@@ -90,9 +95,12 @@ function FileDiff({ file, whole = false }: { file: Change; whole?: boolean }) {
     <Collapsible className="fview" defaultOpen>
       <CollapsibleTrigger className="fhead"><Icon name="chev" className="chev" />{head}</CollapsibleTrigger>
       <CollapsibleContent>
-        {/* Not drawn yet: its changed lines and one hunk's context, about; the browser keeps
-            what is in view in place when the drawn diff turns out taller. */}
-        {body ? <div className="diff" style={gutter()} dangerouslySetInnerHTML={{ __html: body }} /> : <div ref={spot} style={{ height: (file.add + file.del + 7) * ROW_PX }} />}
+        {/* Not drawn: the height it had when last drawn, or, never drawn, its changed lines
+            and one hunk's context, about; the browser keeps what is in view in place when a
+            drawn diff turns out taller. */}
+        <div ref={spot}>
+          {body ? <div className="diff" style={gutter()} dangerouslySetInnerHTML={{ __html: body }} /> : <div style={{ height: held ?? (file.add + file.del + 7) * ROW_PX }} />}
+        </div>
       </CollapsibleContent>
     </Collapsible>
   )
@@ -432,7 +440,7 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
                 <div className="text-sm font-semibold wrap-anywhere">{c.live ? t('io.uncommitted') : c.subject}</div>
                 <div className="mb-2 font-mono text-xs text-ink-2">{[c.live ? '' : c.id, date(c.date), c.author].filter(Boolean).join(' · ')}</div>
                 <div className="flex flex-col gap-2">
-                  {files.slice(0, limit).map(f => <Pickable key={f.path} path={f.path} commit={k} lines={lines} onLines={onLines} onAsk={onAsk}><FileDiff file={f} /></Pickable>)}
+                  {files.slice(0, limit).map(f => <Pickable key={f.path} path={f.path} commit={k} lines={lines} onLines={onLines} onAsk={onAsk}><FileDiff file={f} keep={lines?.path === f.path && lines.commit === k} /></Pickable>)}
                   {files.length > limit && <div className="text-xs text-ink-2">{t('code.moreFiles', { count: files.length - limit })}</div>}
                 </div>
               </div>
