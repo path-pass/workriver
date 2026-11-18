@@ -861,7 +861,7 @@ impl App {
         if let Some(place) = caller.place.as_deref().filter(|_| caller.machine.is_none())
             && self.runtime.locate(None, place).is_ok_and(|at| at.agent.is_some())
         {
-            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's".into()));
+            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command".into()));
         }
         match (&caller.machine, caller.user) {
             (None, true) => Ok(Principal::User),

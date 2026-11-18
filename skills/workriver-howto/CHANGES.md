@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-18
 
+- **What only the user runs, the user runs in a terminal of its own** (managers, workers):
+  `workriver project add`, `machine add`, `workspace link` and the like are refused from an
+  agent's pane, and so is `!` in your session (it runs in your pane). Ask the user to run
+  the exact line in a new terminal window or a Herdr pane with no agent. (manager guide,
+  `machines`, backlog import)
 - **A manager can start a message to the user** (managers): `workriver say --text "…"` puts
   it in your workspace's conversation in the page and in the user's Needs you until read
   (replies too now show there). For what the user should know without acting: a milestone, a
