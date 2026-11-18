@@ -385,7 +385,10 @@
   .thread-row .thread-state[data-state="waiting"] { background: var(--amber-bg); color: var(--amber-ink); }
   .thread-row .thread-state[data-state="failed"] { color: var(--del); }
   /* A chat scrolls on its own, in whatever height it is given. */
-  .chat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; border-radius: 6px; }
+  /* Relative: what is placed absolutely inside (a chip's screen-reader name) is placed in
+     here and scrolls and clips with the chat. Placed by the sticky panel instead, it stood at
+     the end of a long chat and made the whole page that long, empty below. */
+  .chat-scroll { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 2px 8px; border-radius: 6px; }
   .chat-scroll:focus-visible { outline: 2px solid var(--you); outline-offset: -2px; }
   .chat { display: flex; flex-direction: column; gap: 12px; }
   /* The user's (or asking agent's) words on the right, on their own ground; the answer on the left. */

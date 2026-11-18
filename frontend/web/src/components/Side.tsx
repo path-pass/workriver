@@ -9,7 +9,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { agentTree, baseName, nodeLabel, commitGraph, commitStats, laneTone, ms, type GraphRow, type Pick, type TreeAgent } from '@/data'
 import { useT } from '@/i18n'
-import { useKeepScroll } from '@/lib/useKeepScroll'
 import { useResize } from '@/lib/useResize'
 import type { Workspace } from '@/types'
 import { BacklogList } from './Backlog'
@@ -283,9 +282,7 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
 /** Ask keeps its box at the bottom, so it scrolls inside itself; the others scroll whole. */
 function Body(props: ContentProps) {
   if (props.section === 'ask') return props.ask
-  // Scrolling stops at the panel's ends: passed on, a Mac's rubber band dragged the whole
-  // page, this panel pinned to the window with it, over empty space.
-  return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]]:overscroll-contain [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
+  return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
 }
 
 /** The buttons work as a switch: one section at a time; the open one again folds it. */
@@ -315,15 +312,14 @@ export function SidePanel({ section, onSection, onClose, onWidth, ...content }: 
   // The left edge drags the width; double-click: the default.
   const size = useResize({ key: 'workriver.side.width', variable: '--side-w', def: 340, min: 280, max: 720, edge: 'left' })
   useEffect(() => onWidth?.(size.width), [onWidth, size.width])
-  const keep = useKeepScroll<HTMLElement>()
   if (!section)
     return (
-      <aside ref={keep} className="sticky top-0 flex h-screen w-11 flex-col items-center gap-1 border-l border-line bg-surface pt-3 max-[860px]:hidden">
+      <aside className="sticky top-0 flex h-screen w-11 flex-col items-center gap-1 border-l border-line bg-surface pt-3 max-[860px]:hidden">
         <SideButtons active={null} onPick={onSection} />
       </aside>
     )
   return (
-    <aside ref={keep} className="sticky top-0 flex h-screen w-[var(--side-w,340px)] flex-col border-l border-line bg-surface max-[860px]:hidden">
+    <aside className="sticky top-0 flex h-screen w-[var(--side-w,340px)] flex-col border-l border-line bg-surface max-[860px]:hidden">
       <div {...size.handle} aria-label={t('side.resize')} className="edge" data-edge="left" />
       <div className="flex items-center gap-1 px-2 pt-3 pb-2">
         <SideButtons active={section} onPick={onSection} />
