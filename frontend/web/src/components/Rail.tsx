@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, blockedAgents, intentQuietSince, noCode, quietSince, repoOf, unitsOf } from '@/data'
 import { useT } from '@/i18n'
 import { linkTo, pathOf } from '@/link'
+import { useKeepScroll } from '@/lib/useKeepScroll'
 import { useResize } from '@/lib/useResize'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
@@ -371,9 +372,10 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
     const k = setTimeout(() => setError(''), 6000)
     return () => clearTimeout(k)
   }, [error])
+  const keep = useKeepScroll<HTMLElement>()
   if (!railOpen)
     return (
-      <aside className="rail sticky top-0 flex h-screen w-11 flex-col items-center gap-2 bg-rail pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto max-[860px]:flex-row max-[860px]:px-3 max-[860px]:py-2">
+      <aside ref={keep} className="rail sticky top-0 flex h-screen w-11 flex-col items-center gap-2 bg-rail pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto max-[860px]:flex-row max-[860px]:px-3 max-[860px]:py-2">
         <Waves aria-hidden size={20} strokeWidth={1.6} className="flex-none" />
         <span className="text-lg font-[650] tracking-[-0.01em] min-[861px]:hidden">workriver</span>
         <Fold open={false} onToggle={onToggle} />
@@ -396,7 +398,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
     />
   )
   return (
-    <aside className="rail sticky top-0 flex h-screen w-[var(--rail-w,248px)] flex-col gap-3 bg-rail px-3 pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto">
+    <aside ref={keep} className="rail sticky top-0 flex h-screen w-[var(--rail-w,248px)] flex-col gap-3 bg-rail px-3 pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto">
       {/* Not on a narrow screen, where the rail is a row of its own. */}
       <div {...size.handle} aria-label={t('rail.resize')} className="edge max-[860px]:hidden" data-edge="right" />
       <div className="flex items-center gap-2 pl-1 text-lg font-[650] tracking-[-0.01em]">
