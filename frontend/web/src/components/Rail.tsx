@@ -9,12 +9,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { attention, blockedAgents, intentQuietSince, noCode, quietSince, repoOf, unitsOf } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/link'
 import { useResize } from '@/lib/useResize'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
-import { CopyButton, ExternalChip, Icon, MachineChip, Progress, Tip } from './bits'
+import { Content, CopyButton, ExternalChip, Icon, MachineChip, Progress, Slot, SLOT, Tip } from './bits'
 import { Choice } from './Choice'
 import { MergeDialog } from './Merge'
 
@@ -136,9 +136,9 @@ export const firstSentence = (s?: string) => (s ?? '').trim().split(/(?<=[.!?。
 function IntentTitle({ intent }: { intent: Intent }) {
   const goal = firstSentence(intent.goal)
   return (
-    <Tip text={<><span className="block font-semibold">{intent.title}</span>{goal && <span className="block">{goal}</span>}</>}>
+    <Tip text={<><span className="block font-semibold" lang={contentLang(intent.title)}>{intent.title}</span>{goal && <span className="block" lang={contentLang(goal)}>{goal}</span>}</>}>
       <span className="min-w-0 flex-1 truncate">
-        <span className="mr-1.5 font-mono text-[11px] font-normal text-rail-ink-2">{intent.id}</span>{intent.title}
+        <span className="mr-1.5 font-mono text-[11px] font-normal text-rail-ink-2">{intent.id}</span><span lang={contentLang(intent.title)}>{intent.title}</span>
       </span>
     </Tip>
   )
@@ -219,7 +219,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
             onClick={() => onUnit(unit.id)}
             className="block w-full rounded-md px-2.5 py-2 text-left transition-colors hover:bg-rail-2 aria-pressed:bg-rail-3"
           >
-            <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{unit.id}</span>{unit.title}</span>
+            <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{unit.id}</span><span lang={contentLang(unit.title)}>{unit.title}</span></span>
             {unit.machine && <span className="mt-0.5 flex"><MachineChip machine={unit.machine} away={ws?.machines?.some(m => m.label === unit.machine && !m.reachable)} since={ws?.machines?.find(m => m.label === unit.machine && !m.tunnel)?.downSince} /></span>}
             <span className="mt-1 flex flex-wrap items-center gap-1 empty:hidden">{unit.kind === 'spike' && <span className="tag font-normal">{t('unit.spike')}</span>}<Signals unit={unit} /></span>
           </button>
@@ -308,12 +308,12 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
           </Tip>
           {/* Its id and title (its page on a click); where else it is tracked, under it. */}
           <button type="button" aria-pressed={here === i.id} onClick={() => onIntent(i.id)} className="flex min-w-0 flex-1 flex-col items-start rounded-sm text-left hover:text-rail-ink aria-pressed:text-rail-ink">
-            <Tip text={<><span className="block font-semibold">{i.title}</span>{i.goal && <span className="block">{firstSentence(i.goal)}</span>}</>}>
-              <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{i.id}</span>{i.title}</span>
+            <Tip text={<><span className="block font-semibold" lang={contentLang(i.title)}>{i.title}</span>{i.goal && <span className="block" lang={contentLang(i.goal)}>{firstSentence(i.goal)}</span>}</>}>
+              <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{i.id}</span><span lang={contentLang(i.title)}>{i.title}</span></span>
             </Tip>
             {i.external && <span className="mt-0.5 flex"><ExternalChip ext={i.external} /></span>}
           </button>
-          <Tip text={t('plan.title', { title: i.title })}>
+          <Tip text={<span><Slot text={t('plan.title', { title: SLOT })}><Content text={i.title} /></Slot></span>}>
             <Button variant="ghost" size="sm" className="h-6 flex-none gap-1 rounded-sm px-1.5 text-xs text-rail-ink-2 hover:bg-rail-3 hover:text-rail-ink" onClick={() => onStart(i)}>
               <Icon name="play" className="size-3" />{t('rail.start')}
             </Button>
@@ -412,7 +412,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
           label={t('rail.project')}
           value={project ?? ALL}
           onChange={v => onProject(v === ALL ? null : v)}
-          options={[{ value: ALL, label: t('rail.allProjects') }, ...projects.map(p => ({ value: p.id, label: p.title }))]}
+          options={[{ value: ALL, label: t('rail.allProjects') }, ...projects.map(p => ({ value: p.id, label: p.title, lang: contentLang(p.title) }))]}
           className="h-8"
         />
       )}
@@ -443,7 +443,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         )}
         {ws && !active.length && !done.length && !planned.length && (
           <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-sm text-rail-ink-2">
-            {needle && unitsOf(ws).length ? t('rail.noMatch', { q: q.trim() }) : t('rail.none')}
+            {needle && unitsOf(ws).length ? <span><Slot text={t('rail.noMatch', { q: SLOT })}><Content text={q.trim()} /></Slot></span> : t('rail.none')}
             {needle && unitsOf(ws).length > 0 && <Button variant="outline" size="sm" className="rounded-sm bg-transparent text-rail-ink" onClick={() => onQ('')}>{t('rail.clearSearch')}</Button>}
           </div>
         )}

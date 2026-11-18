@@ -1,5 +1,9 @@
 // English UI text, in i18next's format: `{{name}}` is a variable, `_one` / `_other` are
 // plural forms picked by `count`. This file defines the key set (see i18next.d.ts).
+
+/** The key set for a language with one plural form (Chinese, Japanese): the `_one` keys left out. */
+export type OneForm<T> = { [K in keyof T as K extends `${string}_one` ? never : K]: T[K] extends string ? string : OneForm<T[K]> }
+
 export const en = {
   rail: {
     note: 'Note',
@@ -41,6 +45,8 @@ export const en = {
     mergeNewTitle: 'Its title',
     mergeWhat: '{{from}} will be dropped; their titles, goals, notes and links go into the note of {{into}}.',
     mergeRename: '“{{into}}” is renamed.',
+    /** A title quoted inside a sentence. */
+    quoted: '“{{title}}”',
     merge: 'Merge',
     held: {
       tasks: 'Has tasks of its own, so it cannot be merged (drop it with a reason instead).',

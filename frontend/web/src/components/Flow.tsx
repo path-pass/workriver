@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { commitStats, ms, untested, finderLabel, findingsOf, nodeLabel, openCount, related, reviewLabel, SEVERITIES, severityCounts, type Pick } from '@/data'
 import { dropTask, record } from '@/runtime'
 import { Input } from '@/components/ui/input'
-import { useT, type T } from '@/i18n'
+import { contentLang, useT, type T } from '@/i18n'
 import { growth, type Growth } from '@/scope'
 import { linkTo, pathOf } from '@/link'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,7 @@ import type { Finding, Unit, Task } from '@/types'
 import { threadsOf, turnsOf, type Talk } from './Ask'
 import { Decide, Decided, GateForm, GateSent, Thumbs } from './Inputs'
 import { useAct, findingKey, gateKey } from '@/act'
-import { CopyButton, ExternalChip, Icon, Mark, Prose, TerminalButton, Tip, Waiting, Who } from './bits'
+import { Content, CopyButton, ExternalChip, Icon, Mark, Prose, Slot, SLOT, TerminalButton, Tip, Waiting, Who } from './bits'
 import { RunSteps } from './Run'
 import { Choice } from './Choice'
 
@@ -90,6 +90,23 @@ const ports = (
   </>
 )
 
+/** A task's name: a review's label is UI text; a task's title is content, in its own language. */
+export function NodeName({ n }: { n: Task }) {
+  const { t } = useT()
+  if (n.kind === 'review') return reviewLabel(t, n)
+  const title = <Content text={n.title} />
+  if (n.state === 'unregistered') return <Slot text={t('task.unregistered', { title: SLOT })}>{title}</Slot>
+  return <>{n.taskId && `#${n.taskId} `}{title}</>
+}
+
+/** A review's label with the reviewer's name, and punctuation right after it (「：」 may not start a line), kept whole. */
+function ReviewLabel({ n }: { n: Task }) {
+  const { t } = useT()
+  const by = finderLabel(t, n), label = reviewLabel(t, n), i = label.indexOf(by)
+  if (i < 0) return label
+  const end = i + by.length + label.slice(i + by.length).match(/^\p{P}*/u)![0].length
+  return <>{label.slice(0, i)}<span className="whitespace-nowrap">{label.slice(i, end)}</span>{label.slice(end)}</>
+}
 /** Where the scope grew at a task: which folders, beyond which work before it. */
 const grewText = (t: T, g: Growth) => t('flow.grew', {
   folders: g.folders.map(f => f || './').join(t('list.sep')),
@@ -105,7 +122,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
   const open = openCount(n)
   return (
     <>
-      <Tip text={nodeLabel(t, n)}>
+      <Tip text={<span><NodeName n={n} /></span>}>
       <button
         type="button"
         className="wnode"
@@ -124,8 +141,8 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         />
         <span className="lb">
           {n.kind === 'review'
-            ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : reviewLabel(t, n)
-            : n.state === 'unregistered' || !n.taskId ? nodeLabel(t, n) : <><b>#{n.taskId}</b> {n.title}</>}
+            ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
+            : n.state === 'unregistered' || !n.taskId ? <NodeName n={n} /> : <><b>#{n.taskId}</b> <Content text={n.title} /></>}
         </span>
         {n.agent && (n.state === 'running' || n.state === 'todo') && <Who name={n.agent} live={n.writing} />}
         {open > 0 && <Waiting count={open} />}
@@ -155,7 +172,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
 function Dot({ data }: NodeProps<Node<DotData>>) {
   return (
     <>
-      <Tip text={data.title}><div className="wdot" /></Tip>
+      <Tip text={<Content text={data.title} />}><div className="wdot" /></Tip>
       {ports}
     </>
   )
@@ -458,7 +475,7 @@ function FindingNotes({ f, id = false }: { f: Finding; id?: boolean }) {
           <Who name={n.by} />
           <span className="min-w-0">
             <span className="text-ink-2">{id && <span className="font-mono font-semibold">{f.id} </span>}{t('finding.noted', { by: n.by })} · {when(ms(n.at))}</span>
-            <span className="block whitespace-pre-line wrap-anywhere">{n.text}</span>
+            <span className="block whitespace-pre-line wrap-anywhere" lang={contentLang(n.text)}>{n.text}</span>
             <Thumbs list={n.attachments ?? []} />
           </span>
         </li>
@@ -482,7 +499,7 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         <CollapsibleTrigger className="fchev" aria-label={t('finding.details', { id: f.id })}><Icon name="chev" /></CollapsibleTrigger>
         <button type="button" className="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm py-1 text-left" aria-pressed={picked} onClick={onSelect}>
           <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
-          <span className={cn('truncate group-data-[state=open]:whitespace-pre-line', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')}>{f.problem}</span>
+          <span className={cn('truncate group-data-[state=open]:whitespace-pre-line', quiet && 'text-ink-2', f.state === 'rejected' && 'line-through')} lang={contentLang(f.problem)}>{f.problem}</span>
         </button>
         {/* What was added to it since: a small count; the additions are in its details. */}
         {(f.notes?.length ?? 0) > 0 && (
@@ -503,8 +520,8 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
             {f.leadsTo.map(id => {
               const to = unit.tasks.find(n => n.id === id)
               return to && (
-                <Tip key={id} text={nodeLabel(t, to)}>
-                  <button type="button" className="chip" data-state={to.state} onClick={() => onPick(id)}>{to.taskId ? `#${to.taskId}` : to.title}</button>
+                <Tip key={id} text={<span><NodeName n={to} /></span>}>
+                  <button type="button" className="chip" data-state={to.state} onClick={() => onPick(id)}>{to.taskId ? `#${to.taskId}` : <Content text={to.title} />}</button>
                 </Tip>
               )
             })}
@@ -522,9 +539,9 @@ function FindingRow({ unit, n, f, picked, onSelect, onPick }: { unit: Unit; n: T
         )}
       </div>
       <CollapsibleContent className="pb-1.5 pl-6 text-xs whitespace-pre-line">
-        {suggests && <div><span className="text-ink-2">{t('io.field', { name: suggests })}</span>{f.recommendation?.reason}</div>}
-        {f.reason && <div><span className="text-ink-2">{t('io.field', { name: t('finding.dropped') })}</span>{f.reason}</div>}
-        {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span>{f.impact}</div>}
+        {suggests && <div><span className="text-ink-2">{t('io.field', { name: suggests })}</span><span lang={contentLang(f.recommendation?.reason)}>{f.recommendation?.reason}</span></div>}
+        {f.reason && <div><span className="text-ink-2">{t('io.field', { name: t('finding.dropped') })}</span><span lang={contentLang(f.reason)}>{f.reason}</span></div>}
+        {f.impact && <div><span className="text-ink-2">{t('io.field', { name: t('io.impact') })}</span><span lang={contentLang(f.impact)}>{f.impact}</span></div>}
         {f.evidence.length > 0 && <div><span className="text-ink-2">{t('io.field', { name: t('io.evidence') })}</span><span className="font-mono">{f.evidence.join(t('list.sep'))}</span></div>}
         <Thumbs list={f.attachments ?? []} />
         <FindingNotes f={f} />
@@ -587,7 +604,7 @@ function Checks({ n }: { n: Task }) {
           <span className="sr-only">{t(`evidence.${e.result}`)}</span>
           <code className="min-w-0 truncate">{e.command}</code>
           <CopyButton text={e.command} />
-          <span className="flex-none text-ink-2">{e.summary}</span>
+          <span className="flex-none text-ink-2" lang={contentLang(e.summary)}>{e.summary}</span>
           {e.attachment && <Thumbs list={[e.attachment]} />}
         </li>
       ))}
@@ -608,7 +625,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
-    input = <>{of && <div>{t('io.changesOf', { label: nodeLabel(t, of) })}</div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
+    input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
@@ -642,7 +659,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             value=""
             placeholder="…"
             onChange={v => { record('commit.linked', { unit: unit.id, hash: n.output.commits![0], task: Number(v) }).catch(err => console.warn(err)) }}
-            options={unit.tasks.filter(x => x.taskId && x.kind !== 'gate').map(x => ({ value: x.id, label: `#${x.taskId} ${x.title || finderLabel(t, x)}` }))}
+            options={unit.tasks.filter(x => x.taskId && x.kind !== 'gate').map(x => ({ value: x.id, label: `#${x.taskId} ${x.title || finderLabel(t, x)}`, lang: x.title ? contentLang(x.title) : undefined }))}
             className="h-7 w-auto max-w-[60%] text-xs"
           />
         </label>
@@ -655,7 +672,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
               <Icon name={glyph(by)} />
               <span className="flex-none">{finderLabel(t, by)}</span>
               <span className="flex-none font-mono text-xs font-semibold">{f.id}</span>
-              <span className="min-w-0 whitespace-pre-line">{f.problem}</span>
+              <span className="min-w-0 whitespace-pre-line" lang={contentLang(f.problem)}>{f.problem}</span>
             </button>
           ))}
           {/* What was added to those findings later is part of what this work must meet. */}
@@ -671,8 +688,8 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             const s = commitStats(c)
             return (
               <div key={c.id}>
-                {c.live ? t('io.uncommitted') : c.subject}
-                <span className="text-xs text-ink-2"> · {t('stat.files', { count: s.files })} +{num(s.add)} −{num(s.del)}{c.linked && ` · ${t('io.linked')}`}{c.rebasedFrom && ` · ${t('io.rebasedFrom', { hash: c.rebasedFrom })}`}</span>
+                {c.live ? t('io.uncommitted') : <span lang={contentLang(c.subject)}>{c.subject}</span>}
+                <span className="text-xs text-ink-2"> · <span className="whitespace-nowrap">{t('stat.files', { count: s.files })}</span> +{num(s.add)} −{num(s.del)}{c.linked && ` · ${t('io.linked')}`}{c.rebasedFrom && ` · ${t('io.rebasedFrom', { hash: c.rebasedFrom })}`}</span>
               </div>
             )
           })
@@ -706,7 +723,7 @@ function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; findi
             <Icon name="dropped" className="size-3.5" />
             {n.dropped.by === 'user' ? t('task.droppedByYou', { when: when(ms(n.dropped.at)) }) : t('task.droppedBy', { by: n.dropped.by, when: when(ms(n.dropped.at)) })}
           </span>
-          <span className="whitespace-pre-line">{n.dropped.reason}</span>
+          <span className="whitespace-pre-line" lang={contentLang(n.dropped.reason)}>{n.dropped.reason}</span>
         </div>
       )}
       <div className={cn('grid text-sm wrap-anywhere', n.kind === 'review' ? 'min-[701px]:grid-cols-[1fr_2fr]' : 'grid-cols-[repeat(auto-fit,minmax(260px,1fr))]')}>

@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ms, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { record } from '@/runtime'
 import type { Finding, Intent, Workspace } from '@/types'
 import { ExternalChip, Icon } from './bits'
@@ -25,6 +25,8 @@ interface Item {
   at?: { unit: string; task: string }
   /** Added to the backlog without a task: impact and place may be missing. */
   loose: boolean
+  /** The group heading's language when it is made of content (titles) only. */
+  groupLang?: string
 }
 
 const waiting = (f: Finding) => f.state === 'deferred' || f.state === 'scheduled'
@@ -43,6 +45,7 @@ function itemsOf(ws: Workspace, project: string | null, t: ReturnType<typeof use
             f,
             intent,
             group: t('backlog.unit', { intent: intent.title, unit: unit.intentLevel ? t('rail.intentWork') : unit.title }),
+            groupLang: unit.intentLevel ? undefined : contentLang(intent.title + unit.title),
             label: `${unit.id}#${task.id} ${f.id}`,
             at: { unit: unit.id, task: task.id },
             loose: false,
@@ -55,6 +58,7 @@ function itemsOf(ws: Workspace, project: string | null, t: ReturnType<typeof use
       f: b.finding,
       intent,
       group: intent ? intent.title : b.source ? t('backlog.fromSource', { source: b.source }) : t('backlog.added'),
+      groupLang: intent ? contentLang(intent.title) : undefined,
       label: b.finding.id,
       loose: true,
     })
@@ -96,7 +100,7 @@ export function BacklogList({ ws, project, onOpen }: { ws: Workspace; project: s
       {!items.length && <p className="px-2.5 text-sm text-ink-2">{t('backlog.none')}</p>}
       {groups.map(g => (
         <section key={g} aria-label={g}>
-          <h3 className="mb-1 px-2.5 text-xs font-semibold text-ink-2">{g}</h3>
+          <h3 className="mb-1 px-2.5 text-xs font-semibold text-ink-2" lang={items.find(i => i.group === g)?.groupLang}>{g}</h3>
           {items.filter(i => i.group === g).map(i => (
             <label key={i.key} className="brow">
               <input
@@ -109,8 +113,8 @@ export function BacklogList({ ws, project, onOpen }: { ws: Workspace; project: s
                 <span className="flex items-baseline gap-1.5">
                   <span className="flex-none font-mono text-xs font-semibold">{i.f.severity}</span>
                   {i.at
-                    ? <button type="button" className="min-w-0 text-left hover:underline" onClick={e => { e.preventDefault(); onOpen(i.at!.unit, { kind: 'task', id: i.at!.task, finding: i.f.id }) }}>{i.f.problem}</button>
-                    : <span className="min-w-0">{i.f.problem}</span>}
+                    ? <button type="button" className="min-w-0 text-left hover:underline" onClick={e => { e.preventDefault(); onOpen(i.at!.unit, { kind: 'task', id: i.at!.task, finding: i.f.id }) }} lang={contentLang(i.f.problem)}>{i.f.problem}</button>
+                    : <span className="min-w-0" lang={contentLang(i.f.problem)}>{i.f.problem}</span>}
                 </span>
                 <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-ink-2">
                   <span className="font-mono">{i.label}</span>
@@ -119,7 +123,7 @@ export function BacklogList({ ws, project, onOpen }: { ws: Workspace; project: s
                   <ExternalChip ext={i.f.external} />
                   {i.f.since && <span className="age ml-auto" title={when(ms(i.f.since))}>{waited(ms(i.f.since))}</span>}
                 </span>
-                {i.f.note && <span className="mt-0.5 block text-xs whitespace-pre-line text-ink-2">{i.f.note}</span>}
+                {i.f.note && <span className="mt-0.5 block text-xs whitespace-pre-line text-ink-2" lang={contentLang(i.f.note)}>{i.f.note}</span>}
               </span>
             </label>
           ))}
@@ -137,7 +141,7 @@ export function BacklogList({ ws, project, onOpen }: { ws: Workspace; project: s
                 value={intent?.id ?? ''}
                 placeholder="…"
                 onChange={setTarget}
-                options={actives.map(a => ({ value: a.id, label: `${a.id} ${a.title}` }))}
+                options={actives.map(a => ({ value: a.id, label: `${a.id} ${a.title}`, lang: contentLang(a.title) }))}
                 className="h-7 flex-1 text-xs"
               />
             </label>

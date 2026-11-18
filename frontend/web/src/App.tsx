@@ -15,7 +15,7 @@ import { ViewerContext } from '@/components/Viewer'
 import { Rail } from '@/components/Rail'
 import { IntentPage } from '@/components/IntentPage'
 import { agents, askeeOf, blame, blockedAgents, firstUnit, inbox, intentOf, loadCode, MOCK, NO_EDITS, noCode, repoOf, selectionOf, shownDelta, unitsOf, watchWorkspace, withCode, withEdits, type Edits, type Lines, type Pick, type UnitCode } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from '@/link'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery } from '@/runtime'
 import type { AskContext, Attachment, Intent, MachineAlert, ManagerMessage, Task, Turn, Unit, Workspace } from '@/types'
@@ -439,7 +439,7 @@ export default function App() {
             <header className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <h1 className="flex flex-wrap items-baseline gap-x-3 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
-                  <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span>{unit.title}</span>
+                  <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{unit.id}</span><span lang={contentLang(unit.title)}>{unit.title}</span></span>
                   <CopyButton text={linkTo(pathOf(unit.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
                   {unit.branch && <span className="max-w-full min-w-0 truncate font-mono text-xs font-normal tracking-normal text-ink-2" title={unit.branch}>{unit.branch}</span>}
                   {unit.kind === 'spike' && <span className="tag font-normal tracking-normal" title={t('unit.spikeWhy')}>{t('unit.spike')}</span>}
@@ -447,7 +447,7 @@ export default function App() {
                   <Progress unit={unit} />
                   {unit.squash && unit.progress === 'ready' && <Squashed unit={unit} />}
                 </h1>
-                {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{unit.purpose}</p>}
+                {unit.purpose && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(unit.purpose)}>{unit.purpose}</p>}
                 {/* Rebased onto a new branch, or renamed: the same unit, said quietly. */}
                 {(unit.previously?.length ?? 0) > 0 && <p className="mt-0.5 font-mono text-xs text-ink-2">{t('unit.previously', { branches: unit.previously!.join(t('list.sep')) })}</p>}
               </div>

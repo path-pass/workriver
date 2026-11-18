@@ -1,10 +1,8 @@
 // Chinese UI text. Typed against en.ts so a missing or extra key is a compile error.
 // Chinese has one plural form, so the `_one` keys are left out.
-import type { en } from './en'
+import type { en, OneForm } from './en'
 
-type Same<T> = { [K in keyof T as K extends `${string}_one` ? never : K]: T[K] extends string ? string : Same<T[K]> }
-
-export const zhCN: Same<typeof en> = {
+export const zhCN: OneForm<typeof en> = {
   rail: {
     note: '备注',
     noteMore: '展开',
@@ -45,6 +43,7 @@ export const zhCN: Same<typeof en> = {
     mergeNewTitle: '它的标题',
     mergeWhat: '{{from}} 会被放弃；它们的标题、目标、备注和链接写进 {{into}} 的备注。',
     mergeRename: '“{{into}}”会改名。',
+    quoted: '“{{title}}”',
     merge: '合并',
     held: {
       tasks: '有自己的任务，不能合并（可以写明原因放弃它）。',

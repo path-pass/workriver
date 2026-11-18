@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useAct } from '@/act'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { Intent, Workspace } from '@/types'
-import { NoteDisclosure } from './bits'
+import { Content, NoteDisclosure, slot, Slot, SLOT } from './bits'
 import { Choice } from './Choice'
 
 /** What an intent holds that a merge would lose; the service refuses those (`intent.merged`). */
@@ -50,7 +50,14 @@ export function MergeDialog({ ws, project }: { ws: Workspace; project: string | 
   const from = chosen.filter(i => i !== into)
   // The title follows the target until the user writes one of their own.
   const name = title ?? into?.title ?? ''
-  const titles = (l: Intent[]) => new Intl.ListFormat(lang, { type: 'conjunction' }).format(l.map(i => `“${i.title}”`))
+  // Titles quoted the language's way, each in its own language: the list is formatted with
+  // markers, then each title goes where its marker landed.
+  const quoted = (title: string) => <Slot text={t('rail.quoted', { title: SLOT })}><Content text={title} /></Slot>
+  const titles = (l: Intent[]) => (
+    <Slot text={new Intl.ListFormat(lang, { type: 'conjunction' }).format(l.map((_, k) => t('rail.quoted', { title: slot(k) })))}>
+      {l.map(i => <Content key={i.id} text={i.title} />)}
+    </Slot>
+  )
   const ready = !!into && from.length > 0 && !!name.trim() && !busy
   const reset = () => { setChecked([]); setTarget(''); setTitle(null); setError(''); setBusy(false) }
   const merge = () => {
@@ -81,7 +88,7 @@ export function MergeDialog({ ws, project }: { ws: Workspace; project: string | 
           {eligible.length > 1 && (
             <label className="flex items-center gap-2 text-xs text-ink-2">
               {t('rail.project')}
-              <Choice label={t('rail.project')} value={here} onChange={p => { setProj(p); setChecked([]); setTarget(''); setTitle(null) }} options={eligible.map(p => ({ value: p, label: projectTitle(p) }))} className="h-7 flex-1" />
+              <Choice label={t('rail.project')} value={here} onChange={p => { setProj(p); setChecked([]); setTarget(''); setTitle(null) }} options={eligible.map(p => ({ value: p, label: projectTitle(p), lang: contentLang(projectTitle(p)) }))} className="h-7 flex-1" />
             </label>
           )}
           <ul className="flex flex-col gap-0.5" aria-label={t('rail.roadmap')}>
@@ -99,8 +106,8 @@ export function MergeDialog({ ws, project }: { ws: Workspace; project: string | 
                   />
                   <div className="min-w-0 flex-1">
                     <label htmlFor={`merge-${i.id}`} className={held ? 'text-ink-2' : ''}>
-                      <span className="block font-[550] wrap-anywhere">{i.title}</span>
-                      {i.goal && <span className="block truncate text-xs text-ink-2">{i.goal}</span>}
+                      <span className="block font-[550] wrap-anywhere" lang={contentLang(i.title)}>{i.title}</span>
+                      {i.goal && <span className="block truncate text-xs text-ink-2" lang={contentLang(i.goal)}>{i.goal}</span>}
                     </label>
                     {held && <span className="block text-xs text-ink-2">{t(`rail.held.${held}`)}</span>}
                     {i.note?.trim() && <NoteDisclosure text={i.note.trim()} tone="page" />}
@@ -113,15 +120,18 @@ export function MergeDialog({ ws, project }: { ws: Workspace; project: string | 
             <div className="flex flex-col gap-2 border-t border-line pt-3">
               <label className="flex items-center gap-2 text-xs text-ink-2">
                 <span className="w-28 flex-none">{t('rail.mergeInto')}</span>
-                <Choice label={t('rail.mergeInto')} value={into.id} onChange={setTarget} options={chosen.map(i => ({ value: i.id, label: i.title }))} className="h-7 flex-1" />
+                <Choice label={t('rail.mergeInto')} value={into.id} onChange={setTarget} options={chosen.map(i => ({ value: i.id, label: i.title, lang: contentLang(i.title) }))} className="h-7 flex-1" />
               </label>
               <label className="flex items-center gap-2 text-xs text-ink-2">
                 <span className="w-28 flex-none">{t('rail.mergeNewTitle')}</span>
-                <Input value={name} onChange={e => setTitle(e.target.value)} aria-invalid={!name.trim() || undefined} className="h-7 flex-1 text-[13px] md:text-[13px]" />
+                <Input value={name} lang={contentLang(name)} onChange={e => setTitle(e.target.value)} aria-invalid={!name.trim() || undefined} className="h-7 flex-1 text-[13px] md:text-[13px]" />
               </label>
               <p className="text-xs text-ink-2">
-                {t('rail.mergeWhat', { from: titles(from), into: `“${name.trim() || into.title}”` })}
-                {name.trim() && name.trim() !== into.title && <> {t('rail.mergeRename', { into: into.title, title: name.trim() })}</>}
+                {/* The titles are content: each keeps its own language inside the sentence. */}
+                <Slot text={t('rail.mergeWhat', { from: slot(0), into: slot(1) })}>
+                  {[<span key="from">{titles(from)}</span>, <span key="into">{quoted(name.trim() || into.title)}</span>]}
+                </Slot>
+                {name.trim() && name.trim() !== into.title && <> <Slot text={t('rail.mergeRename', { into: slot(0), title: slot(1) })}>{[<span key="into" lang={contentLang(into.title)}>{into.title}</span>, <span key="title" lang={contentLang(name.trim())}>{name.trim()}</span>]}</Slot></>}
               </p>
             </div>
           )}

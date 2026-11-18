@@ -6,10 +6,10 @@ import { useAct } from '@/act'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/types'
 import { focusAgent } from '@/runtime'
-import { Icon, Mark, TerminalButton, Tip, Who } from './bits'
+import { Content, Icon, Mark, Slot, SLOT, TerminalButton, Tip, Who } from './bits'
 import { RunSteps } from './Run'
 import { alertLimit, alertValue, topLine } from './Machines'
 
@@ -24,11 +24,11 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
     return (
       <button type="button" className="irow" data-kind="message" onClick={() => onTalk(m.workspace)}>
         <Icon name="talk" />
-        <span className="title">{m.text}</span>
+        <span className="title" lang={contentLang(m.text)}>{m.text}</span>
         <span className="meta">
           <span className="flex-none font-semibold text-you-ink">{t('inbox.unread', { count: m.count })}</span>
           <span className="flex min-w-0 items-center gap-1"><Who name={m.manager} /><span className="truncate">{m.manager}</span></span>
-          <span className="unit">{m.workspace}</span>
+          <span className="unit" lang={contentLang(m.workspace)}>{m.workspace}</span>
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>
@@ -43,7 +43,10 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
     return (
       <button type="button" className="irow" data-kind="machine" data-level={a.level} onClick={onMachines}>
         <Icon name="machine" />
-        <span className="title">{t('inbox.machineAlert', { machine: a.here ? t('metrics.here') : a.machine, metric, value: alertValue(t, lang, a) })}</span>
+        <span className="title">
+          {/* A followed machine's name keeps its own language inside the sentence. */}
+          <Slot text={t('inbox.machineAlert', { machine: a.here ? t('metrics.here') : SLOT, metric, value: alertValue(t, lang, a) })}>{!a.here && <Content text={a.machine} />}</Slot>
+        </span>
         <span className="meta">
           <span className="level">{t(`metrics.level.${a.level}`)}</span>
           <span className="truncate">{alertLimit(t, a)}</span>
@@ -61,8 +64,8 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
         <Icon name="terminal" />
         <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{a.name}</span></span>
         <span className="meta">
-          {a.topic && <span className="truncate">{a.topic}</span>}
-          <span className="unit opacity-70">{a.place}</span>
+          {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
+          <span className="unit opacity-70" lang={contentLang(a.place)}>{a.place}</span>
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>
@@ -81,7 +84,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
           <span className="title">{s.gone ? t('inbox.stalledGone', { task: ref, agent }) : t('inbox.stalled', { task: ref, agent, ago: waited(r.since) })}</span>
           <span className="meta">
             {s.reminded && <span className="flex-none">{t('inbox.reminded', { time: date(s.reminded) })}</span>}
-            <span className="unit"><span className="opacity-70">{r.intent?.title}{' / '}</span>{r.unit?.title}</span>
+            <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent?.title)}>{r.intent?.title}</span>{' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>
           </span>
           <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
         </button>
@@ -99,7 +102,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
         <span className="title">{u.squash ? t('inbox.mergeSquash', { unit: u.id, into: u.squash.into }) : t('inbox.mergeOverdue', { unit: u.id, ago: waited(r.since) })}</span>
         <span className="meta">
           <span className="flex-none">{t('inbox.mergeCheck')}</span>
-          <span className="unit"><span className="opacity-70">{r.intent?.title}{' / '}</span>{u.title}</span>
+          <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent?.title)}>{r.intent?.title}</span>{' / '}</span><span lang={contentLang(u.title)}>{u.title}</span></span>
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>
@@ -118,7 +121,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
   const body = (
     <>
       <Icon name={icon} />
-      <span className="title">{title}</span>
+      <span className="title" lang={r.kind === 'decision' ? undefined : contentLang(title)}>{title}</span>
       <span className="meta">
         {n?.blind && <Mark name="blind" label={t('task.blindHint')} />}
         {open.length > 0 && <span className="flex-none font-mono">{severityCounts(open)}</span>}
@@ -133,7 +136,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
         {r.kind === 'loose' && <span className="flex-none">{t('need.loose')}</span>}
         {r.chore && <Who name={r.chore.by} />}
         {/* Where it is: the intent quietly, then the unit. */}
-        <span className="unit"><span className="opacity-70">{r.intent?.title ?? r.project}{r.unit && ' / '}</span>{r.unit?.title}</span>
+        <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent?.title ?? r.project)}>{r.intent?.title ?? r.project}</span>{r.unit && ' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>
       </span>
       <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
     </>

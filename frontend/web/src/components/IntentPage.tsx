@@ -4,12 +4,12 @@
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { lastMove, quietSince, type Pick } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/link'
 import { record } from '@/runtime'
 import type { Intent, Unit, Workspace } from '@/types'
 import type { Talk } from './Ask'
-import { CopyButton, ExternalChip, Icon, MachineChip, Progress, Prose, TerminalButton, Tip } from './bits'
+import { Content, CopyButton, ExternalChip, Icon, MachineChip, Progress, Prose, Slot, SLOT, TerminalButton, Tip } from './bits'
 import { Choice } from './Choice'
 import { Activity } from './Flow'
 import { ManagerState, Marks, needs, Quiet } from './Rail'
@@ -33,7 +33,7 @@ function UnitRow({ ws, unit, onUnit }: { ws: Workspace; unit: Unit; onUnit: (id:
     <li>
       <button type="button" onClick={() => onUnit(unit.id)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2.5 py-2 text-left hover:bg-sunken">
         <span className="min-w-0 flex-1 text-sm font-[550] wrap-anywhere">
-          <span className="mr-1.5 font-mono text-xs font-normal text-ink-2">{unit.id}</span>{unit.title}
+          <span className="mr-1.5 font-mono text-xs font-normal text-ink-2">{unit.id}</span><span lang={contentLang(unit.title)}>{unit.title}</span>
         </span>
         <span className="flex flex-none flex-wrap items-center gap-1.5">
           <MachineChip machine={unit.machine} away={ws.machines?.some(m => m.label === unit.machine && !m.reachable)} />
@@ -76,17 +76,17 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
       <header className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
-            <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{intent.id}</span>{intent.title}</span>
+            <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{intent.id}</span><span lang={contentLang(intent.title)}>{intent.title}</span></span>
             <CopyButton text={linkTo(pathOf(intent.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
             <span className="tag self-center font-normal tracking-normal">{t(`intent.state.${state}`)}</span>
             {intent.complete && <Tip text={t('unit.complete')}><span className="tag self-center font-normal tracking-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
             <span className="self-center"><ExternalChip ext={intent.external} /></span>
           </h1>
-          {intent.goal && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2">{intent.goal}</p>}
-          {state === 'dropped' && intent.reason && <p className="mt-0.5 text-sm text-ink-2">{t('intent.dropped', { reason: intent.reason })}</p>}
+          {intent.goal && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(intent.goal)}>{intent.goal}</p>}
+          {state === 'dropped' && intent.reason && <p className="mt-0.5 text-sm text-ink-2"><Slot text={t('intent.dropped', { reason: SLOT })}><Content text={intent.reason} /></Slot></p>}
         </div>
         {state === 'planned' && (
-          <Tip text={t('plan.title', { title: intent.title })}>
+          <Tip text={<span><Slot text={t('plan.title', { title: SLOT })}><Content text={intent.title} /></Slot></span>}>
             <Button size="sm" className="flex-none gap-1.5" onClick={() => onStart(intent)}><Icon name="play" className="size-3.5" />{t('rail.start')}</Button>
           </Tip>
         )}
@@ -110,7 +110,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
                 <Row label={t('intent.workspace')}>
                   <span className="font-mono text-xs">{intent.workspace.label}</span>
                   {/* The project its manager works on, when workriver knows it. */}
-                  {worksOn && <span className="text-xs text-ink-2">{t('intent.worksOn', { project: worksOn })}</span>}
+                  {worksOn && <span className="text-xs text-ink-2"><Slot text={t('intent.worksOn', { project: SLOT })}><Content text={worksOn} /></Slot></span>}
                 </Row>
               )}
               <Row label={t('intent.manager')}>

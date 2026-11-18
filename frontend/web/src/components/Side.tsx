@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { agentTree, baseName, nodeLabel, commitGraph, commitStats, laneTone, ms, type GraphRow, type Pick, type TreeAgent } from '@/data'
-import { useT } from '@/i18n'
+import { agentTree, baseName, commitGraph, commitStats, laneTone, ms, type GraphRow, type Pick, type TreeAgent } from '@/data'
+import { contentLang, useT } from '@/i18n'
 import { useResize } from '@/lib/useResize'
 import type { Workspace } from '@/types'
+import { NodeName } from './Flow'
 import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { MachinesList } from './Machines'
@@ -57,9 +58,9 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: ContentProps['here
     at ? (
       <span key="t" className="task min-w-0 truncate">
         {!a.current && <span className="mr-1">{t('agents.last')}</span>}
-        {nodeLabel(t, at.node)} · {at.unit.title}
+        <NodeName n={at.node} /> · <span lang={contentLang(at.unit.title)}>{at.unit.title}</span>
       </span>
-    ) : s.topic && <span key="p" className="min-w-0 truncate">{s.topic}</span>,
+    ) : s.topic && <span key="p" className="min-w-0 truncate" lang={contentLang(s.topic)}>{s.topic}</span>,
   ].filter(Boolean)
   return (
     <li>
@@ -109,11 +110,11 @@ function Agents({ ws, here, onOpen }: Omit<ContentProps, 'section' | 'onCommit' 
           {g.label && (
             <h3 className="flex items-center gap-1.5 px-3.5 pt-2 pb-0.5 text-xs font-semibold text-ink-2">
               {/* The workspace's label keeps its room; the intent's title gives way. */}
-              <span className="max-w-1/2 flex-none truncate" title={worksOn(g.key)}>{g.label}</span>
+              <span className="max-w-1/2 flex-none truncate" title={worksOn(g.key)} lang={contentLang(g.label)}>{g.label}</span>
               {/* A workspace of another machine, not linked to one here: its own group. */}
               <MachineChip machine={g.machine} />
               {/* Where the workspace's new work goes: its current intent. */}
-              {g.intent && g.intent.title !== g.label && <span className="min-w-0 truncate font-normal">· {g.intent.title}</span>}
+              {g.intent && g.intent.title !== g.label && <span className="min-w-0 truncate font-normal">· <span lang={contentLang(g.intent.title)}>{g.intent.title}</span></span>}
               {!g.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
             </h3>
           )}
@@ -202,7 +203,7 @@ function Commits({ ws, here, onCommit, commit: focus, project }: Omit<ContentPro
                     {cell}
                     <span className="min-w-0">
                       <span className="block truncate font-mono text-xs">{writing.files.map(baseName).join(' ')}</span>
-                      <span className="block truncate text-xs text-ink-2">{unit.title}{writing.node.taskId && ` #${writing.node.taskId}`}</span>
+                      <span className="block truncate text-xs text-ink-2" lang={contentLang(unit.title)}>{unit.title}{writing.node.taskId && ` #${writing.node.taskId}`}</span>
                     </span>
                     {/* In the last column, where a commit's age is: its ring never reaches the lanes. */}
                     <span className="flex-none px-1"><Who name={writing.node.agent ?? '?'} live /></span>
@@ -220,9 +221,9 @@ function Commits({ ws, here, onCommit, commit: focus, project }: Omit<ContentPro
                   >
                     {cell}
                     <span className="min-w-0">
-                      <span className="block truncate">{c.subject}</span>
+                      <span className="block truncate" lang={contentLang(c.subject)}>{c.subject}</span>
                       <span className="flex items-center gap-1.5 text-xs text-ink-2">
-                        <span className="truncate">{unit.title}</span>
+                        <span className="truncate" lang={contentLang(unit.title)}>{unit.title}</span>
                         {task?.state === 'unregistered'
                           ? <span className="flex flex-none items-center gap-0.5 text-del"><Icon name="no" className="size-3" />{t('need.loose')}</span>
                           : task?.taskId && <span className="flex-none font-mono">#{task.taskId}</span>}

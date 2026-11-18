@@ -6,7 +6,7 @@
 // with remark-gfm, about 50 kB gzip), so the main bundle does not carry it.
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 
 /** File paths in the text: the same pattern answers used before they were Markdown. */
 const PATH = /[\w-]+(?:\/[\w.-]+)+\.\w+/g
@@ -39,7 +39,7 @@ function filePaths() {
 export default function MarkdownView({ text, compact = false, onFile }: { text: string; compact?: boolean; onFile?: (path: string) => void }) {
   const { t } = useT()
   return (
-    <div className={compact ? 'md md-sm' : 'md'}>
+    <div className={compact ? 'md md-sm' : 'md'} lang={contentLang(text)}>
       <Markdown
         remarkPlugins={onFile ? [remarkGfm, filePaths] : [remarkGfm]}
         skipHtml

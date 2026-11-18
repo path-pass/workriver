@@ -178,6 +178,13 @@
     font-variant-numeric: tabular-nums;
     caret-color: var(--you);
   }
+  /* Japanese glyph forms differ from Chinese ones for the same characters; PingFang SC would draw Chinese forms.
+     Strict line breaking keeps ー and small kana from starting a line. The UI's language sets the body;
+     content marked with its own language (contentLang) gets that language's stack. */
+  body:lang(ja), [lang=ja] { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Segoe UI", sans-serif; line-break: strict; }
+  [lang=zh-CN] { font-family: var(--font-sans); line-break: auto; }
+  /* A chip's name (an id, a file name) stays in the chip's monospace; its lang still picks the CJK glyphs. */
+  .chip-name[lang] { font-family: inherit; }
   ::selection { background: var(--you-bg); color: var(--you-ink); }
   button:not(:disabled), label:has(button) { cursor: pointer; }
 }
@@ -392,6 +399,9 @@
   .thread-row .thread-state { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--sunken); color: var(--ink-2); }
   .thread-row .thread-state[data-state="waiting"] { background: var(--amber-bg); color: var(--amber-ink); }
   .thread-row .thread-state[data-state="failed"] { color: var(--del); }
+  /* The age column: 2rem holds 23h; Japanese units are kanji (23時間), so a little more. */
+  .thread-row .thread-age { width: 2rem; }
+  :root:lang(ja) .thread-row .thread-age { width: 2.75rem; }
   /* A chat scrolls on its own, in whatever height it is given. */
   /* Relative: what is placed absolutely inside (a chip's screen-reader name) is placed in
      here and scrolls and clips with the chat. Placed by the sticky panel instead, it stood at

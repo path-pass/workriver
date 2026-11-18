@@ -6,7 +6,7 @@ import { createContext, lazy, Suspense, useContext, useEffect, useRef, useState,
 import { ChevronLeft, ChevronRight, Download, ExternalLink, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import type { Attachment } from '@/types'
 import { isField } from './Ask'
 import { Icon, Tip } from './bits'
@@ -126,7 +126,7 @@ export function Viewer({ list, at, onAt, onClose, stored }: { list: Attachment[]
         className="inset-4 right-[calc(var(--side-now,2.75rem)+1rem)] flex w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-2 p-3 shadow-xl sm:max-w-none max-[860px]:inset-0 max-[860px]:rounded-none"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-1 pr-8">
-          <DialogTitle className="min-w-0 flex-1 truncate font-mono text-sm max-[640px]:basis-full" title={a.name}>{a.name}</DialogTitle>
+          <DialogTitle className="min-w-0 flex-1 truncate font-mono text-sm max-[640px]:basis-full" title={a.name} lang={contentLang(a.name)}>{a.name}</DialogTitle>
           {many && (
             <>
               {tool(t('attach.prev'), <ChevronLeft aria-hidden />, () => go(at - 1))}

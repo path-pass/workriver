@@ -8,7 +8,7 @@ import { useT } from '@/i18n'
 import { RUN_GROUP, startIntent, type StartDelivery } from '@/runtime'
 import type { Intent, RuntimeWorkspace, Session, Workspace } from '@/types'
 import { Choice } from './Choice'
-import { Icon, Steps } from './bits'
+import { Content, Icon, Slot, slot, SLOT, Steps } from './bits'
 
 /** `project`: the title of the project shown, when only it has nothing yet. */
 export function Start({ project }: { project?: string }) {
@@ -16,7 +16,7 @@ export function Start({ project }: { project?: string }) {
   return (
     <section aria-labelledby="start" className="flex max-w-[70ch] flex-col gap-3 pt-2">
       <h1 id="start" className="text-xl font-[650] tracking-[-0.012em]">{t('start.title')}</h1>
-      <p className="text-sm text-ink-2">{project ? t('start.leadProject', { project }) : t('start.lead')}</p>
+      <p className="text-sm text-ink-2">{project ? <Slot text={t('start.leadProject', { project: SLOT })}><Content text={project} /></Slot> : t('start.lead')}</p>
       <Steps
         steps={[
           { text: t('start.agent') },
@@ -97,7 +97,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
       <DialogContent closeLabel={t('settings.close')}>
         {intent && (
           <>
-            <DialogTitle>{t('plan.title', { title: intent.title })}</DialogTitle>
+            <DialogTitle><Slot text={t('plan.title', { title: SLOT })}><Content text={intent.title} /></Slot></DialogTitle>
             {done ? (
               <>
                 <DialogDescription>{t('plan.started', { label: done.label })}</DialogDescription>
@@ -131,7 +131,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
                   </button>
                 )}
                 {!at ? null : other(at) && at.manager ? (
-                  <p className="text-sm">{t('plan.otherAsk', { manager: at.manager.agent, theirs: at.projectTitle ?? titleOf(at.project ?? ''), mine: titleOf(project) })}</p>
+                  <p className="text-sm"><Slot text={t('plan.otherAsk', { manager: at.manager.agent, theirs: slot(0), mine: slot(1) })}>{[<Content key="theirs" text={at.projectTitle ?? titleOf(at.project ?? '')} />, <Content key="mine" text={titleOf(project)} />]}</Slot></p>
                 ) : at.manager ? (
                   <p className="text-sm text-ink-2">{t('plan.goHint', { manager: at.manager.agent })}</p>
                 ) : (

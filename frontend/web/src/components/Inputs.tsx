@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { findingKey, gateKey, useAct } from '@/act'
 import { SEVERITIES, type Decision, type NewFinding } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { attach, detach, MANAGER, type DeliveryStep } from '@/runtime'
 import type { Attachment, Finding, Sent, Severity, Task, Unit } from '@/types'
 import { CopyButton, Icon, Tip, Who, ChipName } from './bits'
@@ -155,7 +155,7 @@ export function Decided({ unit, task, f }: { unit: Unit; task: Task; f: Finding 
   const { t } = useT()
   return (
     <>
-      {f.note && <div className="whitespace-pre-line"><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span>{f.note}</div>}
+      {f.note && <div className="whitespace-pre-line"><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span><span lang={contentLang(f.note)}>{f.note}</span></div>}
       <DeliveryLine id={findingKey(unit, task, f)} sent={f.delivery} message />
     </>
   )

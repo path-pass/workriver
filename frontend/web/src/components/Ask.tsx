@@ -9,7 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { askeeOf, baseName, finderLabel, findingsOf, ms, type Lines } from '@/data'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { focusAgent } from '@/runtime'
 import type { AskContext, Intent, ManagerMessage, Session, Thread, Turn, Task, Unit } from '@/types'
 import { Choice } from './Choice'
@@ -135,7 +135,7 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
     <>
       {/* Asked by another agent (through workriver): its mark and name, where the user is "you". */}
       <Mine who={turn.by ? <Named name={turn.by} /> : t('ask.you')} at={turn.at}>
-        <p className={turn.conclude ? 'text-ink-2' : 'whitespace-pre-line wrap-anywhere'}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</p>
+        <p className={turn.conclude ? 'text-ink-2' : 'whitespace-pre-line wrap-anywhere'} lang={turn.conclude ? undefined : contentLang(turn.question)}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</p>
         {turn.context.length > 0 && <div className="mt-1.5"><Chips chips={turn.context} /></div>}
       </Mine>
       {turn.failed ? (
@@ -196,10 +196,10 @@ function ThreadRow({ th, open, body, onToggle }: { th: Thread; open: boolean; bo
     <button type="button" className="thread-row" aria-expanded={open} aria-controls={open ? body : undefined} onClick={onToggle}>
       <Icon name="chev" className="size-3.5 flex-none transition-transform" />
       {first?.by ? <Who name={first.by} /> : null}
-      <span className="line-clamp-1 min-w-0 flex-1 wrap-anywhere">{first?.question}</span>
+      <span className="line-clamp-1 min-w-0 flex-1 wrap-anywhere" lang={contentLang(first?.question)}>{first?.question}</span>
       <span className="flex-none text-ink-2">{t('ask.exchanges', { count: th.turns.length, n: num(th.turns.length) })}</span>
       <span className="thread-state flex-none" data-state={state}>{t(`ask.state.${state}`)}</span>
-      {Number.isFinite(at) && <Tip text={when(at)}><span className="w-8 flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
+      {Number.isFinite(at) && <Tip text={when(at)}><span className="thread-age flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
     </button>
   )
 }
@@ -548,7 +548,7 @@ function MessageView({ m }: { m: ManagerMessage }) {
         ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /></Theirs>
         : (
           <Mine who={t('ask.you')} at={m.at}>
-            <p className="whitespace-pre-line wrap-anywhere">{m.text}</p>
+            <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
             <Step m={m} />
           </Mine>
         )}

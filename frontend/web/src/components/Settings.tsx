@@ -9,8 +9,9 @@ import { MOCK } from '@/data'
 import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, RUN_GROUP, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/runtime'
 import type { Levels, Machine, RuntimeWorkspace, Thresholds, Workspace } from '@/types'
 import { Trans } from 'react-i18next'
-import { LANGS, useT, type Lang } from '@/i18n'
+import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
+import { Content, Slot, SLOT } from './bits'
 import { Choice } from './Choice'
 
 /** Not linked, in the link picker (Radix takes no empty value). */
@@ -55,7 +56,7 @@ function Machines({ ws }: { ws: Workspace | null }) {
       {list.map(live).map(m => (
         <div key={m.label} className="flex flex-col gap-0.5">
           <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm">{m.label} <span className="font-mono text-xs text-ink-2">{m.ssh}</span></span>
+            <span className="min-w-0 flex-1 truncate text-sm"><span lang={contentLang(m.label)}>{m.label}</span> <span className="font-mono text-xs text-ink-2">{m.ssh}</span></span>
             <span className="flex-none text-xs text-ink-2">{state(m)}</span>
             <Switch checked={m.enabled} aria-label={t('machines.follow', { machine: m.label })} onCheckedChange={on => act(setMachine(m.label, on ? 'enable' : 'disable'))} />
             <Button variant="ghost" size="icon-sm" aria-label={t('machines.remove', { machine: m.label })} onClick={() => act(setMachine(m.label, 'remove'))}>×</Button>
@@ -75,13 +76,13 @@ function Machines({ ws }: { ws: Workspace | null }) {
           <p className="text-xs text-ink-2">{t('machines.linkLead')}</p>
           {there.map(g => (
             <label key={g.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-center gap-2 text-sm">
-              <span className="truncate" title={`${g.machine}:${g.label}`}><span className="font-mono text-xs text-ink-2">{g.machine}:</span>{g.label}</span>
+              <span className="truncate" title={`${g.machine}:${g.label}`}><span className="font-mono text-xs text-ink-2">{g.machine}:</span><span lang={contentLang(g.label)}>{g.label}</span></span>
               {/* A linked workspace that is not open here now still shows what it is linked to. */}
               <Choice
                 label={t('machines.linkTo', { machine: g.machine, workspace: g.label })}
                 value={g.linkedTo ?? NONE}
                 onChange={v => link(g.machine!, g.label, v === NONE ? '' : v, g.linkedTo)}
-                options={[{ value: NONE, label: t('machines.notLinked') }, ...[...new Set([...here.map(h => h.label), ...(g.linkedTo ? [g.linkedTo] : [])])].map(l => ({ value: l, label: l }))]}
+                options={[{ value: NONE, label: t('machines.notLinked') }, ...[...new Set([...here.map(h => h.label), ...(g.linkedTo ? [g.linkedTo] : [])])].map(l => ({ value: l, label: l, lang: contentLang(l) }))]}
                 className="h-7 w-full"
               />
             </label>
@@ -115,14 +116,19 @@ function WorkspaceProjects({ ws }: { ws: Workspace | null }) {
       <p className="text-xs text-ink-2">{t('wsProject.lead')}</p>
       {list.map(g => (
         <label key={g.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-center gap-2 text-sm">
-          <span className="truncate">{g.label}</span>
+          <span className="truncate" lang={contentLang(g.label)}>{g.label}</span>
           <Choice
             label={t('wsProject.pick', { workspace: g.label })}
             value={g.projectFrom === 'user' && g.project ? g.project : AUTO}
             onChange={v => set(g, v)}
             options={[
-              { value: AUTO, label: g.project && g.projectFrom !== 'user' ? t('wsProject.auto', { project: g.projectTitle ?? g.project, from: t(`wsProject.from.${g.projectFrom ?? 'intents'}`) }) : t('wsProject.autoUnknown') },
-              ...projects.map(p => ({ value: p.id, label: p.title })),
+              g.project && g.projectFrom !== 'user'
+                ? (() => {
+                    const project = g.projectTitle ?? g.project, from = t(`wsProject.from.${g.projectFrom ?? 'intents'}`)
+                    return { value: AUTO, label: t('wsProject.auto', { project, from }), content: <Slot text={t('wsProject.auto', { project: SLOT, from })}><Content text={project} /></Slot> }
+                  })()
+                : { value: AUTO, label: t('wsProject.autoUnknown') },
+              ...projects.map(p => ({ value: p.id, label: p.title, lang: contentLang(p.title) })),
             ]}
             className="h-7 w-full"
           />

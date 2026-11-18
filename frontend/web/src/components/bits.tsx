@@ -1,10 +1,10 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
 import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, Shield, X, type LucideIcon } from 'lucide-react'
-import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useT } from '@/i18n'
+import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE, type Remote } from '@/runtime'
 import type { External, Step, Unit } from '@/types'
@@ -64,6 +64,21 @@ const ICONS: Record<string, LucideIcon> = {
 export function Icon({ name, className }: { name: string; className?: string }) {
   const Glyph = ICONS[name] ?? Circle
   return <Glyph aria-hidden size={16} strokeWidth={1.5} className={cn('ic', className)} />
+}
+
+/** Content (a title, what someone typed) in its own element, marked with its guessed language. */
+export const Content = ({ text }: { text: string }) => <span lang={contentLang(text)}>{text}</span>
+
+/**
+ * A UI sentence with content in it: translate with slot(i) as the i-th content's value, and
+ * each content goes where its slot landed, in whatever order the language puts them, so it
+ * keeps its own language inside the UI's. SLOT is slot(0), for a sentence with one.
+ */
+export const slot = (i: number) => String.fromCharCode(0xe000 + i)
+export const SLOT = slot(0)
+export function Slot({ text, children }: { text: string; children: ReactNode | ReactNode[] }) {
+  const fill = Array.isArray(children) ? children : [children]
+  return <>{text.split(/([\uE000-\uE0FF])/).map((part, k) => (k % 2 ? <Fragment key={k}>{fill[part.charCodeAt(0) - 0xe000]}</Fragment> : part))}</>
 }
 
 export function Tip({ text, children }: { text: ReactNode; children: ReactElement }) {
@@ -135,7 +150,7 @@ export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: strin
     <ol className="steps">
       {steps.map((s, k) => (
         <li key={k}>
-          <span className="whitespace-pre-line">{s.text}</span>
+          <span className="whitespace-pre-line" lang={contentLang(s.text)}>{s.text}</span>
           {s.command && (
             <div className="cmd">
               <code>{s.command}</code>
@@ -242,7 +257,7 @@ export function MachineChip({ machine, away = false, since }: { machine?: string
   const why = since ? t('machines.disconnected', { machine, time: date(since) }) : t('machines.unreachable', { machine })
   return (
     <Tip text={away ? why : t('machines.on', { machine })}>
-      <span className="ext-chip" data-away={away || undefined}><Icon name="machine" className="size-3" />{machine}</span>
+      <span className="ext-chip" data-away={away || undefined}><Icon name="machine" className="size-3" /><span className="chip-name" lang={contentLang(machine)}>{machine}</span></span>
     </Tip>
   )
 }
@@ -286,13 +301,13 @@ const CHIP_CHARS = 30
  * width as a last resort. The whole name is in the tooltip and read out by screen readers.
  */
 export function ChipName({ name }: { name: string }) {
-  if (name.length <= CHIP_CHARS) return <span className="chip-name">{name}</span>
+  if (name.length <= CHIP_CHARS) return <span className="chip-name" lang={contentLang(name)}>{name}</span>
   const ext = /\.[A-Za-z0-9]{1,8}$/.exec(name)?.[0] ?? ''
   const tail = name.slice(-Math.max(ext.length + 6, 10))
   const shown = `${name.slice(0, CHIP_CHARS - tail.length - 1)}…${tail}`
   return (
-    <Tip text={name}>
-      <span className="chip-name">
+    <Tip text={<Content text={name} />}>
+      <span className="chip-name" lang={contentLang(name)}>
         <span aria-hidden>{shown}</span>
         <span className="sr-only">{name}</span>
       </span>
@@ -330,7 +345,7 @@ export function IntentNote({ text, tone }: { text: string; tone: 'rail' | 'page'
   parts.push(text.slice(last))
   return (
     <div className={cn('text-xs', QUIET[tone])}>
-      <p ref={box} className={cn('whitespace-pre-line wrap-anywhere', !all && 'line-clamp-3')}>{parts}</p>
+      <p ref={box} lang={contentLang(text)} className={cn('whitespace-pre-line wrap-anywhere', !all && 'line-clamp-3')}>{parts}</p>
       {(long || all) && (
         <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold" onClick={() => setAll(a => !a)}>
           {t(all ? 'rail.noteLess' : 'rail.noteMore')}
@@ -366,7 +381,7 @@ export function Prose({ text, fold = true, onFile }: { text: string; fold?: bool
     watch.observe(o)
     return () => watch.disconnect()
   }, [fold])
-  const body = <Suspense fallback={<div className="whitespace-pre-line">{text}</div>}><MarkdownView text={text} compact onFile={onFile} /></Suspense>
+  const body = <Suspense fallback={<div className="whitespace-pre-line" lang={contentLang(text)}>{text}</div>}><MarkdownView text={text} compact onFile={onFile} /></Suspense>
   if (!fold) return body
   return (
     <div>
