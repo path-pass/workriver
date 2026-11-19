@@ -1232,3 +1232,6 @@ fn a_manager_says_and_the_user_reads() {
     assert_eq!(s.state().read["chat"], "2026-11-18T10:00:05Z");
     assert_eq!(replayed(&s), *s.state());
 }
+
+// Replay of a synthetic history to the state it has always added up to.
+mod replay;

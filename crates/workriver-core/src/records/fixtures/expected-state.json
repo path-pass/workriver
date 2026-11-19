@@ -1,0 +1,2431 @@
+{
+  "blind": {
+    "s-blind": {
+      "agents": [
+        {
+          "harness": "claude",
+          "name": "impl-a",
+          "session": "s-a"
+        }
+      ],
+      "attachments": [],
+      "backlog": [],
+      "chores": [],
+      "intents": [
+        {
+          "at": "2025-12-02T02:00:00Z",
+          "by": "user",
+          "external": {
+            "key": "CH-1",
+            "system": "jira",
+            "url": "https://example.invalid/CH-1"
+          },
+          "findings": "user",
+          "goal": "Find messages fast",
+          "id": "i2",
+          "manager": null,
+          "note": "",
+          "project": "/r/chat",
+          "reason": null,
+          "runtime_ref": null,
+          "state": "active",
+          "tasks": [],
+          "title": "Search and emoji",
+          "workspace": {
+            "id": "w2",
+            "label": "search"
+          }
+        }
+      ],
+      "links": [
+        {
+          "local": "search",
+          "machine": "box",
+          "workspace": "srch"
+        }
+      ],
+      "messages": [],
+      "projects": [
+        {
+          "id": "p1",
+          "path": "/r/chat",
+          "title": "Chat app"
+        }
+      ],
+      "questions": [],
+      "reduced": true,
+      "roadmap": [],
+      "threads": [],
+      "units": [
+        {
+          "at": "2025-12-02T10:02:00Z",
+          "base": "main",
+          "branch": "feat/try",
+          "id": "u4",
+          "intent": "i2",
+          "kind": "spike",
+          "machine": "box",
+          "merged": null,
+          "merged_commits": [],
+          "purpose": "",
+          "repo": "/r/chat",
+          "tasks": [
+            {
+              "agent": "s-blind",
+              "amended": null,
+              "at": "2025-12-03T01:00:00Z",
+              "attachments": [],
+              "blind": true,
+              "by": "s-boss2",
+              "causes": [],
+              "delivery": null,
+              "done": null,
+              "evidence": [],
+              "findings": [],
+              "gate": null,
+              "inputs": [
+                {
+                  "from": "2",
+                  "primary": false
+                }
+              ],
+              "intent": "i2",
+              "kind": "tests",
+              "n": 1,
+              "note": "",
+              "plans": [],
+              "result": null,
+              "reviewer": null,
+              "started": "2025-12-03T01:01:00Z",
+              "state": "running",
+              "steps": [],
+              "text": "",
+              "title": "Try on box"
+            }
+          ],
+          "title": "Try it"
+        }
+      ],
+      "workspaces": [
+        {
+          "current": null,
+          "group": {
+            "id": "w7",
+            "label": "chat"
+          },
+          "manager": "s-boss"
+        },
+        {
+          "current": "i2",
+          "group": {
+            "id": "w2",
+            "label": "search"
+          },
+          "manager": "s-boss2",
+          "project": "/r/chat"
+        }
+      ]
+    },
+    "s-i": null
+  },
+  "encoded": [
+    {
+      "body": {
+        "id": "i1",
+        "runtime_ref": {
+          "id": "w1",
+          "label": "chat"
+        },
+        "state": "active",
+        "title": "Chat v1"
+      },
+      "kind": "intent.created"
+    },
+    {
+      "body": {
+        "agent": "s-boss",
+        "intent": "i1"
+      },
+      "kind": "manager.registered"
+    },
+    {
+      "body": {
+        "base": "main",
+        "branch": "ja-ui",
+        "id": "u1",
+        "intent": "i1",
+        "purpose": "",
+        "repo": "/r/chat",
+        "title": "Mentions"
+      },
+      "kind": "unit.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [],
+        "intent": "",
+        "kind": "implement",
+        "n": 1,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Find mentions",
+        "unit": "u1"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [],
+        "intent": "",
+        "kind": "research",
+        "n": 1,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Which libraries",
+        "unit": "i1"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "task": 1,
+        "unit": "u1"
+      },
+      "kind": "task.started"
+    },
+    {
+      "body": {
+        "evidence": [
+          {
+            "command": "npm test",
+            "result": "passed",
+            "summary": "6 passed"
+          }
+        ],
+        "findings": [],
+        "note": "",
+        "task": 1,
+        "unit": "u1"
+      },
+      "kind": "task.delivered"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [
+          {
+            "from": "1",
+            "primary": true
+          }
+        ],
+        "intent": "",
+        "kind": "review",
+        "n": 2,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "",
+        "unit": "u1"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "evidence": [],
+        "findings": [
+          {
+            "id": "P2-1",
+            "impact": "Two notices",
+            "problem": "Duplicates",
+            "severity": "P2",
+            "where": [
+              "app/m.ts"
+            ]
+          },
+          {
+            "id": "P3-1",
+            "impact": "",
+            "problem": "Naming",
+            "severity": "P3",
+            "where": []
+          }
+        ],
+        "note": "",
+        "task": 2,
+        "unit": "u1"
+      },
+      "kind": "task.delivered"
+    },
+    {
+      "body": {
+        "by": "agent",
+        "decision": "accept",
+        "finding": "P2-1",
+        "note": "",
+        "task": 2,
+        "unit": "u1"
+      },
+      "kind": "finding.decided"
+    },
+    {
+      "body": {
+        "by": "user",
+        "decision": "defer",
+        "finding": "P3-1",
+        "note": "",
+        "task": 2,
+        "unit": "u1"
+      },
+      "kind": "finding.decided"
+    },
+    {
+      "body": {
+        "finding": "P2-1",
+        "message": "P2-1 accepted",
+        "reason": null,
+        "step": "delivered",
+        "task": 2,
+        "to": "s-boss",
+        "unit": "u1"
+      },
+      "kind": "delivery.updated"
+    },
+    {
+      "body": {
+        "intent": "i1",
+        "runtime_ref": {
+          "id": "w7",
+          "label": "chat"
+        }
+      },
+      "kind": "intent.linked"
+    },
+    {
+      "body": {
+        "harness": "claude",
+        "name": "impl-a",
+        "session": "s-a"
+      },
+      "kind": "agent.seen"
+    },
+    {
+      "body": {
+        "context": [],
+        "id": "q1",
+        "task": 1,
+        "text": "Why a regex?",
+        "thread": "q1",
+        "unit": "u1"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "agent": "s-why",
+        "name": "why-q1",
+        "question": "q1"
+      },
+      "kind": "question.started"
+    },
+    {
+      "body": {
+        "question": "q1",
+        "text": "Names are short."
+      },
+      "kind": "question.answered"
+    },
+    {
+      "body": {
+        "thread": "q1"
+      },
+      "kind": "thread.ended"
+    },
+    {
+      "body": {
+        "context": [],
+        "id": "q2",
+        "task": 0,
+        "text": "About the unit",
+        "thread": "q2",
+        "unit": "u1"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "question": "q2",
+        "reason": "the runtime does not answer",
+        "reason_code": "runtime-down"
+      },
+      "kind": "question.failed"
+    },
+    {
+      "body": {
+        "id": "p1",
+        "path": "/r/chat",
+        "title": "Chat"
+      },
+      "kind": "project.added"
+    },
+    {
+      "body": {
+        "project": "/r/chat",
+        "title": "Chat app"
+      },
+      "kind": "project.renamed"
+    },
+    {
+      "body": {
+        "external": {
+          "key": "CH-1",
+          "system": "jira",
+          "url": "https://example.invalid/CH-1"
+        },
+        "goal": "Find messages",
+        "id": "i2",
+        "note": "See the spec.",
+        "project": "/r/chat",
+        "state": "planned",
+        "title": "Search"
+      },
+      "kind": "intent.created"
+    },
+    {
+      "body": {
+        "id": "i3",
+        "project": "/r/chat",
+        "state": "planned",
+        "title": "Emoji"
+      },
+      "kind": "intent.created"
+    },
+    {
+      "body": {
+        "id": "i4",
+        "project": "/r/chat",
+        "state": "planned",
+        "title": "Threads"
+      },
+      "kind": "intent.created"
+    },
+    {
+      "body": {
+        "before": "i2",
+        "intent": "i4"
+      },
+      "kind": "intent.moved"
+    },
+    {
+      "body": {
+        "from": [
+          "i3"
+        ],
+        "intent": "i2",
+        "title": "Search and emoji"
+      },
+      "kind": "intent.merged"
+    },
+    {
+      "body": {
+        "agent": "s-boss2",
+        "workspace": {
+          "id": "w2",
+          "label": "search"
+        }
+      },
+      "kind": "manager.registered"
+    },
+    {
+      "body": {
+        "intent": "i2",
+        "state": "active",
+        "workspace": {
+          "id": "w2",
+          "label": "search"
+        }
+      },
+      "kind": "intent.state_changed"
+    },
+    {
+      "body": {
+        "add_note": "Second paragraph.",
+        "findings": "user",
+        "goal": "Find messages fast",
+        "intent": "i2"
+      },
+      "kind": "intent.updated"
+    },
+    {
+      "body": {
+        "base": "main",
+        "branch": "feat/index",
+        "id": "u2",
+        "intent": "i2",
+        "purpose": "Build the index",
+        "repo": "/r/chat",
+        "title": "Index"
+      },
+      "kind": "unit.created"
+    },
+    {
+      "body": {
+        "base": "",
+        "branch": "",
+        "id": "u3",
+        "intent": "i2",
+        "kind": "research",
+        "purpose": "",
+        "repo": "/r/chat",
+        "title": "Survey"
+      },
+      "kind": "unit.created"
+    },
+    {
+      "body": {
+        "base": "main",
+        "branch": "feat/try",
+        "id": "u4",
+        "intent": "i2",
+        "kind": "spike",
+        "machine": "box",
+        "purpose": "",
+        "repo": "/r/chat",
+        "title": "Try it"
+      },
+      "kind": "unit.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [],
+        "intent": "i2",
+        "kind": "design",
+        "n": 1,
+        "plans": [
+          "src/index.rs"
+        ],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Index design",
+        "unit": "u2"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "blind": true,
+        "causes": [],
+        "gate": null,
+        "inputs": [
+          {
+            "from": "1",
+            "primary": true
+          }
+        ],
+        "intent": "i2",
+        "kind": "review",
+        "n": 2,
+        "plans": [],
+        "reviewer": "architecture-review",
+        "steps": [],
+        "text": "",
+        "title": "",
+        "unit": "u2"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": "decide",
+        "inputs": [
+          {
+            "from": "2",
+            "primary": true
+          }
+        ],
+        "intent": "i2",
+        "kind": "gate",
+        "n": 3,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Confirm the design?",
+        "unit": "u2"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "id": "a1",
+        "name": "design.md",
+        "size": 120,
+        "task": 1,
+        "type": "text/markdown",
+        "unit": "u2"
+      },
+      "kind": "attachment.added"
+    },
+    {
+      "body": {
+        "attachments": [
+          "a1"
+        ],
+        "evidence": [],
+        "findings": [],
+        "note": "Design",
+        "task": 1,
+        "unit": "u2"
+      },
+      "kind": "task.delivered"
+    },
+    {
+      "body": {
+        "agent": "s-r2",
+        "task": 2,
+        "unit": "u2"
+      },
+      "kind": "task.started"
+    },
+    {
+      "body": {
+        "evidence": [],
+        "findings": [
+          {
+            "id": "P1-1",
+            "impact": "Out of memory",
+            "problem": "No limit",
+            "severity": "P1",
+            "suggestion": {
+              "decision": "accept",
+              "reason": "real"
+            },
+            "where": [
+              "src/index.rs"
+            ]
+          }
+        ],
+        "note": "",
+        "task": 2,
+        "unit": "u2"
+      },
+      "kind": "task.delivered"
+    },
+    {
+      "body": {
+        "finding": "P1-1",
+        "task": 2,
+        "text": "Cap at 10k",
+        "unit": "u2"
+      },
+      "kind": "finding.noted"
+    },
+    {
+      "body": {
+        "by": "user",
+        "decision": "accept",
+        "finding": "P1-1",
+        "note": "yes",
+        "task": 2,
+        "unit": "u2"
+      },
+      "kind": "finding.decided"
+    },
+    {
+      "body": {
+        "finding": "P1-1",
+        "id": "a1",
+        "name": "design.md",
+        "size": 120,
+        "task": 2,
+        "type": "text/markdown",
+        "unit": "u2"
+      },
+      "kind": "attachment.added"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [
+          {
+            "findings": [
+              "P1-1"
+            ],
+            "task": 2
+          }
+        ],
+        "gate": null,
+        "inputs": [
+          {
+            "from": "2",
+            "primary": true
+          },
+          {
+            "from": "3",
+            "primary": false
+          }
+        ],
+        "intent": "i2",
+        "kind": "implement",
+        "n": 4,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Build the index",
+        "unit": "u2"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "findings": [],
+        "note": "OK",
+        "result": "done",
+        "task": 3,
+        "unit": "u2"
+      },
+      "kind": "gate.submitted"
+    },
+    {
+      "body": {
+        "agent": "s-i",
+        "task": 4,
+        "unit": "u2"
+      },
+      "kind": "task.started"
+    },
+    {
+      "body": {
+        "date": "2025-12-02T19:00:00Z",
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "patch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "subject": "Build",
+        "task": 4,
+        "unit": "u2"
+      },
+      "kind": "commit.linked"
+    },
+    {
+      "body": {
+        "date": "",
+        "hash": "cccccccccccccccccccccccccccccccccccccccc",
+        "patch_id": "",
+        "subject": "",
+        "task": 4,
+        "unit": "u2"
+      },
+      "kind": "commit.linked"
+    },
+    {
+      "body": {
+        "hash": "cccccccccccccccccccccccccccccccccccccccc",
+        "unit": "u2"
+      },
+      "kind": "commit.unlinked"
+    },
+    {
+      "body": {
+        "evidence": [
+          {
+            "attachment": "a1",
+            "command": "cargo test",
+            "result": "passed",
+            "summary": "12 passed"
+          }
+        ],
+        "findings": [],
+        "note": "Built",
+        "task": 4,
+        "unit": "u2"
+      },
+      "kind": "task.delivered"
+    },
+    {
+      "body": {
+        "add": [
+          {
+            "id": "P3-1",
+            "impact": "2 s",
+            "problem": "Slow start",
+            "severity": "P3",
+            "where": [
+              "src/index.rs"
+            ]
+          }
+        ],
+        "note": "Built, capped",
+        "task": 4,
+        "unit": "u2"
+      },
+      "kind": "task.amended"
+    },
+    {
+      "body": {
+        "attachments": [
+          "a1"
+        ],
+        "evidence": [
+          {
+            "command": "cargo test",
+            "result": "failed",
+            "summary": "1 failed"
+          }
+        ],
+        "task": 4,
+        "unit": "u2"
+      },
+      "kind": "task.amended"
+    },
+    {
+      "body": {
+        "agent": "s-t",
+        "causes": [],
+        "gate": null,
+        "inputs": [
+          {
+            "from": "4",
+            "primary": true
+          }
+        ],
+        "intent": "i2",
+        "kind": "tests",
+        "n": 5,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Tests",
+        "unit": "u2"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "reason": "covered",
+        "task": 5,
+        "unit": "u2"
+      },
+      "kind": "task.dropped"
+    },
+    {
+      "body": {
+        "finding": null,
+        "message": "u2#4 delivered",
+        "reason": "nobody manages search",
+        "reason_code": "no-manager",
+        "step": "not-delivered",
+        "task": 4,
+        "to": null,
+        "unit": "u2"
+      },
+      "kind": "delivery.updated"
+    },
+    {
+      "body": {
+        "base": "main",
+        "branch": "feat/index",
+        "previous": [
+          {
+            "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "subject": "Build",
+            "task": 4
+          }
+        ],
+        "repo": "/r/chat2",
+        "unit": "u2"
+      },
+      "kind": "unit.relocated"
+    },
+    {
+      "body": {
+        "commits": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "unit": "u2"
+      },
+      "kind": "unit.merged"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [],
+        "intent": "i2",
+        "kind": "research",
+        "n": 1,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Survey tools",
+        "unit": "u3"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "evidence": [],
+        "findings": [],
+        "note": "Three tools",
+        "task": 1,
+        "unit": "u3"
+      },
+      "kind": "task.delivered"
+    },
+    {
+      "body": {
+        "reason": "answered",
+        "unit": "u3"
+      },
+      "kind": "unit.done"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [],
+        "intent": "i2",
+        "kind": "research",
+        "n": 2,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "One more",
+        "unit": "u3"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": "s-blind",
+        "blind": true,
+        "causes": [],
+        "gate": null,
+        "inputs": [],
+        "intent": "i2",
+        "kind": "tests",
+        "n": 1,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Try on box",
+        "unit": "u4"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "task": 1,
+        "unit": "u4"
+      },
+      "kind": "task.started"
+    },
+    {
+      "body": {
+        "agent": null,
+        "blocks": 1,
+        "causes": [],
+        "gate": "test",
+        "inputs": [],
+        "intent": "i2",
+        "kind": "gate",
+        "n": 2,
+        "plans": [],
+        "reviewer": null,
+        "steps": [
+          {
+            "command": "open http://127.0.0.1:1",
+            "text": "Open it"
+          }
+        ],
+        "text": "",
+        "title": "Try it by hand",
+        "unit": "u4"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "id": "c1",
+        "intent": "i2",
+        "steps": [
+          {
+            "command": "gh auth token",
+            "text": "Create it"
+          }
+        ],
+        "title": "Add a token",
+        "unit": null
+      },
+      "kind": "chore.created"
+    },
+    {
+      "body": {
+        "chore": "c1",
+        "finding": null,
+        "message": "c1",
+        "reason": null,
+        "step": "delivered",
+        "task": 0,
+        "to": "user",
+        "unit": ""
+      },
+      "kind": "delivery.updated"
+    },
+    {
+      "body": {
+        "chore": "c1"
+      },
+      "kind": "chore.done"
+    },
+    {
+      "body": {
+        "id": "c2",
+        "intent": "",
+        "project": "/r/chat",
+        "steps": [],
+        "title": "Rotate keys",
+        "unit": null
+      },
+      "kind": "chore.created"
+    },
+    {
+      "body": {
+        "finding": {
+          "id": "f1",
+          "impact": "A known hole",
+          "problem": "Old dependency",
+          "severity": "P2",
+          "where": [
+            "Cargo.toml"
+          ]
+        },
+        "project": "/r/chat",
+        "source": "audit"
+      },
+      "kind": "finding.added"
+    },
+    {
+      "body": {
+        "finding": {
+          "id": "f2",
+          "impact": "",
+          "problem": "Typos",
+          "severity": "P3",
+          "where": []
+        },
+        "intent": "i4",
+        "note": "low",
+        "project": "/r/chat",
+        "source": ""
+      },
+      "kind": "finding.added"
+    },
+    {
+      "body": {
+        "findings": [
+          {
+            "finding": "f1",
+            "task": 0,
+            "unit": ""
+          },
+          {
+            "finding": "P3-1",
+            "task": 2,
+            "unit": "u1"
+          }
+        ],
+        "intent": "i2"
+      },
+      "kind": "findings.batched"
+    },
+    {
+      "body": {
+        "finding": "f1",
+        "message": "f1",
+        "reason": null,
+        "step": "delivered",
+        "task": 0,
+        "to": "s-boss2",
+        "unit": ""
+      },
+      "kind": "delivery.updated"
+    },
+    {
+      "body": {
+        "finding": "f2",
+        "reason": "not needed",
+        "task": 0,
+        "unit": ""
+      },
+      "kind": "finding.dropped"
+    },
+    {
+      "body": {
+        "local": "search",
+        "machine": "box",
+        "workspace": "search"
+      },
+      "kind": "workspace.linked"
+    },
+    {
+      "body": {
+        "project": "/r/chat",
+        "workspace": {
+          "id": "w2",
+          "label": "search"
+        }
+      },
+      "kind": "workspace.project_set"
+    },
+    {
+      "body": {
+        "machine": "box",
+        "workspace": "search"
+      },
+      "kind": "workspace.unlinked"
+    },
+    {
+      "body": {
+        "local": "search",
+        "machine": "box",
+        "workspace": "srch"
+      },
+      "kind": "workspace.linked"
+    },
+    {
+      "body": {
+        "by": "s-i",
+        "command": "npm test",
+        "dir": "/r/chat",
+        "from": "u2#4",
+        "id": "r1",
+        "step": 1,
+        "unit": "u2"
+      },
+      "kind": "command.ran"
+    },
+    {
+      "body": {
+        "id": "r1",
+        "text": "Runs the tests.",
+        "verdict": "ok"
+      },
+      "kind": "command.reviewed"
+    },
+    {
+      "body": {
+        "exit": 0,
+        "id": "r1"
+      },
+      "kind": "command.ended"
+    },
+    {
+      "body": {
+        "by": "",
+        "command": "ls",
+        "dir": "/r",
+        "id": "r2"
+      },
+      "kind": "command.ran"
+    },
+    {
+      "body": {
+        "id": "m1",
+        "intent": "i2",
+        "manager": "s-boss2",
+        "text": "How is it going?",
+        "workspace": "search"
+      },
+      "kind": "message.sent"
+    },
+    {
+      "body": {
+        "id": "m1",
+        "message": "How is it going?",
+        "reason": null,
+        "step": "delivered",
+        "to": "s-boss2"
+      },
+      "kind": "message.delivery"
+    },
+    {
+      "body": {
+        "message": "m1",
+        "text": "Fine."
+      },
+      "kind": "message.replied"
+    },
+    {
+      "body": {
+        "id": "m2",
+        "intent": "i2",
+        "text": "Design confirmed.",
+        "workspace": "search"
+      },
+      "kind": "message.said"
+    },
+    {
+      "body": {
+        "at": "2025-12-03T10:00:00Z",
+        "workspace": "search"
+      },
+      "kind": "messages.read"
+    },
+    {
+      "body": {
+        "at": "2025-12-03T09:00:00Z",
+        "workspace": "search"
+      },
+      "kind": "messages.read"
+    },
+    {
+      "body": {
+        "task": 4,
+        "text": "Done",
+        "unit": "u2"
+      },
+      "kind": "manager.told"
+    },
+    {
+      "body": {
+        "context": [
+          {
+            "id": "P1-1",
+            "kind": "finding",
+            "label": "P1-1"
+          },
+          {
+            "from": 3,
+            "kind": "file",
+            "label": "src/index.rs:3-9",
+            "path": "src/index.rs",
+            "to": 9
+          }
+        ],
+        "id": "q3",
+        "task": 4,
+        "text": "Why a cap?",
+        "thread": "q3",
+        "unit": "u2"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "agent": "s-i",
+        "name": "impl",
+        "question": "q3",
+        "temporary": false
+      },
+      "kind": "question.started"
+    },
+    {
+      "body": {
+        "asked": "s-i",
+        "question": "q3",
+        "text": "Out of memory."
+      },
+      "kind": "question.answered"
+    },
+    {
+      "body": {
+        "conclude": true,
+        "context": [],
+        "id": "q4",
+        "task": 4,
+        "text": "Conclude",
+        "thread": "q3",
+        "unit": "u2"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "conclusion": true,
+        "question": "q4",
+        "text": "Capped at 10k."
+      },
+      "kind": "question.answered"
+    },
+    {
+      "body": {
+        "intent": "i1",
+        "state": "done"
+      },
+      "kind": "intent.state_changed"
+    },
+    {
+      "body": {
+        "intent": "i4",
+        "reason": "later",
+        "state": "dropped"
+      },
+      "kind": "intent.state_changed"
+    },
+    {
+      "body": {
+        "external": {
+          "key": "7",
+          "system": "gh"
+        },
+        "id": "i5",
+        "project": "/r/chat",
+        "state": "planned",
+        "title": "Later"
+      },
+      "kind": "intent.created"
+    }
+  ],
+  "managers": {
+    "i1": "s-boss",
+    "i2": "s-boss2"
+  },
+  "next": [
+    {
+      "body": {
+        "id": "i6",
+        "project": "/r/chat",
+        "state": "planned",
+        "title": "Next"
+      },
+      "kind": "intent.created"
+    },
+    {
+      "body": {
+        "id": "p2",
+        "path": "/r/other",
+        "title": "Other"
+      },
+      "kind": "project.added"
+    },
+    {
+      "body": {
+        "base": "main",
+        "branch": "feat/more",
+        "id": "u5",
+        "intent": "i2",
+        "purpose": "",
+        "repo": "/r/chat",
+        "title": "More"
+      },
+      "kind": "unit.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "causes": [],
+        "gate": null,
+        "inputs": [
+          {
+            "from": "2",
+            "primary": true
+          }
+        ],
+        "intent": "i2",
+        "kind": "implement",
+        "n": 3,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Again",
+        "unit": "u4"
+      },
+      "kind": "task.created"
+    },
+    {
+      "rejected": "i1 is an intent: tasks go into a unit. For research or design, record a research unit first: workriver unit add i1 --kind research --title \"...\", then workriver task add u<N> ..."
+    },
+    {
+      "body": {
+        "id": "c3",
+        "intent": "i2",
+        "steps": [],
+        "title": "Another",
+        "unit": null
+      },
+      "kind": "chore.created"
+    },
+    {
+      "body": {
+        "finding": {
+          "id": "f3",
+          "impact": "y",
+          "problem": "x",
+          "severity": "P3",
+          "where": [
+            "a"
+          ]
+        },
+        "project": "/r/chat",
+        "source": ""
+      },
+      "kind": "finding.added"
+    },
+    {
+      "body": {
+        "context": [],
+        "id": "q5",
+        "task": 4,
+        "text": "And?",
+        "thread": "q5",
+        "unit": "u2"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "id": "m3",
+        "intent": "i2",
+        "manager": "s-boss2",
+        "text": "Hello",
+        "workspace": "search"
+      },
+      "kind": "message.sent"
+    },
+    {
+      "rejected": "u2#2 is already delivered; to correct it, run `workriver task deliver u2#2 --amend` with what replaces it"
+    }
+  ],
+  "runs": [
+    {
+      "at": "2025-12-03T07:00:00Z",
+      "by": "s-i",
+      "command": "npm test",
+      "dir": "/r/chat",
+      "exit": 0,
+      "from": "u2#4",
+      "id": "r1",
+      "machine": null,
+      "review": [
+        "ok",
+        "Runs the tests."
+      ],
+      "step": 1,
+      "unit": "u2"
+    },
+    {
+      "at": "2025-12-03T08:00:00Z",
+      "by": "",
+      "command": "ls",
+      "dir": "/r",
+      "exit": null,
+      "from": null,
+      "id": "r2",
+      "machine": null,
+      "review": null,
+      "step": null,
+      "unit": null
+    }
+  ],
+  "state": {
+    "agents": [
+      {
+        "harness": "claude",
+        "name": "impl-a",
+        "session": "s-a"
+      }
+    ],
+    "attachments": [
+      {
+        "at": "2025-12-02T12:00:00Z",
+        "by": "s-d",
+        "id": "a1",
+        "name": "design.md",
+        "size": 120,
+        "type": "text/markdown",
+        "user": true
+      }
+    ],
+    "backlog": [
+      {
+        "at": "2025-12-03T04:00:00Z",
+        "by": "user",
+        "finding": {
+          "decided_by": "user",
+          "delivery": {
+            "message": "f1",
+            "reason": null,
+            "step": "delivered",
+            "to": "s-boss2"
+          },
+          "id": "f1",
+          "impact": "A known hole",
+          "note": null,
+          "problem": "Old dependency",
+          "severity": "P2",
+          "state": "scheduled",
+          "where": [
+            "Cargo.toml"
+          ]
+        },
+        "intent": "i2",
+        "project": "/r/chat",
+        "source": "audit"
+      },
+      {
+        "at": "2025-12-03T04:01:00Z",
+        "by": "user",
+        "finding": {
+          "decided_by": "user",
+          "delivery": null,
+          "id": "f2",
+          "impact": "",
+          "note": "low",
+          "problem": "Typos",
+          "reason": "not needed",
+          "severity": "P3",
+          "state": "dropped",
+          "where": []
+        },
+        "intent": "i4",
+        "project": "/r/chat",
+        "source": ""
+      }
+    ],
+    "chores": [
+      {
+        "at": "2025-12-03T02:00:00Z",
+        "by": "s-boss2",
+        "delivery": {
+          "message": "c1",
+          "reason": null,
+          "step": "delivered",
+          "to": "user"
+        },
+        "done": true,
+        "id": "c1",
+        "intent": "i2",
+        "project": "",
+        "steps": [
+          {
+            "command": "gh auth token",
+            "text": "Create it"
+          }
+        ],
+        "title": "Add a token",
+        "unit": null
+      },
+      {
+        "at": "2025-12-03T03:00:00Z",
+        "by": "user",
+        "delivery": null,
+        "done": false,
+        "id": "c2",
+        "intent": "",
+        "project": "/r/chat",
+        "steps": [],
+        "title": "Rotate keys",
+        "unit": null
+      }
+    ],
+    "intents": [
+      {
+        "at": "2025-12-01T00:00:00Z",
+        "by": "user",
+        "external": null,
+        "findings": "manager",
+        "goal": "",
+        "id": "i1",
+        "manager": "s-boss",
+        "note": "",
+        "project": "",
+        "reason": null,
+        "runtime_ref": {
+          "id": "w7",
+          "label": "chat"
+        },
+        "state": "done",
+        "tasks": [
+          {
+            "agent": null,
+            "amended": null,
+            "at": "2025-12-01T03:05:00Z",
+            "attachments": [],
+            "by": "s-boss",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [],
+            "intent": "i1",
+            "kind": "research",
+            "n": 1,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "todo",
+            "steps": [],
+            "text": "",
+            "title": "Which libraries"
+          }
+        ],
+        "title": "Chat v1",
+        "workspace": {
+          "id": "w7",
+          "label": "chat"
+        }
+      },
+      {
+        "at": "2025-12-02T02:00:00Z",
+        "by": "user",
+        "external": {
+          "key": "CH-1",
+          "system": "jira",
+          "url": "https://example.invalid/CH-1"
+        },
+        "findings": "user",
+        "goal": "Find messages fast",
+        "id": "i2",
+        "manager": null,
+        "note": "See the spec.\n\nMerged from i3: Emoji\n\nSecond paragraph.",
+        "project": "/r/chat",
+        "reason": null,
+        "runtime_ref": null,
+        "state": "active",
+        "tasks": [],
+        "title": "Search and emoji",
+        "workspace": {
+          "id": "w2",
+          "label": "search"
+        }
+      },
+      {
+        "at": "2025-12-02T03:00:00Z",
+        "by": "s-boss",
+        "external": null,
+        "findings": "manager",
+        "goal": "",
+        "id": "i3",
+        "manager": null,
+        "note": "",
+        "project": "/r/chat",
+        "reason": "merged into i2",
+        "runtime_ref": null,
+        "state": "dropped",
+        "tasks": [],
+        "title": "Emoji",
+        "workspace": null
+      },
+      {
+        "at": "2025-12-02T04:00:00Z",
+        "by": "user",
+        "external": null,
+        "findings": "manager",
+        "goal": "",
+        "id": "i4",
+        "manager": null,
+        "note": "",
+        "project": "/r/chat",
+        "reason": "later",
+        "runtime_ref": null,
+        "state": "dropped",
+        "tasks": [],
+        "title": "Threads",
+        "workspace": null
+      },
+      {
+        "at": "2025-12-03T13:02:00Z",
+        "by": "user",
+        "external": {
+          "key": "7",
+          "system": "gh"
+        },
+        "findings": "manager",
+        "goal": "",
+        "id": "i5",
+        "manager": null,
+        "note": "",
+        "project": "/r/chat",
+        "reason": null,
+        "runtime_ref": null,
+        "state": "planned",
+        "tasks": [],
+        "title": "Later",
+        "workspace": null
+      }
+    ],
+    "links": [
+      {
+        "local": "search",
+        "machine": "box",
+        "workspace": "srch"
+      }
+    ],
+    "messages": [
+      {
+        "at": "2025-12-03T09:00:00Z",
+        "delivery": {
+          "message": "How is it going?",
+          "reason": null,
+          "step": "delivered",
+          "to": "s-boss2"
+        },
+        "id": "m1",
+        "intent": "i2",
+        "manager": "s-boss2",
+        "replies": [
+          {
+            "at": "2025-12-03T09:02:00Z",
+            "by": "s-boss2",
+            "text": "Fine."
+          }
+        ],
+        "text": "How is it going?",
+        "workspace": "search"
+      },
+      {
+        "at": "2025-12-03T10:00:00Z",
+        "by_manager": true,
+        "delivery": null,
+        "id": "m2",
+        "intent": "i2",
+        "manager": "s-boss2",
+        "replies": [],
+        "text": "Design confirmed.",
+        "workspace": "search"
+      }
+    ],
+    "projects": [
+      {
+        "id": "p1",
+        "path": "/r/chat",
+        "title": "Chat app"
+      }
+    ],
+    "questions": [
+      {
+        "agent": "s-why",
+        "answer": "Names are short.",
+        "answered_at": "2025-12-01T13:09:00Z",
+        "answered_by": "s-why",
+        "asked": null,
+        "at": "2025-12-01T13:00:00Z",
+        "by": "user",
+        "conclude": false,
+        "context": [],
+        "failed": null,
+        "id": "q1",
+        "name": "why-q1",
+        "task": 1,
+        "temporary": true,
+        "text": "Why a regex?",
+        "thread": "q1",
+        "unit": "u1"
+      },
+      {
+        "agent": null,
+        "answer": null,
+        "answered_at": null,
+        "answered_by": null,
+        "asked": null,
+        "at": "2025-12-01T15:00:00Z",
+        "by": "user",
+        "conclude": false,
+        "context": [],
+        "failed": [
+          "runtime-down",
+          "the runtime does not answer"
+        ],
+        "id": "q2",
+        "name": null,
+        "task": 0,
+        "temporary": true,
+        "text": "About the unit",
+        "thread": "q2",
+        "unit": "u1"
+      },
+      {
+        "agent": "s-i",
+        "answer": "Out of memory.",
+        "answered_at": "2025-12-03T12:02:00Z",
+        "answered_by": "s-i",
+        "asked": "s-i",
+        "at": "2025-12-03T12:00:00Z",
+        "by": "user",
+        "conclude": false,
+        "context": [
+          {
+            "id": "P1-1",
+            "kind": "finding",
+            "label": "P1-1"
+          },
+          {
+            "from": 3,
+            "kind": "file",
+            "label": "src/index.rs:3-9",
+            "path": "src/index.rs",
+            "to": 9
+          }
+        ],
+        "failed": null,
+        "id": "q3",
+        "name": "impl",
+        "task": 4,
+        "temporary": false,
+        "text": "Why a cap?",
+        "thread": "q3",
+        "unit": "u2"
+      },
+      {
+        "agent": null,
+        "answer": "Capped at 10k.",
+        "answered_at": "2025-12-03T12:04:00Z",
+        "answered_by": "s-i",
+        "asked": null,
+        "at": "2025-12-03T12:03:00Z",
+        "by": "user",
+        "conclude": true,
+        "context": [],
+        "failed": null,
+        "id": "q4",
+        "name": null,
+        "task": 4,
+        "temporary": true,
+        "text": "Conclude",
+        "thread": "q3",
+        "unit": "u2"
+      }
+    ],
+    "read": {
+      "search": "2025-12-03T10:00:00Z"
+    },
+    "roadmap": [
+      "i5"
+    ],
+    "threads": [
+      {
+        "agent": "s-why",
+        "conclusion": null,
+        "ended": true,
+        "id": "q1",
+        "name": "why-q1",
+        "task": 1,
+        "unit": "u1"
+      },
+      {
+        "agent": null,
+        "conclusion": null,
+        "ended": false,
+        "id": "q2",
+        "name": null,
+        "task": 0,
+        "unit": "u1"
+      },
+      {
+        "agent": null,
+        "conclusion": "Capped at 10k.",
+        "ended": false,
+        "id": "q3",
+        "name": null,
+        "task": 4,
+        "unit": "u2"
+      }
+    ],
+    "units": [
+      {
+        "at": "2025-12-01T02:00:00Z",
+        "base": "main",
+        "branch": "ja-ui",
+        "id": "u1",
+        "intent": "i1",
+        "merged": null,
+        "merged_commits": [],
+        "purpose": "",
+        "repo": "/r/chat",
+        "tasks": [
+          {
+            "agent": "s-a",
+            "amended": null,
+            "at": "2025-12-01T03:00:00Z",
+            "attachments": [],
+            "by": "s-boss",
+            "causes": [],
+            "delivery": null,
+            "done": "2025-12-01T05:00:00Z",
+            "evidence": [
+              {
+                "command": "npm test",
+                "result": "passed",
+                "summary": "6 passed"
+              }
+            ],
+            "findings": [],
+            "gate": null,
+            "inputs": [],
+            "intent": "i1",
+            "kind": "implement",
+            "n": 1,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": "2025-12-01T04:00:00Z",
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": "Find mentions"
+          },
+          {
+            "agent": "s-r",
+            "amended": null,
+            "at": "2025-12-01T06:00:00Z",
+            "attachments": [],
+            "by": "s-boss",
+            "causes": [],
+            "delivery": null,
+            "done": "2025-12-01T07:00:00Z",
+            "evidence": [],
+            "findings": [
+              {
+                "decided_by": "agent",
+                "decisions": [
+                  {
+                    "agent": "s-boss",
+                    "at": "2025-12-01T08:00:00Z",
+                    "by": "agent",
+                    "state": "accepted"
+                  }
+                ],
+                "delivery": {
+                  "message": "P2-1 accepted",
+                  "reason": null,
+                  "step": "delivered",
+                  "to": "s-boss"
+                },
+                "id": "P2-1",
+                "impact": "Two notices",
+                "note": null,
+                "problem": "Duplicates",
+                "severity": "P2",
+                "state": "accepted",
+                "where": [
+                  "app/m.ts"
+                ]
+              },
+              {
+                "decided_by": "user",
+                "decisions": [
+                  {
+                    "at": "2025-12-01T09:00:00Z",
+                    "by": "user",
+                    "state": "deferred"
+                  }
+                ],
+                "delivery": null,
+                "id": "P3-1",
+                "impact": "",
+                "note": null,
+                "problem": "Naming",
+                "severity": "P3",
+                "state": "scheduled",
+                "where": []
+              }
+            ],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "1",
+                "primary": true
+              }
+            ],
+            "intent": "i1",
+            "kind": "review",
+            "n": 2,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": ""
+          }
+        ],
+        "title": "Mentions"
+      },
+      {
+        "at": "2025-12-02T10:00:00Z",
+        "base": "main",
+        "branch": "feat/index",
+        "earlier": [
+          {
+            "base": "main",
+            "branch": "feat/index",
+            "commits": [
+              {
+                "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "subject": "Build",
+                "task": 4
+              }
+            ],
+            "repo": "/r/chat",
+            "until": "2025-12-02T22:00:00Z"
+          }
+        ],
+        "id": "u2",
+        "intent": "i2",
+        "links": [
+          {
+            "by": "s-i",
+            "date": "2025-12-02T19:00:00Z",
+            "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "patch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "Build",
+            "task": 4
+          }
+        ],
+        "merged": "2025-12-02T23:00:00Z",
+        "merged_commits": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "purpose": "Build the index",
+        "repo": "/r/chat2",
+        "tasks": [
+          {
+            "agent": "s-d",
+            "amended": null,
+            "at": "2025-12-02T11:00:00Z",
+            "attachments": [
+              "a1",
+              "a1"
+            ],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": "2025-12-02T12:01:00Z",
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [],
+            "intent": "i2",
+            "kind": "design",
+            "n": 1,
+            "note": "Design",
+            "plans": [
+              "src/index.rs"
+            ],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": "Index design"
+          },
+          {
+            "agent": "s-r2",
+            "amended": null,
+            "at": "2025-12-02T11:01:00Z",
+            "attachments": [],
+            "blind": true,
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": "2025-12-02T14:00:00Z",
+            "evidence": [],
+            "findings": [
+              {
+                "attachments": [
+                  "a1"
+                ],
+                "decided_by": "user",
+                "decisions": [
+                  {
+                    "at": "2025-12-02T15:00:00Z",
+                    "by": "user",
+                    "note": "yes",
+                    "state": "accepted"
+                  }
+                ],
+                "delivery": null,
+                "id": "P1-1",
+                "impact": "Out of memory",
+                "note": "yes",
+                "notes": [
+                  {
+                    "at": "2025-12-02T14:01:00Z",
+                    "by": "s-r2",
+                    "text": "Cap at 10k"
+                  }
+                ],
+                "problem": "No limit",
+                "severity": "P1",
+                "state": "accepted",
+                "suggestion": {
+                  "decision": "accept",
+                  "reason": "real"
+                },
+                "where": [
+                  "src/index.rs"
+                ]
+              }
+            ],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "1",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "review",
+            "n": 2,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": "architecture-review",
+            "started": "2025-12-02T13:00:00Z",
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": ""
+          },
+          {
+            "agent": null,
+            "amended": null,
+            "at": "2025-12-02T11:02:00Z",
+            "attachments": [],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": "2025-12-02T17:00:00Z",
+            "evidence": [],
+            "findings": [],
+            "gate": "decide",
+            "inputs": [
+              {
+                "from": "2",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "gate",
+            "n": 3,
+            "note": "OK",
+            "plans": [],
+            "result": "done",
+            "reviewer": null,
+            "started": null,
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": "Confirm the design?",
+            "waiting_since": "2025-12-02T14:00:00Z"
+          },
+          {
+            "agent": "s-i",
+            "amended": "2025-12-02T20:02:00Z",
+            "at": "2025-12-02T16:00:00Z",
+            "attachments": [
+              "a1"
+            ],
+            "by": "s-boss2",
+            "causes": [
+              {
+                "findings": [
+                  "P1-1"
+                ],
+                "task": 2
+              }
+            ],
+            "delivery": {
+              "message": "u2#4 delivered",
+              "reason": "nobody manages search",
+              "reason_code": "no-manager",
+              "step": "not-delivered",
+              "to": null
+            },
+            "done": "2025-12-02T20:00:00Z",
+            "evidence": [
+              {
+                "command": "cargo test",
+                "result": "failed",
+                "summary": "1 failed"
+              }
+            ],
+            "findings": [
+              {
+                "decided_by": null,
+                "delivery": null,
+                "id": "P3-1",
+                "impact": "2 s",
+                "note": null,
+                "problem": "Slow start",
+                "severity": "P3",
+                "state": "open",
+                "where": [
+                  "src/index.rs"
+                ]
+              }
+            ],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "2",
+                "primary": true
+              },
+              {
+                "from": "3",
+                "primary": false
+              }
+            ],
+            "intent": "i2",
+            "kind": "implement",
+            "n": 4,
+            "note": "Built, capped",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": "2025-12-02T18:00:00Z",
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": "Build the index"
+          },
+          {
+            "agent": "s-t",
+            "amended": null,
+            "at": "2025-12-02T21:00:00Z",
+            "attachments": [],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "dropped": {
+              "at": "2025-12-02T21:01:00Z",
+              "by": "user",
+              "reason": "covered"
+            },
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "4",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "tests",
+            "n": 5,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "dropped",
+            "steps": [],
+            "text": "",
+            "title": "Tests"
+          }
+        ],
+        "title": "Index"
+      },
+      {
+        "at": "2025-12-02T10:01:00Z",
+        "base": "",
+        "branch": "",
+        "id": "u3",
+        "intent": "i2",
+        "kind": "research",
+        "merged": null,
+        "merged_commits": [],
+        "purpose": "",
+        "reopened": {
+          "at": "2025-12-03T00:02:00Z",
+          "by": "s-boss2",
+          "reason": "answered"
+        },
+        "repo": "/r/chat",
+        "tasks": [
+          {
+            "agent": "s-s",
+            "amended": null,
+            "at": "2025-12-03T00:00:00Z",
+            "attachments": [],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": "2025-12-03T00:01:00Z",
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [],
+            "intent": "i2",
+            "kind": "research",
+            "n": 1,
+            "note": "Three tools",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "done",
+            "steps": [],
+            "text": "",
+            "title": "Survey tools"
+          },
+          {
+            "agent": null,
+            "amended": null,
+            "at": "2025-12-03T00:03:00Z",
+            "attachments": [],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [],
+            "intent": "i2",
+            "kind": "research",
+            "n": 2,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "todo",
+            "steps": [],
+            "text": "",
+            "title": "One more"
+          }
+        ],
+        "title": "Survey"
+      },
+      {
+        "at": "2025-12-02T10:02:00Z",
+        "base": "main",
+        "branch": "feat/try",
+        "id": "u4",
+        "intent": "i2",
+        "kind": "spike",
+        "machine": "box",
+        "merged": null,
+        "merged_commits": [],
+        "purpose": "",
+        "repo": "/r/chat",
+        "tasks": [
+          {
+            "agent": "s-blind",
+            "amended": null,
+            "at": "2025-12-03T01:00:00Z",
+            "attachments": [],
+            "blind": true,
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "2",
+                "primary": false
+              }
+            ],
+            "intent": "i2",
+            "kind": "tests",
+            "n": 1,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": "2025-12-03T01:01:00Z",
+            "state": "running",
+            "steps": [],
+            "text": "",
+            "title": "Try on box"
+          },
+          {
+            "agent": null,
+            "amended": null,
+            "at": "2025-12-03T01:02:00Z",
+            "attachments": [],
+            "blocks": 1,
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": "test",
+            "inputs": [],
+            "intent": "i2",
+            "kind": "gate",
+            "n": 2,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": null,
+            "state": "waiting",
+            "steps": [
+              {
+                "command": "open http://127.0.0.1:1",
+                "text": "Open it"
+              }
+            ],
+            "text": "",
+            "title": "Try it by hand",
+            "waiting_since": "2025-12-03T01:02:00Z"
+          }
+        ],
+        "title": "Try it"
+      }
+    ],
+    "workspaces": [
+      {
+        "current": null,
+        "group": {
+          "id": "w7",
+          "label": "chat"
+        },
+        "manager": "s-boss"
+      },
+      {
+        "current": "i2",
+        "group": {
+          "id": "w2",
+          "label": "search"
+        },
+        "manager": "s-boss2",
+        "project": "/r/chat"
+      }
+    ]
+  }
+}
