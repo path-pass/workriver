@@ -7,13 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
-use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, Request, State};
-use axum::http::{Method, StatusCode, Uri, header};
-use axum::middleware::{self, Next};
+use axum::extract::{Path as UrlPath, Query, State};
+use axum::http::{StatusCode, header};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use axum::{Extension, Json, Router};
+use axum::{Extension, Json};
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use serde::Deserialize;
@@ -35,6 +33,7 @@ use crate::common::process::{self, Chain, Procs};
 use crate::server::delivery;
 use crate::server::files::{self, store};
 use crate::{ask, run};
+use crate::server::http::*;
 use crate::server::views::{self as snapshot, Cache};
 
 pub struct App {
@@ -99,12 +98,12 @@ pub struct App {
     /// Which machines' connections were up at the last poll: the page hears of a change at once.
     tunnels: Mutex<Vec<(String, bool)>>,
     /// Who the user is: the token, sessions of the page, one-time codes.
-    auth: Auth,
+    pub(super) auth: Auth,
     /// A caller may name the agent it records as (`--as`), and one at no place needs no
     /// terminal to be the user: for tests and development only.
     allow_as: bool,
     /// The proofs given to the processes that connected to the caller socket.
-    callers: Arc<Callers>,
+    pub(super) callers: Arc<Callers>,
     /// Reads a process's chain of parents: this system's (a test gives its own).
     procs: Arc<dyn Procs>,
     /// One session, one place: the root each session was first seen at.
@@ -174,23 +173,23 @@ pub const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER
 
 /// What a request was found to be, before any handler sees it.
 #[derive(Clone)]
-struct Caller {
+pub(crate) struct Caller {
     /// The followed machine whose listener it came in on; none: this machine's.
-    machine: Option<String>,
+    pub(super) machine: Option<String>,
     /// It carries the user token. Never on a machine's listener: a caller on another machine
     /// is never the user. The token alone makes nobody the user: its process does (`chain`).
-    token: bool,
+    pub(super) token: bool,
     /// It carries a session of the page from our own origin: the user in a browser, which
     /// has no process to check and needs none.
-    session: bool,
+    pub(super) session: bool,
     /// The place the CLI says it runs at (`x-workriver-place`, the one carrier of it): only
     /// cross-checked against where its process is.
-    place: Option<String>,
+    pub(super) place: Option<String>,
     /// The process that sends it, with its parents, as read when it connected to the caller
     /// socket (this machine's listener only).
-    chain: Option<Chain>,
+    pub(super) chain: Option<Chain>,
     /// On a machine's listener: the process id the CLI gives (its word; checked over there).
-    pid: Option<u32>,
+    pub(super) pid: Option<u32>,
 }
 
 /// What else the daemon is started with.
@@ -205,17 +204,6 @@ pub struct Options {
     pub procs: Arc<dyn Procs>,
     /// The proofs it gives on its caller socket, each for a process's chain.
     pub callers: Arc<Callers>,
-}
-
-/// Which listener a request came in on: this machine's, or a followed machine's own (the
-/// far end of its tunnel), which is how the daemon knows where a caller is, whatever it says.
-#[derive(Clone)]
-struct Via {
-    machine: Option<String>,
-    /// The port the caller used: ours, or the machine's port that leads here.
-    port: u16,
-    /// The listener's own port.
-    local: u16,
 }
 
 /// A question's message (or the user's message to a manager) held for its agent, which
@@ -261,7 +249,7 @@ struct Pending {
 /// the runtime for a while (a restart, a moved place) and come back.
 const WATCH: Duration = Duration::from_secs(30 * 60);
 
-type Shared = Arc<App>;
+pub(crate) type Shared = Arc<App>;
 
 /// How long after the decision a temporary agent is closed, so its own command can return.
 const CLOSE_DELAY: Duration = Duration::from_secs(3);
@@ -820,7 +808,7 @@ impl App {
 
     /// The page's address on this machine, where the user opens it; a unit or task is a
     /// path under it (`/u1`, `/u1/3`).
-    fn page(&self) -> String {
+    pub(super) fn page(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
     }
 
@@ -1021,7 +1009,7 @@ impl App {
     }
 
     /// The user, or a refusal that says how to be the user.
-    fn user(&self, caller: &Caller) -> Result<Principal, ApiError> {
+    pub(super) fn user(&self, caller: &Caller) -> Result<Principal, ApiError> {
         if let Some(m) = &caller.machine {
             return Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} is an agent of that machine, never the user")));
         }
@@ -1576,183 +1564,10 @@ fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
     }
 }
 
-/// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
-/// acts as the user or changes where workriver reaches asks for the user in its handler
-/// (`App::user`); recording and reading ask who the caller is (`App::who`, `App::view`: the
-/// user, or the agent at the place the calling process runs at, which on a blind task sees
-/// only its own). Only `status` and the session routes answer anyone local; `here` answers
-/// any local process.
-fn router(app: Shared, via: Via) -> Router {
-    Router::new()
-        .route("/api/session", get(session).post(session_start))
-        .route("/api/session/code", post(session_code))
-        .route("/api/machines", get(machines).post(machine_set))
-        .route("/api/metrics", get(metrics))
-        .route("/api/metrics/history", get(metrics_history))
-        .route("/api/metrics/thresholds", post(metrics_thresholds))
-        .route("/api/settings/stall", get(stall_get).post(stall_set))
-        .route("/api/workspace", get(workspace))
-        .route("/api/unit/{id}/code", get(unit_code))
-        .route("/api/state", get(state))
-        .route("/api/task", get(task_show))
-        .route("/api/status", get(status))
-        .route("/api/events", get(events))
-        .route("/api/append", post(append))
-        .route("/api/decide", post(decide))
-        .route("/api/task/drop", post(drop_task))
-        .route("/api/gate", post(gate))
-        .route("/api/chore-done", post(chore_done))
-        .route("/api/backlog/merge", post(merge))
-        .route("/api/focus", post(focus))
-        .route("/api/intent/start", post(start_intent))
-        .route("/api/run/prepare", post(run_prepare))
-        .route("/api/run", post(run_command))
-        .route("/api/run/{id}", get(run_read))
-        .route("/api/run/{id}/focus", post(run_focus))
-        .route("/api/run/{id}/review", post(run_review))
-        .route("/api/here", post(here))
-        .route("/api/ask", post(ask_why))
-        .route("/api/thread/end", post(end_thread))
-        .route("/api/message", post(message))
-        .route("/api/messages/read", post(messages_read))
-        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(crate::common::wire::MAX_ATTACHMENT)))
-        .route("/api/attachments/inbox", post(inbox))
-        .route("/api/attachments/{id}", get(attachment))
-        .route_layer(middleware::from_fn(timing))
-        .fallback(ui)
-        .layer(middleware::from_fn_with_state(app.clone(), guard))
-        .layer(Extension(via))
-        .with_state(app)
-}
-
-/// One line of the timing log per request: its route (the template, never the path or the
-/// query), status, time, size and what kind of caller; nothing that names anyone.
-async fn timing(req: Request, next: Next) -> Response {
-    let started = std::time::Instant::now();
-    let route = req.extensions().get::<axum::extract::MatchedPath>().map(|p| p.as_str().to_string()).unwrap_or_default();
-    let method = req.method().to_string();
-    let who = req.extensions().get::<Caller>().map_or("none", |c| match (&c.machine, &c.chain, c.session) {
-        (Some(_), ..) => "machine",
-        (None, _, true) => "page",
-        (None, Some(_), _) => "cli",
-        _ => "none",
-    });
-    let res = next.run(req).await;
-    let ms = started.elapsed().as_millis() as u64;
-    let bytes = axum::body::HttpBody::size_hint(res.body()).exact().unwrap_or(0);
-    tracing::info!(target: "perf", kind = "http", method, route, status = res.status().as_u16(), ms, bytes, who, slow = ms >= crate::common::config::defaults::SLOW_MS);
-    res
-}
-
-/// The routes of a followed machine's listener: only what an agent's CLI over there needs.
-/// An allow-list: who it is, recording as that agent, asking, attachments, reading the
-/// board, and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
-/// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
-fn machine_router(app: Shared, via: Via) -> Router {
-    Router::new()
-        .route("/api/here", post(here))
-        .route("/api/append", post(append))
-        .route("/api/ask", post(ask_why))
-        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(crate::common::wire::MAX_ATTACHMENT)))
-        .route("/api/attachments/inbox", post(inbox))
-        .route("/api/attachments/{id}", get(attachment))
-        .route("/api/workspace", get(workspace))
-        .route("/api/state", get(state))
-        .route("/api/task", get(task_show))
-        .route("/api/status", get(status))
-        // Its own load only (the handlers keep a machine's caller to that machine).
-        .route("/api/metrics", get(metrics))
-        .route("/api/metrics/history", get(metrics_history))
-        .route("/api/run/{id}/review", post(run_review))
-        .route_layer(middleware::from_fn(timing))
-        .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
-        .layer(middleware::from_fn_with_state(app.clone(), guard))
-        .layer(Extension(via))
-        .with_state(app)
-}
-
-/// Only this machine's browser and CLI, by name: the Host must be 127.0.0.1 or localhost
-/// with our port (against DNS rebinding), and a POST from a page must come from our origin.
-/// On a followed machine's listener the port is the one its CLI uses over there.
-///
-/// Also works out what the request shows of its sender: the user token; a session cookie,
-/// which counts only from our own page; the proof of its process (`x-workriver-caller`,
-/// from the caller socket), or on a machine's listener the process id it gives. Against a
-/// forged request from another site we rely on the cookie being SameSite=Strict (the browser
-/// does not send it along) and, for anything but a GET, on the Origin header being there and
-/// ours.
-async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut req: Request, next: Next) -> Response {
-    let ours = [via.port, via.local].map(|p| [format!("127.0.0.1:{p}"), format!("localhost:{p}")]).concat();
-    // Through a machine's tunnel the port over there is new with every connection: there,
-    // any port of 127.0.0.1 or localhost (a name that resolves elsewhere is still refused).
-    let fits = |h: &str| ours.iter().any(|o| o == h) || (via.machine.is_some() && h.rsplit_once(':').is_some_and(|(n, p)| matches!(n, "127.0.0.1" | "localhost") && p.parse::<u16>().is_ok()));
-    let (allowed, token, session) = {
-        let header = |h| req.headers().get(h).map(|v| v.to_str().unwrap_or(""));
-        let host_ok = header(header::HOST).is_some_and(fits);
-        let our_origin = header(header::ORIGIN).map(|o| o.strip_prefix("http://").is_some_and(fits));
-        let get = req.method() == Method::GET;
-        let origin_ok = get || our_origin.unwrap_or(true);
-        let session = app.auth.session(header(header::COOKIE)) && (get || our_origin == Some(true));
-        let here = via.machine.is_none();
-        (host_ok && origin_ok, here && app.auth.bearer(header(header::AUTHORIZATION)), here && session)
-    };
-    if !allowed {
-        return (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response();
-    }
-    let (place, chain, pid) = {
-        let text = |h: &str| req.headers().get(h).and_then(|v| v.to_str().ok()).filter(|p| !p.is_empty()).map(str::to_string);
-        let (chain, pid) = match (&via.machine, text("x-workriver-caller")) {
-            (Some(_), _) => (None, text("x-workriver-pid").and_then(|p| p.parse().ok())),
-            (None, None) => (None, None),
-            (None, Some(proof)) => match app.callers.chain(&proof) {
-                Some(chain) => (Some(chain), None),
-                // A proof stands for thirty seconds; a command that lasts longer fetches another.
-                None => return (StatusCode::UNAUTHORIZED, [("x-workriver-caller", crate::common::wire::EXPIRED)], "the proof of the calling process has expired; the `workriver` CLI fetches a new one and tries again").into_response(),
-            },
-        };
-        (text("x-workriver-place"), chain, pid)
-    };
-    req.extensions_mut().insert(Caller { machine: via.machine, token, session, place, chain, pid });
-    next.run(req).await
-}
-
-/// An error answered as plain text: a broken rule is the caller's (422), anything else ours (500).
-pub struct ApiError(StatusCode, String);
-
-fn bad(msg: String) -> ApiError {
-    ApiError(StatusCode::UNPROCESSABLE_ENTITY, msg)
-}
-
-impl From<workriver_data::Error> for ApiError {
-    fn from(e: workriver_data::Error) -> Self {
-        match e {
-            workriver_data::Error::Rejected(r) => bad(r.0),
-            e => ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-        }
-    }
-}
-
-impl From<core::Rejected> for ApiError {
-    fn from(r: core::Rejected) -> Self {
-        bad(r.0)
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        (self.0, self.1).into_response()
-    }
-}
-
-/// Runs git and the store off the async threads.
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + Send + 'static) -> Result<T, ApiError> {
-    tokio::task::spawn_blocking(f).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-}
-
 /// Who reads is found as for what is recorded (`App::who`); a reader names nothing but,
 /// where the service allows it, `--as`.
 #[derive(Deserialize)]
-struct Reader {
+pub(super) struct Reader {
     #[serde(default, rename = "as")]
     named: Option<String>,
     /// Without file texts, uncommitted work or trees.
@@ -1779,7 +1594,7 @@ impl App {
     }
 }
 
-async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
+pub(super) async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
         let mut ws = app.snapshot(&state, r.light, "workspace");
@@ -1798,7 +1613,7 @@ async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Calle
 
 /// One unit's file texts, which the snapshot leaves out: what the page's code layer shows.
 /// Scoped like `/api/workspace`. Not on a machine's listener: no CLI reads it.
-async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<snapshot::Code>, ApiError> {
+pub(super) async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<snapshot::Code>, ApiError> {
     blocking(move || {
         let state = app.view(&caller, &r)?;
         let started = std::time::Instant::now();
@@ -1820,7 +1635,7 @@ async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Calle
 }
 
 #[derive(Deserialize)]
-struct ShowQuery {
+pub(super) struct ShowQuery {
     /// `u1#3`; none: the task the calling agent is on.
     #[serde(default)]
     task: Option<String>,
@@ -1830,7 +1645,7 @@ struct ShowQuery {
 
 /// One task with everything its reader may see (`workriver task show`). Scoped like every
 /// read; attachments are paths on this machine and links through the tunnel on another.
-async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::common::wire::TaskShow>, ApiError> {
+pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::common::wire::TaskShow>, ApiError> {
     blocking(move || {
         let r = Reader { named: q.named, light: true, have: String::new() };
         let who = app.who(&caller, r.named.as_deref())?;
@@ -1874,11 +1689,11 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
     .await
 }
 
-async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<core::State>, ApiError> {
+pub(super) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<core::State>, ApiError> {
     blocking(move || app.view(&caller, &r).map(Json)).await
 }
 
-async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     let store = app.store.lock().unwrap();
     let s = store.state();
     let (files, bytes) = store::usage(&app.home);
@@ -1901,7 +1716,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
 }
 
 /// "Something changed", for the page: the user's.
-async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
+pub(super) async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
     app.user(&caller)?;
     // A lagging client missed some, which is still one change.
     // It ends when the service stops, or it would hold the stopping up for good.
@@ -1912,40 +1727,8 @@ async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>)
 
 // ---- the user's session in the page ----
 
-/// Whether this request is the user's; the page shows nothing else until it is.
-async fn session(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Json<serde_json::Value> {
-    Json(json!({ "user": app.user(&caller).is_ok() }))
-}
-
 #[derive(Deserialize)]
-struct Code {
-    code: String,
-}
-
-/// A one-time code for a session: the cookie is the page's alone (HttpOnly) and is not
-/// sent along with requests from other sites (SameSite=Strict).
-async fn session_start(State(app): State<Shared>, Json(c): Json<Code>) -> Result<Response, ApiError> {
-    let value = app.auth.redeem(&c.code).ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "this link was used already or is older than 5 minutes; run `workriver open` for a new one".into()))?;
-    let cookie = format!("{}={value}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}", auth::COOKIE, auth::SESSION_DAYS * 24 * 3600);
-    Ok(([(header::SET_COOKIE, cookie)], Json(json!({ "user": true }))).into_response())
-}
-
-/// A new one-time code, for `workriver open`: the user's to ask for.
-#[derive(Deserialize, Default)]
-struct CodeFor {
-    /// The link will be printed in a terminal instead of handed to the browser.
-    #[serde(default)]
-    printed: bool,
-}
-
-async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<CodeFor>) -> Result<Json<serde_json::Value>, ApiError> {
-    app.user(&caller)?;
-    let code = app.auth.code(c.printed).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(json!({ "url": format!("{}/#k={code}", app.page()) })))
-}
-
-#[derive(Deserialize)]
-struct Append {
+pub(super) struct Append {
     /// `--as`: taken only where the daemon was started to allow it.
     #[serde(default, rename = "as")]
     named: Option<String>,
@@ -1955,7 +1738,7 @@ struct Append {
 }
 
 /// Any event, as the CLI or the page records it, as whoever the caller is found to be.
-async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
     blocking(move || {
         let who = app.who(&caller, a.named.as_deref())?;
@@ -2006,14 +1789,14 @@ async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
 
 /// Read by the user and by agents of this machine (a refusal sends them here to see why a
 /// machine cannot be reached); changed by the user alone.
-async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::common::wire::MachineState>>, ApiError> {
+pub(super) async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::common::wire::MachineState>>, ApiError> {
     app.who(&caller, r.named.as_deref())?;
     Ok(Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default()))
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MachineSet {
+pub(super) struct MachineSet {
     label: String,
     /// add, enable, disable or remove.
     action: String,
@@ -2027,7 +1810,7 @@ struct MachineSet {
 /// CPU and memory of this machine and the followed ones, with the thresholds: read by the
 /// user (the page) and by an agent at its place here (to weigh where to put work); set by
 /// the user alone. Not on a machine's listener.
-async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::Report>, ApiError> {
+pub(super) async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::Report>, ApiError> {
     app.who(&caller, r.named.as_deref())?;
     let mut report = app.metrics.report();
     // An agent on another machine sees that machine alone: nothing of this one or the others.
@@ -2038,7 +1821,7 @@ async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>
 }
 
 #[derive(Deserialize)]
-struct HistoryQuery {
+pub(super) struct HistoryQuery {
     machine: String,
     #[serde(default = "a_day")]
     hours: u32,
@@ -2052,7 +1835,7 @@ fn a_day() -> u32 {
 
 /// One machine's minutes over the last `hours` (1 to 168), read as `GET /api/metrics` is:
 /// the user, or an agent at its place on this machine.
-async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
     app.who(&caller, q.named.as_deref())?;
     if let Some(m) = caller.machine.as_deref().filter(|m| *m != q.machine) {
         return Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} reads that machine's history only")));
@@ -2065,25 +1848,25 @@ async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension
 
 /// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a
 /// preference like the list of machines, not a record of work.
-async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::common::config::Thresholds>) -> Result<Json<crate::common::wire::Report>, ApiError> {
+pub(super) async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::common::config::Thresholds>) -> Result<Json<crate::common::wire::Report>, ApiError> {
     app.user(&caller)?;
     app.metrics.set_thresholds(t).map_err(bad)?;
     Ok(Json(app.metrics.report()))
 }
 
 #[derive(Deserialize)]
-struct StallSetting {
+pub(super) struct StallSetting {
     minutes: u32,
 }
 
 /// After how many idle minutes a running task's agent counts as stopped; the page's Settings.
-async fn stall_get(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn stall_get(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     Ok(Json(json!({ "minutes": app.stall_minutes.load(std::sync::atomic::Ordering::Relaxed) })))
 }
 
 /// Sets it; the user's alone, kept in settings.json like the alert thresholds.
-async fn stall_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StallSetting>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn stall_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StallSetting>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     crate::runtime::Settings::set_stall_minutes(&app.home, s.minutes).map_err(bad)?;
     app.stall_minutes.store(s.minutes, std::sync::atomic::Ordering::Relaxed);
@@ -2091,7 +1874,7 @@ async fn stall_set(State(app): State<Shared>, Extension(caller): Extension<Calle
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.
-async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::common::wire::MachineState>>, ApiError> {
+pub(super) async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::common::wire::MachineState>>, ApiError> {
     app.user(&caller)?;
     let Some(all) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
     let stop = |label: &str| {
@@ -2123,7 +1906,7 @@ async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Cal
 // ---- the user's inputs from the page; `App::record` delivers them to the agents ----
 
 #[derive(Deserialize)]
-struct Decide {
+pub(super) struct Decide {
     unit: String,
     task: u32,
     finding: String,
@@ -2132,7 +1915,7 @@ struct Decide {
     note: String,
 }
 
-async fn decide(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<Decide>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn decide(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<Decide>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     let body = Body::FindingDecided {
         unit: d.unit,
@@ -2147,7 +1930,7 @@ async fn decide(State(app): State<Shared>, Extension(caller): Extension<Caller>,
 }
 
 #[derive(Deserialize)]
-struct Gate {
+pub(super) struct Gate {
     unit: String,
     task: u32,
     result: core::GateResult,
@@ -2159,37 +1942,37 @@ struct Gate {
     attachments: Vec<String>,
 }
 
-async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments };
     blocking(move || app.record(&who, body).map(Json)).await
 }
 
 #[derive(Deserialize)]
-struct ChoreDone {
+pub(super) struct ChoreDone {
     chore: String,
 }
 
 #[derive(Deserialize)]
-struct DropTask {
+pub(super) struct DropTask {
     unit: String,
     task: u32,
     reason: String,
 }
 
 /// The user marks a task no longer needed from the page (agents use `workriver task drop`).
-async fn drop_task(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<DropTask>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn drop_task(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<DropTask>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::TaskDropped { unit: d.unit, task: d.task, reason: d.reason }).map(Json)).await
 }
 
-async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn chore_done(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<ChoreDone>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::ChoreDone { chore: c.chore }).map(Json)).await
 }
 
 #[derive(Deserialize)]
-struct Merge {
+pub(super) struct Merge {
     into: String,
     from: Vec<String>,
     /// A new title for the intent that stays.
@@ -2198,18 +1981,18 @@ struct Merge {
 }
 
 /// Planned intents folded into one (`workriver backlog merge`, or the roadmap in the page).
-async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
     // The user, or an agent at its place: the event rules keep the user's own intents the user's.
     let who = app.who(&caller, None)?;
     blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from, title: m.title }).map(Json)).await
 }
 
 #[derive(Deserialize)]
-struct Focus {
+pub(super) struct Focus {
     agent: String,
 }
 
-async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<axum::response::Response, ApiError> {
+pub(super) async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(f): Json<Focus>) -> Result<axum::response::Response, ApiError> {
     app.user(&caller)?;
     blocking(move || {
         // The page knows agents by name.
@@ -2227,7 +2010,7 @@ async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, 
 }
 
 #[derive(Deserialize)]
-struct StartIntent {
+pub(super) struct StartIntent {
     intent: String,
     /// The runtime group it starts in, by id.
     workspace: String,
@@ -2238,7 +2021,7 @@ struct StartIntent {
 
 /// The user starts a planned intent in a workspace from the page, as its manager would with
 /// `workriver intent start`; the workspace's manager is told to split it.
-async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StartIntent>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StartIntent>) -> Result<Json<serde_json::Value>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || {
         // The workspace as the runtime knows it, never as the page names it.
@@ -2270,7 +2053,7 @@ async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Ca
 }
 
 #[derive(Deserialize)]
-struct RunPrepare {
+pub(super) struct RunPrepare {
     command: String,
     /// Where it runs: a unit's work tree (on its machine), or a project's folder.
     #[serde(default)]
@@ -2353,7 +2136,7 @@ impl App {
 
 /// The user is about to run a command: where it would run and who wrote it, for the confirm
 /// dialog. Nothing runs here; `run_command` runs it, and only with this exact text.
-async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(p): Json<RunPrepare>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(p): Json<RunPrepare>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     blocking(move || {
         run::check(&p.command).map_err(bad)?;
@@ -2406,7 +2189,7 @@ async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Cal
 }
 
 #[derive(Deserialize)]
-struct RunConfirmed {
+pub(super) struct RunConfirmed {
     id: String,
     /// The exact text the user was shown and confirmed.
     command: String,
@@ -2415,7 +2198,7 @@ struct RunConfirmed {
 /// Runs a prepared command once the user confirmed it: typed into a plain shell of the user's,
 /// in workriver's own runtime group, on the machine of its directory. Recorded (not its
 /// output); its end is recorded when its place shows it.
-async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<RunConfirmed>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<RunConfirmed>) -> Result<Json<serde_json::Value>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || {
         // Claimed under the lock: one confirmation runs once.
@@ -2477,7 +2260,7 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
 }
 
 /// A run: what its place shows now, and its exit status once it ended.
-async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     let live = app.runs.lock().unwrap().get(&id).cloned();
     let store = app.store.lock().unwrap();
@@ -2495,7 +2278,7 @@ async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller
 }
 
 /// Brings a run's terminal to the front.
-async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<axum::response::Response, ApiError> {
+pub(super) async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<axum::response::Response, ApiError> {
     app.user(&caller)?;
     let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
     let place = r.place.ok_or_else(|| bad(format!("run {id} has not started")))?;
@@ -2660,7 +2443,7 @@ impl App {
 }
 
 #[derive(Deserialize)]
-struct RunReview {
+pub(super) struct RunReview {
     #[serde(default, rename = "as")]
     named: Option<String>,
     verdict: core::Verdict,
@@ -2670,7 +2453,7 @@ struct RunReview {
 /// The review of a command the user is about to run, from the agent workriver started for it
 /// and from nobody else (not even the user): shown in the run's dialog, recorded with the run.
 /// On a machine's listener too, for a review agent of that machine.
-async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Json(v): Json<RunReview>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Json(v): Json<RunReview>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
         let who = app.who(&caller, v.named.as_deref())?;
         let text = v.text.trim().to_string();
@@ -2715,7 +2498,7 @@ async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Call
 
 /// The CLI asks who and where it is: see `App::here`.
 #[derive(Deserialize)]
-struct Ask {
+pub(super) struct Ask {
     #[serde(default, rename = "as")]
     named: Option<String>,
     unit: String,
@@ -2732,7 +2515,7 @@ struct Ask {
 }
 
 #[derive(Deserialize)]
-struct Upload {
+pub(super) struct Upload {
     name: String,
     #[serde(default, rename = "as")]
     named: Option<String>,
@@ -2746,7 +2529,7 @@ struct Upload {
 
 /// A file into the store, its body raw (`?name=…`, the type from Content-Type), optionally
 /// linked to a task or a finding. Answers its id and path.
-async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
     let given = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
     blocking(move || {
         let who = app.who(&via, u.named.as_deref())?;
@@ -2767,7 +2550,7 @@ async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Qu
 }
 
 /// A stored file. Only images show in the page; anything else downloads, and nothing is sniffed.
-async fn attachment(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Response, ApiError> {
+pub(super) async fn attachment(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Response, ApiError> {
     // An agent on another machine is given the link with the file's extension.
     let id = id.split('.').next().unwrap_or_default().to_string();
     // Of what the caller may see: an agent on a blind task, only what it attached itself.
@@ -2784,13 +2567,13 @@ async fn attachment(State(app): State<Shared>, Extension(caller): Extension<Call
 }
 
 #[derive(Deserialize)]
-struct Inbox {
+pub(super) struct Inbox {
     unit: String,
     task: u32,
 }
 
 /// A task's staging folder for screenshots and the like, made if needed.
-async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
         // Only someone (the user, or an agent from its own place) gets a folder made and named.
         app.who(&via, None)?;
@@ -2807,17 +2590,17 @@ async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Jso
 }
 
 #[derive(Deserialize)]
-struct EndThread {
+pub(super) struct EndThread {
     thread: String,
 }
 
-async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::ThreadEnded { thread: t.thread }).map(Json)).await
 }
 
 #[derive(Deserialize)]
-struct Say {
+pub(super) struct Say {
     /// The intent whose workspace's manager it goes to; or, without one, the workspace's label.
     #[serde(default)]
     intent: String,
@@ -2827,25 +2610,25 @@ struct Say {
 }
 
 /// The user writes to a manager from the page; it is typed into the manager's terminal.
-async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text }).map(Json)).await
 }
 
 #[derive(Deserialize)]
-struct Read {
+pub(super) struct Read {
     workspace: String,
     at: String,
 }
 
 /// The page shows the user a workspace's conversation with its manager: read up to `at`.
-async fn messages_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<Read>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn messages_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<Read>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::MessagesRead { workspace: r.workspace, at: r.at }).map(Json)).await
 }
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.
-async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
+pub(super) async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
     let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
     let starter = app.clone();
     let e = blocking(move || {
@@ -2873,32 +2656,11 @@ fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut snapsh
 }
 
 /// The CLI asks who and where it is: see `App::here`. Nothing it sends is read for that.
-async fn here(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+pub(super) async fn here(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || app.here(&caller).map(Json)).await
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----
-
-#[derive(rust_embed::Embed)]
-#[folder = "../../frontend/web/dist/"]
-#[allow_missing = true]
-struct Ui;
-
-async fn ui(uri: Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
-    if path.starts_with("api/") {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    // Any other path is a page of the app: index.html.
-    let asset = Ui::get(path).filter(|_| !path.is_empty());
-    // Built files carry their content's hash in their name: kept for good. The page itself
-    // names the current ones, so it is asked for again every time.
-    let cache = if asset.is_some() && path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
-    match asset.or_else(|| Ui::get("index.html")) {
-        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string()), (header::CACHE_CONTROL, cache.to_string())], f.data).into_response(),
-        None => (StatusCode::NOT_FOUND, "The web UI is not built: run `npm run build` in frontend/web, then build workriver again.").into_response(),
-    }
-}
 
 /// Binds 127.0.0.1:`port`, or says plainly why not.
 pub async fn bind(port: u16) -> anyhow::Result<tokio::net::TcpListener> {

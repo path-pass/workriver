@@ -3,6 +3,7 @@ pub mod access;
 pub mod delivery;
 pub mod files;
 pub mod handlers;
+mod http;
 pub mod machines;
 pub mod views;
 #[cfg(test)]
