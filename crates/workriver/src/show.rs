@@ -184,4 +184,3 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
         stalled: mine.and_then(|m| serde_json::from_value(m["stalled"].clone()).ok()),
     })
 }
-
