@@ -164,7 +164,7 @@ pub fn message(state: &State, f: &Found) -> Option<String> {
     Some(if f.stall.gone {
         format!("[workriver] {name}, the agent on {what}, is gone (no longer in the agent runtime) while the task is still running and not delivered.{reminded} Find out what it did (`workriver task show {r}`, the branch), then {rest}")
     } else {
-        format!("[workriver] {name} stopped {minutes} min ago without delivering {what}: it is idle in its terminal while the task is still running.{reminded} {} {rest}", crate::herdr::stall_hint(&name))
+        format!("[workriver] {name} stopped {minutes} min ago without delivering {what}: it is idle in its terminal while the task is still running.{reminded} {} {rest}", crate::runtime::words::stall_hint(&name))
     })
 }
 

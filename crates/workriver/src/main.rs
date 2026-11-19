@@ -6,11 +6,11 @@ mod caller;
 mod cli;
 mod common;
 mod deliver;
-mod herdr;
 mod machines;
 mod metrics;
 mod quote;
 mod run;
+mod runtime;
 mod serve;
 mod show;
 mod snapshot;
@@ -30,11 +30,10 @@ fn main() -> anyhow::Result<()> {
         // A directory or file that cannot be made is the store's error, as when it made them.
         let path = common::home::database().map_err(workriver_data::Error::from).context("cannot open the workriver database")?;
         let store = workriver_data::Store::open(&path).context("cannot open the workriver database")?;
-        let runtime = herdr::Herdr::new(herdr::socket_path(), terminal_app.clone());
-        // Without Herdr the daemon still records and shows; it just sees no agents.
-        let warning = runtime.check();
+        // Without its runtime the daemon still records and shows; it just sees no agents.
+        let (runtime, warning) = runtime::connect(terminal_app.clone());
         let home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
-        let all = machines::Machines::new(std::sync::Arc::new(runtime), home, terminal_app.clone());
+        let all = machines::Machines::new(runtime, home, terminal_app.clone());
         if let Some(w) = &warning {
             tracing::warn!("{w}");
         }

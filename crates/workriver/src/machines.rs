@@ -32,7 +32,6 @@ use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_scan as scan;
 
 use crate::common::home::{HOST_FILE, PORT_FILE};
-use crate::herdr;
 use crate::metrics::Thresholds;
 
 /// A machine as the user added it.
@@ -363,7 +362,7 @@ impl Machines {
         let socket = self.socket(label);
         let entry = Arc::new(Entry {
             label: label.into(),
-            runtime: Arc::new(herdr::Herdr::on(socket.clone(), label, self.terminal_app.clone())),
+            runtime: crate::runtime::remote(socket.clone(), label, self.terminal_app.clone()),
             runner: scan::Runner::ssh(&setting.ssh, &self.home),
             setting,
             seen: Mutex::default(),
@@ -605,7 +604,7 @@ fn state_of(e: &Entry) -> MachineState {
 /// not say so itself: a stand-in).
 fn theirs(mut g: RuntimeRef, machine: &str) -> RuntimeRef {
     if g.machine.is_none() {
-        g.id = herdr::remote_ref(&g.id, machine);
+        g.id = crate::runtime::remote_ref(&g.id, machine);
         g.machine = Some(machine.into());
     }
     g

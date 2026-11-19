@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, parse_task_ref};
 
 use crate::common::{self, BUILD};
-use crate::herdr;
+use crate::runtime;
 
 mod client;
 mod conversations;
@@ -285,7 +285,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
         }
         _ => {}
     }
-    let place = herdr::place_from_env();
+    let place = runtime::caller_place();
     let d = Daemon { port: port_of(cli.port), place, home: Some(common::home::data_dir()), prove: std::sync::Arc::new(from_socket) };
     if cli.actor.as_deref() == Some("user") {
         bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");

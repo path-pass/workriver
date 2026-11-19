@@ -884,22 +884,22 @@ impl App {
                     Ok(Principal::Agent { session: a.session.clone(), machine: a.machine.clone() })
                 }
                 None if machine.is_none() && caller.token => Ok(Principal::User),
-                None => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_agent_at(&root.place))),
+                None => Err(ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::no_agent_at(&root.place))),
             },
             None => match machine {
-                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_pane_on(m, &process::show(&chain)))),
+                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::no_pane_on(m, &process::show(&chain)))),
                 None if !caller.token => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
                 // A helper of a harness, or a background job, has no terminal; the user at
                 // a terminal window has one.
                 None if self.allow_as || chain.first().is_some_and(|p| p.tty.is_some()) => Ok(Principal::User),
-                None => Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::no_terminal(&process::show(&chain)))),
+                None => Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::no_terminal(&process::show(&chain)))),
             },
         }
     }
 
     /// What a request on this machine that shows no process is told.
     fn no_process(&self, caller: &Caller) -> ApiError {
-        ApiError(StatusCode::UNAUTHORIZED, if caller.token { crate::herdr::NO_PROCESS.into() } else { NOT_THE_USER.into() })
+        ApiError(StatusCode::UNAUTHORIZED, if caller.token { crate::runtime::words::NO_PROCESS.into() } else { NOT_THE_USER.into() })
     }
 
     /// The calling process and its parents. This machine: as read when it connected to the
@@ -909,7 +909,7 @@ impl App {
         let Some(m) = caller.machine.as_deref() else {
             return caller.chain.clone().ok_or_else(|| self.no_process(caller));
         };
-        let refuse = |pid: Option<u32>, why: &str| ApiError(StatusCode::UNAUTHORIZED, crate::herdr::not_the_cli(m, pid, why));
+        let refuse = |pid: Option<u32>, why: &str| ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::not_the_cli(m, pid, why));
         let pid = caller.pid.ok_or_else(|| refuse(None, "is not given"))?;
         let chain = self.procs.chain(Some(&self.runner(Some(m))?), pid).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("cannot read process {pid} on machine {m}: {e}")))?;
         match chain.first() {
@@ -924,7 +924,7 @@ impl App {
     fn place(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
         let machine = caller.machine.as_deref();
         let named = caller.place.as_deref();
-        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(named.unwrap_or("?"), &e.to_string()));
+        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::runtime::words::cannot_ask(named.unwrap_or("?"), &e.to_string()));
         // The usual case costs one look: the process descends from the root of the place it names.
         if let Some(p) = named {
             let there = self.runtime.roots(machine, Some(p)).map_err(cannot)?;
@@ -945,7 +945,7 @@ impl App {
         match named {
             Some(p) if found.as_ref().is_none_or(|r| r.place != p) => {
                 let gone = !all.iter().any(|r| r.place == p);
-                Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::elsewhere(p, gone, &process::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
+                Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::elsewhere(p, gone, &process::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
             }
             _ => Ok(found),
         }
@@ -978,16 +978,16 @@ impl App {
             return Ok(());
         }
         if let Some(pin) = pin.filter(|p| self.runs(p)) {
-            return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::held(&a.session, &pin.place, pin.machine.as_deref())));
+            return Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::held(&a.session, &pin.place, pin.machine.as_deref())));
         }
         // First sight. On this machine every place is looked at: a session nobody was seen
         // with, shown at two places at once, is neither's; a runtime that cannot say is
         // refused too, and nothing is pinned. (On another machine the pin goes to the first
         // place that calls.)
         if machine.is_none() {
-            let all = self.runtime.agent_roots(None).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(&root.place, &e.to_string())))?;
+            let all = self.runtime.agent_roots(None).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::runtime::words::cannot_ask(&root.place, &e.to_string())))?;
             if let Some(other) = all.iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session)) {
-                return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::twice(&a.session, &root.place, &other.place)));
+                return Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::twice(&a.session, &root.place, &other.place)));
             }
         }
         if let Some(m) = mine {
@@ -1526,7 +1526,7 @@ impl App {
     /// place: nobody, in no group. Answered without the token, but not without a process.
     fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
         if caller.machine.is_none() && caller.chain.is_none() {
-            return Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::NO_PROCESS.into()));
+            return Err(ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::NO_PROCESS.into()));
         }
         let chain = self.chain_of(caller)?;
         let Some(root) = self.place(caller, &chain)? else {

@@ -7,8 +7,8 @@ use std::path::Path;
 
 use workriver_core::{Question, State, TaskKind, name};
 
-use crate::herdr;
 use crate::quote::{self, quoted, users};
+use crate::runtime::words;
 
 /// How long a new agent's first prompt is retried while it is not ready; after that it is
 /// taken to wait for the user (a first-run prompt) and the question waits with it.
@@ -132,7 +132,7 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
         m.push(format!("The question points at: {}.", about.join("; ")));
     }
     if let Some(a) = &t.agent {
-        m.push(herdr::ask_hint(&named(state, a)));
+        m.push(words::ask_hint(&named(state, a)));
     }
     m.push(format!("{} Then wait; more may come.", how_to_answer(q)));
 

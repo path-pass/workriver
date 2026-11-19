@@ -13,8 +13,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// The runtime adapter, which may name them.
-const ADAPTER: &str = "crates/workriver/src/herdr.rs";
+/// The runtime adapter's folder, whose files may name them.
+const ADAPTER: &str = "crates/workriver/src/runtime/herdr/";
 
 /// Files where a word means something of workriver's own, not the runtime's.
 const OWN_SENSE: &[(&str, &str, &str)] = &[("frontend/web/src/components/CodeLayer.tsx", "pane", "the file tree beside the diff, a layout term (selector `data-tree=\"pane\"`)")];
@@ -23,7 +23,6 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver-core/src/lib.rs",
     "crates/workriver-core/src/planning/projects.rs",
     "crates/workriver-core/src/runtime.rs",
-    "crates/workriver/src/ask.rs",
     "crates/workriver/src/cli/display.rs",
     "crates/workriver/src/cli/machines.rs",
     "crates/workriver/src/cli/mod.rs",
@@ -32,12 +31,12 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver/src/common/process.rs",
     "crates/workriver/src/deliver.rs",
     "crates/workriver/src/machines.rs",
-    "crates/workriver/src/main.rs",
     "crates/workriver/src/metrics.rs",
     "crates/workriver/src/run.rs",
+    // The facade: it declares the adapter's module and picks it, by its name.
+    "crates/workriver/src/runtime/mod.rs",
     "crates/workriver/src/serve.rs",
     "crates/workriver/src/snapshot.rs",
-    "crates/workriver/src/stall.rs",
     "crates/workriver/src/tests.rs",
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
@@ -187,7 +186,7 @@ fn no_runtime_names_outside_the_adapter_but_those_still_listed() {
         let found: BTreeSet<String> = files
             .iter()
             .map(|f| (f.strip_prefix(&root).unwrap().to_string_lossy().into_owned(), f))
-            .filter(|(rel, _)| rel != me && rel != ADAPTER && !OWN_SENSE.iter().any(|(f, w, _)| f == rel && *w == word))
+            .filter(|(rel, _)| rel != me && !rel.starts_with(ADAPTER) && !OWN_SENSE.iter().any(|(f, w, _)| f == rel && *w == word))
             .filter(|(rel, f)| names(&without_keys(rel, &std::fs::read_to_string(f).unwrap(), &keys), word))
             .map(|(rel, _)| rel)
             .collect();
