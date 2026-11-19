@@ -9,12 +9,12 @@ use workriver_core::{self as core, Principal};
 
 use crate::runtime::words;
 use crate::common::process::{self, Chain};
-use crate::server::handlers::*;
+use crate::server::app::*;
 use crate::server::http::*;
 
-pub mod auth;
-pub mod caller;
-pub mod pins;
+pub(super) mod auth;
+pub(super) mod caller;
+pub(super) mod pins;
 
 use pins::Pin;
 

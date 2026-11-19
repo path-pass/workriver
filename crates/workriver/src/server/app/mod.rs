@@ -1,0 +1,180 @@
+// The App: what the service holds while it runs (the store, the runtime, who is signed in,
+// what is pending), with the few things every part asks of it. Its locks are explicit: each
+// field that is shared says so by its type.
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use axum::http::StatusCode;
+use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::Debouncer;
+use tokio::sync::{broadcast, watch};
+use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
+use workriver_data::Store;
+use workriver_scan as scan;
+
+use crate::common::BUILD;
+use crate::runtime::follow::Machines;
+use crate::runtime::words;
+use crate::server::machines::metrics::Metrics;
+use crate::server::access::auth::Auth;
+use crate::server::access::caller::Callers;
+use crate::server::access::pins::Pins;
+use crate::common::process::Procs;
+use crate::server::delivery;
+use crate::server::files;
+use crate::server::views::{self as snapshot, Cache};
+
+use crate::server::access::*;
+use crate::server::handlers::*;
+use crate::server::http::*;
+use crate::server::Waits;
+
+mod lifecycle;
+mod progress;
+mod record;
+
+pub(super) use lifecycle::*;
+pub(super) use progress::*;
+
+pub(super) struct App {
+    pub(super) store: Mutex<Store>,
+    pub(super) cache: Mutex<Cache>,
+    /// Wakes the background read of repositories on other machines.
+    pub(super) remote_kick: std::sync::mpsc::Sender<()>,
+    pub(super) runtime: Arc<dyn Runtime>,
+    /// What was wrong with the runtime at start, if anything.
+    pub(super) warning: Option<String>,
+    /// The live agents as last polled; None while the runtime cannot be reached.
+    pub(super) live: Mutex<Option<Vec<RuntimeAgent>>>,
+    /// Delivered messages waiting to be picked up.
+    pub(super) pending: Mutex<Vec<Pending>>,
+    /// Questions waiting for their temporary agent's answer, with when they give up.
+    pub(super) deadlines: Mutex<Vec<(String, std::time::Instant)>>,
+    /// Questions whose agent waits for a person in its terminal: given once it is free.
+    pub(super) held: Mutex<Vec<Held>>,
+    /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
+    pub(super) idle: Mutex<Vec<(String, String, std::time::Instant)>>,
+    pub(super) waits: Waits,
+    /// When each live agent was first seen blocked, by session.
+    // ponytail: in memory; a restart makes a blocked agent's wait start again.
+    pub(super) blocked: Mutex<std::collections::HashMap<String, String>>,
+    /// When each live agent was first seen idle or done, by session (and when, to measure it).
+    // ponytail: in memory, like `blocked`; a restart starts every idle wait again.
+    pub(super) idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
+    /// Running tasks whose agent stopped (reminded, or escalated), by (unit or intent, task),
+    /// as of the last poll.
+    pub(super) stalls: Mutex<std::collections::HashMap<(String, u32), delivery::reminders::Watch>>,
+    /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
+    pub(super) stall_minutes: std::sync::atomic::AtomicU32,
+    /// Minutes a worker may sit idle with no task before its manager is told (settings.json,
+    /// by hand; read at start).
+    pub(super) idle_minutes: u32,
+    /// Idle workers whose manager was told, by session and idle since: once per idle period.
+    // ponytail: in memory; a restart tells again of a worker still idle.
+    pub(super) idle_told: Mutex<HashSet<(String, String)>>,
+    /// Hours a unit may stay ready to merge before its manager is asked to check it
+    /// (settings.json, by hand; read at start).
+    pub(super) ready_hours: u32,
+    /// What the scans found that the reminders need: units that look squash-merged.
+    pub(super) shared: Arc<Mutex<snapshot::Shared>>,
+    /// Which merge reminders went out (`merge_reminders`), kept in a file next to the database.
+    pub(super) merge_told: Mutex<std::collections::BTreeSet<String>>,
+    pub(super) changed: broadcast::Sender<()>,
+    /// Set once the service is stopping: open event streams end, so nothing holds it up.
+    pub(super) stopping: watch::Sender<bool>,
+    pub(super) port: u16,
+    /// The data directory: the database's folder, which holds the attachment store too.
+    pub(super) home: PathBuf,
+    pub(super) watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
+    pub(super) watched: Mutex<HashSet<PathBuf>>,
+    /// The other machines, when the runtime follows any.
+    pub(super) machines: Option<Arc<Machines>>,
+    /// CPU and memory of this machine and the followed ones, and their alerts.
+    pub(super) metrics: Arc<Metrics>,
+    /// Each followed machine's own listener, to end it when the machine is no longer followed.
+    pub(super) listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
+    /// The runtime's groups as last polled, with or without agents.
+    pub(super) groups: Mutex<Vec<core::RuntimeRef>>,
+    /// Which machines' connections were up at the last poll: the page hears of a change at once.
+    pub(super) tunnels: Mutex<Vec<(String, bool)>>,
+    /// Who the user is: the token, sessions of the page, one-time codes.
+    pub(super) auth: Auth,
+    /// A caller may name the agent it records as (`--as`), and one at no place needs no
+    /// terminal to be the user: for tests and development only.
+    pub(super) allow_as: bool,
+    /// The proofs given to the processes that connected to the caller socket.
+    pub(super) callers: Arc<Callers>,
+    /// Reads a process's chain of parents: this system's (a test gives its own).
+    pub(super) procs: Arc<dyn Procs>,
+    /// One session, one place: the root each session was first seen at.
+    pub(super) pins: Pins,
+    /// Held while the list of managers told of this build is read and written.
+    pub(super) told: Mutex<()>,
+    /// Commands the user is about to run (prepared, shown in the confirm dialog) and those run,
+    /// by id, with what their place last showed.
+    // ponytail: in memory; a restart forgets them (what ran stays in the record).
+    pub(super) runs: Mutex<std::collections::HashMap<String, Run>>,
+}
+
+pub(super) type Shared = Arc<App>;
+
+impl App {
+    pub(super) fn live(&self) -> Option<Vec<RuntimeAgent>> {
+        self.live.lock().unwrap().clone()
+    }
+
+    /// The page's address on this machine, where the user opens it; a unit or task is a
+    /// path under it (`/u1`, `/u1/3`).
+    pub(super) fn page(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+
+    /// Where git runs for a repository on `machine`; an error while it cannot be reached.
+    pub(super) fn runner(&self, machine: Option<&str>) -> Result<scan::Runner, ApiError> {
+        match machine {
+            None => Ok(scan::Runner::Local),
+            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)).ok_or_else(|| {
+                let since = self.machines.as_ref().and_then(|x| x.down_since(m)).filter(|s| !s.is_empty()).map(|s| format!(" (disconnected since {s})")).unwrap_or_default();
+                ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} cannot be reached now{since}; see `workriver machine list`"))
+            }),
+        }
+    }
+
+    /// A repository's top folder on `machine`, checked there to be one and to have `base`.
+    fn repository(&self, machine: Option<&str>, repo: &str, base: &str) -> Result<String, ApiError> {
+        let at = self.runner(machine)?;
+        let on = machine.map(|m| format!(" on {m}")).unwrap_or_default();
+        let top = scan::toplevel(&at, Path::new(repo)).map_err(|e| bad(format!("{repo}{on} is not a git repository: {e}")))?;
+        if !scan::has_rev(&at, &top, base) {
+            return Err(bad(format!("base {base:?} is not a commit or branch in {}{on}", top.display())));
+        }
+        Ok(top.to_string_lossy().into_owned())
+    }
+
+    /// Sends a message to an agent. One on another machine cannot open files of this
+    /// machine: paths into the attachment store become links through its tunnel.
+    pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
+        let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
+        match machine {
+            Some(_) => self.runtime.send(to, &files::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display()))),
+            None => self.runtime.send(to, text),
+        }
+    }
+
+    /// A live agent's session by its name; anything else as it is.
+    /// A live agent's session, given as a session or by its name; anything else as it is.
+    /// Names may repeat across runtime groups: then the one in `near`'s group wins.
+    pub(super) fn session_of(&self, agent: &str, near: Option<&str>) -> String {
+        let live = self.live().unwrap_or_default();
+        if live.iter().any(|a| a.session == agent) {
+            return agent.to_string();
+        }
+        let group_of = |s: &str| live.iter().find(|a| a.session == s).and_then(|a| a.group.clone());
+        let here = near.and_then(group_of);
+        let named: Vec<_> = live.iter().filter(|a| a.name == agent).collect();
+        named.iter().find(|a| here.is_some() && a.group == here).or(named.first()).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+    }
+}

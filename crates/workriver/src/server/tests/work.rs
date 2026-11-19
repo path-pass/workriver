@@ -24,11 +24,11 @@ fn daemon_smoke() {
 
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
-    let options = crate::server::handlers::Options { allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
+    let options = crate::server::Options { allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
 
     let d = kernel.client(port, tmp.path());
     d.append("user", "intent.created", json!({ "title": "Chat" })).unwrap();
@@ -127,11 +127,11 @@ fn pick_up_survives_a_restart() {
     let start = |fake: std::sync::Arc<Fake>| {
         let store = workriver_data::Store::open(&db).unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+        let listener = rt.block_on(crate::server::bind(0)).unwrap();
         let kernel = Kernel::default();
         let d = kernel.client(listener.local_addr().unwrap().port(), db.parent().unwrap());
-        let options = crate::server::handlers::Options { allow_as: true, ..kernel.options() };
-        std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, fake, options)));
+        let options = crate::server::Options { allow_as: true, ..kernel.options() };
+        std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, fake, options)));
         d
     };
     // The first daemon delivers to a manager that is busy all along: no pick-up seen.
@@ -212,12 +212,12 @@ fn findings_after_the_fact() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle))];
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
     let options = kernel.options();
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, rev, fix) = (at("p1"), at("p2"), at("p3"));
@@ -285,12 +285,12 @@ fn a_manager_is_told_of_an_update_once() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
     let options = kernel.options();
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, w) = (at("p1"), at("p2"));
@@ -302,7 +302,7 @@ fn a_manager_is_told_of_an_update_once() {
     assert!(updates().is_empty(), "a manager that registers now has just read this build's guide");
     // As if the service had been another build when the manager last heard of it.
     let told = tmp.path().join("guide-told.json");
-    assert!(std::fs::read_to_string(&told).unwrap().contains(crate::server::handlers::BUILD));
+    assert!(std::fs::read_to_string(&told).unwrap().contains(crate::common::BUILD));
     std::fs::write(&told, r#"{"s-boss":"0.0.1 (old)"}"#).unwrap();
     w.get("/api/state").unwrap();
     assert!(updates().is_empty(), "workers are not told: their instructions come with each task");
@@ -311,7 +311,7 @@ fn a_manager_is_told_of_an_update_once() {
     boss.get("/api/workspace").unwrap();
     assert_eq!(updates(), ["s-boss"], "once per manager per build");
     let said = fake.sent.lock().unwrap().iter().find(|(_, m)| m.contains("workriver was updated")).unwrap().1.clone();
-    assert!(said.starts_with("[workriver] workriver was updated") && said.contains(crate::server::handlers::BUILD) && said.contains("`workriver guide changes`"), "{said}");
+    assert!(said.starts_with("[workriver] workriver was updated") && said.contains(crate::common::BUILD) && said.contains("`workriver guide changes`"), "{said}");
 }
 
 
@@ -376,7 +376,7 @@ fn stopped_workers_are_reminded_then_escalated() {
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "ja-impl", "w1", Working))];
     // One minute of the threshold lasts a second here.
-    let waits = crate::server::handlers::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
+    let waits = crate::server::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
 
@@ -460,7 +460,7 @@ fn a_stuck_worker_puts_a_blocker_and_tells_its_manager() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "ja-impl", "w1", Working))];
-    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::server::handlers::Waits::default());
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
@@ -508,7 +508,7 @@ fn idle_workers_are_told_to_their_manager() {
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = ["boss", "ja-impl", "ja-test", "ja-busy", "me"].iter().enumerate().map(|(k, n)| (format!("p{k}"), live(&format!("s-{n}"), n, "w1", Idle))).collect();
     // One minute lasts a second: the threshold is two seconds here.
-    let waits = crate::server::handlers::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
+    let waits = crate::server::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p0", "s-boss");
     for b in ["feat/a", "feat/b"] {

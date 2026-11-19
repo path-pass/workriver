@@ -21,12 +21,12 @@ fn identity_intents_and_delivery() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle))];
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
     let runtime = fake.clone();
-    let options = crate::server::handlers::Options { allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    let options = crate::server::Options { allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
 
     // A workspace has no intent until its manager starts one.
     let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
@@ -190,12 +190,12 @@ fn units_finish() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-rev", "rev", "w1", Idle))];
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
     let runtime = fake.clone();
     let options = kernel.options();
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, w, rev) = (at("p1"), at("p2"), at("p3"));
@@ -305,7 +305,7 @@ fn squash_merges_and_long_ready_units_are_told() {
     std::fs::write(tmp.path().join("settings.json"), r#"{"readyHours": 1}"#).unwrap();
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
-    let waits = crate::server::handlers::Waits { hour: std::time::Duration::from_secs(4), ..Default::default() };
+    let waits = crate::server::Waits { hour: std::time::Duration::from_secs(4), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     for (u, branch) in [("u1", "feat/s"), ("u2", "feat/ff")] {
@@ -374,7 +374,7 @@ fn spikes_are_never_merged_or_reminded_of() {
     std::fs::write(tmp.path().join("settings.json"), r#"{"readyHours": 1}"#).unwrap();
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
-    let waits = crate::server::handlers::Waits { hour: std::time::Duration::from_secs(1), ..Default::default() };
+    let waits = crate::server::Waits { hour: std::time::Duration::from_secs(1), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Try CRDTs", "repo": repo.to_string_lossy(), "branch": "spike/crdt", "base": "main", "kind": "spike" })).unwrap();

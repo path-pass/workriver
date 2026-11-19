@@ -81,8 +81,8 @@ type Minted = std::collections::HashMap<Option<String>, (String, u32)>;
 
 impl Kernel {
     /// A service's options with this kernel, nothing else asked for.
-    pub(super) fn options(&self) -> crate::server::handlers::Options {
-        crate::server::handlers::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false, procs: self.procs.clone(), callers: self.callers.clone() }
+    pub(super) fn options(&self) -> crate::server::Options {
+        crate::server::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false, procs: self.procs.clone(), callers: self.callers.clone() }
     }
 
     /// The CLI's client as the user's: with the user token of the daemon's home (made here if
@@ -313,19 +313,19 @@ pub(super) fn manage(d: &Daemon, place: &str, agent: &str) -> String {
 }
 
 /// Starts a daemon on a free port over a fake runtime with short waits; returns its client.
-pub(super) fn daemon_with(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::handlers::Waits) -> Daemon {
+pub(super) fn daemon_with(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::Waits) -> Daemon {
     daemon_and(fake, db, waits).0
 }
 
 /// The same, with what its service believes of processes.
-pub(super) fn daemon_and(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::handlers::Waits) -> (Daemon, Kernel) {
+pub(super) fn daemon_and(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::Waits) -> (Daemon, Kernel) {
     let store = workriver_data::Store::open(db).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), db.parent().unwrap());
-    let options = crate::server::handlers::Options { waits, allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, fake, options)));
+    let options = crate::server::Options { waits, allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, fake, options)));
     (d, kernel)
 }
 
@@ -419,11 +419,11 @@ pub(super) fn http(port: u16, method: &str, path: &str, headers: &[(&str, &str)]
 pub(super) fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::Runtime>, machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>, db: &std::path::Path) -> (u16, Kernel) {
     let store = workriver_data::Store::open(db).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
-    let options = crate::server::handlers::Options { machines, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    let options = crate::server::Options { machines, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     (port, kernel)
 }
 
@@ -461,11 +461,11 @@ pub(super) fn at_place(d: &Daemon, place: &str) -> Daemon {
 pub(super) fn real_service(fake: std::sync::Arc<Fake>, home: &std::path::Path) -> (u16, Kernel) {
     let store = workriver_data::Store::open(&home.join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
     let options = kernel.options();
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, fake, options)));
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, fake, options)));
     crate::server::access::auth::Auth::open(home).unwrap();
     wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
     (port, kernel)

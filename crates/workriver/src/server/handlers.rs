@@ -1,128 +1,38 @@
 // The daemon: one process on 127.0.0.1 that records events, reads git, and serves the
 // web UI with its data and a stream of "something changed".
-use std::collections::HashSet;
 use std::convert::Infallible;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::Path;
 use std::time::Duration;
 
-use anyhow::Context;
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::{broadcast, watch};
 use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
-use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{AgentState, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
-use workriver_data::Store;
 use workriver_scan as scan;
 
-use crate::runtime::follow::Machines;
+use crate::common::BUILD;
 use crate::runtime::words;
-use crate::server::machines::metrics::Metrics;
-use crate::server::access::auth::{self, Auth};
-use crate::server::access::caller::{self, Callers};
-use crate::server::access::pins::Pins;
-use crate::common::process::Procs;
+use crate::server::access::auth;
 use crate::server::delivery;
 use crate::server::files::{self, store};
 use crate::{ask, run};
 use crate::server::access::*;
+use crate::server::app::*;
 use crate::server::http::*;
-use crate::server::views::{self as snapshot, Cache};
-
-pub struct App {
-    pub(super) store: Mutex<Store>,
-    cache: Mutex<Cache>,
-    /// Wakes the background read of repositories on other machines.
-    remote_kick: std::sync::mpsc::Sender<()>,
-    pub(super) runtime: Arc<dyn Runtime>,
-    /// What was wrong with the runtime at start, if anything.
-    warning: Option<String>,
-    /// The live agents as last polled; None while the runtime cannot be reached.
-    live: Mutex<Option<Vec<RuntimeAgent>>>,
-    /// Delivered messages waiting to be picked up.
-    pending: Mutex<Vec<Pending>>,
-    /// Questions waiting for their temporary agent's answer, with when they give up.
-    deadlines: Mutex<Vec<(String, std::time::Instant)>>,
-    /// Questions whose agent waits for a person in its terminal: given once it is free.
-    held: Mutex<Vec<Held>>,
-    /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
-    idle: Mutex<Vec<(String, String, std::time::Instant)>>,
-    waits: Waits,
-    /// When each live agent was first seen blocked, by session.
-    // ponytail: in memory; a restart makes a blocked agent's wait start again.
-    blocked: Mutex<std::collections::HashMap<String, String>>,
-    /// When each live agent was first seen idle or done, by session (and when, to measure it).
-    // ponytail: in memory, like `blocked`; a restart starts every idle wait again.
-    idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
-    /// Running tasks whose agent stopped (reminded, or escalated), by (unit or intent, task),
-    /// as of the last poll.
-    stalls: Mutex<std::collections::HashMap<(String, u32), delivery::reminders::Watch>>,
-    /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
-    stall_minutes: std::sync::atomic::AtomicU32,
-    /// Minutes a worker may sit idle with no task before its manager is told (settings.json,
-    /// by hand; read at start).
-    idle_minutes: u32,
-    /// Idle workers whose manager was told, by session and idle since: once per idle period.
-    // ponytail: in memory; a restart tells again of a worker still idle.
-    idle_told: Mutex<HashSet<(String, String)>>,
-    /// Hours a unit may stay ready to merge before its manager is asked to check it
-    /// (settings.json, by hand; read at start).
-    ready_hours: u32,
-    /// What the scans found that the reminders need: units that look squash-merged.
-    shared: Arc<Mutex<snapshot::Shared>>,
-    /// Which merge reminders went out (`merge_reminders`), kept in a file next to the database.
-    merge_told: Mutex<std::collections::BTreeSet<String>>,
-    changed: broadcast::Sender<()>,
-    /// Set once the service is stopping: open event streams end, so nothing holds it up.
-    stopping: watch::Sender<bool>,
-    port: u16,
-    /// The data directory: the database's folder, which holds the attachment store too.
-    home: PathBuf,
-    watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
-    watched: Mutex<HashSet<PathBuf>>,
-    /// The other machines, when the runtime follows any.
-    machines: Option<Arc<Machines>>,
-    /// CPU and memory of this machine and the followed ones, and their alerts.
-    metrics: Arc<Metrics>,
-    /// Each followed machine's own listener, to end it when the machine is no longer followed.
-    listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
-    /// The runtime's groups as last polled, with or without agents.
-    groups: Mutex<Vec<core::RuntimeRef>>,
-    /// Which machines' connections were up at the last poll: the page hears of a change at once.
-    tunnels: Mutex<Vec<(String, bool)>>,
-    /// Who the user is: the token, sessions of the page, one-time codes.
-    pub(super) auth: Auth,
-    /// A caller may name the agent it records as (`--as`), and one at no place needs no
-    /// terminal to be the user: for tests and development only.
-    pub(super) allow_as: bool,
-    /// The proofs given to the processes that connected to the caller socket.
-    pub(super) callers: Arc<Callers>,
-    /// Reads a process's chain of parents: this system's (a test gives its own).
-    pub(super) procs: Arc<dyn Procs>,
-    /// One session, one place: the root each session was first seen at.
-    pub(super) pins: Pins,
-    /// Held while the list of managers told of this build is read and written.
-    told: Mutex<()>,
-    /// Commands the user is about to run (prepared, shown in the confirm dialog) and those run,
-    /// by id, with what their place last showed.
-    // ponytail: in memory; a restart forgets them (what ran stays in the record).
-    runs: Mutex<std::collections::HashMap<String, Run>>,
-}
+use crate::server::views as snapshot;
 
 /// A run's shell to close: the run, its machine (none: this one), its place.
 type Shell = (String, Option<String>, String);
 
 /// A command the user prepared to run, then ran (`place` set).
 #[derive(Clone)]
-struct Run {
+pub(super) struct Run {
     command: String,
     dir: String,
     machine: Option<String>,
@@ -147,16 +57,16 @@ struct Run {
     watching: bool,
     /// `command.ran` is recorded: its review, once there, is recorded too.
     ran: bool,
-    review: Review,
+    pub(super) review: Review,
 }
 
 /// What a workriver agent says a command will do, before the user runs it: it only warns.
 #[derive(Clone, Default)]
-struct Review {
+pub(super) struct Review {
     /// The agent started for it: only it may record the review; closed once it did.
     agent: Option<RuntimeAgent>,
     /// When it is given up.
-    until: Option<std::time::Instant>,
+    pub(super) until: Option<std::time::Instant>,
     verdict: Option<core::Verdict>,
     text: String,
     /// Why there is no review.
@@ -164,666 +74,15 @@ struct Review {
 }
 
 impl Review {
-    fn pending(&self) -> bool {
+    pub(super) fn pending(&self) -> bool {
         self.verdict.is_none() && self.failed.is_none()
     }
 }
 
-/// This build of the service, as `workriver status` and the guides name it.
-pub const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER_COMMIT"), ")");
-
-/// What else the daemon is started with.
-pub struct Options {
-    pub warning: Option<String>,
-    pub waits: Waits,
-    pub machines: Option<Arc<Machines>>,
-    pub allow_as: bool,
-    /// Read the machines' CPU and memory (the service; tests that do not look at it do not).
-    pub sample: bool,
-    /// What the service reads of processes: the system's (`process::System`), or a test's.
-    pub procs: Arc<dyn Procs>,
-    /// The proofs it gives on its caller socket, each for a process's chain.
-    pub callers: Arc<Callers>,
-}
-
-/// A question's message (or the user's message to a manager) held for its agent, which
-/// waits for a person in its terminal.
-// ponytail: in memory; after a restart the question fails as `restarted`, like any open one.
-struct Held {
-    /// The question's id; the user's message's; or the run's whose command is to be reviewed.
-    question: String,
-    kind: For,
-    /// The session or live name it goes to, and the name to say.
-    to: String,
-    name: String,
-    text: String,
-    /// A new agent not ready for a prompt: retried at each poll until then; after it, it may
-    /// sit on a prompt the runtime does not report and waits for the user like a blocked one.
-    not_ready: Option<std::time::Instant>,
-}
-
-/// What a held message is for.
-#[derive(Clone, Copy, PartialEq)]
-enum For {
-    Question,
-    /// The user's message to a manager.
-    Message,
-    /// A command for its review agent (`App::review_run`).
-    Review,
-}
-
-/// A delivered message: picked up once its receiver is seen working after it arrived.
-/// Rebuilt from the records at start.
-struct Pending {
-    unit: String,
-    task: u32,
-    finding: Option<String>,
-    chore: Option<String>,
-    delivery: Delivery,
-    /// The receiver was seen not working since the message went out.
-    armed: bool,
-    sent: std::time::Instant,
-}
-
-/// How long a delivered message is watched for its pick-up; the receiver may vanish from
-/// the runtime for a while (a restart, a moved place) and come back.
-const WATCH: Duration = Duration::from_secs(30 * 60);
-
-pub(super) type Shared = Arc<App>;
-
 /// How long after the decision a temporary agent is closed, so its own command can return.
 const CLOSE_DELAY: Duration = Duration::from_secs(3);
 
-/// How often the runtime's agents are read.
-const POLL: Duration = Duration::from_secs(2);
-
-/// The merge reminders that went out, in the data directory.
-const MERGE_TOLD: &str = "merge-told.json";
-
-/// Serves on an already bound listener until Ctrl-C.
-/// How long a temporary agent may take to answer, and to wait idle for a follow-up.
-#[derive(Clone, Copy)]
-pub struct Waits {
-    pub answer: Duration,
-    pub idle: Duration,
-    /// How long a new agent's first message is retried every poll while it is not ready;
-    /// after that it is shown waiting for the user, like a blocked one.
-    pub ready: Duration,
-    /// How long one minute of the stall threshold lasts (a minute; less in tests).
-    pub minute: Duration,
-    /// How long one hour of the ready threshold lasts (an hour; less in tests).
-    pub hour: Duration,
-}
-
-impl Default for Waits {
-    fn default() -> Self {
-        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600) }
-    }
-}
-
-/// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
-pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as, sample, procs, callers } = options;
-    let port = listener.local_addr()?.port();
-    let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
-    let (changed, _) = broadcast::channel(16);
-    let shared = Arc::new(Mutex::new(snapshot::Shared::default()));
-    let (kick, kicked) = std::sync::mpsc::channel::<()>();
-    let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
-    if allow_as {
-        tracing::warn!("{}", words::AS_ALLOWED);
-    }
-    caller::listen(&store_home, callers.clone(), procs.clone())?;
-    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::server::machines::metrics::STEP);
-    if sample {
-        metrics.start();
-    }
-    let app = Arc::new(App {
-        metrics,
-        auth,
-        allow_as,
-        callers,
-        procs,
-        pins: Pins::open(&store_home),
-        told: Mutex::default(),
-        store: Mutex::new(store),
-        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
-        remote_kick: kick,
-        machines,
-        listeners: Mutex::default(),
-        groups: Mutex::default(),
-        tunnels: Mutex::default(),
-        runtime,
-        warning,
-        live: Mutex::new(None),
-        pending: Mutex::default(),
-        deadlines: Mutex::default(),
-        held: Mutex::default(),
-        idle: Mutex::default(),
-        waits,
-        blocked: Mutex::default(),
-        idle_since: Mutex::default(),
-        stalls: Mutex::default(),
-        stall_minutes: crate::runtime::Settings::stall_minutes(&store_home).into(),
-        ready_hours: crate::runtime::Settings::ready_hours(&store_home),
-        idle_minutes: crate::runtime::Settings::idle_minutes(&store_home),
-        idle_told: Mutex::default(),
-        shared: shared.clone(),
-        merge_told: Mutex::new(std::fs::read(store_home.join(MERGE_TOLD)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
-        changed: changed.clone(),
-        stopping: watch::channel(false).0,
-        port,
-        home: store_home,
-        watcher: Mutex::new(None),
-        watched: Mutex::default(),
-        runs: Mutex::default(),
-    });
-    let poller = app.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(POLL);
-        loop {
-            tick.tick().await;
-            let app = poller.clone();
-            let _ = tokio::task::spawn_blocking(move || app.poll()).await;
-        }
-    });
-    let tx = changed.clone();
-    let debouncer = new_debouncer(Duration::from_millis(300), move |res: DebounceEventResult| {
-        if res.is_ok_and(|events| events.iter().any(|e| worth_a_look(&e.path))) {
-            let _ = tx.send(());
-        }
-    });
-    match debouncer {
-        Ok(d) => *app.watcher.lock().unwrap() = Some(d),
-        Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
-    }
-    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
-    for (repo, branch) in units {
-        app.watch(Path::new(&repo), &branch);
-    }
-    for (label, setting) in app.machines.iter().flat_map(|m| m.wanted()) {
-        if let Err(e) = follow(&app, &label, setting).await {
-            tracing::warn!("machine {label}: {}", e.1);
-        }
-    }
-    // Machines already there (stand-ins in tests) get their listener only.
-    #[cfg(test)]
-    for m in app.machines.iter().flat_map(|m| m.states()) {
-        let _ = listen(&app, &m.label, 0).await;
-    }
-    // Repositories on other machines cannot be watched: they are read in the background,
-    // every `REMOTE` and whenever a record touches one of their units, never while a request
-    // waits; the page hears when something there changed.
-    let remote = app.clone();
-    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_REMOTE));
-    bg.remote_reads = true;
-    std::thread::spawn(move || {
-        let mut wait = snapshot::REMOTE;
-        loop {
-            match kicked.recv_timeout(wait) {
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                _ => while kicked.try_recv().is_ok() {},
-            }
-            if *remote.stopping.borrow() {
-                break;
-            }
-            let state = remote.store.lock().unwrap().state().clone();
-            if !state.units.iter().any(|u| u.machine.is_some()) {
-                continue;
-            }
-            let started = std::time::Instant::now();
-            let (changed, skipped) = snapshot::refresh_remote(&state, &mut bg);
-            // A machine not reachable yet (just started, reconnecting): looked at again soon.
-            wait = if skipped { Duration::from_secs(1) } else { snapshot::REMOTE };
-            bg.save();
-            let found = std::mem::take(&mut bg.merged_now);
-            remote.record_merges(found);
-            let ms = started.elapsed().as_millis() as u64;
-            tracing::info!(target: "perf", kind = "remote_read", ms, recomputed = bg.recomputed, reused = bg.reused, changed, slow = ms >= crate::common::config::defaults::SLOW_MS);
-            if changed {
-                let _ = remote.changed.send(());
-            }
-        }
-    });
-    let _ = app.remote_kick.send(());
-    // Messages delivered before a restart are watched again; whether their receiver was seen
-    // idle since is lost, so it must be seen not working first.
-    let pending: Vec<Pending> = {
-        let store = app.store.lock().unwrap();
-        let delivered = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Delivered);
-        let now = std::time::Instant::now();
-        let mut out = vec![];
-        for u in &store.state().units {
-            for t in &u.tasks {
-                if let Some(d) = delivered(&t.delivery) {
-                    out.push(Pending { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d, armed: false, sent: now });
-                }
-                for f in &t.findings {
-                    if let Some(d) = delivered(&f.delivery) {
-                        out.push(Pending { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d, armed: false, sent: now });
-                    }
-                }
-            }
-        }
-        for c in &store.state().chores {
-            if let Some(d) = delivered(&c.delivery) {
-                out.push(Pending { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d, armed: false, sent: now });
-            }
-        }
-        out
-    };
-    app.pending.lock().unwrap().extend(pending);
-    // Questions left open by a previous run have lost their wait; close them.
-    let open: Vec<String> = app.store.lock().unwrap().state().questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect();
-    for id in open {
-        app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
-    }
-    // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
-    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect();
-    for id in held {
-        app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
-    }
-    // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
-    // the next question starts a new one with the thread so far.
-    let left: Vec<String> = app.store.lock().unwrap().state().threads.iter().filter_map(|t| t.name.clone()).collect();
-    for name in left {
-        let _ = app.runtime.close(&name);
-    }
-    // So is an agent a previous run started to review a command: what it would say is lost.
-    let left: Vec<String> = app.runtime.agents().unwrap_or_default().into_iter().filter(|a| a.name.starts_with(&run::reviewer("")) && a.group.as_ref().is_some_and(|g| g.label == run::GROUP)).map(|a| a.name).collect();
-    for name in left {
-        let _ = app.runtime.close(&name);
-    }
-    // Nothing that signs anyone in is ever written here: this output is on a screen (a
-    // terminal of the runtime's) that agents can read. The user opens the page with `workriver open`.
-    tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");
-    let stop = {
-        let app = app.clone();
-        async move {
-            stop_signal().await;
-            tracing::info!("stopping: open requests get {} s", GRACE.as_secs());
-            let _ = app.stopping.send(true);
-            app.metrics.stop();
-            if let Some(m) = &app.machines {
-                m.stop_all();
-            }
-        }
-    };
-    let mut stopping = app.stopping.subscribe();
-    let server = axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(stop);
-    tokio::select! {
-        r = server => r?,
-        _ = async { let _ = stopping.wait_for(|s| *s).await; tokio::time::sleep(GRACE).await } => tracing::warn!("requests still open after {} s; stopping anyway", GRACE.as_secs()),
-    }
-    Ok(())
-}
-
-/// How long open requests may finish once the service is told to stop.
-const GRACE: Duration = Duration::from_secs(2);
-
-/// Returns at the first Ctrl-C or SIGTERM; a second one ends the process at once.
-async fn stop_signal() {
-    let term = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut s) => {
-                s.recv().await;
-            }
-            Err(_) => std::future::pending::<()>().await,
-        }
-    };
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = term => {}
-    }
-    tokio::spawn(async {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            std::process::exit(130);
-        }
-    });
-}
-
-/// The git changes that can change what is shown: work-tree files, refs and HEAD.
-// ponytail: node_modules and target are skipped by name, not by .gitignore; check ignores if a repo tracks such a folder.
-fn worth_a_look(path: &Path) -> bool {
-    let parts: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-    if parts.iter().any(|p| p == "node_modules" || p == "target") || parts.last().is_some_and(|p| p.ends_with(".lock")) {
-        return false;
-    }
-    match parts.iter().position(|p| p == ".git") {
-        None => true,
-        Some(k) => parts[k..].iter().any(|p| p == "refs" || p == "HEAD" || p == "packed-refs"),
-    }
-}
-
 impl App {
-    /// Watches a unit's repository: its work tree, the work tree of its branch, and the
-    /// git folder where refs move.
-    fn watch(&self, repo: &Path, branch: &str) {
-        let here = scan::Runner::Local;
-        let mut paths = vec![repo.to_path_buf()];
-        paths.extend(scan::common_dir(&here, repo).ok());
-        paths.extend(scan::worktree_of(&here, repo, branch).ok().flatten());
-        let mut watcher = self.watcher.lock().unwrap();
-        let Some(w) = watcher.as_mut() else { return };
-        let mut seen = self.watched.lock().unwrap();
-        for p in paths {
-            if seen.insert(p.clone())
-                && let Err(e) = w.watcher().watch(&p, RecursiveMode::Recursive)
-            {
-                tracing::warn!("cannot watch {}: {e}", p.display());
-            }
-        }
-    }
-
-    /// Reads the runtime's agents; says "changed" when they differ, and marks delivered
-    /// messages picked up when their receiver starts working.
-    fn poll(&self) {
-        self.see_roots();
-        let mut now = self.runtime.agents().ok();
-        // A held question's new agent still not ready after its window waits for the user
-        // (e.g. on a first-run prompt the runtime does not report): shown blocked.
-        {
-            let at = std::time::Instant::now();
-            let held = self.held.lock().unwrap();
-            for a in now.iter_mut().flatten().filter(|a| a.state == AgentState::Unknown) {
-                if held.iter().any(|h| (a.session == h.to || a.name == h.to) && h.not_ready.is_some_and(|end| end <= at)) {
-                    a.state = AgentState::Blocked;
-                }
-            }
-        }
-        let groups = self.runtime.groups().unwrap_or_default();
-        let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
-        {
-            let mut blocked = self.blocked.lock().unwrap();
-            let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();
-            blocked.retain(|s, _| still.iter().any(|a| &a.session == s));
-            for a in still {
-                blocked.entry(a.session.clone()).or_insert_with(core::now);
-            }
-            let mut idle = self.idle_since.lock().unwrap();
-            let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| matches!(a.state, AgentState::Idle | AgentState::Done)).collect();
-            idle.retain(|s, _| still.iter().any(|a| &a.session == s));
-            for a in still {
-                idle.entry(a.session.clone()).or_insert_with(|| (core::now(), std::time::Instant::now()));
-            }
-        }
-        let stalled = now.as_deref().is_some_and(|live| self.find_stalls(live));
-        if let Some(live) = now.as_deref() {
-            self.merge_reminders(live);
-            self.idle_reminders(live);
-        }
-        let differs = {
-            let mut live = self.live.lock().unwrap();
-            let differs = *live != now;
-            *live = now.clone();
-            differs
-        };
-        let tunnels: Vec<(String, bool)> = self.machines.iter().flat_map(|m| m.states()).map(|m| (m.label, m.tunnel)).collect();
-        let differs = differs || std::mem::replace(&mut *self.tunnels.lock().unwrap(), tunnels.clone()) != tunnels;
-        let mut picked = vec![];
-        self.pending.lock().unwrap().retain_mut(|p| {
-            let to = p.delivery.to.as_deref();
-            match now.as_ref().and_then(|l| l.iter().find(|a| Some(a.session.as_str()) == to)) {
-                None => p.sent.elapsed() < WATCH,
-                Some(a) if a.state == AgentState::Working && p.armed => {
-                    picked.push(Body::DeliveryUpdated {
-                        unit: p.unit.clone(),
-                        task: p.task,
-                        finding: p.finding.clone(),
-                        chore: p.chore.clone(),
-                        delivery: Delivery { step: DeliveryStep::Picked, ..p.delivery.clone() },
-                    });
-                    false
-                }
-                Some(a) => {
-                    p.armed |= a.state != AgentState::Working;
-                    p.sent.elapsed() < WATCH
-                }
-            }
-        });
-        let recorded = !picked.is_empty();
-        for body in picked {
-            if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
-                tracing::warn!("cannot record a pick-up: {e}");
-            }
-        }
-        // Held questions whose agent is free now are given to it; one whose agent is gone fails.
-        if let Some(agents) = &now {
-            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || a.name == h.to).map(|a| a.state);
-            let ready: Vec<Held> = {
-                let mut held = self.held.lock().unwrap();
-                let at = std::time::Instant::now();
-                let free = |h: &Held| h.not_ready.is_some_and(|end| end > at) || !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown));
-                let (ready, wait): (Vec<Held>, Vec<Held>) = held.drain(..).partition(free);
-                *held = wait;
-                ready
-            };
-            for h in ready {
-                match state(&h) {
-                    None => match h.kind {
-                        For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
-                        For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
-                        For::Review => self.review_failed(&h.question, &format!("{} closed before it could be given the command", h.name)),
-                    },
-                    Some(_) => self.hand(h),
-                }
-            }
-        }
-        // Questions whose temporary agent has not answered in time.
-        let now = std::time::Instant::now();
-        let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
-        for id in &late {
-            let held = self.held.lock().unwrap().iter().find(|h| &h.question == id).map(|h| (h.name.clone(), h.not_ready.is_some()));
-            let secs = self.waits.answer.as_secs();
-            match held {
-                // Its tab stays: the user may be about to answer what it waits on.
-                Some((name, true)) => self.drop_question(id, ReasonCode::NotReady, &format!("{name} never became ready for a prompt in {secs} seconds; the question never reached it, and its tab was left open for you")),
-                Some((name, false)) => self.fail_question(id, ReasonCode::Blocked, &format!("{name} waited for an answer in its terminal for {secs} seconds; the question never reached it")),
-                None => self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {secs} seconds")),
-            }
-        }
-        let recorded = recorded || !late.is_empty();
-        // Reviews of commands not given in time: their agents go.
-        let late: Vec<String> = self.runs.lock().unwrap().iter().filter(|(_, r)| r.review.pending() && r.review.until.is_some_and(|u| u <= now)).map(|(id, _)| id.clone()).collect();
-        for id in late {
-            self.review_failed(&id, &format!("no review within {} seconds", self.waits.answer.as_secs()));
-        }
-        // Threads idle for too long: their temporary agent goes; the thread stays open.
-        let gone: Vec<String> = {
-            let mut idle = self.idle.lock().unwrap();
-            let gone = idle.iter().filter(|(_, _, at)| *at <= now).map(|(_, name, _)| name.clone()).collect();
-            idle.retain(|(_, _, at)| *at > now);
-            gone
-        };
-        for name in gone {
-            if let Err(e) = self.runtime.close(&name) {
-                tracing::warn!("cannot close {name}: {e}");
-            }
-        }
-        if differs || recorded || regrouped || stalled {
-            let _ = self.changed.send(());
-        }
-    }
-
-    /// Works out which running tasks' agents stopped (see `reminders::step`): the agent itself is
-    /// reminded once; if that does not help, its intent's manager is told, once, unless the
-    /// manager is the one that stopped (then, as with no manager, only the user sees it, in
-    /// Needs you). Whether anything changed.
-    fn find_stalls(&self, live: &[RuntimeAgent]) -> bool {
-        let read = self.readable(live);
-        let threshold = self.waits.minute * self.stall_minutes.load(std::sync::atomic::Ordering::Relaxed);
-        let idle = self.idle_since.lock().unwrap().clone();
-        let mut tell = vec![];
-        let changed = {
-            let store = self.store.lock().unwrap();
-            let state = store.state();
-            let mut stalls = self.stalls.lock().unwrap();
-            let (next, found) = delivery::reminders::step(state, live, &idle, threshold, self.waits.minute, &read, &stalls);
-            for f in &found {
-                let to = match f.act {
-                    delivery::reminders::Act::Remind => Some(f.agent.as_str()),
-                    delivery::reminders::Act::Escalate => {
-                        let stopped = |m: &str| m == f.agent || state.name_of(m) == Some(f.agent.as_str());
-                        state.intent_of(&f.owner).and_then(|i| state.manager_of(i)).filter(|m| !stopped(m) && live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown))
-                    }
-                };
-                if let Some(to) = to
-                    && let Some(text) = delivery::reminders::message(state, f)
-                {
-                    tell.push((to.to_string(), text));
-                }
-            }
-            let seen = |m: &std::collections::HashMap<(String, u32), delivery::reminders::Watch>| m.iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect::<Vec<_>>();
-            let mut was = seen(&stalls);
-            let mut now = seen(&next);
-            was.sort_by(|a, b| a.0.cmp(&b.0));
-            now.sort_by(|a, b| a.0.cmp(&b.0));
-            *stalls = next;
-            was != now
-        };
-        for (to, text) in tell {
-            if let Err(e) = self.send(&to, &text) {
-                tracing::warn!("cannot tell {to} of a stopped worker: {e}");
-            }
-        }
-        changed
-    }
-
-    /// Where the runtime was read just now and listed agents (None: this machine): elsewhere
-    /// (a failed or empty read, a machine that cannot be reached, listed as last seen) agents
-    /// are unknown.
-    fn readable(&self, live: &[RuntimeAgent]) -> Vec<Option<String>> {
-        let down: Vec<String> = self.machines.iter().flat_map(|m| m.states()).filter(|m| !m.reachable).map(|m| m.label).collect();
-        let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m))).collect();
-        read.dedup();
-        read
-    }
-
-    /// Workers idle with no task for `idle_minutes` (see `reminders::idle_workers`): their manager
-    /// is told, once per idle period, to close them if it has no work for them; workriver never
-    /// closes them. Only a manager that is running and not on a blind task; until then nothing
-    /// is marked told.
-    fn idle_reminders(&self, live: &[RuntimeAgent]) {
-        let threshold = self.waits.minute * self.idle_minutes;
-        let idle = self.idle_since.lock().unwrap().clone();
-        let read = self.readable(live);
-        let mut told = self.idle_told.lock().unwrap();
-        told.retain(|(s, since)| idle.get(s).is_some_and(|(x, _)| x == since));
-        let tell: Vec<_> = {
-            let store = self.store.lock().unwrap();
-            let state = store.state();
-            let reachable = |m: &str| live.iter().any(|a| a.session == m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty();
-            delivery::reminders::idle_workers(state, live, &idle, threshold, &read)
-                .into_iter()
-                .filter(|w| !told.contains(&(w.session.clone(), w.since.clone())) && reachable(&w.manager))
-                .filter_map(|w| Some((w.manager.clone(), (w.session.clone(), w.since.clone()), delivery::reminders::idle_message(state, &w)?)))
-                .collect()
-        };
-        for (to, key, text) in tell {
-            match self.send(&to, &text) {
-                Ok(()) => {
-                    told.insert(key);
-                }
-                Err(e) => tracing::warn!("cannot tell {to} of an idle worker: {e}"),
-            }
-        }
-    }
-
-    /// Ready units that may have been merged where git cannot see it. One that looks
-    /// squash-merged (`snapshot::Shared::squash`): its manager is told once per branch tip.
-    /// One ready for longer than `ready_hours`: its manager is asked, once per ready period,
-    /// to check its pull request. Only a manager that is running and not on a blind task;
-    /// until then nothing is marked told. With no manager the page shows it in Needs you.
-    fn merge_reminders(&self, live: &[RuntimeAgent]) {
-        let squash = self.shared.lock().unwrap().squash.clone();
-        let after = self.waits.hour * self.ready_hours;
-        let mut tell = vec![];
-        {
-            let store = self.store.lock().unwrap();
-            let state = store.state();
-            let told = self.merge_told.lock().unwrap();
-            // A spike is never merged: nothing to remind of.
-            for u in state.units.iter().filter(|u| u.has_code() && u.kind.merges()) {
-                let Some(since) = state.ready_since(u) else { continue };
-                let Some(to) = state.manager_of(&u.intent).filter(|m| live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty()) else { continue };
-                let (id, branch) = (&u.id, delivery::quote::name(&u.branch));
-                if let Some(s) = squash.get(id) {
-                    let key = format!("squash {id} {}", s.tip);
-                    let short: String = s.commit.chars().take(9).collect();
-                    let text = format!(
-                        "[workriver] {id} ({branch}) looks merged into {} by squash: every change of it is there (commit {short} matches). If so, record it: `workriver unit merged {id}`; if not, ignore this. How: `workriver guide how closing-units`.",
-                        delivery::quote::name(&s.into)
-                    );
-                    tell.push((to.to_string(), key, text));
-                }
-                let ago = humantime::parse_rfc3339(&since).ok().and_then(|t| t.elapsed().ok());
-                if let Some(ago) = ago.filter(|a| *a >= after) {
-                    let key = format!("ready {id} {since}");
-                    let text = format!(
-                        "[workriver] {id} ({branch}) has been ready to merge for {} h and git shows no merge. Check its pull request: merged (by squash, say): `workriver unit merged {id}`; still open: nothing to do; abandoned: `workriver unit done {id} --reason \"...\"`. How: `workriver guide how push-pr-merge`.",
-                        ago.as_secs() / self.waits.hour.as_secs().max(1)
-                    );
-                    tell.push((to.to_string(), key, text));
-                }
-            }
-            tell.retain(|(_, key, _)| !told.contains(key));
-        }
-        for (to, key, text) in tell {
-            if let Err(e) = self.send(&to, &text) {
-                tracing::warn!("cannot remind {to} of a merge: {e}");
-                continue;
-            }
-            let mut told = self.merge_told.lock().unwrap();
-            told.insert(key);
-            let path = self.home.join(MERGE_TOLD);
-            if let Err(e) = serde_json::to_vec_pretty(&*told).map_err(std::io::Error::other).and_then(|b| std::fs::write(&path, b)) {
-                tracing::warn!("cannot write {}: {e}", path.display());
-            }
-        }
-    }
-
-    fn live(&self) -> Option<Vec<RuntimeAgent>> {
-        self.live.lock().unwrap().clone()
-    }
-
-    /// The page's address on this machine, where the user opens it; a unit or task is a
-    /// path under it (`/u1`, `/u1/3`).
-    pub(super) fn page(&self) -> String {
-        format!("http://127.0.0.1:{}", self.port)
-    }
-
-    /// Where git runs for a repository on `machine`; an error while it cannot be reached.
-    pub(super) fn runner(&self, machine: Option<&str>) -> Result<scan::Runner, ApiError> {
-        match machine {
-            None => Ok(scan::Runner::Local),
-            Some(m) => self.machines.as_ref().and_then(|x| x.runner(m)).ok_or_else(|| {
-                let since = self.machines.as_ref().and_then(|x| x.down_since(m)).filter(|s| !s.is_empty()).map(|s| format!(" (disconnected since {s})")).unwrap_or_default();
-                ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} cannot be reached now{since}; see `workriver machine list`"))
-            }),
-        }
-    }
-
-    /// A repository's top folder on `machine`, checked there to be one and to have `base`.
-    fn repository(&self, machine: Option<&str>, repo: &str, base: &str) -> Result<String, ApiError> {
-        let at = self.runner(machine)?;
-        let on = machine.map(|m| format!(" on {m}")).unwrap_or_default();
-        let top = scan::toplevel(&at, Path::new(repo)).map_err(|e| bad(format!("{repo}{on} is not a git repository: {e}")))?;
-        if !scan::has_rev(&at, &top, base) {
-            return Err(bad(format!("base {base:?} is not a commit or branch in {}{on}", top.display())));
-        }
-        Ok(top.to_string_lossy().into_owned())
-    }
-
-    /// Sends a message to an agent. One on another machine cannot open files of this
-    /// machine: paths into the attachment store become links through its tunnel.
-    fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
-        match machine {
-            Some(_) => self.runtime.send(to, &files::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display()))),
-            None => self.runtime.send(to, text),
-        }
-    }
-
     /// What the page reads, of `state` as the reader may see it: files without their texts
     /// (`unit_code` has them). `light`: not even uncommitted work or trees (board, `task show`).
     fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> snapshot::Workspace {
@@ -845,206 +104,6 @@ impl App {
         let ms = started.elapsed().as_millis() as u64;
         tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= crate::common::config::defaults::SLOW_MS);
         ws
-    }
-
-    /// Units git shows merged (a fast-forward, a merge commit) are recorded merged, with the
-    /// commits they had, as `workriver unit merged` would.
-    fn record_merges(&self, found: Vec<(String, Vec<String>)>) {
-        for (unit, commits) in found {
-            if let Err(e) = self.record(&Principal::Service, Body::UnitMerged { unit: unit.clone(), commits }) {
-                tracing::warn!("cannot record unit {unit} merged: {}", e.1);
-            }
-        }
-    }
-
-    /// A manager that was at work before this build of the service is told, once, to read
-    /// what changed: the skill it follows was read from an older workriver, and nothing else
-    /// would tell it. `fresh`: it registers now, having just read this build's guide.
-    // Which manager was told of which build is kept in a small file next to the database.
-    pub(super) fn tell_of_update(&self, session: &str, fresh: bool) {
-        if !fresh && !self.store.lock().unwrap().state().workspaces.iter().any(|w| w.manager.as_deref() == Some(session)) {
-            return;
-        }
-        let _one = self.told.lock().unwrap();
-        let path = self.home.join(crate::common::home::GUIDE_TOLD);
-        let mut told: std::collections::BTreeMap<String, String> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        if told.get(session).map(String::as_str) == Some(BUILD) {
-            return;
-        }
-        let text = format!("[workriver] workriver was updated (it is now {BUILD}). Some things behave differently: run `workriver guide changes`, read it, then go on with what you were doing.");
-        // Not reached now (not running, busy at a prompt): told at its next command instead.
-        if fresh || self.send(session, &text).is_ok() {
-            told.insert(session.to_string(), BUILD.to_string());
-            if let Err(e) = serde_json::to_vec_pretty(&told).map_err(std::io::Error::other).and_then(|b| std::fs::write(&path, b)) {
-                tracing::warn!("cannot write {}: {e}", path.display());
-            }
-        }
-    }
-
-    /// Records the name a live agent goes by, the first time and when it changes.
-    pub(super) fn seen(&self, a: &RuntimeAgent) -> Result<(), ApiError> {
-        let known = self.store.lock().unwrap().state().name_of(&a.session) == Some(a.name.as_str());
-        if !known {
-            self.record(&Principal::Service, Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
-        }
-        Ok(())
-    }
-
-    /// One workspace, one manager: an agent manages the workspace it runs in (not the one its
-    /// CLI names), and takes it over only from a manager no longer running.
-    fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<(), ApiError> {
-        let state = self.store.lock().unwrap().state().clone();
-        // Before 0.2 a manager named its intent; it manages that intent's workspace.
-        let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(()) };
-        let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        let me = live.iter().find(|a| a.session == session && a.machine.as_deref() == machine);
-        if !me.and_then(|a| a.group.as_ref()).is_some_and(|m| m.id == g.id && m.machine == g.machine) {
-            return Err(ApiError(StatusCode::FORBIDDEN, words::MANAGE_YOUR_OWN.into()));
-        }
-        let current = state.workspace_of(&g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
-        if let Some(other) = current.and_then(|m| live.iter().find(|a| a.session == m)) {
-            return Err(ApiError(
-                StatusCode::CONFLICT,
-                format!("workspace {} has a manager running: {}. A workspace has one manager; tell the user, who closes that agent first if you are to take over", g.label, other.name),
-            ));
-        }
-        Ok(())
-    }
-
-    /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
-    fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
-        let (actor, machine) = (who.actor(), who.machine());
-        if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&body, who) {
-            self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
-        }
-        let body = self.complete(actor, body, machine)?;
-        let e = self.store.lock().unwrap().append(who, body)?;
-        self.deliver(&e);
-        match &e.body {
-            Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
-            Body::QuestionAnswered { question, .. } => self.answered(question),
-            Body::ThreadEnded { thread } => self.end_thread(thread),
-            Body::MessageSent { id, .. } => self.tell_manager(id),
-            _ => {}
-        }
-        // A unit's branch may have got a work tree of its own since; watching again is cheap.
-        // One on another machine is read again in the background.
-        if let (_, Some(unit), _) = e.body.refs() {
-            let found = self.store.lock().unwrap().state().unit(&unit).ok().filter(|u| u.has_code()).map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
-            match found {
-                Some((false, repo, branch)) => self.watch(Path::new(&repo), &branch),
-                Some((true, ..)) => {
-                    let _ = self.remote_kick.send(());
-                }
-                None => {}
-            }
-        }
-        let _ = self.changed.send(());
-        Ok(e)
-    }
-
-    /// What only git can check or fill in before an event is recorded.
-    fn complete(&self, actor: &str, body: Body, machine: Option<&str>) -> Result<Body, ApiError> {
-        Ok(match body {
-            // ponytail: a project is a folder of this machine; a repository on another
-            // machine is a project of its own. Give projects a machine when that is not enough.
-            Body::ProjectAdded { .. } if machine.is_some() => return Err(bad("register project folders on the machine workriver runs on; a repository on another machine is a project of its own".into())),
-            Body::ProjectAdded { id, path, title } => {
-                let folder = std::fs::canonicalize(&path).map_err(|e| bad(format!("{path}: {e}")))?;
-                let title = if title.trim().is_empty() { folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { title };
-                Body::ProjectAdded { id, path: folder.to_string_lossy().into_owned(), title }
-            }
-            Body::FindingAdded { project, intent, finding, source, note } => Body::FindingAdded { project: self.project_folder(&project, machine)?, intent, finding, source, note },
-            Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
-                let project = if project.is_empty() { project } else { self.project_folder(&project, machine)? };
-                Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external }
-            }
-            // The repository is where the work happens: on the machine named, else on the
-            // one the unit was recorded from. It is checked there, over ssh for another machine.
-            // Research has no repository: nothing to check.
-            b @ Body::UnitCreated { kind: core::UnitKind::Research, .. } => b,
-            Body::UnitCreated { id, intent, title, purpose, repo, branch, base, machine: named, kind } => {
-                let machine = place(named.as_deref(), machine);
-                let top = self.repository(machine.as_deref(), &repo, &base)?;
-                Body::UnitCreated { id, intent, title, purpose, repo: top, branch, base, machine, kind }
-            }
-            // What is not given stays as it is; `machine` is always said (the CLI sends it).
-            Body::UnitRelocated { unit, machine: named, repo, branch, base, .. } => {
-                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
-                let machine = match named.as_deref() {
-                    None => u.machine.clone(),
-                    named => place(named, None),
-                };
-                let (repo, branch, base) = (if repo.is_empty() { u.repo.clone() } else { repo }, if branch.is_empty() { u.branch.clone() } else { branch }, if base.is_empty() { u.base.clone() } else { base });
-                let top = self.repository(machine.as_deref(), &repo, &base)?;
-                // What is on the place it leaves is read once, now: the old branch is not
-                // read again, and what only it had would otherwise vanish without a word.
-                // Their patch ids are taken too, all at once, so that their rebased copies are
-                // told without reading the old branch again.
-                let previous = match self.runner(u.machine.as_deref()) {
-                    Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => {
-                        let list = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map(|(list, _)| list).unwrap_or_default();
-                        let ids = scan::patch_ids(&at, Path::new(&u.repo), &list.iter().map(|c| c.hash.clone()).collect::<Vec<_>>()).unwrap_or_default();
-                        list.into_iter()
-                            .map(|c| {
-                                let linked = u.links.iter().find(|l| l.hash == c.hash).map(|l| l.task);
-                                let named = c.task.as_deref().and_then(core::parse_task_ref).filter(|(x, _)| *x == u.id).map(|(_, n)| n);
-                                core::SeenCommit { task: linked.or(named), patch_id: ids.get(&c.hash).cloned().unwrap_or_default(), hash: c.hash, subject: c.subject, date: c.date }
-                            })
-                            .collect()
-                    }
-                    _ => vec![],
-                };
-                Body::UnitRelocated { unit, machine, repo: top, branch, base, previous }
-            }
-            // The commit is looked up where the unit is: it must be one of the unit's, and
-            // what a rebased copy of it will be known by is taken down.
-            Body::CommitLinked { unit, hash, task, .. } => {
-                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
-                let at = self.runner(u.machine.as_deref())?;
-                let repo = Path::new(&u.repo);
-                let full = scan::resolve(&at, repo, &hash).map_err(|_| bad(format!("no commit {hash} in {}", u.repo)))?;
-                let named = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0;
-                let Some(c) = named.into_iter().find(|c| c.hash == full) else {
-                    return Err(bad(format!("commit {hash} is not one of unit {unit}'s: not on branch {} since {}", u.branch, u.base)));
-                };
-                let patch_id = scan::patch_id(&at, repo, &full).unwrap_or_default();
-                Body::CommitLinked { unit, hash: full, patch_id, subject: c.subject, date: c.date, task }
-            }
-            // A chore of no intent belongs to a project, if one is given or can be told.
-            Body::ChoreCreated { id, intent, project, unit, title, steps } if intent.is_empty() && !project.is_empty() => {
-                let project = self.project_folder(&project, machine).unwrap_or_default();
-                Body::ChoreCreated { id, intent, project, unit, title, steps }
-            }
-            Body::UnitMerged { unit, commits } if commits.is_empty() => {
-                // The branch's commits now, or as last seen if they are already merged away.
-                let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
-                let at = self.runner(u.machine.as_deref())?;
-                let commits = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0.into_iter().map(|c| c.hash).collect();
-                Body::UnitMerged { unit, commits }
-            }
-            // An agent given by its name is recorded by its session.
-            Body::TaskCreated(mut t) => {
-                t.agent = t.agent.map(|a| self.session_of(&a, Some(actor)));
-                Body::TaskCreated(t)
-            }
-            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a, Some(actor))) },
-            other => other,
-        })
-    }
-
-    /// A live agent's session by its name; anything else as it is.
-    /// A live agent's session, given as a session or by its name; anything else as it is.
-    /// Names may repeat across runtime groups: then the one in `near`'s group wins.
-    pub(super) fn session_of(&self, agent: &str, near: Option<&str>) -> String {
-        let live = self.live().unwrap_or_default();
-        if live.iter().any(|a| a.session == agent) {
-            return agent.to_string();
-        }
-        let group_of = |s: &str| live.iter().find(|a| a.session == s).and_then(|a| a.group.clone());
-        let here = near.and_then(group_of);
-        let named: Vec<_> = live.iter().filter(|a| a.name == agent).collect();
-        named.iter().find(|a| here.is_some() && a.group == here).or(named.first()).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
     }
 
     /// Starts the temporary agent for a question and gives it the prompt; any failure is
@@ -1132,7 +191,7 @@ impl App {
     /// the reason when its time is up. A new agent the runtime does not take prompts for yet
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
-    fn hand(&self, mut h: Held) {
+    pub(super) fn hand(&self, mut h: Held) {
         let is = |a: &RuntimeAgent| a.session == h.to || a.name == h.to;
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
@@ -1161,7 +220,7 @@ impl App {
 
     /// The user wrote to a manager: typed into its terminal now, or held while it waits for a
     /// person there (`hand`), or recorded as not delivered when it is not running.
-    fn tell_manager(&self, id: &str) {
+    pub(super) fn tell_manager(&self, id: &str) {
         let Some((to, text)) = ({
             let store = self.store.lock().unwrap();
             store.state().message(id).ok().map(|m| (m.manager.clone(), delivery::user_message(store.state(), m)))
@@ -1184,7 +243,7 @@ impl App {
         }
     }
 
-    fn message_not_delivered(&self, id: &str, to: Option<&str>, code: ReasonCode, why: &str) {
+    pub(super) fn message_not_delivered(&self, id: &str, to: Option<&str>, code: ReasonCode, why: &str) {
         let message = {
             let store = self.store.lock().unwrap();
             store.state().message(id).ok().map(|m| delivery::user_message(store.state(), m)).unwrap_or_default()
@@ -1194,7 +253,7 @@ impl App {
 
     /// Records a question as failed (if still open) and closes its temporary agent, which
     /// did not answer.
-    fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
+    pub(super) fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
         self.drop_question(id, code, why);
         // Only an agent started for it is closed; a task's own agent is not.
         let name = self.store.lock().unwrap().state().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
@@ -1204,7 +263,7 @@ impl App {
     }
 
     /// Records a question as failed (if still open) and stops waiting for it.
-    fn drop_question(&self, id: &str, code: ReasonCode, why: &str) {
+    pub(super) fn drop_question(&self, id: &str, code: ReasonCode, why: &str) {
         let body = Body::QuestionFailed { question: id.into(), reason_code: code, reason: why.into() };
         if let Err(e) = self.record(&Principal::Service, body) {
             tracing::warn!("question {id}: {}", e.1);
@@ -1214,7 +273,7 @@ impl App {
     }
 
     /// An answer came: the thread's agent waits for a follow-up until it has been idle too long.
-    fn answered(&self, id: &str) {
+    pub(super) fn answered(&self, id: &str) {
         self.deadlines.lock().unwrap().retain(|(q, _)| q != id);
         self.held.lock().unwrap().retain(|h| h.question != id);
         // An agent that asked hears the answer in its terminal.
@@ -1241,7 +300,7 @@ impl App {
     }
 
     /// The user ended a thread: its agent goes now.
-    fn end_thread(&self, thread: &str) {
+    pub(super) fn end_thread(&self, thread: &str) {
         self.idle.lock().unwrap().retain(|(t, _, _)| t != thread);
         let name = self.store.lock().unwrap().state().threads.iter().find(|t| t.id == thread).and_then(|t| t.name.clone());
         if let Some(name) = name {
@@ -1258,62 +317,6 @@ impl App {
                 tracing::warn!("cannot close {name}: {e}");
             }
         });
-    }
-
-    /// Sends the message a user's input calls for, and records how far it got.
-    fn deliver(&self, e: &core::Event) {
-        let live = self.live();
-        // An addition to a finding goes to several at once; it is on the page either way, so
-        // what does not arrive is only logged.
-        // ponytail: these are not followed up as "delivered / picked up" like decisions are.
-        // A dropped task likewise: its agent (to stop) and the manager.
-        // Work over: the manager hears which of its workers it may close.
-        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
-            let to = {
-                let store = self.store.lock().unwrap();
-                match e.body {
-                    Body::FindingNoted { .. } => delivery::notes(store.state(), live.as_deref(), &self.home, e),
-                    Body::TaskDropped { .. } => delivery::dropped(store.state(), live.as_deref(), e),
-                    Body::ManagerTold { .. } => delivery::told(store.state(), live.as_deref(), e),
-                    _ => delivery::finished(store.state(), live.as_deref(), e),
-                }
-            };
-            for (agent, message) in to {
-                if let Err(err) = self.send(&agent, &message) {
-                    let (_, unit, task) = e.body.refs();
-                    tracing::warn!("cannot tell {agent} of {}: {err}", task.or(unit).unwrap_or_default());
-                }
-            }
-            return;
-        }
-        let plan = delivery::plan(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
-        let Some(plan) = plan else { return };
-        let delivery = match &plan.to {
-            Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
-            Ok(to) => match self.send(to, &plan.message) {
-                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason_code: None, reason: None, message: plan.message.clone() },
-                Err(err) => {
-                    let code = if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError };
-                    Delivery { step: DeliveryStep::NotDelivered, to: Some(to.to_string()), reason_code: Some(code), reason: Some(err.to_string()), message: plan.message.clone() }
-                }
-            },
-        };
-        if delivery.step == DeliveryStep::Delivered {
-            let working = live.iter().flatten().any(|a| Some(&a.session) == delivery.to.as_ref() && a.state == AgentState::Working);
-            self.pending.lock().unwrap().push(Pending {
-                unit: plan.unit.clone(),
-                task: plan.task,
-                finding: plan.finding.clone(),
-                chore: plan.chore.clone(),
-                delivery: delivery.clone(),
-                armed: !working,
-                sent: std::time::Instant::now(),
-            });
-        }
-        let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, chore: plan.chore, delivery };
-        if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
-            tracing::warn!("cannot record a delivery: {e}");
-        }
     }
 
     /// Who and where the CLI is: the agent at the place its process runs at (recorded by name
@@ -1338,7 +341,7 @@ impl App {
 
     /// A project as given (`p1`, or a folder) as its folder: a registered project's, or the
     /// repository's top folder for a repository outside every registered project.
-    fn project_folder(&self, given: &str, machine: Option<&str>) -> Result<String, ApiError> {
+    pub(super) fn project_folder(&self, given: &str, machine: Option<&str>) -> Result<String, ApiError> {
         let state = self.store.lock().unwrap().state().clone();
         if let Some(p) = state.projects.iter().find(|p| p.id == given) {
             return Ok(p.path.clone());
@@ -1524,7 +527,7 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
 
 /// Follows a machine: a listener of its own here (the far end of its tunnel), then its
 /// connection and the reading of its agents.
-async fn follow(app: &Shared, label: &str, setting: crate::runtime::Setting) -> Result<(), ApiError> {
+pub(super) async fn follow(app: &Shared, label: &str, setting: crate::runtime::Setting) -> Result<(), ApiError> {
     let Some(machines) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
     let local_port = listen(app, label, 0).await?;
     tracing::info!("machine {label}: its tunnel leads to 127.0.0.1:{local_port} here");
@@ -1533,7 +536,7 @@ async fn follow(app: &Shared, label: &str, setting: crate::runtime::Setting) -> 
 }
 
 /// A machine's own listener; returns its port here.
-async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
+pub(super) async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let local_port = listener.local_addr().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.port();
     let routes = machine_router(app.clone(), Via { machine: Some(label.to_string()), port, local: local_port });
@@ -2184,7 +1187,7 @@ impl App {
     }
 
     /// There will be no review of run `id`: why, for the page; its agent goes.
-    fn review_failed(&self, id: &str, why: &str) {
+    pub(super) fn review_failed(&self, id: &str, why: &str) {
         self.held.lock().unwrap().retain(|h| !(h.kind == For::Review && h.question == id));
         let agent = {
             let mut runs = self.runs.lock().unwrap();
@@ -2425,10 +1428,3 @@ pub(super) async fn here(State(app): State<Shared>, Extension(caller): Extension
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----
-
-/// Binds 127.0.0.1:`port`, or says plainly why not.
-pub async fn bind(port: u16) -> anyhow::Result<tokio::net::TcpListener> {
-    tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .with_context(|| format!("cannot listen on 127.0.0.1:{port}; is workriver (or something else) already running there? Pick another with --port"))
-}

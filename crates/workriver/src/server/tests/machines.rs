@@ -46,12 +46,12 @@ fn machines_are_separate_until_linked() {
 
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
     let (runtime, machines) = (all.clone(), all.clone());
-    let options = crate::server::handlers::Options { machines: Some(machines), allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    let options = crate::server::Options { machines: Some(machines), allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     wait_until("the machine's listener", || all.local_port("box").is_some());
     // A caller over there has no user token.
     let via_box = kernel.daemon(all.local_port("box").unwrap(), None, None);
@@ -249,12 +249,12 @@ fn units_on_another_machine() {
     all.poll_all();
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let port = listener.local_addr().unwrap().port();
     let (runtime, machines) = (all.clone(), all.clone());
-    let options = crate::server::handlers::Options { machines: Some(machines), ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
+    let options = crate::server::Options { machines: Some(machines), ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("p1".into()), None);
     let group = json!({ "id": "w1", "label": "chat" });
