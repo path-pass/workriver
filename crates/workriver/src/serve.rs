@@ -979,12 +979,14 @@ impl App {
             return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::held(&a.session, &pin.place, pin.machine.as_deref())));
         }
         // First sight. On this machine every place is looked at: a session nobody was seen
-        // with, shown at two places at once, is neither's. (On another machine the pin goes
-        // to the first place that calls.)
-        if machine.is_none()
-            && let Some(other) = self.runtime.agent_roots(None).unwrap_or_default().iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session))
-        {
-            return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::twice(&a.session, &root.place, &other.place)));
+        // with, shown at two places at once, is neither's; a runtime that cannot say is
+        // refused too, and nothing is pinned. (On another machine the pin goes to the first
+        // place that calls.)
+        if machine.is_none() {
+            let all = self.runtime.agent_roots(None).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(&root.place, &e.to_string())))?;
+            if let Some(other) = all.iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session)) {
+                return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::twice(&a.session, &root.place, &other.place)));
+            }
         }
         if let Some(m) = mine {
             self.pins.change(vec![(a.session.clone(), Some(Pin { machine: machine.map(str::to_string), place: root.place.clone(), pid: m.pid, start: m.start }))]);

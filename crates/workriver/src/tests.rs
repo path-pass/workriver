@@ -269,6 +269,8 @@ pub(crate) struct Fake {
     plain: std::sync::Mutex<Vec<String>>,
     gone: std::sync::Mutex<Vec<String>>,
     no_shell: std::sync::Mutex<Vec<String>>,
+    /// Which places hold an agent cannot be asked (the runtime errs), the rest can.
+    agent_roots_down: std::sync::atomic::AtomicBool,
 }
 
 /// The shell of a place nobody set: a real process that started nothing (a shell is only
@@ -304,6 +306,12 @@ impl workriver_core::runtime::Runtime for Fake {
     fn locate(&self, _: Option<&str>, place: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
         let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
         Ok(workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent })
+    }
+    fn agent_roots(&self, machine: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
+        if self.agent_roots_down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::Failed("herdr does not answer".into()));
+        }
+        Ok(self.roots(machine, None)?.into_iter().filter(|r| r.at.agent.is_some()).collect())
     }
     /// Every place has a shell at its root, by its name (`root`).
     fn roots(&self, _: Option<&str>, place: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
@@ -3741,6 +3749,19 @@ fn a_session_is_one_panes() {
     show(&[("p3", "SESS-A"), ("p9", "SESS-Z"), ("p6", "SESS-Z")]);
     assert!(who("p6").unwrap_err().contains("first seen in pane p9"));
     assert_eq!(who("p9").unwrap(), "SESS-Z");
+
+    // On first sight, whether the session shows at another place must be asked: when the
+    // runtime cannot be asked, the call is refused and nothing is pinned.
+    fake.agent_roots_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    show(&[("p3", "SESS-A"), ("p9", "SESS-Z"), ("p4", "SESS-F")]);
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // nor does a regular read pin it
+    let e = who("p4").unwrap_err();
+    assert!(e.contains("cannot tell") && e.contains("herdr does not answer"), "{e}");
+    let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(tmp.path().join("session-roots.json")).unwrap()).unwrap();
+    assert!(kept.get("SESS-F").is_none(), "{kept}");
+    assert_eq!(who("p9").unwrap(), "SESS-Z", "a pinned session needs no such question");
+    fake.agent_roots_down.store(false, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(who("p4").unwrap(), "SESS-F", "asked again once it answers");
 }
 
 /// What `WORKRIVER_ALLOW_AS=1` does, and no more: `--as` names an agent (never the user)

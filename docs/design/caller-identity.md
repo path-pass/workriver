@@ -706,6 +706,13 @@ Where it differs from the text above, or says more:
     `src/tests.rs`). No test twin of `Daemon::process`, no registry of services by port;
     those tests run the real `Daemon::process` and `Daemon::send` (the new proof on
     `expired`), and `tests/caller.rs` the real socket.
+- After the second review (u11#7, u11#5 P3-1): rule 5's first-sight question (does the
+  session show at another place?) fails closed. When the runtime cannot be asked the call is
+  refused (503, `cannot_ask`) and nothing is pinned; it used to read as "nowhere else" and
+  pin the caller. In Herdr's `agent_roots` an agent's pane whose `pane.process_info` fails
+  is still listed, with its session and no known shell, so it counts as showing it and is
+  pinned by nobody (a pane closed between the two calls gives the same, until the next
+  read).
 - Verified on Linux (Debian, `rust:slim` container): the `procfs` chain, the snippet's
   `/proc` branch and the socket's peer pid (`caller::tests`). **Still not verified:** a real
   followed machine over ssh, a Herdr restart against rule 5, tmux inside a pane.

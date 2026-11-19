@@ -277,6 +277,8 @@ impl Herdr {
     }
 
     /// The roots of `place`, or of every pane (`agents`: of every pane that holds an agent).
+    /// A pane whose root cannot be asked is left out, except an agent's pane when `agents`:
+    /// it still shows its session, with no known shell (rule 5 then pins nobody there).
     fn roots_of(&self, place: Option<&str>, agents: bool) -> Result<Vec<Root>, RuntimeError> {
         let (snap, list) = self.read()?;
         let mut panes: Vec<(&str, &str)> = snap.panes.iter().map(|p| (p.pane_id.as_str(), p.workspace_id.as_str())).collect();
@@ -291,7 +293,11 @@ impl Herdr {
             if agents && agent.is_none() {
                 continue;
             }
-            let Ok(r) = self.call("pane.process_info", json!({ "pane_id": pane })) else { continue };
+            let r = match self.call("pane.process_info", json!({ "pane_id": pane })) {
+                Ok(r) => r,
+                Err(_) if agents => json!({}),
+                Err(_) => continue,
+            };
             let info = &r["process_info"];
             let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
             out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent, group: group(&snap, workspace, self.label()) } });
@@ -745,6 +751,11 @@ mod tests {
         assert_eq!(held, ["w5:p1", "w5:p2", "w5:p12", "w5:p4"]);
         let asked: Vec<Value> = server.join().unwrap().iter().skip(1).map(|r| r["params"]["pane_id"].clone()).collect();
         assert_eq!(asked, [json!("w5:p1"), json!("w5:p2"), json!("w5:p12"), json!("w5:p4")]);
+        // An agent's pane whose root cannot be asked still shows its session, with no known shell.
+        let (_dir, herdr, _server) = fake(vec![snapshot(), info(json!(100), json!([])), refused(), info(json!(400), json!([])), info(json!(500), json!([]))]);
+        let held: Vec<(String, Option<u32>, Option<String>)> = herdr.agent_roots(None).unwrap().into_iter().map(|r| (r.place, r.shell, r.at.agent.map(|a| a.session))).collect();
+        assert_eq!(held[1], ("w5:p2".into(), None, Some("herdr:w5:p2".into())), "{held:?}");
+        assert_eq!(held.len(), 4);
     }
 
     #[test]
