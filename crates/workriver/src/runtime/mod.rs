@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use workriver_core::runtime::Runtime;
 
-use crate::common::config::Options;
+use crate::common::config;
 
 pub mod follow;
 mod herdr;
@@ -29,15 +29,22 @@ pub fn caller_place() -> Option<String> {
     adapter::place_from_env()
 }
 
+/// What the adapter keeps for a followed machine, read and checked by its own rules; the
+/// settings with it: here the settings of common/ meet today's adapter.
+pub type MachineOptions = adapter::remote::Options;
+pub type Setting = config::Setting<MachineOptions>;
+pub type Settings = config::Settings<MachineOptions>;
+
 /// A machine's options with where its runtime's socket is over there (none: asked of the
-/// machine), as the adapter keeps them in the machine's setting.
-pub fn socket_option(socket: Option<String>) -> Options {
-    adapter::remote::options(socket)
+/// machine).
+#[cfg(test)]
+pub fn socket_option(socket: Option<String>) -> MachineOptions {
+    MachineOptions { socket }
 }
 
-/// Of the options a request gave for a machine, those the adapter knows.
-pub fn known_options(given: &Options) -> Options {
-    adapter::remote::known(given)
+/// The same as `machine add` sends them to the service, to go into its request.
+pub fn socket_request(socket: Option<String>) -> serde_json::Value {
+    adapter::remote::request(socket)
 }
 
 /// A group's id on a machine, told apart from this machine's: `w1@label`.

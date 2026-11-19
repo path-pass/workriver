@@ -9,12 +9,17 @@
 //! other quoted name, such as a runtime method "pane.close", counts), and words used in
 //! workriver's own sense (`OWN_SENSE`). `tab` and `workspace` are not checked: workriver
 //! has workspaces of its own (an intent runs in one), and `tab` names nothing of the
-//! runtime's in the sources outside the adapter.
+//! runtime's in the sources outside the adapter. Of the facade (`FACADE`), the two lines
+//! that declare and pick the adapter's module are not counted; every other line of it is.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// The runtime adapter's folder, whose files may name them.
 const ADAPTER: &str = "crates/workriver/src/runtime/herdr/";
+
+/// The facade, and the only lines of it that may name the adapter: where it declares the
+/// adapter's module and picks it. Any other line of the facade counts like any file's.
+const FACADE: (&str, &[&str]) = ("crates/workriver/src/runtime/mod.rs", &["mod herdr;", "use herdr as adapter;"]);
 
 /// Files where a word means something of workriver's own, not the runtime's.
 const OWN_SENSE: &[(&str, &str, &str)] = &[("frontend/web/src/components/CodeLayer.tsx", "pane", "the file tree beside the diff, a layout term (selector `data-tree=\"pane\"`)")];
@@ -23,8 +28,6 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver-core/src/lib.rs",
     "crates/workriver-core/src/planning/projects.rs",
     "crates/workriver-core/src/runtime.rs",
-    // The facade: it declares the adapter's module and picks it, by its name.
-    "crates/workriver/src/runtime/mod.rs",
     "crates/workriver/src/tests.rs",
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
@@ -108,8 +111,12 @@ fn keys() -> BTreeSet<String> {
 }
 
 /// The text without i18n key names: a dictionary's keys (in `i18n/`) and quoted strings that
-/// are keys (`'machines.noHerdr'`) in the page's code. Nothing else is taken out.
+/// are keys (`'machines.noHerdr'`) in the page's code; and the facade without its two
+/// declaration lines. Nothing else is taken out.
 fn without_keys(rel: &str, text: &str, keys: &BTreeSet<String>) -> String {
+    if rel == FACADE.0 {
+        return text.lines().filter(|l| !FACADE.1.contains(l)).collect::<Vec<_>>().join("\n");
+    }
     if !(rel.ends_with(".ts") || rel.ends_with(".tsx")) {
         return text.to_string();
     }
@@ -189,5 +196,7 @@ fn key_names_and_own_words_do_not_count() {
     assert!(names(&page, "pane"), "a quoted runtime method that is not a key counts");
     assert_eq!(without_keys("frontend/web/src/i18n/en.ts", "    noHerdr: 'Herdr does not answer',", &keys), " 'Herdr does not answer',\n");
     assert_eq!(without_keys("frontend/web/src/i18n/en.ts", "      'runtime-down': 'Herdr is not reachable',", &keys), " 'Herdr is not reachable',\n");
+    // Of the facade, only its two declaration lines are let through, and only written so.
+    assert_eq!(without_keys(FACADE.0, "mod herdr;\nuse herdr as adapter;\n/// Herdr\n    mod herdr;", &keys), "/// Herdr\n    mod herdr;");
     assert!(names("in its pane.", "pane") && names("Panes", "pane") && !names("panel", "pane") && !names("a_pane", "pane"));
 }

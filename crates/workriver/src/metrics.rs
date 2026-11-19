@@ -814,7 +814,7 @@ fn read_history(home: &std::path::Path, label: &str, since: i64) -> std::io::Res
 
 impl Metrics {
     pub fn new(home: PathBuf, local: scan::Runner, machines: Option<Arc<Machines>>, runtime: Arc<dyn Runtime>, changed: broadcast::Sender<()>, step: Duration) -> Arc<Metrics> {
-        let thresholds = crate::common::config::thresholds(&home);
+        let thresholds = crate::runtime::Settings::thresholds(&home);
         Arc::new(Metrics { home, local, machines, runtime, tracks: Mutex::default(), running: Mutex::default(), thresholds: Mutex::new(thresholds), changed, step, stop: AtomicBool::new(false) })
     }
 
@@ -984,7 +984,7 @@ impl Metrics {
     /// Saves new thresholds and looks at every machine's alerts again at once.
     pub fn set_thresholds(&self, t: Thresholds) -> Result<(), String> {
         t.check()?;
-        crate::common::config::set_thresholds(&self.home, t)?;
+        crate::runtime::Settings::set_thresholds(&self.home, t)?;
         *self.thresholds.lock().unwrap() = t;
         let changed = self.tracks.lock().unwrap().values_mut().fold(false, |any, track| Self::judge(track, &t, self.step) | any);
         if changed {
@@ -1347,10 +1347,10 @@ not a df line
         t.memory.minutes = 11;
         assert!(t.check().unwrap_err().contains("memory"));
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(crate::common::config::thresholds(dir.path()), Thresholds::default(), "the defaults until set");
+        assert_eq!(crate::runtime::Settings::thresholds(dir.path()), Thresholds::default(), "the defaults until set");
         let set = Thresholds { cpu: Limit { on: false, percent: 80, minutes: 2 }, memory: Limit { on: true, percent: 95, minutes: 10 }, ..Thresholds::default() };
-        crate::common::config::set_thresholds(dir.path(), set).unwrap();
-        assert_eq!(crate::common::config::thresholds(dir.path()), set);
+        crate::runtime::Settings::set_thresholds(dir.path(), set).unwrap();
+        assert_eq!(crate::runtime::Settings::thresholds(dir.path()), set);
     }
 
     /// A sample of a Mac at `at` with the given CPU, pressure and OOM count.
@@ -1646,10 +1646,10 @@ not a df line
         let dir = tempfile::tempdir().unwrap();
         let old = r#"{"machines":{"box":{"ssh":"box","enabled":true}},"alerts":{"cpu":{"on":false,"percent":80,"minutes":2},"memory":{"on":true,"percent":95,"minutes":10}}}"#;
         std::fs::write(dir.path().join("settings.json"), old).unwrap();
-        let t = crate::common::config::thresholds(dir.path());
+        let t = crate::runtime::Settings::thresholds(dir.path());
         let (cpu, memory) = (Limit { on: false, percent: 80, minutes: 2 }, Limit { on: true, percent: 95, minutes: 10 });
         assert_eq!(t, Thresholds { cpu, memory, ..Thresholds::default() });
-        crate::common::config::set_thresholds(dir.path(), t).unwrap();
+        crate::runtime::Settings::set_thresholds(dir.path(), t).unwrap();
         let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
         assert_eq!(saved["machines"]["box"]["ssh"], "box", "the machines stay");
         assert_eq!(saved["alerts"]["compressor"], serde_json::json!({ "on": true, "warn": 60.0, "crit": 80.0 }), "no minutes: at once");

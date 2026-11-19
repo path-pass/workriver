@@ -17,45 +17,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use workriver_core::RuntimeRef;
 use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_scan as scan;
 
 use super::ssh::{Pace, Tunnel, hint, nap, publish, supervise, this_host, tunnel_words};
-use super::{adapter, remote_ref};
+use super::{Setting, Settings, adapter, remote_ref};
 use crate::common::config::defaults::SLOW_MS;
-use crate::common::config::{SETTINGS, Setting, Settings, read_settings, write_settings};
-
-/// A machine as the page and `workriver machine list` show it.
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct MachineState {
-    pub label: String,
-    pub ssh: String,
-    pub enabled: bool,
-    /// The port over there that leads here, while connected (written there to
-    /// `~/.config/workriver/port`).
-    pub port: Option<u16>,
-    /// The connection is down: since when (RFC 3339).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub down_since: Option<String>,
-    /// The next attempt to connect, in seconds from now.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry_in: Option<u64>,
-    /// Its agents can be read now.
-    pub reachable: bool,
-    /// Why not, in ssh's or the runtime's words.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    /// The first attempt to connect has not finished yet: neither up nor failed.
-    pub connecting: bool,
-    /// The connection (both forwards) is up.
-    pub tunnel: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_error: Option<String>,
-    pub agents: usize,
-}
+use crate::common::config::SETTINGS;
+use crate::common::wire::MachineState;
 
 #[derive(Default)]
 struct Seen {
@@ -104,11 +74,11 @@ impl Machines {
     }
 
     fn settings(&self) -> Settings {
-        read_settings(&self.home)
+        Settings::read(&self.home)
     }
 
     fn save(&self, s: &Settings) -> Result<(), String> {
-        write_settings(&self.home, s)
+        s.write(&self.home)
     }
 
     /// Every machine with what is known of it now.

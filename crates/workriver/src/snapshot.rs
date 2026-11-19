@@ -23,7 +23,7 @@ pub struct Workspace {
     workspaces: Vec<Group>,
     /// The other machines followed, with whether each can be reached.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    machines: Vec<crate::runtime::follow::MachineState>,
+    machines: Vec<crate::common::wire::MachineState>,
     /// A part only: what an agent on a blind task may see.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     reduced: bool,

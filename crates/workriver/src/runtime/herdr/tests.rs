@@ -232,22 +232,61 @@ fn refusals_name_no_harness() {
     }
 }
 
-/// A machine's setting keeps Herdr's socket under the key it always had in settings.json:
-/// an older file reads, and is written back, byte for byte; with no socket there is no key,
-/// and the port of older files is still read and dropped.
+/// A machine's setting keeps Herdr's socket as it always did in settings.json. The fixture
+/// holds eight files and what the build before phase 4 (84e6583) wrote back for each after
+/// one change of the stall threshold: a socket that is a path stays under its key; none, or
+/// null, writes no key; another key of a machine's entry is dropped; a socket that is no
+/// path (a number, a boolean, a list, an object) makes the whole file unreadable, so the
+/// defaults are written. Each is read and written here the same way, byte for byte.
 #[test]
 fn a_machines_socket_keeps_its_key() {
-    use crate::common::config::Setting;
+    use crate::common::home::SETTINGS;
+    use crate::runtime::{Setting, Settings};
+    let rows: Vec<Value> = serde_json::from_str(include_str!("fixtures/settings-before-phase4.json")).unwrap();
+    assert_eq!(rows.iter().map(|r| r["case"].as_str().unwrap()).collect::<Vec<_>>(), ["string", "missing", "null", "unknown", "number", "bool", "array", "object"]);
+    for row in &rows {
+        let case = row["case"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(SETTINGS), serde_json::to_vec(&row["input"]).unwrap()).unwrap();
+        let read = Settings::read(dir.path());
+        let wanted: Vec<(&String, Option<&str>)> = read.machines.iter().filter(|(_, s)| s.enabled).map(|(l, s)| (l, s.options.socket.as_deref())).collect();
+        match case {
+            "string" | "unknown" => assert_eq!(format!("{wanted:?}"), r#"[("box", Some("/old/specific.sock"))]"#, "{case}"),
+            "missing" | "null" => assert_eq!(format!("{wanted:?}"), r#"[("box", None)]"#, "{case}"),
+            _ => assert!(read.machines.is_empty() && Settings::stall_minutes(dir.path()) == 10, "{case}: an unreadable file is the defaults"),
+        }
+        Settings::set_stall_minutes(dir.path(), 74).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.path().join(SETTINGS)).unwrap(), row["written"].as_str().unwrap(), "{case}");
+    }
+    // One entry alone: the port of older files is read and never written.
     let old = r#"{"ssh":"box","herdrSocket":"/run/herdr.sock","enabled":true}"#;
     let s: Setting = serde_json::from_str(old).unwrap();
-    assert_eq!(s, Setting { ssh: "box".into(), options: remote::options(Some("/run/herdr.sock".into())), port: 0, enabled: true });
+    assert_eq!(s, Setting { ssh: "box".into(), options: remote::Options { socket: Some("/run/herdr.sock".into()) }, port: 0, enabled: true });
     assert_eq!(serde_json::to_string(&s).unwrap(), old);
     let plain: Setting = serde_json::from_str(r#"{"ssh":"box","port":47821,"enabled":false}"#).unwrap();
-    assert_eq!((plain.options.len(), plain.port), (0, 47821));
+    assert_eq!((plain.options.socket.as_deref(), plain.port), (None, 47821));
     assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"ssh":"box","enabled":false}"#);
-    assert_eq!(remote::options(None).len(), 0);
-    // Of what a request gives, only the socket is kept, and only as a path.
-    let given = serde_json::from_str(r#"{"herdrSocket":"/s","other":1}"#).unwrap();
-    assert_eq!(remote::known(&given), remote::options(Some("/s".into())));
-    assert_eq!(remote::known(&serde_json::from_str(r#"{"herdrSocket":null}"#).unwrap()).len(), 0);
+}
+
+/// What `machine add` sends: the socket under its key, and the key with null when the option
+/// is not given, as the CLI's request always had it (with `ssh`, `label` and `action`).
+#[test]
+fn machine_add_sends_the_socket_or_null() {
+    let body = |socket: Option<&str>| {
+        let mut body = remote::request(socket.map(str::to_string));
+        body["ssh"] = json!("fixture.invalid");
+        body["label"] = json!("box");
+        body["action"] = json!("add");
+        body.to_string()
+    };
+    // The request of the build before phase 4, as it was written there.
+    let before = |socket: Option<&str>| {
+        let mut body = json!({ "ssh": "fixture.invalid", "herdrSocket": socket });
+        body["label"] = json!("box");
+        body["action"] = json!("add");
+        body.to_string()
+    };
+    assert_eq!(body(None), r#"{"action":"add","herdrSocket":null,"label":"box","ssh":"fixture.invalid"}"#);
+    assert_eq!(body(Some("/s")), r#"{"action":"add","herdrSocket":"/s","label":"box","ssh":"fixture.invalid"}"#);
+    assert_eq!((body(None), body(Some("/s"))), (before(None), before(Some("/s"))));
 }

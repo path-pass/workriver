@@ -4,25 +4,23 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub mod defaults;
 
 use defaults::{IDLE_MINUTES, READY_HOURS, STALL_MAX, STALL_MINUTES};
 
-/// A machine's options of its runtime adapter, by the adapter's keys.
-pub type Options = BTreeMap<String, serde_json::Value>;
-
-/// A machine as the user added it.
+/// A machine as the user added it. `O` is what the runtime adapter keeps for it (where its
+/// socket is over there), under the adapter's own keys and with the adapter's own checks: this
+/// file names no adapter and none of its keys; who puts the settings together picks `O`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct Setting {
+pub struct Setting<O> {
     /// What ssh takes as the destination: a Host of the user's config, `user@host`.
     pub ssh: String,
-    /// What the runtime adapter keeps for that machine (where its socket is over there), under
-    /// the adapter's own keys; the adapter reads and writes them, this file only carries them.
     #[serde(flatten)]
-    pub options: Options,
+    pub options: O,
     /// Before 0.3 the port over there was fixed; it is chosen per connection now. Kept so
     /// that older settings still read.
     #[serde(default, skip_serializing)]
@@ -31,10 +29,10 @@ pub struct Setting {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Settings {
+pub struct Settings<O> {
     /// By the machine's name.
-    #[serde(default)]
-    pub machines: BTreeMap<String, Setting>,
+    #[serde(default = "BTreeMap::new")]
+    pub machines: BTreeMap<String, Setting<O>>,
     /// When a machine's CPU or memory alerts: for this machine and every followed one.
     #[serde(default)]
     alerts: Thresholds,
@@ -49,7 +47,7 @@ pub struct Settings {
     idle_minutes: u32,
 }
 
-impl Default for Settings {
+impl<O> Default for Settings<O> {
     fn default() -> Self {
         Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES }
     }
@@ -59,20 +57,8 @@ fn ready_default() -> u32 {
     READY_HOURS
 }
 
-/// After how many hours a unit ready to merge and not merged has its manager asked to check
-/// it (at least one). Set by hand in settings.json; read when the service starts.
-pub fn ready_hours(home: &Path) -> u32 {
-    read_settings(home).ready_hours.max(1)
-}
-
 fn idle_default() -> u32 {
     IDLE_MINUTES
-}
-
-/// After how many minutes idle with no task a worker's manager is told to close it (at least
-/// one). Set by hand in settings.json; read when the service starts.
-pub fn idle_minutes(home: &Path) -> u32 {
-    read_settings(home).idle_minutes.max(1)
 }
 
 fn stall_default() -> u32 {
@@ -82,43 +68,57 @@ fn stall_default() -> u32 {
 /// Held while `settings.json` is read and written back: machines and thresholds share it.
 pub static SETTINGS: Mutex<()> = Mutex::new(());
 
-pub fn read_settings(home: &Path) -> Settings {
-    std::fs::read(home.join(crate::common::home::SETTINGS)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
-}
-
-pub fn write_settings(home: &Path, s: &Settings) -> Result<(), String> {
-    let path = home.join(crate::common::home::SETTINGS);
-    let text = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
-    std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
-}
-
-/// The alert thresholds as the user set them (the defaults until then).
-pub fn thresholds(home: &Path) -> Thresholds {
-    read_settings(home).alerts
-}
-
-/// Saves the alert thresholds; the machines in the same file stay as they are.
-pub fn set_thresholds(home: &Path, alerts: Thresholds) -> Result<(), String> {
-    let _held = SETTINGS.lock().unwrap();
-    let mut all = read_settings(home);
-    all.alerts = alerts;
-    write_settings(home, &all)
-}
-
-/// After how many idle minutes a running task's agent counts as stopped.
-pub fn stall_minutes(home: &Path) -> u32 {
-    read_settings(home).stall_minutes
-}
-
-/// Saves the stall threshold (1 to `STALL_MAX` minutes); the rest of the file stays.
-pub fn set_stall_minutes(home: &Path, minutes: u32) -> Result<(), String> {
-    if !(1..=STALL_MAX).contains(&minutes) {
-        return Err(format!("the stall threshold is 1 to {STALL_MAX} minutes, not {minutes}"));
+impl<O: Serialize + DeserializeOwned> Settings<O> {
+    /// After how many hours a unit ready to merge and not merged has its manager asked to check
+    /// it (at least one). Set by hand in settings.json; read when the service starts.
+    pub fn ready_hours(home: &Path) -> u32 {
+        Self::read(home).ready_hours.max(1)
     }
-    let _held = SETTINGS.lock().unwrap();
-    let mut all = read_settings(home);
-    all.stall_minutes = minutes;
-    write_settings(home, &all)
+
+    /// After how many minutes idle with no task a worker's manager is told to close it (at least
+    /// one). Set by hand in settings.json; read when the service starts.
+    pub fn idle_minutes(home: &Path) -> u32 {
+        Self::read(home).idle_minutes.max(1)
+    }
+
+    pub fn read(home: &Path) -> Self {
+        std::fs::read(home.join(crate::common::home::SETTINGS)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+
+    pub fn write(&self, home: &Path) -> Result<(), String> {
+        let path = home.join(crate::common::home::SETTINGS);
+        let text = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+
+    /// The alert thresholds as the user set them (the defaults until then).
+    pub fn thresholds(home: &Path) -> Thresholds {
+        Self::read(home).alerts
+    }
+
+    /// Saves the alert thresholds; the machines in the same file stay as they are.
+    pub fn set_thresholds(home: &Path, alerts: Thresholds) -> Result<(), String> {
+        let _held = SETTINGS.lock().unwrap();
+        let mut all = Self::read(home);
+        all.alerts = alerts;
+        all.write(home)
+    }
+
+    /// After how many idle minutes a running task's agent counts as stopped.
+    pub fn stall_minutes(home: &Path) -> u32 {
+        Self::read(home).stall_minutes
+    }
+
+    /// Saves the stall threshold (1 to `STALL_MAX` minutes); the rest of the file stays.
+    pub fn set_stall_minutes(home: &Path, minutes: u32) -> Result<(), String> {
+        if !(1..=STALL_MAX).contains(&minutes) {
+            return Err(format!("the stall threshold is 1 to {STALL_MAX} minutes, not {minutes}"));
+        }
+        let _held = SETTINGS.lock().unwrap();
+        let mut all = Self::read(home);
+        all.stall_minutes = minutes;
+        all.write(home)
+    }
 }
 
 /// CPU and memory: at or above `percent` for `minutes` without a break (one level, warn).

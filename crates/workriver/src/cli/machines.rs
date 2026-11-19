@@ -24,7 +24,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 MachineCmd::Load { .. } => unreachable!("handled above"),
                 MachineCmd::List => (String::new(), "", json!({})),
                 MachineCmd::Add { label, ssh, socket } => {
-                    let mut body = json!(runtime::socket_option(socket));
+                    let mut body = runtime::socket_request(socket);
                     body["ssh"] = json!(ssh);
                     (label, "add", body)
                 }

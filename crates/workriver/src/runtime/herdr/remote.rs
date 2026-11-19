@@ -1,17 +1,18 @@
 // Another machine's Herdr: the same client behind a socket forwarded from it; where that
 // socket is over there (as the machine's setting says, else asked of the machine) and here;
-// and the option a machine's setting keeps it under.
+// and what a machine's setting keeps of it.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use workriver_core::runtime::Runtime;
 
 use super::Herdr;
-use crate::common::config::{Options, Setting};
+use crate::common::config::Setting;
 use crate::runtime::ssh::QUIET;
 
 impl Herdr {
@@ -31,27 +32,23 @@ pub fn socket_here(home: &Path, label: &str) -> PathBuf {
     home.join(format!("herdr-{label}.sock"))
 }
 
+/// What a machine's setting keeps for Herdr, in `settings.json` and in what the service is
+/// asked to add: its socket over there, a path or nothing (anything else is refused, and makes
+/// a settings file unreadable); none is not written. Other keys of a machine's entry are not kept.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Options {
+    #[serde(default, rename = "herdrSocket", skip_serializing_if = "Option::is_none")]
+    pub socket: Option<String>,
+}
+
 /// Where Herdr's socket is over there: as given, else asked of the machine.
-pub fn socket_there(program: &str, setting: &Setting) -> Result<String, String> {
-    socket_of(&setting.options).map(Ok).unwrap_or_else(|| ask_socket(program, &setting.ssh))
+pub fn socket_there(program: &str, setting: &Setting<Options>) -> Result<String, String> {
+    setting.options.socket.clone().map(Ok).unwrap_or_else(|| ask_socket(program, &setting.ssh))
 }
 
-/// The key a machine's setting keeps Herdr's socket under, in `settings.json` and in what the
-/// CLI sends: as it was when the setting had a field of that name.
-const SOCKET: &str = "herdrSocket";
-
-fn socket_of(options: &Options) -> Option<String> {
-    options.get(SOCKET)?.as_str().map(str::to_string)
-}
-
-/// A machine's options with Herdr's socket over there, or none (then asked of the machine).
-pub fn options(socket: Option<String>) -> Options {
-    socket.map(|s| (SOCKET.to_string(), Value::String(s))).into_iter().collect()
-}
-
-/// Of what a request gave, the options Herdr knows; anything else is not kept.
-pub fn known(given: &Options) -> Options {
-    options(socket_of(given))
+/// What `machine add` sends of these options: the socket under its key, null when not given.
+pub fn request(socket: Option<String>) -> Value {
+    json!({ "herdrSocket": socket })
 }
 
 /// Prints Herdr's socket path on the machine, as Herdr itself works it out (default session).

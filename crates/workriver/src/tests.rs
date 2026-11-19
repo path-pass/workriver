@@ -1326,7 +1326,7 @@ fn a_machines_connection_is_kept_up() {
     // (through the stand-in): up with its port; down at once, since when, the next attempt.
     std::fs::remove_file(tmp.path().join("connections")).ok();
     let all = crate::runtime::follow::Machines::with_ssh(std::sync::Arc::new(Fake::default()), tmp.path().to_path_buf(), &ssh.display().to_string(), Pace { min: Duration::from_millis(300), ..pace });
-    let setting = crate::common::config::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), port: 0, enabled: true };
+    let setting = crate::runtime::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), port: 0, enabled: true };
     all.start("box", setting, 1);
     let state = || all.states().into_iter().next().unwrap();
     wait_until("connected", || state().tunnel);
@@ -3921,6 +3921,39 @@ fn a_long_command_outlives_its_proof() {
     assert_eq!(answer, "The wall clock.");
     assert!(started.elapsed() >= std::time::Duration::from_millis(2300));
     assert!(kernel.fetched.load(std::sync::atomic::Ordering::Relaxed) - before >= 3, "a new proof was fetched each time the old one had expired");
+}
+
+/// Adding a machine takes its runtime socket as a path or nothing: anything else is refused
+/// (422, as before phase 4) and nothing is written; a path is kept under its
+/// key in settings.json, null and no key at all write none.
+#[test]
+fn a_machines_socket_is_a_path_or_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().to_path_buf();
+    let fake = std::sync::Arc::new(Fake::default());
+    let all = crate::runtime::follow::Machines::new(fake.clone(), home.clone(), String::new());
+    let (port, kernel) = daemon_over(fake, Some(all), &home.join("workriver.db"));
+    let d = kernel.client(port, &home);
+    let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).build().into();
+    let add = |body: &str| {
+        let mut res = d.send(|headers| headers.iter().fold(agent.post(format!("http://127.0.0.1:{port}/api/machines")), |r, (k, v)| r.header(*k, v)).header("content-type", "application/json").send(body)).unwrap();
+        (res.status().as_u16(), res.body_mut().read_to_string().unwrap())
+    };
+    let saved = || serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(home.join("settings.json")).unwrap_or_default()).unwrap_or_default()["machines"].to_string();
+    assert_eq!(add(r#"{"label":"string","action":"add","ssh":"fixture.invalid","herdrSocket":"/specific.sock"}"#).0, 200);
+    assert_eq!(add(r#"{"label":"null","action":"add","ssh":"fixture.invalid","herdrSocket":null}"#).0, 200);
+    assert_eq!(add(r#"{"label":"none","action":"add","ssh":"fixture.invalid"}"#).0, 200);
+    let kept = r#"{"none":{"enabled":false,"ssh":"fixture.invalid"},"null":{"enabled":false,"ssh":"fixture.invalid"},"string":{"enabled":false,"herdrSocket":"/specific.sock","ssh":"fixture.invalid"}}"#;
+    assert_eq!(saved(), kept);
+    for (case, value, says) in [("number", "42", "integer `42`"), ("bool", "false", "boolean `false`"), ("array", r#"["/specific.sock"]"#, "sequence"), ("object", r#"{"path":"/specific.sock"}"#, "map")] {
+        let (status, text) = add(&format!(r#"{{"label":"{case}","action":"add","ssh":"fixture.invalid","herdrSocket":{value}}}"#));
+        assert_eq!(status, 422, "{case}: {text}");
+        // Before phase 4 the text also named the key (`…target type: herdrSocket: invalid type…`)
+        // and gave the value's column; the adapter's options are read as a group now, so the
+        // key is not named and the column is the request's end.
+        assert!(text.starts_with(&format!("Failed to deserialize the JSON body into the target type: invalid type: {says}, expected a string at line 1 column ")), "{case}: {text}");
+        assert_eq!(saved(), kept, "{case}: nothing is written");
+    }
 }
 
 // Guards that hold today's behaviour while the files move (docs/design/restructure.md).

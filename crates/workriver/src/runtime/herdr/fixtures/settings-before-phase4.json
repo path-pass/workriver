@@ -1,0 +1,232 @@
+[
+ {
+  "case": "string",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "herdrSocket": "/old/specific.sock",
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {\n    \"box\": {\n      \"ssh\": \"fixture.invalid\",\n      \"herdrSocket\": \"/old/specific.sock\",\n      \"enabled\": true\n    },\n    \"other\": {\n      \"ssh\": \"other.invalid\",\n      \"enabled\": false\n    }\n  },\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": false,\n      \"percent\": 42,\n      \"minutes\": 2\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 51,\n  \"idleMinutes\": 91\n}"
+ },
+ {
+  "case": "missing",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {\n    \"box\": {\n      \"ssh\": \"fixture.invalid\",\n      \"enabled\": true\n    },\n    \"other\": {\n      \"ssh\": \"other.invalid\",\n      \"enabled\": false\n    }\n  },\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": false,\n      \"percent\": 42,\n      \"minutes\": 2\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 51,\n  \"idleMinutes\": 91\n}"
+ },
+ {
+  "case": "null",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "herdrSocket": null,
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {\n    \"box\": {\n      \"ssh\": \"fixture.invalid\",\n      \"enabled\": true\n    },\n    \"other\": {\n      \"ssh\": \"other.invalid\",\n      \"enabled\": false\n    }\n  },\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": false,\n      \"percent\": 42,\n      \"minutes\": 2\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 51,\n  \"idleMinutes\": 91\n}"
+ },
+ {
+  "case": "unknown",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "future": {
+      "keep": 42
+     },
+     "herdrSocket": "/old/specific.sock",
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {\n    \"box\": {\n      \"ssh\": \"fixture.invalid\",\n      \"herdrSocket\": \"/old/specific.sock\",\n      \"enabled\": true\n    },\n    \"other\": {\n      \"ssh\": \"other.invalid\",\n      \"enabled\": false\n    }\n  },\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": false,\n      \"percent\": 42,\n      \"minutes\": 2\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 51,\n  \"idleMinutes\": 91\n}"
+ },
+ {
+  "case": "number",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "herdrSocket": 42,
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {},\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 24,\n  \"idleMinutes\": 30\n}"
+ },
+ {
+  "case": "bool",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "herdrSocket": false,
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {},\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 24,\n  \"idleMinutes\": 30\n}"
+ },
+ {
+  "case": "array",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "herdrSocket": [
+      "/old/specific.sock"
+     ],
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {},\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 24,\n  \"idleMinutes\": 30\n}"
+ },
+ {
+  "case": "object",
+  "input": {
+   "alerts": {
+    "cpu": {
+     "minutes": 2,
+     "on": false,
+     "percent": 42
+    }
+   },
+   "idleMinutes": 91,
+   "machines": {
+    "box": {
+     "enabled": true,
+     "herdrSocket": {
+      "path": "/old/specific.sock"
+     },
+     "port": 47821,
+     "ssh": "fixture.invalid"
+    },
+    "other": {
+     "enabled": false,
+     "ssh": "other.invalid"
+    }
+   },
+   "readyHours": 51,
+   "stallMinutes": 73
+  },
+  "written": "{\n  \"machines\": {},\n  \"alerts\": {\n    \"cpu\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"memory\": {\n      \"on\": true,\n      \"percent\": 90,\n      \"minutes\": 5\n    },\n    \"compressor\": {\n      \"on\": true,\n      \"warn\": 60.0,\n      \"crit\": 80.0\n    },\n    \"swap\": {\n      \"on\": true,\n      \"warn\": 4.0,\n      \"crit\": 10.0,\n      \"minutes\": 1\n    },\n    \"pressure\": {\n      \"on\": true,\n      \"minutes\": 1\n    },\n    \"systemFree\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"available\": {\n      \"on\": true,\n      \"warn\": 25.0,\n      \"crit\": 12.0,\n      \"minutes\": 1\n    },\n    \"psi\": {\n      \"on\": true,\n      \"warn\": 5.0,\n      \"crit\": 20.0,\n      \"minutes\": 1\n    },\n    \"oom\": {\n      \"on\": true,\n      \"minutes\": 5\n    },\n    \"disk\": {\n      \"on\": true,\n      \"warn\": 80.0,\n      \"crit\": 90.0,\n      \"warnFree\": 50.0,\n      \"critFree\": 20.0,\n      \"minutes\": 1\n    }\n  },\n  \"stallMinutes\": 74,\n  \"readyHours\": 24,\n  \"idleMinutes\": 30\n}"
+ }
+]
