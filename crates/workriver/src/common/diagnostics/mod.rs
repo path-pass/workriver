@@ -24,7 +24,7 @@ pub fn dir(home: &Path) -> PathBuf {
 
 /// The log's files, oldest first.
 pub(super) fn files(home: &Path) -> Vec<PathBuf> {
-    (0..FILES).rev().map(|k| dir(home).join(if k == 0 { "perf.jsonl".to_string() } else { format!("perf.{k}.jsonl") })).filter(|p| p.exists()).collect()
+    (0..FILES).rev().map(|k| dir(home).join(crate::common::home::perf_log(k))).filter(|p| p.exists()).collect()
 }
 
 /// The writer the layer writes each line through.
@@ -40,12 +40,12 @@ impl Log {
 
     fn write_line(&self, buf: &[u8]) -> std::io::Result<()> {
         let mut open = self.file.lock().unwrap();
-        let path = dir(&self.home).join(crate::common::home::PERF_LOG);
+        let path = dir(&self.home).join(crate::common::home::perf_log(0));
         if open.as_ref().is_some_and(|(_, n)| *n + buf.len() as u64 > FILE_BYTES) {
             *open = None;
             for k in (1..FILES).rev() {
-                let from = if k == 1 { path.clone() } else { dir(&self.home).join(format!("perf.{}.jsonl", k - 1)) };
-                let _ = std::fs::rename(from, dir(&self.home).join(format!("perf.{k}.jsonl")));
+                let from = if k == 1 { path.clone() } else { dir(&self.home).join(crate::common::home::perf_log(k - 1)) };
+                let _ = std::fs::rename(from, dir(&self.home).join(crate::common::home::perf_log(k)));
             }
         }
         if open.is_none() {

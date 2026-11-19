@@ -32,10 +32,18 @@ pub const LOGS: &str = "logs";
 pub const PERF_LOG: &str = "perf.jsonl";
 /// Each machine's load, a file per machine (`<label>.jsonl`).
 pub const METRICS: &str = "metrics";
-/// What the git scan keeps between starts.
+/// What the git scan keeps between starts, in a folder: this machine's repositories, and
+/// those of followed machines.
 pub const SCAN_CACHE: &str = "scan-cache";
+pub const SCAN_CACHE_LOCAL: &str = "local.json";
+pub const SCAN_CACHE_REMOTE: &str = "remote.json";
 /// Which managers were told of a guide's update.
 pub const GUIDE_TOLD: &str = "guide-told.json";
+// Not named here: the ssh control sockets of followed machines (`ssh-%C`, ssh expands the
+// `%C`), which workriver-scan's `Runner::ssh` makes in the data directory it is given; the
+// runner owns its ssh options, this file names only the folder (the data directory itself).
+// A file of the data directory written whole goes through a temporary beside it:
+// `<name>.<hex>.tmp` (`temporary`); a machine's metrics history, `<label>.jsonl.tmp`.
 
 // ---- on a followed machine, under its `$HOME` ----
 
@@ -78,4 +86,15 @@ pub fn inbox(home: &Path, unit: &str, task: u32) -> PathBuf {
 pub fn mkdir(d: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(d)
+}
+
+/// The timing log's file `k`: the current one (0: `PERF_LOG`), else an older one moved up
+/// (`perf.1.jsonl`, `perf.2.jsonl`…).
+pub fn perf_log(k: usize) -> String {
+    if k == 0 { PERF_LOG.to_string() } else { format!("{}.{k}.jsonl", PERF_LOG.trim_end_matches(".jsonl")) }
+}
+
+/// A temporary file to write `name` through, beside it: `<name>.<hex>.tmp`.
+pub fn temporary(name: &str, hex: &str) -> String {
+    format!("{name}.{hex}.tmp")
 }

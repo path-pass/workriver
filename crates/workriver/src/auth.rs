@@ -71,7 +71,7 @@ impl Auth {
                 // Written whole under another name, then given its name only if there is none
                 // yet: two starting at once end up with the same token, never half of one.
                 let t = random_hex(32)?;
-                let tmp = home.join(format!("user-token.{}.tmp", random_hex(4)?));
+                let tmp = home.join(crate::common::home::temporary(crate::common::home::TOKEN, &random_hex(4)?));
                 let mut opts = std::fs::OpenOptions::new();
                 opts.write(true).create_new(true);
                 #[cfg(unix)]
@@ -135,7 +135,7 @@ impl Auth {
 
     /// Writes the sessions whole under another name, then gives it the file's name.
     fn keep(&self, sessions: &[(String, u64)]) -> std::io::Result<()> {
-        let tmp = self.home.join(format!("user-sessions.{}.tmp", random_hex(4)?));
+        let tmp = self.home.join(crate::common::home::temporary(crate::common::home::SESSIONS, &random_hex(4)?));
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
         #[cfg(unix)]

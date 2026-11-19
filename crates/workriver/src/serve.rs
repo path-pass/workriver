@@ -315,7 +315,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         pins: Pins::open(&store_home),
         told: Mutex::default(),
         store: Mutex::new(store),
-        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join("local.json"))),
+        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
         remote_kick: kick,
         machines,
         listeners: Mutex::default(),
@@ -383,7 +383,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     // every `REMOTE` and whenever a record touches one of their units, never while a request
     // waits; the page hears when something there changed.
     let remote = app.clone();
-    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join(crate::common::home::SCAN_CACHE).join("remote.json"));
+    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_REMOTE));
     bg.remote_reads = true;
     std::thread::spawn(move || {
         let mut wait = snapshot::REMOTE;
