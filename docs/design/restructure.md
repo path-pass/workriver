@@ -5,7 +5,8 @@ with the user's adjustments, the whole intent on one branch (`chore/restructure`
 and pushed once at the end (the user's answer of 2026-11-20, section 4). This file is what
 the work follows; it is written for the agents doing it. Phase 0 (u13#1, its review fixes
 in u13#4) wrote it and the guards in section 5; phase 1 (core and scan by domain, u13#10)
-and phase 2 (storage out of core, u13#15) are done.
+phase 2 (storage out of core, u13#15) and phase 3 (the CLI into cli/, common/ started,
+u13#20) are done.
 
 Sources, for what this file leaves out:
 
@@ -170,19 +171,22 @@ crates/workriver/
 ├── src/
 │   ├── main.rs                       # Declares the four groups; enters cli or starts server.
 │   ├── cli/                          # The CLI process: parse, fetch the caller proof, call the API, print.
-│   │   ├── mod.rs                    # The clap tree, global context, serve/guide/perf dispatch.
+│   │   ├── mod.rs                    # The clap tree (Cli, Cmd), the shared context (Cx), status,
+│   │   │                             # open, board, link, guide, perf; one dispatch per domain.
 │   │   ├── client.rs                 # Daemon, proof fetch and renewal (the CLI side of today's
 │   │   │                             # caller.rs), headers, bounded response reading.
-│   │   ├── planning.rs               # Intent/unit/project/workspace/backlog commands.
-│   │   ├── work.rs                   # Task/finding/gate/chore/commit commands; delivery staging.
-│   │   ├── conversations.rs          # Ask/answer/reply/tell/say and waits.
+│   │   ├── planning.rs               # Intent/unit/project/workspace/backlog/manager-here commands
+│   │   │                             # (their subcommand enums and run()); backlog list/export.
+│   │   ├── work.rs                   # Task/finding/commit/gate/chore/attach/run-review commands;
+│   │   │                             # delivery staging, task show.
+│   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits.
 │   │   ├── machines.rs               # Machine/load commands.
-│   │   ├── display.rs                # Board, history and load text; common/wire values, no App.
+│   │   ├── display.rs                # Board, history and load text, and a task or finding in full
+│   │   │                             # (the task view's text, from show.rs); common/wire values.
 │   │   ├── guide.rs                  # Embedded guides, topic lookup, install stubs.
 │   │   ├── parse.rs                  # Input/evidence/step/external-ref parsers.
 │   │   ├── tests.rs                  # Parser/guide/help/link/text tests; no running service.
-│   │   ├── guards.rs                 # Phase 0's CLI guards: guide topics, the command tree
-│   │   │                             # (today: src/tests/cli_guards.rs).
+│   │   ├── guards.rs                 # Phase 0's CLI guards: guide topics, the command tree.
 │   │   └── cli-tree.txt              # The command tree it pins.
 │   ├── server/                       # The service process.
 │   │   ├── mod.rs                    # Start/bind/serve, Options; the one place that assembles
@@ -234,7 +238,8 @@ crates/workriver/
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads.
 │   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
-│   │   │   ├── task.rs               # TaskShow and its CLI text.
+│   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
+│   │   │   │                         # text the CLI's display.rs).
 │   │   │   └── tests.rs              # Projection/cache fixtures.
 │   │   ├── delivery/                 # Pure delivery plans and text.
 │   │   │   ├── mod.rs                # Plan, event-to-recipient planning.
@@ -263,7 +268,7 @@ crates/workriver/
 │   │       ├── remote.rs             # Remote socket discovery/construction, legacy option mapping.
 │   │       ├── words.rs              # Herdr's own refusal text, CLI context/help, agent hints.
 │   │       └── tests.rs              # Protocol fixtures; no real Herdr panes.
-│   └── common/                       # Used by both sides, owned by no domain.
+│   └── common/                       # Used by both sides, owned by no domain; mod.rs: BUILD.
 │       ├── config/
 │       │   ├── mod.rs                # Settings file read/update; keys and defaults unchanged.
 │       │   └── defaults.rs           # Tunable defaults now scattered (timeouts, caps).
@@ -272,12 +277,14 @@ crates/workriver/
 │       │                             # workriver.db, …), in one place; it makes the directory
 │       │                             # (0700) and the database file (0600) before the store opens.
 │       ├── process.rs                # Proc/Chain/Procs/System, libproc/procfs, the remote chain
-│       │                             # snippet/parser, the bounded child-output helper.
+│       │                             # snippet/parser, the bounded child-output helper (output_within).
+│       ├── files.rs                  # The type a file is sent and served as (mime), for both sides.
 │       ├── diagnostics/
 │       │   ├── mod.rs                # Performance log init/writing.
 │       │   └── report.rs             # Perf summary/bundle/parsing for the CLI.
 │       └── wire/                     # JSON shapes between service, CLI and page; types only.
-│           ├── mod.rs
+│           ├── mod.rs                # Shared values: EXPIRED (the proof header), MAX_ATTACHMENT.
+│           ├── task.rs               # The task view's shape (TaskShow and its parts) and Stall.
 │           ├── workspace.rs          # The snapshot DTOs (today in snapshot.rs); names and serde unchanged.
 │           └── metrics.rs            # The metrics report types.
 └── tests/                            # Process-boundary tests running the real binary.
@@ -398,7 +405,7 @@ commit is green on its own (section 5.3). Proposal B's commit numbers are in bra
 | **0** | This plan; the guards of section 5; Vitest. Nothing moves. | u13#1 |
 | **1. Core and scan by domain** | `model.rs` into `records/` (Body, Event, State) and `planning/`, `work/` (design ancestry in `graph.rs`), `conversations/`, `access/`; core tests to their owners, `src/tests/replay.rs` to `records/tests/replay.rs`; the temporary `model` facade removed at the end [B4–B8]. *As done (u13#10):* each kind's `prepare`/`apply` arm moved verbatim into a `prepare_<group>`/`apply_<group>` of its domain, records keeping the shared checks and one exhaustive dispatch; domain files read their neighbours with `use crate::*`; a helper is private when only its own file calls it, `pub(super)` when only its domain folder does (the caller imports it from its sibling), and `pub(crate)` only where a caller crosses a domain folder (u13#13); no `model` facade was needed (nothing outside core named it). Scan's `lib.rs` into `runner.rs`, `history/`, `files/` [B11]. | Replay fixture green unchanged; every core and scan test name present once; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
 | **2. Storage out of core** | New crate `workriver-data` with `sqlite/{mod,migrations,events}`; rusqlite leaves core; the stored half of replay and the three `Connection::open` tests move there; core's Store-backed tests become pure State fixtures without losing a scenario. The service still holds the concrete store: no port yet [B9]. *As done (u13#15):* core's tests record through `Records`, an in-memory stand-in for what `Store::append` does (prepare, record, apply) that rebuilds the state from the events' stored form; the branch-rule test plants its old row that way (its SQL form is covered by the stored replay, whose fixture holds such a branch); `now()` and `data_dir()` stayed in core's `lib.rs`; the row's encoding (`insert`) sits beside its decoding (`replay`) in `sqlite/events.rs`, `Store::append` keeping prepare and apply (u13#18). | `cargo tree -p workriver-core` has no rusqlite; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
-| **3. CLI and common** | `main.rs` into `cli/` (client, parsers, commands by domain, display, guide), `backlog.rs` into `cli/planning.rs`; CLI-only cases of `tests.rs` into `cli/tests.rs`, `src/tests/cli_guards.rs` with `cli-tree.txt` into `cli/guards.rs`; `common/` gets `home.rs`, `process.rs`, `diagnostics/` (today's `perf.rs`) [B12, B13, part of B2]. `cli/` imports nothing of the service. **A small change of workriver-data's API, named as such (decided in u13#17):** `Store::open_default` leaves workriver-data. `common/home.rs` takes `data_dir()` from core and, with the other files of the data directory, names `workriver.db`; it makes the directory (0700) and the file (0600) as `open_default` does today, and the composition calls `Store::open(path)` on that same path. workriver-data then opens only the file it is given; core keeps `now()`. | Every command and option unchanged (`every_command_keeps_its_options`, its file not edited); printed text and exit codes unchanged (`tests/cli.rs`, `tests/output.rs`, `tests/caller.rs`); the service opens the same file with the same modes; workriver-data names no directory or file of its own. |
+| **3. CLI and common** | `main.rs` into `cli/` (client, parsers, commands by domain, display, guide), `backlog.rs` into `cli/planning.rs`; CLI-only cases of `tests.rs` into `cli/tests.rs`, `src/tests/cli_guards.rs` with `cli-tree.txt` into `cli/guards.rs`; `common/` gets `home.rs`, `process.rs`, `diagnostics/` (today's `perf.rs`) [B12, B13, part of B2]. `cli/` imports nothing of the service. **A small change of workriver-data's API, named as such (decided in u13#17):** `Store::open_default` leaves workriver-data. `common/home.rs` takes `data_dir()` from core and, with the other files of the data directory, names `workriver.db`; it makes the directory (0700) and the file (0600) as `open_default` does today, and the composition calls `Store::open(path)` on that same path. workriver-data then opens only the file it is given; core keeps `now()`. *As done (u13#20):* each command's arm moved verbatim into run() of its domain file with its subcommand enums and helpers (a command that printed for itself returns `Ok(None)`); every file name of the data directory is in `home.rs` (with `read_token`, the inbox path and its `mkdir`, the port and host files over there); the CLI's halves of service modules moved out of them (`caller::fetch` to `cli/client.rs`, show's text to `cli/display.rs`) and what both sides use moved to `common/` (the task view's shape and Stall to `wire/task.rs`, `EXPIRED` and the attachment limit to `wire/mod.rs`, `mime` to `files.rs`, `BUILD` to `common/mod.rs`; serve.rs keeps its own BUILD until phase 5). `cli/` names only `common/` and, to read where this process runs, `herdr::place_from_env` (phase 4's facade replaces it). A directory or file that cannot be made is still reported as workriver-data's `Error::Io`, so the startup failure reads exactly as before; that variant stays for it. | Every command and option unchanged (`every_command_keeps_its_options`, its file not edited); printed text and exit codes unchanged (`tests/cli.rs`, `tests/output.rs`, `tests/caller.rs`); the service opens the same file with the same modes; workriver-data names no directory or file of its own. |
 | **4. Runtime** | `herdr.rs` and the remote Herdr parts of `machines.rs` into `runtime/herdr/`; `runtime/{mod,follow,ssh}.rs`; settings to `common/config/` (it gets its content here, so it is created here). **A change, reviewed as one:** sentences of the outer crate that name Herdr or panes outside the adapter come from it through the facade (the texts stay the same) [B14, B15]. Core is not touched: its four refusals that name the pane (in `model.rs` today: "…in its manager's pane", "run `workriver manager here` in its pane") cannot reach the facade, and no new mechanism is added to core for them. | The ratchet (section 5.1) lists, among Rust sources, only: core's files (those refusals, and comments naming the runtime, until phase 7), and tests that stand in for the runtime or assert its texts (the in-process daemon tests, `tests/caller.rs`, `tests/cli.rs`, `tests/output.rs`). Its `ADAPTER` becomes the folder. |
 | *after 4* | **A unit of its own: workriver's own agent commands** (`start`, `prompt`, `read`, `close`, through the runtime facade). Designed first (who may use them, whether they are recorded, security, that ACP can carry them), architecture review, a design gate, then implemented; the `hand-off`, `closing-workers` and `stalled` recipes then use only workriver's commands (u12#9 item 6). | Its own design gate and reviews. |
 | **5. Server by domain** | `serve.rs`, `ask.rs`, `run.rs`, `deliver.rs`, `quote.rs`, `stall.rs`, `snapshot.rs`, `show.rs`, `attachments.rs`, `auth.rs`, the service side of `caller.rs` and `metrics.rs` into `server/` (section 2); snapshot DTOs and metrics report types into `common/wire/`; `tests.rs` split into `server/tests/` by suite, first in the phase [B2, B16–B21]. Visibility narrowed with `pub(super)`/`pub(in …)`, never widened to `pub`. | Route table, page JSON shape and every u11 identity/blind test green unchanged; no handler lost its `App::user`/`App::who`/`App::view` call. |
