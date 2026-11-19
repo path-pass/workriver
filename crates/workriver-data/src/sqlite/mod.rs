@@ -6,6 +6,12 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use workriver_core::{Body, Event, Principal, Rejected, State, data_dir, now};
 
+mod events;
+mod migrations;
+
+use events::replay;
+use migrations::MIGRATIONS;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -17,25 +23,6 @@ pub enum Error {
     #[error("{0}")]
     Io(#[from] std::io::Error),
 }
-
-/// Schema steps, applied in order; `PRAGMA user_version` counts how many ran.
-const MIGRATIONS: &[&str] = &["
-    CREATE TABLE events (
-        seq INTEGER PRIMARY KEY,
-        at TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        actor TEXT NOT NULL,
-        intent TEXT,
-        unit TEXT,
-        task TEXT,
-        body TEXT NOT NULL CHECK (json_valid(body))
-    );
-    CREATE INDEX events_unit ON events(unit, seq);
-    CREATE TRIGGER events_no_update BEFORE UPDATE ON events
-        BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
-    CREATE TRIGGER events_no_delete BEFORE DELETE ON events
-        BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
-"];
 
 pub struct Store {
     conn: Connection,
@@ -106,24 +93,6 @@ impl Store {
         self.state.apply(&e);
         Ok(e)
     }
-}
-
-/// The state, rebuilt by adding every stored event in order.
-// ponytail: full replay at every start; add snapshots when it gets slow.
-fn replay(conn: &Connection) -> Result<State, Error> {
-    let mut state = State::default();
-    let mut stmt = conn.prepare("SELECT seq, at, actor, kind, body FROM events ORDER BY seq")?;
-    let mut rows = stmt.query([])?;
-    while let Some(r) = rows.next()? {
-        let seq: i64 = r.get(0)?;
-        let kind: String = r.get(3)?;
-        let body: String = r.get(4)?;
-        let body = serde_json::from_str(&body)
-            .and_then(|b: serde_json::Value| serde_json::from_value(serde_json::json!({ "kind": kind, "body": b })))
-            .map_err(|err| Error::Corrupt { seq, err })?;
-        state.apply(&Event { seq, at: r.get(1)?, actor: r.get(2)?, body });
-    }
-    Ok(state)
 }
 
 #[cfg(test)]
