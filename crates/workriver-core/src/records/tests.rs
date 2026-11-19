@@ -6,8 +6,31 @@ pub(crate) fn body(v: serde_json::Value) -> Body {
     serde_json::from_value(v).unwrap()
 }
 
+/// What the store does with the rules, without its SQL (that is workriver-data's to test): each
+/// event prepared against the state, recorded in order and applied; and the state rebuilt from
+/// the records alone, each read back from its stored form and applied again.
+#[derive(Default)]
+pub(crate) struct Records {
+    state: State,
+    events: Vec<Event>,
+}
+
+impl Records {
+    pub(crate) fn append(&mut self, who: &Principal, body: Body) -> Result<Event, Rejected> {
+        let body = self.state.prepare(who, body)?;
+        let e = Event { seq: self.events.len() as i64 + 1, at: now(), actor: who.actor().to_string(), body };
+        self.state.apply(&e);
+        self.events.push(e.clone());
+        Ok(e)
+    }
+
+    pub(crate) fn state(&self) -> &State {
+        &self.state
+    }
+}
+
 /// An intent, a unit, an implement task delivered with evidence and a review with two findings.
-pub(crate) fn seeded(store: &mut Store) {
+pub(crate) fn seed() -> Vec<Body> {
     let steps = [
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
         json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
@@ -20,20 +43,18 @@ pub(crate) fn seeded(store: &mut Store) {
             {"severity": "P2", "problem": "Emoji names", "impact": "Not found", "where": ["app/mention.ts"]},
         ]}}),
     ];
-    for s in steps {
-        store.append(&"agent-a".into(), body(s)).unwrap();
-    }
+    steps.into_iter().map(body).collect()
 }
 
-pub(crate) fn temp_store() -> (tempfile::TempDir, Store) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(&dir.path().join("w.db")).unwrap();
-    (dir, store)
+pub(crate) fn seeded(s: &mut Records) {
+    for b in seed() {
+        s.append(&"agent-a".into(), b).unwrap();
+    }
 }
 
 #[test]
 fn rules_assign_ids_and_accept_good_input() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let review = s.state().task("u1", 2).unwrap();
     let ids: Vec<_> = review.findings.iter().map(|f| f.found.id.as_str()).collect();
@@ -44,7 +65,7 @@ fn rules_assign_ids_and_accept_good_input() {
 
 #[test]
 fn rules_reject_bad_input() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     // A second review (#3), left open for the delivery below.
     s.append(&"agent-b".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}}))).unwrap();
@@ -79,7 +100,9 @@ fn replay_rebuilds_the_same_state() {
     let path = dir.path().join("w.db");
     let before = {
         let mut s = Store::open(&path).unwrap();
-        seeded(&mut s);
+        for b in seed() {
+            s.append(&"agent-a".into(), b).unwrap();
+        }
         s.state().clone()
     };
     let again = Store::open(&path).unwrap();
@@ -91,7 +114,10 @@ fn replay_rebuilds_the_same_state() {
 fn events_are_append_only() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("w.db");
-    seeded(&mut Store::open(&path).unwrap());
+    let mut s = Store::open(&path).unwrap();
+    for b in seed() {
+        s.append(&"agent-a".into(), b).unwrap();
+    }
     let conn = rusqlite::Connection::open(&path).unwrap();
     for sql in ["UPDATE events SET actor = 'x'", "DELETE FROM events"] {
         let err = conn.execute(sql, []).unwrap_err().to_string();
@@ -99,27 +125,27 @@ fn events_are_append_only() {
     }
 }
 
-pub(crate) fn add(s: &mut Store, actor: &str, v: serde_json::Value) -> Result<Event, String> {
+pub(crate) fn add(s: &mut Records, actor: &str, v: serde_json::Value) -> Result<Event, String> {
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
 /// An event as an old database has it, straight into the records past today's rules (the
-/// body as it was stored, ids and numbers filled in); the store is opened again from them.
-pub(crate) fn recorded_before(s: Store, actor: &str, v: serde_json::Value) -> Store {
-    let (intent, unit, task) = body(v.clone()).refs();
-    let conn = rusqlite::Connection::open(s.path()).unwrap();
-    conn.execute(
-        "INSERT INTO events (at, kind, actor, intent, unit, task, body) VALUES ('2026-01-01T00:00:00Z', ?1, ?2, ?3, ?4, ?5, ?6)",
-        (v["kind"].as_str(), actor, intent, unit, task, v["body"].to_string()),
-    )
-    .unwrap();
-    drop(conn);
-    Store::open(s.path()).unwrap()
+/// body as it was stored, ids and numbers filled in); the state is rebuilt from them.
+pub(crate) fn recorded_before(mut s: Records, actor: &str, v: serde_json::Value) -> Records {
+    s.events.push(Event { seq: s.events.len() as i64 + 1, at: "2026-01-01T00:00:00Z".into(), actor: actor.into(), body: body(v) });
+    s.state = replayed(&s);
+    s
 }
 
-/// The state rebuilt from the records alone.
-pub(crate) fn replayed(s: &Store) -> State {
-    Store::open(s.path()).unwrap().state().clone()
+/// The state rebuilt from the records alone: each event read back from its stored form
+/// (`kind` and `body`), applied in order.
+pub(crate) fn replayed(s: &Records) -> State {
+    let mut state = State::default();
+    for e in &s.events {
+        let stored = serde_json::to_value(&e.body).unwrap();
+        state.apply(&Event { body: serde_json::from_value(stored).unwrap(), ..e.clone() });
+    }
+    state
 }
 
 // Replay of a synthetic history to the state it has always added up to.

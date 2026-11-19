@@ -7,23 +7,22 @@ use crate::*;
 /// the events are read again, and it reports findings.
 #[test]
 fn an_architecture_review_round_trips() {
-    let (dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{"from": "1"}]}}))).unwrap();
     s.append(&"arch".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "findings": [{"severity": "P2", "problem": "The scan reads the store", "impact": "Layers cross", "where": ["scan/lib.rs"]}]}}))).unwrap();
-    drop(s);
-    let s = Store::open(&dir.path().join("w.db")).unwrap();
-    let review = s.state().task("u1", 3).unwrap();
+    let st = replayed(&s);
+    let review = st.task("u1", 3).unwrap();
     assert_eq!((review.kind, review.reviewer, review.findings.len()), (TaskKind::Review, Some(Reviewer::ArchitectureReview), 1));
-    assert_eq!(serde_json::to_value(s.state()).unwrap()["units"][0]["tasks"][2]["reviewer"], "architecture-review");
+    assert_eq!(serde_json::to_value(&st).unwrap()["units"][0]["tasks"][2]["reviewer"], "architecture-review");
     assert_eq!(name(&Reviewer::ArchitectureReview), "architecture-review");
 }
 
 /// What a task comes after, which gate asks about a design, and which design revises it.
 #[test]
 fn designs_their_gates_and_their_revisions() {
-    let (_dir, mut s) = temp_store();
-    fn put(s: &mut Store, actor: &str, v: serde_json::Value) {
+    let mut s = Records::default();
+    fn put(s: &mut Records, actor: &str, v: serde_json::Value) {
         s.append(&actor.into(), body(v)).unwrap();
     }
     let task = |kind: &str, after: &[&str], more: serde_json::Value| {
@@ -45,7 +44,7 @@ fn designs_their_gates_and_their_revisions() {
     put(&mut s, "rev", found(6));
     put(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P2-1", "decision": "accept"}}));
     put(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 6, "finding": "P2-1", "decision": "accept"}}));
-    let st = |s: &Store| s.state().clone();
+    let st = |s: &Records| s.state().clone();
     let state = st(&s);
     assert_eq!((state.before("u1", 5), state.before("u1", 1), state.before("u1", 99)), (vec![1, 2, 3, 4], vec![], vec![]));
     // Through reviews only; not through implementing, a gate, or another design.
@@ -88,7 +87,7 @@ fn designs_their_gates_and_their_revisions() {
 
 #[test]
 fn accepted_finding_leads_to_task_with_derived_inputs() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "decision": "accept", "by": "user"}}))).unwrap();
     let e = s.append(&"manager".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "fix", "causes": [{"task": 2, "findings": ["P2-2"]}]}}))).unwrap();
@@ -99,7 +98,7 @@ fn accepted_finding_leads_to_task_with_derived_inputs() {
 
 #[test]
 fn corrections_after_delivery() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     // Delivering twice points at --amend.
     let again = s.append(&"agent-a".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1}}))).unwrap_err().to_string();
@@ -125,7 +124,7 @@ fn corrections_after_delivery() {
 
 #[test]
 fn design_tasks_decide_gates_and_revised_findings() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design the store", "inputs": [{"from": "2"}]}}))).unwrap();
     let no_note = s.append(&"w".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3}}))).unwrap_err().to_string();
@@ -145,7 +144,7 @@ fn design_tasks_decide_gates_and_revised_findings() {
 /// when the task they caused is delivered; or dropped with a reason.
 #[test]
 fn deferred_batches() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "defer", "by": "user"}})).unwrap();
@@ -189,7 +188,7 @@ fn deferred_batches() {
 /// finding (never rewriting it) and add new findings, numbered after the ones there.
 #[test]
 fn findings_grow_after_they_are_decided() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
     add(&mut s, "agent-b", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}})).unwrap();
@@ -232,13 +231,13 @@ fn findings_grow_after_they_are_decided() {
 /// Records made before replay the same way.
 #[test]
 fn a_gate_waits_only_once_what_it_follows_is_done() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "start"}]}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{"from": "1"}, {"from": "2", "primary": false}]}})).unwrap();
-    let gate = |s: &Store| s.state().task("u1", 3).unwrap().clone();
+    let gate = |s: &Records| s.state().task("u1", 3).unwrap().clone();
     assert_eq!((gate(&s).state, gate(&s).waiting_since.clone()), (TaskState::Todo, None));
     assert_eq!(s.state().progress(&s.state().units[0]), Progress::Working, "a gate to do holds nothing up");
     let e = add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 3, "result": "done"}})).unwrap_err();
@@ -263,7 +262,7 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
 /// takes none.
 #[test]
 fn a_task_added_to_a_done_unit_opens_it_again() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
@@ -288,7 +287,7 @@ fn a_task_added_to_a_done_unit_opens_it_again() {
 /// Its own agent, its manager or the user puts it there; nobody else.
 #[test]
 fn a_blocker_is_put_before_a_running_task() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build"}})).unwrap();
@@ -321,7 +320,7 @@ fn a_blocker_is_put_before_a_running_task() {
 /// is not started, delivered or submitted any more, and replays the same.
 #[test]
 fn a_task_no_longer_needed_is_dropped() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
@@ -379,7 +378,7 @@ fn a_task_no_longer_needed_is_dropped() {
 /// for work on the finding again.
 #[test]
 fn a_dropped_follow_up_answers_nothing() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     for f in ["P2-1", "P2-2"] {
         add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": f, "decision": "accept"}})).unwrap();
@@ -400,12 +399,12 @@ fn a_dropped_follow_up_answers_nothing() {
 /// rather than hung off the start away from the work it continues.
 #[test]
 fn a_later_task_says_what_it_follows() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let task = |v: serde_json::Value| json!({"kind": "task.created", "body": v});
     let e = add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "More"}))).unwrap_err();
     assert!(e.contains("u1 already has tasks") && e.contains("--after <n> (the latest is #2)") && e.contains("--after start"), "{e}");
-    let inputs = |s: &Store, u: &str, n: u32| s.state().task(u, n).unwrap().inputs.iter().map(|i| i.from.clone()).collect::<Vec<_>>();
+    let inputs = |s: &Records, u: &str, n: u32| s.state().task(u, n).unwrap().inputs.iter().map(|i| i.from.clone()).collect::<Vec<_>>();
     add(&mut s, "boss", task(json!({"unit": "u1", "kind": "implement", "title": "Beside", "inputs": [{"from": "start"}]}))).unwrap();
     assert_eq!(inputs(&s, "u1", 3), ["start"]);
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();

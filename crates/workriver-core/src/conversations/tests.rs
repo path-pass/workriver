@@ -5,7 +5,7 @@ use crate::*;
 
 #[test]
 fn questions_are_answered_by_their_own_agent_or_the_user() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let e = s.append(&"user".into(), body(json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?",
         "context": [{"kind": "lines", "label": "a.ts L3–4", "path": "app/a.ts", "from": 3, "to": 4}]}}))).unwrap();
@@ -33,7 +33,7 @@ fn questions_are_answered_by_their_own_agent_or_the_user() {
 
 #[test]
 fn attachments_are_stored_before_they_are_used() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let unknown = s.append(&"user".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap_err().to_string();
     assert!(unknown.contains("no stored attachment abc"), "{unknown}");
@@ -52,7 +52,7 @@ fn attachments_are_stored_before_they_are_used() {
 /// of the findings it answers.
 #[test]
 fn questions_point_only_at_their_tasks_attachments() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let file = |id: &str, link: serde_json::Value| {
         let mut b = json!({"id": id, "name": format!("{id}.md"), "type": "text/markdown", "size": 3});
@@ -88,7 +88,7 @@ fn questions_point_only_at_their_tasks_attachments() {
 /// points at a file only an agent stored and no task shows.
 #[test]
 fn the_users_question_points_at_files_the_user_stored() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let file = |id: &str| json!({"kind": "attachment.added", "body": {"id": id, "name": format!("{id}.log"), "type": "text/plain", "size": 3}});
     add(&mut s, "user", file("mine")).unwrap();
@@ -111,7 +111,7 @@ fn the_users_question_points_at_files_the_user_stored() {
 /// agents still ask about a task. Old questions (every one names a task) replay unchanged.
 #[test]
 fn the_user_asks_about_a_unit() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let ask = |task: u32, thread: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "thread": thread, "text": "Why this order?", "context": [{"kind": "unit", "label": "Mentions"}]}});
     let e = add(&mut s, "user", ask(0, "")).unwrap();
@@ -144,7 +144,7 @@ fn the_user_asks_about_a_unit() {
 /// records where the message is, and it all replays.
 #[test]
 fn the_user_talks_to_a_manager() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
@@ -187,7 +187,7 @@ fn the_user_talks_to_a_manager() {
 /// and it all replays.
 #[test]
 fn a_manager_says_and_the_user_reads() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
     let say = |text: &str| json!({"kind": "message.said", "body": {"workspace": "forged", "text": text}});

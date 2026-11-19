@@ -7,7 +7,7 @@ use crate::*;
 /// load from the records and keep working.
 #[test]
 fn unit_branches_take_a_prefix_but_old_ones_replay() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let unit = |branch: &str, base: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "x", "repo": "/r", "branch": branch, "base": base}});
     for (branch, base, says) in [("ja-ui", "main", "starts with feat/, chore/ or fix/"), ("feat/", "main", "and a name"), ("feature/x", "main", "e.g. --branch feat/x"), ("main", "main", "must not be its base"), ("feat/x", "feat/x", "must not be its base"), ("main", "origin/main", "must not be its base")] {
@@ -22,10 +22,7 @@ fn unit_branches_take_a_prefix_but_old_ones_replay() {
     add(&mut s, "user", moved("fix/x2", "main")).unwrap();
 
     // Written before the rule: straight into the records, as an old database has it.
-    let conn = rusqlite::Connection::open(s.path()).unwrap();
-    conn.execute("INSERT INTO events (at, kind, actor, intent, unit, body) VALUES ('2026-01-01T00:00:00Z', 'unit.created', 'user', 'i1', 'u5', ?1)", [json!({"id": "u5", "intent": "i1", "title": "ja", "repo": "/r", "branch": "ja-ui", "base": "main"}).to_string()]).unwrap();
-    drop(conn);
-    let mut s = Store::open(s.path()).unwrap();
+    let mut s = recorded_before(s, "user", json!({"kind": "unit.created", "body": {"id": "u5", "intent": "i1", "title": "ja", "repo": "/r", "branch": "ja-ui", "base": "main"}}));
     assert_eq!(s.state().unit("u5").unwrap().branch, "ja-ui");
     add(&mut s, "user", json!({"kind": "task.created", "body": {"unit": "u5", "kind": "implement", "title": "Translate"}})).unwrap();
     // Moved to another base, its name stays; a new name follows the rule.
@@ -38,7 +35,7 @@ fn unit_branches_take_a_prefix_but_old_ones_replay() {
 /// and the workspace's current intent is where its new work goes.
 #[test]
 fn intent_states_and_workspaces() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "goal": "Tag people", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "project": "/p", "state": "planned"}})).unwrap();
@@ -71,7 +68,7 @@ fn intent_states_and_workspaces() {
 /// The roadmap keeps the order intents were added in, and moves change it.
 #[test]
 fn roadmap_order_and_moves() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     for t in ["A", "B", "C", "D"] {
         add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": t, "project": "/p", "state": "planned", "note": "line 1\nhttps://example.com/x", "external": {"system": "jira", "key": "ABC-1"}}})).unwrap();
     }
@@ -93,7 +90,7 @@ fn roadmap_order_and_moves() {
 /// they said goes into its note, in the order given; it keeps its place in the roadmap.
 #[test]
 fn planned_intents_merge() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let plan = |title: &str, project: &str| json!({"kind": "intent.created", "body": {"title": title, "goal": format!("{title} goal"), "project": project, "state": "planned"}});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "goal": "Find things", "project": "/p", "state": "planned", "note": "Own note\n"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Filters", "goal": "By date", "project": "/p", "state": "planned", "note": "see #12", "external": {"system": "jira", "key": "ABC-2", "url": "https://x/ABC-2"}}})).unwrap();
@@ -167,7 +164,7 @@ fn planned_intents_merge() {
 /// and keep working.
 #[test]
 fn research_units_and_old_intent_level_work() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync", "project": "p1", "state": "planned"}})).unwrap();
     for kind in ["research", "design", "review", "implement"] {
@@ -228,7 +225,7 @@ fn research_units_and_old_intent_level_work() {
 /// moves like a code unit, is never merged, and is closed with what was learned.
 #[test]
 fn spike_units_keep_code_but_are_never_merged() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync"}})).unwrap();
     let unit = |kind: &str, branch: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Try CRDTs", "repo": "/r", "branch": branch, "base": "main", "kind": kind}});
     for (kind, branch, says) in [("spike", "feat/crdt", "--branch spike/crdt"), ("spike", "spike/", "a spike's branch starts with spike/"), ("spike", "main", "must not be its base"), ("code", "spike/crdt", "spike/<name> is for --kind spike")] {
@@ -260,7 +257,7 @@ fn spike_units_keep_code_but_are_never_merged() {
 /// The intent's manager or the user adds a paragraph to its note; nobody else.
 #[test]
 fn a_note_grows_by_paragraphs() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     let more = |text: &str| json!({"kind": "intent.updated", "body": {"intent": "i1", "add_note": text}});
     assert!(add(&mut s, "agent-b", more("x")).unwrap_err().contains("only the user or the manager"));
@@ -276,7 +273,7 @@ fn a_note_grows_by_paragraphs() {
 /// for a runtime group is active and that group's current intent, its manager the group's.
 #[test]
 fn old_records_map_onto_workspaces() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let w = json!({"id": "wM", "label": "workriver"});
     add(&mut s, "workriver", json!({"kind": "intent.created", "body": {"id": "", "title": "workriver", "goal": "", "runtime_ref": w}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "boss"}})).unwrap();
@@ -295,7 +292,7 @@ fn old_records_map_onto_workspaces() {
 /// makes a remote workspace the local one (one manager, the same current intent).
 #[test]
 fn remote_workspaces_are_linked_explicitly() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let local = json!({"id": "w1", "label": "chat"});
     let remote = RuntimeRef { id: "w1@box".into(), label: "chat".into(), machine: Some("box".into()) };
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A", "project": "/p", "state": "planned"}})).unwrap();
@@ -322,7 +319,7 @@ fn remote_workspaces_are_linked_explicitly() {
 /// It can be corrected afterwards. And chores may belong to a project or to nothing.
 #[test]
 fn units_are_where_the_work_is() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"workspace": w1}})).unwrap();
@@ -361,10 +358,8 @@ fn units_are_where_the_work_is() {
 
 #[test]
 fn the_user_renames_a_project() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("w.db");
+    let mut s = Records::default();
     {
-        let mut s = Store::open(&path).unwrap();
         add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
         assert!(add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "/nope", "title": "Q"}})).unwrap_err().contains("no project /nope"));
         assert!(add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "p1", "title": " "}})).is_err());
@@ -373,5 +368,5 @@ fn the_user_renames_a_project() {
         assert_eq!(e.body, body(json!({"kind": "project.renamed", "body": {"project": "p1", "title": "Q"}})));
         add(&mut s, "user", json!({"kind": "project.renamed", "body": {"project": "p1", "title": "R"}})).unwrap();
     }
-    assert_eq!(Store::open(&path).unwrap().state().projects[0].title, "R", "replayed");
+    assert_eq!(replayed(&s).projects[0].title, "R", "replayed");
 }

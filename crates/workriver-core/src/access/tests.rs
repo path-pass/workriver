@@ -8,7 +8,7 @@ use crate::*;
 /// is recorded as an agent's whatever it claims; and it cannot call itself the user.
 #[test]
 fn only_the_user_does_what_is_the_users() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     add(&mut s, "agent-a", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{"from": "1"}]}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
@@ -69,7 +69,7 @@ fn only_the_user_does_what_is_the_users() {
 /// else's work, and neither asks nor is asked; delivering ends it.
 #[test]
 fn a_blind_task_sees_only_its_own() {
-    let (_dir, mut s) = temp_store();
+    let mut s = Records::default();
     seeded(&mut s);
     assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "blind": true}})).unwrap_err().contains("--blind is for"));
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "text": "Look for ways around the mention check", "inputs": [{"from": "1"}], "agent": "sec", "blind": true}})).unwrap();
