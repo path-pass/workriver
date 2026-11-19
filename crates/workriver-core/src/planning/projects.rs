@@ -2,9 +2,7 @@
 // links that make a workspace of another machine one with a local one.
 use serde::{Deserialize, Serialize};
 
-use crate::records::*;
-
-use super::*;
+use crate::*;
 
 /// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]

@@ -2,10 +2,7 @@
 // who decides its findings.
 use serde::{Deserialize, Serialize};
 
-use crate::access::{Rejected, no};
-use crate::records::*;
-
-use super::*;
+use crate::*;
 
 /// Where an intent is: in the backlog, being worked on, finished, or given up.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]

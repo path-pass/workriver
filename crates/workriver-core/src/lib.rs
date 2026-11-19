@@ -4,11 +4,13 @@ pub mod access;
 pub mod planning;
 pub mod records;
 pub mod runtime;
+pub mod work;
 pub mod store;
 
 pub use access::*;
 pub use planning::*;
 pub use records::*;
+pub use work::*;
 pub use store::{Error, Store, data_dir, now};
 
 #[cfg(test)]
