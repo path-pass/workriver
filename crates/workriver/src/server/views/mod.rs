@@ -272,7 +272,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .map(|b| {
             let f = &b.finding;
             BacklogOut {
-                project: crate::server::handlers::project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone()),
+                project: project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone()),
                 intent: b.intent.clone(),
                 source: b.source.clone(),
                 by: names.of(&b.by),
@@ -311,7 +311,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
         .chores
         .iter()
         .filter(|c| c.intent.is_empty())
-        .map(|c| chore(c, &names, Some(crate::server::handlers::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
+        .map(|c| chore(c, &names, Some(project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
     let messages = messages(state, live, &names);
     Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
@@ -331,6 +331,11 @@ pub fn group_project(state: &core::State, live: &[RuntimeAgent], g: &core::Runti
     state.intent_for(g).map(|i| project_folder(state, i)).filter(|p| !p.is_empty()).map(|p| (p, Known::Intents))
 }
 
+/// The registered project whose folder holds `path`, the deepest one.
+pub(super) fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Project> {
+    state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
+}
+
 /// The project a folder is in. Here: the deepest registered project holding it, else the
 /// repository it is in (a project of its own; a linked worktree counts as its main
 /// repository). On another machine its paths are its own: only the repositories of units
@@ -345,14 +350,14 @@ fn project_at(state: &core::State, machine: Option<&str>, cwd: &str) -> Option<S
         let i = state.intents.iter().find(|i| i.id == u.intent)?;
         return Some(project_folder(state, i)).filter(|p| !p.is_empty());
     }
-    if let Some(p) = crate::server::handlers::project_of(state, &cwd.to_string_lossy()) {
+    if let Some(p) = project_of(state, &cwd.to_string_lossy()) {
         return Some(p.path.clone());
     }
     let top = cwd.ancestors().find(|d| d.join(".git").exists())?;
     // A linked worktree's `.git` is a file: `gitdir: <main>/.git/worktrees/<name>`.
     let main = std::fs::read_to_string(top.join(".git")).ok().and_then(|g| g.trim().strip_prefix("gitdir:").and_then(|d| d.trim().split_once("/.git/worktrees/")).map(|(m, _)| m.to_string()));
     let top = main.unwrap_or_else(|| top.to_string_lossy().into_owned());
-    Some(crate::server::handlers::project_of(state, &top).map(|p| p.path.clone()).unwrap_or(top))
+    Some(project_of(state, &top).map(|p| p.path.clone()).unwrap_or(top))
 }
 
 /// A project's title: a registered one's, else its folder's name.
@@ -391,7 +396,7 @@ pub(crate) fn project_folder(state: &core::State, i: &core::Intent) -> String {
     if path.is_empty() {
         return path;
     }
-    crate::server::handlers::project_of(state, &path).map(|p| p.path.clone()).unwrap_or(path)
+    project_of(state, &path).map(|p| p.path.clone()).unwrap_or(path)
 }
 
 /// Registered projects with the repositories in them, and one implicit project per
@@ -407,7 +412,7 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
         list
     };
     let mut out: Vec<ProjectOut> = state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), registered: true, repos: repos_in(&p.path) }).collect();
-    let folders = state.intents.iter().map(|i| project_folder(state, i)).chain(state.chores.iter().filter(|c| c.intent.is_empty()).map(|c| crate::server::handlers::project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))).chain(state.backlog.iter().map(|b| crate::server::handlers::project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
+    let folders = state.intents.iter().map(|i| project_folder(state, i)).chain(state.chores.iter().filter(|c| c.intent.is_empty()).map(|c| project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))).chain(state.backlog.iter().map(|b| project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
     for folder in folders {
         if !folder.is_empty() && !out.iter().any(|p| p.id == folder) {
             let title = Path::new(&folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.clone());

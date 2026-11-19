@@ -1559,16 +1559,11 @@ impl App {
         }
         let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
         let path = path.to_string_lossy().into_owned();
-        if let Some(p) = project_of(&state, &path) {
+        if let Some(p) = snapshot::project_of(&state, &path) {
             return Ok(p.path.clone());
         }
         scan::toplevel(&scan::Runner::Local, Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))
     }
-}
-
-/// The registered project whose folder holds `path`, the deepest one.
-pub fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Project> {
-    state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
 }
 
 /// The machine a unit is put on: the one named ("local": the one workriver runs on), else
