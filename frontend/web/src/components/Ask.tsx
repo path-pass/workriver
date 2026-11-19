@@ -60,6 +60,15 @@ export const isField = (el: EventTarget | null) =>
 /** An answer: short Markdown, its file paths links that pick the file. */
 const Answer = ({ text, onFile }: { text: string; onFile: (path: string) => void }) => <Prose text={text} fold={false} onFile={onFile} />
 
+/** Whether pasted html holds text of its own (tags, styles and scripts left out). Parsed
+ *  as an inert document: nothing in it runs or loads. */
+function wordsIn(html: string) {
+  if (!html) return false
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  doc.querySelectorAll('style, script').forEach(el => el.remove())
+  return !!doc.body.textContent?.trim()
+}
+
 /** A drag that carries files (not text dragged into the box). */
 const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 
@@ -330,13 +339,17 @@ function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFi
           }}
           onPaste={e => {
             // A text box first. Rich text (a spreadsheet's cells, a document's paragraph) comes
-            // with a picture of itself: the text goes in, the picture is not taken. Otherwise
-            // the files are taken, and text of its own beside them goes in too (not when it
-            // only names them, as a file manager's copy does).
+            // with a picture of itself: the text goes in, the picture is not taken. Html with
+            // no text of its own (a browser's "Copy image": only an <img>) is not that.
+            // Otherwise the files are taken, and text of its own beside them goes in too (not
+            // when it only names them, as a file manager's copy does, or is the picture's
+            // address in that <img>).
             const got = [...e.clipboardData.files]
-            if (!onFiles || !got.length || e.clipboardData.types.includes('text/html')) return
+            if (!onFiles || !got.length) return
+            const html = e.clipboardData.getData('text/html')
+            if (wordsIn(html)) return
             const text = e.clipboardData.getData('text/plain').trim()
-            if (!text || got.some(f => f.name && text.includes(f.name))) e.preventDefault()
+            if (!text || got.some(f => f.name && text.includes(f.name)) || html.includes(text)) e.preventDefault()
             onFiles(got)
           }}
         />

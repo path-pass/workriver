@@ -446,7 +446,8 @@ looked at now and then.
   page's place, wherever on the page it is let go: outside what takes files (the Ask panel
   in its Why mode, a gate's form) the cursor says it cannot be dropped. The box is a text
   box first: pasted rich text (a spreadsheet's cells, a paragraph) goes in as text and the
-  picture of it that comes along is not attached; a pasted file is attached, and text of its
+  picture of it that comes along is not attached; a picture copied in a browser ("Copy
+  image": html that is only the picture, no words) is attached; a pasted file is attached, and text of its
   own beside it goes in too (not text that only names the file). A pasted file with no name
   is named from its type (pasted.png, pasted.txt). Each shows at once as a chip after the others (the
   attach glyph, its name, a × that takes it out). As a gate's pictures, the page holds them
