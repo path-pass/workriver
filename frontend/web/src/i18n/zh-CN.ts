@@ -210,7 +210,7 @@ export const zhCN: OneForm<typeof en> = {
       done: '已结束'
     },
     complete: '所有单元都已完成：管理者可以结束这个意图',
-    finished: '已完成',
+    finished: '可以结束',
     previously: '之前在 {{branches}}',
     spike: '实验',
     spikeWhy: '一次实验：代码留在它的分支上以示做法，永不合并。写下发现后关闭。',

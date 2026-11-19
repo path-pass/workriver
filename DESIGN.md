@@ -70,7 +70,7 @@ looked at now and then.
   on two lines only: its id quietly in mono before its title (as units show `u1`), the title
   cut to one line – a click opens the intent's page, a tooltip shows the title and the
   goal's first sentence –, then one quiet status line: the Herdr workspace it runs in, its
-  manager's state, the quiet mark, "Finished". "no manager" shows only on an active intent
+  manager's state, the quiet mark, "Ready to close". "no manager" shows only on an active intent
   that has none, in amber (its findings reach no one); nothing of the kind for planned ones.
   The goal and the note are not in the rail; they are on the intent's page. The intent of the open
   unit is open, the others folded, and a folded group still shows the sum of its units' violet marks, so
@@ -88,7 +88,7 @@ looked at now and then.
   while it is simply being worked on: waiting, ready to merge (in the done tone, so what
   can be merged stands out; it counts nowhere as attention), merged (with its date) or done
   (why, on hover). The unit header carries the same word. An active intent whose units are
-  all merged or done says "Finished" in its header, for its manager to close it. Who is working is not shown
+  all merged or done says "Ready to close" in its header, for its manager to close it. Who is working is not shown
   here, with one exception: each active intent's status line names its manager's state
   quietly (a crown, then working, idle, not running, or "no manager" in amber), since a
   missing manager means accepted findings reach no one. The rail folds too (its button at the top, or ⌘B / Ctrl+B): to a thin strip with
@@ -106,7 +106,7 @@ looked at now and then.
   panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
   handle, which is the case the "prefer a library" rule excepts.
 - **An intent's page** (`/i3`, `workriver link i3`; its title in the rail opens it): its id
-  and title with "copy link", its state, "Finished", its link chip; its goal under it. Then a
+  and title with "copy link", its state, "Ready to close", its link chip; its goal under it. Then a
   block with its note (short Markdown with links, as an agent's longer text; folded past six
   lines; `workriver intent set i3 --add-note` adds a paragraph) and where it runs: the
   workspace (and quietly "works on <project>", when known), the manager (name, state, the terminal button, and "Write to the manager",

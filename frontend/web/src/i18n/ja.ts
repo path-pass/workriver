@@ -210,7 +210,7 @@ export const ja: OneForm<typeof en> = {
       done: '終了'
     },
     complete: 'すべてのユニットが終わりました。マネージャーがこのインテントを閉じられます',
-    finished: '完了',
+    finished: '終了可能',
     previously: '以前のブランチ：{{branches}}',
     spike: '実験',
     spikeWhy: '実験です。やり方を示すためにコードはブランチに残し、マージはしません。わかったことを書き留めたら閉じます。',

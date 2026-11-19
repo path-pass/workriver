@@ -216,7 +216,7 @@ export const en = {
       done: 'Done'
     },
     complete: 'All units finished: the manager can close it',
-    finished: 'Finished',
+    finished: 'Ready to close',
     previously: 'previously on {{branches}}',
     spike: 'Spike',
     spikeWhy: 'An experiment: its code is kept on its branch to show how, and never merged. Closed when what it found is written down.',

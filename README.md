@@ -150,7 +150,7 @@ are each a task of their own. workriver sees the merge in git and the unit reads
 with its date; a squash merge, which git cannot show, is pointed out for the manager to
 record. The manager then removes the unit's worktree. A research unit or a spike is never
 merged: once its work is decided it reads "Ready to close". When every unit of the intent
-is merged or done, its header says "Finished", for its manager to close it, along with the
+is merged or done, its header says "Ready to close", for its manager to close it, along with the
 workers it no longer needs.
 
 ## Status
