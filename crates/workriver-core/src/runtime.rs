@@ -57,6 +57,9 @@ pub enum RuntimeError {
     /// The agent is starting and takes no message yet; the runtime's words.
     #[error("{0}")]
     NotReady(String),
+    /// A run's shell is no longer there, or its place is no longer a run's shell.
+    #[error("{0}")]
+    NoPlace(String),
 }
 
 /// Sync on purpose: the daemon calls it from a blocking task.
@@ -87,9 +90,18 @@ pub trait Runtime: Send + Sync {
     fn run_shell(&self, _machine: Option<&str>, _group: &str, _dir: &str, _line: &str) -> Result<String, RuntimeError> {
         Err(RuntimeError::None)
     }
+    /// What runs at a place `run_shell` returned, on `machine` (none: this one), as the ids its
+    /// operating system gives them: the shell, and what is in front of it there (the shell
+    /// itself while it waits at its prompt). `NoPlace` as for `close_shell`. By default, no
+    /// runtime can.
+    fn shell_processes(&self, _machine: Option<&str>, _group: &str, _place: &str) -> Result<(u32, Vec<u32>), RuntimeError> {
+        Err(RuntimeError::None)
+    }
     /// Closes a place `run_shell` returned, on `machine` (none: this one), and the shell in
-    /// it with whatever still runs there. By default, no runtime can.
-    fn close_place(&self, _machine: Option<&str>, _place: &str) -> Result<(), RuntimeError> {
+    /// it with whatever still runs there: only while it is still a plain shell (no agent) in
+    /// the group named `group`; one that is gone, or is anything else by now, is `NoPlace` and
+    /// is left alone. By default, no runtime can.
+    fn close_shell(&self, _machine: Option<&str>, _group: &str, _place: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::None)
     }
     /// As `start_temporary`, on `machine` (none: this one) in the group labelled `group`, made

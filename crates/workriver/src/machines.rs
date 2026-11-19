@@ -770,8 +770,12 @@ impl Runtime for Machines {
         self.at(machine, |r| r.run_shell(None, group, dir, line))
     }
 
-    fn close_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {
-        self.at(machine, |r| r.close_place(None, place))
+    fn shell_processes(&self, machine: Option<&str>, group: &str, place: &str) -> Result<(u32, Vec<u32>), RuntimeError> {
+        self.at(machine, |r| r.shell_processes(None, group, place))
+    }
+
+    fn close_shell(&self, machine: Option<&str>, group: &str, place: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.close_shell(None, group, place))
     }
 
     fn read_place(&self, machine: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {

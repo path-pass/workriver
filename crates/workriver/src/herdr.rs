@@ -309,6 +309,19 @@ impl Herdr {
         }
     }
 
+    /// That pane `place` is still a run's shell: there, in the workspace labelled `group`, with
+    /// no agent in it. Read fresh each time and never taken from the id alone: an id kept for
+    /// days may name another pane by then (whether a restarted Herdr numbers afresh is not known).
+    fn run_pane(&self, group: &str, place: &str) -> Result<(), RuntimeError> {
+        let snap = self.snapshot()?;
+        let pane = snap.panes.iter().find(|p| p.pane_id == place).ok_or_else(|| RuntimeError::NoPlace(format!("herdr: no pane {place}")))?;
+        let theirs = snap.workspaces.iter().any(|w| w.workspace_id == pane.workspace_id && w.label == group);
+        if !theirs || snap.agents.iter().any(|a| a.pane_id == place) {
+            return Err(RuntimeError::NoPlace(format!("herdr: pane {place} is no longer a shell in {group}")));
+        }
+        Ok(())
+    }
+
     /// Starts `harness` as `name` in the root pane of a tab just made (`tab`, Herdr's answer).
     fn launch(&self, tab: &Value, harness: &str, name: &str) -> Result<RuntimeAgent, RuntimeError> {
         let pane = tab["root_pane"]["pane_id"].as_str().ok_or_else(|| RuntimeError::Failed("herdr tab.create: no pane in the answer".into()))?.to_string();
@@ -416,8 +429,17 @@ impl Runtime for Herdr {
         Ok(pane)
     }
 
+    fn shell_processes(&self, _: Option<&str>, group: &str, place: &str) -> Result<(u32, Vec<u32>), RuntimeError> {
+        self.run_pane(group, place)?;
+        let info = self.call("pane.process_info", json!({ "pane_id": place }))?["process_info"].clone();
+        let shell = info["shell_pid"].as_u64().ok_or_else(|| RuntimeError::Failed(format!("herdr pane.process_info: no shell known in {place}")))?;
+        let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
+        Ok((shell as u32, front))
+    }
+
     /// A run's place is the one pane of its tab: closed as a temporary agent's is.
-    fn close_place(&self, _: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+    fn close_shell(&self, _: Option<&str>, group: &str, place: &str) -> Result<(), RuntimeError> {
+        self.run_pane(group, place)?;
         self.call("pane.close", json!({ "pane_id": place }))?;
         Ok(())
     }
@@ -523,13 +545,40 @@ mod tests {
         assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
     }
 
-    /// A run's shell is closed by its pane, the place `run_shell` gave.
+    /// A run's shell is closed by its pane, the place `run_shell` gave, and only while that
+    /// pane is still a plain shell in the runs' workspace: one that is gone, sits in another
+    /// workspace or holds an agent by now is refused, and nothing is closed.
     #[test]
-    fn closes_a_place() {
-        let (_dir, herdr, server) = fake(vec![json!({ "result": { "type": "ok" } })]);
-        herdr.close_place(None, "w7:p3").unwrap();
+    fn closes_only_a_runs_shell() {
+        let ok = || json!({ "result": { "type": "ok" } });
+        let snap = || {
+            let mut s = snapshot();
+            let inner = &mut s["result"]["snapshot"];
+            inner["workspaces"].as_array_mut().unwrap().push(json!({ "workspace_id": "w7", "label": "workriver-commands", "number": 2 }));
+            inner["panes"].as_array_mut().unwrap().extend([json!({ "pane_id": "w7:p3", "workspace_id": "w7", "label": "run" }), json!({ "pane_id": "w7:p4", "workspace_id": "w7", "label": "review-ab" })]);
+            inner["agents"].as_array_mut().unwrap().push(json!({ "pane_id": "w7:p4", "workspace_id": "w7", "agent": "claude", "name": "review-ab", "agent_status": "idle" }));
+            s
+        };
+        let (_dir, herdr, server) = fake(vec![snap(), ok()]);
+        herdr.close_shell(None, "workriver-commands", "w7:p3").unwrap();
         let seen = server.join().unwrap();
-        assert_eq!((seen[0]["method"].as_str(), &seen[0]["params"]), (Some("pane.close"), &json!({ "pane_id": "w7:p3" })));
+        assert_eq!((seen[0]["method"].as_str(), seen[1]["method"].as_str(), &seen[1]["params"]), (Some("session.snapshot"), Some("pane.close"), &json!({ "pane_id": "w7:p3" })));
+
+        // Another workspace's pane (the user's, an agent's), a pane with an agent, one gone:
+        // the snapshot is read and nothing else is asked.
+        for place in ["w5:p3", "w5:p1", "w7:p4", "w7:p9"] {
+            let (_dir, herdr, server) = fake(vec![snap()]);
+            assert!(matches!(herdr.close_shell(None, "workriver-commands", place), Err(RuntimeError::NoPlace(_))), "{place}");
+            let (_dir2, herdr2, server2) = fake(vec![snap()]);
+            assert!(matches!(herdr2.shell_processes(None, "workriver-commands", place), Err(RuntimeError::NoPlace(_))), "{place}");
+            assert_eq!(server.join().unwrap().len() + server2.join().unwrap().len(), 2, "{place}");
+        }
+
+        // What runs there: its shell, and what is in front.
+        let info = json!({ "result": { "type": "pane_process_info", "process_info": { "pane_id": "w7:p3", "shell_pid": 100, "foreground_processes": [{ "pid": 100 }, { "pid": 101 }] } } });
+        let (_dir, herdr, server) = fake(vec![snap(), info]);
+        assert_eq!(herdr.shell_processes(None, "workriver-commands", "w7:p3").unwrap(), (100, vec![100, 101]));
+        assert_eq!(server.join().unwrap()[1]["params"], json!({ "pane_id": "w7:p3" }));
     }
 
     /// A new agent on a first-run prompt is blocked and not interactive-ready: taken at once,

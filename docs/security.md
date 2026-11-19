@@ -73,7 +73,10 @@ you. That is the most powerful thing the page does, so:
 - **Your shell, nothing more.** It is typed into a new plain shell of yours (no agent) in a
   Herdr workspace named "workriver-commands" on the unit's machine, so your credentials, hooks and
   checks apply exactly as when you type it there; workriver adds none of its own and removes
-  none. A remote machine's command runs in that machine's Herdr, as you are there.
+  none. A remote machine's command runs in that machine's Herdr, as you are there. workriver
+  closes that shell once the command has ended and nothing runs in it any more (at once after
+  exit 0, at your next run after a failure); a shell with a background job, or one you went on
+  working in, is left alone, and so is any pane that is not a run's own shell.
 - **In the record.** Each run is an event, `command.ran` (id, command, directory, machine,
   unit, who wrote it), recorded as yours, and `command.ended` (its exit status) once the
   service sees it end; never the output, which may hold secrets. The output is shown to you

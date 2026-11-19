@@ -635,6 +635,13 @@ pub struct Proc {
 /// How many processes an alert names.
 const TOP: usize = 5;
 
+/// Whether process `pid` on the machine `runner` reaches has started anything that still runs
+/// (for a shell: a command in front, or a background job).
+pub fn has_children(runner: &scan::Runner, pid: u32) -> std::io::Result<bool> {
+    let out = herdr::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT)?;
+    Ok(parse_ps(&String::from_utf8_lossy(&out.stdout)).iter().any(|p| p.1 == pid))
+}
+
 /// `PS`'s lines as (pid, parent, resident bytes, name). macOS names a process by its whole
 /// path: the last part is kept. A name may hold spaces; it is the rest of the line.
 fn parse_ps(text: &str) -> Vec<(u32, u32, u64, String)> {

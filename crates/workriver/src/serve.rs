@@ -103,6 +103,9 @@ pub struct App {
     runs: Mutex<std::collections::HashMap<String, Run>>,
 }
 
+/// A run's shell to close: the run, its machine (none: this one), its place.
+type Shell = (String, Option<String>, String);
+
 /// A command the user prepared to run, then ran (`place` set).
 #[derive(Clone)]
 struct Run {
@@ -121,7 +124,8 @@ struct Run {
     lang: Option<String>,
     prepared: std::time::Instant,
     place: Option<String>,
-    /// Its place was closed by workriver (or is about to be): no terminal to open any more.
+    /// Its place was closed by workriver, is about to be, or is no longer a run's shell: no
+    /// terminal to open any more. Taken back when the shell was left (busy, or not reached).
     closed: bool,
     output: String,
     exit: Option<i32>,
@@ -2260,8 +2264,20 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
             r.watching = true;
             r.clone()
         };
-        // The shells of earlier runs that ended go now; a failed one stayed until here.
-        app.close_shells(None, Duration::ZERO);
+        // The shells of earlier runs that ended go now, in the background; a failed one
+        // stayed until here. Each is claimed under the lock: closed once.
+        let ended: Vec<Shell> = {
+            let mut runs = app.runs.lock().unwrap();
+            let open = runs.iter_mut().filter(|(_, r)| r.exit.is_some() && !r.closed);
+            open.filter_map(|(id, r)| {
+                let place = r.place.clone()?;
+                r.closed = true;
+                Some((id.clone(), r.machine.clone(), place))
+            })
+            .collect()
+        };
+        let closer = app.clone();
+        std::thread::spawn(move || closer.close_shells(ended, Duration::ZERO));
         let line = run::line(&r.dir, &r.command, &c.id);
         let place = match app.runtime.run_shell(r.machine.as_deref(), run::GROUP, &r.dir, &line) {
             Ok(p) => p,
@@ -2318,6 +2334,9 @@ async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Calle
     app.user(&caller)?;
     let r = app.runs.lock().unwrap().get(&id).cloned().ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no run {id}")))?;
     let place = r.place.ok_or_else(|| bad(format!("run {id} has not started")))?;
+    if r.closed {
+        return Err(bad(format!("run {id} ended and its terminal was closed; its output is here")));
+    }
     blocking(move || {
         app.runtime.focus_place(r.machine.as_deref(), &place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         // On another machine: in front there; the page says where (see `focus`).
@@ -2334,7 +2353,7 @@ impl App {
     /// its pane is gone, or a day has passed.
     fn watch_run(&self, id: &str) {
         let Some((machine, place)) = self.runs.lock().unwrap().get(id).and_then(|r| Some((r.machine.clone(), r.place.clone()?))) else { return };
-        let (until, mut misses) = (std::time::Instant::now() + Duration::from_secs(24 * 3600), 0);
+        let (until, mut misses, mut well) = (std::time::Instant::now() + Duration::from_secs(24 * 3600), 0, false);
         // A pane that cannot be read five times running is gone (closed, or its shell exited).
         while std::time::Instant::now() < until && misses < 5 {
             std::thread::sleep(Duration::from_secs(1));
@@ -2346,15 +2365,16 @@ impl App {
             let (output, end) = run::read(&text, id);
             if let Some(r) = self.runs.lock().unwrap().get_mut(id) {
                 (r.output, r.exit) = (output, end);
+                // Ended well: its shell is to go, said with the end so no reader sees one
+                // without the other.
+                r.closed |= end == Some(0);
             }
             if let Some(exit) = end {
                 if let Err(e) = self.record(&Principal::Service, Body::CommandEnded { id: id.to_string(), exit }) {
                     tracing::warn!("cannot record run {id} ended: {}", e.1);
                 }
-                // Ended well: its output is kept above, nothing is left to look at there.
-                if exit == 0 {
-                    self.close_shells(Some(id), CLOSE_DELAY);
-                }
+                // Ended well: its output is kept above; its shell goes, below.
+                well = exit == 0;
                 break;
             }
         }
@@ -2363,38 +2383,60 @@ impl App {
         }
         // No longer followed: the page's recent runs show it (an end recorded says so too).
         let _ = self.changed.send(());
+        if well {
+            self.close_shells(vec![(id.to_string(), machine, place)], CLOSE_DELAY);
+        }
     }
 
-    /// Closes, after `wait` and in the background, the shells of runs that ended (`only`: of
-    /// that run), each once, on its own machine. Only places `run_shell` gave a run are ever
-    /// closed; a run whose end was not seen (running, waiting for input) keeps its shell.
+    /// Closes, after `wait`, the shells of runs that ended and were claimed for it (`closed`
+    /// set): each on its own machine, and only one with nothing left running in it. A shell
+    /// that is busy (a background job of the run's, or the user went on working there), or
+    /// that could not be asked or closed just now, is left and given back: the next run tries
+    /// again. One that is gone, or no longer a run's shell, is never asked about again. Only
+    /// places `run_shell` gave a run are ever passed on; a run whose end was not seen
+    /// (running, waiting for input) is never claimed. Blocking.
     // ponytail: the places are in memory, so shells left by a service that restarted stay
     // until the user closes them; recording a run's place would let the next start close them.
-    fn close_shells(&self, only: Option<&str>, wait: Duration) {
-        let mut runs = self.runs.lock().unwrap();
-        let ended = runs.iter_mut().filter(|(id, r)| r.exit.is_some() && !r.closed && only.is_none_or(|o| o == id.as_str()));
-        let places: Vec<(Option<String>, String)> = ended
-            .filter_map(|(_, r)| {
-                let place = r.place.clone()?;
-                r.closed = true;
-                Some((r.machine.clone(), place))
-            })
-            .collect();
-        drop(runs);
-        if places.is_empty() {
-            return;
-        }
-        let runtime = self.runtime.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(wait);
-            for (machine, place) in places {
-                // Not tried again: the user may have closed it already.
-                if let Err(e) = runtime.close_place(machine.as_deref(), &place) {
-                    tracing::warn!("cannot close the shell of a run that ended: {e}");
+    fn close_shells(&self, shells: Vec<Shell>, wait: Duration) {
+        std::thread::sleep(wait);
+        let mut left = false;
+        for (id, machine, place) in shells {
+            let done = self.shell_idle(machine.as_deref(), &place).and_then(|idle| match idle {
+                true => self.runtime.close_shell(machine.as_deref(), run::GROUP, &place).map(|()| true),
+                false => Ok(false),
+            });
+            match done {
+                Ok(true) => continue,
+                Err(RuntimeError::NoPlace(why)) => {
+                    tracing::debug!("the shell of run {id} is not closed: {why}");
+                    continue;
                 }
+                Ok(false) => tracing::debug!("the shell of run {id} is busy: left open"),
+                Err(e) => tracing::warn!("cannot close the shell of run {id} now: {e}"),
             }
-        });
-        let _ = self.changed.send(());
+            if let Some(r) = self.runs.lock().unwrap().get_mut(&id) {
+                r.closed = false;
+                left = true;
+            }
+        }
+        if left {
+            let _ = self.changed.send(());
+        }
+    }
+
+    /// Whether nothing is left running in a run's shell: nothing but the shell in front, and
+    /// nothing the shell started still alive (a job in the background is not in front, so the
+    /// machine's own process list is read for it).
+    // ponytail: a shell whose prompt keeps a helper process of its own alive always counts as
+    // busy and is never closed for the user; safe, and none of the stock shells does.
+    fn shell_idle(&self, machine: Option<&str>, place: &str) -> Result<bool, RuntimeError> {
+        let (shell, front) = self.runtime.shell_processes(machine, run::GROUP, place)?;
+        if front.iter().any(|p| *p != shell) {
+            return Ok(false);
+        }
+        let runner = self.runner(machine).map_err(|e| RuntimeError::Failed(e.1))?;
+        let busy = crate::metrics::has_children(&runner, shell).map_err(|e| RuntimeError::Failed(format!("cannot list the processes: {e}")))?;
+        Ok(!busy)
     }
 
     /// Starts the agent that tells the user what a prepared command will do, where it would

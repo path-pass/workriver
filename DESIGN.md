@@ -166,9 +166,16 @@ looked at now and then.
   brings that tab to the front. A tab that cannot be read for five seconds (closed, or its
   shell exited) says so. The marker needs a POSIX shell (zsh, bash, sh).
   A run that ended with exit 0 has its tab closed three seconds later (its output stays in the
-  dialog; "Open in terminal" goes). A run that failed, still runs or waits for input keeps
-  its tab, for the user to look or answer there; the next run closes the tabs of every earlier
-  run that has ended, never one still going. Only tabs workriver opened for runs are closed.
+  dialog; "Open in terminal" goes, and asking for it answers that the terminal was closed). A
+  run that failed, still runs or waits for input keeps its tab, for the user to look or answer
+  there; the next run closes the tabs of every earlier run that has ended, never one still
+  going. A tab is closed only when nothing is left running in its shell: nothing in front of
+  the shell and nothing it started still alive, so a job the command left in the background
+  (`npm run dev &`) or whatever the user went on doing there keeps it, and the next run looks
+  again; so it does when the tab could not be closed just then (the machine not reached).
+  Only tabs workriver opened for runs are closed, and each is checked again right before: still
+  in "workriver-commands", still a plain shell with no agent; anything else is left for good.
+  A shell whose prompt keeps a helper process of its own alive always counts as busy.
   Under the Run section's box, **Recent runs** (the newest 20, newest first; nothing when
   there are none): one row each with the command (monospace, one line, the whole text on
   hover), whose step it was (`u3#4 step 2`, a chore's id, or nothing when typed there), a

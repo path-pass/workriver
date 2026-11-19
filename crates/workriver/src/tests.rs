@@ -156,6 +156,28 @@ pub(crate) struct Fake {
     screens: std::sync::Mutex<std::collections::HashMap<String, String>>,
     /// Places closed, in order.
     closed_places: std::sync::Mutex<Vec<String>>,
+    /// What runs at a run's place: (its shell, what is in front); unset: a shell at its prompt.
+    procs: std::sync::Mutex<std::collections::HashMap<String, (u32, Vec<u32>)>>,
+    /// Places asked what runs there, in order; and those that are no longer a run's shell.
+    looked: std::sync::Mutex<Vec<String>>,
+    not_shells: std::sync::Mutex<Vec<String>>,
+    /// This many closes are refused first, as when the runtime does not answer; those tried.
+    close_fails: std::sync::atomic::AtomicUsize,
+    close_tried: std::sync::Mutex<Vec<String>>,
+}
+
+/// A process id no machine gives: the shell of a place nobody set, with nothing started.
+const NOBODY: u32 = 4_000_000_000;
+
+impl Fake {
+    /// As Herdr's implementation: only a place that is there, in the runs' group, a plain shell.
+    fn run_shell_at(&self, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        assert_eq!(group, crate::run::GROUP);
+        if !self.screens.lock().unwrap().contains_key(place) || self.not_shells.lock().unwrap().iter().any(|p| p == place) {
+            return Err(workriver_core::runtime::RuntimeError::NoPlace(format!("{place} is no longer a shell in {group}")));
+        }
+        Ok(())
+    }
 }
 
 impl workriver_core::runtime::Runtime for Fake {
@@ -213,7 +235,17 @@ impl workriver_core::runtime::Runtime for Fake {
     fn read_place(&self, _: Option<&str>, place: &str, _: u32) -> Result<String, workriver_core::runtime::RuntimeError> {
         self.screens.lock().unwrap().get(place).cloned().ok_or_else(|| workriver_core::runtime::RuntimeError::NoAgent(place.into()))
     }
-    fn close_place(&self, _: Option<&str>, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+    fn shell_processes(&self, _: Option<&str>, group: &str, place: &str) -> Result<(u32, Vec<u32>), workriver_core::runtime::RuntimeError> {
+        self.looked.lock().unwrap().push(place.into());
+        self.run_shell_at(group, place)?;
+        Ok(self.procs.lock().unwrap().get(place).cloned().unwrap_or((NOBODY, vec![NOBODY])))
+    }
+    fn close_shell(&self, _: Option<&str>, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        self.close_tried.lock().unwrap().push(place.into());
+        self.run_shell_at(group, place)?;
+        if self.close_fails.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            return Err(workriver_core::runtime::RuntimeError::Failed("herdr does not answer".into()));
+        }
         self.closed_places.lock().unwrap().push(place.into());
         self.screens.lock().unwrap().remove(place);
         Ok(())
@@ -2769,6 +2801,89 @@ fn a_runs_shell_closes() {
     // Nothing else: of the agents, only the reviewers workriver started itself.
     assert!(local.closed.lock().unwrap().iter().chain(far.closed.lock().unwrap().iter()).all(|a| a.starts_with("review-")));
     assert!(local.agents.lock().unwrap().iter().any(|(_, a)| a.name == "boss"));
+}
+
+/// A run's shell is closed only when nothing is left running in it: not with something in
+/// front (the user went on working there), not with a background job of the run's. A place that
+/// is no longer a run's shell is left alone for good; a close that fails is tried again at the
+/// next run, and so is a shell that was busy.
+#[test]
+fn only_an_idle_run_shell_closes() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let port = daemon_over(fake.clone(), None, &tmp.path().join("w.db"));
+    let user = client(port, tmp.path());
+    let boss = Daemon { port, place: Some("w1:p1".into()), home: Some(tmp.path().to_path_buf()) };
+    manage_here(&boss);
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    let run = |command: &str| {
+        let shown = user.call("/api/run/prepare", Some(json!({ "command": command, "unit": "u1" }))).unwrap();
+        user.call("/api/run", Some(json!({ "id": shown["id"], "command": command }))).unwrap();
+        shown["id"].as_str().unwrap().to_string()
+    };
+    let ends = |place: &str, id: &str, exit: i32| {
+        fake.screens.lock().unwrap().insert(place.into(), format!("$ typed\nsome output\n__workriver_end_{id}_{exit}__\n$ "));
+        wait_until("the end is seen", || user.get(&format!("/api/run/{id}")).unwrap()["exit"] == exit);
+    };
+    let closed = || {
+        let mut all = fake.closed_places.lock().unwrap().clone();
+        all.sort();
+        all
+    };
+    let has = |list: &std::sync::Mutex<Vec<String>>, place: &str| list.lock().unwrap().iter().filter(|p| *p == place).count();
+    let focusable = |id: &str| user.get(&format!("/api/run/{id}")).unwrap()["focusable"] == true;
+    // A real shell with a job in the background: what `npm run dev &` leaves behind.
+    let mut job = std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]).spawn().unwrap();
+
+    let front = run("vim notes"); // shell-1: ended well, something in front since
+    let background = run("npm run dev &"); // shell-2: ended well, its job lives on
+    let foreign = run("make a"); // shell-3: failed; no longer a run's shell
+    let flaky = run("make b"); // shell-4: failed; its first close is refused
+    let used = run("make c"); // shell-5: failed; the user works in it
+    let well = run("make d"); // shell-6: ended well, idle
+    fake.procs.lock().unwrap().extend([("shell-1".to_string(), (NOBODY, vec![NOBODY, 77])), ("shell-2".to_string(), (job.id(), vec![job.id()])), ("shell-5".to_string(), (NOBODY, vec![NOBODY, 88]))]);
+    fake.not_shells.lock().unwrap().push("shell-3".into());
+    ends("shell-3", &foreign, 1);
+    ends("shell-4", &flaky, 1);
+    ends("shell-5", &used, 1);
+    ends("shell-1", &front, 0);
+    ends("shell-2", &background, 0);
+    ends("shell-6", &well, 0);
+    assert!(!focusable(&well), "said with its end: no terminal to open");
+    // The two before it were looked at first and left: busy, so their terminals open again.
+    wait_until("the idle shell closes", || closed() == ["shell-6"]);
+    wait_until("the busy ones are left", || focusable(&front) && focusable(&background));
+    assert_eq!((has(&fake.close_tried, "shell-1"), has(&fake.close_tried, "shell-2")), (0, 0), "a busy shell is not even asked to close");
+    assert!(user.call(&format!("/api/run/{well}/focus"), Some(json!({}))).unwrap_err().to_string().contains("its terminal was closed"));
+
+    // The next run: the failed ones are tried. Not a run's shell any more: left, for good.
+    // Refused by the runtime: left, to be tried again. In use: left.
+    fake.close_fails.store(1, std::sync::atomic::Ordering::SeqCst);
+    let next = run("make e"); // shell-7
+    wait_until("the flaky close is tried", || has(&fake.close_tried, "shell-4") == 1);
+    wait_until("every ended shell was looked at", || ["shell-1", "shell-2", "shell-3", "shell-5"].iter().all(|p| has(&fake.looked, p) >= 1) && has(&fake.looked, "shell-1") == 2);
+    wait_until("what was left can be opened", || focusable(&flaky) && focusable(&used) && focusable(&front) && focusable(&background));
+    assert!(!focusable(&foreign), "not a run's terminal any more");
+    assert_eq!(closed(), ["shell-6"], "nothing closed at that run");
+
+    // The run after: the refused close goes through, the shell the user left is closed, the
+    // run that failed in between too; the busy ones and the foreign place stay.
+    fake.procs.lock().unwrap().remove("shell-5");
+    ends("shell-7", &next, 1);
+    run("make f"); // shell-8
+    wait_until("the retried and the freed shells close", || closed() == ["shell-4", "shell-5", "shell-6", "shell-7"]);
+    wait_until("the busy ones are left again", || has(&fake.looked, "shell-1") == 3 && has(&fake.looked, "shell-2") == 3 && focusable(&front) && focusable(&background));
+    assert_eq!((has(&fake.looked, "shell-3"), has(&fake.close_tried, "shell-3"), has(&fake.close_tried, "shell-4")), (1, 0, 2), "the foreign place is asked about once and never closed; the flaky one closed at the second try");
+    let screens = fake.screens.lock().unwrap();
+    assert!(["shell-1", "shell-2", "shell-3", "shell-8"].iter().all(|p| screens.contains_key(*p)), "left: busy, busy, not a run's, running");
+    job.kill().unwrap();
+    job.wait().unwrap();
 }
 
 /// Every command the user is about to run is reviewed: a temporary agent starts in
