@@ -15,7 +15,8 @@ work can get an architecture review before the gate (`architecture-review`).
 
 A design for the whole intent (across units or repositories) goes in a research unit
 (`units`): `workriver unit add --kind research --title "…"`, then the design task and the
-gate there, the implementation in the code units after it. Once confirmed, put the decision
+gate there, the implementation in the code units after it. Once delivered, that design is
+shown to every task of the intent's other units the same way. Once confirmed, put the decision
 on the intent's page: `workriver intent set i3 --add-note "Design: … (u2#2)"`.
 
 **You will see:** "The user confirmed the design in gate …", the decision quoted: hand out

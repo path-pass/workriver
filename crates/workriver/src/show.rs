@@ -34,7 +34,8 @@ pub struct TaskShow {
     /// The tasks it comes after (`start`: it can begin at once).
     pub after: Vec<String>,
     pub causes: Vec<CauseShow>,
-    /// What the design and research tasks before it delivered: the task follows it.
+    /// What the task follows: the delivered designs of its intent's research units, then
+    /// what the design and research tasks before it in its own unit delivered.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decided: Vec<DecidedShow>,
     pub plans: Vec<String>,
@@ -248,11 +249,14 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             next.extend(b.inputs.iter().filter_map(|i| i.from.parse::<u32>().ok()));
         }
     }
-    let decided = before
-        .iter()
-        .filter_map(|k| state.task(unit, *k).ok())
-        .filter(|b| matches!(b.kind, core::TaskKind::Design | core::TaskKind::Research) && b.done.is_some() && b.dropped.is_none())
-        .map(|b| DecidedShow { from: format!("{unit}#{}", b.n), kind: name(&b.kind), title: b.title.clone(), delivered_by: reporter(b), note: b.note.clone(), files: files(&b.attachments) })
+    let said = |owner: &str, b: &Task| DecidedShow { from: format!("{owner}#{}", b.n), kind: name(&b.kind), title: b.title.clone(), delivered_by: reporter(b), note: b.note.clone(), files: files(&b.attachments) };
+    let delivered = |b: &&Task| b.done.is_some() && b.dropped.is_none();
+    // First what was designed for the intent as a whole, in its research units: no input
+    // reaches those from another unit. (A blind reader's state holds no other unit.)
+    let wide = state.units.iter().filter(|x| x.kind == core::UnitKind::Research && x.id != unit && x.intent == intent_id);
+    let decided = wide
+        .flat_map(|x| x.tasks.iter().filter(delivered).filter(|b| b.kind == core::TaskKind::Design).map(|b| said(&x.id, b)))
+        .chain(before.iter().filter_map(|k| state.task(unit, *k).ok()).filter(delivered).filter(|b| matches!(b.kind, core::TaskKind::Design | core::TaskKind::Research)).map(|b| said(unit, b)))
         .collect();
     // Commits come from git, through the snapshot the page reads too.
     let shown = ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == unit);

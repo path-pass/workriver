@@ -17,8 +17,9 @@ Newest first. A manager that was already running reads this once after an update
 - **A design's output goes with the tasks after it** (workers, managers): `workriver task
   show` of a task that comes after a delivered design or research task of its unit, however
   many tasks between, prints each one's note and files under "Decided before this task":
-  follow it; if it seems wrong, `contract`. `--json`: `decided`. A blind task is shown none
-  of it until it delivers. (`design-gate`)
+  follow it; if it seems wrong, `contract`. So does every task of an intent for the
+  delivered design tasks of the intent's research units (the design for the whole intent).
+  `--json`: `decided`. A blind task is shown none of it until it delivers. (`design-gate`)
 
 ## 2026-11-18
 

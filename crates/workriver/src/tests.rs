@@ -2043,7 +2043,20 @@ fn a_task_shown_in_full() {
     }
     assert!(crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%238").unwrap()).unwrap()).starts_with("u1#8  review  todo"));
     assert!(s.decided.is_empty() && !text.contains("Decided before"));
-    // A blind task after the same design is told nothing of it.
+    // A design for the whole intent, in a research unit, reaches the code unit's tasks once
+    // delivered, before the unit's own; its research does not, nor a design not delivered.
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Sessions", "kind": "research" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u2", "kind": "research", "title": "Compare stores", "agent": "s-rev" })).unwrap();
+    rev.append("", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "Three stores compared." })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "One session store", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Not yet", "inputs": [{ "from": "2" }], "agent": "s-rev" })).unwrap();
+    let from = |r: &str| serde_json::from_value::<crate::show::TaskShow>(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap().decided.iter().map(|d| d.from.clone()).collect::<Vec<_>>();
+    assert_eq!(from("u1#7"), ["u1#6"]);
+    rev.append("", "task.delivered", json!({ "unit": "u2", "task": 2, "note": "Sessions go in SQLite." })).unwrap();
+    assert_eq!((from("u1#7"), from("u1#3"), from("u2#3"), from("u2#2")), (vec!["u2#2".to_string(), "u1#6".into()], vec!["u2#2".to_string()], vec!["u2#1".to_string(), "u2#2".into()], vec!["u2#1".to_string()]));
+    let wide = crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%233").unwrap()).unwrap());
+    assert!(wide.contains("  from u2#2 (design \"One session store\"), written by rev: Sessions go in SQLite.\n"), "{wide}");
+    // A blind task after the same designs is told nothing of them.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "7" }], "agent": "s-sec", "blind": true, "text": "Review the move" })).unwrap();
     let own = sec.get("/api/task?task=u1%239").unwrap();
     assert!(own.get("decided").is_none() && !crate::show::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
