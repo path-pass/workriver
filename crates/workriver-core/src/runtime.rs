@@ -2,7 +2,7 @@
 // The one implementation is Herdr's, in the outer crate; nothing here names it.
 use serde::Serialize;
 
-use crate::model::RuntimeRef;
+use crate::records::RuntimeRef;
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]

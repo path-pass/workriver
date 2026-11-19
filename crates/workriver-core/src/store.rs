@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, TransactionBehavior};
 
-use crate::model::{Body, Event, Principal, Rejected, State};
+use crate::records::{Body, Event, Principal, Rejected, State};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
