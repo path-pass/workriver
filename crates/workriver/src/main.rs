@@ -5,14 +5,11 @@ mod auth;
 mod caller;
 mod cli;
 mod common;
-mod deliver;
 mod machines;
-mod quote;
 mod run;
 mod runtime;
 mod serve;
 mod server;
-mod stall;
 
 use std::path::Path;
 

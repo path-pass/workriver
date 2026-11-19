@@ -13,7 +13,7 @@ pub const READY_HOURS: u32 = 24;
 /// memory for hours; telling is all it does, the manager decides.
 pub const IDLE_MINUTES: u32 = 30;
 
-/// See `crate::stall`: why ten.
+/// See the service's `delivery/reminders.rs`: why ten.
 pub const STALL_MINUTES: u32 = 10;
 /// The most the stall threshold may be set to: four hours.
 pub const STALL_MAX: u32 = 240;

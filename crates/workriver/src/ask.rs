@@ -7,7 +7,7 @@ use std::path::Path;
 
 use workriver_core::{Question, State, TaskKind, name};
 
-use crate::quote::{self, quoted, users};
+use crate::server::delivery::quote::{self, quoted, users};
 use crate::runtime::words;
 
 /// How long a new agent's first prompt is retried while it is not ready; after that it is
@@ -235,7 +235,7 @@ fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<St
     for t in &u.tasks {
         let by = t.agent.as_deref().map(|a| format!(", by {}", named(state, a))).unwrap_or_default();
         let note = if t.note.is_empty() { String::new() } else { format!(" Delivered: {}", quote::clean(&t.note, NOTE_CAP)) };
-        records.push(format!("Task {}: {}, {}{by}.{note}", crate::deliver::label(state, &u.id, t), name(&t.kind), name(&t.state)));
+        records.push(format!("Task {}: {}, {}{by}.{note}", crate::server::delivery::label(state, &u.id, t), name(&t.kind), name(&t.state)));
         for f in &t.findings {
             records.push(format!("Finding {} of {}#{} ({}, {}): {}", f.found.id, u.id, t.n, name(&f.found.severity), name(&f.state), f.found.problem));
         }

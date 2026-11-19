@@ -31,7 +31,8 @@ use crate::server::machines::metrics::Metrics;
 use crate::auth::{self, Auth};
 use crate::caller::{self, Callers, Pin, Pins};
 use crate::common::process::{self, Chain, Procs};
-use crate::{ask, attachments, deliver, run};
+use crate::server::delivery;
+use crate::{ask, attachments, run};
 use crate::server::views::{self as snapshot, Cache};
 
 pub struct App {
@@ -61,7 +62,7 @@ pub struct App {
     idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
     /// Running tasks whose agent stopped (reminded, or escalated), by (unit or intent, task),
     /// as of the last poll.
-    stalls: Mutex<std::collections::HashMap<(String, u32), crate::stall::Watch>>,
+    stalls: Mutex<std::collections::HashMap<(String, u32), delivery::reminders::Watch>>,
     /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).
     stall_minutes: std::sync::atomic::AtomicU32,
     /// Minutes a worker may sit idle with no task before its manager is told (settings.json,
@@ -674,7 +675,7 @@ impl App {
         }
     }
 
-    /// Works out which running tasks' agents stopped (see `stall::step`): the agent itself is
+    /// Works out which running tasks' agents stopped (see `reminders::step`): the agent itself is
     /// reminded once; if that does not help, its intent's manager is told, once, unless the
     /// manager is the one that stopped (then, as with no manager, only the user sees it, in
     /// Needs you). Whether anything changed.
@@ -687,22 +688,22 @@ impl App {
             let store = self.store.lock().unwrap();
             let state = store.state();
             let mut stalls = self.stalls.lock().unwrap();
-            let (next, found) = crate::stall::step(state, live, &idle, threshold, self.waits.minute, &read, &stalls);
+            let (next, found) = delivery::reminders::step(state, live, &idle, threshold, self.waits.minute, &read, &stalls);
             for f in &found {
                 let to = match f.act {
-                    crate::stall::Act::Remind => Some(f.agent.as_str()),
-                    crate::stall::Act::Escalate => {
+                    delivery::reminders::Act::Remind => Some(f.agent.as_str()),
+                    delivery::reminders::Act::Escalate => {
                         let stopped = |m: &str| m == f.agent || state.name_of(m) == Some(f.agent.as_str());
                         state.intent_of(&f.owner).and_then(|i| state.manager_of(i)).filter(|m| !stopped(m) && live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown))
                     }
                 };
                 if let Some(to) = to
-                    && let Some(text) = crate::stall::message(state, f)
+                    && let Some(text) = delivery::reminders::message(state, f)
                 {
                     tell.push((to.to_string(), text));
                 }
             }
-            let seen = |m: &std::collections::HashMap<(String, u32), crate::stall::Watch>| m.iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect::<Vec<_>>();
+            let seen = |m: &std::collections::HashMap<(String, u32), delivery::reminders::Watch>| m.iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect::<Vec<_>>();
             let mut was = seen(&stalls);
             let mut now = seen(&next);
             was.sort_by(|a, b| a.0.cmp(&b.0));
@@ -728,7 +729,7 @@ impl App {
         read
     }
 
-    /// Workers idle with no task for `idle_minutes` (see `stall::idle_workers`): their manager
+    /// Workers idle with no task for `idle_minutes` (see `reminders::idle_workers`): their manager
     /// is told, once per idle period, to close them if it has no work for them; workriver never
     /// closes them. Only a manager that is running and not on a blind task; until then nothing
     /// is marked told.
@@ -742,10 +743,10 @@ impl App {
             let store = self.store.lock().unwrap();
             let state = store.state();
             let reachable = |m: &str| live.iter().any(|a| a.session == m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty();
-            crate::stall::idle_workers(state, live, &idle, threshold, &read)
+            delivery::reminders::idle_workers(state, live, &idle, threshold, &read)
                 .into_iter()
                 .filter(|w| !told.contains(&(w.session.clone(), w.since.clone())) && reachable(&w.manager))
-                .filter_map(|w| Some((w.manager.clone(), (w.session.clone(), w.since.clone()), crate::stall::idle_message(state, &w)?)))
+                .filter_map(|w| Some((w.manager.clone(), (w.session.clone(), w.since.clone()), delivery::reminders::idle_message(state, &w)?)))
                 .collect()
         };
         for (to, key, text) in tell {
@@ -775,13 +776,13 @@ impl App {
             for u in state.units.iter().filter(|u| u.has_code() && u.kind.merges()) {
                 let Some(since) = state.ready_since(u) else { continue };
                 let Some(to) = state.manager_of(&u.intent).filter(|m| live.iter().any(|a| a.session == *m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty()) else { continue };
-                let (id, branch) = (&u.id, crate::quote::name(&u.branch));
+                let (id, branch) = (&u.id, delivery::quote::name(&u.branch));
                 if let Some(s) = squash.get(id) {
                     let key = format!("squash {id} {}", s.tip);
                     let short: String = s.commit.chars().take(9).collect();
                     let text = format!(
                         "[workriver] {id} ({branch}) looks merged into {} by squash: every change of it is there (commit {short} matches). If so, record it: `workriver unit merged {id}`; if not, ignore this. How: `workriver guide how closing-units`.",
-                        crate::quote::name(&s.into)
+                        delivery::quote::name(&s.into)
                     );
                     tell.push((to.to_string(), key, text));
                 }
@@ -1370,7 +1371,7 @@ impl App {
     fn tell_manager(&self, id: &str) {
         let Some((to, text)) = ({
             let store = self.store.lock().unwrap();
-            store.state().message(id).ok().map(|m| (m.manager.clone(), deliver::user_message(store.state(), m)))
+            store.state().message(id).ok().map(|m| (m.manager.clone(), delivery::user_message(store.state(), m)))
         }) else {
             return;
         };
@@ -1393,7 +1394,7 @@ impl App {
     fn message_not_delivered(&self, id: &str, to: Option<&str>, code: ReasonCode, why: &str) {
         let message = {
             let store = self.store.lock().unwrap();
-            store.state().message(id).ok().map(|m| deliver::user_message(store.state(), m)).unwrap_or_default()
+            store.state().message(id).ok().map(|m| delivery::user_message(store.state(), m)).unwrap_or_default()
         };
         self.message_delivery(id, Delivery { step: DeliveryStep::NotDelivered, to: to.map(str::to_string), reason_code: Some(code), reason: Some(why.into()), message });
     }
@@ -1478,10 +1479,10 @@ impl App {
             let to = {
                 let store = self.store.lock().unwrap();
                 match e.body {
-                    Body::FindingNoted { .. } => deliver::notes(store.state(), live.as_deref(), &self.home, e),
-                    Body::TaskDropped { .. } => deliver::dropped(store.state(), live.as_deref(), e),
-                    Body::ManagerTold { .. } => deliver::told(store.state(), live.as_deref(), e),
-                    _ => deliver::finished(store.state(), live.as_deref(), e),
+                    Body::FindingNoted { .. } => delivery::notes(store.state(), live.as_deref(), &self.home, e),
+                    Body::TaskDropped { .. } => delivery::dropped(store.state(), live.as_deref(), e),
+                    Body::ManagerTold { .. } => delivery::told(store.state(), live.as_deref(), e),
+                    _ => delivery::finished(store.state(), live.as_deref(), e),
                 }
             };
             for (agent, message) in to {
@@ -1492,7 +1493,7 @@ impl App {
             }
             return;
         }
-        let plan = deliver::plan(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
+        let plan = delivery::plan(self.store.lock().unwrap().state(), live.as_deref(), &self.home, e);
         let Some(plan) = plan else { return };
         let delivery = match &plan.to {
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
@@ -1848,7 +1849,7 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
                     [(u, n, _)] => (u.clone(), *n),
                     [] => return Err(ApiError(StatusCode::NOT_FOUND, "you have no task in progress (none started and not delivered); name one: workriver task show <unit>#<n> (`workriver board` lists them)".into())),
                     several => {
-                        let list: Vec<String> = several.iter().map(|(u, n, t)| format!("{u}#{n} \"{}\"", crate::quote::name(t))).collect();
+                        let list: Vec<String> = several.iter().map(|(u, n, t)| format!("{u}#{n} \"{}\"", delivery::quote::name(t))).collect();
                         return Err(ApiError(StatusCode::CONFLICT, format!("you are on several tasks: {}; name one: workriver task show <unit>#<n>", list.join(", "))));
                     }
                 }
@@ -2255,7 +2256,7 @@ async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Ca
         }
         let e = app.record(&who, Body::IntentStateChanged { intent: s.intent.clone(), state: core::IntentState::Active, reason: None, workspace: Some(group) })?;
         let live = app.runtime.agents().ok();
-        let plan = deliver::started(app.store.lock().unwrap().state(), live.as_deref(), &s.intent);
+        let plan = delivery::started(app.store.lock().unwrap().state(), live.as_deref(), &s.intent);
         let name = |to: &str| app.store.lock().unwrap().state().name_of(to).unwrap_or(to).to_string();
         let delivery = match plan {
             Ok((to, message)) => match app.send(&to, &message) {

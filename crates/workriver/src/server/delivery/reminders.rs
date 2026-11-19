@@ -16,7 +16,7 @@ use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, IntentState, State, Task, TaskKind, TaskState};
 
 use crate::common::wire::Stall;
-use crate::quote;
+use super::quote;
 
 /// A task being watched: its stall once there is one to show, when the reminder went out (to
 /// measure the wait), and since when its agent is missing from the runtime's reads.
@@ -146,7 +146,7 @@ fn waits_on_user(state: &State, owner: &str, t: &Task, who: &[&str], manager: Op
 /// The message a step calls for: to the agent itself (a reminder), or to the manager.
 pub fn message(state: &State, f: &Found) -> Option<String> {
     let t = state.task(&f.owner, f.task).ok()?;
-    let what = crate::deliver::label(state, &f.owner, t);
+    let what = super::label(state, &f.owner, t);
     let r = format!("{}#{}", f.owner, f.task);
     let name = quote::name(&f.name);
     let minutes = humantime::parse_rfc3339(&f.stall.since).ok().and_then(|s| s.elapsed().ok()).map_or(0, |d| d.as_secs() / 60);
@@ -238,7 +238,7 @@ pub fn idle_message(state: &State, w: &IdleWorker) -> Option<String> {
     Some(format!(
         "[workriver] {} has been idle for {minutes} min with no task (its last: {}). If you have no work for it now or soon, close it: idle agents hold memory, and a fresh one starts when work comes. First check its work tree for uncommitted work. How: `workriver guide how closing-workers`.",
         quote::name(&w.name),
-        crate::deliver::label(state, &w.last.0, t)
+        super::label(state, &w.last.0, t)
     ))
 }
 

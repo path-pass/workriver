@@ -8,7 +8,7 @@ use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, pars
 use workriver_scan as scan;
 
 pub use crate::common::wire::workspace::*;
-use crate::quote;
+use crate::server::delivery::quote;
 
 mod cache;
 mod code;
