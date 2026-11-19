@@ -166,8 +166,17 @@ pub(crate) struct Fake {
     close_tried: std::sync::Mutex<Vec<String>>,
 }
 
-/// A process id no machine gives: the shell of a place nobody set, with nothing started.
-const NOBODY: u32 = 4_000_000_000;
+/// The shell of a place nobody set: a real process that started nothing (a shell is only
+/// taken for idle when its machine's process list holds it).
+// ponytail: one `sleep` for all tests, left to end by itself after the run; it holds none of
+// the test's pipes, so nothing reading the test's output waits for it.
+fn nobody() -> u32 {
+    static IDLE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *IDLE.get_or_init(|| {
+        use std::process::Stdio;
+        std::process::Command::new("sleep").arg("600").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap().id()
+    })
+}
 
 impl Fake {
     /// As Herdr's implementation: only a place that is there, in the runs' group, a plain shell.
@@ -238,7 +247,7 @@ impl workriver_core::runtime::Runtime for Fake {
     fn shell_processes(&self, _: Option<&str>, group: &str, place: &str) -> Result<(u32, Vec<u32>), workriver_core::runtime::RuntimeError> {
         self.looked.lock().unwrap().push(place.into());
         self.run_shell_at(group, place)?;
-        Ok(self.procs.lock().unwrap().get(place).cloned().unwrap_or((NOBODY, vec![NOBODY])))
+        Ok(self.procs.lock().unwrap().get(place).cloned().unwrap_or((nobody(), vec![nobody()])))
     }
     fn close_shell(&self, _: Option<&str>, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         self.close_tried.lock().unwrap().push(place.into());
@@ -2801,6 +2810,17 @@ fn a_runs_shell_closes() {
     // Nothing else: of the agents, only the reviewers workriver started itself.
     assert!(local.closed.lock().unwrap().iter().chain(far.closed.lock().unwrap().iter()).all(|a| a.starts_with("review-")));
     assert!(local.agents.lock().unwrap().iter().any(|(_, a)| a.name == "boss"));
+
+    // The other machine's processes cannot be listed (its ssh fails, printing nothing): its
+    // shell is not taken for idle. Left, its terminal still to open; closed once they can be.
+    let blind = run("u2", "make");
+    all.set_runner("box", workriver_scan::Runner::Ssh { program: "false".into(), options: vec![], target: "box".into() });
+    ends(&far, "shell-2", &blind, 0);
+    wait_until("the shell is looked at and left", || far.looked.lock().unwrap().iter().any(|p| p == "shell-2") && focusable(&blind) == json!(true));
+    assert!(far.close_tried.lock().unwrap().iter().all(|p| p != "shell-2") && closed(&far) == ["shell-1"], "not closed unseen");
+    all.set_runner("box", workriver_scan::Runner::Local);
+    run("u1", "make more");
+    wait_until("closed once its processes can be listed", || closed(&far) == ["shell-1", "shell-2"]);
 }
 
 /// A run's shell is closed only when nothing is left running in it: not with something in
@@ -2839,7 +2859,8 @@ fn only_an_idle_run_shell_closes() {
     let has = |list: &std::sync::Mutex<Vec<String>>, place: &str| list.lock().unwrap().iter().filter(|p| *p == place).count();
     let focusable = |id: &str| user.get(&format!("/api/run/{id}")).unwrap()["focusable"] == true;
     // A real shell with a job in the background: what `npm run dev &` leaves behind.
-    let mut job = std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]).spawn().unwrap();
+    let null = std::process::Stdio::null;
+    let mut job = std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]).stdin(null()).stdout(null()).stderr(null()).spawn().unwrap();
 
     let front = run("vim notes"); // shell-1: ended well, something in front since
     let background = run("npm run dev &"); // shell-2: ended well, its job lives on
@@ -2847,7 +2868,7 @@ fn only_an_idle_run_shell_closes() {
     let flaky = run("make b"); // shell-4: failed; its first close is refused
     let used = run("make c"); // shell-5: failed; the user works in it
     let well = run("make d"); // shell-6: ended well, idle
-    fake.procs.lock().unwrap().extend([("shell-1".to_string(), (NOBODY, vec![NOBODY, 77])), ("shell-2".to_string(), (job.id(), vec![job.id()])), ("shell-5".to_string(), (NOBODY, vec![NOBODY, 88]))]);
+    fake.procs.lock().unwrap().extend([("shell-1".to_string(), (nobody(), vec![nobody(), 77])), ("shell-2".to_string(), (job.id(), vec![job.id()])), ("shell-5".to_string(), (nobody(), vec![nobody(), 88]))]);
     fake.not_shells.lock().unwrap().push("shell-3".into());
     ends("shell-3", &foreign, 1);
     ends("shell-4", &flaky, 1);

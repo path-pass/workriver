@@ -636,10 +636,16 @@ pub struct Proc {
 const TOP: usize = 5;
 
 /// Whether process `pid` on the machine `runner` reaches has started anything that still runs
-/// (for a shell: a command in front, or a background job).
+/// (for a shell: a command in front, or a background job). An error unless the list was
+/// read and holds `pid` itself: a list that could not be read (ssh failed and printed
+/// nothing) never says "nothing runs".
 pub fn has_children(runner: &scan::Runner, pid: u32) -> std::io::Result<bool> {
     let out = herdr::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT)?;
-    Ok(parse_ps(&String::from_utf8_lossy(&out.stdout)).iter().any(|p| p.1 == pid))
+    let ps = parse_ps(&String::from_utf8_lossy(&out.stdout));
+    if !out.status.success() || !ps.iter().any(|p| p.0 == pid) {
+        return Err(std::io::Error::other(format!("the process list was not read, or has no process {pid} ({})", out.status)));
+    }
+    Ok(ps.iter().any(|p| p.1 == pid))
 }
 
 /// `PS`'s lines as (pid, parent, resident bytes, name). macOS names a process by its whole
@@ -1149,6 +1155,25 @@ Filesystem     1024-blocks      Used Available Capacity  Mounted on
 
     /// What `PS` printed on the same Mac, a few of its lines (one agent's shell made the
     /// parent of its agent, as under Herdr).
+    /// A process list that was not read, or does not hold the process asked about, is an
+    /// error: never "it started nothing".
+    #[test]
+    fn children_are_told_only_from_a_list_that_was_read() {
+        let null = std::process::Stdio::null;
+        let mut sh = std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]).stdin(null()).stdout(null()).stderr(null()).spawn().unwrap();
+        let mut alone = std::process::Command::new("sleep").arg("30").stdin(null()).stdout(null()).stderr(null()).spawn().unwrap();
+        // The shell forks its job a moment after it starts.
+        assert!((0..50).any(|_| has_children(&scan::Runner::Local, sh.id()).unwrap() || { std::thread::sleep(Duration::from_millis(100)); false }));
+        assert!(!has_children(&scan::Runner::Local, alone.id()).unwrap());
+        assert!(has_children(&scan::Runner::Local, 4_000_000_000).is_err(), "not in the list");
+        let failing = scan::Runner::Ssh { program: "false".into(), options: vec![], target: "box".into() };
+        assert!(has_children(&failing, alone.id()).is_err(), "the list was not read");
+        for c in [&mut sh, &mut alone] {
+            c.kill().unwrap();
+            c.wait().unwrap();
+        }
+    }
+
     const PS_DARWIN: &str = "    1     0  22960 /sbin/launchd
  6286     1   1200 /usr/bin/login
  6287  6286   1328 -zsh
