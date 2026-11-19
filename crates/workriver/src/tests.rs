@@ -2072,14 +2072,17 @@ fn a_task_shown_in_full() {
     assert!(show("u1#7").contains("designed by rev, not confirmed by the user in u1#9, being revised in u1#10:\n"), "{}", show("u1#7"));
     assert!(show("u1#10").contains("  from u1#6 (design \"Where tokens live\", the design you revise), designed by rev, not confirmed by the user in u1#9:\n"), "{}", show("u1#10"));
     rev.append("", "task.delivered", json!({ "unit": "u1", "task": 10, "note": "Tokens go in the keychain." })).unwrap();
-    assert_eq!((from("u1#7"), from("u1#10")), (vec!["u2#2".to_string()], vec!["u2#2".to_string(), "u1#6".into()]), "the refused design is no longer shown but to its revision");
+    // Delivered, the revision stands in the old design's place for every task after the old
+    // one, also those that do not come after the revision; the revision still reads the old.
+    assert_eq!((from("u1#7"), from("u1#10")), (vec!["u2#2".to_string(), "u1#10".into()], vec!["u2#2".to_string(), "u1#6".into()]));
+    assert!(show("u1#7").contains("  from u1#10 (design \"Tokens in the keychain\", revises u1#6), designed by rev: Tokens go in the keychain.\n"), "{}", show("u1#7"));
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm again", "inputs": [{ "from": "10" }] })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Use the keychain", "inputs": [{ "from": "11" }], "agent": "s-fix" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "10" }], "agent": "s-rev" })).unwrap();
-    assert_eq!((from("u1#12"), from("u1#7")), (vec!["u2#2".to_string(), "u1#10".into()], vec!["u2#2".to_string()]));
-    assert!(show("u1#13").contains("  from u1#10 (design \"Tokens in the keychain\", the design under review), designed by rev, not confirmed yet (gate u1#11): Tokens go in the keychain.\n"), "{}", show("u1#13"));
+    assert_eq!((from("u1#12"), from("u1#7")), (vec!["u2#2".to_string(), "u1#10".into()], vec!["u2#2".to_string(), "u1#10".into()]), "once, also after both");
+    assert!(show("u1#13").contains("  from u1#10 (design \"Tokens in the keychain\", the design under review, revises u1#6), designed by rev, not confirmed yet (gate u1#11): Tokens go in the keychain.\n"), "{}", show("u1#13"));
     user.append("", "gate.submitted", json!({ "unit": "u1", "task": 11, "result": "done" })).unwrap();
-    assert!(show("u1#12").contains("  from u1#10 (design \"Tokens in the keychain\"), designed by rev, confirmed by the user in u1#11: Tokens go in the keychain.\n"), "{}", show("u1#12"));
+    assert!(show("u1#12").contains("  from u1#10 (design \"Tokens in the keychain\", revises u1#6), designed by rev, confirmed by the user in u1#11: Tokens go in the keychain.\n"), "{}", show("u1#12"));
     // A later question to merge is not the design's gate: open or refused, the design stays confirmed.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?", "inputs": [{ "from": "12" }] })).unwrap();
     assert!(show("u1#12").contains("designed by rev, confirmed by the user in u1#11: "), "{}", show("u1#12"));

@@ -17,9 +17,10 @@ opening anything else: what is ready or wrong, what was checked, the options.
 the link that opens it in the user's browser (`u2`, `i3`, `u2#5:P2-1` work too),
 also on another machine. `workriver task show` and `workriver board` print links as well.
 
-**You will see:** "The user confirmed … in gate …" with their note: do it (merge, deploy,
-change the goal). Or "did not confirm …" with findings: handle them like a design gate's
-(`design-gate`). Until then, wait; do not merge or deploy.
+**You will see:** "The user confirmed gate …" with their note: do it (merge, deploy,
+change the goal). Or "did not confirm gate …" with findings: the user decides each, and you
+hand out work for those accepted (`deciding-findings`). Only a gate that comes after a
+design reads "confirmed the design" (`design-gate`). Until then, wait; do not merge or deploy.
 
 **Asking again:** when a question you asked is out of date (the branch changed after a merge
 gate, the options changed), ask anew and drop the old gate, or it waits in Needs you for good.

@@ -460,7 +460,8 @@ fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: 
             if built.is_empty() { String::new() } else { format!(" Work already handed out for it: {}. Stop or adjust what is still open, and tell its agents.", built.join(", ")) }
         ));
     }
-    let design = t.gate == Some(GateKind::Decide);
+    // Only a gate about a design; a question to merge or deploy is answered with work.
+    let design = t.gate == Some(GateKind::Decide) && !state.designs_asked(unit, n).is_empty();
     m.own.push(match decision {
         // From a design decision: the design is done again, and confirmed again.
         Decision::Accept | Decision::Revise if design => format!(
@@ -484,20 +485,27 @@ fn gate_message(state: &State, unit: &str, n: u32) -> Option<Msg> {
     let t = state.task(unit, n).ok()?;
     let problem = t.result == Some(GateResult::Problem);
     let decide = t.gate == Some(GateKind::Decide);
+    // A decide gate asks about a design only when it comes after one (through reviews);
+    // any other question (merge, deploy, the goal) is confirmed or not as what it is.
+    let design = decide && !state.designs_asked(unit, n).is_empty();
     let mut m = Msg::default();
-    m.own.push(match (decide, problem) {
-        (true, false) => format!("[workriver] The user confirmed the design in gate {}.", label(state, unit, t)),
-        (true, true) => format!("[workriver] The user did not confirm the design in gate {}: revise the design.", label(state, unit, t)),
-        (false, p) => format!("[workriver] The user finished gate {}: {}.", label(state, unit, t), if p { "found a problem" } else { "done" }),
+    m.own.push(match (decide, design, problem) {
+        (_, true, false) => format!("[workriver] The user confirmed the design in gate {}.", label(state, unit, t)),
+        (_, true, true) => format!("[workriver] The user did not confirm the design in gate {}: revise the design.", label(state, unit, t)),
+        (true, false, false) => format!("[workriver] The user confirmed gate {}.", label(state, unit, t)),
+        (true, false, true) => format!("[workriver] The user did not confirm gate {}.", label(state, unit, t)),
+        (false, _, p) => format!("[workriver] The user finished gate {}: {}.", label(state, unit, t), if p { "found a problem" } else { "done" }),
     });
-    if decide && !problem {
+    if design && !problem {
         m.own.push(format!(
             "Next: hand out the implementation accordingly, after this gate: `workriver task add {unit} --title \"<outcome>\" --after {n} --agent <agent>`, citing the user's decision in the task's text."
         ));
+    } else if decide && !problem {
+        m.own.push("Next: do what it asked about, as the user decided.".into());
     } else if problem {
         let ids: Vec<String> = t.findings.iter().map(|f| format!("{} ({})", f.found.id, name(&f.found.severity))).collect();
         m.own.push(format!("Findings: {}.", ids.join(", ")));
-        m.own.push(if decide {
+        m.own.push(if design {
             format!(
                 "The user decides on each finding; for each accepted or revised one, a revised design task (`--kind design --cause {n}:<id>`), its architecture review if the design sets the shape of the work, and a new decide gate after that; the implementation hangs after the new gate, not after {unit}#{n}."
             )
@@ -664,6 +672,19 @@ mod tests {
         assert!(p.message.contains("Findings: P1 1 (waiting for the user's decision: the user decides this intent's findings)."), "{}", p.message);
         let quiet = at(&mut s, "rev", json!({"kind": "finding.noted", "body": {"unit": "u1", "task": 11, "finding": "P1-1", "text": "More"}}));
         assert!(notes(s.state(), Some(&live), std::path::Path::new("/h"), &quiet).is_empty());
+        // A question to merge is a decide gate about no design: confirmed or not as a gate,
+        // and its finding is answered with work, not with a revised design.
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge?", "inputs": [{"from": "4"}]}}));
+        let merged = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 12, "result": "done", "note": "Go"}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &merged).unwrap();
+        assert!(p.message.starts_with("[workriver] The user confirmed gate u1#12 ") && p.message.contains("Next: do what it asked about, as the user decided.") && p.message.contains("The user's decision: «Go»") && !p.message.contains("design") && !p.message.contains("implementation"), "{}", p.message);
+        at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge now?", "inputs": [{"from": "4"}]}}));
+        let refused = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 13, "result": "problem", "findings": [{"severity": "P2", "problem": "Rebase first"}]}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &refused).unwrap();
+        assert!(p.message.starts_with("[workriver] The user did not confirm gate u1#13 ") && p.message.contains("hands out work with `--cause 13:<id>`") && !p.message.contains("design"), "{}", p.message);
+        let fix = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 13, "finding": "P2-1", "decision": "accept", "by": "user"}}));
+        let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &fix).unwrap();
+        assert!(p.message.contains("Next: hand out work for it") && p.message.contains("--cause 13:P2-1") && !p.message.contains("--kind design"), "{}", p.message);
     }
 
     /// A dropped task: its agent is told to stop and the manager to re-plan, the reason

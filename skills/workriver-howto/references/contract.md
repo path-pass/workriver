@@ -19,4 +19,6 @@ one finding (file format: `finding-additions`):
     workriver task deliver u1#4 --findings contract-change.json
 
 **You will see:** "recorded findings P2-1"; it is decided like any finding
-(`deciding-findings`), and an accepted one leads to a revised design.
+(`deciding-findings`), and an accepted one leads to a revised design (`--kind design --cause
+4:P2-1`). Once that is delivered, the two workers read the revised contract in `workriver
+task show` of their own tasks, in the old one's place ("revises u1#1"): tell them to look.

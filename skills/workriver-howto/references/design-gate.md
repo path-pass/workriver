@@ -30,6 +30,7 @@ the implementation. Or "did not confirm …": for each finding accepted or revis
 design task `--cause 3:<id>`, its architecture review if the design sets the shape of the
 work, a new decide gate after that, the implementation after the **new** gate. The revising
 task is shown the old design as "the design you revise"; once it is delivered it takes the
-old one's place in `task show` (until then the old one reads "being revised in …").
+old one's place in `task show` of every task after the old one, marked "revises u1#1"
+(until then the old one reads "being revised in …").
 
 **Refusals:** "a design task delivers its design as the note".

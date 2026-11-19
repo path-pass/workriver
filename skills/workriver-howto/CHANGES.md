@@ -27,8 +27,8 @@ Newest first. A manager that was already running reads this once after an update
   A design's gate is the decide gate reached from it through reviews only, so a later
   question to merge is not it. A design task that answers a finding (`--cause`) of the
   design, its review or its gate revises it: it is shown the old one as "the design you
-  revise", and once delivered takes its place (until then the old one reads "being revised
-  in u1#5"). A design answering a finding about the code revises nothing. If a design seems wrong: `contract`.
+  revise", and once delivered takes its place for every task after the old one, marked
+  "revises u1#1" (until then the old one reads "being revised in u1#5"). A design answering a finding about the code revises nothing. If a design seems wrong: `contract`.
   `--json`: `earlier`. A blind task is shown none of it until it delivers. (`design-gate`)
 
 ## 2026-11-18

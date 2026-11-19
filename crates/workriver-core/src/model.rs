@@ -1572,6 +1572,21 @@ impl State {
         units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(|t| hit(&i.id, t)).map(|t| (i.id.clone(), t)))).collect()
     }
 
+    /// The design that stands in place of design `d`: its newest delivered revision, and
+    /// that one's in turn. None while no revision of it is delivered: it stands itself.
+    pub fn design_in_place(&self, owner: &str, d: u32) -> Option<(String, u32)> {
+        let (mut at, mut seen, mut found) = ((owner.to_string(), d), vec![(owner.to_string(), d)], None);
+        while let Some((o, t)) = self.revised_by(&at.0, at.1).into_iter().filter(|(_, t)| t.done.is_some()).max_by_key(|(_, t)| t.n) {
+            at = (o, t.n);
+            if seen.contains(&at) {
+                break;
+            }
+            seen.push(at.clone());
+            found = Some(at.clone());
+        }
+        found
+    }
+
     /// A unit, or an intent seen as a unit for its intent-level tasks (no branch; its
     /// project folder as the repository).
     pub fn unit_or_intent(&self, id: &str) -> Option<Unit> {

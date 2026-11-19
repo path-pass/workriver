@@ -101,6 +101,17 @@ fn designs_their_gates_and_their_revisions() {
     put(&mut s, "boss", task("gate", &["10"], json!({"gate": "decide"}))); // 11
     let state = st(&s);
     assert_eq!((state.design_gate("u1", 10).map(|g| g.n), state.design_gate("u1", 2).map(|g| g.n)), (Some(11), Some(4)));
+    // What stands in a design's place: nothing until a revision is delivered, then the
+    // newest delivered one, followed through its own revisions.
+    assert_eq!(state.design_in_place("u1", 2), None);
+    put(&mut s, "des", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 10, "note": "Second"}}));
+    assert_eq!((st(&s).design_in_place("u1", 2), st(&s).design_in_place("u1", 10), st(&s).design_in_place("u1", 1)), (Some(("u1".to_string(), 10)), None, None));
+    put(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 11, "result": "problem", "findings": [{"severity": "P2", "problem": "No"}]}}));
+    put(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 11, "finding": "P2-1", "decision": "accept"}}));
+    put(&mut s, "boss", task("design", &[], json!({"causes": [{"task": 11, "findings": ["P2-1"]}]}))); // 12
+    assert_eq!(st(&s).design_in_place("u1", 2), Some(("u1".to_string(), 10)), "the third is not delivered yet");
+    put(&mut s, "des", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 12, "note": "Third"}}));
+    assert_eq!((st(&s).design_in_place("u1", 2), st(&s).design_in_place("u1", 10)), (Some(("u1".to_string(), 12)), Some(("u1".to_string(), 12))));
 }
 
 #[test]

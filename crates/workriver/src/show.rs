@@ -116,6 +116,9 @@ pub struct EarlierShow {
     /// A design task not delivered yet revises it: that task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revised_in: Option<String>,
+    /// Shown in place of the design it revises (the reader comes after that one): that design.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_place_of: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -266,10 +269,14 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
         let design = b.kind == core::TaskKind::Design;
         let revisions = if design { state.revised_by(owner, b.n) } else { vec![] };
         let revises = revisions.iter().any(|(o, r)| o == unit && r.n == n);
-        // A delivered revision takes its place, except for the task that revises it.
-        if !revises && revisions.iter().any(|(_, r)| r.done.is_some()) {
-            return None;
-        }
+        // A delivered revision takes its place (the newest; see `State::design_in_place`),
+        // except for the task that revises it.
+        let (owner, b, replaced) = match state.design_in_place(owner, b.n).filter(|_| design && !revises) {
+            Some((o, k)) => (o.clone(), state.task(&o, k).ok().filter(|r| !(o == unit && r.n == n))?, Some(format!("{owner}#{}", b.n))),
+            None => (owner.to_string(), b, None),
+        };
+        let owner = owner.as_str();
+        let revisions = if replaced.is_some() { state.revised_by(owner, b.n) } else { revisions };
         let gate = design.then(|| state.design_gate(owner, b.n)).flatten();
         Some(EarlierShow {
             from: format!("{owner}#{}", b.n),
@@ -283,6 +290,7 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             under_review: design && t.kind == core::TaskKind::Review && owner == unit && t.inputs.iter().any(|i| i.from == b.n.to_string()),
             revises,
             revised_in: revisions.iter().find(|(o, r)| !(o == unit && r.n == n)).filter(|_| !revises).map(|(o, r)| format!("{o}#{}", r.n)),
+            in_place_of: replaced,
         })
     };
     // First what was designed for the intent as a whole, in its research units (no input
@@ -291,7 +299,14 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
     let earlier = wide
         .flat_map(|x| x.tasks.iter().filter(|b| b.kind == core::TaskKind::Design).filter_map(|b| said(&x.id, b)))
         .chain(state.before(unit, n).iter().filter_map(|k| state.task(unit, *k).ok()).filter(|b| matches!(b.kind, core::TaskKind::Design | core::TaskKind::Research)).filter_map(|b| said(unit, b)))
-        .collect();
+        // A revision stands once, also where the reader comes after it and after what it revises.
+        .fold(Vec::<EarlierShow>::new(), |mut all, e| {
+            match all.iter_mut().find(|x| x.from == e.from) {
+                Some(x) => x.in_place_of = x.in_place_of.take().or(e.in_place_of),
+                None => all.push(e),
+            }
+            all
+        });
     // Commits come from git, through the snapshot the page reads too.
     let shown = ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == unit);
     let mine = shown.and_then(|x| x["tasks"].as_array()?.iter().find(|y| y["taskId"].as_str() == Some(&n.to_string()) || y["id"].as_str() == Some(&n.to_string())));
@@ -471,6 +486,7 @@ pub fn text(s: &TaskShow) -> String {
             } else {
                 ""
             };
+            let review = review.to_string() + &d.in_place_of.as_ref().map(|o| format!(", revises {o}")).unwrap_or_default();
             let by = if d.kind == "research" { "found" } else { "designed" };
             let gate = match (&d.gate, d.confirmed) {
                 (Some(g), Some(true)) => format!(", confirmed by the user in {g}"),
