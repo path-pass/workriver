@@ -20,8 +20,11 @@ decisions into their terminals, so the question it must answer is: **was that re
     and above all `workriver open --print`, whose link lasts a minute, in a terminal agents
     do not read); the page exchanges it for a cookie that scripts cannot
     read (HttpOnly) and that is not sent with requests from other sites (SameSite=Strict).
-    Requests that change something must also come from workriver's own page (Origin
-    check). Without a session the page shows only how to open it.
+    The cookie is a random value the service hands out for the code and nothing else makes:
+    the service keeps only its hash (`~/workriver-data/user-sessions`, mode 600), so
+    neither the token nor that file yields a session. Requests that change something must
+    also come from workriver's own page (Origin check). Without a session the page shows
+    only how to open it.
 - **An agent** is whoever runs in an agent's pane: the service finds which pane the
   command's process really runs in, and takes the agent Herdr shows there. What the command
   says about its pane is only cross-checked. In an agent's pane a command is always that
@@ -215,8 +218,10 @@ determined program on your machine:
   catches the plain case only.
 - **An agent that runs outside Herdr at a terminal** (another terminal window) is you as far
   as the service can tell.
-- **The files**: the token, the database, the attachments and `session-roots.json` can be
-  read and written from disk without the service.
+- **The files**: the token, the database, the attachments, `session-roots.json` and
+  `user-sessions` can be read and written from disk without the service (`user-sessions`
+  holds hashes: reading it gives no session; a line written into it counts after the
+  service restarts).
 
 If agents work on input you do not trust, run them in a sandbox or under another account,
 where they cannot read `~/workriver-data` (they then cannot reach the caller socket either

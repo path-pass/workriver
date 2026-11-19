@@ -1,7 +1,9 @@
 //! Telling the user from everyone else. The user is whoever holds the user token, a file
 //! only the user's account can read (`<home>/user-token`): the CLI sends it, and the web UI
 //! gets a session cookie for a one-time code that `workriver open` (or the daemon's start
-//! line) puts into the page's address.
+//! line) puts into the page's address. A session is a random value that nothing derives:
+//! the service keeps only its hash (`<home>/user-sessions`), so neither the token nor that
+//! file yields one.
 //!
 //! What this is worth: agents run under the same account and could read the file. It stops
 //! a request that merely claims to be the user (a prompt-injected `curl`, a remote machine),
@@ -26,6 +28,19 @@ pub fn token_path(home: &Path) -> PathBuf {
     home.join("user-token")
 }
 
+/// The sessions the page was given: a hash and the second it ends, one per line.
+pub fn sessions_path(home: &Path) -> PathBuf {
+    home.join("user-sessions")
+}
+
+fn hash(value: &str) -> String {
+    Sha256::digest(value.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(u64::MAX)
+}
+
 /// The token as the CLI reads it; None when there is none or it cannot be read.
 pub fn read_token(home: &Path) -> Option<String> {
     std::fs::read_to_string(token_path(home)).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
@@ -48,6 +63,9 @@ pub struct Auth {
     /// One-time codes not yet used, with when each was made and how long it lasts.
     codes: Mutex<Vec<(String, Instant, Duration)>>,
     life: Duration,
+    /// The hash of each session given out, with the second it ends.
+    sessions: Mutex<Vec<(String, u64)>>,
+    home: PathBuf,
 }
 
 impl Auth {
@@ -77,7 +95,10 @@ impl Auth {
         // A token someone else can read is no token; tighten it rather than trust it.
         #[cfg(unix)]
         std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-        Ok(Auth { token, codes: Mutex::default(), life: CODE_LIFE })
+        // Sessions given before a restart still count; a file that cannot be read gives none.
+        let sessions = std::fs::read_to_string(sessions_path(home)).unwrap_or_default();
+        let sessions = sessions.lines().filter_map(|l| l.split_once(' ')).filter_map(|(h, until)| Some((h.to_string(), until.parse().ok()?))).collect();
+        Ok(Auth { token, codes: Mutex::default(), life: CODE_LIFE, sessions: Mutex::new(sessions), home: home.to_path_buf() })
     }
 
     #[cfg(test)]
@@ -107,22 +128,39 @@ impl Auth {
         codes.retain(|(_, at, life)| at.elapsed() < *life);
         let k = codes.iter().position(|(c, _, _)| same(c, code))?;
         codes.remove(k);
-        let nonce = random_hex(16).ok()?;
-        Some(format!("{nonce}.{}", self.sign(&nonce)))
+        let value = random_hex(32).ok()?;
+        let mut sessions = self.sessions.lock().unwrap();
+        let now = now();
+        sessions.retain(|(_, until)| *until > now);
+        sessions.push((hash(&value), now + SESSION_DAYS * 24 * 3600));
+        // Kept so that it outlives a restart; if it cannot be, it lasts until then.
+        if let Err(e) = self.keep(&sessions) {
+            tracing::warn!("cannot keep the page's session in {}: {e}; it ends when the service stops", sessions_path(&self.home).display());
+        }
+        Some(value)
     }
 
-    /// A session is a random part signed with the token, so it needs no list and outlives a
-    /// restart; a new token ends every session.
-    fn sign(&self, nonce: &str) -> String {
-        Sha256::digest(format!("{}:{nonce}", self.token)).iter().map(|b| format!("{b:02x}")).collect()
+    /// Writes the sessions whole under another name, then gives it the file's name.
+    fn keep(&self, sessions: &[(String, u64)]) -> std::io::Result<()> {
+        let tmp = self.home.join(format!("user-sessions.{}.tmp", random_hex(4)?));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let text: String = sessions.iter().map(|(h, until)| format!("{h} {until}\n")).collect();
+        let written = opts.open(&tmp).and_then(|mut f| f.write_all(text.as_bytes())).and_then(|()| std::fs::rename(&tmp, sessions_path(&self.home)));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        written
     }
 
-    /// A `Cookie` header that carries a session of ours.
+    /// A `Cookie` header that carries a session of ours, given by `redeem` and not over.
     pub fn session(&self, cookies: Option<&str>) -> bool {
         let value = cookies.into_iter().flat_map(|c| c.split(';')).filter_map(|c| c.trim().strip_prefix(COOKIE)?.strip_prefix('=')).next();
-        let Some((nonce, mac)) = value.and_then(|v| v.split_once('.')) else { return false };
-        // The fixed shape of the random part keeps anything else from being signed for.
-        nonce.len() == 32 && nonce.bytes().all(|b| b.is_ascii_hexdigit()) && same(mac, &self.sign(nonce))
+        let Some(value) = value.filter(|v| !v.is_empty()) else { return false };
+        let (h, now) = (hash(value), now());
+        self.sessions.lock().unwrap().iter().any(|(kept, until)| *until > now && same(kept, &h))
     }
 }
 
@@ -155,14 +193,31 @@ mod tests {
         assert!(auth.redeem(&code).is_none(), "single use");
         assert!(auth.session(Some(&format!("theme=dark; {COOKIE}={cookie}"))));
         assert!(!auth.session(Some(&format!("{COOKIE}={}x", cookie))) && !auth.session(None));
-        // Only the fixed shape is ever accepted, whatever it is signed with.
-        let long = format!("{}00", cookie.split_once('.').unwrap().0);
-        assert!(!auth.session(Some(&format!("{COOKIE}={long}.{}", auth.sign(&long)))));
+        // Whoever reads the token cannot make a session from it: the old form, a random part
+        // signed with the token, is nobody's.
+        let nonce = "0123456789abcdef0123456789abcdef";
+        let signed: String = Sha256::digest(format!("{token}:{nonce}")).iter().map(|b| format!("{b:02x}")).collect();
+        assert!(!auth.session(Some(&format!("{COOKIE}={nonce}.{signed}"))), "a cookie computed from the token");
+        // A session outlives a restart, and the file it is kept in holds no cookie.
+        assert!(Auth::open(dir.path()).unwrap().session(Some(&format!("{COOKIE}={cookie}"))), "after a restart");
+        let kept = std::fs::read_to_string(sessions_path(dir.path())).unwrap();
+        assert!(!kept.contains(&cookie) && kept.lines().count() == 1, "{kept}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(sessions_path(dir.path())).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        // One past its days is over, and is dropped when the next is kept.
+        let old = auth.redeem(&auth.code(false).unwrap()).unwrap();
+        auth.sessions.lock().unwrap().iter_mut().filter(|(h, _)| *h == hash(&old)).for_each(|(_, until)| *until = 0);
+        assert!(!auth.session(Some(&format!("{COOKIE}={old}"))), "expired");
+        auth.redeem(&auth.code(false).unwrap()).unwrap();
+        assert_eq!(std::fs::read_to_string(sessions_path(dir.path())).unwrap().lines().count(), 2, "the expired one is gone");
         // And only in time.
         let late = auth.code(true).unwrap();
         std::thread::sleep(Duration::from_millis(400));
         assert!(auth.redeem(&late).is_none(), "expired");
-        // Another token (another home) knows none of these sessions.
+        // Another home knows none of these sessions.
         let other = tempfile::tempdir().unwrap();
         assert!(!Auth::open(other.path()).unwrap().session(Some(&format!("{COOKIE}={cookie}"))));
     }

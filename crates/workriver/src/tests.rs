@@ -1409,6 +1409,15 @@ fn only_the_user_is_the_user() {
     let cookie = set.split_once(':').unwrap().1.split(';').next().unwrap().trim().to_string();
     assert_eq!(http(port, "POST", "/api/session", &[("Origin", &ours)], Some(&json!({ "code": code }).to_string())).0, 401, "a code works once");
     assert!(http(port, "GET", "/api/session", &[("Cookie", &cookie)], None).1.contains("\"user\":true"));
+    // Reading the token does not make a session: a cookie computed from it is nobody's.
+    let nonce = "0123456789abcdef0123456789abcdef";
+    let signed: String = sha2::Digest::finalize(sha2::Digest::chain_update(<sha2::Sha256 as sha2::Digest>::new(), format!("{}:{nonce}", token.trim()))).iter().map(|b| format!("{b:02x}")).collect();
+    let forged = format!("workriver_session={nonce}.{signed}");
+    assert!(http(port, "GET", "/api/session", &[("Cookie", &forged)], None).1.contains("\"user\":false"));
+    assert_eq!(http(port, "POST", "/api/session/code", &[("Cookie", &forged), ("Origin", &ours)], Some("{}")).0, 401);
+    assert_eq!(http(port, "POST", "/api/append", &[("Cookie", &forged), ("Origin", &ours)], Some(&json!({ "kind": "intent.created", "body": { "title": "x" } }).to_string())).0, 401);
+    // The page is told it is the user only when everything else would take it for the user.
+    assert!(http(port, "GET", "/api/session", &from_pane, None).1.contains("\"user\":false"), "an agent's pane with the token");
     // The cookie counts only from our own page: not without an Origin, not from another.
     let decide = user_routes[0].1.to_string();
     assert_eq!(http(port, "POST", "/api/decide", &[("Cookie", &cookie)], Some(&decide)).0, 401);

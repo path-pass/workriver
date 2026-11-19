@@ -1927,8 +1927,8 @@ async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>)
 // ---- the user's session in the page ----
 
 /// Whether this request is the user's; the page shows nothing else until it is.
-async fn session(Extension(caller): Extension<Caller>) -> Json<serde_json::Value> {
-    Json(json!({ "user": caller.session || (caller.token && caller.chain.is_some()) }))
+async fn session(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Json<serde_json::Value> {
+    Json(json!({ "user": app.user(&caller).is_ok() }))
 }
 
 #[derive(Deserialize)]
