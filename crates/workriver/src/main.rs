@@ -1,12 +1,9 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
 mod ask;
-mod auth;
-mod caller;
 mod cli;
 mod common;
 mod run;
 mod runtime;
-mod serve;
 mod server;
 
 use std::path::Path;
@@ -31,11 +28,11 @@ fn main() -> anyhow::Result<()> {
             tracing::warn!("{w}");
         }
         let allow_as = std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1");
-        let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default() };
+        let options = server::handlers::Options { warning, waits: server::handlers::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default() };
         let rt = tokio::runtime::Runtime::new()?;
         return rt.block_on(async {
-            let listener = serve::bind(cli.port.unwrap_or(cli::DEFAULT_PORT)).await?;
-            serve::serve_with(listener, store, all, options).await
+            let listener = server::handlers::bind(cli.port.unwrap_or(cli::DEFAULT_PORT)).await?;
+            server::handlers::serve_with(listener, store, all, options).await
         });
     }
     cli::run(cli)

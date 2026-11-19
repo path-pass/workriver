@@ -20,7 +20,7 @@ fn asking_why() {
     let mut worker = live("s-w", "w", "w1", Idle);
     worker.harness = "codex".into();
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), worker)];
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1), ..Default::default() };
+    let waits = crate::server::handlers::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -110,7 +110,7 @@ fn a_blocked_agent_gets_the_question_once_free() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(6), idle: std::time::Duration::from_secs(600), ..Default::default() };
+    let waits = crate::server::handlers::Waits { answer: std::time::Duration::from_secs(6), idle: std::time::Duration::from_secs(600), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -170,7 +170,7 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(8), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(2), ..Default::default() };
+    let waits = crate::server::handlers::Waits { answer: std::time::Duration::from_secs(8), idle: std::time::Duration::from_secs(600), ready: std::time::Duration::from_secs(2), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -222,11 +222,11 @@ fn asking_without_a_runtime() {
     let tmp = tempfile::tempdir().unwrap();
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
-    let options = crate::serve::Options { allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
+    let options = crate::server::handlers::Options { allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);

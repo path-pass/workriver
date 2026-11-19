@@ -1,6 +1,8 @@
 // The service process. Until phases 5b and 5c bring serve.rs here, this holds what has moved.
+pub mod access;
 pub mod delivery;
 pub mod files;
+pub mod handlers;
 pub mod machines;
 pub mod views;
 #[cfg(test)]

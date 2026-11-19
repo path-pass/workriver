@@ -281,7 +281,7 @@ fn a_command_is_reviewed_before_it_runs() {
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
     let db = tmp.path().join("w.db");
-    let waits = crate::serve::Waits { answer: std::time::Duration::from_secs(5), ..Default::default() };
+    let waits = crate::server::handlers::Waits { answer: std::time::Duration::from_secs(5), ..Default::default() };
     let user = daemon_with(fake.clone(), &db, waits);
     manage(&user, "p1", "s-boss");
     user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();

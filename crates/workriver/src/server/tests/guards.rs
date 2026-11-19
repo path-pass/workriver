@@ -374,12 +374,12 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", far)]);
     let store = workriver_data::Store::open(&tmp.join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let listener = rt.block_on(crate::server::handlers::bind(0)).unwrap();
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), tmp);
-    let (runtime, waits) = (fake.clone(), crate::serve::Waits { answer: std::time::Duration::from_secs(60), ..Default::default() });
-    let options = crate::serve::Options { machines: Some(all.clone()), waits, allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, options)));
+    let (runtime, waits) = (fake.clone(), crate::server::handlers::Waits { answer: std::time::Duration::from_secs(60), ..Default::default() });
+    let options = crate::server::handlers::Options { machines: Some(all.clone()), waits, allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::handlers::serve_with(listener, store, runtime, options)));
     wait_until("the machine's listener", || all.local_port("box").is_some());
 
     d.append("user", "project.added", json!({ "path": repo, "title": "Chat" })).unwrap();
