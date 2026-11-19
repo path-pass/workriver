@@ -12,6 +12,7 @@ use serde_json::json;
 use workriver_core as core;
 
 use crate::server::access::auth;
+use crate::server::access::*;
 use crate::server::handlers::*;
 
 mod assets;
