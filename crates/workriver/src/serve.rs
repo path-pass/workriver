@@ -26,6 +26,7 @@ use workriver_data::Store;
 use workriver_scan as scan;
 
 use crate::runtime::follow::Machines;
+use crate::runtime::words;
 use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
 use crate::caller::{self, Callers, Pin, Pins};
@@ -299,7 +300,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     let (kick, kicked) = std::sync::mpsc::channel::<()>();
     let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
     if allow_as {
-        tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as), and a command in no pane needs no terminal to be the user's. For tests and development only.");
+        tracing::warn!("{}", words::AS_ALLOWED);
     }
     caller::listen(&store_home, callers.clone(), procs.clone())?;
     let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::metrics::STEP);
@@ -861,7 +862,7 @@ impl App {
         let machine = caller.machine.as_deref();
         if let Some(name) = named.filter(|n| !n.is_empty()) {
             if !self.allow_as {
-                return Err(ApiError(StatusCode::FORBIDDEN, "--as is off: workriver takes the agent from the pane the command really runs in (for tests, start the service with WORKRIVER_ALLOW_AS=1)".into()));
+                return Err(ApiError(StatusCode::FORBIDDEN, words::AS_OFF.into()));
             }
             if matches!(name, "user" | "workriver") {
                 return Err(ApiError(StatusCode::FORBIDDEN, format!("nobody records as {name:?} by saying so")));
@@ -884,22 +885,22 @@ impl App {
                     Ok(Principal::Agent { session: a.session.clone(), machine: a.machine.clone() })
                 }
                 None if machine.is_none() && caller.token => Ok(Principal::User),
-                None => Err(ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::no_agent_at(&root.place))),
+                None => Err(ApiError(StatusCode::UNAUTHORIZED, words::no_agent_at(&root.place))),
             },
             None => match machine {
-                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::no_pane_on(m, &process::show(&chain)))),
-                None if !caller.token => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
+                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, words::in_no_place_on(m, &process::show(&chain)))),
+                None if !caller.token => Err(ApiError(StatusCode::UNAUTHORIZED, words::NOT_THE_USER.into())),
                 // A helper of a harness, or a background job, has no terminal; the user at
                 // a terminal window has one.
                 None if self.allow_as || chain.first().is_some_and(|p| p.tty.is_some()) => Ok(Principal::User),
-                None => Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::no_terminal(&process::show(&chain)))),
+                None => Err(ApiError(StatusCode::FORBIDDEN, words::no_terminal(&process::show(&chain)))),
             },
         }
     }
 
     /// What a request on this machine that shows no process is told.
     fn no_process(&self, caller: &Caller) -> ApiError {
-        ApiError(StatusCode::UNAUTHORIZED, if caller.token { crate::runtime::words::NO_PROCESS.into() } else { NOT_THE_USER.into() })
+        ApiError(StatusCode::UNAUTHORIZED, if caller.token { words::NO_PROCESS.into() } else { words::NOT_THE_USER.into() })
     }
 
     /// The calling process and its parents. This machine: as read when it connected to the
@@ -909,7 +910,7 @@ impl App {
         let Some(m) = caller.machine.as_deref() else {
             return caller.chain.clone().ok_or_else(|| self.no_process(caller));
         };
-        let refuse = |pid: Option<u32>, why: &str| ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::not_the_cli(m, pid, why));
+        let refuse = |pid: Option<u32>, why: &str| ApiError(StatusCode::UNAUTHORIZED, words::not_the_cli(m, pid, why));
         let pid = caller.pid.ok_or_else(|| refuse(None, "is not given"))?;
         let chain = self.procs.chain(Some(&self.runner(Some(m))?), pid).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("cannot read process {pid} on machine {m}: {e}")))?;
         match chain.first() {
@@ -924,7 +925,7 @@ impl App {
     fn place(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
         let machine = caller.machine.as_deref();
         let named = caller.place.as_deref();
-        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::runtime::words::cannot_ask(named.unwrap_or("?"), &e.to_string()));
+        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, words::cannot_ask(named.unwrap_or("?"), &e.to_string()));
         // The usual case costs one look: the process descends from the root of the place it names.
         if let Some(p) = named {
             let there = self.runtime.roots(machine, Some(p)).map_err(cannot)?;
@@ -945,7 +946,7 @@ impl App {
         match named {
             Some(p) if found.as_ref().is_none_or(|r| r.place != p) => {
                 let gone = !all.iter().any(|r| r.place == p);
-                Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::elsewhere(p, gone, &process::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
+                Err(ApiError(StatusCode::FORBIDDEN, words::elsewhere(p, gone, &process::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
             }
             _ => Ok(found),
         }
@@ -978,16 +979,16 @@ impl App {
             return Ok(());
         }
         if let Some(pin) = pin.filter(|p| self.runs(p)) {
-            return Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::held(&a.session, &pin.place, pin.machine.as_deref())));
+            return Err(ApiError(StatusCode::FORBIDDEN, words::held(&a.session, &pin.place, pin.machine.as_deref())));
         }
         // First sight. On this machine every place is looked at: a session nobody was seen
         // with, shown at two places at once, is neither's; a runtime that cannot say is
         // refused too, and nothing is pinned. (On another machine the pin goes to the first
         // place that calls.)
         if machine.is_none() {
-            let all = self.runtime.agent_roots(None).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::runtime::words::cannot_ask(&root.place, &e.to_string())))?;
+            let all = self.runtime.agent_roots(None).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, words::cannot_ask(&root.place, &e.to_string())))?;
             if let Some(other) = all.iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session)) {
-                return Err(ApiError(StatusCode::FORBIDDEN, crate::runtime::words::twice(&a.session, &root.place, &other.place)));
+                return Err(ApiError(StatusCode::FORBIDDEN, words::twice(&a.session, &root.place, &other.place)));
             }
         }
         if let Some(m) = mine {
@@ -1025,7 +1026,7 @@ impl App {
             Principal::User => Ok(Principal::User),
             // The token file can be read at an agent's place on this machine; what runs at
             // an agent's place is the agent's doing.
-            _ => Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command".into())),
+            _ => Err(ApiError(StatusCode::FORBIDDEN, words::ONLY_THE_USER.into())),
         }
     }
 
@@ -1104,7 +1105,7 @@ impl App {
         let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         let me = live.iter().find(|a| a.session == session && a.machine.as_deref() == machine);
         if !me.and_then(|a| a.group.as_ref()).is_some_and(|m| m.id == g.id && m.machine == g.machine) {
-            return Err(ApiError(StatusCode::FORBIDDEN, "an agent manages the workspace it runs in: run `workriver manager here` in your own pane".into()));
+            return Err(ApiError(StatusCode::FORBIDDEN, words::MANAGE_YOUR_OWN.into()));
         }
         let current = state.workspace_of(&g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
         if let Some(other) = current.and_then(|m| live.iter().find(|a| a.session == m)) {
@@ -1257,7 +1258,7 @@ impl App {
     fn start_question(&self, id: &str) {
         let fail = |code, why: String| self.fail_question(id, code, &why);
         // Read fresh: a temporary agent started since the last poll counts.
-        let Ok(live) = self.runtime.agents() else { return fail(ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into()) };
+        let Ok(live) = self.runtime.agents() else { return fail(ReasonCode::RuntimeDown, words::NOT_CONNECTED.into()) };
         // Every question, the user's or an agent's, goes to a temporary agent; it may ask the
         // task's own agent while that one is idle (its prompt says how).
         // A follow-up goes to the thread's agent while it lives, which keeps its context.
@@ -1305,7 +1306,7 @@ impl App {
             }
         };
         let Some(group) = group.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
-            return fail(ReasonCode::NoWorkspace, format!("intent {} follows no Herdr workspace and none of its agents runs", unit.intent));
+            return fail(ReasonCode::NoWorkspace, words::no_group(&unit.intent));
         };
         // Which harness: the task's agent's, else the manager's, else claude.
         let known = |s: &Option<String>| s.as_ref().and_then(|s| self.store.lock().unwrap().state().agents.iter().find(|a| &a.session == s).map(|a| a.harness.clone()));
@@ -1375,7 +1376,7 @@ impl App {
         };
         let name = self.store.lock().unwrap().state().name_of(&to).unwrap_or(&to).to_string();
         match self.runtime.agents() {
-            Err(_) => self.message_not_delivered(id, None, ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected"),
+            Err(_) => self.message_not_delivered(id, None, ReasonCode::RuntimeDown, words::NOT_CONNECTED),
             Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
             Ok(_) => self.hand(Held { question: id.into(), kind: For::Message, to, name, text, not_ready: None }),
         }
@@ -1526,7 +1527,7 @@ impl App {
     /// place: nobody, in no group. Answered without the token, but not without a process.
     fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
         if caller.machine.is_none() && caller.chain.is_none() {
-            return Err(ApiError(StatusCode::UNAUTHORIZED, crate::runtime::words::NO_PROCESS.into()));
+            return Err(ApiError(StatusCode::UNAUTHORIZED, words::NO_PROCESS.into()));
         }
         let chain = self.chain_of(caller)?;
         let Some(root) = self.place(caller, &chain)? else {
@@ -1576,9 +1577,6 @@ fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
         None => callers.map(str::to_string),
     }
 }
-
-/// What a caller that is nobody is told.
-const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the `workriver` CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
 
 /// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
 /// acts as the user or changes where workriver reaches asks for the user in its handler

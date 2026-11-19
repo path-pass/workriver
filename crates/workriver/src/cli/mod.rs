@@ -56,15 +56,10 @@ Terms:
   finding  a problem a review, tests task or gate found: P1-1, P2-1… within its task
   chore    something asked of the user that blocks nobody (ids c1, c2…)
 
-Who records: the service finds it, from the process that runs this command (the kernel
-tells the service which process connected; the pane the CLI names is only cross-checked).
-A command run in an agent's Herdr pane is that agent's (by its session). One run in a pane
-with no agent, or in a terminal window outside Herdr, on the machine workriver runs on, is
-the user's (the CLI sends the user token, `<WORKRIVER_HOME>/user-token`). Anything else is
-refused: a command that names a pane it does not run in, one with no terminal in no pane,
-a request that is not this CLI's. Nobody is anyone by saying so. Decisions as the user, gates, chores done, projects, machines and workspace links are
-the user's alone. Inside a Herdr workspace the intent is the workspace's current one, so
-commands that take an intent may leave it out.
+";
+
+/// After who records (the runtime's paragraph, between the two).
+const ABOUT_END: &str = "
 
 Commits are read from git: a commit belongs to a task when its message has the trailer
 line `Task: u1#3`. A commit on the unit's branch without one shows as unregistered.
@@ -76,15 +71,13 @@ Typical flow for an agent:
 
 
 #[derive(Parser)]
-#[command(name = "workriver", version = BUILD, about = "Keep track of many coding agents working in parallel.", long_about = ABOUT)]
+#[command(name = "workriver", version = BUILD, about = "Keep track of many coding agents working in parallel.", long_about = format!("{ABOUT}{}{ABOUT_END}", runtime::words::WHO_RECORDS))]
 pub(crate) struct Cli {
     /// Port of the daemon on 127.0.0.1. Default: on a machine workriver follows over ssh,
     /// the port of its current connection (in ~/.config/workriver/port); else 47820.
     #[arg(long, global = true, env = "WORKRIVER_PORT")]
     pub(crate) port: Option<u16>,
-    /// For tests and development: record as this agent instead of the one in this Herdr
-    /// pane. Refused unless the service was started with WORKRIVER_ALLOW_AS=1; never the user.
-    #[arg(long = "as", global = true, env = "WORKRIVER_AS", value_name = "AGENT", hide = true)]
+    #[arg(long = "as", global = true, env = "WORKRIVER_AS", value_name = "AGENT", hide = true, help = runtime::words::HELP_AS)]
     actor: Option<String>,
     #[command(subcommand)]
     pub(crate) cmd: Cmd,
@@ -92,8 +85,7 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Cmd {
-    /// Run the daemon: records events, reads git, follows the agents in Herdr, serves the
-    /// web UI. Data lives in $WORKRIVER_HOME (default ~/workriver-data).
+    #[command(about = runtime::words::HELP_SERVE)]
     Serve {
         /// The terminal app brought to the front when an agent's terminal is opened (macOS);
         /// empty for none.
@@ -119,19 +111,15 @@ pub(crate) enum Cmd {
     },
     /// Check that the daemon is running and show what it holds.
     Status,
-    /// Open the web UI in the browser as the user: with a one-time link that gives the page
-    /// its session. Not from an agent's pane.
+    #[command(about = runtime::words::HELP_OPEN)]
     Open {
         /// Only print the link.
         #[arg(long)]
         print: bool,
     },
-    /// Other machines whose agents (in their own Herdr) are followed over ssh.
-    #[command(subcommand)]
+    #[command(subcommand, about = runtime::words::HELP_MACHINE)]
     Machine(MachineCmd),
-    /// Runtime workspaces (Herdr's) on this and other machines, and the links that make a
-    /// workspace of another machine one with a workspace of this machine.
-    #[command(subcommand)]
+    #[command(subcommand, about = runtime::words::HELP_WORKSPACE)]
     Workspace(WorkspaceCmd),
     /// Projects: folders holding one or more repositories.
     #[command(subcommand)]
@@ -160,8 +148,7 @@ pub(crate) enum Cmd {
     /// Chores: things asked of the user that block nobody.
     #[command(subcommand)]
     Chore(ChoreCmd),
-    /// The manager: the one agent per Herdr workspace that splits work and hands it out.
-    #[command(subcommand)]
+    #[command(subcommand, about = runtime::words::HELP_MANAGER)]
     Manager(ManagerCmd),
     /// Ask about another task, for an agent: the task's own agent answers if it is free, else
     /// a temporary agent that reads the records and the code. The question is recorded on
@@ -288,7 +275,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     let place = runtime::caller_place();
     let d = Daemon { port: port_of(cli.port), place, home: Some(common::home::data_dir()), prove: std::sync::Arc::new(from_socket) };
     if cli.actor.as_deref() == Some("user") {
-        bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");
+        bail!(runtime::words::AS_USER_GONE);
     }
     // Who records, and in which intent, the service finds from the pane this process runs in.
     // Where it runs matters to these: the workspace's current intent, or the workspace itself.
@@ -309,11 +296,8 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     let actor = actor.as_str();
     let here_intent = |given: Option<String>| {
         given.or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string))).ok_or_else(|| match &group {
-            Some(g) => anyhow!(
-                "no intent given, and Herdr workspace {} has no current intent; its manager starts one: `workriver backlog list`, then `workriver intent start <intent>`",
-                g["label"].as_str().unwrap_or("?")
-            ),
-            None => anyhow!("no intent given, and not inside a Herdr workspace; name one (see `workriver backlog list`)"),
+            Some(g) => anyhow!(runtime::words::no_current_intent(g["label"].as_str().unwrap_or("?"))),
+            None => anyhow!(runtime::words::NO_INTENT_NOWHERE),
         })
     };
     let cx = Cx { d: &d, actor, here: &here, group: &group, here_intent: &here_intent };
@@ -347,12 +331,12 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
         Cmd::Open { print } => {
             // An agent does not open the user's session for itself.
             if d.call("/api/here", Some(json!({}))).is_ok_and(|h| h["actor"].is_string()) {
-                bail!("`workriver open` is the user's: run it from a terminal that is not an agent's pane");
+                bail!(runtime::words::OPEN_IS_THE_USERS);
             }
             let url = d.call("/api/session/code", Some(json!({ "printed": print })))?["url"].as_str().unwrap_or_default().to_string();
             if print {
                 // A link on a screen is a link for everyone who reads that screen.
-                eprintln!("Anyone who can read this terminal can open workriver as you with this link (agents read Herdr panes). It works once, for 60 seconds.");
+                eprintln!("{}", runtime::words::LINK_ON_A_SCREEN);
                 println!("{url}");
                 return Ok(());
             }

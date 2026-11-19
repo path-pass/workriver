@@ -303,7 +303,7 @@ pub(super) fn print_machines(list: &Value) {
         } else if m["reachable"] == true && m["tunnel"] == true {
             format!("connected, {} agents", m["agents"])
         } else if m["tunnel"] == true {
-            "connected, but its Herdr does not answer".to_string()
+            crate::runtime::words::REMOTE_SILENT.to_string()
         } else {
             let since = m["downSince"].as_str().map(|s| format!(" since {s}")).unwrap_or_default();
             format!("disconnected{since}")

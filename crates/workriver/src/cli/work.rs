@@ -174,10 +174,7 @@ pub(crate) enum RunCmd {
 
 #[derive(Subcommand)]
 pub(crate) enum TaskCmd {
-    /// Everything about one task that you may see, in full: what it asks, where the work
-    /// is, the findings it must answer with all that was added to them and every decision,
-    /// steps, its output, commits and questions. Read it before you start a task. Without a
-    /// task, in an agent's pane: the task that agent is on.
+    #[command(about = runtime::words::HELP_TASK_SHOW)]
     Show {
         /// The task (u1#3).
         task: Option<String>,
@@ -380,7 +377,7 @@ pub(crate) enum ChoreCmd {
     /// It belongs to an intent; or, with --project (or outside any workspace with a current
     /// intent), to a project; or, where no project can be told, to nothing.
     Add {
-        /// The intent it belongs to (i1…); default: the intent of this Herdr workspace.
+        #[arg(help = runtime::words::HELP_CHORE_INTENT)]
         intent: Option<String>,
         /// A chore of no intent: the project it belongs to (p1, or a folder).
         #[arg(long, conflicts_with = "intent")]

@@ -23,8 +23,8 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             let (label, action, extra) = match cmd {
                 MachineCmd::Load { .. } => unreachable!("handled above"),
                 MachineCmd::List => (String::new(), "", json!({})),
-                MachineCmd::Add { label, ssh, herdr_socket } => {
-                    let mut body = json!(runtime::socket_option(herdr_socket));
+                MachineCmd::Add { label, ssh, socket } => {
+                    let mut body = json!(runtime::socket_option(socket));
                     body["ssh"] = json!(ssh);
                     (label, "add", body)
                 }
@@ -70,10 +70,8 @@ pub(crate) enum MachineCmd {
         /// What ssh takes: a Host of your ssh config, or user@host.
         #[arg(long)]
         ssh: String,
-        /// Herdr's socket over there; default: asked of the machine
-        /// ($HERDR_SOCKET_PATH, else ~/.config/herdr/herdr.sock).
-        #[arg(long, value_name = "PATH")]
-        herdr_socket: Option<String>,
+        #[arg(id = runtime::words::SOCKET_ARG, long = runtime::words::SOCKET_FLAG, value_name = "PATH", help = runtime::words::HELP_SOCKET)]
+        socket: Option<String>,
     },
     /// The machines, whether each can be reached, and why not.
     List,

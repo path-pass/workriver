@@ -187,7 +187,7 @@ fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, finding: Opt
 
 /// `first` if it is live, else the intent's manager.
 fn target(state: &State, live: Option<&[RuntimeAgent]>, intent: &str, first: Option<&str>) -> Result<String, (ReasonCode, String)> {
-    let Some(live) = live else { return Err((ReasonCode::RuntimeDown, "the agent runtime (Herdr) is not connected".into())) };
+    let Some(live) = live else { return Err((ReasonCode::RuntimeDown, crate::runtime::words::NOT_CONNECTED.into())) };
     let is_live = |s: &str| live.iter().any(|a| a.session == s);
     if let Some(a) = first.filter(|a| is_live(a)) {
         return Ok(a.to_string());

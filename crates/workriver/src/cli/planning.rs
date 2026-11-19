@@ -124,7 +124,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
     Ok(Some(match cmd {
         Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
             if group.is_none() && intent.is_none() {
-                bail!("not inside a Herdr workspace: run `workriver manager here` in the manager's Herdr pane");
+                bail!(runtime::words::MANAGER_HERE_NOWHERE);
             }
             d.append(actor, "manager.registered", json!({ "intent": intent, "workspace": group }))?;
             println!("manager of workspace {}", group.as_ref().and_then(|g| g["label"].as_str()).or(intent.as_deref()).unwrap_or("?"));
@@ -211,7 +211,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
         Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
         Cmd::Backlog(BacklogCmd::Merge { into, from, title }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from, "title": title })))?,
         Cmd::Intent(IntentCmd::Start { intent }) => {
-            let Some(g) = &group else { bail!("run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace") };
+            let Some(g) = &group else { bail!(runtime::words::INTENT_START_NOWHERE) };
             let out = d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?;
             if let Some(w) = out["warning"].as_str() {
                 eprintln!("warning: {w}");
@@ -264,8 +264,7 @@ pub(crate) enum IntentCmd {
         #[arg(long, default_value = ".")]
         project: String,
     },
-    /// Start a planned intent in this Herdr workspace (run by its manager, in its pane): it
-    /// becomes active and the workspace's current intent, where new units and tasks go.
+    #[command(about = runtime::words::HELP_INTENT_START)]
     Start { intent: String },
     /// Mark an active intent done.
     Done { intent: String },
@@ -441,7 +440,7 @@ pub(crate) enum UnitCmd {
     /// a branch of its own, spike/<name>, and shown like a code unit's, but never merged; it
     /// takes every task kind and is closed with `workriver unit done --reason "<what was learned>"`.
     Add {
-        /// The intent it serves (i1…); default: the current intent of this Herdr workspace.
+        #[arg(help = runtime::words::HELP_UNIT_INTENT)]
         intent: Option<String>,
         /// code: work on a branch of its own; research: research and design, no branch;
         /// spike: an experiment on a spike/ branch, never merged.
@@ -501,12 +500,9 @@ pub(crate) enum UnitCmd {
 
 #[derive(Subcommand)]
 pub(crate) enum ManagerCmd {
-    /// Register the agent of this Herdr pane as the manager of its workspace. Decisions,
-    /// gate results and batches of deferred findings for the intents active there are
-    /// delivered to it.
+    #[command(about = runtime::words::HELP_MANAGER_HERE)]
     Here {
-        /// Before 0.2: the intent to manage, when not run inside a Herdr workspace.
-        #[arg(long, hide = true)]
+        #[arg(long, hide = true, help = runtime::words::HELP_MANAGER_HERE_INTENT)]
         intent: Option<String>,
         /// Deprecated: creates and starts an intent with this goal. Use `backlog add` and
         /// `intent start`.
