@@ -78,7 +78,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
     const agent = n.agent ?? ''
     const ref = `${r.unit!.id}#${n.taskId ?? n.id}`
     return (
-      <div className="flex items-center gap-1">
+      <div className="irow-pair flex items-center gap-1 pr-1">
         <button type="button" className="irow min-w-0" data-kind="stalled" onClick={() => onOpen(r.unit!.id, r.pick)}>
           <Icon name="terminal" />
           <span className="title">{s.gone ? t('inbox.stalledGone', { task: ref, agent }) : t('inbox.stalled', { task: ref, agent, ago: waited(r.since) })}</span>
@@ -183,7 +183,7 @@ export function InboxList({ ws, onOpen, onMachines, onTalk }: { ws: Workspace; o
           </CollapsibleTrigger>
         </h3>
         <CollapsibleContent asChild>
-          <ul>{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
+          <ul className="flex flex-col gap-0.5">{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
         </CollapsibleContent>
       </section>
     </Collapsible>

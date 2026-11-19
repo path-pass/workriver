@@ -41,6 +41,10 @@
   --you-bg: light-dark(oklch(95.4% 0.03 296), oklch(29% 0.08 296));
   --you-ink: light-dark(oklch(40% 0.17 296), oklch(88% 0.08 296));
   --on-you: light-dark(oklch(99% 0 0), oklch(17% 0.02 296));
+  /* An agent waiting in its terminal: the violet's lightness and chroma, turned orange. */
+  --hold: light-dark(oklch(52% 0.2 50), oklch(73% 0.16 50));
+  --hold-bg: light-dark(oklch(95.4% 0.03 50), oklch(29% 0.08 50));
+  --hold-ink: light-dark(oklch(40% 0.17 50), oklch(88% 0.08 50));
   /* The same violet, light enough to ring a control on the dark rail in either theme. */
   --rail-you: oklch(76% 0.15 296);
   --add: light-dark(oklch(44% 0.13 150), oklch(79% 0.15 150));
@@ -295,11 +299,15 @@
   .irow[data-kind="gate"] .meta, .irow[data-kind="gate"] .age { color: inherit; font-weight: 400; }
   /* A worker that stopped: its terminal is where to look. */
   /* An agent waiting in its terminal holds everything up until someone looks: filled, above the gates. */
-  .irow[data-kind="agent"] { background: var(--you); color: var(--on-you); font-weight: 600; }
-  .irow[data-kind="agent"]:hover { background: var(--you); box-shadow: var(--shadow); }
-  .irow[data-kind="agent"] :is(.ic, .meta, .age) { color: inherit; }
-  .irow[data-kind="agent"] .meta { font-weight: 400; }
+  .irow[data-kind="agent"] { background: var(--hold-bg); color: var(--hold-ink); font-weight: 600; }
+  .irow[data-kind="agent"]:hover { background: var(--hold-bg); box-shadow: var(--shadow); }
+  .irow[data-kind="agent"] .ic { color: var(--hold); }
+  .irow[data-kind="agent"] :is(.meta, .age) { color: inherit; font-weight: 400; }
   .irow[data-kind="stalled"] .ic { color: var(--you); }
+  /* A row with a button of its own beside it highlights as one. */
+  .irow-pair { border-radius: 6px; transition: background .15s; }
+  .irow-pair:hover { background: var(--sunken); }
+  .irow-pair .irow:hover { background: transparent; }
   .irow[data-kind="loose"] .ic { color: var(--del); }
   .irow[data-kind="far"] .ic { color: var(--amber); }
   .irow[data-kind="machine"][data-level=warn] :is(.ic, .level) { color: var(--amber-ink); }
