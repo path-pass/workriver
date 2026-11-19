@@ -3082,6 +3082,27 @@ fn asking_about_a_unit() {
     assert!(e.contains("workriver ask <unit>#<n>"), "{e}");
 }
 
+/// Two uploads of the same content at once (the same file attached twice to a question, sent
+/// together): both are taken, and the store holds it once.
+#[test]
+fn identical_uploads_at_once_both_succeed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = daemon_with(fake, &tmp.path().join("w.db"), Default::default());
+    let file = tmp.path().join("big.bin");
+    for round in 0..5u8 {
+        std::fs::write(&file, vec![round; 8 * 1024 * 1024]).unwrap();
+        let start = std::sync::Barrier::new(2);
+        let got: Vec<_> = std::thread::scope(|s| {
+            let hs: Vec<_> = (0..2).map(|_| s.spawn(|| { start.wait(); d.upload(&file, "user", None) })).collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let ids: Vec<_> = got.iter().map(|r| r.as_ref().map(|v| v["id"].clone()).map_err(|e| e.to_string())).collect();
+        assert!(ids[0].is_ok() && ids[0] == ids[1], "round {round}: {ids:?}");
+    }
+    assert_eq!(d.get("/api/status").unwrap()["attachments"]["files"], 5);
+}
+
 /// Files the user attached in the Ask box go with the question: stored when it is sent, the
 /// answering agent is given each one's path in the store, and the turn shows them. One taken
 /// out before sending was never stored: nothing names it, and a question cannot point at it.

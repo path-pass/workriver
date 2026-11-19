@@ -1,7 +1,7 @@
 // The attachment store: `<data dir>/attachments/<id>.<ext>`, one file per content (the id is
 // a short hash of it), never deleted. Agents stage files per task in `attachments/inbox/`.
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -39,17 +39,19 @@ pub fn mkdir(d: &Path) -> std::io::Result<()> {
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(d)
 }
 
-/// Stores `bytes` (once per content) and returns its id and path.
+/// Stores `bytes` (once per content) and returns its id and path. Safe for the same content
+/// written by several at once (two uploads of one file): each write has a temporary file of
+/// its own (tempfile: private, a random name), renamed into place whole; whichever lands
+/// last replaces the same bytes.
 pub fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(String, PathBuf)> {
     let id: String = Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect();
     let target = path(home, &id, name);
     if !target.exists() {
         mkdir(&dir(home))?;
-        let tmp = target.with_extension("part");
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+        let mut f = tempfile::NamedTempFile::new_in(dir(home))?;
         f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, &target)?;
+        f.as_file().sync_all()?;
+        f.persist(&target).map_err(|e| e.error)?;
     }
     Ok((id, target))
 }
@@ -78,5 +80,26 @@ mod tests {
         assert_eq!(usage(home.path()), (1, 9));
         assert_eq!(mime("a.png", None), "image/png");
         assert_eq!(mime("report", Some("text/plain")), "text/plain");
+    }
+
+    /// The same content written by several at once (two uploads of one file): every write
+    /// succeeds, one file is kept, whole, and no temporary file is left.
+    #[test]
+    fn the_same_content_at_once_is_stored_once() {
+        let home = tempfile::tempdir().unwrap();
+        let bytes = vec![7u8; 4 * 1024 * 1024];
+        for round in 0..5 {
+            let bytes: Vec<u8> = bytes.iter().map(|b| b ^ round).collect();
+            let start = std::sync::Barrier::new(8);
+            let got: Vec<_> = std::thread::scope(|s| {
+                let hs: Vec<_> = (0..8).map(|_| s.spawn(|| { start.wait(); put(home.path(), &bytes, "big.bin") })).collect();
+                hs.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            let first = got[0].as_ref().unwrap().clone();
+            assert!(got.iter().all(|r| r.as_ref().ok() == Some(&first)), "{got:?}");
+            assert_eq!(std::fs::read(&first.1).unwrap(), bytes);
+            assert_eq!(std::fs::metadata(&first.1).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        assert_eq!(usage(home.path()), (5, 5 * 4 * 1024 * 1024), "nothing but the stored files");
     }
 }
