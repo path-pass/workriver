@@ -1,8 +1,10 @@
 // What the service and the CLI (and the page) exchange: values and shapes only, no logic.
 mod machines;
+mod metrics;
 mod task;
 
 pub use machines::*;
+pub use metrics::*;
 pub use task::*;
 
 /// What the service answers a proof it no longer has, in the header the proof came in: the

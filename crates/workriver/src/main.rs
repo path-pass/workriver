@@ -7,7 +7,6 @@ mod cli;
 mod common;
 mod deliver;
 mod machines;
-mod metrics;
 mod quote;
 mod run;
 mod runtime;

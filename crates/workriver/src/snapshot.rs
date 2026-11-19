@@ -32,7 +32,7 @@ pub struct Workspace {
     chores: Vec<Chore>,
     /// Machines past an alert threshold now: for the user only (Needs you).
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub alerts: Vec<crate::metrics::Alert>,
+    pub alerts: Vec<crate::common::wire::Alert>,
     /// The user's messages to managers, with their replies, oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     messages: Vec<MessageOut>,

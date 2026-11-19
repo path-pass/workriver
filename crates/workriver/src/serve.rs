@@ -27,7 +27,7 @@ use workriver_scan as scan;
 
 use crate::runtime::follow::Machines;
 use crate::runtime::words;
-use crate::metrics::Metrics;
+use crate::server::machines::metrics::Metrics;
 use crate::auth::{self, Auth};
 use crate::caller::{self, Callers, Pin, Pins};
 use crate::common::process::{self, Chain, Procs};
@@ -303,7 +303,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         tracing::warn!("{}", words::AS_ALLOWED);
     }
     caller::listen(&store_home, callers.clone(), procs.clone())?;
-    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::metrics::STEP);
+    let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::server::machines::metrics::STEP);
     if sample {
         metrics.start();
     }
@@ -2029,7 +2029,7 @@ struct MachineSet {
 /// CPU and memory of this machine and the followed ones, with the thresholds: read by the
 /// user (the page) and by an agent at its place here (to weigh where to put work); set by
 /// the user alone. Not on a machine's listener.
-async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::metrics::Report>, ApiError> {
+async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::Report>, ApiError> {
     app.who(&caller, r.named.as_deref())?;
     let mut report = app.metrics.report();
     // An agent on another machine sees that machine alone: nothing of this one or the others.
@@ -2067,7 +2067,7 @@ async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension
 
 /// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a
 /// preference like the list of machines, not a record of work.
-async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::common::config::Thresholds>) -> Result<Json<crate::metrics::Report>, ApiError> {
+async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::common::config::Thresholds>) -> Result<Json<crate::common::wire::Report>, ApiError> {
     app.user(&caller)?;
     app.metrics.set_thresholds(t).map_err(bad)?;
     Ok(Json(app.metrics.report()))
@@ -2602,7 +2602,7 @@ impl App {
             return Ok(false);
         }
         let runner = self.runner(machine).map_err(|e| RuntimeError::Failed(e.1))?;
-        let busy = crate::metrics::has_children(&runner, shell).map_err(|e| RuntimeError::Failed(format!("cannot list the processes: {e}")))?;
+        let busy = crate::server::machines::metrics::has_children(&runner, shell).map_err(|e| RuntimeError::Failed(format!("cannot list the processes: {e}")))?;
         Ok(!busy)
     }
 
