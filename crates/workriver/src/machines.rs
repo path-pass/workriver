@@ -28,7 +28,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use workriver_core::RuntimeRef;
-use workriver_core::runtime::{Place, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_scan as scan;
 
 use crate::herdr;
@@ -765,6 +765,18 @@ impl Runtime for Machines {
         }
     }
 
+    /// Asked of that machine's own runtime, like its processes.
+    fn roots(&self, machine: Option<&str>, place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
+        match machine {
+            None => self.local.roots(None, place),
+            Some(m) => {
+                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed; enable it with `workriver machine enable`")))?;
+                let roots = on(&e, &|r: &dyn Runtime| r.roots(None, place))?;
+                Ok(roots.into_iter().map(|r| Root { at: Place { agent: r.at.agent.map(|a| their_agent(a, m)), group: r.at.group.map(|g| theirs(g, m)) }, ..r }).collect())
+            }
+        }
+    }
+
     /// On the machine named, through its own runtime: the shell is the user's over there.
     fn run_shell(&self, machine: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
         self.at(machine, |r| r.run_shell(None, group, dir, line))
@@ -940,9 +952,14 @@ pub fn attachment_url(id: &str) -> String {
     format!("http://127.0.0.1:$(cat ~/{PORT_FILE})/api/attachments/{id}")
 }
 
+/// How an agent on another machine gets a file of the daemon's store: a command, since the
+/// service answers no reader that is nobody and only the CLI shows which process asks.
+pub fn fetch_command(name: &str) -> String {
+    format!("`workriver attach fetch {name}`")
+}
+
 /// A message for an agent on another machine: every path into the attachment store
-/// (`dir` + `<id>.<ext>`) becomes a link through its tunnel. The link carries the reader's
-/// place as the shell fills it in, since the service answers no reader that is nobody.
+/// (`dir` + `<id>.<ext>`) becomes the command that fetches it through its tunnel.
 pub fn links(text: &str, dir: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -952,7 +969,7 @@ pub fn links(text: &str, dir: &str) -> String {
         // The file's name: its id, a dot, its extension.
         let id = after.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(after.len());
         let ext = after[id..].strip_prefix('.').map(|e| 1 + e.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(e.len())).unwrap_or(0);
-        out += &format!("\"{}?place=$HERDR_PANE_ID\" (fetch it with curl -fsSO)", attachment_url(&after[..id + ext]));
+        out += &format!("{} (run it: the file is saved in the folder you are in)", fetch_command(&after[..id + ext]));
         rest = &after[id + ext..];
     }
     out + rest

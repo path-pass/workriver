@@ -164,6 +164,11 @@ pub(crate) struct Fake {
     /// This many closes are refused first, as when the runtime does not answer; those tried.
     close_fails: std::sync::atomic::AtomicUsize,
     close_tried: std::sync::Mutex<Vec<String>>,
+    /// Plain panes (no agent) that are there; panes that are gone; places with no known shell.
+    /// A place a caller names that is in none of the lists is a plain pane that is there.
+    plain: std::sync::Mutex<Vec<String>>,
+    gone: std::sync::Mutex<Vec<String>>,
+    no_shell: std::sync::Mutex<Vec<String>>,
 }
 
 /// The shell of a place nobody set: a real process that started nothing (a shell is only
@@ -199,6 +204,25 @@ impl workriver_core::runtime::Runtime for Fake {
     fn locate(&self, _: Option<&str>, place: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
         let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
         Ok(workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent })
+    }
+    /// Every place has a shell at its root, by its name (`serve::testing::root`).
+    fn roots(&self, _: Option<&str>, place: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        let mut places: Vec<String> = self.agents.lock().unwrap().iter().map(|(p, _)| p.clone()).chain(self.plain.lock().unwrap().clone()).collect();
+        if let Some(p) = place.filter(|p| !places.iter().any(|x| x == p) && !self.gone.lock().unwrap().iter().any(|x| x == p)) {
+            places.push(p.to_string());
+        }
+        let no_shell = self.no_shell.lock().unwrap().clone();
+        Ok(places
+            .into_iter()
+            .filter(|p| place.is_none_or(|x| x == p))
+            .map(|p| {
+                let pid = crate::serve::testing::root(&p);
+                workriver_core::runtime::Root { shell: (!no_shell.contains(&p)).then_some(pid), front: vec![pid], at: self.locate(None, &p).unwrap(), place: p }
+            })
+            .collect())
     }
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Ok(())
@@ -295,12 +319,12 @@ fn identity_intents_and_delivery() {
     std::thread::spawn(move || rt.block_on(crate::serve::serve(listener, store, runtime, None, Default::default())));
 
     // A workspace has no intent until its manager starts one.
-    let here = d.call("/api/here", Some(json!({ "place": "p1" }))).unwrap();
+    let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["group"]["id"].as_str()), (Some("s-boss"), None, Some("w1")), "{here}");
     manage(&d, "p1", "s-boss");
     // The workspace got a new id but kept its label: its current intent follows it.
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w9", Idle)), ("p2".into(), live("s-rev", "rev", "w9", Idle))];
-    let again = d.call("/api/here", Some(json!({ "place": "p2" }))).unwrap();
+    let again = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!((again["actor"].as_str(), again["intent"].as_str()), (Some("s-rev"), Some("i1")));
 
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -379,7 +403,7 @@ fn pick_up_survives_a_restart() {
 /// The agent at `place` becomes the manager of its workspace and starts a new intent there
 /// (the next id, i1 for the first).
 fn manage(d: &Daemon, place: &str, agent: &str) -> String {
-    let here = d.call("/api/here", Some(json!({ "place": place }))).unwrap();
+    let here = at_place(d, place).call("/api/here", Some(json!({}))).unwrap();
     let made = d.append("user", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     let id = made["body"]["id"].as_str().unwrap().to_string();
     d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
@@ -398,7 +422,7 @@ fn a_workspace_has_one_manager() {
         vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-far", "far", "w2", Idle))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    let w1 = d.call("/api/here", Some(json!({ "place": "p1" }))).unwrap()["group"].clone();
+    let w1 = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap()["group"].clone();
     let manager = |d: &Daemon| d.get("/api/state").unwrap()["workspaces"][0]["manager"].clone();
 
     let err = d.append("s-far", "manager.registered", json!({ "workspace": w1 })).unwrap_err().to_string();
@@ -701,7 +725,7 @@ fn agents_ask_each_other() {
     ];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.call("/api/here", Some(json!({ "place": "p3" }))).unwrap();
+    at_place(&d, "p3").call("/api/here", Some(json!({}))).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API", "agent": "s-back" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
@@ -760,7 +784,8 @@ fn attachments_round_trip() {
     let get = |id: &str, host: &str| {
         let mut s = std::net::TcpStream::connect(("127.0.0.1", d.port)).unwrap();
         let token = crate::auth::read_token(&home).unwrap();
-        write!(s, "GET /api/attachments/{id} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n").unwrap();
+        let proof = d.process(false).0.unwrap();
+        write!(s, "GET /api/attachments/{id} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nX-Workriver-Caller: {proof}\r\nConnection: close\r\n\r\n").unwrap();
         let mut answer = vec![];
         s.read_to_end(&mut answer).unwrap();
         String::from_utf8_lossy(&answer).to_lowercase()
@@ -839,14 +864,14 @@ fn projects_workspaces_and_batches() {
 
     // Two intents active in w1, one in w2.
     let start = |place: &str, agent: &str, intent: &str| {
-        let here = d.call("/api/here", Some(json!({ "place": place }))).unwrap();
+        let here = at_place(&d, place).call("/api/here", Some(json!({}))).unwrap();
         d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
         d.append(agent, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": here["group"] })).unwrap();
     };
     start("p1", "s-b1", "i1");
     start("p1", "s-b1", "i2");
     start("p2", "s-b2", "i3");
-    let here = d.call("/api/here", Some(json!({ "place": "p3" }))).unwrap();
+    let here = at_place(&d, "p3").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!(here["intent"], "i2", "the last one started is the workspace's current intent");
     let e = d.append("s-b2", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w2", "label": "ws-w2" } })).unwrap_err().to_string();
     assert!(e.contains("cannot become active"), "{e}");
@@ -1001,13 +1026,13 @@ fn machines_are_separate_until_linked() {
 
     // Who a caller is depends on the listener it came in on, not on what it claims.
     manage(&d, "w1:p1", "s-boss");
-    assert_eq!(d.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-boss");
-    let there = via_box.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap();
+    assert_eq!(at_place(&d, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-boss");
+    let there = at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str()), (Some("s-far"), Some("w1@box"), None), "same label, not the same workspace");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
 
     d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
-    assert_eq!(via_box.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
+    assert_eq!(at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
 
     // A unit recorded from the other machine has its repository there.
     let unit = via_box.append("s-far", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
@@ -1032,7 +1057,7 @@ fn machines_are_separate_until_linked() {
     via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
     let got = far.sent.lock().unwrap().last().unwrap().clone();
-    assert!(got.0 == "s-far" && got.1.contains("http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
+    assert!(got.0 == "s-far" && got.1.contains("Attachments: `workriver attach fetch ") && got.1.contains(".png` (run it: the file is saved in the folder you are in)") && !got.1.contains("curl") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
 
     let ws = d.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["machine"], "box");
@@ -1329,18 +1354,18 @@ fn only_the_user_is_the_user() {
     // The token file can be read from an agent's pane; the CLI there says where it runs, and
     // then it is the agent's command, token or not. Reading the machines it may.
     let token = std::fs::read_to_string(tmp.path().join("user-token")).unwrap();
-    let from_pane = [("Authorization", format!("Bearer {}", token.trim())), ("X-Workriver-Place", "w1:p2".to_string())];
+    let from_pane = [("Authorization", format!("Bearer {}", token.trim())), ("X-Workriver-Place", "w1:p2".to_string()), ("X-Workriver-Caller", rev.process(false).0.unwrap())];
     let from_pane: Vec<(&str, &str)> = from_pane.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let (code, said) = http(port, "POST", "/api/machines", &from_pane, Some(&json!({ "label": "x", "action": "add", "ssh": "x" }).to_string()));
     assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
-    assert_eq!(http(port, "GET", "/api/machines?place=w1:p2", &from_pane, None).0, 200);
+    assert_eq!(http(port, "GET", "/api/machines", &from_pane, None).0, 200);
     // Thresholds are the user's alone to set; CPU and memory an agent here may read.
     let (code, said) = http(port, "POST", "/api/metrics/thresholds", &from_pane, Some(&json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }).to_string()));
     assert!(code == 403 && said.contains("only the user does this"), "{code} {said}");
-    assert_eq!(http(port, "GET", "/api/metrics?place=w1:p2", &from_pane, None).0, 200);
+    assert_eq!(http(port, "GET", "/api/metrics", &from_pane, None).0, 200);
     // The history is read the same way: the user, or an agent at its place; nobody else.
-    assert_eq!(http(port, "GET", "/api/metrics/history?machine=local&place=w1:p2", &[], None).0, 200);
-    assert_eq!(http(port, "GET", "/api/metrics/history?machine=local&place=w1:p9", &[], None).0, 401, "a pane without an agent");
+    assert_eq!(http_at(port, "w1:p2", "GET", "/api/metrics/history?machine=local", &[], None).0, 200);
+    assert_eq!(http_at(port, "w1:p9", "GET", "/api/metrics/history?machine=local", &[], None).0, 401, "a pane without an agent");
     assert_eq!(http(port, "GET", "/api/metrics/history?machine=local", &[], None).0, 401);
     let h = user.get("/api/metrics/history?machine=local").unwrap();
     assert_eq!((h["hours"].as_u64(), h["points"].as_array().map(Vec::len)), (Some(24), Some(0)), "none yet: {h}");
@@ -1361,8 +1386,10 @@ fn only_the_user_is_the_user() {
         assert_eq!(http(port, "GET", path, &[], None).0, 401, "{path}");
     }
     for path in ["/api/state", "/api/workspace"] {
-        assert_eq!(http(port, "GET", &format!("{path}?place=w1:p9"), &[], None).0, 401, "{path} from a pane without an agent");
-        assert_eq!(http(port, "GET", &format!("{path}?place=w1:p2"), &[], None).0, 200, "{path} as the agent of its pane");
+        assert_eq!(http_at(port, "w1:p9", "GET", path, &[], None).0, 401, "{path} from a pane without an agent");
+        assert_eq!(http_at(port, "w1:p2", "GET", path, &[], None).0, 200, "{path} as the agent of its pane");
+        // Saying which pane is not being in it: the old `?place=` is not read.
+        assert_eq!(http(port, "GET", &format!("{path}?place=w1:p2"), &[("x-workriver-place", "w1:p2")], None).0, 401, "{path} by saying so");
     }
     assert!(user.get("/api/state").is_ok() && rev.get("/api/workspace").is_ok() && nobody.get("/api/state").is_err());
     // Only whether the service runs is anyone's to see.
@@ -1453,7 +1480,7 @@ fn a_machines_listener_serves_only_agents() {
         ("GET", "/", json!(null)),
         ("GET", "/assets/index.js", json!(null)),
         // The page's file texts: no CLI over there reads them.
-        ("GET", "/api/unit/u1/code?place=w1:p1", json!(null)),
+        ("GET", "/api/unit/u1/code", json!(null)),
     ];
     for (method, path, body) in &refused {
         let body = (!body.is_null()).then(|| body.to_string());
@@ -1467,22 +1494,23 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!((shown["machine"].as_str(), shown["agent"].as_str(), shown["workspace"].as_str()), (Some("box"), Some("far"), Some("chat")), "{shown}");
     // What is allowed: reading the board and recording, as the agent of the pane over there.
     for path in ["/api/state", "/api/workspace"] {
-        assert_eq!(http(box_port, "GET", path, &creds, None).0, 403, "{path} as nobody, token and all");
-        assert_eq!(http(box_port, "GET", &format!("{path}?place=w1:p1"), &[], None).0, 200, "{path}");
+        assert_eq!(http(box_port, "GET", path, &creds, None).0, 401, "{path} as nobody, token and all");
+        assert_eq!(http(box_port, "GET", &format!("{path}?place=w1:p1"), &[("x-workriver-place", "w1:p1")], None).0, 401, "{path} by saying so");
+        assert_eq!(http_at(box_port, "w1:p1", "GET", path, &[], None).0, 200, "{path}");
     }
     assert_eq!(http(box_port, "GET", "/api/status", &[], None).0, 200);
     // Its own load, read-only: that machine alone, never this one; its own history only.
-    let (code, text) = http(box_port, "GET", "/api/metrics?place=w1:p1", &[], None);
+    let (code, text) = http_at(box_port, "w1:p1", "GET", "/api/metrics", &[], None);
     let seen: serde_json::Value = serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap_or(&text)).unwrap_or_default();
     assert_eq!(code, 200, "{text}");
     let theirs = seen["machines"].as_array().unwrap();
     assert!(!theirs.is_empty() && theirs.iter().all(|m| m["label"] == "box" && m["here"] == false), "{seen}");
-    assert_eq!(http(box_port, "GET", "/api/metrics?place=w1:p1", &[], None).0, 200);
-    assert_eq!(http(box_port, "GET", "/api/metrics", &creds, None).0, 403, "as nobody, token and all");
-    assert_eq!(http(box_port, "GET", "/api/metrics/history?machine=local&place=w1:p1", &[], None).0, 403, "not this machine's");
-    assert_eq!(http(box_port, "GET", "/api/metrics/history?machine=box&place=w1:p1", &[], None).0, 200);
+    assert_eq!(http_at(box_port, "w1:p1", "GET", "/api/metrics", &[], None).0, 200);
+    assert_eq!(http(box_port, "GET", "/api/metrics", &creds, None).0, 401, "as nobody, token and all");
+    assert_eq!(http_at(box_port, "w1:p1", "GET", "/api/metrics/history?machine=local", &[], None).0, 403, "not this machine's");
+    assert_eq!(http_at(box_port, "w1:p1", "GET", "/api/metrics/history?machine=box", &[], None).0, 200);
     let there = Daemon { port: box_port, place: Some("w1:p1".into()), home: Some(tmp.path().to_path_buf()) };
-    assert_eq!(there.call("/api/here", Some(json!({ "place": "w1:p1" }))).unwrap()["actor"], "s-far");
+    assert_eq!(at_place(&there, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-far");
     // `workriver link` over there: the address the user opens here, not the tunnel's.
     assert_eq!(crate::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
     // Research over there: a unit with no branch, so nothing of that machine to check.
@@ -1500,7 +1528,11 @@ fn a_machines_listener_serves_only_agents() {
     let shown: crate::show::TaskShow = serde_json::from_value(there.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
     assert_eq!(shown.link, format!("http://127.0.0.1:{port}/{u}/1"), "the user's page, not a link through the tunnel");
     let link = &shown.output.as_ref().unwrap().files[0];
-    assert!(link.starts_with("http://127.0.0.1:") && link.contains("/api/attachments/") && link.ends_with(".txt?place=w1:p1"), "{link}");
+    assert!(link.starts_with("`workriver attach fetch ") && link.ends_with(".txt`"), "a command: only the CLI shows which process asks: {link}");
+    // And that command's request: the file, for the agent in its pane over there; nobody else.
+    let name = link.trim_matches('`').rsplit(' ').next().unwrap().to_string();
+    assert_eq!(there.fetch(&name).unwrap(), b"found");
+    assert!(Daemon { port: box_port, place: None, home: Some(tmp.path().to_path_buf()) }.fetch(&name).is_err());
     let here: crate::show::TaskShow = serde_json::from_value(user.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
     assert!(here.output.unwrap().files[0].starts_with(&tmp.path().join("attachments").display().to_string()), "a path on this machine");
     // The same view rules over there: on a blind task, only its own.
@@ -1590,9 +1622,9 @@ fn blind_reviews() {
     assert_eq!(theirs, mine, "the same bytes are one stored file");
     std::fs::write(&shot, b"\x89PNG sec").unwrap();
     let mine = sec.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
-    assert_eq!(http(port, "GET", &format!("/api/attachments/{mine}?place=p3"), &[], None).0, 200);
-    assert_eq!(http(port, "GET", &format!("/api/attachments/{theirs}?place=p3"), &[], None).0, 404);
-    assert_eq!(http(port, "GET", &format!("/api/attachments/{theirs}?place=p2"), &[], None).0, 200);
+    assert_eq!(http_at(port, "p3", "GET", &format!("/api/attachments/{mine}"), &[], None).0, 200);
+    assert_eq!(http_at(port, "p3", "GET", &format!("/api/attachments/{theirs}"), &[], None).0, 404);
+    assert_eq!(http_at(port, "p2", "GET", &format!("/api/attachments/{theirs}"), &[], None).0, 200);
 
     // Everyone else sees everything, the blind task with its mark.
     for d in [&user, &boss, &imp] {
@@ -2725,11 +2757,11 @@ fn the_user_runs_a_command() {
     let far_id = shown["id"].as_str().unwrap().to_string();
     let reviewer = format!("review-{far_id}");
     wait_until("the review agent starts over there", || far.started.lock().unwrap().iter().any(|s| s.2 == reviewer));
-    let review = json!({ "place": format!("place-{reviewer}"), "verdict": "danger", "text": "Deploys to production." });
+    let review = json!({ "verdict": "danger", "text": "Deploys to production." });
     let path = format!("/api/run/{far_id}/review");
-    assert!(Daemon { port, place: None, home: None }.call(&path, Some(review.clone())).is_err(), "not an agent of this machine");
+    assert!(Daemon { port, place: Some(format!("place-{reviewer}")), home: None }.call(&path, Some(review.clone())).is_err(), "not an agent of this machine");
     wait_until("the machine's listener", || all.local_port("box").is_some());
-    let via_box = Daemon { port: all.local_port("box").unwrap(), place: None, home: None };
+    let via_box = Daemon { port: all.local_port("box").unwrap(), place: Some(format!("place-{reviewer}")), home: None };
     via_box.call(&path, Some(review)).unwrap();
     wait_until("the review is recorded", || workriver_core::Store::open(&db).unwrap().bodies("command.reviewed").unwrap().iter().any(|b| b["id"] == far_id.as_str() && b["verdict"] == "danger"));
     let runs = user.get("/api/workspace").unwrap()["runs"].clone();
@@ -3036,7 +3068,7 @@ fn asking_about_a_unit() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Working))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
-    d.call("/api/here", Some(json!({ "place": "p2" }))).unwrap();
+    at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
     d.append("s-boss", "intent.updated", json!({ "intent": "i1", "goal": "People can be mentioned" })).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "purpose": "Parse @names", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Parser", "agent": "s-w" })).unwrap();
@@ -3342,4 +3374,359 @@ fn starting_an_intent_in_another_projects_workspace() {
     assert!(warning.contains("i2 belongs to project Beta 'β'") && warning.contains("ask the user with a decide gate"), "{out}");
     let out = boss.append("", "intent.state_changed", json!({ "intent": "i3", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
     assert!(out.get("warning").is_none(), "{out}");
+}
+
+// ---- which pane a call truly comes from (docs/design/caller-identity.md) ----
+
+/// A plain request as the CLI of a command run at `place` sends it, without the token.
+fn http_at(port: u16, place: &str, method: &str, path: &str, extra: &[(&str, &str)], body: Option<&str>) -> (u16, String) {
+    let (proof, pid) = Daemon { port, place: Some(place.into()), home: None }.process(false);
+    let (proof, pid) = (proof.unwrap_or_default(), pid.to_string());
+    let mut headers = vec![("x-workriver-place", place), ("x-workriver-caller", proof.as_str()), ("x-workriver-pid", pid.as_str())];
+    headers.extend_from_slice(extra);
+    http(port, method, path, &headers, body)
+}
+
+/// A process as a test makes it up.
+fn proc(pid: u32, parent: u32, tty: Option<&str>, name: &str) -> crate::caller::Proc {
+    // A pane's root started before what runs in it, and always at the same time.
+    crate::caller::Proc { pid, parent, tty: tty.map(str::to_string), start: if pid >= 1_000_000 { 1 } else { 5 }, name: name.into() }
+}
+
+/// The same client, as a command run at `place`.
+fn at_place(d: &Daemon, place: &str) -> Daemon {
+    Daemon { port: d.port, place: Some(place.into()), home: d.home.clone() }
+}
+
+/// A service as it runs for real (no `--as`, a terminal asked for) over `fake`; its port.
+fn real_service(fake: std::sync::Arc<Fake>, home: &std::path::Path) -> u16 {
+    let store = workriver_core::Store::open(&home.join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, fake, crate::serve::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false })));
+    crate::auth::Auth::open(home).unwrap();
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    port
+}
+
+/// One record tried over plain HTTP: what the request says (`says`: the pane it names),
+/// whether it carries the token, and the proof of its process, if any. The status and the answer.
+fn try_record(port: u16, home: &std::path::Path, token: bool, says: Option<&str>, proof: Option<&str>) -> (u16, String) {
+    let bearer = format!("Bearer {}", crate::auth::read_token(home).unwrap());
+    let mut headers = vec![];
+    if token {
+        headers.push(("authorization", bearer.as_str()));
+    }
+    headers.extend(says.map(|p| ("x-workriver-place", p)));
+    headers.extend(proof.map(|p| ("x-workriver-caller", p)));
+    let (code, text) = http(port, "POST", "/api/append", &headers, Some(&json!({ "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()));
+    (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
+}
+
+/// Every line of the design's prototype (3.1) and every row of its table of callers (3.2):
+/// who a request is comes from where its process runs, never from the pane it names.
+#[test]
+fn a_caller_is_who_its_process_is() {
+    use crate::serve::testing::{proof, root};
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("w1:p2".into(), live("s-two", "two", "w1", Idle)), ("w1:p3".into(), live("s-three", "three", "w1", Idle))];
+    *fake.plain.lock().unwrap() = vec!["w1:p1".into()];
+    *fake.gone.lock().unwrap() = vec!["wM:p4".into()];
+    let port = real_service(fake.clone(), tmp.path());
+    let (p1, p2) = (root("w1:p1"), root("w1:p2"));
+    let tty = |pid: u32| format!("tty{pid}");
+    let run = |token: bool, says: Option<&str>, chain: Vec<crate::caller::Proc>| try_record(port, tmp.path(), token, says, Some(&proof(port, chain)));
+    let actor = |(code, text): (u16, String)| {
+        assert_eq!(code, 200, "{text}");
+        serde_json::from_str::<serde_json::Value>(&text).unwrap()["actor"].as_str().unwrap().to_string()
+    };
+    let refused = |(code, text): (u16, String), status: u16, words: &[&str]| {
+        assert_eq!(code, status, "{text}");
+        for w in words {
+            assert!(text.contains(w), "{w:?} not in: {text}");
+        }
+    };
+    let in_p1 = || vec![proc(901, p1, Some(&tty(p1)), "workriver"), proc(p1, 1, Some(&tty(p1)), "zsh")];
+    let in_p2 = || vec![proc(902, 802, None, "sleep"), proc(802, p2, Some(&tty(p2)), "node"), proc(p2, 1, Some(&tty(p2)), "zsh"), proc(1, 0, None, "launchd")];
+    // A harness's background service started from a pane that is gone, and its commands.
+    let helper = |tty: Option<&str>| vec![proc(56690, 15525, tty, "code-mode-host"), proc(15525, 69172, None, "app-server"), proc(69172, 1, None, "app-server")];
+
+    //  1, 2: a plain pane is the user's with the token, nobody's without.
+    assert_eq!(actor(run(true, Some("w1:p1"), in_p1())), "user");
+    refused(run(false, Some("w1:p1"), in_p1()), 401, &["Herdr lists no agent in pane w1:p1"]);
+    //  3, 5: an agent's pane is that agent's, token or not, named or not.
+    assert_eq!(actor(run(true, Some("w1:p2"), in_p2())), "s-two");
+    assert_eq!(actor(run(false, Some("w1:p2"), in_p2())), "s-two");
+    assert_eq!(actor(run(true, None, in_p2())), "s-two");
+    //  4, 6: naming another pane, or one that is gone, from an agent's pane.
+    refused(run(true, Some("w1:p3"), in_p2()), 403, &["says it runs in pane w1:p3, but its process sleep(902) > node(802) > zsh(", "runs in pane w1:p2", "workriver guide how hand-off"]);
+    refused(run(true, Some("wM:p4"), in_p2()), 403, &["pane wM:p4 (there is no pane wM:p4 any more)", "runs in pane w1:p2"]);
+    //  7: a terminal outside Herdr that names an agent's pane is not that agent.
+    refused(run(true, Some("w1:p3"), vec![proc(4703, 1, Some("ttys000"), "zsh")]), 403, &["says it runs in pane w1:p3", "runs in no pane"]);
+    //  8, 10, 12: in no pane and without a terminal: a helper or a background job, not the user.
+    refused(run(true, None, helper(None)), 403, &["process code-mode-host(56690) > app-server(15525) > app-server(69172) is in no pane and has no terminal", "workriver guide how hand-off"]);
+    refused(run(true, None, vec![proc(4714, 1, None, "python3")]), 403, &["is in no pane and has no terminal"]);
+    //  9: the incident (u9#2). A stale pane with no agent, and the token: refused, not the user.
+    refused(run(true, Some("wM:p4"), helper(None)), 403, &["says it runs in pane wM:p4 (there is no pane wM:p4 any more)", "runs in no pane"]);
+    // The same helper giving its command a terminal still names a pane it is not in.
+    refused(run(true, Some("wM:p4"), helper(Some("ttys026"))), 403, &["runs in no pane"]);
+    // 11: a job left behind by `( cmd & )` keeps its pane's terminal, and with it its pane.
+    assert_eq!(actor(run(true, None, vec![proc(94423, 1, Some(&tty(p1)), "sleep")])), "user");
+    assert_eq!(actor(run(false, None, vec![proc(94424, 1, Some(&tty(p2)), "sleep")])), "s-two");
+    // 13: a process that is gone was given no proof; one that is no longer kept is asked for again.
+    let (code, text) = http(port, "GET", "/api/status", &[("x-workriver-caller", "0123456789abcdef0123456789abcdef")], None);
+    assert!(code == 401 && text.to_lowercase().contains("x-workriver-caller: expired"), "{text}");
+    // 14, 15: the user's terminal outside Herdr, with the token and without.
+    assert_eq!(actor(run(true, None, vec![proc(4800, 1, Some("ttys000"), "zsh")])), "user");
+    refused(run(false, None, vec![proc(4800, 1, Some("ttys000"), "zsh")]), 401, &["does not show it comes from either"]);
+    // The token alone (`curl`, an older CLI) is nobody; so is nothing at all.
+    refused(try_record(port, tmp.path(), true, None, None), 401, &["does not show which process sends it", "CLI of this version"]);
+    refused(try_record(port, tmp.path(), true, Some("w1:p1"), None), 401, &["does not show which process sends it"]);
+    refused(try_record(port, tmp.path(), false, Some("w1:p2"), None), 401, &["does not show it comes from either"]);
+    // What is the user's alone asks the same of the process: not from an agent's pane.
+    let bearer = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let set = |chain| http(port, "POST", "/api/settings/stall", &[("authorization", bearer.as_str()), ("x-workriver-caller", proof(port, chain).as_str())], Some("{\"minutes\":7}"));
+    assert_eq!(set(in_p1()).0, 200);
+    let (code, text) = set(in_p2());
+    assert!(code == 403 && text.contains("only the user does this"), "{text}");
+    assert!(set(helper(None)).1.contains("has no terminal"));
+
+    // Nothing above was recorded as anyone it was not: three by the user, four by the agent.
+    let state = at_place(&client(port, tmp.path()), "w1:p1").get("/api/state").unwrap();
+    assert_eq!(state["intents"].as_array().unwrap().len(), 7, "{}", state["intents"]);
+    // No refusal names a harness.
+    for (_, text) in [run(true, Some("wM:p4"), helper(None)), run(true, None, helper(None)), try_record(port, tmp.path(), true, None, None)] {
+        let low = text.to_lowercase();
+        assert!(!["codex", "claude", "daemon"].iter().any(|h| low.contains(h)), "{text}");
+    }
+}
+
+/// `/api/here` answers about the pane the caller's process is in, not one it names.
+#[test]
+fn here_is_where_the_process_is() {
+    use crate::serve::testing::{proof, root};
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p2".into(), live("s-two", "two", "w1", Idle)), ("p3".into(), live("s-three", "three", "w2", Idle))];
+    let port = real_service(fake.clone(), tmp.path());
+    let p2 = root("p2");
+    let here = |says: Option<&str>, chain: Option<Vec<crate::caller::Proc>>| {
+        let given = chain.map(|c| proof(port, c));
+        let mut headers: Vec<(&str, &str)> = says.map(|p| ("x-workriver-place", p)).into_iter().collect();
+        headers.extend(given.as_deref().map(|p| ("x-workriver-caller", p)));
+        // An older CLI's body names a pane: it is not read.
+        let (code, text) = http(port, "POST", "/api/here", &headers, Some("{\"place\":\"p3\"}"));
+        (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
+    };
+    let in_p2 = || vec![proc(902, p2, None, "workriver"), proc(p2, 1, None, "zsh")];
+    for says in [None, Some("p2")] {
+        let (code, text) = here(says, Some(in_p2()));
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{code} {text}"));
+        assert_eq!((v["actor"].as_str(), v["name"].as_str(), v["group"]["id"].as_str()), (Some("s-two"), Some("two"), Some("w1")), "{v}");
+    }
+    let (code, text) = here(Some("p3"), Some(in_p2()));
+    assert!(code == 403 && text.contains("says it runs in pane p3") && text.contains("runs in pane p2"), "{text}");
+    // In no pane: nobody and no group; answered without the token, but not without a process.
+    let (code, text) = here(None, Some(vec![proc(4800, 1, Some("ttys000"), "zsh")]));
+    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null, "name": null, "group": null, "intent": null })));
+    let (code, text) = here(Some("p2"), None);
+    assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
+}
+
+/// Rule 5, one session, one pane: a session is its first pane's while that pane's root runs.
+#[test]
+fn a_session_is_one_panes() {
+    use crate::serve::testing::{of, root};
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p2".into(), live("SESS-A", "two", "w1", Idle))];
+    let port = real_service(fake.clone(), tmp.path());
+    let d = Daemon { port, place: None, home: None };
+    let who = |place: &str| at_place(&d, place).call("/api/here", Some(json!({}))).map(|h| h["actor"].as_str().unwrap_or("nobody").to_string()).map_err(|e| e.to_string());
+    let show = |list: &[(&str, &str)]| *fake.agents.lock().unwrap() = list.iter().map(|(p, s)| (p.to_string(), live(s, &format!("in-{p}"), "w1", Idle))).collect();
+
+    // The design's four lines.
+    assert_eq!(who("p2").unwrap(), "SESS-A");
+    show(&[("p2", "SESS-A"), ("p3", "SESS-A")]);
+    let e = who("p3").unwrap_err();
+    assert!(e.contains("session SESS-A was first seen in pane p2, whose shell still runs") && e.contains("close that pane, or start a new session here"), "{e}");
+    assert_eq!(who("p2").unwrap(), "SESS-A", "the first pane keeps it");
+    show(&[("p2", "SESS-X"), ("p3", "SESS-A")]);
+    assert_eq!(who("p2").unwrap(), "SESS-X", "a pane may start a new session");
+    assert!(who("p3").unwrap_err().contains("first seen in pane p2"), "while the first pane's root runs, the session is its only");
+    of(port).procs.kill(root("p2"));
+    show(&[("p3", "SESS-A")]);
+    assert_eq!(who("p3").unwrap(), "SESS-A", "what is left: a session whose pane is gone");
+
+    // Kept in a file, so a restart does not forget: SESS-A is p3's now.
+    let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(tmp.path().join("session-roots.json")).unwrap()).unwrap();
+    assert_eq!((kept["SESS-A"]["place"].as_str(), kept["SESS-A"]["pid"].as_u64()), (Some("p3"), Some(root("p3") as u64)), "{kept}");
+
+    // First seen at two roots in the same read: refused at both until one is left.
+    show(&[("p3", "SESS-A"), ("p5", "SESS-N"), ("p6", "SESS-N")]);
+    for p in ["p5", "p6"] {
+        let e = who(p).unwrap_err();
+        assert!(e.contains("session SESS-N shows in pane") && e.contains("at once"), "{e}");
+    }
+    show(&[("p3", "SESS-A"), ("p6", "SESS-N")]);
+    assert_eq!(who("p6").unwrap(), "SESS-N");
+
+    // A pane where the runtime knows no shell is not pinned: its session reported by another
+    // pane gets both refused, and a session pinned elsewhere is still refused there.
+    *fake.no_shell.lock().unwrap() = vec!["p7".into()];
+    show(&[("p3", "SESS-A"), ("p6", "SESS-N"), ("p7", "SESS-Q")]);
+    assert_eq!(who("p7").unwrap(), "SESS-Q");
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a regular read does not pin it either
+    show(&[("p3", "SESS-A"), ("p6", "SESS-N"), ("p7", "SESS-Q"), ("p8", "SESS-Q")]);
+    assert!(who("p8").unwrap_err().contains("at once") && who("p7").unwrap_err().contains("at once"));
+    show(&[("p3", "SESS-A"), ("p6", "SESS-N"), ("p7", "SESS-A")]);
+    assert!(who("p7").unwrap_err().contains("first seen in pane p3"));
+
+    // The regular read pins a session before its agent ever calls: a pane that reports it
+    // later is refused, and the agent's own first call is taken.
+    show(&[("p3", "SESS-A"), ("p9", "SESS-Z")]);
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    show(&[("p3", "SESS-A"), ("p9", "SESS-Z"), ("p6", "SESS-Z")]);
+    assert!(who("p6").unwrap_err().contains("first seen in pane p9"));
+    assert_eq!(who("p9").unwrap(), "SESS-Z");
+}
+
+/// What `WORKRIVER_ALLOW_AS=1` does, and no more: `--as` names an agent (never the user)
+/// for a caller with a proof, and a caller in no pane needs no terminal to be the user.
+#[test]
+fn allow_as_names_agents_and_drops_the_terminal() {
+    use crate::serve::testing::proof;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p2".into(), live("s-two", "two", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    wait_until("the service", || http(d.port, "GET", "/api/status", &[], None).0 == 200);
+    let port = d.port;
+    let bare = || proof(port, vec![proc(4714, 1, None, "cargo-test")]);
+    let (code, text) = try_record(port, tmp.path(), true, None, Some(&bare()));
+    assert!(code == 200 && text.contains("\"actor\":\"user\""), "no terminal asked for: {text}");
+    // The token for the user, the proof, and rule 1 all stay on.
+    assert_eq!(try_record(port, tmp.path(), false, None, Some(&bare())).0, 401);
+    assert_eq!(try_record(port, tmp.path(), true, None, None).0, 401);
+    assert!(try_record(port, tmp.path(), true, Some("p2"), Some(&bare())).1.contains("says it runs in pane p2"));
+    let bearer = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let named = |name: &str, given: Option<String>| {
+        let mut headers = vec![("authorization", bearer.as_str())];
+        headers.extend(given.as_deref().map(|p| ("x-workriver-caller", p)));
+        http(port, "POST", "/api/append", &headers, Some(&json!({ "as": name, "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()))
+    };
+    assert!(named("two", Some(bare())).1.contains("\"actor\":\"s-two\""));
+    let (code, text) = named("two", None);
+    assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
+    assert!(named("user", Some(bare())).1.contains("nobody records as \"user\" by saying so"));
+}
+
+/// Another machine (3.3): no socket of the kernel's vouches there, so the CLI sends its
+/// process id and the service reads its chain on that machine. Never the user.
+#[test]
+fn a_caller_on_another_machine_is_checked_there() {
+    use crate::serve::testing::{of, root};
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle)), ("w1:p2".into(), live("s-two", "two", "w1", Idle))];
+    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::serve::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (runtime, machines) = (all.clone(), all.clone());
+    std::thread::spawn(move || rt.block_on(crate::serve::serve_with(listener, store, runtime, crate::serve::Options { warning: None, waits: Default::default(), machines: Some(machines), allow_as: false, sample: false })));
+    crate::auth::Auth::open(tmp.path()).unwrap();
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let box_port = all.local_port("box").unwrap();
+    let procs = of(port).procs;
+    let (p1, p2) = (root("w1:p1"), root("w1:p2"));
+    let bearer = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let here = |says: Option<&str>, pid: Option<u32>| {
+        let pid = pid.map(|p| p.to_string());
+        let mut headers = vec![("authorization", bearer.as_str())];
+        headers.extend(says.map(|p| ("x-workriver-place", p)));
+        headers.extend(pid.as_deref().map(|p| ("x-workriver-pid", p)));
+        let (code, text) = http(box_port, "POST", "/api/here", &headers, Some("{}"));
+        (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
+    };
+    procs.set(7001, vec![proc(7001, p1, None, "workriver"), proc(p1, 1, None, "zsh")]);
+    procs.set(7002, vec![proc(7002, p2, None, "workriver"), proc(p2, 1, None, "zsh")]);
+    procs.set(7003, vec![proc(7003, p1, None, "curl"), proc(p1, 1, None, "zsh")]);
+    procs.set(7004, vec![proc(7004, 1, Some("pts/3"), "workriver")]);
+    let actor = |(code, text): (u16, String)| serde_json::from_str::<serde_json::Value>(&text).unwrap_or_else(|_| panic!("{code} {text}"))["actor"].clone();
+    // In its pane, named or not: that machine's agent there, whatever the token.
+    assert_eq!(actor(here(Some("w1:p1"), Some(7001))), "s-far");
+    assert_eq!(actor(here(None, Some(7002))), "s-two");
+    // Naming another pane; a process that is not the CLI, is gone, or is not given.
+    let (code, text) = here(Some("w1:p2"), Some(7001));
+    assert!(code == 403 && text.contains("says it runs in pane w1:p2") && text.contains("runs in pane w1:p1 on machine box"), "{text}");
+    for (pid, why) in [(Some(7003), "is not the `workriver` CLI"), (Some(7999), "is gone"), (None, "is not given")] {
+        let (code, text) = here(Some("w1:p1"), pid);
+        assert!(code == 401 && text.contains(why) && text.contains("on machine box"), "{pid:?}: {code} {text}");
+    }
+    // In no pane there: nobody, with a terminal or the token or both.
+    let record = |pid: u32| http(box_port, "POST", "/api/append", &[("authorization", bearer.as_str()), ("x-workriver-pid", &pid.to_string())], Some(&json!({ "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()));
+    let (code, text) = record(7004);
+    assert!(code == 401 && text.contains("is in no pane of the Herdr workriver follows on machine box"), "{text}");
+    assert!(record(7001).1.contains("\"actor\":\"s-far\""));
+    // This machine's proof is not read on a machine's listener, and its pid not on ours.
+    let local_proof = crate::serve::testing::proof(port, vec![proc(9, root("w1:p1"), None, "workriver"), proc(root("w1:p1"), 1, None, "zsh")]);
+    let (code, _) = http(box_port, "POST", "/api/here", &[("x-workriver-caller", &local_proof)], Some("{}"));
+    assert_eq!(code, 401);
+    let (code, text) = http(port, "POST", "/api/here", &[("x-workriver-pid", "7001")], Some("{}"));
+    assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
+
+    // Rule 5 there: pinned at its first call, from the root in the caller's own chain; another
+    // root that claims the session is refused while the first runs, and takes it once it is gone.
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle)), ("w1:p2".into(), live("s-far", "two", "w1", Idle))];
+    let (code, text) = here(None, Some(7002));
+    assert!(code == 403 && text.contains("session s-far was first seen in pane w1:p1 on machine box"), "{text}");
+    assert_eq!(actor(here(None, Some(7001))), "s-far");
+    procs.kill(p1);
+    assert_eq!(actor(here(None, Some(7002))), "s-far");
+}
+
+/// A command that lasts longer than its proof fetches a new one and goes on (`ask --wait`
+/// polls for minutes; a proof stands for thirty seconds).
+#[test]
+fn a_long_command_outlives_its_proof() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-two", "two", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    wait_until("the service", || http(d.port, "GET", "/api/status", &[], None).0 == 200);
+    // Every proof from here on stands for a third of a second.
+    crate::serve::testing::of(d.port).callers.set_ttl(std::time::Duration::from_millis(300));
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design it", "agent": "two" })).unwrap();
+    let boss = at_place(&d, "p1");
+    let asked = boss.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Which clock?", "context": [] }))).unwrap();
+    let id = asked["body"]["id"].as_str().unwrap().to_string();
+    wait_until("the agent is started and asked", || !fake.sent.lock().unwrap().is_empty());
+    let name = fake.started.lock().unwrap()[0].2.clone();
+    let before = crate::serve::testing::fetched(d.port);
+    let answerer = at_place(&d, &format!("place-{name}"));
+    let (q, started) = (id.clone(), std::time::Instant::now());
+    let answering = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(2300));
+        answerer.append("", "question.answered", json!({ "question": q, "text": "The wall clock." })).unwrap();
+    });
+    // Polls once a second: every poll after the first meets an expired proof.
+    let answer = crate::wait_answer(&boss, &id, std::time::Duration::from_secs(20)).unwrap();
+    answering.join().unwrap();
+    assert_eq!(answer, "The wall clock.");
+    assert!(started.elapsed() >= std::time::Duration::from_millis(2300));
+    assert!(crate::serve::testing::fetched(d.port) - before >= 3, "a new proof was fetched each time the old one had expired");
 }

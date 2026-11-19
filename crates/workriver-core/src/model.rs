@@ -335,7 +335,7 @@ pub struct NewTask {
 }
 
 /// Who a request was found to come from. The daemon works this out (a session of the web
-/// UI or the user's token; the agent at the caller's place in the runtime); it is never
+/// UI or the user's token; the agent in the place the calling process runs at); it is never
 /// taken from what the caller says. Events are recorded under `actor()`.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Principal {

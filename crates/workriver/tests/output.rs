@@ -32,7 +32,9 @@ fn serve_prints_nothing_that_signs_in() {
     };
     let log = tmp.path().join("serve.log");
     let out = std::fs::File::create(&log).unwrap();
-    let _serve = Serve(cli().args(["serve", "--terminal-app", ""]).env("RUST_LOG", "debug").stdout(out.try_clone().unwrap()).stderr(out).spawn().unwrap());
+    // A test run has no terminal, and outside every pane the user's commands need one: the
+    // service is started as tests start it (`WORKRIVER_ALLOW_AS=1` drops that, see security.md).
+    let _serve = Serve(cli().args(["serve", "--terminal-app", ""]).env("WORKRIVER_ALLOW_AS", "1").env("RUST_LOG", "debug").stdout(out.try_clone().unwrap()).stderr(out).spawn().unwrap());
     let until = Instant::now() + Duration::from_secs(20);
     let status = loop {
         let o = cli().arg("status").output().unwrap();
@@ -170,7 +172,8 @@ fn ctrl_c_stops_the_service() {
         c.env_remove(k);
     }
     let log = std::fs::File::create(tmp.path().join("serve.log")).unwrap();
-    let mut serve = Serve(c.args(["serve", "--terminal-app", ""]).stdout(log.try_clone().unwrap()).stderr(log).spawn().unwrap());
+    // As tests start it: the user's `open` below runs with no terminal.
+    let mut serve = Serve(c.args(["serve", "--terminal-app", ""]).env("WORKRIVER_ALLOW_AS", "1").stdout(log.try_clone().unwrap()).stderr(log).spawn().unwrap());
     let sleeping = || {
         let out = Command::new("pgrep").args(["-f", "^sleep 6123$"]).output().unwrap();
         String::from_utf8_lossy(&out.stdout).lines().count()
@@ -180,10 +183,19 @@ fn ctrl_c_stops_the_service() {
         assert!(Instant::now() < until, "the service or its tunnel did not start: {}", std::fs::read_to_string(tmp.path().join("serve.log")).unwrap_or_default());
         std::thread::sleep(Duration::from_millis(100));
     }
-    // The page's event stream, held open.
-    let token = std::fs::read_to_string(home.join("user-token")).unwrap();
+    // The page's event stream, held open: the page signs in with a one-time code and holds
+    // a session (the token alone shows no process and is nobody).
+    let printed = Command::new(BIN).env("WORKRIVER_HOME", &home).env("WORKRIVER_PORT", port.to_string()).env_remove("HERDR_PANE_ID").args(["open", "--print"]).output().unwrap();
+    let url = String::from_utf8_lossy(&printed.stdout).trim().to_string();
+    let code = url.split_once("#k=").unwrap_or_else(|| panic!("a link with a code: {printed:?}")).1.to_string();
+    let body = format!("{{\"code\":\"{code}\"}}");
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(s, "POST /api/session HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut signed = String::new();
+    s.read_to_string(&mut signed).unwrap();
+    let cookie = signed.lines().find(|l| l.to_lowercase().starts_with("set-cookie:")).expect("a session").split_once(':').unwrap().1.split(';').next().unwrap().trim().to_string();
     let mut sse = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    write!(sse, "GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {}\r\n\r\n", token.trim()).unwrap();
+    write!(sse, "GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").unwrap();
     let mut first = [0u8; 64];
     let n = sse.read(&mut first).unwrap();
     assert!(String::from_utf8_lossy(&first[..n]).starts_with("HTTP/1.1 200"), "{}", String::from_utf8_lossy(&first[..n]));

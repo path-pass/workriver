@@ -4,6 +4,22 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-19
 
+- **Your commands must run in your own pane** (everyone): workriver now takes who you are
+  from the process that runs the command (the kernel tells the service), not from the pane
+  the command names. Run in your pane, nothing changes. Refused, with the reason: a command
+  that names a pane its process is not in ("this command says it runs in pane X, but its
+  process … runs in pane Y / in no pane"), a command in no pane without a terminal, a
+  session shown by a second pane while its first pane's shell still runs ("one session is
+  one pane"), and any request that is not this build's `workriver` CLI (a `curl` with the
+  token: "does not show which process sends it"). Setting or unsetting `HERDR_PANE_ID`
+  changes nothing but the refusal. (`hand-off`)
+- **Workers whose harness runs commands in a shared background service** (managers): they
+  are refused at their first `workriver task start`. Start them so that they run their
+  commands themselves; the recipe says how to find the option. (`hand-off`)
+- **Files on another machine are fetched with a command** (workers there): messages and
+  `task show` print `workriver attach fetch <id>.<ext>` instead of a link for `curl`; it
+  saves the file in the folder you are in. The CLI there must be the service's build.
+  (`attachments`, `machines`)
 - **Architecture reviews** (managers, reviewers): a third reviewer, `workriver task add u1
   --kind review --reviewer architecture-review --after <n>`: after a design that sets the
   shape of the work it reviews the solution (boundaries, where data and state live,

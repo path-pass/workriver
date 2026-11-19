@@ -27,3 +27,12 @@ humantime = "2"
 tempfile = "3"
 
 [dev-dependencies]
+# `setsid` for a child with no terminal (tests/caller.rs); already in the lock file.
+libc = "0.2"
+
+# The chain of a caller's process (caller.rs): what `ps` reads, per system.
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc = "0.15.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+procfs = { version = "0.18.0", default-features = false }

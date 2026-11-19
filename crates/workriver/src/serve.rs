@@ -20,13 +20,14 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{broadcast, watch};
 use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
-use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{AgentState, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode, Store};
 use workriver_scan as scan;
 
 use crate::machines::Machines;
 use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
+use crate::caller::{self, Callers, Chain, Pin, Pins, Procs};
 use crate::{ask, attachments, deliver, run};
 use crate::snapshot::{self, Cache};
 
@@ -93,8 +94,15 @@ pub struct App {
     tunnels: Mutex<Vec<(String, bool)>>,
     /// Who the user is: the token, sessions of the page, one-time codes.
     auth: Auth,
-    /// A caller may name the agent it records as (`--as`): for tests and development only.
+    /// A caller may name the agent it records as (`--as`), and one in no pane needs no
+    /// terminal to be the user: for tests and development only.
     allow_as: bool,
+    /// The proofs given to the processes that connected to the caller socket.
+    callers: Arc<Callers>,
+    /// Reads a process's chain of parents: this system's (a test gives its own).
+    procs: Arc<dyn Procs>,
+    /// One session, one place: the root each session was first seen at.
+    pins: Pins,
     /// Held while the list of managers told of this build is read and written.
     told: Mutex<()>,
     /// Commands the user is about to run (prepared, shown in the confirm dialog) and those run,
@@ -163,12 +171,20 @@ pub const BUILD: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WORKRIVER
 struct Caller {
     /// The followed machine whose listener it came in on; none: this machine's.
     machine: Option<String>,
-    /// It carries the user token, or a session of the page from our own origin. Never on a
-    /// machine's listener: a caller on another machine is never the user.
-    user: bool,
-    /// The Herdr pane the CLI says it runs in, if any: with an agent there it is that
-    /// agent's command and never the user's, token or not.
+    /// It carries the user token. Never on a machine's listener: a caller on another machine
+    /// is never the user. The token alone makes nobody the user: its process does (`chain`).
+    token: bool,
+    /// It carries a session of the page from our own origin: the user in a browser, which
+    /// has no process to check and needs none.
+    session: bool,
+    /// The pane the CLI says it runs in (`x-workriver-place`, the one carrier of it): only
+    /// cross-checked against where its process is.
     place: Option<String>,
+    /// The process that sends it, with its parents, as read when it connected to the caller
+    /// socket (this machine's listener only).
+    chain: Option<Chain>,
+    /// On a machine's listener: the process id the CLI gives (its word; checked over there).
+    pid: Option<u32>,
 }
 
 /// What else the daemon is started with.
@@ -283,8 +299,14 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     let (kick, kicked) = std::sync::mpsc::channel::<()>();
     let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
     if allow_as {
-        tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as). For tests and development only.");
+        tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as), and a command in no pane needs no terminal to be the user's. For tests and development only.");
     }
+    let callers = Arc::new(Callers::default());
+    #[cfg(not(test))]
+    let procs: Arc<dyn Procs> = Arc::new(caller::System);
+    #[cfg(test)]
+    let procs: Arc<dyn Procs> = testing::register(port, &callers);
+    caller::listen(&store_home, callers.clone(), procs.clone())?;
     let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::metrics::STEP);
     if sample {
         metrics.start();
@@ -293,6 +315,9 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         metrics,
         auth,
         allow_as,
+        callers,
+        procs,
+        pins: Pins::open(&store_home),
         told: Mutex::default(),
         store: Mutex::new(store),
         cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join("scan-cache").join("local.json"))),
@@ -526,6 +551,7 @@ impl App {
     /// Reads the runtime's agents; says "changed" when they differ, and marks delivered
     /// messages picked up when their receiver starts working.
     fn poll(&self) {
+        self.see_roots();
         let mut now = self.runtime.agents().ok();
         // A held question's new agent still not ready after its window waits for the user
         // (e.g. on a first-run prompt the runtime does not report): shown blocked.
@@ -831,48 +857,185 @@ impl App {
         }
     }
 
-    /// Who a request acts as. An agent is the agent at the caller's place in the runtime (on
-    /// the machine the request came from), whatever else it carries; the user is a caller at
-    /// no agent's place that carries the token or a session. Nobody is anyone by saying so,
-    /// except, where the daemon was started to allow it, an agent named with `--as`.
-    fn who(&self, caller: &Caller, place: Option<&str>, named: Option<&str>) -> Result<Principal, ApiError> {
+    /// Who a request acts as (docs/design/caller-identity.md). Never from what it says: the
+    /// agent is the one in the pane the calling process really runs in; the user is a caller
+    /// with the token in a plain pane, or in no pane at a terminal, or the page's session.
+    /// Every failure is a refusal; none falls through to the user or to another agent.
+    /// The one exception, where the daemon was started to allow it: an agent named with `--as`.
+    fn who(&self, caller: &Caller, named: Option<&str>) -> Result<Principal, ApiError> {
         let machine = caller.machine.as_deref();
         if let Some(name) = named.filter(|n| !n.is_empty()) {
             if !self.allow_as {
-                return Err(ApiError(StatusCode::FORBIDDEN, "--as is off: workriver takes the agent from the Herdr pane the command runs in (for tests, start the service with WORKRIVER_ALLOW_AS=1)".into()));
+                return Err(ApiError(StatusCode::FORBIDDEN, "--as is off: workriver takes the agent from the pane the command really runs in (for tests, start the service with WORKRIVER_ALLOW_AS=1)".into()));
             }
             if matches!(name, "user" | "workriver") {
                 return Err(ApiError(StatusCode::FORBIDDEN, format!("nobody records as {name:?} by saying so")));
             }
+            if machine.is_none() && caller.chain.is_none() {
+                return Err(self.no_process(caller));
+            }
             return Ok(Principal::Agent { session: self.session_of(name, None), machine: machine.map(str::to_string) });
         }
-        if let Some(place) = place.filter(|p| !p.is_empty()) {
-            let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(place, &e.to_string())))?;
-            if let Some(a) = at.agent {
-                self.seen(&a)?;
-                self.tell_of_update(&a.session, false);
-                return Ok(Principal::Agent { session: a.session, machine: a.machine });
+        if caller.session {
+            return Ok(Principal::User);
+        }
+        let chain = self.chain_of(caller)?;
+        match self.pane(caller, &chain)? {
+            Some(root) => match &root.at.agent {
+                Some(a) => {
+                    self.one_pane(machine, &root, a, &chain)?;
+                    self.seen(a)?;
+                    self.tell_of_update(&a.session, false);
+                    Ok(Principal::Agent { session: a.session.clone(), machine: a.machine.clone() })
+                }
+                None if machine.is_none() && caller.token => Ok(Principal::User),
+                None => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_agent_at(&root.place))),
+            },
+            None => match machine {
+                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_pane_on(m, &caller::show(&chain)))),
+                None if !caller.token => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
+                // A helper of a harness, or a background job, has no terminal; the user at
+                // a terminal window has one.
+                None if self.allow_as || chain.first().is_some_and(|p| p.tty.is_some()) => Ok(Principal::User),
+                None => Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::no_terminal(&caller::show(&chain)))),
+            },
+        }
+    }
+
+    /// What a request on this machine that shows no process is told.
+    fn no_process(&self, caller: &Caller) -> ApiError {
+        ApiError(StatusCode::UNAUTHORIZED, if caller.token { crate::herdr::NO_PROCESS.into() } else { NOT_THE_USER.into() })
+    }
+
+    /// The calling process and its parents. This machine: as read when it connected to the
+    /// caller socket. Another machine: read there now, for the process id the CLI gives; that
+    /// is the caller's word, so the process must be running and be the CLI.
+    fn chain_of(&self, caller: &Caller) -> Result<Chain, ApiError> {
+        let Some(m) = caller.machine.as_deref() else {
+            return caller.chain.clone().ok_or_else(|| self.no_process(caller));
+        };
+        let refuse = |pid: Option<u32>, why: &str| ApiError(StatusCode::UNAUTHORIZED, crate::herdr::not_the_cli(m, pid, why));
+        let pid = caller.pid.ok_or_else(|| refuse(None, "is not given"))?;
+        let key = format!("{m}:{pid}");
+        let chain = match self.callers.chain(&key) {
+            Some(c) => c,
+            None => {
+                let c = self.procs.chain(Some(&self.runner(Some(m))?), pid).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("cannot read process {pid} on machine {m}: {e}")))?;
+                self.callers.keep(&key, c.clone());
+                c
             }
-            if machine.is_some() || !caller.user {
-                return Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_agent_at(place)));
+        };
+        match chain.first() {
+            None => Err(refuse(Some(pid), "is gone")),
+            Some(p) if p.name != "workriver" => Err(refuse(Some(pid), "is not the `workriver` CLI")),
+            Some(_) => Ok(chain),
+        }
+    }
+
+    /// The pane the calling process is in, if any (rule 1): a request that names another
+    /// pane than the one its process runs in is refused, with both said.
+    fn pane(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
+        let machine = caller.machine.as_deref();
+        let named = caller.place.as_deref();
+        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(named.unwrap_or("?"), &e.to_string()));
+        // The usual case costs one look: the process descends from the root of the pane it names.
+        if let Some(p) = named {
+            let there = self.runtime.roots(machine, Some(p)).map_err(cannot)?;
+            if let Some(r) = caller::pane_of(chain, &there, &|_| None) {
+                return Ok(Some(r.clone()));
             }
         }
-        self.user(caller)
+        let all = match self.runtime.roots(machine, None) {
+            Ok(all) => all,
+            // No runtime at all: there are no panes to be in.
+            Err(RuntimeError::None) if named.is_none() => vec![],
+            Err(e) => return Err(cannot(e)),
+        };
+        let runner = machine.map(|m| self.runner(Some(m))).transpose()?;
+        let tty_of = |pid: u32| self.procs.chain(runner.as_ref(), pid).ok()?.first()?.tty.clone();
+        let found = caller::pane_of(chain, &all, &tty_of).cloned();
+        match named {
+            Some(p) if found.as_ref().is_none_or(|r| r.place != p) => {
+                let gone = !all.iter().any(|r| r.place == p);
+                Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::elsewhere(p, gone, &caller::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
+            }
+            _ => Ok(found),
+        }
+    }
+
+    /// Whether a pinned root still runs: its process is there and started when it did. One
+    /// that cannot be asked (its machine is not reached) is taken to run.
+    fn runs(&self, pin: &Pin) -> bool {
+        let Ok(runner) = pin.machine.as_deref().map(|m| self.runner(Some(m))).transpose() else { return true };
+        match self.procs.chain(runner.as_ref(), pin.pid) {
+            Ok(c) => c.first().is_some_and(|p| p.start == pin.start),
+            Err(_) => true,
+        }
+    }
+
+    /// Rule 5, one session, one pane: which agent a pane holds is what the runtime was told,
+    /// and anyone may tell it. So a session is its first pane's while that pane's root runs:
+    /// the same session from another root is refused. `chain`: the caller's, which holds the
+    /// root's own line.
+    fn one_pane(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
+        // A pane where the runtime knows no shell has no root that stays: it is not pinned.
+        let mine = root.shell.and_then(|pid| chain.iter().find(|p| p.pid == pid).cloned().or_else(|| {
+            let runner = machine.map(|m| self.runner(Some(m))).transpose().ok()?;
+            self.procs.chain(runner.as_ref(), pid).ok()?.into_iter().next()
+        }));
+        let pin = self.pins.get(&a.session);
+        if let (Some(pin), Some(m)) = (&pin, &mine)
+            && (pin.machine.as_deref(), pin.pid, pin.start) == (machine, m.pid, m.start)
+        {
+            return Ok(());
+        }
+        if let Some(pin) = pin.filter(|p| self.runs(p)) {
+            return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::held(&a.session, &pin.place, pin.machine.as_deref())));
+        }
+        // First sight. On this machine every pane is looked at: a session nobody was seen
+        // with, shown in two panes at once, is neither's. (On another machine the pin goes
+        // to the first pane that calls.)
+        if machine.is_none()
+            && let Some(other) = self.runtime.roots(None, None).unwrap_or_default().iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session))
+        {
+            return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::twice(&a.session, &root.place, &other.place)));
+        }
+        if let Some(m) = mine {
+            self.pins.change(vec![(a.session.clone(), Some(Pin { machine: machine.map(str::to_string), place: root.place.clone(), pid: m.pid, start: m.start }))]);
+        }
+        Ok(())
+    }
+
+    /// The regular read of rule 5, on this machine: a session shown in one pane with a known
+    /// shell, and pinned to no root that runs, is pinned there; pins whose root is gone are
+    /// released. So a session is its pane's before its agent ever calls.
+    fn see_roots(&self) {
+        let Ok(roots) = self.runtime.roots(None, None) else { return };
+        let mut changes: Vec<(String, Option<Pin>)> = self.pins.all().into_iter().filter(|(_, p)| p.machine.is_none() && !self.runs(p)).map(|(s, _)| (s, None)).collect();
+        let shown: Vec<(&Root, &str)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?.session.as_str()))).collect();
+        for (root, session) in &shown {
+            let free = self.pins.get(session).is_none_or(|p| changes.iter().any(|(s, _)| s == session) || !self.runs(&p));
+            if !free || shown.iter().filter(|(_, s)| s == session).count() != 1 {
+                continue;
+            }
+            if let Some(p) = root.shell.and_then(|pid| self.procs.chain(None, pid).ok()?.into_iter().next()) {
+                changes.retain(|(s, _)| s != session);
+                changes.push((session.to_string(), Some(Pin { machine: None, place: root.place.clone(), pid: p.pid, start: p.start })));
+            }
+        }
+        self.pins.change(changes);
     }
 
     /// The user, or a refusal that says how to be the user.
     fn user(&self, caller: &Caller) -> Result<Principal, ApiError> {
-        // The token file can be read from an agent's pane on this machine; the CLI there says
-        // where it runs, and what runs in an agent's pane is the agent's doing.
-        if let Some(place) = caller.place.as_deref().filter(|_| caller.machine.is_none())
-            && self.runtime.locate(None, place).is_ok_and(|at| at.agent.is_some())
-        {
-            return Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command".into()));
+        if let Some(m) = &caller.machine {
+            return Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} is an agent of that machine, never the user")));
         }
-        match (&caller.machine, caller.user) {
-            (None, true) => Ok(Principal::User),
-            (Some(m), _) => Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} is an agent of that machine, never the user"))),
-            (None, false) => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
+        match self.who(caller, None)? {
+            Principal::User => Ok(Principal::User),
+            // The token file can be read from an agent's pane on this machine; what runs in
+            // an agent's pane is the agent's doing.
+            _ => Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command".into())),
         }
     }
 
@@ -1368,13 +1531,20 @@ impl App {
         }
     }
 
-    /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
-    /// time), and with `intent`, the intent following its group (created on first use).
-    /// Who and where the CLI is: the agent at its runtime place (recorded by name the first
-    /// time), its runtime group, and that group's current intent, if any.
-    fn here(&self, place: &str, machine: Option<&str>) -> Result<serde_json::Value, ApiError> {
-        let at = self.runtime.locate(machine, place).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+    /// Who and where the CLI is: the agent in the pane its process runs in (recorded by name
+    /// the first time), that pane's group, and the group's current intent, if any. In no
+    /// pane: nobody, in no group. Answered without the token, but not without a process.
+    fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
+        if caller.machine.is_none() && caller.chain.is_none() {
+            return Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::NO_PROCESS.into()));
+        }
+        let chain = self.chain_of(caller)?;
+        let Some(root) = self.pane(caller, &chain)? else {
+            return Ok(json!({ "actor": null, "name": null, "group": null, "intent": null }));
+        };
+        let at = &root.at;
         if let Some(a) = &at.agent {
+            self.one_pane(caller.machine.as_deref(), &root, a, &chain)?;
             self.seen(a)?;
         }
         let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
@@ -1418,13 +1588,14 @@ fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
 }
 
 /// What a caller that is nobody is told.
-const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
+const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the `workriver` CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
 
 /// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
 /// acts as the user or changes where workriver reaches asks for the user in its handler
 /// (`App::user`); recording and reading ask who the caller is (`App::who`, `App::view`: the
-/// user, or the agent at the caller's place, which on a blind task sees only its own). Only
-/// `status`, `here` and the session routes answer anyone local.
+/// user, or the agent in the pane the calling process runs in, which on a blind task sees
+/// only its own). Only `status` and the session routes answer anyone local; `here` answers
+/// any local process.
 fn router(app: Shared, via: Via) -> Router {
     Router::new()
         .route("/api/session", get(session).post(session_start))
@@ -1474,10 +1645,10 @@ async fn timing(req: Request, next: Next) -> Response {
     let started = std::time::Instant::now();
     let route = req.extensions().get::<axum::extract::MatchedPath>().map(|p| p.as_str().to_string()).unwrap_or_default();
     let method = req.method().to_string();
-    let who = req.extensions().get::<Caller>().map_or("none", |c| match (&c.machine, &c.place, c.user) {
+    let who = req.extensions().get::<Caller>().map_or("none", |c| match (&c.machine, &c.chain, c.session) {
         (Some(_), ..) => "machine",
-        (None, Some(_), _) => "pane",
-        (None, None, true) => "user",
+        (None, _, true) => "page",
+        (None, Some(_), _) => "cli",
         _ => "none",
     });
     let res = next.run(req).await;
@@ -1518,29 +1689,44 @@ fn machine_router(app: Shared, via: Via) -> Router {
 /// with our port (against DNS rebinding), and a POST from a page must come from our origin.
 /// On a followed machine's listener the port is the one its CLI uses over there.
 ///
-/// Also works out whether the request is the user's: it carries the user token; or a
-/// session cookie, which counts only from our own page. Against a forged request from
-/// another site we rely on the cookie being SameSite=Strict (the browser does not send it
-/// along) and, for anything but a GET, on the Origin header being there and ours.
+/// Also works out what the request shows of its sender: the user token; a session cookie,
+/// which counts only from our own page; the proof of its process (`x-workriver-caller`,
+/// from the caller socket), or on a machine's listener the process id it gives. Against a
+/// forged request from another site we rely on the cookie being SameSite=Strict (the browser
+/// does not send it along) and, for anything but a GET, on the Origin header being there and
+/// ours.
 async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut req: Request, next: Next) -> Response {
     let ours = [via.port, via.local].map(|p| [format!("127.0.0.1:{p}"), format!("localhost:{p}")]).concat();
     // Through a machine's tunnel the port over there is new with every connection: there,
     // any port of 127.0.0.1 or localhost (a name that resolves elsewhere is still refused).
     let fits = |h: &str| ours.iter().any(|o| o == h) || (via.machine.is_some() && h.rsplit_once(':').is_some_and(|(n, p)| matches!(n, "127.0.0.1" | "localhost") && p.parse::<u16>().is_ok()));
-    let (allowed, user) = {
+    let (allowed, token, session) = {
         let header = |h| req.headers().get(h).map(|v| v.to_str().unwrap_or(""));
         let host_ok = header(header::HOST).is_some_and(fits);
         let our_origin = header(header::ORIGIN).map(|o| o.strip_prefix("http://").is_some_and(fits));
         let get = req.method() == Method::GET;
         let origin_ok = get || our_origin.unwrap_or(true);
         let session = app.auth.session(header(header::COOKIE)) && (get || our_origin == Some(true));
-        (host_ok && origin_ok, via.machine.is_none() && (app.auth.bearer(header(header::AUTHORIZATION)) || session))
+        let here = via.machine.is_none();
+        (host_ok && origin_ok, here && app.auth.bearer(header(header::AUTHORIZATION)), here && session)
     };
     if !allowed {
         return (StatusCode::FORBIDDEN, "workriver answers only on 127.0.0.1 or localhost, from its own page").into_response();
     }
-    let place = req.headers().get("x-workriver-place").and_then(|v| v.to_str().ok()).filter(|p| !p.is_empty()).map(str::to_string);
-    req.extensions_mut().insert(Caller { machine: via.machine, user, place });
+    let (place, chain, pid) = {
+        let text = |h: &str| req.headers().get(h).and_then(|v| v.to_str().ok()).filter(|p| !p.is_empty()).map(str::to_string);
+        let (chain, pid) = match (&via.machine, text("x-workriver-caller")) {
+            (Some(_), _) => (None, text("x-workriver-pid").and_then(|p| p.parse().ok())),
+            (None, None) => (None, None),
+            (None, Some(proof)) => match app.callers.chain(&proof) {
+                Some(chain) => (Some(chain), None),
+                // A proof stands for thirty seconds; a command that lasts longer fetches another.
+                None => return (StatusCode::UNAUTHORIZED, [("x-workriver-caller", caller::EXPIRED)], "the proof of the calling process has expired; the `workriver` CLI fetches a new one and tries again").into_response(),
+            },
+        };
+        (text("x-workriver-place"), chain, pid)
+    };
+    req.extensions_mut().insert(Caller { machine: via.machine, token, session, place, chain, pid });
     next.run(req).await
 }
 
@@ -1577,11 +1763,10 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + S
     tokio::task::spawn_blocking(f).await.map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
 }
 
-/// Who reads: the caller's place in the runtime, as for what it records.
+/// Who reads is found as for what is recorded (`App::who`); a reader names nothing but,
+/// where the service allows it, `--as`.
 #[derive(Deserialize)]
 struct Reader {
-    #[serde(default)]
-    place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
     /// Without file texts, uncommitted work or trees.
@@ -1599,7 +1784,7 @@ impl App {
     /// Nobody else reads: a request that is neither the user's nor from an agent's place is
     /// refused.
     fn view(&self, caller: &Caller, r: &Reader) -> Result<core::State, ApiError> {
-        let who = self.who(caller, r.place.as_deref(), r.named.as_deref())?;
+        let who = self.who(caller, r.named.as_deref())?;
         let store = self.store.lock().unwrap();
         Ok(match &who {
             Principal::Agent { session, .. } => store.state().blind_view(session).unwrap_or_else(|| store.state().clone()),
@@ -1653,8 +1838,6 @@ struct ShowQuery {
     /// `u1#3`; none: the task the calling agent is on.
     #[serde(default)]
     task: Option<String>,
-    #[serde(default)]
-    place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
 }
@@ -1663,8 +1846,8 @@ struct ShowQuery {
 /// read; attachments are paths on this machine and links through the tunnel on another.
 async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
     blocking(move || {
-        let r = Reader { place: q.place.clone(), named: q.named, light: true, have: String::new() };
-        let who = app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
+        let r = Reader { named: q.named, light: true, have: String::new() };
+        let who = app.who(&caller, r.named.as_deref())?;
         let state = app.view(&caller, &r)?;
         let (unit, n) = match q.task.as_deref().filter(|t| !t.is_empty()) {
             Some(t) => core::parse_task_ref(t).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| bad(format!("{t:?} is not a task; write it as <unit>#<n>, e.g. u1#3")))?,
@@ -1693,7 +1876,7 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
             let a = state.attachments.iter().find(|a| a.id == id)?;
             let path = attachments::path(&app.home, &a.id, &a.name);
             Some(if remote {
-                format!("{}?place={}", crate::machines::attachment_url(&path.file_name()?.to_string_lossy()), q.place.as_deref().unwrap_or("$HERDR_PANE_ID"))
+                crate::machines::fetch_command(&path.file_name()?.to_string_lossy())
             } else {
                 path.display().to_string()
             })
@@ -1745,7 +1928,7 @@ async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>)
 
 /// Whether this request is the user's; the page shows nothing else until it is.
 async fn session(Extension(caller): Extension<Caller>) -> Json<serde_json::Value> {
-    Json(json!({ "user": caller.user }))
+    Json(json!({ "user": caller.session || (caller.token && caller.chain.is_some()) }))
 }
 
 #[derive(Deserialize)]
@@ -1777,9 +1960,6 @@ async fn session_code(State(app): State<Shared>, Extension(caller): Extension<Ca
 
 #[derive(Deserialize)]
 struct Append {
-    /// The caller's place in the runtime (its Herdr pane), which says which agent it is.
-    #[serde(default)]
-    place: Option<String>,
     /// `--as`: taken only where the daemon was started to allow it.
     #[serde(default, rename = "as")]
     named: Option<String>,
@@ -1792,7 +1972,7 @@ struct Append {
 async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
     blocking(move || {
-        let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
+        let who = app.who(&caller, a.named.as_deref())?;
         let e = app.record(&who, body)?;
         let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         // A manager that starts an intent of another project than its workspace's is told so.
@@ -1835,13 +2015,15 @@ async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
     if let Some(m) = &app.machines {
         m.listening(label, local_port);
     }
+    #[cfg(test)]
+    testing::also(local_port, app.port);
     Ok(local_port)
 }
 
 /// Read by the user and by agents of this machine (a refusal sends them here to see why a
 /// machine cannot be reached); changed by the user alone.
 async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
-    app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
+    app.who(&caller, r.named.as_deref())?;
     Ok(Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default()))
 }
 
@@ -1858,10 +2040,10 @@ struct MachineSet {
 }
 
 /// CPU and memory of this machine and the followed ones, with the thresholds: read by the
-/// user (the page) and by an agent at its place here (to weigh where to put work); set by
+/// user (the page) and by an agent in its pane here (to weigh where to put work); set by
 /// the user alone. Not on a machine's listener.
 async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::metrics::Report>, ApiError> {
-    app.who(&caller, r.place.as_deref(), r.named.as_deref())?;
+    app.who(&caller, r.named.as_deref())?;
     let mut report = app.metrics.report();
     // An agent on another machine sees that machine alone: nothing of this one or the others.
     if let Some(m) = caller.machine.as_deref() {
@@ -1875,8 +2057,6 @@ struct HistoryQuery {
     machine: String,
     #[serde(default = "a_day")]
     hours: u32,
-    #[serde(default)]
-    place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
 }
@@ -1886,9 +2066,9 @@ fn a_day() -> u32 {
 }
 
 /// One machine's minutes over the last `hours` (1 to 168), read as `GET /api/metrics` is:
-/// the user, or an agent at its place on this machine.
+/// the user, or an agent in its pane on this machine.
 async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
-    app.who(&caller, q.place.as_deref(), q.named.as_deref())?;
+    app.who(&caller, q.named.as_deref())?;
     if let Some(m) = caller.machine.as_deref().filter(|m| *m != q.machine) {
         return Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} reads that machine's history only")));
     }
@@ -2035,7 +2215,7 @@ struct Merge {
 /// Planned intents folded into one (`workriver backlog merge`, or the roadmap in the page).
 async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
     // The user, or an agent at its pane: the event rules keep the user's own intents the user's.
-    let who = app.who(&caller, caller.place.as_deref(), None)?;
+    let who = app.who(&caller, None)?;
     blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from, title: m.title }).map(Json)).await
 }
 
@@ -2496,9 +2676,6 @@ impl App {
 
 #[derive(Deserialize)]
 struct RunReview {
-    /// The reviewing agent's place in the runtime.
-    #[serde(default)]
-    place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
     verdict: core::Verdict,
@@ -2510,12 +2687,12 @@ struct RunReview {
 /// On a machine's listener too, for a review agent of that machine.
 async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Json(v): Json<RunReview>) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
-        let who = app.who(&caller, v.place.as_deref(), v.named.as_deref())?;
+        let who = app.who(&caller, v.named.as_deref())?;
         let text = v.text.trim().to_string();
         if text.is_empty() || text.chars().count() > run::REVIEW_CAP {
             return Err(bad(format!("a review says what the command does, in at most {} characters", run::REVIEW_CAP)));
         }
-        // The agent at the caller's place, as the runtime names it now: an agent started on a
+        // The agent in the caller's pane, as the runtime names it now: an agent started on a
         // first-run prompt was known by its pane then and by its harness's own session since.
         let named = match &who {
             Principal::Agent { session, machine } => app.runtime.agents().ok().and_then(|l| l.into_iter().find(|a| &a.session == session && &a.machine == machine)).map(|a| a.name),
@@ -2551,17 +2728,9 @@ async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Call
     .await
 }
 
-#[derive(Deserialize)]
-struct Here {
-    place: String,
-}
-
 /// The CLI asks who and where it is: see `App::here`.
 #[derive(Deserialize)]
 struct Ask {
-    /// The asking agent's place in the runtime; none: the user asks (the page).
-    #[serde(default)]
-    place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
     unit: String,
@@ -2580,9 +2749,6 @@ struct Ask {
 #[derive(Deserialize)]
 struct Upload {
     name: String,
-    /// The uploading agent's place in the runtime; none: the user uploads (the page).
-    #[serde(default)]
-    place: Option<String>,
     #[serde(default, rename = "as")]
     named: Option<String>,
     #[serde(default)]
@@ -2598,7 +2764,7 @@ struct Upload {
 async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Query(u): Query<Upload>, headers: axum::http::HeaderMap, body: axum::body::Bytes) -> Result<Json<serde_json::Value>, ApiError> {
     let given = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
     blocking(move || {
-        let who = app.who(&via, u.place.as_deref(), u.named.as_deref())?;
+        let who = app.who(&via, u.named.as_deref())?;
         // Only the last part of the name: it is shown, never used as a path.
         let name = Path::new(&u.name).file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).ok_or_else(|| bad("an attachment needs a file name".into()))?;
         let mime = attachments::mime(&name, given.as_deref());
@@ -2693,7 +2859,7 @@ async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>
     let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
     let starter = app.clone();
     let e = blocking(move || {
-        let who = app.who(&caller, a.place.as_deref(), a.named.as_deref())?;
+        let who = app.who(&caller, a.named.as_deref())?;
         app.record(&who, body)
     })
     .await?;
@@ -2716,8 +2882,9 @@ fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut snapsh
     hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
 }
 
-async fn here(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(h): Json<Here>) -> Result<Json<serde_json::Value>, ApiError> {
-    blocking(move || app.here(&h.place, via.machine.as_deref()).map(Json)).await
+/// The CLI asks who and where it is: see `App::here`. Nothing it sends is read for that.
+async fn here(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || app.here(&caller).map(Json)).await
 }
 
 // ---- the web UI, built into the binary (read from disk in debug builds) ----
@@ -2748,4 +2915,109 @@ pub async fn bind(port: u16) -> anyhow::Result<tokio::net::TcpListener> {
     tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .with_context(|| format!("cannot listen on 127.0.0.1:{port}; is workriver (or something else) already running there? Pick another with --port"))
+}
+
+/// What a test reaches of a running service: its proofs, and the processes it believes in.
+#[cfg(test)]
+pub mod testing {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use super::scan;
+    use crate::caller::{Callers, Chain, Proc, Procs};
+
+    /// Processes as tests make them up: a chain per process id; any other id is a root
+    /// (a pane's shell) that runs until it is killed.
+    #[derive(Default)]
+    pub struct FakeProcs {
+        chains: Mutex<HashMap<u32, Chain>>,
+        dead: Mutex<Vec<u32>>,
+    }
+
+    impl FakeProcs {
+        pub fn set(&self, pid: u32, chain: Chain) {
+            self.chains.lock().unwrap().insert(pid, chain);
+        }
+        pub fn kill(&self, pid: u32) {
+            self.dead.lock().unwrap().push(pid);
+        }
+    }
+
+    impl Procs for FakeProcs {
+        fn chain(&self, _: Option<&scan::Runner>, pid: u32) -> Result<Chain, String> {
+            if self.dead.lock().unwrap().contains(&pid) {
+                return Ok(vec![]);
+            }
+            if let Some(c) = self.chains.lock().unwrap().get(&pid) {
+                return Ok(c.clone());
+            }
+            Ok(if pid >= ROOTS { vec![shell(pid)] } else { vec![] })
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct Handle {
+        pub callers: Arc<Callers>,
+        pub procs: Arc<FakeProcs>,
+        fetched: Arc<AtomicU32>,
+    }
+
+    static SERVICES: Mutex<Option<HashMap<u16, Handle>>> = Mutex::new(None);
+
+    /// Ids from here up are roots, by the name of their place.
+    const ROOTS: u32 = 1_000_000;
+
+    /// The shell at the root of `place`, in every test's runtime.
+    pub fn root(place: &str) -> u32 {
+        ROOTS + place.bytes().fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) % 1_000_000
+    }
+
+    fn shell(pid: u32) -> Proc {
+        Proc { pid, parent: 1, tty: Some(format!("tty{pid}")), start: 1, name: "zsh".into() }
+    }
+
+    pub(super) fn register(port: u16, callers: &Arc<Callers>) -> Arc<FakeProcs> {
+        let procs = Arc::new(FakeProcs::default());
+        SERVICES.lock().unwrap().get_or_insert_default().insert(port, Handle { callers: callers.clone(), procs: procs.clone(), fetched: Arc::default() });
+        procs
+    }
+
+    /// A machine's listener leads to the same service.
+    pub(super) fn also(port: u16, main: u16) {
+        let h = of(main);
+        SERVICES.lock().unwrap().get_or_insert_default().insert(port, h);
+    }
+
+    /// The service listening on `port` (its own, or one of its machines').
+    pub fn of(port: u16) -> Handle {
+        SERVICES.lock().unwrap().as_ref().and_then(|s| s.get(&port).cloned()).unwrap_or_else(|| panic!("no service on port {port}"))
+    }
+
+    /// A proof for a process with this chain, as the caller socket would give it.
+    pub fn proof(port: u16, chain: Chain) -> String {
+        of(port).callers.admit(chain).unwrap()
+    }
+
+    /// How many proofs the test CLI fetched from the service on `port`.
+    pub fn fetched(port: u16) -> u32 {
+        of(port).fetched.load(Ordering::Relaxed)
+    }
+
+    /// What the CLI's `Daemon` sends in a test: a made-up `workriver` process at `place` (a
+    /// child of its root's shell; none: at a terminal in no pane), as a proof for this
+    /// machine's listener and as a process id for a machine's. None: no service on that port.
+    pub fn mint(port: u16, place: Option<&str>) -> Option<(String, u32)> {
+        static NEXT: AtomicU32 = AtomicU32::new(1000);
+        let h = SERVICES.lock().unwrap().as_ref().and_then(|s| s.get(&port).cloned())?;
+        let pid = NEXT.fetch_add(1, Ordering::Relaxed);
+        let me = |parent: u32, tty: String| Proc { pid, parent, tty: Some(tty), start: 5, name: "workriver".into() };
+        let chain = match place {
+            Some(p) => vec![me(root(p), format!("tty{}", root(p))), shell(root(p))],
+            None => vec![me(1, "ttys000".into())],
+        };
+        h.procs.set(pid, chain.clone());
+        h.fetched.fetch_add(1, Ordering::Relaxed);
+        Some((h.callers.admit(chain)?, pid))
+    }
 }

@@ -36,9 +36,12 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
   same build.
 - Storage: one SQLite database outside the repositories it watches, append-only events.
 - Agents report the content of their work (tasks, output, evidence, findings) by running
-  the `workriver` CLI from their shell, which every harness can do. The CLI sends where
-  it runs (under Herdr: `HERDR_PANE_ID`) and the service finds the agent there, so no
-  harness is configured or special-cased and nobody is anyone by saying so. The instructions
+  the `workriver` CLI from their shell, which every harness can do. The service finds the
+  caller's process itself (the kernel names who connected to its Unix socket) and the pane
+  that process runs in (its chain of parents against the pane roots the runtime gives); the
+  pane the CLI names (under Herdr: `HERDR_PANE_ID`) is only cross-checked. So no harness
+  is configured or special-cased and nobody is anyone by saying so
+  (`docs/design/caller-identity.md`). The instructions
   an agent needs travel inside the task message the manager sends it. MCP is not used
   for now; add it only if a harness that cannot run shell commands has to be supported.
 - Each intent (one Herdr workspace) has one manager agent of its own. It registers itself
@@ -102,8 +105,15 @@ outer crate with the daemon, the CLI and the Herdr runtime implementation.
   (`Body::user_only`). Never add a route that acts as the user without that; never serve
   such a route on a machine's listener (`machine_router` is an allow-list; add to it only
   what an agent's CLI on another machine needs); never pass an actor string taken from a
-  request into `record` (it takes a `Principal`). The CLI sends its pane with every
-  request (`x-workriver-place`); `App::user` refuses a caller whose pane holds an agent. Text written by agents or the user goes
+  request into `record` (it takes a `Principal`). Who a caller is
+  comes from its process, never from the request: the CLI fetches a proof from the caller
+  socket and sends it (`x-workriver-caller`); `App::who` finds the pane the process is in
+  and refuses a request that names another (`x-workriver-place`, the one carrier of the
+  named pane: never read a pane from a query or a body), one in no pane without a terminal,
+  and a session held by another pane whose root runs; `App::user` goes through `App::who`.
+  Every failure there is a refusal: no branch falls through to the user or to another
+  agent. No harness is named in code or in a refusal; what a harness needs is in the
+  `hand-off` recipe. Text written by agents or the user goes
   into messages only through `quote.rs`. Reading is scoped the same way: a route that
   returns records goes through `App::view` (the user sees all; an agent sees all unless it
   is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new

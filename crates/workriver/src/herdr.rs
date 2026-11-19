@@ -19,7 +19,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use workriver_core::RuntimeRef;
-use workriver_core::runtime::{AgentState, Place, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{AgentState, Place, Root, Runtime, RuntimeAgent, RuntimeError};
 
 /// The protocol this was written against (Herdr 0.9).
 pub const PROTOCOL: u64 = 22;
@@ -37,6 +37,50 @@ pub fn no_agent_at(place: &str) -> String {
 /// The same when the service cannot ask Herdr.
 pub fn cannot_ask(place: &str, why: &str) -> String {
     format!("cannot tell which agent runs in Herdr pane {place}: {why}. Is Herdr running and `workriver serve` started inside it? (As the user: use a terminal outside Herdr.)")
+}
+
+/// The recipe a refused caller is sent to: what to do when a command does not run in its pane.
+const RECIPE: &str = "`workriver guide how hand-off`";
+
+/// A request with the token but nothing that shows its process.
+pub const NO_PROCESS: &str = "this request does not show which process sends it: use the `workriver` CLI of this version (the same build as the service: `workriver status`), or the page (`workriver open`)";
+
+/// The command names one pane and its process runs in another, or in none.
+pub fn elsewhere(said: &str, gone: bool, process: &str, runs_in: Option<&str>, machine: Option<&str>) -> String {
+    let gone = if gone { format!(" (there is no pane {said} any more)") } else { String::new() };
+    let on = machine.map(|m| format!(" on machine {m}")).unwrap_or_default();
+    let really = match runs_in {
+        Some(p) => format!("in pane {p}{on}"),
+        None => format!("in no pane of the Herdr workriver follows{on}"),
+    };
+    format!("this command says it runs in pane {said}{gone}, but its process {process} runs {really}; workriver takes the agent from the pane the command really runs in, never from what it says. An agent runs workriver from its own pane; if its commands do not run there, see {RECIPE}")
+}
+
+/// A caller in no pane and without a terminal, with the user token.
+pub fn no_terminal(process: &str) -> String {
+    format!("process {process} is in no pane and has no terminal: workriver cannot tell whose command this is. As the user: a terminal window, or the page (`workriver open`). An agent: from its own pane; if its commands do not run there, see {RECIPE}")
+}
+
+/// A caller on another machine whose process is in no pane there.
+pub fn no_pane_on(machine: &str, process: &str) -> String {
+    format!("process {process} is in no pane of the Herdr workriver follows on machine {machine}: an agent there runs workriver from its own pane; if its commands do not run there, see {RECIPE}")
+}
+
+/// A process on another machine that is gone, or is not the CLI.
+pub fn not_the_cli(machine: &str, pid: Option<u32>, why: &str) -> String {
+    let which = pid.map(|p| format!("process {p}")).unwrap_or_else(|| "the calling process".into());
+    format!("{which} on machine {machine} {why}: workriver answers the `workriver` CLI of this version there, run by an agent from its own pane")
+}
+
+/// The session a pane shows is held by another pane whose root still runs.
+pub fn held(session: &str, pane: &str, machine: Option<&str>) -> String {
+    let on = machine.map(|m| format!(" on machine {m}")).unwrap_or_default();
+    format!("session {session} was first seen in pane {pane}{on}, whose shell still runs; one session is one pane: close that pane, or start a new session here")
+}
+
+/// Two panes show one session nobody was seen with before.
+pub fn twice(session: &str, here: &str, there: &str) -> String {
+    format!("session {session} shows in pane {here} and in pane {there} at once, and workriver has seen it in neither before: it takes it from neither. One session is one pane: close one of them, or start a new session in one")
 }
 
 /// How an agent may ask another agent one question through Herdr's own CLI.
@@ -275,7 +319,9 @@ fn agents_of(snap: &Snap, machine: Option<&str>) -> Vec<(String, RuntimeAgent)> 
             let agent = RuntimeAgent {
                 // Without a session id of the harness's own, the pane is the ref; a machine's
                 // pane ids repeat this machine's, so they carry its label.
-                session: a.agent_session.as_ref().map(|s| s.value.clone()).unwrap_or_else(|| match machine {
+                // An id of that form is ours alone to give: a pane that reports one as its
+                // session is named by the pane it is in, never as the pane it names.
+                session: a.agent_session.as_ref().map(|s| s.value.clone()).filter(|v| !v.starts_with("herdr:")).unwrap_or_else(|| match machine {
                     Some(m) => format!("herdr:{}", remote_ref(&a.pane_id, m)),
                     None => format!("herdr:{}", a.pane_id),
                 }),
@@ -411,6 +457,27 @@ impl Runtime for Herdr {
                 (agent, pids)
             })
             .collect())
+    }
+
+    /// One `pane.process_info` per pane asked for. A pane Herdr does not list, or no longer
+    /// answers for, is not there.
+    fn roots(&self, _: Option<&str>, place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
+        let (snap, list) = self.read()?;
+        let mut panes: Vec<(&str, &str)> = snap.panes.iter().map(|p| (p.pane_id.as_str(), p.workspace_id.as_str())).collect();
+        for a in &snap.agents {
+            if !panes.iter().any(|(p, _)| *p == a.pane_id) {
+                panes.push((&a.pane_id, &a.workspace_id));
+            }
+        }
+        let mut out = vec![];
+        for (pane, workspace) in panes.into_iter().filter(|(p, _)| place.is_none_or(|x| x == *p)) {
+            let Ok(r) = self.call("pane.process_info", json!({ "pane_id": pane })) else { continue };
+            let info = &r["process_info"];
+            let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
+            let agent = list.iter().find(|(p, _)| p == pane).map(|(_, a)| a.clone());
+            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent, group: group(&snap, workspace, self.label()) } });
+        }
+        Ok(out)
     }
 
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
@@ -620,5 +687,58 @@ mod tests {
         let seen = server.join().unwrap();
         assert_eq!(seen[1]["method"], "pane.process_info");
         assert_eq!(seen[1]["params"], json!({ "pane_id": "w5:p1" }));
+    }
+    /// A session id is the harness's own. One of the form workriver gives a pane without an
+    /// id (`herdr:<pane>`) is not taken from a report: the agent is named by the pane it is in.
+    #[test]
+    fn a_reported_pane_name_is_not_a_session() {
+        let mut snap = snapshot();
+        let agents = snap["result"]["snapshot"]["agents"].as_array_mut().unwrap();
+        agents[4]["agent_session"] = json!({ "agent": "claude", "kind": "id", "source": "report", "value": "herdr:w5:p1" });
+        agents[3]["agent_session"] = json!({ "agent": "claude", "kind": "id", "source": "report", "value": "s-9" });
+        let (_dir, herdr, _server) = fake(vec![snap]);
+        let list = herdr.agents().unwrap();
+        let sessions: Vec<&str> = list.iter().map(|a| a.session.as_str()).collect();
+        assert_eq!(sessions, ["s-1", "herdr:w5:p2", "herdr:w5:p4", "s-9"], "{sessions:?}");
+        // On another machine the pane's name carries the machine.
+        let far = agents_of(&serde_json::from_value(json!({ "agents": [{ "pane_id": "w1:p2", "workspace_id": "w1", "agent": "claude", "agent_session": { "value": "herdr:w1:p1@box" } }] })).unwrap(), Some("box"));
+        assert_eq!(far[0].1.session, "herdr:w1:p2@box");
+    }
+
+    /// The root of one place, or of all: its shell, what is in front, and what is there.
+    #[test]
+    fn reads_the_root_of_a_place() {
+        let info = |shell: Value, fg: Value| json!({ "result": { "type": "pane_process_info", "process_info": { "pane_id": "x", "shell_pid": shell, "foreground_processes": fg } } });
+        let refused = || json!({ "error": { "code": "pane_not_found", "message": "gone" } });
+        let (_dir, herdr, server) = fake(vec![snapshot(), info(json!(100), json!([{ "pid": 101 }]))]);
+        let got = herdr.roots(None, Some("w5:p1")).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].place.as_str(), got[0].shell, &got[0].front, got[0].pids()), ("w5:p1", Some(100), &vec![101], vec![100]));
+        assert_eq!((got[0].at.agent.as_ref().map(|a| a.session.as_str()), got[0].at.group.as_ref().map(|g| g.label.as_str())), (Some("s-1"), Some("chat")));
+        assert_eq!(server.join().unwrap()[1]["params"], json!({ "pane_id": "w5:p1" }));
+        // A pane that is gone: asked of nobody, or refused by Herdr, it is not there.
+        let (_dir, herdr, server) = fake(vec![snapshot()]);
+        assert!(herdr.roots(None, Some("wM:p4")).unwrap().is_empty());
+        assert_eq!(server.join().unwrap().len(), 1);
+        let (_dir, herdr, _server) = fake(vec![snapshot(), refused()]);
+        assert!(herdr.roots(None, Some("w5:p3")).unwrap().is_empty());
+        // Every place: plain panes too, and one where Herdr knows no shell.
+        let replies = vec![snapshot(), info(json!(100), json!([])), info(Value::Null, json!([{ "pid": 200 }, { "pid": 201 }])), info(json!(300), json!([])), refused(), info(json!(500), json!([]))];
+        let (_dir, herdr, _server) = fake(replies);
+        let all: Vec<(String, Vec<u32>, bool)> = herdr.roots(None, None).unwrap().into_iter().map(|r| (r.place.clone(), r.pids(), r.at.agent.is_some())).collect();
+        assert_eq!(all, [("w5:p1".into(), vec![100], true), ("w5:p2".into(), vec![200, 201], true), ("w5:p3".into(), vec![300], false), ("w5:p4".into(), vec![500], true)]);
+    }
+
+    #[test]
+    fn refusals_name_no_harness() {
+        let said = [elsewhere("wM:p4", true, "bash(7) > app(6)", None, None), elsewhere("w1:p3", false, "sleep(4)", Some("w1:p2"), Some("box")), no_terminal("bash(7)"), held("SESS-A", "w1:p2", None), twice("SESS-A", "w1:p2", "w1:p3"), NO_PROCESS.to_string()];
+        assert!(said[0].contains("says it runs in pane wM:p4 (there is no pane wM:p4 any more), but its process bash(7) > app(6) runs in no pane") && said[0].contains("workriver guide how hand-off"), "{}", said[0]);
+        assert!(said[1].contains("runs in pane w1:p2 on machine box"), "{}", said[1]);
+        assert!(said[2].contains("is in no pane and has no terminal") && said[2].contains("workriver guide how hand-off"), "{}", said[2]);
+        assert!(said[3].contains("session SESS-A was first seen in pane w1:p2, whose shell still runs") && said[3].contains("start a new session here"), "{}", said[3]);
+        for s in &said {
+            let low = s.to_lowercase();
+            assert!(!["codex", "claude", "daemon", "gemini"].iter().any(|h| low.contains(h)), "{s}");
+        }
     }
 }

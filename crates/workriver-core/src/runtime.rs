@@ -35,12 +35,35 @@ pub struct RuntimeAgent {
     pub machine: Option<String>,
 }
 
-/// What is at a place the CLI found in its environment (a runtime-specific string).
+/// What is at a place (a runtime-specific string).
 #[derive(Serialize, Clone, PartialEq, Debug, Default)]
 pub struct Place {
     /// The agent running there, if any (a plain shell has none).
     pub agent: Option<RuntimeAgent>,
     pub group: Option<RuntimeRef>,
+}
+
+/// A place with the processes at its root, as the ids its operating system gives them:
+/// every process started at the place descends from one of them.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Root {
+    pub place: String,
+    /// The place's own shell, when the runtime knows it.
+    pub shell: Option<u32>,
+    /// What is in front there now: the root when no shell is known. It changes.
+    pub front: Vec<u32>,
+    /// What is at the place.
+    pub at: Place,
+}
+
+impl Root {
+    /// The processes a caller at this place descends from.
+    pub fn pids(&self) -> Vec<u32> {
+        match self.shell {
+            Some(s) => vec![s],
+            None => self.front.clone(),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +105,13 @@ pub trait Runtime: Send + Sync {
     /// the processes at the root of its place (its shell): every process the agent starts
     /// descends from one of them. Read only when a machine alert needs it; by default, none.
     fn processes(&self, _machine: Option<&str>) -> Result<Vec<(RuntimeAgent, Vec<u32>)>, RuntimeError> {
+        Ok(vec![])
+    }
+    /// The root of `place` on `machine` (none: this one), or of every place there when no
+    /// place is named, read fresh; a place that is not there is not in the answer. This is
+    /// how the service finds the place a calling process really runs at. By default, no
+    /// place has a root the runtime knows.
+    fn roots(&self, _machine: Option<&str>, _place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
         Ok(vec![])
     }
     /// Types `line` into a new plain shell of the user's (no agent) on `machine` (none: this
@@ -149,6 +179,9 @@ impl Runtime for NoRuntime {
         Err(RuntimeError::None)
     }
     fn close(&self, _: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    fn roots(&self, _: Option<&str>, _: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
         Err(RuntimeError::None)
     }
 }

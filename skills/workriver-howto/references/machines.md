@@ -15,6 +15,12 @@ What a manager or worker can do:
     workriver workspace list                  # what is linked to what
     workriver status                          # on the other machine: must answer, same build
 
+On another machine the service checks a command there, not here: the CLI sends its process
+id, and the service reads that process's parents over ssh against that machine's Herdr. A
+command there must run in its agent's own pane like here (`hand-off`), is never the user,
+and needs the same build as the service (`updating`): an older CLI is refused with "the
+calling process on machine … is not given".
+
 How loaded each machine is (read-only, for you too; the user sets the alert thresholds). On
 another machine it shows that machine only:
 

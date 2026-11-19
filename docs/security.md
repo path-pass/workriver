@@ -7,11 +7,13 @@ decisions into their terminals, so the question it must answer is: **was that re
 
 - **You** are whoever holds the *user token*: a file only your account can read,
   `~/workriver-data/user-token` (made at the first start, mode 600).
-  - The CLI sends it when you run a command from a terminal that is not an agent's pane.
-    In an agent's pane the CLI says which pane it runs in, and the service then treats the
-    command as that agent's, token or not: a manager that runs `workriver machine add` is
-    refused. (This holds for the `workriver` CLI; see the limits below for a program that
-    sets out to get around it.)
+  - The CLI sends it with every command, and the token alone makes nobody you: the service
+    also looks at **the process that sends the command** (next section). You are a command
+    with the token that runs in a Herdr pane with no agent, or in a terminal window outside
+    Herdr. In an agent's pane a command is that agent's, token or not: a manager that runs
+    `workriver machine add` is refused. A request with the token that shows no process (a
+    `curl`, a script) is nobody. (See the limits below for a program that sets out to get
+    around it.)
   - The web UI gets a session for it: `workriver open` hands the browser a link that
     works once and for five minutes, without showing it (nothing that signs in is ever
     printed by the service either: Herdr panes can be read by agents; run `workriver open`,
@@ -20,14 +22,65 @@ decisions into their terminals, so the question it must answer is: **was that re
     read (HttpOnly) and that is not sent with requests from other sites (SameSite=Strict).
     Requests that change something must also come from workriver's own page (Origin
     check). Without a session the page shows only how to open it.
-- **An agent** is whoever runs in an agent's pane, found by the service from Herdr, not
-  from what the command says. In an agent's pane a command is always that agent's, even if
-  it can read the token. There is no `--as user`; `--as <agent>` works only when the service
-  was started with `WORKRIVER_ALLOW_AS=1` (tests, development) and never names the user.
+- **An agent** is whoever runs in an agent's pane: the service finds which pane the
+  command's process really runs in, and takes the agent Herdr shows there. What the command
+  says about its pane is only cross-checked. In an agent's pane a command is always that
+  agent's, even if it can read the token. There is no `--as user`.
 - **Another machine** you follow can report and ask, never act as you. Its agents reach the
   service through a listener of their own that serves an allow-list: who am I, record my
   work, ask and answer, attach and fetch files, read the board. No session, no token, no
   machine settings, no decisions there, whatever the request carries.
+
+## Which pane a command comes from
+
+The service does not believe the pane a command names. It reads it from the process:
+
+1. The CLI first connects to a Unix socket of the service, `~/workriver-data/caller.sock`
+   (mode 600). The kernel tells the service which process connected; the caller cannot
+   choose that. The service reads that process and its parents, up to the first process of
+   the system, and answers with a proof that stands for them for 30 seconds; the CLI sends
+   it with its requests (a command that lasts longer fetches another).
+2. Herdr tells the service the shell at the root of each pane. The command is **in the pane
+   whose shell is one of its parents** (or, for a job left running in the background, the
+   pane whose terminal it still has).
+3. Then:
+   - the command names a pane it is not in: **refused**, with both said;
+   - it is in an agent's pane: it is **that agent's**, token or not;
+   - it is in a pane with no agent: **yours** with the token, else refused;
+   - it is in no pane: **yours** with the token and a terminal, else refused. A helper
+     process of an agent's program, or a background job, has no terminal; you at a terminal
+     window have one.
+4. **One session, one pane.** Which agent a pane holds is what Herdr was told, and any
+   program of your account can tell it. So the service remembers the pane each session was
+   first seen in (`~/workriver-data/session-roots.json`): while that pane's shell runs, the
+   same session shown by another pane is refused. Two panes that show a session nobody was
+   seen with before are both refused.
+
+Every failure is a refusal that says why; none makes the caller you or another agent.
+
+What this means for you:
+
+- **An agent's `workriver` commands must run inside its own pane.** Some agent programs
+  hand their commands to a shared background service that was started somewhere else; such
+  a command is refused, and the refusal points at the recipe (`workriver guide how
+  hand-off`): start that worker so that it runs its commands itself.
+- **Your own commands without a terminal, outside Herdr** (cron, launchd, an editor's task
+  runner) are refused. Use a terminal or the page.
+- **A session resumed in a second pane** while its first pane is still open is refused
+  until you close the first.
+- **`curl` with the token** no longer works; use the CLI or the page.
+- The data directory's path must be short enough for a socket (about 100 bytes); the
+  service says so at start if it is not.
+
+On another machine there is no service to connect to. The CLI there sends its process id
+and the service reads that process's parents on that machine, through the same ssh
+connection, against that machine's Herdr. That is weaker: the id is the caller's word (the
+process must be running and be the `workriver` CLI). It stops a stale or mistaken pane, not
+a program that sets out to cheat; and a caller there is never you in any case.
+
+`WORKRIVER_ALLOW_AS=1` (tests and development only; the service warns at start) does two
+things: `--as <agent>` names an agent, never the user, for any local command; and a command
+in no pane needs no terminal to be yours. Everything else stays on.
 
 ## What only you can do
 
@@ -57,7 +110,8 @@ pushing); the manager makes them a gate step with the command, and the page can 
 you. That is the most powerful thing the page does, so:
 
 - **Only you.** The routes (`/api/run/prepare`, `/api/run`, reading a run and focusing its
-  terminal) ask for your token or session, refuse a caller whose pane holds an agent, and
+  terminal) ask for you (your session, or your token from a process that is yours: see
+  above), refuse a command that runs in an agent's pane, and
   are not served on another machine's listener. An agent cannot run anything this way, even
   with the token in reach.
 - **Only what you confirmed.** Preparing a run runs nothing: the service works out the
@@ -121,8 +175,8 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Commit messages and the repository.** The reviewer reads the code from git, and git
   also holds commit messages, other branches and whatever was committed. workriver's own
   views give only hashes; it cannot hide git. Reviewers are told to read the diff.
-- **Claiming another pane.** The CLI says which pane it runs in and the service believes
-  it. An agent that passes another agent's pane id reads as that agent.
+- **Being another agent.** Naming another agent's pane is refused. What is left takes more:
+  see "A session whose pane is gone" below.
 - **Files.** Agents run as you: the database and the attachments in `~/workriver-data`
   can be read from disk.
 - **Other terminals.** Herdr lets any agent read any pane's screen and type into it; what
@@ -132,11 +186,41 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 
 ## What this does not protect against
 
-Agents run under your account. A program that sets out to read the token file, or to type
-into another terminal, can. The token stops a request that merely claims to be you (a
-prompt-injected `curl`, a page in your browser, another machine), not a determined program
-on your machine. If agents work on input you do not trust, run them in a sandbox or under
-another account, where they cannot read `~/workriver-data`.
+Agents run under your account, and the check above does not change that. It stops the
+accident (a command that carries a stale or wrong pane) and the one-variable claim (naming
+a pane, or none, to be someone else); it stops a request that merely claims to be you (a
+prompt-injected `curl`, a page in your browser, another machine). It does not stop a
+determined program on your machine:
+
+- **A program that sets out to be you still can.** Read the token, start a process that
+  leaves its pane, give it a terminal of its own, call the socket: one line of shell. What
+  changed is that it takes that line.
+- **Herdr's own socket is your account's.** Any program can tell Herdr which agent a pane
+  holds, or close a pane.
+  - **A session whose pane is gone can be taken**: once the pane a session was first seen
+    in no longer runs, whoever reports that session for its own pane is that agent. A
+    program does not have to wait: it can close that pane through Herdr and then report its
+    session. It cannot do that unseen: the agent's terminal disappears.
+  - **An agent can be given another name** by a report for its pane: its next commands are a
+    new agent's and its own tasks refuse it. Nobody is impersonated; work stops.
+  - **A pane Herdr knows as an agent's only by report can be released** and is then a plain
+    pane: yours, with the token. Agents started with `herdr agent start` are not such panes.
+  - On another machine the session goes to the first pane that *calls* with it. A pane
+    where Herdr knows no shell is not remembered: its session shown by another pane gets
+    both refused.
+- **Typing into another terminal.** Herdr lets any agent type into any pane: a command
+  typed into another agent's pane is that agent's, one typed into a plain pane is yours.
+- **A background service that gives its commands a terminal**, started outside Herdr or
+  with no pane in its environment, is taken for you with the token: the terminal rule
+  catches the plain case only.
+- **An agent that runs outside Herdr at a terminal** (another terminal window) is you as far
+  as the service can tell.
+- **The files**: the token, the database, the attachments and `session-roots.json` can be
+  read and written from disk without the service.
+
+If agents work on input you do not trust, run them in a sandbox or under another account,
+where they cannot read `~/workriver-data` (they then cannot reach the caller socket either
+and cannot record; that is not supported yet).
 
 Other machines: workriver's own ssh connections never ask for anything, never forward your
 ssh agent and never accept an unknown host key (`BatchMode`, `ForwardAgent=no`,
@@ -146,5 +230,5 @@ connection and written there to `~/.config/workriver/port` (mode 600 under a 700
 directory); a machine's listener therefore takes any port of `127.0.0.1` or `localhost` as
 its Host, still refusing other names (a page served elsewhere cannot pose as it).
 
-Reading through the service needs an identity too (you, or an agent at its pane), but the
+Reading through the service needs an identity too (you, or an agent in its pane), but the
 files themselves are readable by every program running as you.

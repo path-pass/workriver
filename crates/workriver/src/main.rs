@@ -3,6 +3,7 @@ mod ask;
 mod attachments;
 mod auth;
 mod backlog;
+mod caller;
 mod deliver;
 mod herdr;
 mod machines;
@@ -38,10 +39,13 @@ Terms:
   finding  a problem a review, tests task or gate found: P1-1, P2-1… within its task
   chore    something asked of the user that blocks nobody (ids c1, c2…)
 
-Who records: the service finds it. In an agent's Herdr pane, that agent (by its session).
-From a terminal that is not an agent's pane, on the machine workriver runs on: the user
-(the CLI sends the user token, `<WORKRIVER_HOME>/user-token`). Nobody is anyone by saying
-so. Decisions as the user, gates, chores done, projects, machines and workspace links are
+Who records: the service finds it, from the process that runs this command (the kernel
+tells the service which process connected; the pane the CLI names is only cross-checked).
+A command run in an agent's Herdr pane is that agent's (by its session). One run in a pane
+with no agent, or in a terminal window outside Herdr, on the machine workriver runs on, is
+the user's (the CLI sends the user token, `<WORKRIVER_HOME>/user-token`). Anything else is
+refused: a command that names a pane it does not run in, one with no terminal in no pane,
+a request that is not this CLI's. Nobody is anyone by saying so. Decisions as the user, gates, chores done, projects, machines and workspace links are
 the user's alone. Inside a Herdr workspace the intent is the workspace's current one, so
 commands that take an intent may leave it out.
 
@@ -166,6 +170,8 @@ enum Cmd {
         timeout: u64,
     },
     /// Put files (screenshots, reports, logs) into workriver's store and print where they are.
+    /// The other way, on a machine the store is not on: `workriver attach fetch <link>` saves
+    /// a stored file into the current folder (a file of yours named `fetch`: `./fetch`).
     /// Better: save them in the task's folder from the start (`workriver attach --dir u1#3`);
     /// `task deliver` attaches everything there (a file whose name starts with a finding id,
     /// e.g. `P2-1-login.png`, goes with that finding).
@@ -880,11 +886,11 @@ fn main() -> anyhow::Result<()> {
         _ => {}
     }
     let place = herdr::place_from_env();
-    let d = Daemon { port: port_of(cli.port), place: place.clone(), home: Some(core::data_dir()) };
+    let d = Daemon { port: port_of(cli.port), place, home: Some(core::data_dir()) };
     if cli.actor.as_deref() == Some("user") {
         bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");
     }
-    // Who records, and in which intent, from the runtime place the CLI runs in.
+    // Who records, and in which intent, the service finds from the pane this process runs in.
     // Where it runs matters to these: the workspace's current intent, or the workspace itself.
     let needs_place = matches!(
         cli.cmd,
@@ -896,12 +902,7 @@ fn main() -> anyhow::Result<()> {
     let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks where it is
     // for the commands that need the workspace or its current intent.
-    let here = match &place {
-        Some(place) if records && needs_place => {
-            Some(d.call("/api/here", Some(json!({ "place": place }))).map_err(|e| anyhow!(herdr::cannot_ask(place, &e.to_string())))?)
-        }
-        _ => None,
-    };
+    let here = if records && needs_place { Some(d.call("/api/here", Some(json!({})))?) } else { None };
     let group = here.as_ref().map(|h| h["group"].clone()).filter(|g| !g.is_null());
     // `--as`, where the service allows it; else empty: whoever the service finds this to be.
     let actor = cli.actor.clone().unwrap_or_default();
@@ -944,9 +945,7 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Open { print } => {
             // An agent does not open the user's session for itself.
-            if let Some(p) = &place
-                && d.call("/api/here", Some(json!({ "place": p }))).is_ok_and(|h| h["actor"].is_string())
-            {
+            if d.call("/api/here", Some(json!({}))).is_ok_and(|h| h["actor"].is_string()) {
                 bail!("`workriver open` is the user's: run it from a terminal that is not an agent's pane");
             }
             let url = d.call("/api/session/code", Some(json!({ "printed": print })))?["url"].as_str().unwrap_or_default().to_string();
@@ -1210,6 +1209,19 @@ fn main() -> anyhow::Result<()> {
             if files.is_empty() {
                 bail!("name the files to attach, or use --dir <task> for the task's folder");
             }
+            // `workriver attach fetch <link>…`: the other way, a stored file into this folder.
+            if files[0] == "fetch" && files.len() > 1 {
+                for link in &files[1..] {
+                    let name = link.split(['?', '#']).next().unwrap_or_default().rsplit('/').next().unwrap_or_default();
+                    if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.') {
+                        bail!("{link:?} is not a stored file: give it as workriver printed it (<id>.<ext>, or its link)");
+                    }
+                    let bytes = d.fetch(name)?;
+                    std::fs::write(name, bytes).with_context(|| format!("cannot write {name} here"))?;
+                    println!("{}", std::env::current_dir().unwrap_or_default().join(name).display());
+                }
+                return Ok(());
+            }
             let link = task.as_deref().map(task_ref).transpose()?;
             for f in &files {
                 let file = PathBuf::from(f);
@@ -1344,8 +1356,8 @@ fn main() -> anyhow::Result<()> {
 
 struct Daemon {
     port: u16,
-    /// Where the CLI runs in the runtime (its Herdr pane): sent along, so the service can
-    /// tell which agent this is.
+    /// The pane the CLI finds in its environment: sent along (as a header and nowhere
+    /// else), and only cross-checked. Who this is, the service takes from this process.
     place: Option<String>,
     /// Where the user token is, if this machine has it; read for each request.
     home: Option<PathBuf>,
@@ -1408,31 +1420,84 @@ impl Daemon {
         seen.clone().map_err(|e| self.unreachable(e))
     }
 
+    /// The proof of this process from the service's caller socket (the kernel tells the
+    /// service who connected), fetched once per command, and this process's id. Where there
+    /// is no such socket (a machine workriver follows: the service is elsewhere) only the id
+    /// goes along, and the service checks it over there.
+    #[cfg(not(test))]
+    fn process(&self, fresh: bool) -> (Option<String>, u32) {
+        static PROOF: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+        let mut kept = PROOF.lock().unwrap();
+        if fresh || kept.is_none() {
+            *kept = self.home.as_deref().and_then(caller::fetch);
+        }
+        (kept.clone(), std::process::id())
+    }
+
+    /// In tests the client is a made-up process at `place` of the service on `port`.
+    #[cfg(test)]
+    fn process(&self, fresh: bool) -> (Option<String>, u32) {
+        type Kept = std::collections::HashMap<(u16, Option<String>), (String, u32)>;
+        static KEPT: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+        let mut kept = KEPT.lock().unwrap();
+        let kept = kept.get_or_insert_default();
+        let key = (self.port, self.place.clone());
+        if fresh || !kept.contains_key(&key) {
+            // A service a test has just started may not be there yet.
+            let made = (0..100).find_map(|_| serve::testing::mint(self.port, self.place.as_deref()).or_else(|| { std::thread::sleep(Duration::from_millis(50)); None }));
+            if let Some(made) = made {
+                kept.insert(key.clone(), made);
+            }
+        }
+        kept.get(&key).map_or((None, 0), |(proof, pid)| (Some(proof.clone()), *pid))
+    }
+
+    /// Sends a request (`make` adds the headers it is given) with everything that shows the
+    /// service who sends it. The token goes along whenever this machine has it: it makes this
+    /// the user only where the service finds this process in no agent's pane. A command that
+    /// lasts longer than its proof gets a new one and repeats the request, once.
+    fn send(&self, make: impl Fn(&[(&str, String)]) -> Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> anyhow::Result<ureq::http::Response<ureq::Body>> {
+        let token = self.token().map(|t| format!("Bearer {t}")).unwrap_or_default();
+        let mut fresh = false;
+        loop {
+            let (proof, pid) = self.process(fresh);
+            let headers = [("authorization", token.clone()), ("x-workriver-place", self.place.clone().unwrap_or_default()), ("x-workriver-caller", proof.unwrap_or_default()), ("x-workriver-pid", pid.to_string())];
+            let res = make(&headers).map_err(|e| self.unreachable(e))?;
+            let expired = res.headers().get("x-workriver-caller").is_some_and(|v| v == caller::EXPIRED);
+            if !expired || fresh {
+                return Ok(res);
+            }
+            fresh = true;
+        }
+    }
+
     fn call(&self, path: &str, body: Option<Value>) -> anyhow::Result<Value> {
         self.probe()?;
         let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_connect(Some(CONNECT)).timeout_global(Some(ANSWER)).build().into();
         let url = format!("http://127.0.0.1:{}{path}", self.port);
-        // The token goes along whenever this machine has it. It makes this the user only
-        // where the service finds no agent at this place; in an agent's pane it changes nothing.
-        let token = self.token().map(|t| format!("Bearer {t}")).unwrap_or_default();
-        // The place goes along with everything, so that the token never makes a command run
-        // in an agent's pane the user's.
-        let at = self.place.as_deref().unwrap_or_default();
-        let res = match body {
-            Some(b) => agent.post(&url).header("authorization", &token).header("x-workriver-place", at).send_json(b),
+        let mut res = self.send(|headers| match &body {
+            Some(b) => headers.iter().fold(agent.post(&url), |r, (k, v)| r.header(*k, v)).send_json(b),
             // Reading is as whoever this is, too.
-            None => match &self.place {
-                Some(p) => agent.get(&url).query("place", p).header("authorization", &token).header("x-workriver-place", at).call(),
-                None => agent.get(&url).header("authorization", &token).call(),
-            },
-        };
-        let mut res = res.map_err(|e| self.unreachable(e))?;
+            None => headers.iter().fold(agent.get(&url), |r, (k, v)| r.header(*k, v)).call(),
+        })?;
         let ok = res.status().is_success();
         let text = read_answer(&mut res)?;
         if !ok {
             bail!("{text}");
         }
         serde_json::from_str(&text).with_context(|| format!("unexpected answer from 127.0.0.1:{}: {text}", self.port))
+    }
+
+    /// A file of the service's store by its name there (`<id>.<ext>`), as whoever this is.
+    fn fetch(&self, name: &str) -> anyhow::Result<Vec<u8>> {
+        self.probe()?;
+        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_connect(Some(CONNECT)).timeout_global(Some(Duration::from_secs(120))).build().into();
+        let url = format!("http://127.0.0.1:{}/api/attachments/{name}", self.port);
+        let mut res = self.send(|headers| headers.iter().fold(agent.get(&url), |r, (k, v)| r.header(*k, v)).call())?;
+        if !res.status().is_success() {
+            bail!("{}", read_answer(&mut res)?);
+        }
+        res.body_mut().with_config().limit(256 * 1024 * 1024).read_to_vec().map_err(|e| anyhow!("the service answered, but its answer could not be read: {e}"))
     }
 
     fn get(&self, path: &str) -> anyhow::Result<Value> {
@@ -1443,12 +1508,12 @@ impl Daemon {
         self.home.as_deref().and_then(auth::read_token)
     }
 
-    /// What tells the service who this is: the place the CLI runs at; or, with `--as` (an
-    /// agent's name, where the service allows it), that name. "user" in tests: no place.
+    /// What a request says of who this is: nothing (the service finds it from this
+    /// process); or, with `--as` (an agent's name, where the service allows it), that name.
+    /// "user" in tests: nothing either.
     fn me(&self, actor: &str) -> Value {
         match actor {
-            "" => json!({ "place": self.place }),
-            "user" => json!({}),
+            "" | "user" => json!({}),
             name => json!({ "as": name }),
         }
     }
@@ -1462,24 +1527,20 @@ impl Daemon {
         self.probe()?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
         let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).timeout_connect(Some(CONNECT)).timeout_global(Some(Duration::from_secs(120))).build().into();
-        let mut req = agent
-            .post(format!("http://127.0.0.1:{}/api/attachments", self.port))
-            .query("name", &name)
-            .header("authorization", self.token().map(|t| format!("Bearer {t}")).unwrap_or_default())
-            .header("content-type", attachments::mime(&name, None));
         let me = self.me(actor);
-        for key in ["place", "as"] {
-            if let Some(v) = me[key].as_str() {
-                req = req.query(key, v);
+        let mut res = self.send(|headers| {
+            let mut req = headers.iter().fold(agent.post(format!("http://127.0.0.1:{}/api/attachments", self.port)), |r, (k, v)| r.header(*k, v)).query("name", &name).header("content-type", attachments::mime(&name, None));
+            if let Some(v) = me["as"].as_str() {
+                req = req.query("as", v);
             }
-        }
-        if let Some((unit, task, finding)) = link {
-            req = req.query("unit", unit).query("task", task.to_string());
-            if let Some(f) = finding {
-                req = req.query("finding", f);
+            if let Some((unit, task, finding)) = link {
+                req = req.query("unit", unit).query("task", task.to_string());
+                if let Some(f) = finding {
+                    req = req.query("finding", f);
+                }
             }
-        }
-        let mut res = req.send(&bytes[..]).map_err(|e| self.unreachable(e))?;
+            req.send(&bytes[..])
+        })?;
         let ok = res.status().is_success();
         let text = read_answer(&mut res)?;
         if !ok {
