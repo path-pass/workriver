@@ -10,39 +10,39 @@ use crate::common::home::PINS;
 
 /// The root a session was first seen at.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Pin {
+pub(super) struct Pin {
     /// The machine the root is on; none: this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-    pub place: String,
-    pub pid: u32,
-    pub start: u64,
+    pub(super) machine: Option<String>,
+    pub(super) place: String,
+    pub(super) pid: u32,
+    pub(super) start: u64,
 }
 
 /// One session, one place: each session with the root it was first seen at, kept in a file
 /// next to the database so that a restart does not forget.
-pub struct Pins {
+pub(in crate::server) struct Pins {
     path: PathBuf,
     map: Mutex<BTreeMap<String, Pin>>,
 }
 
 impl Pins {
-    pub fn open(home: &Path) -> Pins {
+    pub(in crate::server) fn open(home: &Path) -> Pins {
         let path = home.join(PINS);
         let map = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         Pins { path, map: Mutex::new(map) }
     }
 
-    pub fn get(&self, session: &str) -> Option<Pin> {
+    pub(super) fn get(&self, session: &str) -> Option<Pin> {
         self.map.lock().unwrap().get(session).cloned()
     }
 
-    pub fn all(&self) -> Vec<(String, Pin)> {
+    pub(super) fn all(&self) -> Vec<(String, Pin)> {
         self.map.lock().unwrap().iter().map(|(s, p)| (s.clone(), p.clone())).collect()
     }
 
     /// Sets (`Some`) or releases (`None`) pins, and writes the file when anything changed.
-    pub fn change(&self, changes: Vec<(String, Option<Pin>)>) {
+    pub(super) fn change(&self, changes: Vec<(String, Option<Pin>)>) {
         let mut map = self.map.lock().unwrap();
         let before = map.clone();
         for (session, pin) in changes {

@@ -16,12 +16,12 @@ use crate::common::process::{Chain, Proc, Procs, now};
 use super::auth;
 
 /// How long a proof stands for its process.
-pub const PROOF: Duration = Duration::from_secs(30);
+const PROOF: Duration = Duration::from_secs(30);
 
 /// The place a process is at: the one whose root is the process or the nearest of its
 /// parents; else the one whose root has the same controlling terminal (a job left behind by
 /// `( cmd & )` keeps it); else none. `tty_of`: the terminal of a root.
-pub fn place_of<'a>(chain: &[Proc], roots: &'a [Root], tty_of: &dyn Fn(u32) -> Option<String>) -> Option<&'a Root> {
+pub(super) fn place_of<'a>(chain: &[Proc], roots: &'a [Root], tty_of: &dyn Fn(u32) -> Option<String>) -> Option<&'a Root> {
     let own = chain.iter().find_map(|p| roots.iter().find(|r| r.pids().contains(&p.pid)));
     own.or_else(|| {
         let tty = chain.first()?.tty.as_ref()?;
@@ -30,7 +30,7 @@ pub fn place_of<'a>(chain: &[Proc], roots: &'a [Root], tty_of: &dyn Fn(u32) -> O
 }
 
 /// The proofs given out and the chain each stands for.
-pub struct Callers {
+pub(crate) struct Callers {
     proofs: Mutex<HashMap<String, (Chain, Instant)>>,
     ttl: Mutex<Duration>,
 }
@@ -43,7 +43,7 @@ impl Default for Callers {
 
 impl Callers {
     /// A new proof for `chain`; none when no random bytes can be read.
-    pub fn admit(&self, chain: Chain) -> Option<String> {
+    pub(in crate::server) fn admit(&self, chain: Chain) -> Option<String> {
         let proof = random()?;
         let now = Instant::now();
         let mut proofs = self.proofs.lock().unwrap();
@@ -53,12 +53,12 @@ impl Callers {
     }
 
     /// The chain a proof stands for, while it lasts.
-    pub fn chain(&self, proof: &str) -> Option<Chain> {
+    pub(in crate::server) fn chain(&self, proof: &str) -> Option<Chain> {
         self.proofs.lock().unwrap().get(proof).filter(|(_, until)| *until > Instant::now()).map(|(c, _)| c.clone())
     }
 
     #[cfg(test)]
-    pub fn set_ttl(&self, ttl: Duration) {
+    pub(in crate::server) fn set_ttl(&self, ttl: Duration) {
         *self.ttl.lock().unwrap() = ttl;
     }
 }
@@ -68,7 +68,7 @@ const PATH_MAX: usize = if cfg!(target_os = "macos") { 103 } else { 107 };
 
 /// Listens on `<home>/caller.sock` (only the account's own processes reach it) and answers
 /// each connection with a proof for the process that made it, as the kernel names it.
-pub fn listen(home: &Path, callers: Arc<Callers>, procs: Arc<dyn Procs>) -> anyhow::Result<()> {
+pub(in crate::server) fn listen(home: &Path, callers: Arc<Callers>, procs: Arc<dyn Procs>) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let path = home.join(SOCKET);
     let len = path.as_os_str().len();

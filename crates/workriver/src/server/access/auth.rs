@@ -18,16 +18,16 @@ use sha2::{Digest, Sha256};
 use crate::common::home::{read_token, token_path};
 
 /// The session cookie's name.
-pub const COOKIE: &str = "workriver_session";
+pub(in crate::server) const COOKIE: &str = "workriver_session";
 /// How long a session lasts; the page asks for a new one after that.
-pub const SESSION_DAYS: u64 = 30;
+pub(in crate::server) const SESSION_DAYS: u64 = 30;
 /// How long a one-time code can be used: one handed straight to the browser.
 const CODE_LIFE: Duration = Duration::from_secs(5 * 60);
 /// One printed in a terminal, where others may read it.
 const PRINTED_LIFE: Duration = Duration::from_secs(60);
 
 /// The sessions the page was given: a hash and the second it ends, one per line.
-pub fn sessions_path(home: &Path) -> PathBuf {
+fn sessions_path(home: &Path) -> PathBuf {
     home.join(crate::common::home::SESSIONS)
 }
 
@@ -40,18 +40,18 @@ fn now() -> u64 {
 }
 
 /// `bytes` random bytes from the system, as hex.
-pub fn random_hex(bytes: usize) -> std::io::Result<String> {
+pub(in crate::server) fn random_hex(bytes: usize) -> std::io::Result<String> {
     let mut buf = vec![0u8; bytes];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Equal, in time that does not depend on where they differ.
-pub fn same(a: &str, b: &str) -> bool {
+fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
-pub struct Auth {
+pub(in crate::server) struct Auth {
     token: String,
     /// One-time codes not yet used, with when each was made and how long it lasts.
     codes: Mutex<Vec<(String, Instant, Duration)>>,
@@ -63,7 +63,7 @@ pub struct Auth {
 
 impl Auth {
     /// Reads the token, making it first if there is none: 32 random bytes, for the user only.
-    pub fn open(home: &Path) -> std::io::Result<Auth> {
+    pub(in crate::server) fn open(home: &Path) -> std::io::Result<Auth> {
         let path = token_path(home);
         let token = match read_token(home) {
             Some(t) => t,
@@ -95,19 +95,19 @@ impl Auth {
     }
 
     #[cfg(test)]
-    pub fn with_code_life(mut self, life: Duration) -> Auth {
+    fn with_code_life(mut self, life: Duration) -> Auth {
         self.life = life;
         self
     }
 
     /// An `Authorization` header that carries the token.
-    pub fn bearer(&self, header: Option<&str>) -> bool {
+    pub(in crate::server) fn bearer(&self, header: Option<&str>) -> bool {
         header.and_then(|h| h.strip_prefix("Bearer ")).is_some_and(|t| same(t.trim(), &self.token))
     }
 
     /// A new one-time code for the page; `printed`: it will show in a terminal, so it
     /// lasts a minute only.
-    pub fn code(&self, printed: bool) -> std::io::Result<String> {
+    pub(in crate::server) fn code(&self, printed: bool) -> std::io::Result<String> {
         let code = random_hex(16)?;
         let mut codes = self.codes.lock().unwrap();
         codes.retain(|(_, at, life)| at.elapsed() < *life);
@@ -116,7 +116,7 @@ impl Auth {
     }
 
     /// Takes a code, once and in time: the session cookie's value for it.
-    pub fn redeem(&self, code: &str) -> Option<String> {
+    pub(in crate::server) fn redeem(&self, code: &str) -> Option<String> {
         let mut codes = self.codes.lock().unwrap();
         codes.retain(|(_, at, life)| at.elapsed() < *life);
         let k = codes.iter().position(|(c, _, _)| same(c, code))?;
@@ -149,7 +149,7 @@ impl Auth {
     }
 
     /// A `Cookie` header that carries a session of ours, given by `redeem` and not over.
-    pub fn session(&self, cookies: Option<&str>) -> bool {
+    pub(in crate::server) fn session(&self, cookies: Option<&str>) -> bool {
         let value = cookies.into_iter().flat_map(|c| c.split(';')).filter_map(|c| c.trim().strip_prefix(COOKIE)?.strip_prefix('=')).next();
         let Some(value) = value.filter(|v| !v.is_empty()) else { return false };
         let (h, now) = (hash(value), now());
