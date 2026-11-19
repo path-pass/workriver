@@ -157,7 +157,7 @@ fn every_command_keeps_its_options() {
     cmd.build();
     let mut got = String::new();
     tree(&cmd, "workriver", &mut got);
-    let path = crate_dir().join("src/tests/cli-tree.txt");
+    let path = crate_dir().join("src/cli/cli-tree.txt");
     if std::env::var("WORKRIVER_BLESS").is_ok_and(|v| v == "1") {
         std::fs::write(&path, &got).unwrap();
     }

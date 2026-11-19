@@ -423,3 +423,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod guards;
+#[cfg(test)]
+mod tests;
