@@ -3275,6 +3275,55 @@ fn asking_about_a_unit() {
     assert!(e.contains("workriver ask <unit>#<n>"), "{e}");
 }
 
+/// A task's inbox folder (`workriver attach --dir`) is made and named only for someone: the
+/// user, or an agent from its own place (here, or on another machine, where the CLI makes it
+/// itself). A process that is nobody learns nothing, not even whether the task exists.
+#[test]
+fn the_inbox_asks_who_calls() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let user = kernel.client(port, tmp.path());
+    let boss = kernel.daemon(port, Some("w1:p1".into()), None);
+    let far = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
+
+    let ask = json!({ "unit": "u1", "task": 1 }).to_string();
+    let folder = crate::attachments::inbox(tmp.path(), "u1", 1);
+    for (port, name) in [(port, "this machine"), (all.local_port("box").unwrap(), "another machine")] {
+        let (code, text) = http(port, "POST", "/api/attachments/inbox", &[], Some(&ask));
+        assert!(code == 401 && !text.contains("inbox"), "{name}: nobody got {code} {text}");
+        // Not even whether a task exists.
+        let (other, _) = http(port, "POST", "/api/attachments/inbox", &[], Some(&json!({ "unit": "u9", "task": 9 }).to_string()));
+        assert_eq!(other, code, "{name}");
+    }
+    assert!(!folder.exists(), "made for nobody");
+    assert_eq!(boss.call("/api/attachments/inbox", Some(json!({ "unit": "u1", "task": 1 }))).unwrap()["dir"], json!(folder));
+    assert!(folder.is_dir());
+    std::fs::remove_dir(&folder).unwrap();
+    assert_eq!(user.call("/api/attachments/inbox", Some(json!({ "unit": "u1", "task": 1 }))).unwrap()["dir"], json!(folder));
+    assert!(folder.is_dir());
+    // Over there the CLI makes the folder on its own disk.
+    assert_eq!(far.call("/api/attachments/inbox", Some(json!({ "unit": "u1", "task": 1 }))).unwrap(), json!({ "elsewhere": true }));
+    assert!(boss.call("/api/attachments/inbox", Some(json!({ "unit": "u9", "task": 1 }))).unwrap_err().to_string().contains("u9"));
+}
+
 /// Two uploads of the same content at once (the same file attached twice to a question, sent
 /// together): both are taken, and the store holds it once.
 #[test]

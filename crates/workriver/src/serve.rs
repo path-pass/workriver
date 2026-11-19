@@ -2792,14 +2792,19 @@ struct Inbox {
 
 /// A task's staging folder for screenshots and the like, made if needed.
 async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Json(i): Json<Inbox>) -> Result<Json<serde_json::Value>, ApiError> {
-    app.store.lock().unwrap().state().task(&i.unit, i.task)?;
-    // A caller on another machine keeps the folder on its own disk; the CLI makes it there.
-    if via.machine.is_some() {
-        return Ok(Json(json!({ "elsewhere": true })));
-    }
-    let d = attachments::inbox(&app.home, &i.unit, i.task);
-    attachments::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
-    Ok(Json(json!({ "dir": d })))
+    blocking(move || {
+        // Only someone (the user, or an agent from its own place) gets a folder made and named.
+        app.who(&via, None)?;
+        app.store.lock().unwrap().state().task(&i.unit, i.task)?;
+        // A caller on another machine keeps the folder on its own disk; the CLI makes it there.
+        if via.machine.is_some() {
+            return Ok(Json(json!({ "elsewhere": true })));
+        }
+        let d = attachments::inbox(&app.home, &i.unit, i.task);
+        attachments::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
+        Ok(Json(json!({ "dir": d })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]

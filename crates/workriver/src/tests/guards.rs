@@ -216,9 +216,7 @@ const PROBES: &[(&str, &str, &str)] = &[
 #[test]
 fn who_may_use_each_route() {
     use workriver_core::runtime::AgentState::*;
-    // Today the inbox folder of an existing task is made for any caller (no check of who
-    // asks); pinned as it is, reported in u13#4, not changed in a guard.
-    const ANYONE: &[(&str, &str)] = &[("GET", "/api/session"), ("HEAD", "/api/session"), ("GET", "/api/status"), ("HEAD", "/api/status"), ("POST", "/api/here"), ("POST", "/api/attachments/inbox")];
+    const ANYONE: &[(&str, &str)] = &[("GET", "/api/session"), ("HEAD", "/api/session"), ("GET", "/api/status"), ("HEAD", "/api/status"), ("POST", "/api/here")];
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
