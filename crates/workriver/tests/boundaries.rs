@@ -4,8 +4,9 @@
 //! restructure; a new file naming them fails, and a listed file that stops naming them must
 //! leave its list, so the lists only shrink. A moved file's line follows it in the same commit.
 //!
-//! Not counted: i18n key names (a dictionary's keys and a dotted key in quotes, such as
-//! 'machines.noHerdr': keys stay as they are, their texts count), and words used in
+//! Not counted: i18n key names (a dictionary's keys, and a quoted string that is one of
+//! those keys, such as 'machines.noHerdr': keys stay as they are, their texts count; any
+//! other quoted name, such as a runtime method "pane.close", counts), and words used in
 //! workriver's own sense (`OWN_SENSE`). `tab` and `workspace` are not checked: workriver
 //! has workspaces of its own (an intent runs in one), and `tab` names nothing of the
 //! runtime's in the sources outside the adapter.
@@ -78,9 +79,46 @@ fn sources(dir: &Path, ext: &[&str]) -> Vec<PathBuf> {
     out
 }
 
-/// The text without i18n key names: a dictionary's keys (`  noHerdr: '…'`, in `i18n/`) and
-/// quoted dotted keys (`'machines.noHerdr'`) anywhere in the page's code.
-fn without_keys(rel: &str, text: &str) -> String {
+/// The key of a dictionary line (`  noHerdr: '…'`, `  'runtime-down': '…'`, `  machines: {`),
+/// and what follows its colon.
+fn key_of(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim_start();
+    let (key, rest) = match line.strip_prefix('\'') {
+        Some(quoted) => quoted.split_once("':")?,
+        None => line.split_once(':')?,
+    };
+    (!key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')).then_some((key, rest))
+}
+
+/// Every key of the English dictionary (it defines the key set), by its dotted path, and each
+/// plural key also without its `_one`/`_other` (as `t()` names it).
+fn keys() -> BTreeSet<String> {
+    let text = std::fs::read_to_string(root().join("frontend/web/src/i18n/en.ts")).unwrap();
+    let body = text.split_once("export const en = {").expect("the dictionary").1;
+    let (mut at, mut out) = (Vec::<String>::new(), BTreeSet::new());
+    for line in body.lines() {
+        if line.trim_start().starts_with('}') {
+            at.pop();
+        } else if let Some((key, rest)) = key_of(line) {
+            if rest.trim() == "{" {
+                at.push(key.to_string());
+            } else {
+                let path = at.iter().map(String::as_str).chain([key]).collect::<Vec<_>>().join(".");
+                for plural in ["_one", "_other", "_zero", "_two", "_few", "_many"] {
+                    if let Some(base) = path.strip_suffix(plural) {
+                        out.insert(base.to_string());
+                    }
+                }
+                out.insert(path);
+            }
+        }
+    }
+    out
+}
+
+/// The text without i18n key names: a dictionary's keys (in `i18n/`) and quoted strings that
+/// are keys (`'machines.noHerdr'`) in the page's code. Nothing else is taken out.
+fn without_keys(rel: &str, text: &str, keys: &BTreeSet<String>) -> String {
     if !(rel.ends_with(".ts") || rel.ends_with(".tsx")) {
         return text.to_string();
     }
@@ -88,14 +126,8 @@ fn without_keys(rel: &str, text: &str) -> String {
     let mut out = String::new();
     for line in text.lines() {
         let mut line = line.to_string();
-        if dictionary {
-            let rest = line.trim_start();
-            if let Some((key, _)) = rest.split_once(':')
-                && !key.is_empty()
-                && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-            {
-                line = rest[key.len() + 1..].to_string();
-            }
+        if dictionary && let Some((_, rest)) = key_of(&line) {
+            line = rest.to_string();
         }
         let mut kept = String::new();
         let mut rest = line.as_str();
@@ -108,8 +140,7 @@ fn without_keys(rel: &str, text: &str) -> String {
                 continue;
             };
             let inner = &after[..end];
-            let key = inner.contains('.') && inner.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
-            if !key {
+            if !keys.contains(inner) {
                 kept += inner;
             }
             kept.push(q);
@@ -141,12 +172,13 @@ fn no_runtime_names_outside_the_adapter_but_those_still_listed() {
     let mut files = sources(&root.join("crates"), &["rs"]);
     files.extend(sources(&root.join("frontend/web/src"), &["ts", "tsx"]));
     let me = "crates/workriver/tests/boundaries.rs";
+    let keys = keys();
     for (word, still) in [("herdr", STILL_HERDR), ("pane", STILL_PANE)] {
         let found: BTreeSet<String> = files
             .iter()
             .map(|f| (f.strip_prefix(&root).unwrap().to_string_lossy().into_owned(), f))
             .filter(|(rel, _)| rel != me && rel != ADAPTER && !OWN_SENSE.iter().any(|(f, w, _)| f == rel && *w == word))
-            .filter(|(rel, f)| names(&without_keys(rel, &std::fs::read_to_string(f).unwrap()), word))
+            .filter(|(rel, f)| names(&without_keys(rel, &std::fs::read_to_string(f).unwrap(), &keys), word))
             .map(|(rel, _)| rel)
             .collect();
         let listed: BTreeSet<String> = still.iter().map(|s| s.to_string()).collect();
@@ -159,8 +191,12 @@ fn no_runtime_names_outside_the_adapter_but_those_still_listed() {
 
 #[test]
 fn key_names_and_own_words_do_not_count() {
-    let page = without_keys("frontend/web/src/components/Settings.tsx", "t('machines.noHerdr') + 'Herdr is down' + \"a.b\" + 'not a key'");
-    assert_eq!(page, "t('') + 'Herdr is down' + \"\" + 'not a key'\n");
-    assert_eq!(without_keys("frontend/web/src/i18n/en.ts", "    noHerdr: 'Herdr does not answer',"), " 'Herdr does not answer',\n");
+    let keys = keys();
+    assert!(keys.contains("machines.noHerdr") && keys.iter().any(|k| k.ends_with(".reason.runtime-down")) && keys.contains("unit.blocking"), "{keys:?}");
+    let page = without_keys("frontend/web/src/components/Settings.tsx", "t('machines.noHerdr') + 'Herdr is down' + \"pane.close\" + // \"pane.close\"", &keys);
+    assert_eq!(page, "t('') + 'Herdr is down' + \"pane.close\" + // \"pane.close\"\n");
+    assert!(names(&page, "pane"), "a quoted runtime method that is not a key counts");
+    assert_eq!(without_keys("frontend/web/src/i18n/en.ts", "    noHerdr: 'Herdr does not answer',", &keys), " 'Herdr does not answer',\n");
+    assert_eq!(without_keys("frontend/web/src/i18n/en.ts", "      'runtime-down': 'Herdr is not reachable',", &keys), " 'Herdr is not reachable',\n");
     assert!(names("in its pane.", "pane") && names("Panes", "pane") && !names("panel", "pane") && !names("a_pane", "pane"));
 }

@@ -132,7 +132,10 @@ fn every_route_answers_only_its_methods() {
             for m in METHODS {
                 let got = status(port, m, &path);
                 let declared = allowed.contains(&m) || (m == "HEAD" && allowed.contains(&"GET"));
-                if declared {
+                if m == "HEAD" && declared {
+                    // HEAD is GET without the body: it answers what GET answers, never more.
+                    assert_eq!(got, status(port, "GET", &path), "{name}: HEAD {route} answers otherwise than GET");
+                } else if declared {
                     assert!(got != 405 && got != 404, "{name}: {m} {route} is declared, yet answered {got}");
                 } else {
                     assert_eq!(got, 405, "{name}: {m} {route} is not declared, yet answered {got}");
@@ -203,7 +206,8 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("GET", "/api/attachments/x1", ""),
 ];
 
-/// Who may use each route, on both listeners: the status every route answers to a caller
+/// Who may use each route and method (HEAD too, wherever GET is), on both listeners: the
+/// status every route answers to a caller
 /// with nothing that names it, to an agent from its own place, and to the user (the user
 /// token, from a process in no agent's place; on a machine's listener, where no token
 /// counts, the same request). The service runs as it does for the user (no `--as`, a
@@ -214,7 +218,7 @@ fn who_may_use_each_route() {
     use workriver_core::runtime::AgentState::*;
     // Today the inbox folder of an existing task is made for any caller (no check of who
     // asks); pinned as it is, reported in u13#4, not changed in a guard.
-    const ANYONE: &[(&str, &str)] = &[("GET", "/api/session"), ("GET", "/api/status"), ("POST", "/api/here"), ("POST", "/api/attachments/inbox")];
+    const ANYONE: &[(&str, &str)] = &[("GET", "/api/session"), ("HEAD", "/api/session"), ("GET", "/api/status"), ("HEAD", "/api/status"), ("POST", "/api/here"), ("POST", "/api/attachments/inbox")];
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
@@ -249,18 +253,21 @@ fn who_may_use_each_route() {
         h.extend(token.map(|t| ("authorization".to_string(), t.to_string())));
         h
     };
-    // Every declared route and method has its probe.
+    // HEAD is asked wherever GET is (axum answers it there), as GET is asked: the same path.
+    let probes: Vec<(&str, &str, &str)> = PROBES.iter().copied().chain(PROBES.iter().filter(|(m, ..)| *m == "GET").map(|(_, p, _)| ("HEAD", *p, ""))).collect();
+    let answers = |ms: &[&str], m: &str| ms.contains(&m) || (m == "HEAD" && ms.contains(&"GET"));
+    // Every declared route and method, HEAD included, has its probe.
     for (r, ms) in LOCAL.iter().chain(MACHINE) {
-        for m in *ms {
-            assert!(PROBES.iter().any(|(pm, pp, _)| pm == m && fits(r, pp.split('?').next().unwrap())), "no probe for {m} {r}");
+        for m in ms.iter().copied().chain(ms.contains(&"GET").then_some("HEAD")) {
+            assert!(probes.iter().any(|(pm, pp, _)| *pm == m && fits(r, pp.split('?').next().unwrap())), "no probe for {m} {r}");
         }
     }
     let thresholds = serde_json::to_string(&crate::metrics::Thresholds::default()).unwrap();
     let mut got = String::new();
     for (listener, port, table) in [("local", port, LOCAL), ("machine", all.local_port("box").unwrap(), MACHINE)] {
-        for (method, path, body) in PROBES {
+        for (method, path, body) in &probes {
             let route = path.split('?').next().unwrap();
-            if !table.iter().any(|(r, ms)| fits(r, route) && ms.contains(method)) {
+            if !table.iter().any(|(r, ms)| fits(r, route) && answers(ms, method)) {
                 continue;
             }
             let (body, kind) = match *body {
