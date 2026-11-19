@@ -200,3 +200,6 @@ pub enum Reviewer {
     /// rules; workriver holds no style of its own.
     ArchitectureReview,
 }
+
+#[cfg(test)]
+mod tests;

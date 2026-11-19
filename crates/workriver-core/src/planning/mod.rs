@@ -8,3 +8,6 @@ mod units;
 pub use intents::*;
 pub use projects::*;
 pub use units::*;
+
+#[cfg(test)]
+mod tests;

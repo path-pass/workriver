@@ -67,3 +67,6 @@ impl Body {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

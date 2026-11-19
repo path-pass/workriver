@@ -14,6 +14,3 @@ pub use planning::*;
 pub use records::*;
 pub use work::*;
 pub use store::{Error, Store, data_dir, now};
-
-#[cfg(test)]
-mod tests;

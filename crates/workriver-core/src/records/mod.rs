@@ -11,6 +11,9 @@ use crate::work::*;
 mod body;
 pub use body::*;
 
+#[cfg(test)]
+pub(crate) mod tests;
+
 pub(crate) fn yes() -> bool {
     true
 }
