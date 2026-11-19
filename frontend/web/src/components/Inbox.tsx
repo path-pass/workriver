@@ -60,9 +60,9 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
   if (r.agent) {
     const a = r.agent
     return (
-      <button type="button" className="irow" data-kind="agent" aria-label={t('inbox.blockedAgent', { agent: a.name })} onClick={() => focusAgent(a.session ?? a.name)}>
+      <button type="button" className="irow" data-kind="agent" onClick={() => focusAgent(a.session ?? a.name)}>
         <Icon name="terminal" />
-        <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{a.name}</span></span>
+        <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{t('inbox.blockedAgent', { agent: a.name })}</span></span>
         <span className="meta">
           {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
           <span className="unit opacity-70" lang={contentLang(a.place)}>{a.place}</span>

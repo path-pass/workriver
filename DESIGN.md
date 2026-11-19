@@ -245,8 +245,8 @@ looked at now and then.
   row takes two lines. Groups, each behind a small header with its count, in this order,
   an empty one not drawn:
   1. **Blocking** – first, agents waiting for a person in their terminal (an approval, a
-     question; the runtime says "blocked"), across every workspace: the agent's mark and
-     name, its topic, its intent or workspace, how long it has waited; a click brings its
+     question; the runtime says "blocked"), across every workspace, filled violet, the
+     strongest rows: the agent's mark and "ja-impl is waiting for you in its terminal", its topic, its intent or workspace, how long it has waited; a click brings its
      terminal to the front, and the row leaves by itself once it is no longer waiting. Then
      workers that stopped without delivering: a running task whose agent sat idle past the
      threshold in Settings (10 min by default), was reminded of its task in its terminal, and
@@ -254,7 +254,7 @@ looked at now and then.
      12 min ago without delivering" (or "is gone"), quietly when it was reminded, the unit;
      the row opens the task, a terminal button of its own opens the terminal; it leaves by
      itself once the agent works again or the task is delivered or dropped. Then
-     gates waiting for the user; an agent cannot go on. Violet, the strongest rows. Both
+     gates waiting for the user; an agent cannot go on. Light violet. Both
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
      Settings, a newly waiting agent raises a browser notification that opens its terminal.
