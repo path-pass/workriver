@@ -207,4 +207,176 @@ impl State {
         }
         self.task_mut(&r.unit, r.task)?.findings.iter_mut().find(|f| f.found.id == r.finding)
     }
+
+    /// The rules of a finding's events: `prepare`, for these kinds.
+    pub(crate) fn prepare_findings(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        let actor = who.actor();
+        let user = *who == Principal::User;
+        Ok(match body {
+            FindingsBatched { intent, findings } => {
+                let i = self.intent(&intent)?;
+                if i.state != IntentState::Active {
+                    return no(format!("intent {intent} is {}; start it first (workriver intent start {intent} in its manager's pane)", name(&i.state)));
+                }
+                if findings.is_empty() {
+                    return no("a batch needs at least one finding");
+                }
+                for r in &findings {
+                    let f = self.finding(r)?;
+                    // A task's finding belongs to its intent; a backlog one to its intent, if any, or the project.
+                    let fits = if r.task == 0 {
+                        let b = self.backlog.iter().find(|b| b.finding.found.id == r.finding);
+                        b.is_some_and(|b| b.intent.as_deref().is_none_or(|x| x == intent))
+                    } else {
+                        self.intent_of(&r.unit) == Some(intent.as_str())
+                    };
+                    if !fits {
+                        return no(format!("finding {} is not part of intent {intent}", r.finding));
+                    }
+                    if f.state != FindingState::Deferred {
+                        return no(format!("finding {} is {}, not deferred", r.finding, name(&f.state)));
+                    }
+                }
+                FindingsBatched { intent, findings }
+            }
+            FindingAdded { project, intent, finding, source, note } => {
+                if blank(&project) {
+                    return no("a backlog finding needs its project (--project)");
+                }
+                if blank(&finding.problem) {
+                    return no("a finding needs its problem");
+                }
+                if let Some(i) = &intent {
+                    self.intent(i)?;
+                }
+                let mut finding = finding;
+                finding.id = format!("f{}", self.backlog.len() + 1);
+                FindingAdded { project, intent, finding, source, note }
+            }
+            FindingDropped { unit, task, finding, reason } => {
+                let f = self.finding(&FindingRef { unit: unit.clone(), task, finding: finding.clone() })?;
+                if !matches!(f.state, FindingState::Deferred | FindingState::Scheduled) {
+                    return no(format!("finding {finding} is {}; only deferred or scheduled ones are dropped", name(&f.state)));
+                }
+                if blank(&reason) {
+                    return no("dropping a finding needs a reason: --reason \"...\"");
+                }
+                FindingDropped { unit, task, finding, reason }
+            }
+            FindingNoted { unit, task, finding, text, attachments } => {
+                let t = self.task(&unit, task)?;
+                if !t.findings.iter().any(|f| f.found.id == finding) {
+                    return no(format!("{unit}#{task} has no finding {finding}"));
+                }
+                // By whoever reported it, the intent's manager, or the user.
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager && !self.is_agent_of(t, actor) {
+                    return no(format!("a finding of {unit}#{task} is added to by the agent that delivered it, the manager of its intent, or the user"));
+                }
+                if blank(&text) && attachments.is_empty() {
+                    return no("a note needs its text: --text \"...\" (or a file: --attach FILE)");
+                }
+                self.stored(attachments.iter())?;
+                FindingNoted { unit, task, finding, text, attachments }
+            }
+            FindingDecided { unit, task, finding, decision, note, .. } => {
+                let t = self.task(&unit, task)?;
+                let Some(f) = t.findings.iter().find(|f| f.found.id == finding) else { return no(format!("{unit}#{task} has no finding {finding}")) };
+                let to = match decision {
+                    Decision::Accept => FindingState::Accepted,
+                    Decision::Revise => FindingState::Revised,
+                    Decision::Reject => FindingState::Rejected,
+                    Decision::Defer => FindingState::Deferred,
+                };
+                // A decision is made once; only the user changes one afterwards (the manager's,
+                // or their own), and only while nothing was built on its being put off.
+                let was = match f.state {
+                    FindingState::Open => None,
+                    FindingState::Accepted | FindingState::Revised | FindingState::Rejected | FindingState::Deferred if user && f.state != to => Some(f.state),
+                    _ if user && f.state == to && decision != Decision::Revise => return no(format!("finding {finding} of {unit}#{task} is already {}", name(&f.state))),
+                    _ if user && f.state == to => Some(f.state),
+                    _ if user => return no(format!("finding {finding} of {unit}#{task} is {}; that is no longer changed here", name(&f.state))),
+                    _ => return no(format!("finding {finding} of {unit}#{task} is already {}; only the user changes a decision", name(&f.state))),
+                };
+                if decision == Decision::Revise && blank(&note) {
+                    return no("revise needs a note saying how it is to be fixed: --note \"...\"");
+                }
+                // An agent decides only what is the intent's manager's to decide, and only as
+                // that manager; whose decision it is follows from who records it.
+                if !user {
+                    let intent = self.intent_of(&unit).unwrap_or_default();
+                    let policy = self.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
+                    if !policy.managers() {
+                        return no(format!(
+                            "finding {finding} of {unit}#{task} is the user's to decide (intent {intent}: findings {}); the user decides it in the web UI",
+                            name(&policy)
+                        ));
+                    }
+                    if self.manager_of(intent) != Some(actor) {
+                        return no(format!("finding {finding} of {unit}#{task} is for the manager of intent {intent} to decide (or the user), not for other agents"));
+                    }
+                }
+                FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent }, was }
+            }
+            other => unreachable!("{} is not one of a finding's kinds", name_of_kind(&other)),
+        })
+    }
+
+    /// What a finding's events change: `apply`, for these kinds.
+    pub(crate) fn apply_findings(&mut self, e: &Event) {
+        use Body::*;
+        let at = &e.at;
+        let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
+        match &e.body {
+            FindingsBatched { intent, findings } => {
+                for r in findings {
+                    if let Some(f) = self.finding_mut(r) {
+                        f.state = FindingState::Scheduled;
+                    }
+                    if r.task == 0
+                        && let Some(b) = self.backlog.iter_mut().find(|b| b.finding.found.id == r.finding)
+                    {
+                        b.intent = Some(intent.clone());
+                    }
+                }
+            }
+            FindingAdded { project, intent, finding, source, note } => {
+                let found = finding.clone();
+                self.backlog.push(BacklogFinding {
+                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None, notes: vec![], decisions: vec![] },
+                    project: project.clone(),
+                    intent: intent.clone(),
+                    source: source.clone(),
+                    by: e.actor.clone(),
+                    at: at.clone(),
+                });
+            }
+            FindingDropped { unit, task, finding, reason } => {
+                if let Some(f) = self.finding_mut(&FindingRef { unit: unit.clone(), task: *task, finding: finding.clone() }) {
+                    f.state = FindingState::Dropped;
+                    f.reason = Some(reason.clone());
+                }
+            }
+            FindingDecided { unit, task, finding, decision, note, by, .. } => {
+                if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
+                    f.state = match decision {
+                        Decision::Accept => FindingState::Accepted,
+                        Decision::Revise => FindingState::Revised,
+                        Decision::Reject => FindingState::Rejected,
+                        Decision::Defer => FindingState::Deferred,
+                    };
+                    f.decided_by = Some(*by);
+                    f.note = (!note.is_empty()).then(|| note.clone());
+                    f.decisions.push(Decided { state: f.state, by: *by, agent: agent_of(&e.actor), note: note.clone(), at: at.clone() });
+                }
+            }
+            FindingNoted { unit, task, finding, text, attachments } => {
+                if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
+                    f.notes.push(FindingNote { by: e.actor.clone(), at: at.clone(), text: text.clone(), attachments: attachments.clone() });
+                }
+            }
+            other => unreachable!("{} is not one of a finding's kinds", name_of_kind(other)),
+        }
+    }
 }

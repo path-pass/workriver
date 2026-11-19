@@ -20,3 +20,60 @@ pub struct Chore {
     #[serde(default)]
     pub delivery: Option<Delivery>,
 }
+
+impl State {
+    /// The rules of a chore's events: `prepare`, for these kinds.
+    pub(crate) fn prepare_chores(&self, _who: &Principal, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        Ok(match body {
+            ChoreCreated { intent, project, unit, title, steps, .. } => {
+                // Of an intent, or (no intent) of a project, or of nothing at all.
+                if !intent.is_empty() {
+                    self.intent(&intent)?;
+                }
+                if let Some(u) = &unit
+                    && (intent.is_empty() || self.unit(u)?.intent != intent)
+                {
+                    return no(format!("unit {u} is not part of intent {intent:?}"));
+                }
+                if blank(&title) {
+                    return no("a chore needs a title");
+                }
+                let project = if intent.is_empty() { project } else { String::new() };
+                ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, project, unit, title, steps }
+            }
+            ChoreDone { chore } => match self.chores.iter().find(|c| c.id == chore) {
+                None => return no(format!("no chore {chore}")),
+                Some(c) if c.done => return no(format!("chore {chore} is already done")),
+                Some(_) => ChoreDone { chore },
+            },
+            other => unreachable!("{} is not one of a chore's kinds", name_of_kind(&other)),
+        })
+    }
+
+    /// What a chore's events change: `apply`, for these kinds.
+    pub(crate) fn apply_chores(&mut self, e: &Event) {
+        use Body::*;
+        let at = &e.at;
+        match &e.body {
+            ChoreCreated { id, intent, project, unit, title, steps } => self.chores.push(Chore {
+                id: id.clone(),
+                intent: intent.clone(),
+                project: project.clone(),
+                unit: unit.clone(),
+                title: title.clone(),
+                by: e.actor.clone(),
+                steps: steps.clone(),
+                done: false,
+                at: at.clone(),
+                delivery: None,
+            }),
+            ChoreDone { chore } => {
+                if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
+                    c.done = true;
+                }
+            }
+            other => unreachable!("{} is not one of a chore's kinds", name_of_kind(other)),
+        }
+    }
+}

@@ -48,7 +48,7 @@ const STILL_HERDR: &[&str] = &[
 const STILL_PANE: &[&str] = &[
     "crates/workriver-core/src/planning/intents.rs",
     "crates/workriver-core/src/planning/projects.rs",
-    "crates/workriver-core/src/records/mod.rs",
+    "crates/workriver-core/src/work/findings.rs",
     "crates/workriver/src/main.rs",
     "crates/workriver/src/run.rs",
     "crates/workriver/src/serve.rs",

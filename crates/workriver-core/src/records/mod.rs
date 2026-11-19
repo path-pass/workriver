@@ -107,56 +107,7 @@ impl State {
         Ok(match body {
             IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentLinked { .. } => return self.prepare_intents(who, body),
             ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => return self.prepare_projects(who, body),
-            FindingsBatched { intent, findings } => {
-                let i = self.intent(&intent)?;
-                if i.state != IntentState::Active {
-                    return no(format!("intent {intent} is {}; start it first (workriver intent start {intent} in its manager's pane)", name(&i.state)));
-                }
-                if findings.is_empty() {
-                    return no("a batch needs at least one finding");
-                }
-                for r in &findings {
-                    let f = self.finding(r)?;
-                    // A task's finding belongs to its intent; a backlog one to its intent, if any, or the project.
-                    let fits = if r.task == 0 {
-                        let b = self.backlog.iter().find(|b| b.finding.found.id == r.finding);
-                        b.is_some_and(|b| b.intent.as_deref().is_none_or(|x| x == intent))
-                    } else {
-                        self.intent_of(&r.unit) == Some(intent.as_str())
-                    };
-                    if !fits {
-                        return no(format!("finding {} is not part of intent {intent}", r.finding));
-                    }
-                    if f.state != FindingState::Deferred {
-                        return no(format!("finding {} is {}, not deferred", r.finding, name(&f.state)));
-                    }
-                }
-                FindingsBatched { intent, findings }
-            }
-            FindingAdded { project, intent, finding, source, note } => {
-                if blank(&project) {
-                    return no("a backlog finding needs its project (--project)");
-                }
-                if blank(&finding.problem) {
-                    return no("a finding needs its problem");
-                }
-                if let Some(i) = &intent {
-                    self.intent(i)?;
-                }
-                let mut finding = finding;
-                finding.id = format!("f{}", self.backlog.len() + 1);
-                FindingAdded { project, intent, finding, source, note }
-            }
-            FindingDropped { unit, task, finding, reason } => {
-                let f = self.finding(&FindingRef { unit: unit.clone(), task, finding: finding.clone() })?;
-                if !matches!(f.state, FindingState::Deferred | FindingState::Scheduled) {
-                    return no(format!("finding {finding} is {}; only deferred or scheduled ones are dropped", name(&f.state)));
-                }
-                if blank(&reason) {
-                    return no("dropping a finding needs a reason: --reason \"...\"");
-                }
-                FindingDropped { unit, task, finding, reason }
-            }
+            FindingsBatched { .. } | FindingAdded { .. } | FindingDropped { .. } | FindingNoted { .. } | FindingDecided { .. } => return self.prepare_findings(who, body),
             AgentSeen { session, name, harness } => {
                 if blank(&session) || blank(&name) {
                     return no("an agent needs a session and a name");
@@ -164,168 +115,8 @@ impl State {
                 AgentSeen { session, name, harness }
             }
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => return self.prepare_units(who, body),
-            TaskCreated(t) => {
-                // A blocker is put by the agent stuck on that task, its manager or the user.
-                if let Some(b) = t.blocks
-                    && !user
-                    && let Ok(stuck) = self.task(&t.unit, b)
-                    && !self.is_agent_of(stuck, actor)
-                    && self.intent_of(&t.unit).and_then(|i| self.manager_of(i)) != Some(actor)
-                {
-                    let r = format!("{}#{b}", t.unit);
-                    return no(format!("a blocker before {r} is put by the agent of {r}, the manager of its intent, or the user; to tell the manager: workriver manager tell {r} --text \"...\""));
-                }
-                TaskCreated(self.prepare_task(t)?)
-            }
-            TaskStarted { unit, task, agent } => {
-                let t = self.task(&unit, task)?;
-                not_dropped(&unit, t)?;
-                if t.kind == TaskKind::Gate {
-                    return no(format!("{unit}#{task} is a gate: only the user does it, with gate submit"));
-                }
-                if t.state != TaskState::Todo {
-                    return no(format!("{unit}#{task} is {}, not todo", name(&t.state)));
-                }
-                TaskStarted { unit, task, agent }
-            }
-            TaskDelivered { unit, task, note, evidence, findings, attachments } => {
-                let t = self.task(&unit, task)?;
-                not_dropped(&unit, t)?;
-                if t.kind == TaskKind::Gate {
-                    return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
-                }
-                if t.state == TaskState::Done {
-                    return no(format!("{unit}#{task} is already delivered; to correct it, run `workriver task deliver {unit}#{task} --amend` with what replaces it"));
-                }
-                check_output(t, &evidence, &findings)?;
-                self.stored(evidence.iter().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flat_map(|f| &f.attachments)).chain(&attachments))?;
-                if t.kind == TaskKind::Design && blank(&note) {
-                    return no("a design task delivers its design as the note: --note \"...\"");
-                }
-                if t.kind == TaskKind::Research && blank(&note) && attachments.is_empty() {
-                    return no("a research task delivers what it found: a --note, and its report attached (workriver attach --dir)");
-                }
-                TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
-            }
-            TaskDropped { unit, task, reason } => {
-                let t = self.task(&unit, task)?;
-                not_dropped(&unit, t)?;
-                if t.state == TaskState::Done {
-                    return no(format!("{unit}#{task} is done; only work not done yet is dropped"));
-                }
-                if blank(&reason) {
-                    return no("dropping a task needs a reason: --reason \"...\" (e.g. superseded by u1#17)");
-                }
-                // The manager re-plans; a worker takes back only what it asked for itself.
-                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
-                if !user && !manager && t.by != actor {
-                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed: workriver manager tell {unit}#{task} --text \"...\""));
-                }
-                TaskDropped { unit, task, reason }
-            }
-            TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
-                let t = self.task(&unit, task)?;
-                if t.kind == TaskKind::Gate || t.state != TaskState::Done {
-                    return no(format!("{unit}#{task} is not a delivered task; only a delivered task can be amended"));
-                }
-                if note.is_none() && evidence.is_none() && findings.is_none() && attachments.is_empty() && add.is_empty() {
-                    return no("nothing to amend: give a note, evidence or findings");
-                }
-                if findings.is_some() && !add.is_empty() {
-                    return no("either replace the findings (--findings) or add to them (--add-findings), not both");
-                }
-                if findings.is_some() && t.findings.iter().any(|f| f.state != FindingState::Open) {
-                    return no(format!(
-                        "some findings of {unit}#{task} are already decided, so they cannot be replaced; add new ones with `workriver task deliver {unit}#{task} --amend --add-findings FILE`, or add to a finding with `workriver finding note {unit}#{task} <id> --text \"...\"`"
-                    ));
-                }
-                // New findings are the reviewer's to report (or the user's), as the first were.
-                if !add.is_empty() && !user && !self.is_agent_of(t, actor) {
-                    return no(format!("findings of {unit}#{task} are added by the agent that delivered it"));
-                }
-                check_output(t, evidence.as_deref().unwrap_or_default(), findings.as_deref().unwrap_or(&add))?;
-                self.stored(
-                    evidence.iter().flatten().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flatten().chain(&add).flat_map(|f| &f.attachments)).chain(&attachments),
-                )?;
-                let add = numbered_after(add, &t.findings);
-                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered), attachments, add }
-            }
-            FindingNoted { unit, task, finding, text, attachments } => {
-                let t = self.task(&unit, task)?;
-                if !t.findings.iter().any(|f| f.found.id == finding) {
-                    return no(format!("{unit}#{task} has no finding {finding}"));
-                }
-                // By whoever reported it, the intent's manager, or the user.
-                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
-                if !user && !manager && !self.is_agent_of(t, actor) {
-                    return no(format!("a finding of {unit}#{task} is added to by the agent that delivered it, the manager of its intent, or the user"));
-                }
-                if blank(&text) && attachments.is_empty() {
-                    return no("a note needs its text: --text \"...\" (or a file: --attach FILE)");
-                }
-                self.stored(attachments.iter())?;
-                FindingNoted { unit, task, finding, text, attachments }
-            }
-            FindingDecided { unit, task, finding, decision, note, .. } => {
-                let t = self.task(&unit, task)?;
-                let Some(f) = t.findings.iter().find(|f| f.found.id == finding) else { return no(format!("{unit}#{task} has no finding {finding}")) };
-                let to = match decision {
-                    Decision::Accept => FindingState::Accepted,
-                    Decision::Revise => FindingState::Revised,
-                    Decision::Reject => FindingState::Rejected,
-                    Decision::Defer => FindingState::Deferred,
-                };
-                // A decision is made once; only the user changes one afterwards (the manager's,
-                // or their own), and only while nothing was built on its being put off.
-                let was = match f.state {
-                    FindingState::Open => None,
-                    FindingState::Accepted | FindingState::Revised | FindingState::Rejected | FindingState::Deferred if user && f.state != to => Some(f.state),
-                    _ if user && f.state == to && decision != Decision::Revise => return no(format!("finding {finding} of {unit}#{task} is already {}", name(&f.state))),
-                    _ if user && f.state == to => Some(f.state),
-                    _ if user => return no(format!("finding {finding} of {unit}#{task} is {}; that is no longer changed here", name(&f.state))),
-                    _ => return no(format!("finding {finding} of {unit}#{task} is already {}; only the user changes a decision", name(&f.state))),
-                };
-                if decision == Decision::Revise && blank(&note) {
-                    return no("revise needs a note saying how it is to be fixed: --note \"...\"");
-                }
-                // An agent decides only what is the intent's manager's to decide, and only as
-                // that manager; whose decision it is follows from who records it.
-                if !user {
-                    let intent = self.intent_of(&unit).unwrap_or_default();
-                    let policy = self.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
-                    if !policy.managers() {
-                        return no(format!(
-                            "finding {finding} of {unit}#{task} is the user's to decide (intent {intent}: findings {}); the user decides it in the web UI",
-                            name(&policy)
-                        ));
-                    }
-                    if self.manager_of(intent) != Some(actor) {
-                        return no(format!("finding {finding} of {unit}#{task} is for the manager of intent {intent} to decide (or the user), not for other agents"));
-                    }
-                }
-                FindingDecided { unit, task, finding, decision, note, by: if user { Who::User } else { Who::Agent }, was }
-            }
-            GateSubmitted { unit, task, result, note, findings, attachments } => {
-                self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
-                let t = self.task(&unit, task)?;
-                not_dropped(&unit, t)?;
-                if t.kind == TaskKind::Gate && t.state == TaskState::Todo {
-                    return no(format!("gate {unit}#{task} is not open yet: it follows {}, not done yet", self.unfinished_inputs(&unit, t).join(", ")));
-                }
-                if t.kind != TaskKind::Gate || t.state != TaskState::Waiting {
-                    return no(format!("{unit}#{task} is not a waiting gate"));
-                }
-                match result {
-                    GateResult::Problem if findings.is_empty() => return no("a gate with a problem needs at least one finding"),
-                    GateResult::Done if !findings.is_empty() => return no("a gate that is done carries no findings; submit it as problem"),
-                    _ => {}
-                }
-                // The user at a gate may not know where the problem sits; a problem is enough.
-                if findings.iter().any(|f| blank(&f.problem)) {
-                    return no("a finding needs a problem");
-                }
-                GateSubmitted { unit, task, result, note, findings: numbered(findings), attachments }
-            }
+            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } => return self.prepare_tasks(who, body),
+            GateSubmitted { .. } => return self.prepare_gates(who, body),
             AttachmentAdded { id, name, mime, size, unit, task, finding } => {
                 if blank(&id) || blank(&name) {
                     return no("an attachment needs its id and name");
@@ -344,30 +135,7 @@ impl State {
                 }
                 AttachmentAdded { id, name, mime, size, unit, task, finding }
             }
-            CommandRan { id, command, dir, machine, unit, by, from, step } => {
-                if blank(&id) || blank(&command) || blank(&dir) {
-                    return no("a command run needs its id, its text and its directory");
-                }
-                if let Some(u) = &unit {
-                    self.unit(u)?;
-                }
-                CommandRan { id, command, dir, machine, unit, by, from, step }
-            }
-            CommandEnded { id, exit } => {
-                if *who != Principal::Service {
-                    return no("only workriver records how a command ended");
-                }
-                CommandEnded { id, exit }
-            }
-            CommandReviewed { id, verdict, text } => {
-                if *who != Principal::Service {
-                    return no("only workriver records a command's review, from the agent it started for it");
-                }
-                if blank(&text) {
-                    return no("a review says what the command does");
-                }
-                CommandReviewed { id, verdict, text }
-            }
+            CommandRan { .. } | CommandEnded { .. } | CommandReviewed { .. } => return self.prepare_commands(who, body),
             DeliveryUpdated { unit, task, finding, chore, delivery } => {
                 if let Some(c) = &chore {
                     if !self.chores.iter().any(|x| &x.id == c) {
@@ -386,22 +154,7 @@ impl State {
                 }
                 DeliveryUpdated { unit, task, finding, chore, delivery }
             }
-            ChoreCreated { intent, project, unit, title, steps, .. } => {
-                // Of an intent, or (no intent) of a project, or of nothing at all.
-                if !intent.is_empty() {
-                    self.intent(&intent)?;
-                }
-                if let Some(u) = &unit
-                    && (intent.is_empty() || self.unit(u)?.intent != intent)
-                {
-                    return no(format!("unit {u} is not part of intent {intent:?}"));
-                }
-                if blank(&title) {
-                    return no("a chore needs a title");
-                }
-                let project = if intent.is_empty() { project } else { String::new() };
-                ChoreCreated { id: format!("c{}", self.chores.len() + 1), intent, project, unit, title, steps }
-            }
+            ChoreCreated { .. } | ChoreDone { .. } => return self.prepare_chores(who, body),
             QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
                 // Task 0 is the unit itself: the user's to ask about; an agent asks about a task.
                 let about = match task {
@@ -493,11 +246,6 @@ impl State {
                 }
                 QuestionFailed { question, reason_code, reason }
             }
-            ChoreDone { chore } => match self.chores.iter().find(|c| c.id == chore) {
-                None => return no(format!("no chore {chore}")),
-                Some(c) if c.done => return no(format!("chore {chore} is already done")),
-                Some(_) => ChoreDone { chore },
-            },
             MessageSent { intent, workspace, text, .. } => {
                 if blank(&text) {
                     return no("a message needs its text");
@@ -574,39 +322,10 @@ impl State {
     pub fn apply(&mut self, e: &Event) {
         use Body::*;
         let at = &e.at;
-        let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
         match &e.body {
             IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentLinked { .. } => self.apply_intents(e),
             ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => self.apply_projects(e),
-            FindingsBatched { intent, findings } => {
-                for r in findings {
-                    if let Some(f) = self.finding_mut(r) {
-                        f.state = FindingState::Scheduled;
-                    }
-                    if r.task == 0
-                        && let Some(b) = self.backlog.iter_mut().find(|b| b.finding.found.id == r.finding)
-                    {
-                        b.intent = Some(intent.clone());
-                    }
-                }
-            }
-            FindingAdded { project, intent, finding, source, note } => {
-                let found = finding.clone();
-                self.backlog.push(BacklogFinding {
-                    finding: Finding { found, state: FindingState::Deferred, decided_by: Some(Who::User), note: (!note.is_empty()).then(|| note.clone()), delivery: None, reason: None, notes: vec![], decisions: vec![] },
-                    project: project.clone(),
-                    intent: intent.clone(),
-                    source: source.clone(),
-                    by: e.actor.clone(),
-                    at: at.clone(),
-                });
-            }
-            FindingDropped { unit, task, finding, reason } => {
-                if let Some(f) = self.finding_mut(&FindingRef { unit: unit.clone(), task: *task, finding: finding.clone() }) {
-                    f.state = FindingState::Dropped;
-                    f.reason = Some(reason.clone());
-                }
-            }
+            FindingsBatched { .. } | FindingAdded { .. } | FindingDropped { .. } | FindingNoted { .. } | FindingDecided { .. } => self.apply_findings(e),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.apply_units(e),
             AgentSeen { session, name, harness } => {
                 let seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone() };
@@ -615,126 +334,8 @@ impl State {
                     None => self.agents.push(seen),
                 }
             }
-            TaskCreated(t) => {
-                // Before 0.2 a task named no intent: its unit's.
-                let intent = if t.intent.is_empty() { self.intent_of(&t.unit).unwrap_or_default().to_string() } else { t.intent.clone() };
-                let tasks = match self.units.iter_mut().find(|u| u.id == t.unit) {
-                    Some(u) => Some(&mut u.tasks),
-                    None => self.intents.iter_mut().find(|i| i.id == t.unit).map(|i| &mut i.tasks),
-                };
-                if let Some(tasks) = tasks {
-                    tasks.push(Task {
-                        n: t.n,
-                        intent,
-                        kind: t.kind,
-                        title: t.title.clone(),
-                        text: t.text.clone(),
-                        inputs: t.inputs.clone(),
-                        causes: t.causes.clone(),
-                        agent: t.agent.clone(),
-                        reviewer: t.reviewer,
-                        gate: t.gate,
-                        steps: t.steps.clone(),
-                        plans: t.plans.clone(),
-                        blind: t.blind,
-                        blocks: t.blocks,
-                        // A gate opens (waits for the user) once what it follows is done.
-                        state: TaskState::Todo,
-                        by: e.actor.clone(),
-                        at: at.clone(),
-                        started: None,
-                        done: None,
-                        note: String::new(),
-                        evidence: vec![],
-                        findings: vec![],
-                        result: None,
-                        delivery: None,
-                        amended: None,
-                        waiting_since: None,
-                        attachments: vec![],
-                        dropped: None,
-                    })
-                }
-                // More work for a unit closed as done: it is open again, its state from its tasks.
-                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit)
-                    && let Some(was) = u.done.take()
-                {
-                    u.reopened = Some(was);
-                }
-                // The task it blocks follows it from now on.
-                if let Some(b) = t.blocks
-                    && let Some(stuck) = self.task_mut(&t.unit, b)
-                {
-                    stuck.inputs.push(Input { from: t.n.to_string(), primary: false });
-                }
-            }
-            TaskStarted { unit, task, agent } => {
-                if let Some(t) = self.task_mut(unit, *task) {
-                    t.state = TaskState::Running;
-                    t.started = Some(at.clone());
-                    t.agent = agent.clone().or_else(|| agent_of(&e.actor)).or(t.agent.take());
-                }
-            }
-            TaskDelivered { unit, task, note, evidence, findings, attachments } => {
-                if let Some(t) = self.task_mut(unit, *task) {
-                    t.attachments.extend(attachments.iter().cloned());
-                    t.state = TaskState::Done;
-                    t.done = Some(at.clone());
-                    t.note = note.clone();
-                    t.evidence = evidence.clone();
-                    t.findings = findings.iter().cloned().map(open).collect();
-                    if t.agent.is_none() {
-                        t.agent = agent_of(&e.actor);
-                    }
-                }
-                // Scheduled findings this work answers are done with.
-                let causes: Vec<FindingRef> = self
-                    .task(unit, *task)
-                    .map(|t| {
-                        t.causes
-                            .iter()
-                            .flat_map(|c| {
-                                let at = if c.task == 0 { String::new() } else { c.unit.clone().unwrap_or_else(|| unit.clone()) };
-                                c.findings.iter().map(move |f| FindingRef { unit: at.clone(), task: c.task, finding: f.clone() })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                for r in causes {
-                    if let Some(f) = self.finding_mut(&r).filter(|f| f.state == FindingState::Scheduled) {
-                        f.state = FindingState::Done;
-                    }
-                }
-            }
-            FindingDecided { unit, task, finding, decision, note, by, .. } => {
-                if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
-                    f.state = match decision {
-                        Decision::Accept => FindingState::Accepted,
-                        Decision::Revise => FindingState::Revised,
-                        Decision::Reject => FindingState::Rejected,
-                        Decision::Defer => FindingState::Deferred,
-                    };
-                    f.decided_by = Some(*by);
-                    f.note = (!note.is_empty()).then(|| note.clone());
-                    f.decisions.push(Decided { state: f.state, by: *by, agent: agent_of(&e.actor), note: note.clone(), at: at.clone() });
-                }
-            }
-            TaskDropped { unit, task, reason } => {
-                if let Some(t) = self.task_mut(unit, *task) {
-                    t.state = TaskState::Dropped;
-                    t.dropped = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
-                }
-            }
-            GateSubmitted { unit, task, result, note, findings, attachments } => {
-                if let Some(t) = self.task_mut(unit, *task) {
-                    t.state = TaskState::Done;
-                    t.done = Some(at.clone());
-                    t.result = Some(*result);
-                    t.note = note.clone();
-                    t.findings = findings.iter().cloned().map(open).collect();
-                    t.attachments.extend(attachments.iter().cloned());
-                }
-            }
+            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } => self.apply_tasks(e),
+            GateSubmitted { .. } => self.apply_gates(e),
             AttachmentAdded { id, name, mime, size, unit, task, finding } => {
                 let user = e.actor == "user";
                 match self.attachments.iter_mut().find(|a| &a.id == id) {
@@ -753,46 +354,10 @@ impl State {
                     }
                 }
             }
-            // The latest few only (the user's recent runs); never their output.
-            CommandRan { id, command, dir, machine, unit, by, from, step } => {
-                self.runs.push(CommandRun { id: id.clone(), command: command.clone(), dir: dir.clone(), machine: machine.clone(), unit: unit.clone(), by: by.clone(), from: from.clone(), step: *step, at: at.clone(), exit: None, review: None });
-                let over = self.runs.len().saturating_sub(RUNS_KEPT);
-                self.runs.drain(..over);
-            }
-            CommandEnded { id, exit } => {
-                if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
-                    r.exit = Some(*exit);
-                }
-            }
-            CommandReviewed { id, verdict, text } => {
-                if let Some(r) = self.runs.iter_mut().find(|r| &r.id == id) {
-                    r.review = Some((*verdict, text.clone()));
-                }
-            }
+            CommandRan { .. } | CommandEnded { .. } | CommandReviewed { .. } => self.apply_commands(e),
             DeliveryUpdated { chore: Some(c), delivery, .. } => {
                 if let Some(x) = self.chores.iter_mut().find(|x| &x.id == c) {
                     x.delivery = Some(delivery.clone());
-                }
-            }
-            FindingNoted { unit, task, finding, text, attachments } => {
-                if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
-                    f.notes.push(FindingNote { by: e.actor.clone(), at: at.clone(), text: text.clone(), attachments: attachments.clone() });
-                }
-            }
-            TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
-                if let Some(t) = self.task_mut(unit, *task) {
-                    t.findings.extend(add.iter().cloned().map(open));
-                    t.attachments.extend(attachments.iter().cloned());
-                    if let Some(n) = note {
-                        t.note = n.clone();
-                    }
-                    if let Some(e) = evidence {
-                        t.evidence = e.clone();
-                    }
-                    if let Some(f) = findings {
-                        t.findings = f.iter().cloned().map(open).collect();
-                    }
-                    t.amended = Some(at.clone());
                 }
             }
             DeliveryUpdated { task: 0, finding: Some(f), delivery, .. } => {
@@ -812,18 +377,7 @@ impl State {
                     }
                 }
             }
-            ChoreCreated { id, intent, project, unit, title, steps } => self.chores.push(Chore {
-                id: id.clone(),
-                intent: intent.clone(),
-                project: project.clone(),
-                unit: unit.clone(),
-                title: title.clone(),
-                by: e.actor.clone(),
-                steps: steps.clone(),
-                done: false,
-                at: at.clone(),
-                delivery: None,
-            }),
+            ChoreCreated { .. } | ChoreDone { .. } => self.apply_chores(e),
             QuestionAsked { id, thread, unit, task, text, context, conclude } => {
                 if !self.threads.iter().any(|t| &t.id == thread) {
                     self.threads.push(Thread { id: thread.clone(), unit: unit.clone(), task: *task, agent: None, name: None, ended: false, conclusion: None });
@@ -879,11 +433,6 @@ impl State {
             QuestionFailed { question, reason_code, reason } => {
                 if let Some(q) = self.questions.iter_mut().find(|q| &q.id == question) {
                     q.failed = Some((*reason_code, reason.clone()));
-                }
-            }
-            ChoreDone { chore } => {
-                if let Some(c) = self.chores.iter_mut().find(|c| &c.id == chore) {
-                    c.done = true;
                 }
             }
             MessageSent { id, intent, workspace, manager, text } => self.messages.push(Message {

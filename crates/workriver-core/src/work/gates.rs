@@ -35,4 +35,52 @@ impl State {
             }
         }
     }
+
+    /// The rules of a gate's events: `prepare`, for these kinds.
+    pub(crate) fn prepare_gates(&self, _who: &Principal, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        Ok(match body {
+            GateSubmitted { unit, task, result, note, findings, attachments } => {
+                self.stored(attachments.iter().chain(findings.iter().flat_map(|f| &f.attachments)))?;
+                let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
+                if t.kind == TaskKind::Gate && t.state == TaskState::Todo {
+                    return no(format!("gate {unit}#{task} is not open yet: it follows {}, not done yet", self.unfinished_inputs(&unit, t).join(", ")));
+                }
+                if t.kind != TaskKind::Gate || t.state != TaskState::Waiting {
+                    return no(format!("{unit}#{task} is not a waiting gate"));
+                }
+                match result {
+                    GateResult::Problem if findings.is_empty() => return no("a gate with a problem needs at least one finding"),
+                    GateResult::Done if !findings.is_empty() => return no("a gate that is done carries no findings; submit it as problem"),
+                    _ => {}
+                }
+                // The user at a gate may not know where the problem sits; a problem is enough.
+                if findings.iter().any(|f| blank(&f.problem)) {
+                    return no("a finding needs a problem");
+                }
+                GateSubmitted { unit, task, result, note, findings: numbered(findings), attachments }
+            }
+            other => unreachable!("{} is not one of a gate's kinds", name_of_kind(&other)),
+        })
+    }
+
+    /// What a gate's events change: `apply`, for these kinds.
+    pub(crate) fn apply_gates(&mut self, e: &Event) {
+        use Body::*;
+        let at = &e.at;
+        match &e.body {
+            GateSubmitted { unit, task, result, note, findings, attachments } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Done;
+                    t.done = Some(at.clone());
+                    t.result = Some(*result);
+                    t.note = note.clone();
+                    t.findings = findings.iter().cloned().map(open).collect();
+                    t.attachments.extend(attachments.iter().cloned());
+                }
+            }
+            other => unreachable!("{} is not one of a gate's kinds", name_of_kind(other)),
+        }
+    }
 }

@@ -168,4 +168,223 @@ impl State {
         };
         tasks.iter_mut().find(|t| t.n == n)
     }
+
+    /// The rules of a task's events: `prepare`, for these kinds.
+    pub(crate) fn prepare_tasks(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        let actor = who.actor();
+        let user = *who == Principal::User;
+        Ok(match body {
+            TaskCreated(t) => {
+                // A blocker is put by the agent stuck on that task, its manager or the user.
+                if let Some(b) = t.blocks
+                    && !user
+                    && let Ok(stuck) = self.task(&t.unit, b)
+                    && !self.is_agent_of(stuck, actor)
+                    && self.intent_of(&t.unit).and_then(|i| self.manager_of(i)) != Some(actor)
+                {
+                    let r = format!("{}#{b}", t.unit);
+                    return no(format!("a blocker before {r} is put by the agent of {r}, the manager of its intent, or the user; to tell the manager: workriver manager tell {r} --text \"...\""));
+                }
+                TaskCreated(self.prepare_task(t)?)
+            }
+            TaskStarted { unit, task, agent } => {
+                let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
+                if t.kind == TaskKind::Gate {
+                    return no(format!("{unit}#{task} is a gate: only the user does it, with gate submit"));
+                }
+                if t.state != TaskState::Todo {
+                    return no(format!("{unit}#{task} is {}, not todo", name(&t.state)));
+                }
+                TaskStarted { unit, task, agent }
+            }
+            TaskDelivered { unit, task, note, evidence, findings, attachments } => {
+                let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
+                if t.kind == TaskKind::Gate {
+                    return no(format!("{unit}#{task} is a gate: the user submits it with gate submit"));
+                }
+                if t.state == TaskState::Done {
+                    return no(format!("{unit}#{task} is already delivered; to correct it, run `workriver task deliver {unit}#{task} --amend` with what replaces it"));
+                }
+                check_output(t, &evidence, &findings)?;
+                self.stored(evidence.iter().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flat_map(|f| &f.attachments)).chain(&attachments))?;
+                if t.kind == TaskKind::Design && blank(&note) {
+                    return no("a design task delivers its design as the note: --note \"...\"");
+                }
+                if t.kind == TaskKind::Research && blank(&note) && attachments.is_empty() {
+                    return no("a research task delivers what it found: a --note, and its report attached (workriver attach --dir)");
+                }
+                TaskDelivered { unit, task, note, evidence, findings: numbered(findings), attachments }
+            }
+            TaskDropped { unit, task, reason } => {
+                let t = self.task(&unit, task)?;
+                not_dropped(&unit, t)?;
+                if t.state == TaskState::Done {
+                    return no(format!("{unit}#{task} is done; only work not done yet is dropped"));
+                }
+                if blank(&reason) {
+                    return no("dropping a task needs a reason: --reason \"...\" (e.g. superseded by u1#17)");
+                }
+                // The manager re-plans; a worker takes back only what it asked for itself.
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager && t.by != actor {
+                    return no(format!("{unit}#{task} is dropped by the manager of its intent or the user (or the agent that recorded it); tell your manager it is no longer needed: workriver manager tell {unit}#{task} --text \"...\""));
+                }
+                TaskDropped { unit, task, reason }
+            }
+            TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
+                let t = self.task(&unit, task)?;
+                if t.kind == TaskKind::Gate || t.state != TaskState::Done {
+                    return no(format!("{unit}#{task} is not a delivered task; only a delivered task can be amended"));
+                }
+                if note.is_none() && evidence.is_none() && findings.is_none() && attachments.is_empty() && add.is_empty() {
+                    return no("nothing to amend: give a note, evidence or findings");
+                }
+                if findings.is_some() && !add.is_empty() {
+                    return no("either replace the findings (--findings) or add to them (--add-findings), not both");
+                }
+                if findings.is_some() && t.findings.iter().any(|f| f.state != FindingState::Open) {
+                    return no(format!(
+                        "some findings of {unit}#{task} are already decided, so they cannot be replaced; add new ones with `workriver task deliver {unit}#{task} --amend --add-findings FILE`, or add to a finding with `workriver finding note {unit}#{task} <id> --text \"...\"`"
+                    ));
+                }
+                // New findings are the reviewer's to report (or the user's), as the first were.
+                if !add.is_empty() && !user && !self.is_agent_of(t, actor) {
+                    return no(format!("findings of {unit}#{task} are added by the agent that delivered it"));
+                }
+                check_output(t, evidence.as_deref().unwrap_or_default(), findings.as_deref().unwrap_or(&add))?;
+                self.stored(
+                    evidence.iter().flatten().filter_map(|e| e.attachment.as_ref()).chain(findings.iter().flatten().chain(&add).flat_map(|f| &f.attachments)).chain(&attachments),
+                )?;
+                let add = numbered_after(add, &t.findings);
+                TaskAmended { unit, task, note, evidence, findings: findings.map(numbered), attachments, add }
+            }
+            other => unreachable!("{} is not one of a task's kinds", name_of_kind(&other)),
+        })
+    }
+
+    /// What a task's events change: `apply`, for these kinds.
+    pub(crate) fn apply_tasks(&mut self, e: &Event) {
+        use Body::*;
+        let at = &e.at;
+        let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
+        match &e.body {
+            TaskCreated(t) => {
+                // Before 0.2 a task named no intent: its unit's.
+                let intent = if t.intent.is_empty() { self.intent_of(&t.unit).unwrap_or_default().to_string() } else { t.intent.clone() };
+                let tasks = match self.units.iter_mut().find(|u| u.id == t.unit) {
+                    Some(u) => Some(&mut u.tasks),
+                    None => self.intents.iter_mut().find(|i| i.id == t.unit).map(|i| &mut i.tasks),
+                };
+                if let Some(tasks) = tasks {
+                    tasks.push(Task {
+                        n: t.n,
+                        intent,
+                        kind: t.kind,
+                        title: t.title.clone(),
+                        text: t.text.clone(),
+                        inputs: t.inputs.clone(),
+                        causes: t.causes.clone(),
+                        agent: t.agent.clone(),
+                        reviewer: t.reviewer,
+                        gate: t.gate,
+                        steps: t.steps.clone(),
+                        plans: t.plans.clone(),
+                        blind: t.blind,
+                        blocks: t.blocks,
+                        // A gate opens (waits for the user) once what it follows is done.
+                        state: TaskState::Todo,
+                        by: e.actor.clone(),
+                        at: at.clone(),
+                        started: None,
+                        done: None,
+                        note: String::new(),
+                        evidence: vec![],
+                        findings: vec![],
+                        result: None,
+                        delivery: None,
+                        amended: None,
+                        waiting_since: None,
+                        attachments: vec![],
+                        dropped: None,
+                    })
+                }
+                // More work for a unit closed as done: it is open again, its state from its tasks.
+                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit)
+                    && let Some(was) = u.done.take()
+                {
+                    u.reopened = Some(was);
+                }
+                // The task it blocks follows it from now on.
+                if let Some(b) = t.blocks
+                    && let Some(stuck) = self.task_mut(&t.unit, b)
+                {
+                    stuck.inputs.push(Input { from: t.n.to_string(), primary: false });
+                }
+            }
+            TaskStarted { unit, task, agent } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Running;
+                    t.started = Some(at.clone());
+                    t.agent = agent.clone().or_else(|| agent_of(&e.actor)).or(t.agent.take());
+                }
+            }
+            TaskDelivered { unit, task, note, evidence, findings, attachments } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.attachments.extend(attachments.iter().cloned());
+                    t.state = TaskState::Done;
+                    t.done = Some(at.clone());
+                    t.note = note.clone();
+                    t.evidence = evidence.clone();
+                    t.findings = findings.iter().cloned().map(open).collect();
+                    if t.agent.is_none() {
+                        t.agent = agent_of(&e.actor);
+                    }
+                }
+                // Scheduled findings this work answers are done with.
+                let causes: Vec<FindingRef> = self
+                    .task(unit, *task)
+                    .map(|t| {
+                        t.causes
+                            .iter()
+                            .flat_map(|c| {
+                                let at = if c.task == 0 { String::new() } else { c.unit.clone().unwrap_or_else(|| unit.clone()) };
+                                c.findings.iter().map(move |f| FindingRef { unit: at.clone(), task: c.task, finding: f.clone() })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for r in causes {
+                    if let Some(f) = self.finding_mut(&r).filter(|f| f.state == FindingState::Scheduled) {
+                        f.state = FindingState::Done;
+                    }
+                }
+            }
+            TaskDropped { unit, task, reason } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.state = TaskState::Dropped;
+                    t.dropped = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
+                }
+            }
+            TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.findings.extend(add.iter().cloned().map(open));
+                    t.attachments.extend(attachments.iter().cloned());
+                    if let Some(n) = note {
+                        t.note = n.clone();
+                    }
+                    if let Some(e) = evidence {
+                        t.evidence = e.clone();
+                    }
+                    if let Some(f) = findings {
+                        t.findings = f.iter().cloned().map(open).collect();
+                    }
+                    t.amended = Some(at.clone());
+                }
+            }
+            other => unreachable!("{} is not one of a task's kinds", name_of_kind(other)),
+        }
+    }
 }
