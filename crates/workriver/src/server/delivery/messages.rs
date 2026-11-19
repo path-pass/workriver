@@ -79,7 +79,7 @@ pub(super) fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, f
     let paths: Vec<String> = ids
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
-        .map(|a| crate::attachments::path(home, &a.id, &a.name).display().to_string())
+        .map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string())
         .collect();
     if paths.is_empty() { String::new() } else { format!(" Attachments: {}.", paths.join(", ")) }
 }

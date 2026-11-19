@@ -1,6 +1,9 @@
-// What an agent on another machine is told about the files of the daemon's store: it
-// reaches them through its machine's connection.
+// Attachments: the bytes on disk (store.rs), and what an agent on another machine is told
+// about them: it reaches them through its machine's connection. (The handlers come with
+// serve.rs.)
 use crate::common::home::PORT_FILE;
+
+pub mod store;
 
 /// Where a file in the daemon's store is for an agent on a machine: through its tunnel, on
 /// the port of the connection there is when it is fetched (a shell fills it in).
@@ -30,3 +33,6 @@ pub fn links(text: &str, dir: &str) -> String {
     }
     out + rest
 }
+
+#[cfg(test)]
+mod tests;

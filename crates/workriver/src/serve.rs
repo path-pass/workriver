@@ -32,7 +32,8 @@ use crate::auth::{self, Auth};
 use crate::caller::{self, Callers, Pin, Pins};
 use crate::common::process::{self, Chain, Procs};
 use crate::server::delivery;
-use crate::{ask, attachments, run};
+use crate::server::files::{self, store};
+use crate::{ask, run};
 use crate::server::views::{self as snapshot, Cache};
 
 pub struct App {
@@ -849,7 +850,7 @@ impl App {
     fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
         match machine {
-            Some(_) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display()))),
+            Some(_) => self.runtime.send(to, &files::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display()))),
             None => self.runtime.send(to, text),
         }
     }
@@ -1863,9 +1864,9 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
         let remote = caller.machine.is_some();
         let file = |id: &str| {
             let a = state.attachments.iter().find(|a| a.id == id)?;
-            let path = attachments::path(&app.home, &a.id, &a.name);
+            let path = store::path(&app.home, &a.id, &a.name);
             Some(if remote {
-                crate::machines::fetch_command(&path.file_name()?.to_string_lossy())
+                files::fetch_command(&path.file_name()?.to_string_lossy())
             } else {
                 path.display().to_string()
             })
@@ -1884,7 +1885,7 @@ async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, 
 async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     let store = app.store.lock().unwrap();
     let s = store.state();
-    let (files, bytes) = attachments::usage(&app.home);
+    let (files, bytes) = store::usage(&app.home);
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "commit": env!("WORKRIVER_COMMIT"),
@@ -2756,12 +2757,12 @@ async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Qu
         // Only the last part of the name: it is shown, never used as a path.
         let name = Path::new(&u.name).file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).ok_or_else(|| bad("an attachment needs a file name".into()))?;
         let mime = crate::common::files::mime(&name, given.as_deref());
-        let (id, path) = attachments::put(&app.home, &body, &name).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot store {name}: {e}")))?;
+        let (id, path) = store::put(&app.home, &body, &name).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot store {name}: {e}")))?;
         let size = body.len() as u64;
         app.record(&who, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;
         // To a caller on another machine the file is where its tunnel shows it.
         let path = match &via.machine {
-            Some(_) => json!(crate::machines::attachment_url(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+            Some(_) => json!(files::attachment_url(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
             None => json!(path),
         };
         Ok(Json(json!({ "id": id, "path": path, "name": name, "type": mime, "size": size })))
@@ -2778,7 +2779,7 @@ async fn attachment(State(app): State<Shared>, Extension(caller): Extension<Call
     let state = blocking(move || viewer.view(&caller, &r)).await?;
     let found = state.attachments.iter().find(|a| a.id == id).cloned();
     let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
-    let file = attachments::path(&app.home, &a.id, &a.name);
+    let file = store::path(&app.home, &a.id, &a.name);
     let bytes = blocking(move || std::fs::read(&file).map_err(|e| ApiError(StatusCode::NOT_FOUND, format!("attachment {id}: {e}")))).await?;
     let image = a.mime.starts_with("image/") && a.mime != "image/svg+xml";
     let disposition = if image { "inline".to_string() } else { format!("attachment; filename=\"{}\"", a.name.replace(['"', '\\', '\r', '\n'], "_")) };

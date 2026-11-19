@@ -70,7 +70,7 @@ fn pointed(state: &State, q: &Question, home: &Path) -> Vec<String> {
             ("file", Some(p), _, _) => format!("the file {}", quote::name(p)),
             ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
             ("attachment", _, _, _) => match stored(&c.id) {
-                Some(a) => format!("the attachment \"{}\" at {}", quote::name(&a.name), crate::attachments::path(home, &a.id, &a.name).display()),
+                Some(a) => format!("the attachment \"{}\" at {}", quote::name(&a.name), crate::server::files::store::path(home, &a.id, &a.name).display()),
                 None => format!("the attachment \"{}\"", quote::name(&c.label)),
             },
             _ => quote::name(&c.label),
@@ -116,7 +116,7 @@ pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String
         .attachments_of(&q.unit, q.task)
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| a.id == id))
-        .map(|a| crate::attachments::path(home, &a.id, &a.name).display().to_string())
+        .map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string())
         .collect();
     if !stored.is_empty() {
         m.push(format!("Its attachments, to open: {}.", stored.join(", ")));
