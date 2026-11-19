@@ -12,8 +12,6 @@ mod run;
 mod runtime;
 mod serve;
 mod server;
-mod show;
-mod snapshot;
 mod stall;
 
 use std::path::Path;

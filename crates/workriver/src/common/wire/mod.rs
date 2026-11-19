@@ -2,6 +2,7 @@
 mod machines;
 mod metrics;
 mod task;
+pub mod workspace;
 
 pub use machines::*;
 pub use metrics::*;

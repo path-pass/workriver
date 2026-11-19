@@ -184,8 +184,8 @@ fn replays_a_copied_database() {
             println!("{}#{} {} {:?} intent={} findings={f:?} delivery={:?}", u.id, t.n, workriver_core::name(&t.kind), t.title, t.intent, t.delivery.as_ref().map(|d| workriver_core::name(&d.step)));
         }
     }
-    let mut cache = crate::snapshot::Cache::default();
-    let snap = serde_json::to_value(crate::snapshot::build(s, &mut cache, None, &Default::default(), &Default::default(), &Default::default(), &[])).unwrap();
+    let mut cache = crate::server::views::Cache::default();
+    let snap = serde_json::to_value(crate::server::views::build(s, &mut cache, None, &Default::default(), &Default::default(), &Default::default(), &[])).unwrap();
     println!("projects: {}", snap["projects"]);
     println!("events: {}", store.count().unwrap());
     // The whole replayed state, for comparing a copy before and after a change byte for byte

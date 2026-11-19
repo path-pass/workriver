@@ -378,11 +378,11 @@ pub fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str) -> Re
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };
     // Its project, so that a manager working on another one stops before splitting it.
-    let folder = crate::snapshot::project_folder(state, i);
+    let folder = crate::server::views::project_folder(state, i);
     let project = if folder.is_empty() {
         String::new()
     } else {
-        format!(" of project «{}» (folder «{}»)", quote::name(&crate::snapshot::project_title(state, &folder)), quote::name(&folder))
+        format!(" of project «{}» (folder «{}»)", quote::name(&crate::server::views::project_title(state, &folder)), quote::name(&folder))
     };
     let check = if folder.is_empty() { "" } else { " If your workspace works on another project, do not split it: ask the user first (`workriver guide how ask-user`)." };
     Ok((

@@ -32,7 +32,7 @@ use crate::auth::{self, Auth};
 use crate::caller::{self, Callers, Pin, Pins};
 use crate::common::process::{self, Chain, Procs};
 use crate::{ask, attachments, deliver, run};
-use crate::snapshot::{self, Cache};
+use crate::server::views::{self as snapshot, Cache};
 
 pub struct App {
     store: Mutex<Store>,
@@ -1869,7 +1869,7 @@ async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Calle
                 path.display().to_string()
             })
         };
-        let mut shown = crate::show::task(&state, &ws, &unit, n, &file)?;
+        let mut shown = crate::server::views::task::task(&state, &ws, &unit, n, &file)?;
         shown.link = format!("{}/{unit}/{n}", app.page());
         Ok(Json(shown))
     })

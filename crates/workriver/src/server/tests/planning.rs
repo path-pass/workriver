@@ -433,7 +433,7 @@ fn the_user_starts_an_intent_from_the_page() {
 /// the repositories of units recorded there); else its current intent's project.
 #[test]
 fn which_project_a_workspace_works_on() {
-    use crate::snapshot::{Known, group_project, other_project};
+    use crate::server::views::{Known, group_project, other_project};
     use workriver_core::Principal;
     use workriver_core::runtime::AgentState::*;
     let tmp = tempfile::tempdir().unwrap();
