@@ -241,7 +241,7 @@ fn who_may_use_each_route() {
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
 
-    let token = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let token = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());
     // What shows the service who calls: the place a process names, its proof (this machine)
     // and its process id (a machine's listener), and the token if it has it.
     let from = |d: &Daemon, token: Option<&str>| -> Vec<(String, String)> {

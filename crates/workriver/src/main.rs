@@ -1400,9 +1400,9 @@ fn port_of(given: Option<u16>) -> u16 {
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let read = |f: &str| home.as_ref().and_then(|h| std::fs::read_to_string(h.join(f)).ok()).map(|t| t.trim().to_string());
-    match read(machines::PORT_FILE).and_then(|t| t.parse().ok()) {
+    match read(crate::common::home::PORT_FILE).and_then(|t| t.parse().ok()) {
         Some(p) => {
-            let _ = THROUGH.set(read(machines::HOST_FILE).filter(|h| !h.is_empty()).unwrap_or_else(|| "the computer workriver runs on".into()));
+            let _ = THROUGH.set(read(crate::common::home::HOST_FILE).filter(|h| !h.is_empty()).unwrap_or_else(|| "the computer workriver runs on".into()));
             p
         }
         None => DEFAULT_PORT,
@@ -1421,7 +1421,7 @@ impl Daemon {
             Some(host) => anyhow!(
                 "cannot reach workriver on {host} through the ssh tunnel (port {}, from ~/{}; it may be reconnecting); try again shortly ({e})",
                 self.port,
-                machines::PORT_FILE
+                crate::common::home::PORT_FILE
             ),
             None => anyhow!("cannot reach workriver on 127.0.0.1:{} ({e}). Is `workriver serve` running?", self.port),
         }
@@ -1501,7 +1501,7 @@ impl Daemon {
     }
 
     fn token(&self) -> Option<String> {
-        self.home.as_deref().and_then(auth::read_token)
+        self.home.as_deref().and_then(common::home::read_token)
     }
 
     /// What a request says of who this is: nothing (the service finds it from this
@@ -1550,8 +1550,8 @@ impl Daemon {
         let v = self.call("/api/attachments/inbox", Some(json!({ "unit": unit, "task": task })))?;
         // The service is on another machine: the folder is on this one's disk, made here.
         if v["elsewhere"] == true {
-            let d = attachments::inbox(&common::home::data_dir(), unit, task);
-            attachments::mkdir(&d).with_context(|| format!("cannot make {}", d.display()))?;
+            let d = crate::common::home::inbox(&common::home::data_dir(), unit, task);
+            crate::common::home::mkdir(&d).with_context(|| format!("cannot make {}", d.display()))?;
             return Ok(d);
         }
         Ok(PathBuf::from(v["dir"].as_str().unwrap_or_default()))
@@ -1661,7 +1661,7 @@ fn print_machines(list: &Value) {
             println!("  next attempt in {n} s");
         }
         if let Some(p) = m["port"].as_u64() {
-            println!("  its port there: {p} (in ~/{} there, which the workriver CLI there reads)", machines::PORT_FILE);
+            println!("  its port there: {p} (in ~/{} there, which the workriver CLI there reads)", crate::common::home::PORT_FILE);
         }
     }
 }

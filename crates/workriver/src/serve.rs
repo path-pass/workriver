@@ -314,7 +314,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         pins: Pins::open(&store_home),
         told: Mutex::default(),
         store: Mutex::new(store),
-        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join("scan-cache").join("local.json"))),
+        cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join("local.json"))),
         remote_kick: kick,
         machines,
         listeners: Mutex::default(),
@@ -382,7 +382,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     // every `REMOTE` and whenever a record touches one of their units, never while a request
     // waits; the page hears when something there changed.
     let remote = app.clone();
-    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join("scan-cache").join("remote.json"));
+    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join(crate::common::home::SCAN_CACHE).join("remote.json"));
     bg.remote_reads = true;
     std::thread::spawn(move || {
         let mut wait = snapshot::REMOTE;
@@ -846,7 +846,7 @@ impl App {
     fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
         match machine {
-            Some(_) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", attachments::dir(&self.home).display()))),
+            Some(_) => self.runtime.send(to, &crate::machines::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display()))),
             None => self.runtime.send(to, text),
         }
     }
@@ -1070,7 +1070,7 @@ impl App {
             return;
         }
         let _one = self.told.lock().unwrap();
-        let path = self.home.join("guide-told.json");
+        let path = self.home.join(crate::common::home::GUIDE_TOLD);
         let mut told: std::collections::BTreeMap<String, String> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         if told.get(session).map(String::as_str) == Some(BUILD) {
             return;
@@ -1899,7 +1899,7 @@ async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, Ap
         "units": s.units.len(),
         "runtime": { "connected": app.live().is_some(), "warning": app.warning },
         "machines": app.machines.as_ref().map(|m| m.states()).unwrap_or_default(),
-        "attachments": { "dir": attachments::dir(&app.home), "files": files, "bytes": bytes },
+        "attachments": { "dir": crate::common::home::attachments_dir(&app.home), "files": files, "bytes": bytes },
     })))
 }
 
@@ -2801,8 +2801,8 @@ async fn inbox(State(app): State<Shared>, Extension(via): Extension<Caller>, Jso
         if via.machine.is_some() {
             return Ok(Json(json!({ "elsewhere": true })));
         }
-        let d = attachments::inbox(&app.home, &i.unit, i.task);
-        attachments::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
+        let d = crate::common::home::inbox(&app.home, &i.unit, i.task);
+        crate::common::home::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
         Ok(Json(json!({ "dir": d })))
     })
     .await

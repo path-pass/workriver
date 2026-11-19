@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use workriver_core::runtime::Root;
 use workriver_scan as scan;
 
+use crate::common::home::{PINS, SOCKET};
 use crate::{auth, herdr};
 
 /// One process as its operating system describes it.
@@ -36,9 +37,6 @@ const STEPS: usize = 64;
 
 /// How long a proof stands for its process.
 pub const PROOF: Duration = Duration::from_secs(30);
-
-/// The socket's file in the data directory.
-pub const SOCKET: &str = "caller.sock";
 
 /// What the service answers a proof it no longer has, in the header the proof came in: the
 /// CLI then fetches a new one and repeats its request.
@@ -299,9 +297,6 @@ pub struct Pins {
     path: PathBuf,
     map: Mutex<BTreeMap<String, Pin>>,
 }
-
-/// The pins' file in the data directory.
-pub const PINS: &str = "session-roots.json";
 
 impl Pins {
     pub fn open(home: &Path) -> Pins {

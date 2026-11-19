@@ -904,7 +904,7 @@ fn attachments_round_trip() {
     assert!(png["path"].as_str().unwrap().starts_with(home.join("attachments").to_str().unwrap()));
     let get = |id: &str, host: &str| {
         let mut s = std::net::TcpStream::connect(("127.0.0.1", d.port)).unwrap();
-        let token = crate::auth::read_token(&home).unwrap();
+        let token = crate::common::home::read_token(&home).unwrap();
         let proof = d.process(false).0.unwrap();
         write!(s, "GET /api/attachments/{id} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nX-Workriver-Caller: {proof}\r\nConnection: close\r\n\r\n").unwrap();
         let mut answer = vec![];
@@ -1263,7 +1263,7 @@ fn a_machines_connection_is_kept_up() {
 
     let tmp = tempfile::tempdir().unwrap();
     let ssh = fake_ssh(tmp.path());
-    let port_file = tmp.path().join("remote").join(crate::machines::PORT_FILE);
+    let port_file = tmp.path().join("remote").join(crate::common::home::PORT_FILE);
     let published = || std::fs::read_to_string(&port_file).ok().and_then(|t| t.trim().parse::<u16>().ok());
     // The old way, a fixed port, after a connection died: refused for as long as it is held.
     let fixed: Vec<String> = [ssh.to_str().unwrap(), "-N", "-R", "127.0.0.1:41001:127.0.0.1:1", "--", "box"].iter().map(|s| s.to_string()).collect();
@@ -1592,7 +1592,7 @@ fn a_machines_listener_serves_only_agents() {
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
 
     // Even with the user's token and a session, a caller over there is not the user.
-    let token = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let token = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());
     let url = user.call("/api/session/code", Some(json!({}))).unwrap()["url"].as_str().unwrap().to_string();
     let ours = format!("http://127.0.0.1:{port}");
     let answer = http(port, "POST", "/api/session", &[("Origin", &ours)], Some(&json!({ "code": url.split_once("#k=").unwrap().1 }).to_string())).1;
@@ -3305,7 +3305,7 @@ fn the_inbox_asks_who_calls() {
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
 
     let ask = json!({ "unit": "u1", "task": 1 }).to_string();
-    let folder = crate::attachments::inbox(tmp.path(), "u1", 1);
+    let folder = crate::common::home::inbox(tmp.path(), "u1", 1);
     for (port, name) in [(port, "this machine"), (all.local_port("box").unwrap(), "another machine")] {
         let (code, text) = http(port, "POST", "/api/attachments/inbox", &[], Some(&ask));
         assert!(code == 401 && !text.contains("inbox"), "{name}: nobody got {code} {text}");
@@ -3627,7 +3627,7 @@ fn real_service(fake: std::sync::Arc<Fake>, home: &std::path::Path) -> (u16, Ker
 /// One record tried over plain HTTP: what the request says (`says`: the pane it names),
 /// whether it carries the token, and the proof of its process, if any. The status and the answer.
 fn try_record(port: u16, home: &std::path::Path, token: bool, says: Option<&str>, proof: Option<&str>) -> (u16, String) {
-    let bearer = format!("Bearer {}", crate::auth::read_token(home).unwrap());
+    let bearer = format!("Bearer {}", crate::common::home::read_token(home).unwrap());
     let mut headers = vec![];
     if token {
         headers.push(("authorization", bearer.as_str()));
@@ -3700,7 +3700,7 @@ fn a_caller_is_who_its_process_is() {
     refused(try_record(port, tmp.path(), true, Some("w1:p1"), None), 401, &["does not show which process sends it"]);
     refused(try_record(port, tmp.path(), false, Some("w1:p2"), None), 401, &["does not show it comes from either"]);
     // What is the user's alone asks the same of the process: not from an agent's pane.
-    let bearer = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let bearer = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());
     let set = |chain| http(port, "POST", "/api/settings/stall", &[("authorization", bearer.as_str()), ("x-workriver-caller", kernel.proof(chain).as_str())], Some("{\"minutes\":7}"));
     assert_eq!(set(in_p1()).0, 200);
     let (code, text) = set(in_p2());
@@ -3838,7 +3838,7 @@ fn allow_as_names_agents_and_drops_the_terminal() {
     assert_eq!(try_record(port, tmp.path(), false, None, Some(&bare())).0, 401);
     assert_eq!(try_record(port, tmp.path(), true, None, None).0, 401);
     assert!(try_record(port, tmp.path(), true, Some("p2"), Some(&bare())).1.contains("says it runs in pane p2"));
-    let bearer = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let bearer = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());
     let named = |name: &str, given: Option<String>| {
         let mut headers = vec![("authorization", bearer.as_str())];
         headers.extend(given.as_deref().map(|p| ("x-workriver-caller", p)));
@@ -3874,7 +3874,7 @@ fn a_caller_on_another_machine_is_checked_there() {
     let box_port = all.local_port("box").unwrap();
     let procs = kernel.procs.clone();
     let (p1, p2) = (root("w1:p1"), root("w1:p2"));
-    let bearer = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    let bearer = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());
     let here = |says: Option<&str>, pid: Option<u32>| {
         let pid = pid.map(|p| p.to_string());
         let mut headers = vec![("authorization", bearer.as_str())];

@@ -31,6 +31,7 @@ use workriver_core::RuntimeRef;
 use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_scan as scan;
 
+use crate::common::home::{HOST_FILE, PORT_FILE};
 use crate::herdr;
 use crate::metrics::Thresholds;
 
@@ -120,11 +121,11 @@ fn stall_default() -> u32 {
 static SETTINGS: Mutex<()> = Mutex::new(());
 
 fn read_settings(home: &Path) -> Settings {
-    std::fs::read(home.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    std::fs::read(home.join(crate::common::home::SETTINGS)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 fn write_settings(home: &Path, s: &Settings) -> Result<(), String> {
-    let path = home.join("settings.json");
+    let path = home.join(crate::common::home::SETTINGS);
     let text = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
@@ -243,11 +244,6 @@ const ASK_SOCKET: &str = r#"printf %s "${HERDR_SOCKET_PATH:-${XDG_CONFIG_HOME:-$
 /// that is not known yet, give up on a dead line: no answer to connect in 5 s, or to three
 /// keep-alives 10 s apart (30 s).
 const QUIET: [&str; 6] = ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ConnectTimeout=5", "ServerAliveInterval=10", "ServerAliveCountMax=3"];
-
-/// Where the CLI on a followed machine finds the port that leads here, under its `$HOME`.
-pub const PORT_FILE: &str = ".config/workriver/port";
-/// And the name of the computer it leads to, for its error messages.
-pub const HOST_FILE: &str = ".config/workriver/daemon";
 
 /// What to do about an ssh failure the user can fix, after ssh's own words.
 fn hint(error: &str, ssh: &str) -> String {

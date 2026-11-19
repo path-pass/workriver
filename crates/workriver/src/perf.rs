@@ -19,7 +19,7 @@ const FILES: usize = 5;
 
 /// Where the timing log is.
 pub fn dir(home: &Path) -> PathBuf {
-    home.join("logs")
+    home.join(crate::common::home::LOGS)
 }
 
 /// The log's files, oldest first.
@@ -40,7 +40,7 @@ impl Log {
 
     fn write_line(&self, buf: &[u8]) -> std::io::Result<()> {
         let mut open = self.file.lock().unwrap();
-        let path = dir(&self.home).join("perf.jsonl");
+        let path = dir(&self.home).join(crate::common::home::PERF_LOG);
         if open.as_ref().is_some_and(|(_, n)| *n + buf.len() as u64 > FILE_BYTES) {
             *open = None;
             for k in (1..FILES).rev() {

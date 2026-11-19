@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
+use crate::common::home::{read_token, token_path};
+
 /// The session cookie's name.
 pub const COOKIE: &str = "workriver_session";
 /// How long a session lasts; the page asks for a new one after that.
@@ -24,13 +26,9 @@ const CODE_LIFE: Duration = Duration::from_secs(5 * 60);
 /// One printed in a terminal, where others may read it.
 const PRINTED_LIFE: Duration = Duration::from_secs(60);
 
-pub fn token_path(home: &Path) -> PathBuf {
-    home.join("user-token")
-}
-
 /// The sessions the page was given: a hash and the second it ends, one per line.
 pub fn sessions_path(home: &Path) -> PathBuf {
-    home.join("user-sessions")
+    home.join(crate::common::home::SESSIONS)
 }
 
 fn hash(value: &str) -> String {
@@ -39,11 +37,6 @@ fn hash(value: &str) -> String {
 
 fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(u64::MAX)
-}
-
-/// The token as the CLI reads it; None when there is none or it cannot be read.
-pub fn read_token(home: &Path) -> Option<String> {
-    std::fs::read_to_string(token_path(home)).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }
 
 /// `bytes` random bytes from the system, as hex.

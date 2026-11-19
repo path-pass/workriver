@@ -855,7 +855,7 @@ fn minute_of(samples: &[Sample]) -> Sample {
 /// other character, a `/` above all, becomes `_`.
 fn history_path(home: &std::path::Path, label: &str) -> PathBuf {
     let name: String = label.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' }).collect();
-    home.join("metrics").join(format!("{name}.jsonl"))
+    home.join(crate::common::home::METRICS).join(format!("{name}.jsonl"))
 }
 
 /// Appends a minute to a machine's history (0600, in a 0700 folder); with `drop_before`,
