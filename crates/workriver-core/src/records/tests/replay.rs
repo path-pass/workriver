@@ -85,4 +85,3 @@ fn a_synthetic_history_replays_to_the_same_state() {
         assert_eq!(serde_json::to_string_pretty(&got[key]).unwrap(), serde_json::to_string_pretty(&want[key]).unwrap(), "{key} differs from {}", path.display());
     }
 }
-

@@ -9,7 +9,7 @@ use workriver_core::{Body, Event, Principal, Rejected, State, data_dir, now};
 mod events;
 mod migrations;
 
-use events::replay;
+use events::{insert, replay};
 use migrations::MIGRATIONS;
 
 #[derive(Debug, thiserror::Error)]
@@ -82,14 +82,9 @@ impl Store {
     pub fn append(&mut self, who: &Principal, body: Body) -> Result<Event, Error> {
         let body = self.state.prepare(who, body)?;
         let actor = who.actor();
-        let (intent, unit, task) = body.refs();
-        let json = serde_json::to_value(&body).expect("events serialize");
         let at = now();
-        self.conn.execute(
-            "INSERT INTO events (at, kind, actor, intent, unit, task, body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (&at, json["kind"].as_str(), actor, intent, unit, task, json["body"].to_string()),
-        )?;
-        let e = Event { seq: self.conn.last_insert_rowid(), at, actor: actor.to_string(), body };
+        let seq = insert(&self.conn, &at, actor, &body)?;
+        let e = Event { seq, at, actor: actor.to_string(), body };
         self.state.apply(&e);
         Ok(e)
     }
