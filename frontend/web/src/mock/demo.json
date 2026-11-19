@@ -2677,6 +2677,78 @@
         ]
        },
        "plans": []
+      },
+      {
+       "id": "v2|architecture-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "architecture-review",
+       "result": "found",
+       "inputs": [
+        {
+         "from": "s2",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": [
+         {
+          "id": "P3-1",
+          "severity": "P3",
+          "problem": "撤回的状态同时存在 store 和消息列表组件里",
+          "impact": "两处不同步时，已撤回的消息还会显示",
+          "evidence": [
+           "app/chat/store.ts",
+           "app/ui/list.tsx"
+          ],
+          "state": "accepted",
+          "leadsTo": [
+           "s3"
+          ],
+          "decidedBy": "user",
+          "decided": "2026-11-16 11:00",
+          "note": "状态只放在 store 里，列表组件只读。"
+         }
+        ]
+       },
+       "plans": [],
+       "started": "2026-11-16 09:20",
+       "delivered": "2026-11-16 10:40"
+      },
+      {
+       "id": "v1|architecture-review",
+       "kind": "review",
+       "state": "done",
+       "taskId": null,
+       "title": "",
+       "agent": null,
+       "writing": false,
+       "reviewer": "architecture-review",
+       "result": "passed",
+       "inputs": [
+        {
+         "from": "s1",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "findings": []
+       },
+       "plans": [],
+       "started": "2026-11-15 10:00",
+       "delivered": "2026-11-15 10:30"
       }
      ]
     },

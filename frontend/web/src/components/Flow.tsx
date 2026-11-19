@@ -99,13 +99,15 @@ export function NodeName({ n }: { n: Task }) {
   return <>{n.taskId && `#${n.taskId} `}{title}</>
 }
 
-/** A review's label with the reviewer's name, and punctuation right after it (「：」 may not start a line), kept whole. */
+/** A review's label: the reviewer's name with the punctuation right after it (「：」 may not
+ *  start a line) on one line, then its state. A name too long for the node is what gets cut
+ *  (an ellipsis); the punctuation and the state keep their place. */
 function ReviewLabel({ n }: { n: Task }) {
   const { t } = useT()
   const by = finderLabel(t, n), label = reviewLabel(t, n), i = label.indexOf(by)
   if (i < 0) return label
   const end = i + by.length + label.slice(i + by.length).match(/^\p{P}*/u)![0].length
-  return <>{label.slice(0, i)}<span className="whitespace-nowrap">{label.slice(i, end)}</span>{label.slice(end)}</>
+  return <>{label.slice(0, i)}<span className="head"><span className="nm">{by}</span><span>{label.slice(i + by.length, end)}</span></span>{label.slice(end)}</>
 }
 /** Where the scope grew at a task: which folders, beyond which work before it. */
 const grewText = (t: T, g: Growth) => t('flow.grew', {
@@ -141,7 +143,7 @@ function WorkCard({ data }: NodeProps<Node<CardData>>) {
         />
         <span className="lb">
           {n.kind === 'review'
-            ? n.result === 'found' ? <>{finderLabel(t, n)}<span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
+            ? n.result === 'found' ? <><span className="nm">{finderLabel(t, n)}</span><span className="sev">{severityCounts(findingsOf(n))}</span></> : <ReviewLabel n={n} />
             : n.state === 'unregistered' || !n.taskId ? <NodeName n={n} /> : <><b>#{n.taskId}</b> <Content text={n.title} /></>}
         </span>
         {n.agent && (n.state === 'running' || n.state === 'todo') && <Who name={n.agent} live={n.writing} />}

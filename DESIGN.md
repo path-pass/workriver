@@ -528,6 +528,11 @@ runs in.
 An agent may decide on its own: such a finding carries a small neutral robot mark, a
 decision by the user none. An open finding may carry the agent's suggestion, and its
 reason once the row is opened.
+A review node's name gives way before what it found: with counts under it the name stays on
+one line and is cut with an ellipsis when too long (アーキテクチャレ…), and the counts keep
+their line; without findings the name is cut the same way, and the punctuation after it and
+the state ("：問題なし") are never clipped. The full name is in the node's tooltip.
+
 Severity (P1–P3) is text, never a colour: the review node says how many it found per
 severity, and its list is grouped by it. Only open findings wait for the user: they show
 as a violet count on the review node, in the unit's outlined count in the rail, and as a
