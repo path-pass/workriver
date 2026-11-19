@@ -25,7 +25,8 @@ use tokio::sync::broadcast;
 use workriver_core::runtime::{Runtime, RuntimeAgent};
 use workriver_scan as scan;
 
-use crate::machines::Machines;
+use crate::common::config::{DiskLimit, Levels, Limit, Thresholds};
+use crate::runtime::follow::Machines;
 
 /// The name of the machine workriver runs on (a followed machine may not take it).
 pub const HERE: &str = "local";
@@ -395,89 +396,6 @@ const METRICS: [Metric; 10] = [Metric::Cpu, Metric::Memory, Metric::Compressor, 
 pub enum Level {
     Warn,
     Crit,
-}
-
-/// CPU and memory: at or above `percent` for `minutes` without a break (one level, warn).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Limit {
-    pub on: bool,
-    pub percent: u8,
-    pub minutes: u8,
-}
-
-/// Two levels of one value: past `warn`, past `crit` (over them, or under them for a share
-/// that is free), held for `minutes`; none: on the sample that sees it.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Levels {
-    pub on: bool,
-    pub warn: f32,
-    pub crit: f32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minutes: Option<u8>,
-}
-
-/// An alert whose levels are fixed: the pressure level (held for `minutes`), and OOM kills
-/// (critical at once, held `minutes` after the last one).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Timed {
-    pub on: bool,
-    pub minutes: u8,
-}
-
-/// A filesystem: used over `warn` % or under `warn_free` GB free warns; the same with `crit`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DiskLimit {
-    pub on: bool,
-    pub warn: f32,
-    pub crit: f32,
-    pub warn_free: f32,
-    pub crit_free: f32,
-    pub minutes: u8,
-}
-
-/// The thresholds, the same for every machine; each applies where the machine's system has
-/// the value. A key missing from an older settings file takes its default.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct Thresholds {
-    pub cpu: Limit,
-    pub memory: Limit,
-    pub compressor: Levels,
-    pub swap: Levels,
-    pub pressure: Timed,
-    pub system_free: Levels,
-    pub available: Levels,
-    pub psi: Levels,
-    pub oom: Timed,
-    pub disk: DiskLimit,
-}
-
-/// How long the memory and disk alerts hold before they rise, by default: a minute. One
-/// sample over is never enough (a spike), and a leak can fill a Mac's compressor within
-/// minutes, so longer would come late; PSI's avg10 is a 10 s mean already.
-const HOLD: Option<u8> = Some(1);
-
-impl Default for Thresholds {
-    fn default() -> Self {
-        let limit = Limit { on: true, percent: 90, minutes: 5 };
-        let levels = |warn, crit, minutes| Levels { on: true, warn, crit, minutes };
-        Thresholds {
-            cpu: limit,
-            memory: limit,
-            compressor: levels(60.0, 80.0, None),
-            swap: levels(4.0, 10.0, HOLD),
-            pressure: Timed { on: true, minutes: 1 },
-            system_free: levels(25.0, 20.0, HOLD),
-            available: levels(25.0, 12.0, HOLD),
-            psi: levels(5.0, 20.0, HOLD),
-            oom: Timed { on: true, minutes: 5 },
-            disk: DiskLimit { on: true, warn: 80.0, crit: 90.0, warn_free: 50.0, crit_free: 20.0, minutes: 1 },
-        }
-    }
 }
 
 impl Thresholds {
@@ -896,7 +814,7 @@ fn read_history(home: &std::path::Path, label: &str, since: i64) -> std::io::Res
 
 impl Metrics {
     pub fn new(home: PathBuf, local: scan::Runner, machines: Option<Arc<Machines>>, runtime: Arc<dyn Runtime>, changed: broadcast::Sender<()>, step: Duration) -> Arc<Metrics> {
-        let thresholds = crate::machines::thresholds(&home);
+        let thresholds = crate::common::config::thresholds(&home);
         Arc::new(Metrics { home, local, machines, runtime, tracks: Mutex::default(), running: Mutex::default(), thresholds: Mutex::new(thresholds), changed, step, stop: AtomicBool::new(false) })
     }
 
@@ -1066,7 +984,7 @@ impl Metrics {
     /// Saves new thresholds and looks at every machine's alerts again at once.
     pub fn set_thresholds(&self, t: Thresholds) -> Result<(), String> {
         t.check()?;
-        crate::machines::set_thresholds(&self.home, t)?;
+        crate::common::config::set_thresholds(&self.home, t)?;
         *self.thresholds.lock().unwrap() = t;
         let changed = self.tracks.lock().unwrap().values_mut().fold(false, |any, track| Self::judge(track, &t, self.step) | any);
         if changed {
@@ -1429,10 +1347,10 @@ not a df line
         t.memory.minutes = 11;
         assert!(t.check().unwrap_err().contains("memory"));
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(crate::machines::thresholds(dir.path()), Thresholds::default(), "the defaults until set");
+        assert_eq!(crate::common::config::thresholds(dir.path()), Thresholds::default(), "the defaults until set");
         let set = Thresholds { cpu: Limit { on: false, percent: 80, minutes: 2 }, memory: Limit { on: true, percent: 95, minutes: 10 }, ..Thresholds::default() };
-        crate::machines::set_thresholds(dir.path(), set).unwrap();
-        assert_eq!(crate::machines::thresholds(dir.path()), set);
+        crate::common::config::set_thresholds(dir.path(), set).unwrap();
+        assert_eq!(crate::common::config::thresholds(dir.path()), set);
     }
 
     /// A sample of a Mac at `at` with the given CPU, pressure and OOM count.
@@ -1728,10 +1646,10 @@ not a df line
         let dir = tempfile::tempdir().unwrap();
         let old = r#"{"machines":{"box":{"ssh":"box","enabled":true}},"alerts":{"cpu":{"on":false,"percent":80,"minutes":2},"memory":{"on":true,"percent":95,"minutes":10}}}"#;
         std::fs::write(dir.path().join("settings.json"), old).unwrap();
-        let t = crate::machines::thresholds(dir.path());
+        let t = crate::common::config::thresholds(dir.path());
         let (cpu, memory) = (Limit { on: false, percent: 80, minutes: 2 }, Limit { on: true, percent: 95, minutes: 10 });
         assert_eq!(t, Thresholds { cpu, memory, ..Thresholds::default() });
-        crate::machines::set_thresholds(dir.path(), t).unwrap();
+        crate::common::config::set_thresholds(dir.path(), t).unwrap();
         let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
         assert_eq!(saved["machines"]["box"]["ssh"], "box", "the machines stay");
         assert_eq!(saved["alerts"]["compressor"], serde_json::json!({ "on": true, "warn": 60.0, "crit": 80.0 }), "no minutes: at once");

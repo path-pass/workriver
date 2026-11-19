@@ -120,7 +120,7 @@ fn every_route_answers_only_its_methods() {
     let tmp = tempfile::tempdir().unwrap();
     let local = std::sync::Arc::new(Fake::default());
     let far = std::sync::Arc::new(Fake::default());
-    let all = crate::machines::Machines::with(local.clone(), vec![("box", far)]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far)]);
     let (port, _kernel) = daemon_over(local, Some(all.clone()), &tmp.path().join("w.db"));
     wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
     wait_until("the machine's listener", || all.local_port("box").is_some());
@@ -226,7 +226,7 @@ fn who_may_use_each_route() {
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
-    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
     let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
     wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
     wait_until("the machine's listener", || all.local_port("box").is_some());
@@ -260,7 +260,7 @@ fn who_may_use_each_route() {
             assert!(probes.iter().any(|(pm, pp, _)| *pm == m && fits(r, pp.split('?').next().unwrap())), "no probe for {m} {r}");
         }
     }
-    let thresholds = serde_json::to_string(&crate::metrics::Thresholds::default()).unwrap();
+    let thresholds = serde_json::to_string(&crate::common::config::Thresholds::default()).unwrap();
     let mut got = String::new();
     for (listener, port, table) in [("local", port, LOCAL), ("machine", all.local_port("box").unwrap(), MACHINE)] {
         for (method, path, body) in &probes {
@@ -370,7 +370,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-impl", "impl", "w1", Working)), ("p3".into(), rev)];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
-    let all = crate::machines::Machines::with(fake.clone(), vec![("box", far)]);
+    let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", far)]);
     let store = workriver_data::Store::open(&tmp.join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();

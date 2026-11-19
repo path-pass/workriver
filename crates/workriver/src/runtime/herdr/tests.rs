@@ -231,3 +231,23 @@ fn refusals_name_no_harness() {
         assert!(!["codex", "claude", "daemon", "gemini"].iter().any(|h| low.contains(h)), "{s}");
     }
 }
+
+/// A machine's setting keeps Herdr's socket under the key it always had in settings.json:
+/// an older file reads, and is written back, byte for byte; with no socket there is no key,
+/// and the port of older files is still read and dropped.
+#[test]
+fn a_machines_socket_keeps_its_key() {
+    use crate::common::config::Setting;
+    let old = r#"{"ssh":"box","herdrSocket":"/run/herdr.sock","enabled":true}"#;
+    let s: Setting = serde_json::from_str(old).unwrap();
+    assert_eq!(s, Setting { ssh: "box".into(), options: remote::options(Some("/run/herdr.sock".into())), port: 0, enabled: true });
+    assert_eq!(serde_json::to_string(&s).unwrap(), old);
+    let plain: Setting = serde_json::from_str(r#"{"ssh":"box","port":47821,"enabled":false}"#).unwrap();
+    assert_eq!((plain.options.len(), plain.port), (0, 47821));
+    assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"ssh":"box","enabled":false}"#);
+    assert_eq!(remote::options(None).len(), 0);
+    // Of what a request gives, only the socket is kept, and only as a path.
+    let given = serde_json::from_str(r#"{"herdrSocket":"/s","other":1}"#).unwrap();
+    assert_eq!(remote::known(&given), remote::options(Some("/s".into())));
+    assert_eq!(remote::known(&serde_json::from_str(r#"{"herdrSocket":null}"#).unwrap()).len(), 0);
+}

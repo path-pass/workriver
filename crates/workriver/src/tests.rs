@@ -1106,7 +1106,7 @@ fn machines_are_separate_until_linked() {
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
-    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone()), ("gone", std::sync::Arc::new(Broken))]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone()), ("gone", std::sync::Arc::new(Broken))]);
 
     let agents = all.agents().unwrap();
     assert_eq!(agents.len(), 2, "the machine that cannot be reached does not take the others with it");
@@ -1232,7 +1232,7 @@ exit 255
 /// growing waits; ended with its supervisor.
 #[test]
 fn a_machines_connection_is_kept_up() {
-    use crate::machines::{Pace, Tunnel, allocated, publish, slept, supervise, tunnel_words};
+    use crate::runtime::ssh::{Pace, Tunnel, allocated, publish, slept, supervise, tunnel_words};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     let w = tunnel_words("me@box", "/data/herdr-box.sock", "/home/me/.config/herdr/herdr.sock", 51234);
@@ -1325,8 +1325,8 @@ fn a_machines_connection_is_kept_up() {
     // As `workriver machine list` and the page see it, from a machine followed for real
     // (through the stand-in): up with its port; down at once, since when, the next attempt.
     std::fs::remove_file(tmp.path().join("connections")).ok();
-    let all = crate::machines::Machines::with_ssh(std::sync::Arc::new(Fake::default()), tmp.path().to_path_buf(), &ssh.display().to_string(), Pace { min: Duration::from_millis(300), ..pace });
-    let setting = crate::machines::Setting { ssh: "box".into(), herdr_socket: Some("/run/herdr.sock".into()), port: 0, enabled: true };
+    let all = crate::runtime::follow::Machines::with_ssh(std::sync::Arc::new(Fake::default()), tmp.path().to_path_buf(), &ssh.display().to_string(), Pace { min: Duration::from_millis(300), ..pace });
+    let setting = crate::common::config::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), port: 0, enabled: true };
     all.start("box", setting, 1);
     let state = || all.states().into_iter().next().unwrap();
     wait_until("connected", || state().tunnel);
@@ -1565,7 +1565,7 @@ fn a_machines_listener_serves_only_agents() {
     let local = std::sync::Arc::new(Fake::default());
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
-    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
@@ -1826,7 +1826,7 @@ fn units_on_another_machine() {
     *local.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-worker", "worker", "w1", Idle))];
-    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
     all.set_runner("box", workriver_scan::Runner::Ssh { program: fake_ssh.to_string_lossy().into_owned(), options: vec![], target: "box".into() });
     all.poll_all();
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
@@ -1914,7 +1914,8 @@ fn units_on_another_machine() {
 /// A machine just enabled is "connecting" until its first attempt ends one way or the other.
 #[test]
 fn a_machine_is_connecting_until_it_is_not() {
-    use crate::machines::{Tunnel, connecting};
+    use crate::runtime::follow::connecting;
+    use crate::runtime::ssh::Tunnel;
     assert!(connecting(&Tunnel::default(), false, false), "nothing has happened yet");
     assert!(!connecting(&Tunnel { up: false, error: Some("ssh: Connection refused".into()), ..Tunnel::default() }, false, false), "ssh said why not");
     let up = Tunnel { up: true, ..Tunnel::default() };
@@ -2751,7 +2752,7 @@ fn idle_workers_are_told_to_their_manager() {
 
 /// Starts a daemon over `runtime` as it runs for real (no `--as`), on a free port; its port
 /// and what it believes of processes.
-fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::Runtime>, machines: Option<std::sync::Arc<crate::machines::Machines>>, db: &std::path::Path) -> (u16, Kernel) {
+fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::Runtime>, machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>, db: &std::path::Path) -> (u16, Kernel) {
     let store = workriver_data::Store::open(db).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
@@ -2810,7 +2811,7 @@ fn the_user_runs_a_command() {
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-worker", "worker", "w1", Idle))];
-    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
     let db = tmp.path().join("w.db");
     let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &db);
     let user = kernel.client(port, tmp.path());
@@ -2906,7 +2907,7 @@ fn a_runs_shell_closes() {
     let local = std::sync::Arc::new(Fake::default());
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
-    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
     let db = tmp.path().join("w.db");
     let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &db);
     let user = kernel.client(port, tmp.path());
@@ -3245,7 +3246,7 @@ fn the_inbox_asks_who_calls() {
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
-    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
     let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
     wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
     wait_until("the machine's listener", || all.local_port("box").is_some());
@@ -3815,7 +3816,7 @@ fn a_caller_on_another_machine_is_checked_there() {
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle)), ("w1:p2".into(), live("s-two", "two", "w1", Idle))];
-    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();

@@ -66,3 +66,6 @@ pub fn ask_hint(agent: &str) -> String {
 pub fn stall_hint(agent: &str) -> String {
     format!("Look at its terminal (`herdr agent read {agent} --source recent-unwrapped --lines 80`) and either get it going (`herdr agent prompt {agent} \"...\"`),")
 }
+
+/// Why a followed machine's agents cannot be read, when nothing answers on its socket.
+pub const REMOTE_UNREACHABLE: &str = "its Herdr cannot be reached (no connection, or Herdr is not running there)";

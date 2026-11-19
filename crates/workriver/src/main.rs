@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
         // Without its runtime the daemon still records and shows; it just sees no agents.
         let (runtime, warning) = runtime::connect(terminal_app.clone());
         let home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
-        let all = machines::Machines::new(runtime, home, terminal_app.clone());
+        let all = runtime::follow::Machines::new(runtime, home, terminal_app.clone());
         if let Some(w) = &warning {
             tracing::warn!("{w}");
         }

@@ -23,7 +23,11 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             let (label, action, extra) = match cmd {
                 MachineCmd::Load { .. } => unreachable!("handled above"),
                 MachineCmd::List => (String::new(), "", json!({})),
-                MachineCmd::Add { label, ssh, herdr_socket } => (label, "add", json!({ "ssh": ssh, "herdrSocket": herdr_socket })),
+                MachineCmd::Add { label, ssh, herdr_socket } => {
+                    let mut body = json!(runtime::socket_option(herdr_socket));
+                    body["ssh"] = json!(ssh);
+                    (label, "add", body)
+                }
                 MachineCmd::Enable { label } => (label, "enable", json!({})),
                 MachineCmd::Disable { label } => (label, "disable", json!({})),
                 MachineCmd::Remove { label } => (label, "remove", json!({})),

@@ -6,7 +6,7 @@
 // (`{"id","method","params"}` -> `{"id","result"}` or `{"id","error":{"code","message"}}`).
 //
 // Another machine has its own Herdr server; its socket, forwarded here over SSH (see
-// machines.rs), speaks the same protocol, so the same client talks to it. Ids are per
+// ../ssh.rs), speaks the same protocol, so the same client talks to it. Ids are per
 // server: everything read from another machine carries the machine's name.
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,7 +19,7 @@ use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
 
 mod agents;
 mod protocol;
-mod remote;
+pub mod remote;
 mod terminals;
 pub mod words;
 

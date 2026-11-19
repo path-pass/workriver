@@ -23,7 +23,7 @@ pub struct Workspace {
     workspaces: Vec<Group>,
     /// The other machines followed, with whether each can be reached.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    machines: Vec<crate::machines::MachineState>,
+    machines: Vec<crate::runtime::follow::MachineState>,
     /// A part only: what an agent on a blind task may see.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     reduced: bool,
@@ -747,7 +747,7 @@ pub struct Cache {
     commits: HashMap<String, scan::Commit>,
     trees: HashMap<String, (String, scan::Module)>,
     /// The machines followed, for repositories that are on one of them.
-    pub machines: Option<std::sync::Arc<crate::machines::Machines>>,
+    pub machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>,
     /// What is kept across restarts (in `file`): where branches fork, which commits each
     /// unit had for which tips, what commits say, patch ids.
     stored: Stored,
@@ -843,7 +843,7 @@ struct Seen {
 pub const REMOTE: std::time::Duration = std::time::Duration::from_secs(15);
 
 impl Cache {
-    pub fn following(machines: Option<std::sync::Arc<crate::machines::Machines>>) -> Cache {
+    pub fn following(machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>) -> Cache {
         Cache { machines, ..Default::default() }
     }
 
@@ -1418,7 +1418,7 @@ fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) 
         }
     };
     let ms = started.elapsed().as_millis() as u64;
-    tracing::info!(target: "perf", kind = "unit", unit = %u.id, machine = u.machine.as_deref().unwrap_or("local"), ms, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, commits = commits.len(), light = cache.light, slow = ms >= SLOW_MS);
+    tracing::info!(target: "perf", kind = "unit", unit = %u.id, machine = u.machine.as_deref().unwrap_or("local"), ms, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, commits = commits.len(), light = cache.light, slow = ms >= crate::common::config::defaults::SLOW_MS);
     (commits, files)
 }
 
@@ -1470,9 +1470,6 @@ fn code_of(commits: &[scan::Commit], files: &[scan::FileChange]) -> String {
     }
     format!("{:016x}", h.finish())
 }
-
-/// Anything slower than this is marked so in the timing log.
-pub const SLOW_MS: u64 = 500;
 
 fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut Cache, names: &Names, manager: Option<&str>) -> Unit {
     let merged = u.merged.is_some();

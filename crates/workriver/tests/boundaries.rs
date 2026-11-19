@@ -30,7 +30,6 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver/src/cli/work.rs",
     "crates/workriver/src/common/process.rs",
     "crates/workriver/src/deliver.rs",
-    "crates/workriver/src/machines.rs",
     "crates/workriver/src/metrics.rs",
     "crates/workriver/src/run.rs",
     // The facade: it declares the adapter's module and picks it, by its name.

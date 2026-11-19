@@ -5,7 +5,11 @@ use std::sync::Arc;
 
 use workriver_core::runtime::Runtime;
 
+use crate::common::config::Options;
+
+pub mod follow;
 mod herdr;
+pub mod ssh;
 
 /// Today's only adapter.
 use herdr as adapter;
@@ -27,9 +31,15 @@ pub fn caller_place() -> Option<String> {
     adapter::place_from_env()
 }
 
-/// The runtime of another machine, behind a socket forwarded from it.
-pub fn remote(socket: std::path::PathBuf, machine: &str, terminal_app: String) -> Arc<dyn Runtime> {
-    Arc::new(adapter::Herdr::on(socket, machine, terminal_app))
+/// A machine's options with where its runtime's socket is over there (none: asked of the
+/// machine), as the adapter keeps them in the machine's setting.
+pub fn socket_option(socket: Option<String>) -> Options {
+    adapter::remote::options(socket)
+}
+
+/// Of the options a request gave for a machine, those the adapter knows.
+pub fn known_options(given: &Options) -> Options {
+    adapter::remote::known(given)
 }
 
 /// A group's id on a machine, told apart from this machine's: `w1@label`.

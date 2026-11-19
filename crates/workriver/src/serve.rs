@@ -25,7 +25,7 @@ use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, Reas
 use workriver_data::Store;
 use workriver_scan as scan;
 
-use crate::machines::Machines;
+use crate::runtime::follow::Machines;
 use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
 use crate::caller::{self, Callers, Pin, Pins};
@@ -332,9 +332,9 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         blocked: Mutex::default(),
         idle_since: Mutex::default(),
         stalls: Mutex::default(),
-        stall_minutes: crate::machines::stall_minutes(&store_home).into(),
-        ready_hours: crate::machines::ready_hours(&store_home),
-        idle_minutes: crate::machines::idle_minutes(&store_home),
+        stall_minutes: crate::common::config::stall_minutes(&store_home).into(),
+        ready_hours: crate::common::config::ready_hours(&store_home),
+        idle_minutes: crate::common::config::idle_minutes(&store_home),
         idle_told: Mutex::default(),
         shared: shared.clone(),
         merge_told: Mutex::new(std::fs::read(store_home.join(MERGE_TOLD)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
@@ -407,7 +407,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
             let found = std::mem::take(&mut bg.merged_now);
             remote.record_merges(found);
             let ms = started.elapsed().as_millis() as u64;
-            tracing::info!(target: "perf", kind = "remote_read", ms, recomputed = bg.recomputed, reused = bg.reused, changed, slow = ms >= snapshot::SLOW_MS);
+            tracing::info!(target: "perf", kind = "remote_read", ms, recomputed = bg.recomputed, reused = bg.reused, changed, slow = ms >= crate::common::config::defaults::SLOW_MS);
             if changed {
                 let _ = remote.changed.send(());
             }
@@ -1048,7 +1048,7 @@ impl App {
             snapshot::hide(&mut ws);
         }
         let ms = started.elapsed().as_millis() as u64;
-        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= snapshot::SLOW_MS);
+        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= crate::common::config::defaults::SLOW_MS);
         ws
     }
 
@@ -1644,7 +1644,7 @@ async fn timing(req: Request, next: Next) -> Response {
     let res = next.run(req).await;
     let ms = started.elapsed().as_millis() as u64;
     let bytes = axum::body::HttpBody::size_hint(res.body()).exact().unwrap_or(0);
-    tracing::info!(target: "perf", kind = "http", method, route, status = res.status().as_u16(), ms, bytes, who, slow = ms >= snapshot::SLOW_MS);
+    tracing::info!(target: "perf", kind = "http", method, route, status = res.status().as_u16(), ms, bytes, who, slow = ms >= crate::common::config::defaults::SLOW_MS);
     res
 }
 
@@ -1981,7 +1981,7 @@ async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>,
 
 /// Follows a machine: a listener of its own here (the far end of its tunnel), then its
 /// connection and the reading of its agents.
-async fn follow(app: &Shared, label: &str, setting: crate::machines::Setting) -> Result<(), ApiError> {
+async fn follow(app: &Shared, label: &str, setting: crate::common::config::Setting) -> Result<(), ApiError> {
     let Some(machines) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
     let local_port = listen(app, label, 0).await?;
     tracing::info!("machine {label}: its tunnel leads to 127.0.0.1:{local_port} here");
@@ -2010,7 +2010,7 @@ async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
 
 /// Read by the user and by agents of this machine (a refusal sends them here to see why a
 /// machine cannot be reached); changed by the user alone.
-async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+async fn machines(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<Vec<crate::runtime::follow::MachineState>>, ApiError> {
     app.who(&caller, r.named.as_deref())?;
     Ok(Json(app.machines.as_ref().map(|m| m.list()).unwrap_or_default()))
 }
@@ -2023,8 +2023,9 @@ struct MachineSet {
     action: String,
     #[serde(default)]
     ssh: String,
-    #[serde(default)]
-    herdr_socket: Option<String>,
+    /// The runtime adapter's options for the machine, under its own keys.
+    #[serde(flatten)]
+    options: crate::common::config::Options,
 }
 
 /// CPU and memory of this machine and the followed ones, with the thresholds: read by the
@@ -2068,7 +2069,7 @@ async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension
 
 /// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a
 /// preference like the list of machines, not a record of work.
-async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::metrics::Thresholds>) -> Result<Json<crate::metrics::Report>, ApiError> {
+async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::common::config::Thresholds>) -> Result<Json<crate::metrics::Report>, ApiError> {
     app.user(&caller)?;
     app.metrics.set_thresholds(t).map_err(bad)?;
     Ok(Json(app.metrics.report()))
@@ -2088,13 +2089,13 @@ async fn stall_get(State(app): State<Shared>, Extension(caller): Extension<Calle
 /// Sets it; the user's alone, kept in settings.json like the alert thresholds.
 async fn stall_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StallSetting>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
-    crate::machines::set_stall_minutes(&app.home, s.minutes).map_err(bad)?;
+    crate::common::config::set_stall_minutes(&app.home, s.minutes).map_err(bad)?;
     app.stall_minutes.store(s.minutes, std::sync::atomic::Ordering::Relaxed);
     Ok(Json(json!({ "minutes": s.minutes })))
 }
 
 /// Adds, enables, disables or removes a machine; only from this machine.
-async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::machines::MachineState>>, ApiError> {
+async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<MachineSet>) -> Result<Json<Vec<crate::runtime::follow::MachineState>>, ApiError> {
     app.user(&caller)?;
     let Some(all) = app.machines.clone() else { return Err(bad("this service follows no other machines".into())) };
     let stop = |label: &str| {
@@ -2104,7 +2105,7 @@ async fn machine_set(State(app): State<Shared>, Extension(caller): Extension<Cal
         }
     };
     match m.action.as_str() {
-        "add" => all.add(&m.label, crate::machines::Setting { ssh: m.ssh, herdr_socket: m.herdr_socket, port: 0, enabled: false }).map_err(bad)?,
+        "add" => all.add(&m.label, crate::common::config::Setting { ssh: m.ssh, options: crate::runtime::known_options(&m.options), port: 0, enabled: false }).map_err(bad)?,
         "enable" => {
             let setting = all.enable(&m.label, true).map_err(bad)?;
             follow(&app, &m.label, setting).await?;
