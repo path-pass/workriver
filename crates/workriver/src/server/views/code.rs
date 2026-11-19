@@ -42,7 +42,7 @@ pub fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> sca
 /// Which commits are the unit's: as worked out last time while its branch, its base and
 /// what is recorded about it stay as they were (one `git for-each-ref` per repository tells);
 /// else worked out again (`unit_commits`).
-pub(super) fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<String>, bool)> {
+fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<String>, bool)> {
     if u.merged.is_some() && !u.merged_commits.is_empty() {
         return Ok((u.merged_commits.clone(), false));
     }
@@ -201,7 +201,7 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
 /// Whether a ready unit git does not show merged looks squash-merged (`scan::squashed`):
 /// worked out once per state of its branch and base (the key of its commits), and kept in
 /// `Shared::squash`, where the page and the service's reminder read it.
-pub(super) fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
+fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
     let Some(key) = cache.stored.memo.get(&u.id).map(|m| m.key.clone()) else { return };
     let found = match cache.stored.squash.get(&u.id) {
         Some((k, f)) if *k == key => f.clone(),

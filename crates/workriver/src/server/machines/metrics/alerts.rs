@@ -5,18 +5,18 @@ use super::*;
 pub const MAX_MINUTES: u8 = 10;
 
 /// An alert clears once every sample of this long is below its threshold.
-pub(super) const CLEAR_MS: i64 = 60_000;
+const CLEAR_MS: i64 = 60_000;
 
 /// One GB as the page counts it (steps of 1024).
 pub(super) const GIB: f32 = 1_073_741_824.0;
 
 impl Disk {
     /// The share of it in use, in percent.
-    pub(super) fn used(&self) -> f32 {
+    fn used(&self) -> f32 {
         (self.total - self.free.min(self.total)) as f32 * 100.0 / self.total as f32
     }
 
-    pub(super) fn level(&self, d: &DiskLimit) -> Option<Level> {
+    fn level(&self, d: &DiskLimit) -> Option<Level> {
         let (used, free) = (self.used(), self.free as f32 / GIB);
         if used > d.crit || free < d.crit_free {
             Some(Level::Crit)
@@ -28,11 +28,11 @@ impl Disk {
     }
 }
 
-pub(super) fn above(v: f32, l: &Levels) -> Option<Level> {
+fn above(v: f32, l: &Levels) -> Option<Level> {
     if v > l.crit { Some(Level::Crit) } else if v > l.warn { Some(Level::Warn) } else { None }
 }
 
-pub(super) fn below(v: f32, l: &Levels) -> Option<Level> {
+fn below(v: f32, l: &Levels) -> Option<Level> {
     if v < l.crit { Some(Level::Crit) } else if v < l.warn { Some(Level::Warn) } else { None }
 }
 

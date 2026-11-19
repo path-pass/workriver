@@ -32,14 +32,14 @@ pub(super) fn next_minute(minute: &mut Vec<Sample>, s: &Sample) -> Option<Sample
     done
 }
 
-pub(super) fn mean(values: impl Iterator<Item = f64>) -> Option<f64> {
+fn mean(values: impl Iterator<Item = f64>) -> Option<f64> {
     let (sum, n) = values.fold((0.0, 0u32), |(s, n), v| (s + v, n + 1));
     (n > 0).then(|| sum / n as f64)
 }
 
 /// One minute of samples as one line: the mean of each reading; the worst pressure level;
 /// counters and the disks as they were at the minute's end. `at` is the minute's start.
-pub(super) fn minute_of(samples: &[Sample]) -> Sample {
+fn minute_of(samples: &[Sample]) -> Sample {
     let last = samples.last().expect("a minute has a sample");
     // Shares to two decimals: a week of lines is smaller, and nothing reads finer.
     let avg = |f: &dyn Fn(&Sample) -> Option<f64>| mean(samples.iter().filter_map(f)).map(|v| (v * 100.0).round() / 100.0);

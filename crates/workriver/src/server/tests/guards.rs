@@ -1,7 +1,7 @@
 //! The service's guards for the restructure (docs/design/restructure.md, section 5): every
 //! route with its methods on both listeners, who may use each route, and the JSON the page
 //! reads. A move keeps these green unchanged; a test or blessed file here changes only with
-//! a deliberate change of behaviour. (The CLI's guards are in `cli_guards.rs`; the runtime
+//! a deliberate change of behaviour. (The CLI's guards are in `cli/guards.rs`; the runtime
 //! names' ratchet, which reads the whole repository, is `tests/boundaries.rs`.)
 use std::collections::BTreeSet;
 use std::io::{Read, Write};

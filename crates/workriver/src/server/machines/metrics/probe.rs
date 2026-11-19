@@ -67,11 +67,11 @@ pub fn parse(text: &str) -> Result<Reading, String> {
     }
 }
 
-pub(super) fn number(s: &str) -> Option<u64> {
+fn number(s: &str) -> Option<u64> {
     s.trim().trim_end_matches('.').parse().ok()
 }
 
-pub(super) fn parse_linux(text: &str) -> Result<Reading, String> {
+fn parse_linux(text: &str) -> Result<Reading, String> {
     let line = text.lines().find(|l| l.starts_with("cpu ")).ok_or("no cpu line in /proc/stat")?;
     let ticks: Vec<u64> = line.split_whitespace().skip(1).filter_map(number).collect();
     if ticks.len() < 4 {
@@ -101,7 +101,7 @@ pub(super) fn parse_linux(text: &str) -> Result<Reading, String> {
     Ok(Reading { cpu: Cpu::Ticks { busy: total - idle, total }, mem_used: total_mem.saturating_sub(available), mem_total: total_mem, detail })
 }
 
-pub(super) fn parse_darwin(text: &str) -> Result<Reading, String> {
+fn parse_darwin(text: &str) -> Result<Reading, String> {
     // sysctl prints `name: value`.
     let sysctl = |name: &str| text.lines().find_map(|l| l.strip_prefix(name)?.strip_prefix(": "));
     let total = sysctl("hw.memsize").and_then(number).ok_or("no hw.memsize")?;
@@ -143,7 +143,7 @@ pub(super) fn parse_darwin(text: &str) -> Result<Reading, String> {
 }
 
 /// "3659.88M" (as sysctl prints sizes) in bytes.
-pub(super) fn size(s: &str) -> Option<u64> {
+fn size(s: &str) -> Option<u64> {
     let shift = match s.chars().last()? {
         'K' => 10,
         'M' => 20,
@@ -185,7 +185,7 @@ pub fn cpu_share(before: Option<&Reading>, now: &Reading) -> Option<f32> {
 // ---- samples, thresholds, alerts ----
 
 /// How many processes an alert names.
-pub(super) const TOP: usize = 5;
+const TOP: usize = 5;
 
 /// Whether process `pid` on the machine `runner` reaches has started anything that still runs
 /// (for a shell: a command in front, or a background job). An error unless the list was

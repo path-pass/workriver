@@ -23,14 +23,14 @@ pub(super) fn git(dir: &std::path::Path, args: &[&str]) {
 }
 
 /// Process ids from here up are places' roots, by the name of their place.
-pub(super) const ROOTS: u32 = 1_000_000;
+const ROOTS: u32 = 1_000_000;
 
 /// The shell at the root of `place`, in every test's runtime.
 pub(super) fn root(place: &str) -> u32 {
     ROOTS + place.bytes().fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) % 1_000_000
 }
 
-pub(super) fn shell(pid: u32) -> crate::common::process::Proc {
+fn shell(pid: u32) -> crate::common::process::Proc {
     crate::common::process::Proc { pid, parent: 1, tty: Some(format!("tty{pid}")), start: 1, name: "zsh".into() }
 }
 
@@ -38,8 +38,8 @@ pub(super) fn shell(pid: u32) -> crate::common::process::Proc {
 /// is a root (a place's shell) that runs until it is killed.
 #[derive(Default)]
 pub(super) struct FakeProcs {
-    pub(super) chains: std::sync::Mutex<std::collections::HashMap<u32, crate::common::process::Chain>>,
-    pub(super) dead: std::sync::Mutex<Vec<u32>>,
+    chains: std::sync::Mutex<std::collections::HashMap<u32, crate::common::process::Chain>>,
+    dead: std::sync::Mutex<Vec<u32>>,
 }
 
 impl FakeProcs {
@@ -73,11 +73,11 @@ pub(super) struct Kernel {
     /// How many proofs the clients fetched.
     pub(super) fetched: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// The proof and process id last given to a client at each place.
-    pub(super) kept: std::sync::Arc<std::sync::Mutex<Minted>>,
+    kept: std::sync::Arc<std::sync::Mutex<Minted>>,
 }
 
 /// A proof and a process id, by the place they were made up at.
-pub(super) type Minted = std::collections::HashMap<Option<String>, (String, u32)>;
+type Minted = std::collections::HashMap<Option<String>, (String, u32)>;
 
 impl Kernel {
     /// A service's options with this kernel, nothing else asked for.
@@ -101,7 +101,7 @@ impl Kernel {
     /// A made-up `workriver` process at `place` (a child of its root's shell; none: at a
     /// terminal in no place): its proof, for this machine's listener, and its id, for a
     /// machine's. The same one for a place until `fresh`.
-    pub(super) fn mint(&self, place: Option<&str>, fresh: bool) -> (Option<String>, u32) {
+    fn mint(&self, place: Option<&str>, fresh: bool) -> (Option<String>, u32) {
         use std::sync::atomic::Ordering;
         static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1000);
         let mut kept = self.kept.lock().unwrap();
@@ -128,7 +128,7 @@ impl Kernel {
 }
 
 /// A line typed into a new shell: machine, group, dir, line.
-pub(super) type Typed = (Option<String>, String, String, String);
+type Typed = (Option<String>, String, String, String);
 
 /// A runtime of our own: agents by place, every send kept, states set by the test.
 #[derive(Default)]
@@ -182,7 +182,7 @@ pub(super) fn nobody() -> u32 {
 
 impl Fake {
     /// As Herdr's implementation: only a place that is there, in the runs' group, a plain shell.
-    pub(super) fn run_shell_at(&self, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+    fn run_shell_at(&self, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         assert_eq!(group, crate::run::GROUP);
         if !self.screens.lock().unwrap().contains_key(place) || self.not_shells.lock().unwrap().iter().any(|p| p == place) {
             return Err(workriver_core::runtime::RuntimeError::NoPlace(format!("{place} is no longer a shell in {group}")));

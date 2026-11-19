@@ -14,7 +14,7 @@ pub struct Cache {
     /// What is kept across restarts (in `file`): where branches fork, which commits each
     /// unit had for which tips, what commits say, patch ids.
     pub(super) stored: Stored,
-    pub(super) file: Option<std::path::PathBuf>,
+    file: Option<std::path::PathBuf>,
     pub(super) dirty: bool,
     /// This build: no file texts, uncommitted work or trees (board, `task show`).
     pub light: bool,
@@ -48,7 +48,7 @@ pub(super) const RULES: u32 = 1;
 pub(super) struct Stored {
     /// `RULES` when it was written; 0 before there was one.
     #[serde(default)]
-    pub(super) rules: u32,
+    rules: u32,
     #[serde(default)]
     pub(super) seen: HashMap<String, Seen>,
     #[serde(default)]

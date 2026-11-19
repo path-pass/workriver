@@ -19,7 +19,7 @@ impl Msg {
 }
 
 /// A finding's fields as one text, to be quoted.
-pub(super) fn finding_text(f: &Finding) -> String {
+fn finding_text(f: &Finding) -> String {
     let mut t = format!("Problem: {}", sentence(&f.found.problem));
     if !f.found.impact.is_empty() {
         t += &format!(" If left: {}", sentence(&f.found.impact));
@@ -32,7 +32,7 @@ pub(super) fn finding_text(f: &Finding) -> String {
 
 /// A finding quoted from whoever wrote it: the agent of the task that found it, or (a
 /// gate's) the user.
-pub(super) fn quoted_finding(state: &State, lead: &str, t: &Task, f: &Finding) -> String {
+fn quoted_finding(state: &State, lead: &str, t: &Task, f: &Finding) -> String {
     match (t.kind, t.agent.as_deref()) {
         (TaskKind::Gate, _) => users(&format!("{lead}, as the user wrote it"), &finding_text(f)),
         (_, Some(a)) => quoted(&format!("{lead}, quoted from {}", who(state, a)), &finding_text(f)),
@@ -115,7 +115,7 @@ pub(super) fn delivered_message(state: &State, actor: &str, unit: &str, n: u32) 
 
 /// How many findings per severity, and whose they are to decide: the user's, unless the
 /// user handed this intent's findings to its manager. Ends a sentence that names them.
-pub(super) fn whose(state: &State, unit: &str, n: u32, list: &[&Finding]) -> String {
+fn whose(state: &State, unit: &str, n: u32, list: &[&Finding]) -> String {
     let per: Vec<String> = ["P1", "P2", "P3"]
         .iter()
         .filter_map(|s| {
@@ -174,7 +174,7 @@ pub(super) fn waiting_on(state: &State, unit: &str, g: &Task) -> Option<String> 
     behind.or_else(|| followed(state, unit, g).filter(|f| f.agent.as_deref() == Some(g.by.as_str())).map(|_| g.by.clone()))
 }
 
-pub(super) fn followed<'a>(state: &'a State, unit: &str, t: &Task) -> Option<&'a Task> {
+fn followed<'a>(state: &'a State, unit: &str, t: &Task) -> Option<&'a Task> {
     let from = t.inputs.iter().find(|i| i.primary)?.from.parse().ok()?;
     state.task(unit, from).ok()
 }
@@ -281,12 +281,12 @@ pub(super) fn gate_message(state: &State, unit: &str, n: u32) -> Option<Msg> {
 }
 
 /// Text that ends like a sentence, so the paragraph below reads as one.
-pub(super) fn sentence(s: &str) -> String {
+fn sentence(s: &str) -> String {
     let s = s.trim();
     if s.ends_with(['.', '!', '?']) { s.to_string() } else { format!("{s}.") }
 }
 
 /// The message as one paragraph: a terminal without bracketed paste submits at each newline.
-pub(super) fn paragraph(lines: Vec<String>) -> String {
+fn paragraph(lines: Vec<String>) -> String {
     lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }

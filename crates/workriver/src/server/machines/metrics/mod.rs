@@ -43,10 +43,10 @@ pub const HERE: &str = "local";
 pub const STEP: Duration = Duration::from_secs(5);
 
 /// How many samples are kept per machine: ten minutes at `STEP`, the longest window.
-pub(super) const KEEP: usize = 120;
+const KEEP: usize = 120;
 
 #[derive(Default)]
-pub(super) struct Track {
+struct Track {
     samples: VecDeque<Sample>,
     before: Option<Reading>,
     /// The newest OOM kill count since boot, and the kills counted since the first reading.
@@ -63,7 +63,7 @@ pub(super) struct Track {
 /// An alert of a machine: since when (ms), its level, and the processes using the most
 /// memory when it rose to that level (none: to be read).
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct Raised {
+struct Raised {
     since: i64,
     level: Level,
     top: Option<Vec<Proc>>,
@@ -113,12 +113,12 @@ impl Metrics {
     }
 
     /// This machine, and every machine followed now.
-    pub(super) fn wanted(&self) -> Vec<String> {
+    fn wanted(&self) -> Vec<String> {
         std::iter::once(HERE.to_string()).chain(self.machines.iter().flat_map(|m| m.states()).map(|s| s.label)).collect()
     }
 
     /// One machine's loop, until it is no longer followed.
-    pub(super) fn follow(self: Arc<Self>, label: &str) {
+    fn follow(self: Arc<Self>, label: &str) {
         while !self.stop.load(Ordering::Relaxed) && self.wanted().iter().any(|l| l == label) {
             let started = Instant::now();
             self.sample(label);
@@ -129,7 +129,7 @@ impl Metrics {
     }
 
     /// Where the probe runs for a machine: None while it cannot be reached.
-    pub(super) fn runner(&self, label: &str) -> Option<scan::Runner> {
+    fn runner(&self, label: &str) -> Option<scan::Runner> {
         if label == HERE { Some(self.local.clone()) } else { self.machines.as_ref()?.runner(label) }
     }
 
@@ -202,7 +202,7 @@ impl Metrics {
 
     /// The processes using the most memory on a machine, with the agents they belong to;
     /// none when it cannot be read (that alert then names none rather than ask again).
-    pub(super) fn top(&self, label: &str) -> Vec<Proc> {
+    fn top(&self, label: &str) -> Vec<Proc> {
         let Some(runner) = self.runner(label) else { return vec![] };
         let started = Instant::now();
         let out = crate::common::process::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT);
@@ -228,7 +228,7 @@ impl Metrics {
 
     /// Raises, levels and clears a machine's alerts; says whether any changed. An alert that
     /// rose a level is to name its processes again.
-    pub(super) fn judge(track: &mut Track, t: &Thresholds, step: Duration) -> bool {
+    fn judge(track: &mut Track, t: &Thresholds, step: Duration) -> bool {
         let samples = track.samples.make_contiguous();
         let mut changed = false;
         for metric in METRICS {
