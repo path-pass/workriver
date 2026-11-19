@@ -9,7 +9,6 @@ use anyhow::Context;
 use notify_debouncer_mini::{DebounceEventResult, new_debouncer};
 use tokio::sync::{broadcast, watch};
 use workriver_core::runtime::Runtime;
-use workriver_core::{Delivery, DeliveryStep, ReasonCode};
 use workriver_data::Store;
 use workriver_scan as scan;
 
@@ -20,7 +19,7 @@ use crate::server::access::auth::Auth;
 use crate::server::access::caller::{self, Callers};
 use crate::server::access::pins::Pins;
 use crate::common::process::Procs;
-use crate::{ask, run};
+use crate::ask;
 use crate::server::views::{self as snapshot, Cache};
 
 mod access;
@@ -163,104 +162,12 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
     for m in app.machines.iter().flat_map(|m| m.states()) {
         let _ = listen(&app, &m.label, 0).await;
     }
-    // Repositories on other machines cannot be watched: they are read in the background,
-    // every `REMOTE` and whenever a record touches one of their units, never while a request
-    // waits; the page hears when something there changed.
-    let remote = app.clone();
-    let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_REMOTE));
-    bg.remote_reads = true;
-    std::thread::spawn(move || {
-        let mut wait = snapshot::REMOTE;
-        loop {
-            match kicked.recv_timeout(wait) {
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                _ => while kicked.try_recv().is_ok() {},
-            }
-            if *remote.stopping.borrow() {
-                break;
-            }
-            let state = remote.store.lock().unwrap().state().clone();
-            if !state.units.iter().any(|u| u.machine.is_some()) {
-                continue;
-            }
-            let started = std::time::Instant::now();
-            let (changed, skipped) = snapshot::refresh_remote(&state, &mut bg);
-            // A machine not reachable yet (just started, reconnecting): looked at again soon.
-            wait = if skipped { Duration::from_secs(1) } else { snapshot::REMOTE };
-            bg.save();
-            let found = std::mem::take(&mut bg.merged_now);
-            remote.record_merges(found);
-            let ms = started.elapsed().as_millis() as u64;
-            tracing::info!(target: "perf", kind = "remote_read", ms, recomputed = bg.recomputed, reused = bg.reused, changed, slow = ms >= crate::common::config::defaults::SLOW_MS);
-            if changed {
-                let _ = remote.changed.send(());
-            }
-        }
-    });
-    let _ = app.remote_kick.send(());
-    // Messages delivered before a restart are watched again; whether their receiver was seen
-    // idle since is lost, so it must be seen not working first.
-    let pending: Vec<Pending> = {
-        let store = app.store.lock().unwrap();
-        let delivered = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Delivered);
-        let now = std::time::Instant::now();
-        let mut out = vec![];
-        for u in &store.state().units {
-            for t in &u.tasks {
-                if let Some(d) = delivered(&t.delivery) {
-                    out.push(Pending { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d, armed: false, sent: now });
-                }
-                for f in &t.findings {
-                    if let Some(d) = delivered(&f.delivery) {
-                        out.push(Pending { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d, armed: false, sent: now });
-                    }
-                }
-            }
-        }
-        for c in &store.state().chores {
-            if let Some(d) = delivered(&c.delivery) {
-                out.push(Pending { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d, armed: false, sent: now });
-            }
-        }
-        out
-    };
-    app.pending.lock().unwrap().extend(pending);
-    // Questions left open by a previous run have lost their wait; close them.
-    let open: Vec<String> = app.store.lock().unwrap().state().questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect();
-    for id in open {
-        app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
-    }
-    // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
-    let held: Vec<String> = app.store.lock().unwrap().state().messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect();
-    for id in held {
-        app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
-    }
-    // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
-    // the next question starts a new one with the thread so far.
-    let left: Vec<String> = app.store.lock().unwrap().state().threads.iter().filter_map(|t| t.name.clone()).collect();
-    for name in left {
-        let _ = app.runtime.close(&name);
-    }
-    // So is an agent a previous run started to review a command: what it would say is lost.
-    let left: Vec<String> = app.runtime.agents().unwrap_or_default().into_iter().filter(|a| a.name.starts_with(&run::reviewer("")) && a.group.as_ref().is_some_and(|g| g.label == run::GROUP)).map(|a| a.name).collect();
-    for name in left {
-        let _ = app.runtime.close(&name);
-    }
+    app.read_remote(shared, kicked);
+    app.recover();
     // Nothing that signs anyone in is ever written here: this output is on a screen (a
     // terminal of the runtime's) that agents can read. The user opens the page with `workriver open`.
     tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");
-    let stop = {
-        let app = app.clone();
-        async move {
-            stop_signal().await;
-            tracing::info!("stopping: open requests get {} s", GRACE.as_secs());
-            let _ = app.stopping.send(true);
-            app.metrics.stop();
-            if let Some(m) = &app.machines {
-                m.stop_all();
-            }
-        }
-    };
+    let stop = app.clone().stop();
     let mut stopping = app.stopping.subscribe();
     let server = axum::serve(listener, router(app, Via { machine: None, port, local: port })).with_graceful_shutdown(stop);
     tokio::select! {
@@ -268,30 +175,6 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
         _ = async { let _ = stopping.wait_for(|s| *s).await; tokio::time::sleep(GRACE).await } => tracing::warn!("requests still open after {} s; stopping anyway", GRACE.as_secs()),
     }
     Ok(())
-}
-
-/// How long open requests may finish once the service is told to stop.
-const GRACE: Duration = Duration::from_secs(2);
-
-/// Returns at the first Ctrl-C or SIGTERM; a second one ends the process at once.
-async fn stop_signal() {
-    let term = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut s) => {
-                s.recv().await;
-            }
-            Err(_) => std::future::pending::<()>().await,
-        }
-    };
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = term => {}
-    }
-    tokio::spawn(async {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            std::process::exit(130);
-        }
-    });
 }
 
 /// Binds 127.0.0.1:`port`, or says plainly why not.
