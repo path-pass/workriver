@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, TransactionBehavior};
 
-use workriver_core::{Body, Event, Principal, Rejected, State, data_dir, now};
+use workriver_core::{Body, Event, Principal, Rejected, State, now};
 
 mod events;
 mod migrations;
@@ -31,16 +31,6 @@ pub struct Store {
 }
 
 impl Store {
-    /// Opens `workriver.db` in the data directory, creating both (0700 / 0600) if needed.
-    pub fn open_default() -> Result<Store, Error> {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-        let dir = data_dir();
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-        let path = dir.join("workriver.db");
-        // Created here so it starts private; SQLite gives its -wal and -shm files the same mode.
-        std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&path)?;
-        Store::open(&path)
-    }
 
     pub fn open(path: &Path) -> Result<Store, Error> {
         let mut conn = Connection::open(path)?;

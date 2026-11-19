@@ -4,6 +4,7 @@ mod attachments;
 mod auth;
 mod backlog;
 mod caller;
+mod common;
 mod deliver;
 mod herdr;
 mod machines;
@@ -851,8 +852,10 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match &cli.cmd {
         Cmd::Serve { terminal_app, perf_detail } => {
-            perf::init(&core::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
-            let store = workriver_data::Store::open_default().context("cannot open the workriver database")?;
+            perf::init(&common::home::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
+            // A directory or file that cannot be made is the store's error, as when it made them.
+            let path = common::home::database().map_err(workriver_data::Error::from).context("cannot open the workriver database")?;
+            let store = workriver_data::Store::open(&path).context("cannot open the workriver database")?;
             let runtime = herdr::Herdr::new(herdr::socket_path(), terminal_app.clone());
             // Without Herdr the daemon still records and shows; it just sees no agents.
             let warning = runtime.check();
@@ -870,7 +873,7 @@ fn main() -> anyhow::Result<()> {
             });
         }
         Cmd::Perf { since, top, bundle } => {
-            let home = core::data_dir();
+            let home = common::home::data_dir();
             if *bundle {
                 let path = perf::bundle(&home, 2 * 1024 * 1024)?;
                 println!("{}", path.display());
@@ -887,7 +890,7 @@ fn main() -> anyhow::Result<()> {
         _ => {}
     }
     let place = herdr::place_from_env();
-    let d = Daemon { port: port_of(cli.port), place, home: Some(core::data_dir()), prove: std::sync::Arc::new(from_socket) };
+    let d = Daemon { port: port_of(cli.port), place, home: Some(common::home::data_dir()), prove: std::sync::Arc::new(from_socket) };
     if cli.actor.as_deref() == Some("user") {
         bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");
     }
@@ -1547,7 +1550,7 @@ impl Daemon {
         let v = self.call("/api/attachments/inbox", Some(json!({ "unit": unit, "task": task })))?;
         // The service is on another machine: the folder is on this one's disk, made here.
         if v["elsewhere"] == true {
-            let d = attachments::inbox(&core::data_dir(), unit, task);
+            let d = attachments::inbox(&common::home::data_dir(), unit, task);
             attachments::mkdir(&d).with_context(|| format!("cannot make {}", d.display()))?;
             return Ok(d);
         }
