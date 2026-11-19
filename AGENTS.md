@@ -77,6 +77,9 @@ Layering follows memriver: a core crate with models, storage and write rules tha
 nothing about the network or the UI; a scan crate that reads git and the file tree; an
 outer crate with the daemon, the CLI and the Herdr runtime implementation.
 
+During the restructure (intent i25), `docs/design/restructure.md` governs layout and
+layering where it differs from this file; this file is rewritten in its phase 7.
+
 ## Language rules
 
 - Code comments: English.

@@ -2,8 +2,9 @@
 
 The plan for intent i25, confirmed by the user in u12#9 (2026-11-19): proposal B (u12#8)
 with the user's adjustments, the whole intent on one branch (`chore/restructure`), merged
-once. This file is what the work follows; it is written for the agents doing it. Phase 0
-(u13#1) wrote it and the guards in section 5; nothing has moved yet.
+and pushed once at the end (the user's answer of 2026-11-20, section 4). This file is what
+the work follows; it is written for the agents doing it. Phase 0 (u13#1, its review fixes
+in u13#4) wrote it and the guards in section 5; nothing has moved yet.
 
 Sources, for what this file leaves out:
 
@@ -29,10 +30,12 @@ Sources, for what this file leaves out:
   enum (`Body`) keeps its 48 variants, its tags and its serde attributes; it is moved whole,
   not split.
 - **No new features during the restructure** (u12#9 item 8). Only places are left for what
-  comes later (section 7); no empty module is created for it.
+  comes later (section 6); no empty module is created for it.
 - **Libraries.** No new dependency except the new internal crate `workriver-data` (phase 2)
-  and, already added in phase 0, Vitest and happy-dom as the web UI's dev dependencies.
-  No version upgrades; `Cargo.lock` changes only for the new crate.
+  and, already added in phase 0, the web UI's dev dependencies: Vitest (u12#9 item 1) and
+  happy-dom, the DOM the session gate's tests need to run its effects (7 dependencies
+  against jsdom's 18), which the user kept when asked on 2026-11-20. No version upgrades;
+  `Cargo.lock` changes only for the new crate.
 - **Formatting.** `cargo fmt` is not used in this repository (it would rewrite every file);
   moved code keeps its lines as they are. Review with rename and move detection:
   `git show --color-moved=dimmed-zebra --color-moved-ws=ignore-all-space <commit>`.
@@ -172,7 +175,10 @@ crates/workriver/
 │   │   ├── display.rs                # Board, history and load text; common/wire values, no App.
 │   │   ├── guide.rs                  # Embedded guides, topic lookup, install stubs.
 │   │   ├── parse.rs                  # Input/evidence/step/external-ref parsers.
-│   │   └── tests.rs                  # Parser/guide/help/link/text tests; no running service.
+│   │   ├── tests.rs                  # Parser/guide/help/link/text tests; no running service.
+│   │   ├── guards.rs                 # Phase 0's CLI guards: guide topics, the command tree
+│   │   │                             # (today: src/tests/cli_guards.rs).
+│   │   └── cli-tree.txt              # The command tree it pins.
 │   ├── server/                       # The service process.
 │   │   ├── mod.rs                    # Start/bind/serve, Options; the one place that assembles
 │   │   │                             # the concrete storage and runtime.
@@ -234,7 +240,9 @@ crates/workriver/
 │   │   └── tests/                    # The in-process daemon tests, compiled with the binary under cfg(test).
 │   │       ├── mod.rs                # Declares the suites only.
 │   │       ├── support.rs            # Fake, Kernel, daemon constructors, git helpers, HTTP client.
-│   │       ├── guards.rs             # Phase 0's guards (today: src/tests/guards.rs).
+│   │       ├── guards.rs             # Phase 0's service guards: routes and methods, who may
+│   │       │                         # use each route, the page's JSON (today: src/tests/guards.rs).
+│   │       ├── route-access.txt  page-json.txt   # What they pin.
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
@@ -267,6 +275,7 @@ crates/workriver/
 │           └── metrics.rs            # The metrics report types.
 └── tests/                            # Process-boundary tests running the real binary.
     ├── caller.rs                     # Real CLI/socket/processes against a stand-in runtime socket.
+    ├── boundaries.rs                 # The runtime-name ratchet over the repository (phase 0).
     ├── cli.rs                        # The CLI's text and the user's machine changes (phase 0).
     └── output.rs                     # serve prints nothing that signs anyone in.
 ```
@@ -372,21 +381,22 @@ comes after every pure move and is reviewed on its own (u12#9 item 4).
 ## 4. The phases
 
 Each phase is implemented, then gets a code review and an architecture review (at most three
-rounds), all on `chore/restructure`; the branch is merged and pushed once, after the user's
-gate (u12#9 item 8). Every commit is green on its own (section 6). Proposal B's commit
-numbers are in brackets.
+rounds), all on `chore/restructure` (u12#9 item 8). The branch is merged and pushed once, at
+the end, after the user's gate: asked on 2026-11-20 whether item 8's merge-and-push gate
+comes after each phase or once on the one branch, the user chose once at the end. Every
+commit is green on its own (section 5.3). Proposal B's commit numbers are in brackets.
 
 | Phase | What moves | Done when |
 |---|---|---|
 | **0** | This plan; the guards of section 5; Vitest. Nothing moves. | u13#1 |
-| **1. Core and scan by domain** | `model.rs` into `records/` (Body, Event, State) and `planning/`, `work/` (design ancestry in `graph.rs`), `conversations/`, `access/`; core tests to their owners, `src/tests/replay.rs` to `records/tests.rs`; the temporary `model` facade removed at the end [B4–B8]. Scan's `lib.rs` into `runner.rs`, `history/`, `files/` [B11]. | Replay fixture green unchanged; every core and scan test name present once. |
-| **2. Storage out of core** | New crate `workriver-data` with `sqlite/{mod,migrations,events}`; rusqlite leaves core; the stored half of replay and the three `Connection::open` tests move there; core's Store-backed tests become pure State fixtures without losing a scenario. The service still holds the concrete store: no port yet [B9]. | `cargo tree -p workriver-core` has no rusqlite; a copy of the real database replays identically (section 5.2). |
-| **3. CLI and common** | `main.rs` into `cli/` (client, parsers, commands by domain, display, guide), `backlog.rs` into `cli/planning.rs`; CLI-only cases of `tests.rs` into `cli/tests.rs`; `common/` gets `config/`, `home.rs`, `process.rs`, `diagnostics/` (today's `perf.rs`) [B12, B13, part of B2]. `cli/` imports nothing of the service. | Command names, options, exit codes and printed text unchanged (`tests/cli.rs`, `tests/output.rs`, `tests/caller.rs`). |
-| **4. Runtime** | `herdr.rs` and the remote Herdr parts of `machines.rs` into `runtime/herdr/`; `runtime/{mod,follow,ssh}.rs`; settings to `common/config`. **A change, reviewed as one:** sentences that name Herdr or panes outside the adapter come from it through the facade (the texts stay the same) [B14, B15]. | The ratchet (section 5.1) lists no Rust source outside `runtime/herdr/` except tests that stand in for the runtime's socket; its `ADAPTER` becomes the folder. |
+| **1. Core and scan by domain** | `model.rs` into `records/` (Body, Event, State) and `planning/`, `work/` (design ancestry in `graph.rs`), `conversations/`, `access/`; core tests to their owners, `src/tests/replay.rs` to `records/tests.rs`; the temporary `model` facade removed at the end [B4–B8]. Scan's `lib.rs` into `runner.rs`, `history/`, `files/` [B11]. | Replay fixture green unchanged; every core and scan test name present once; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
+| **2. Storage out of core** | New crate `workriver-data` with `sqlite/{mod,migrations,events}`; rusqlite leaves core; the stored half of replay and the three `Connection::open` tests move there; core's Store-backed tests become pure State fixtures without losing a scenario. The service still holds the concrete store: no port yet [B9]. | `cargo tree -p workriver-core` has no rusqlite; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
+| **3. CLI and common** | `main.rs` into `cli/` (client, parsers, commands by domain, display, guide), `backlog.rs` into `cli/planning.rs`; CLI-only cases of `tests.rs` into `cli/tests.rs`, `src/tests/cli_guards.rs` with `cli-tree.txt` into `cli/guards.rs`; `common/` gets `home.rs`, `process.rs`, `diagnostics/` (today's `perf.rs`) [B12, B13, part of B2]. `cli/` imports nothing of the service. | Every command and option unchanged (`every_command_keeps_its_options`, its file not edited); printed text and exit codes unchanged (`tests/cli.rs`, `tests/output.rs`, `tests/caller.rs`). |
+| **4. Runtime** | `herdr.rs` and the remote Herdr parts of `machines.rs` into `runtime/herdr/`; `runtime/{mod,follow,ssh}.rs`; settings to `common/config/` (it gets its content here, so it is created here). **A change, reviewed as one:** sentences of the outer crate that name Herdr or panes outside the adapter come from it through the facade (the texts stay the same) [B14, B15]. Core is not touched: its four refusals that name the pane (in `model.rs` today: "…in its manager's pane", "run `workriver manager here` in its pane") cannot reach the facade, and no new mechanism is added to core for them. | The ratchet (section 5.1) lists, among Rust sources, only: core's files (those refusals, and comments naming the runtime, until phase 7), and tests that stand in for the runtime or assert its texts (the in-process daemon tests, `tests/caller.rs`, `tests/cli.rs`, `tests/output.rs`). Its `ADAPTER` becomes the folder. |
 | *after 4* | **A unit of its own: workriver's own agent commands** (`start`, `prompt`, `read`, `close`, through the runtime facade). Designed first (who may use them, whether they are recorded, security, that ACP can carry them), architecture review, a design gate, then implemented; the `hand-off`, `closing-workers` and `stalled` recipes then use only workriver's commands (u12#9 item 6). | Its own design gate and reviews. |
 | **5. Server by domain** | `serve.rs`, `ask.rs`, `run.rs`, `deliver.rs`, `quote.rs`, `stall.rs`, `snapshot.rs`, `show.rs`, `attachments.rs`, `auth.rs`, the service side of `caller.rs` and `metrics.rs` into `server/` (section 2); snapshot DTOs and metrics report types into `common/wire/`; `tests.rs` split into `server/tests/` by suite, first in the phase [B2, B16–B21]. Visibility narrowed with `pub(super)`/`pub(in …)`, never widened to `pub`. | Route table, page JSON shape and every u11 identity/blind test green unchanged; no handler lost its `App::user`/`App::who`/`App::view` call. |
 | **6. Web UI by domain** | `types.ts`, `data.ts`, `runtime.ts`, `act.ts`, `scope.ts`, `link.ts` and the components into the tree of section 2; the Ask/Inputs/Viewer cycle broken; temporary re-export files removed at the end [B22–B24]. Pure functions first, components after; keys, providers and markup kept. | `npm test` green; the mock-page checklist (section 5.4) passes before and after. |
-| **7. Documents and runtime-neutral text** | Recipes grouped, guide lookup by basename [B25]; DESIGN.md split into `docs/design/ui/`; AGENTS.md's layout and rules follow the tree; `docs/architecture(.zh-CN).md`. **A change:** the page names no runtime: neutral words, and where a name must be shown the runtime adapter supplies it; the runtime-specific parts of the human docs move to `docs/runtimes/herdr.md` and `.zh-CN.md` (u12#9 item 7). | Every guide topic answers; the ratchet lists no frontend file; English and Chinese docs in step. |
+| **7. Documents and runtime-neutral text** | Recipes grouped, guide lookup by basename [B25]; DESIGN.md split into `docs/design/ui/`; AGENTS.md's layout and rules follow the tree; `docs/architecture(.zh-CN).md`. **A change:** the page names no runtime: neutral words, and where a name must be shown the runtime adapter supplies it; the runtime-specific parts of the human docs move to `docs/runtimes/herdr.md` and `.zh-CN.md` (u12#9 item 7). Core's four pane refusals get runtime-neutral words in the same change, and core's comments stop naming the runtime. i18n key names (`machines.noHerdr`) and CSS selectors stay: only texts count (section 5.1). | Every guide topic answers (the guide guard unedited); the ratchet lists no frontend file and no core file; English and Chinese docs in step. |
 | **8. The data port** | Section 3 [B3, B10]. | Every projection, recovery result and post-commit effect order compared; reviewed apart. |
 
 Phases 1 and 6 do not touch the same files and could run apart, but on one branch they are
@@ -401,51 +411,77 @@ behaviour, made only on purpose and named in the commit.
 
 | Guard | Where | Holds |
 |---|---|---|
-| Replay of a synthetic history | `workriver-core`: `src/tests/replay.rs` → `records/tests.rs` (phase 1); its stored half → `workriver-data` (phase 2). Data in `src/records/fixtures/`. | 96 stored events covering all 48 kinds, old encodings first (an intent with no state and a runtime ref, a manager registered for an intent, a task with no intent, an intent-level task, a decision with no `by`, a question with no `temporary`, a branch named before the rule, links without patch ids). Folded with `apply` only, and through rows of a reopened SQLite file. Pinned: the state, the command runs (never serialized with it), the blind view, the managers, how each event is written again (serde attributes), and the ids and refusals the rules give next. |
-| Routes and methods | `src/tests/guards.rs`: `every_route_answers_only_its_methods` | The 34 routes of this machine's listener and the 13 of a followed machine's, each with exactly its methods (any other method is 405: a POST added to a GET path fails); every local-only path refused by the machine listener's fallback; the sources declare no other `.route(`. |
-| Guide topics | `guards.rs`: `the_guide_keeps_its_topics` | The 27 topics, each answering with its own recipe; the embedded set is exactly these; every `guide` kind answers. |
-| Runtime names (a ratchet) | `guards.rs`: `no_runtime_names_outside_the_adapter_but_those_still_listed` | `herdr` (any case) and `pane(s)` appear outside the adapter only in the files listed today; a new file naming them fails, and a listed file that stops naming them must leave the list. The list only shrinks: phase 4 empties it of production Rust, phase 7 of the frontend. Integration tests that stand in for the runtime's socket stay on it. |
+| Replay of a synthetic history | `workriver-core`: `src/tests/replay.rs` → `records/tests.rs` (phase 1). Its stored half (`the_stored_history_reopens_to_the_same_state`) → `workriver-data`'s `sqlite/tests.rs` (phase 2): it reads core's fixture by path (`../workriver-core/src/records/fixtures/events.jsonl`, from its `CARGO_MANIFEST_DIR`) with a small decoder of its own (a line is a stored row: seq, at, actor, kind, body), and compares with a fold through core's public `State::apply`. No copy of the fixture, no test feature in core. | 96 stored events covering all 48 kinds, old encodings first (an intent with no state and a runtime ref, a manager registered for an intent, a task with no intent, an intent-level task, a decision with no `by`, a question with no `temporary`, a branch named before the rule, links without patch ids). Folded with `apply` only, and through rows of a reopened SQLite file. Pinned: the state, the command runs (never serialized with it), the blind view, the managers, how each event is written again (serde attributes), and the ids and refusals the rules give next. |
+| Routes and methods | `src/tests/guards.rs` → `server/tests/guards.rs` (phase 5): `every_route_answers_only_its_methods` | The 34 routes of this machine's listener and the 13 of a followed machine's, each with exactly its methods, of all nine standard ones: HEAD where GET is and nowhere else, any other undeclared method 405 (a POST or an OPTIONS added to a GET path fails); every local-only path refused by the machine listener's fallback; the sources declare no other `.route(` (this scan reads `src/` and stays with the route guard). |
+| Who may use each route | Same file: `who_may_use_each_route`, with `route-access.txt` | Every declared route and method (each has a probe, or the test fails) gets a request its handler takes, from nobody, from an agent in its place, and from the user (token, a process in no agent's place); on a machine's listener the same, there through the combined runtime. The status each answers is pinned; and whatever the file says, nobody is answered with success except on `GET /api/session`, `GET /api/status`, `POST /api/here` and, as today, `POST /api/attachments/inbox` (it checks nobody: reported in u13#4, not changed). A handler that loses its `App::user`/`App::who`/`App::view` call fails here. |
+| Guide topics | `src/tests/cli_guards.rs` → `cli/guards.rs` (phase 3): `the_guide_keeps_its_topics` | The 27 topics, each answering with its own recipe file, word for word, under a head naming it. Recipes are found and compared by basename wherever they sit, each name once, so grouping them into folders (phase 7) leaves the guard unedited. Every `guide` kind answers. |
+| Every command and option | Same file: `every_command_keeps_its_options`, with `cli-tree.txt` | Every command of `Cli::command()` with its aliases, and every argument: long and short forms, aliases, positional index, value names, number of values, possible values, defaults, environment variable, action, required, global, hidden, conflicts. |
+| Runtime names (a ratchet) | `tests/boundaries.rs` (an integration test: it reads the whole repository, so it never moves) | `herdr` (any case) and `pane(s)` appear outside the adapter only in the files listed; a new file naming them fails, and a listed file that stops naming them must leave the list (section 5.1). |
 | The page's JSON | `guards.rs`: `the_json_the_page_reads_keeps_its_shape`, with `src/tests/page-json.txt` | Every key path and kind of value of `/api/workspace` and `/api/unit/{id}/code` on a workspace with most of what the page shows (projects, roadmap, backlog, a manager, committed/unregistered/uncommitted work, a research unit, a design, a blind review with decided findings, a waiting gate, a chore, an attachment, a question, a manager conversation, a second machine). A key that workspace leaves out is not pinned. |
 | The CLI's text and machines | `tests/cli.rs` (real binary) | `project list`, `workspace list`, `backlog list`/`export`, `finding show`/`drop` (an agent refused), and the user adding, enabling, disabling and removing a machine down to `settings.json` and the tunnel's process. |
 | The page's logic | `frontend/web/src/**/*.test.ts(x)`, `npm test` | Markdown safety (no raw HTML, no unsafe link protocols, `noopener noreferrer`, no image fetched), the signed-out screen and the ten-minute deep link, the destructive-command flag, addresses, scope growth, quiet, the content-language guess. |
 
-`WORKRIVER_BLESS=1` rewrites the replay's expected file and the page's JSON file; it is for a
-deliberate change, never during a move. Run the guards on their own:
+`WORKRIVER_BLESS=1` rewrites the blessed files (the replay's expected state,
+`route-access.txt`, `page-json.txt`, `cli-tree.txt`); it is for a deliberate change, never
+during a move. Run the guards on their own (`guards` matches both guard modules):
 
 ```sh
 cargo test -p workriver-core replay
 cargo test -p workriver --bin workriver guards
+cargo test -p workriver --test boundaries
 cargo test -p workriver --test cli
 (cd frontend/web && npm test)
 ```
 
 ### 5.1 The ratchet's lists
 
-`ADAPTER` and the two lists are at the top of the ratchet in `guards.rs`. A moved file's
-line follows it in the same commit; a file split in two keeps a line for each part that
-still names the runtime. In phase 4, `ADAPTER` becomes a folder prefix (`runtime/herdr/`).
+`ADAPTER`, `OWN_SENSE` and the two lists are at the top of `tests/boundaries.rs`. A moved
+file's line follows it in the same commit; a file split in two keeps a line for each part
+that still names the runtime. In phase 4, `ADAPTER` becomes a folder prefix
+(`runtime/herdr/`). What may stay listed after each phase is in its done-when (section 4):
+after phase 4, among Rust sources, core's files and the tests that stand in for the runtime
+or assert its texts; after phase 7, only those tests.
+
+What does not count:
+
+- **i18n key names.** A dictionary's keys and a dotted key in quotes (`t('machines.noHerdr')`)
+  are names that stay (sections 1–2); their texts count. The frontend leaves the list when
+  its texts and comments no longer name the runtime.
+- **Words in workriver's own sense** (`OWN_SENSE`): in `CodeLayer.tsx`, "pane" is the file
+  tree beside the diff, a layout term with a frozen selector (`data-tree="pane"`).
+- **`tab` and `workspace` are not checked.** AGENTS.md names them with `pane` as Herdr's
+  words, but workriver has workspaces of its own (an intent runs in one; `/api/workspace`,
+  `workriver workspace`), so the word cannot tell the two apart, and `tab` names nothing of
+  the runtime's outside the adapter today.
 
 ### 5.2 Replaying a copy of the real database
 
 The one check that the user's own records still replay. `replays_a_copied_database` stays
 `#[ignore]`d and is run by hand, on a **copy**: never on the live data home, never with a
-service started on it. The copy is made by the user, or with the user's say-so, with
-SQLite's online backup, which reads the live file and writes nothing to it (a plain `cp`
-can miss what is still in the WAL file). Keep it in the checkout's `.local/` (ignored by git):
+service started on it.
+
+**The copy and its baseline exist.** On 2026-11-20 the manager made a read-only copy with
+SQLite's online backup (which reads the live file and writes nothing to it; a plain `cp`
+can miss what is still in the WAL file) in the main checkout's `.local/replay/` (ignored by
+git): `workriver.db`, and `before-phase1.json`, its replay on cbc5b16 (1 888 events). Every
+phase compares with that baseline; nobody makes another copy for it, and nobody writes to
+it. A later copy (for more events) is made the same way, by the user or with the user's
+say-so, and gets its own baseline first:
 
 ```sh
-mkdir -p .local/replay
 sqlite3 "$HOME/workriver-data/workriver.db" ".backup '.local/replay/workriver.db'"
 ```
 
-Then, at the commit before a phase (a separate worktree of that commit) and after it:
+On the phase's last commit, with `REPLAY` the main checkout's `.local/replay`:
 
 ```sh
-WORKRIVER_REPLAY_DB="$PWD/.local/replay/workriver.db" WORKRIVER_REPLAY_OUT="$PWD/.local/replay/before.json" \
-  cargo test -p workriver --bin workriver replays_a_copied_database -- --ignored --nocapture
-# … the same with after.json on the phase's last commit, then:
-cmp .local/replay/before.json .local/replay/after.json
+WORKRIVER_REPLAY_DB="$REPLAY/workriver.db" WORKRIVER_REPLAY_OUT=/tmp/after.json \
+  cargo test -p workriver --bin workriver replays_a_copied_database -- --ignored
+cmp "$REPLAY/before-phase1.json" /tmp/after.json
 ```
+
+(Write the output to a scratch place of your own, not into `.local/replay`.) u13#4 ran it on
+its commit: identical.
 
 The test copies the file into a temporary directory before opening it (opening runs
 migrations and writes a WAL), so even the copy stays as it was. `WORKRIVER_REPLAY_OUT` holds
@@ -465,7 +501,8 @@ cd frontend/web && npm run typecheck && npm run build && npm test
 ```
 
 The number of tests never drops; a split or renamed test is renamed in the behaviour list
-in the same commit (u12#3). After phases 1, 2, 5 and 8 also run section 5.2.
+in the same commit (u12#3). Section 5.2's `cmp` is part of phases 1 and 2's done-when; run
+it after phases 5 and 8 as well.
 
 ### 5.4 The mock-page checklist (frontend phases)
 
