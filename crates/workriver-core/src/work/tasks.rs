@@ -1,8 +1,10 @@
 // Tasks: made, started, delivered, amended or dropped, and whose they are.
 use crate::*;
 
+use super::findings::{numbered_after, open};
+
 /// A dropped task is no longer worked on: refused, saying why it was dropped.
-pub(crate) fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
+pub(super) fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
     match &t.dropped {
         Some(d) => no(format!("{unit}#{} was dropped as no longer needed ({}); it is not started, delivered or submitted any more", t.n, d.reason)),
         None => Ok(()),
@@ -10,7 +12,7 @@ pub(crate) fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
 }
 
 /// What a delivery or its correction may carry.
-pub(crate) fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Result<(), Rejected> {
+fn check_output(t: &Task, evidence: &[Evidence], findings: &[NewFinding]) -> Result<(), Rejected> {
     if !findings.is_empty() && matches!(t.kind, TaskKind::Implement | TaskKind::Design | TaskKind::Research) {
         return no("findings belong to a review or tests task; record a review task and deliver them there");
     }
@@ -46,7 +48,7 @@ impl State {
         t.agent.as_deref().is_some_and(|a| a == actor || Some(a) == self.name_of(actor))
     }
 
-    pub(crate) fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
+    fn prepare_task(&self, mut t: NewTask) -> Result<NewTask, Rejected> {
         // A task is in a unit, or (research, design and their reviews and gates) in an intent.
         let (owner, intent, count) = if let Ok(u) = self.unit(&t.unit) {
             if u.merged.is_some() {

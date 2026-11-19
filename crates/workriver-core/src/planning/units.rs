@@ -149,7 +149,7 @@ const BRANCH_PREFIXES: [&str; 3] = ["feat/", "chore/", "fix/"];
 /// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name (a spike's:
 /// `spike/` and a name, which no other unit takes). Checked when an event is written, never
 /// on replay: units named before the rule keep loading.
-pub(crate) fn unit_branch(branch: &str, base: &str, named: bool, kind: UnitKind) -> Result<(), Rejected> {
+fn unit_branch(branch: &str, base: &str, named: bool, kind: UnitKind) -> Result<(), Rejected> {
     if branch == base || base.strip_prefix("origin/") == Some(branch) {
         return no(format!("a unit's branch must not be its base ({base}): create the unit's own branch from {base} (git switch -c feat/<name> {base}) and give that: --branch feat/<name>"));
     }
@@ -238,7 +238,7 @@ impl State {
     /// runs on). The user may anywhere. An agent may on its own machine; on another only as
     /// the intent's manager, and only where a workspace of that machine is linked with the
     /// intent's workspace: the work must be reachable by the agents it is for.
-    pub(crate) fn may_place(&self, who: &Principal, intent: &str, machine: Option<&str>) -> Result<(), Rejected> {
+    fn may_place(&self, who: &Principal, intent: &str, machine: Option<&str>) -> Result<(), Rejected> {
         let Principal::Agent { session, machine: own } = who else { return Ok(()) };
         if own.as_deref() == machine {
             return Ok(());

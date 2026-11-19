@@ -151,4 +151,3 @@ impl State {
         self.open_gates(at);
     }
 }
-

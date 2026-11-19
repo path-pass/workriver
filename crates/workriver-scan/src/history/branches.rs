@@ -8,7 +8,7 @@ use crate::*;
 /// `base..branch` (first parent), oldest first, and not what the base's upstream has either
 /// when it has one: a local `main` is often behind `origin/main`, and a branch made from (or
 /// rebased onto) the newer one would otherwise take in every commit in between. Two git calls.
-pub(crate) fn since(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<Named>> {
+pub(super) fn since(at: &Runner, repo: &Path, base: &str, branch: &str) -> Result<Vec<Named>> {
     let upstream = format!("^{base}@{{upstream}}");
     let not_base = format!("^{base}");
     let mut args = vec!["--reverse", branch, &not_base];

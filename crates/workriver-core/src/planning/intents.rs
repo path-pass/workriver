@@ -92,7 +92,7 @@ pub struct Intent {
 
 /// What a merged intent said, as a block of its target's note: its title, goal, note and
 /// external id (with its link), one per line, empty ones left out.
-pub(crate) fn merged_note(i: &Intent) -> String {
+fn merged_note(i: &Intent) -> String {
     let external = i.external.as_ref().map(|e| format!("{}:{}{}", e.system, e.key, e.url.as_deref().map(|u| format!(" {u}")).unwrap_or_default()));
     [format!("Merged from {}: {}", i.id, i.title), i.goal.trim().to_string(), i.note.trim().to_string(), external.unwrap_or_default()].into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
 }

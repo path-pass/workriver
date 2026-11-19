@@ -59,7 +59,7 @@ impl State {
 
     /// Where a group's record is. A linked group of another machine is the workspace of this
     /// machine it is linked to; nothing else is ever matched across machines.
-    pub(crate) fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
+    pub(super) fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
         if let Some(l) = self.link_of(r) {
             return self.workspaces.iter().position(|w| w.group.machine.is_none() && w.group.label == l.local);
         }
@@ -75,7 +75,7 @@ impl State {
     }
 
     /// A runtime group's record, made when first needed; it follows the group's latest id and label.
-    pub(crate) fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
+    pub(super) fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
         // A linked group's record is the local workspace's, which keeps its own id and label.
         let local = self.link_of(g).map(|l| RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None });
         match self.workspace_at(g) {

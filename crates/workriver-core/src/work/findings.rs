@@ -155,12 +155,12 @@ pub struct FindingNote {
     pub attachments: Vec<String>,
 }
 
-pub(crate) fn open(found: NewFinding) -> Finding {
+pub(super) fn open(found: NewFinding) -> Finding {
     Finding { found, state: FindingState::Open, decided_by: None, note: None, delivery: None, reason: None, notes: vec![], decisions: vec![] }
 }
 
 /// Ids for findings added later: per severity, after the highest there is.
-pub(crate) fn numbered_after(mut add: Vec<NewFinding>, have: &[Finding]) -> Vec<NewFinding> {
+pub(super) fn numbered_after(mut add: Vec<NewFinding>, have: &[Finding]) -> Vec<NewFinding> {
     let mut seen = [0u32; 3];
     for f in have {
         let n = f.found.id.rsplit_once('-').and_then(|(_, n)| n.parse().ok()).unwrap_or(0);

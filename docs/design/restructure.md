@@ -4,7 +4,8 @@ The plan for intent i25, confirmed by the user in u12#9 (2026-11-19): proposal B
 with the user's adjustments, the whole intent on one branch (`chore/restructure`), merged
 and pushed once at the end (the user's answer of 2026-11-20, section 4). This file is what
 the work follows; it is written for the agents doing it. Phase 0 (u13#1, its review fixes
-in u13#4) wrote it and the guards in section 5; nothing has moved yet.
+in u13#4) wrote it and the guards in section 5; phase 1 (core and scan by domain, u13#10)
+is done.
 
 Sources, for what this file leaves out:
 
@@ -71,7 +72,7 @@ workriver/
 │   ├── workriver-core/
 │   │   ├── Cargo.toml                # No rusqlite; no new dependency for the port.
 │   │   └── src/
-│   │       ├── lib.rs                # Curated re-exports (today's crate-root names) and the name helper.
+│   │       ├── lib.rs                # Curated re-exports (today's crate-root names).
 │   │       ├── runtime.rs            # The runtime port as today; grows only with the later ACP work.
 │   │       ├── ports/                # Contracts in workriver terms; C/std, no adapter types. (phase 8)
 │   │       │   ├── mod.rs            # Narrow port exports.
@@ -103,7 +104,7 @@ workriver/
 │   │       │   ├── blind.rs          # blind_tasks/blind_view.
 │   │       │   └── tests.rs          # User/agent/service authority and blind-view cases.
 │   │       └── records/              # The aggregate and its history; every core domain.
-│   │           ├── mod.rs            # Event, State, prepare/apply orchestration; no domain bodies.
+│   │           ├── mod.rs            # Event, State, prepare/apply orchestration, the name helper; no domain bodies.
 │   │           ├── body.rs           # The 48-variant Body enum, serde defaults/tags, refs().
 │   │           ├── tests.rs          # The shared test fixtures and general rule/replay tests.
 │   │           ├── tests/replay.rs   # The replay guard (its stored half leaves in phase 2).
@@ -392,7 +393,7 @@ commit is green on its own (section 5.3). Proposal B's commit numbers are in bra
 | Phase | What moves | Done when |
 |---|---|---|
 | **0** | This plan; the guards of section 5; Vitest. Nothing moves. | u13#1 |
-| **1. Core and scan by domain** | `model.rs` into `records/` (Body, Event, State) and `planning/`, `work/` (design ancestry in `graph.rs`), `conversations/`, `access/`; core tests to their owners, `src/tests/replay.rs` to `records/tests/replay.rs`; the temporary `model` facade removed at the end [B4–B8]. *As done (u13#10):* each kind's `prepare`/`apply` arm moved verbatim into a `prepare_<group>`/`apply_<group>` of its domain, records keeping the shared checks and one exhaustive dispatch; domain files read their neighbours with `use crate::*`, and helpers a sibling calls are `pub(crate)`; no `model` facade was needed (nothing outside core named it). Scan's `lib.rs` into `runner.rs`, `history/`, `files/` [B11]. | Replay fixture green unchanged; every core and scan test name present once; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
+| **1. Core and scan by domain** | `model.rs` into `records/` (Body, Event, State) and `planning/`, `work/` (design ancestry in `graph.rs`), `conversations/`, `access/`; core tests to their owners, `src/tests/replay.rs` to `records/tests/replay.rs`; the temporary `model` facade removed at the end [B4–B8]. *As done (u13#10):* each kind's `prepare`/`apply` arm moved verbatim into a `prepare_<group>`/`apply_<group>` of its domain, records keeping the shared checks and one exhaustive dispatch; domain files read their neighbours with `use crate::*`; a helper is private when only its own file calls it, `pub(super)` when only its domain folder does (the caller imports it from its sibling), and `pub(crate)` only where a caller crosses a domain folder (u13#13); no `model` facade was needed (nothing outside core named it). Scan's `lib.rs` into `runner.rs`, `history/`, `files/` [B11]. | Replay fixture green unchanged; every core and scan test name present once; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
 | **2. Storage out of core** | New crate `workriver-data` with `sqlite/{mod,migrations,events}`; rusqlite leaves core; the stored half of replay and the three `Connection::open` tests move there; core's Store-backed tests become pure State fixtures without losing a scenario. The service still holds the concrete store: no port yet [B9]. | `cargo tree -p workriver-core` has no rusqlite; the real database's copy replays to `before-phase1.json` byte for byte (`cmp`, section 5.2). |
 | **3. CLI and common** | `main.rs` into `cli/` (client, parsers, commands by domain, display, guide), `backlog.rs` into `cli/planning.rs`; CLI-only cases of `tests.rs` into `cli/tests.rs`, `src/tests/cli_guards.rs` with `cli-tree.txt` into `cli/guards.rs`; `common/` gets `home.rs`, `process.rs`, `diagnostics/` (today's `perf.rs`) [B12, B13, part of B2]. `cli/` imports nothing of the service. | Every command and option unchanged (`every_command_keeps_its_options`, its file not edited); printed text and exit codes unchanged (`tests/cli.rs`, `tests/output.rs`, `tests/caller.rs`). |
 | **4. Runtime** | `herdr.rs` and the remote Herdr parts of `machines.rs` into `runtime/herdr/`; `runtime/{mod,follow,ssh}.rs`; settings to `common/config/` (it gets its content here, so it is created here). **A change, reviewed as one:** sentences of the outer crate that name Herdr or panes outside the adapter come from it through the facade (the texts stay the same) [B14, B15]. Core is not touched: its four refusals that name the pane (in `model.rs` today: "…in its manager's pane", "run `workriver manager here` in its pane") cannot reach the facade, and no new mechanism is added to core for them. | The ratchet (section 5.1) lists, among Rust sources, only: core's files (those refusals, and comments naming the runtime, until phase 7), and tests that stand in for the runtime or assert its texts (the in-process daemon tests, `tests/caller.rs`, `tests/cli.rs`, `tests/output.rs`). Its `ADAPTER` becomes the folder. |

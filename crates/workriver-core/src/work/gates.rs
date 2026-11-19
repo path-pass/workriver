@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
+use super::findings::open;
+use super::tasks::not_dropped;
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum GateKind {
