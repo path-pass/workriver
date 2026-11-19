@@ -149,7 +149,7 @@ impl Procs for System {
     }
 }
 
-/// A chain as a refusal shows it: `sleep(4715) > zsh(90324) > herdr(89391)`, its first steps.
+/// A chain as a refusal shows it: `sleep(4715) > zsh(90324) > login(89391)`, its first steps.
 pub fn show(chain: &[Proc]) -> String {
     const SHOWN: usize = 4;
     if chain.is_empty() {
@@ -195,7 +195,7 @@ mod tests {
     }
 
     /// What `SNIPPET` printed in `docker run --rm debian:stable-slim` for a `sleep` under
-    /// two shells (no `ps` there), and on a Mac for a command run under Herdr: the name may
+    /// two shells (no `ps` there), and on a Mac for a command run under the agent runtime: the name may
     /// hold spaces and brackets, the Mac's is a whole path.
     const STAT: &str = "stat 9 (sleep) S 8 1 1 34816 1 4194304 96 0 0 0 0 0 0 0 20 0 1 0 51234 2412544 211 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 5 0 0 0 0 0\nstat 8 (my (odd) sh) S 1 1 1 34816 1 4194560 317 2104 0 0 0 0 1 0 20 0 1 0 51201 2531328 233 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 2 0 0 0 0 0\nstat 1 (sh) S 0 1 1 0 1 4194560 317 2104 0 0 0 0 1 0 20 0 1 0 51200 2531328 233 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 2 0 0 0 0 0\n";
 

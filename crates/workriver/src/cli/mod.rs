@@ -277,7 +277,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     if cli.actor.as_deref() == Some("user") {
         bail!(runtime::words::AS_USER_GONE);
     }
-    // Who records, and in which intent, the service finds from the pane this process runs in.
+    // Who records, and in which intent, the service finds from the place this process runs in.
     // Where it runs matters to these: the workspace's current intent, or the workspace itself.
     let needs_place = matches!(
         cli.cmd,

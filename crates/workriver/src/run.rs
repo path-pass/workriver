@@ -1,12 +1,12 @@
 // A command the user runs from the page (a gate's or chore's step, or one typed in the side
 // panel): typed into a plain shell of the user's in the runtime, so it runs exactly as if the
 // user typed it there, with their credentials and hooks. What the shell is told, and how the
-// end is seen in what the pane shows. Herdr is not named here: the runtime does the typing.
+// end is seen in what the shell shows. No runtime is named here: the runtime does the typing.
 
-/// The runtime group the shells are in (a Herdr workspace of that name), made on first use.
+/// The runtime group the shells are in (by that name), made on first use.
 pub const GROUP: &str = "workriver-commands";
 
-/// How many lines of a pane are read each time.
+/// How many lines of a shell's place are read each time.
 pub const LINES: u32 = 400;
 
 /// A command the page may run: one line, nothing a terminal would act on by itself.
@@ -37,7 +37,7 @@ pub fn line(dir: &str, command: &str, id: &str) -> String {
     format!("cd -- {} && eval {}; echo \"__workriver_end_{id}_$?__\"", quoted(dir), quoted(command))
 }
 
-/// What the command printed so far (the pane after the echo of the typed line, which a
+/// What the command printed so far (the text after the echo of the typed line, which a
 /// shell may show twice: typed ahead, then at its prompt) and, once it ended, its exit status.
 pub fn read(text: &str, id: &str) -> (String, Option<i32>) {
     let typed = format!("__workriver_end_{id}_$?__");

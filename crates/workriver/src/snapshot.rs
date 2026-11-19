@@ -271,7 +271,7 @@ struct Session {
     /// The harness that runs it (claude, codex), when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     harness: Option<String>,
-    /// The runtime group (Herdr workspace) it runs in.
+    /// The runtime group it runs in.
     #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<core::RuntimeRef>,
     ended: bool,

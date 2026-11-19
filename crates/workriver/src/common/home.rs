@@ -42,6 +42,8 @@ pub const GUIDE_TOLD: &str = "guide-told.json";
 // Not named here: the ssh control sockets of followed machines (`ssh-%C`, ssh expands the
 // `%C`), which workriver-scan's `Runner::ssh` makes in the data directory it is given; the
 // runner owns its ssh options, this file names only the folder (the data directory itself).
+// Nor the socket of each followed machine's runtime, forwarded here: the runtime adapter
+// names it (`socket_here`, in its remote.rs), since the name is the runtime's own.
 // A file of the data directory written whole goes through a temporary beside it:
 // `<name>.<hex>.tmp` (`temporary`); a machine's metrics history, `<label>.jsonl.tmp`.
 

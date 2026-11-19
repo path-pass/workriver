@@ -20,9 +20,7 @@ pub use adapter::words;
 /// This machine's runtime, and a line on what is wrong with it when it does not answer as
 /// expected (the service still starts).
 pub fn connect(terminal_app: String) -> (Arc<dyn Runtime>, Option<String>) {
-    let runtime = adapter::Herdr::new(adapter::socket_path(), terminal_app);
-    let warning = runtime.check();
-    (Arc::new(runtime), warning)
+    adapter::connect(terminal_app)
 }
 
 /// Where this process runs, as the runtime's environment names it: an opaque place, sent

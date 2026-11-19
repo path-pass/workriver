@@ -1090,7 +1090,7 @@ Filesystem     1024-blocks      Used Available Capacity  Mounted on
     }
 
     /// What `PS` printed on the same Mac, a few of its lines (one agent's shell made the
-    /// parent of its agent, as under Herdr).
+    /// parent of its agent, as under the agent runtime).
     const PS_DARWIN: &str = "    1     0  22960 /sbin/launchd
  6286     1   1200 /usr/bin/login
  6287  6286   1328 -zsh

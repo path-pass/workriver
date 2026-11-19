@@ -11,7 +11,7 @@ pub(crate) type Prover = std::sync::Arc<dyn Fn(&Daemon, bool) -> (Option<String>
 #[derive(Clone)]
 pub(crate) struct Daemon {
     pub(crate) port: u16,
-    /// The pane the CLI finds in its environment: sent along (as a header and nowhere
+    /// The place the CLI finds in its environment: sent along (as a header and nowhere
     /// else), and only cross-checked. Who this is, the service takes from this process.
     pub(crate) place: Option<String>,
     /// Where the user token is, if this machine has it; read for each request.
@@ -97,7 +97,7 @@ impl Daemon {
 
     /// Sends a request (`make` adds the headers it is given) with everything that shows the
     /// service who sends it. The token goes along whenever this machine has it: it makes this
-    /// the user only where the service finds this process in no agent's pane. A command that
+    /// the user only where the service finds this process in no agent's place. A command that
     /// lasts longer than its proof gets a new one and repeats the request, once.
     pub(crate) fn send(&self, make: impl Fn(&[(&str, String)]) -> Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> anyhow::Result<ureq::http::Response<ureq::Body>> {
         let token = self.token().map(|t| format!("Bearer {t}")).unwrap_or_default();

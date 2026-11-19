@@ -10,8 +10,8 @@
 // server: everything read from another machine carries the machine's name.
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 use workriver_core::RuntimeRef;
@@ -24,7 +24,14 @@ mod terminals;
 pub mod words;
 
 use agents::group;
-pub use protocol::socket_path;
+
+/// This machine's Herdr, and a line on what is wrong with the connection when it does not
+/// answer with our protocol.
+pub fn connect(terminal_app: String) -> (Arc<dyn Runtime>, Option<String>) {
+    let herdr = Herdr::new(protocol::socket_path(), terminal_app);
+    let warning = herdr.check();
+    (Arc::new(herdr), warning)
+}
 
 /// Where the CLI runs, when it runs in a Herdr pane: the pane id, as an opaque place.
 pub fn place_from_env() -> Option<String> {

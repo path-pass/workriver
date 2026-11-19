@@ -109,7 +109,7 @@ pub struct App {
     /// Held while the list of managers told of this build is read and written.
     told: Mutex<()>,
     /// Commands the user is about to run (prepared, shown in the confirm dialog) and those run,
-    /// by id, with what their pane last showed.
+    /// by id, with what their place last showed.
     // ponytail: in memory; a restart forgets them (what ran stays in the record).
     runs: Mutex<std::collections::HashMap<String, Run>>,
 }
@@ -140,7 +140,7 @@ struct Run {
     closed: bool,
     output: String,
     exit: Option<i32>,
-    /// Its pane is still read.
+    /// Its place is still read.
     watching: bool,
     /// `command.ran` is recorded: its review, once there, is recorded too.
     ran: bool,
@@ -255,7 +255,7 @@ struct Pending {
 }
 
 /// How long a delivered message is watched for its pick-up; the receiver may vanish from
-/// the runtime for a while (a restart, a moved pane) and come back.
+/// the runtime for a while (a restart, a moved place) and come back.
 const WATCH: Duration = Duration::from_secs(30 * 60);
 
 type Shared = Arc<App>;
@@ -464,7 +464,7 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
         let _ = app.runtime.close(&name);
     }
     // Nothing that signs anyone in is ever written here: this output is on a screen (a
-    // Herdr pane) that agents can read. The user opens the page with `workriver open`.
+    // terminal of the runtime's) that agents can read. The user opens the page with `workriver open`.
     tracing::info!("workriver on http://127.0.0.1:{port}  (open it as you with `workriver open`, from a terminal agents do not read)");
     let stop = {
         let app = app.clone();
@@ -1333,7 +1333,7 @@ impl App {
     }
 
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
-    /// agent's name). One waiting for a person in its terminal (Herdr: blocked) cannot take
+    /// agent's name). One waiting for a person in its terminal (blocked) cannot take
     /// it: it is held and given once the agent is free (`poll`), or the question fails with
     /// the reason when its time is up. A new agent the runtime does not take prompts for yet
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
@@ -2201,7 +2201,7 @@ struct Merge {
 
 /// Planned intents folded into one (`workriver backlog merge`, or the roadmap in the page).
 async fn merge(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Merge>) -> Result<Json<core::Event>, ApiError> {
-    // The user, or an agent at its pane: the event rules keep the user's own intents the user's.
+    // The user, or an agent at its place: the event rules keep the user's own intents the user's.
     let who = app.who(&caller, None)?;
     blocking(move || app.record(&who, Body::IntentMerged { intent: m.into, from: m.from, title: m.title }).map(Json)).await
 }
@@ -2217,8 +2217,8 @@ async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, 
         // The page knows agents by name.
         let session = app.session_of(&f.agent, None);
         app.runtime.focus(&session).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        // On another machine it comes to the front there, in that machine's Herdr: the user's own
-        // client stays where it is (Herdr has no way to switch it), so the page says where.
+        // On another machine it comes to the front there, in that machine's runtime: the user's own
+        // client stays where it is (the runtime has no way to switch it), so the page says where.
         let there = app.live().unwrap_or_default().into_iter().find(|a| a.session == session && a.machine.is_some());
         Ok(match there {
             Some(a) => Json(json!({ "machine": a.machine, "workspace": a.group.map(|g| g.label), "agent": a.name })).into_response(),
@@ -2231,7 +2231,7 @@ async fn focus(State(app): State<Shared>, Extension(caller): Extension<Caller>, 
 #[derive(Deserialize)]
 struct StartIntent {
     intent: String,
-    /// The runtime group (Herdr workspace) it starts in, by id.
+    /// The runtime group it starts in, by id.
     workspace: String,
     /// The user was told the workspace works on another project and starts it there anyway.
     #[serde(default, rename = "confirmOtherProject")]
@@ -2293,7 +2293,7 @@ struct RunPrepare {
 /// How long a prepared command may wait for the user's confirmation.
 const CONFIRM: Duration = Duration::from_secs(600);
 
-/// A run as the page shows it: in the confirm dialog, then with what its pane shows.
+/// A run as the page shows it: in the confirm dialog, then with what its place shows.
 /// `waiting`: its review agent, when it waits for a person in its terminal (a first-run
 /// prompt such as "trust this folder?"): the page says so and leads there.
 fn run_view(id: &str, r: &Run, state: &core::State, waiting: Option<&RuntimeAgent>) -> serde_json::Value {
@@ -2323,7 +2323,7 @@ fn recorded_view(r: &core::CommandRun, state: &core::State) -> serde_json::Value
 
 impl App {
     /// The user's recent runs, newest first: the record's, with what this service still
-    /// follows of them (whether a pane is read, where it is).
+    /// follows of them (whether a place is read, where it is).
     fn recent_runs(&self, state: &core::State) -> Vec<snapshot::RunOut> {
         let live = self.runs.lock().unwrap();
         state
@@ -2416,7 +2416,7 @@ struct RunConfirmed {
 
 /// Runs a prepared command once the user confirmed it: typed into a plain shell of the user's,
 /// in workriver's own runtime group, on the machine of its directory. Recorded (not its
-/// output); its end is recorded when its pane shows it.
+/// output); its end is recorded when its place shows it.
 async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(c): Json<RunConfirmed>) -> Result<Json<serde_json::Value>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || {
@@ -2478,7 +2478,7 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
     .await
 }
 
-/// A run: what its pane shows now, and its exit status once it ended.
+/// A run: what its place shows now, and its exit status once it ended.
 async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     let live = app.runs.lock().unwrap().get(&id).cloned();
@@ -2516,12 +2516,12 @@ async fn run_focus(State(app): State<Shared>, Extension(caller): Extension<Calle
 }
 
 impl App {
-    /// Reads a run's pane every second until it shows the end (then records the exit status),
-    /// its pane is gone, or a day has passed.
+    /// Reads a run's place every second until it shows the end (then records the exit status),
+    /// its place is gone, or a day has passed.
     fn watch_run(&self, id: &str) {
         let Some((machine, place)) = self.runs.lock().unwrap().get(id).and_then(|r| Some((r.machine.clone(), r.place.clone()?))) else { return };
         let (until, mut misses, mut well) = (std::time::Instant::now() + Duration::from_secs(24 * 3600), 0, false);
-        // A pane that cannot be read five times running is gone (closed, or its shell exited).
+        // A place that cannot be read five times running is gone (closed, or its shell exited).
         while std::time::Instant::now() < until && misses < 5 {
             std::thread::sleep(Duration::from_secs(1));
             let Ok(text) = self.runtime.read_place(machine.as_deref(), &place, run::LINES) else {
@@ -2680,7 +2680,7 @@ async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Call
             return Err(bad(format!("a review says what the command does, in at most {} characters", run::REVIEW_CAP)));
         }
         // The agent at the caller's place, as the runtime names it now: an agent started on a
-        // first-run prompt was known by its pane then and by its harness's own session since.
+        // first-run prompt was known by its place then and by its harness's own session since.
         let named = match &who {
             Principal::Agent { session, machine } => app.runtime.agents().ok().and_then(|l| l.into_iter().find(|a| &a.session == session && &a.machine == machine)).map(|a| a.name),
             _ => None,
