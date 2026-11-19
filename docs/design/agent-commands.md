@@ -1,5 +1,16 @@
 # workriver's own agent commands
 
+> **Status: postponed to the ACP work, by the user's decision of 2026-11-20. Not built in
+> the restructure.** Why: under Herdr no effect can be bound to the agent that was
+> authorized. Its API has no prompt or close that is conditional on who occupies a place,
+> so a prompt can reach, and a close can end, something other than the worker the service
+> checked (u13#37 P1-1; section 7, "Open points"). Using Herdr's CLI directly, as managers do
+> today, has the same window, so the commands would add checks without closing it. Under
+> ACP workriver starts and owns the agent processes and the window goes away. This document
+> stays as the starting point; the recipes keep the runtime's own commands until then. One
+> thing it names was done apart from it: `question.started` is recorded by the service
+> only (u13#38; section 4.2).
+
 A design, not built yet (u13#32, revised in u13#35 after an architecture review, u13#33,
 and a security review, u13#34; item 6 of the user's decision in u12#9). The user confirms it
 at a gate before anything is implemented. It is written for the agents who will build and
@@ -484,6 +495,45 @@ variants" of `restructure.md` section 1 become 50, which that section must then 
   observed.
 - **Timing.** This adds a feature during the restructure; the plan lists it as "a unit of
   its own" after phase 4. The service side is far easier to place after phase 5.
+
+**Open points, for whoever picks this up** (the second round of reviews, on revision 2 as
+it stands above; none is worked into the text):
+
+- **u13#37 P1-1 (deferred; the reason for the postponement).** Section 4.1 does not bind an
+  effect to the authorized agent. It addresses `agent.prompt` by a name and checks the place
+  in the answer, which is after the text was delivered. A name is free again once its agent
+  exits, so another agent can take it: a same-named agent in a terminal the user made gets
+  the manager's hand-off before the adapter answers "gone"; a replacement under the same
+  name in the original place passes the place check for prompt, read and close. So "gone
+  means nothing was sent" and "only places `agent start` made are reached" are both false
+  as written. No restart, reused id or dishonest caller is needed. What is required: an
+  identity condition at the runtime's effect, or the operation refused where the runtime
+  cannot give one.
+- **u13#37 P2-1 (deferred).** Section 4.1 and choice 8 understate the `close` gap. Between
+  the check and `pane.close` the worker can exit and the person can start work, or another
+  agent, in that same place: the close then ends that, not an idle shell. One request is
+  not a bound in time. The reviewer's recommendation: no `close` until the runtime can
+  close on an identity condition. (u13#36 judged the gap acceptable: what is closed is the
+  place `close` was asked to close. The two reviews differ; the user did not have to choose,
+  since the unit was postponed.)
+- **u13#37 P2-2 (deferred).** The answering agent's prompt is promised to be refused while
+  the task's agent is working (section 2), but `prompt_at` carries no such condition and
+  Herdr's prompt accepts a working agent; a check before the submission can be stale by
+  then. Carry the idle-only condition to the submission, or say the case is not supported.
+- **u13#36 P3-1 (accepted, not applied).** Section 4.1 says a recorded place can never mean
+  another terminal later. Herdr's guide says ids are not reused; it says nothing of a
+  restart of its server, and the adapter's own comment (`runtime/herdr/terminals.rs`) and
+  `caller-identity.md` say that case is not verified. Restore the caveat (not reused while
+  the server runs; across a restart, not verified), and name what the handle carries under
+  Herdr to tell one occupant from the next: the root process id and its start time, which
+  the service already reads.
+- **u13#36 P3-2 (accepted, not applied).** Section 1's synopsis lacks `start --workspace
+  <w>`, which section 2 relies on for the user (the user's only; for a manager its own
+  workspace, or refused). Say also what `list` takes for the user.
+- **Over ACP most of this changes shape**: the handle is a process workriver started, so
+  prompt, read and close are bound by construction (section 5's table). Sections 2, 3, 4.2
+  and 4.3 (who may, what is recorded, the receipts, the text forms) do not depend on the
+  runtime and should carry over as they are.
 
 **Left out:**
 
