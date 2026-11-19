@@ -1,6 +1,7 @@
 //! workriver's core: the events, the state they add up to, the write rules, the SQLite
 //! store and the runtime interface. Knows nothing about the network, the UI or Herdr.
 pub mod access;
+pub mod conversations;
 pub mod planning;
 pub mod records;
 pub mod runtime;
@@ -8,6 +9,7 @@ pub mod work;
 pub mod store;
 
 pub use access::*;
+pub use conversations::*;
 pub use planning::*;
 pub use records::*;
 pub use work::*;

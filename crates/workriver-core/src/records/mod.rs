@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Principal, Rejected, no};
+use crate::conversations::*;
 use crate::planning::*;
 use crate::work::*;
 
@@ -20,80 +21,6 @@ pub(crate) fn is_true(b: &bool) -> bool {
 
 pub(crate) fn user() -> String {
     "user".into()
-}
-
-/// An agent session as last seen: the name shown for it, and its harness.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Agent {
-    pub session: String,
-    pub name: String,
-    pub harness: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "kebab-case")]
-pub enum DeliveryStep {
-    NotDelivered,
-    Delivered,
-    /// The receiver started working after it arrived.
-    Picked,
-}
-
-/// Why a message was not delivered.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "kebab-case")]
-pub enum ReasonCode {
-    /// The intent has no manager registered.
-    NoManager,
-    /// The manager is not running.
-    ManagerGone,
-    /// The agent runtime cannot be reached.
-    RuntimeDown,
-    /// The runtime refused or failed; `reason` holds its words.
-    RuntimeError,
-    /// The intent follows no runtime group, and no agent of it runs: nowhere to start one.
-    NoWorkspace,
-    /// No answer came in time.
-    Timeout,
-    /// The service restarted while waiting.
-    Restarted,
-    /// The agent waited for a person in its terminal (a permission or first-run prompt) the
-    /// whole time: the message never reached it.
-    Blocked,
-    /// A new agent never became ready to take its first message.
-    NotReady,
-}
-
-/// What a question is about besides its task: a finding, a file, lines of a file, or one of
-/// the task's attachments.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct AskContext {
-    /// "task", "finding", "file", "lines" or "attachment".
-    pub kind: String,
-    pub label: String,
-    /// attachment: its id in the store (one shown with the task, see `State::attachments_of`,
-    /// or one the user stored for the question).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub from: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to: Option<u32>,
-}
-
-/// Where the message about a user's input (a decision, a gate result) is.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Delivery {
-    pub step: DeliveryStep,
-    /// The receiving session; None when there was none.
-    pub to: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason_code: Option<ReasonCode>,
-    /// Why it was not delivered, in words (the runtime's own, for a runtime error).
-    pub reason: Option<String>,
-    pub message: String,
 }
 
 /// A recorded event.
@@ -148,94 +75,6 @@ pub struct State {
     pub runs: Vec<CommandRun>,
 }
 
-/// A stored file. Never deleted, like the records.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Attachment {
-    pub id: String,
-    pub name: String,
-    #[serde(rename = "type")]
-    pub mime: String,
-    pub size: u64,
-    pub by: String,
-    pub at: String,
-    /// The user stored it (first, or the same content again): a question of theirs may point at it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub user: bool,
-}
-
-/// The user's message to a workspace's manager, and what it answered.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Message {
-    pub id: String,
-    pub intent: String,
-    pub workspace: String,
-    /// The manager's session it went to: only that one replies.
-    pub manager: String,
-    pub text: String,
-    pub at: String,
-    pub delivery: Option<Delivery>,
-    #[serde(default)]
-    pub replies: Vec<Reply>,
-    /// Started by the manager (`workriver say`): its text is the manager's, and it went nowhere.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub by_manager: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Reply {
-    pub by: String,
-    pub text: String,
-    pub at: String,
-}
-
-/// A conversation about a task (or, task 0, its unit): its questions share one temporary
-/// agent while it lives.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Thread {
-    pub id: String,
-    pub unit: String,
-    pub task: u32,
-    /// The temporary agent last started for it: session and name.
-    pub agent: Option<String>,
-    pub name: Option<String>,
-    pub ended: bool,
-    pub conclusion: Option<String>,
-}
-
-/// A question about a task (task 0: its unit) and how it fared.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Question {
-    pub id: String,
-    pub thread: String,
-    pub conclude: bool,
-    pub unit: String,
-    pub task: u32,
-    pub text: String,
-    pub context: Vec<AskContext>,
-    pub at: String,
-    /// Who asked: "user", or an agent's session.
-    #[serde(default = "user")]
-    pub by: String,
-    /// The agent answering it: its session and name, once it has the question.
-    pub agent: Option<String>,
-    pub name: Option<String>,
-    /// That agent was started for it (and is closed later), not the task's own.
-    #[serde(default = "yes")]
-    pub temporary: bool,
-    pub answer: Option<String>,
-    #[serde(default)]
-    pub answered_at: Option<String>,
-    pub asked: Option<String>,
-    pub answered_by: Option<String>,
-    pub failed: Option<(ReasonCode, String)>,
-}
-
-impl Question {
-    pub fn open(&self) -> bool {
-        self.answer.is_none() && self.failed.is_none()
-    }
-}
-
 /// An event's kind, as recorded ("gate.submitted").
 pub(crate) fn name_of_kind(b: &Body) -> String {
     serde_json::to_value(b).ok().and_then(|v| v["kind"].as_str().map(str::to_string)).unwrap_or_default()
@@ -250,49 +89,6 @@ pub(crate) fn blank(s: &str) -> bool {
 }
 
 impl State {
-
-    /// The stored attachments shown with a task: its output's, its checks', its findings' and
-    /// those added to them later, then those of the findings it answers, unless it is blind
-    /// and not delivered (its agent is told nothing of other work). Empty for no such task.
-    pub fn attachments_of(&self, unit: &str, n: u32) -> Vec<&str> {
-        let Ok(t) = self.task(unit, n) else { return vec![] };
-        fn of<'a>(fs: &'a [Finding], ids: Option<&[String]>) -> Vec<&'a String> {
-            let fs = fs.iter().filter(|f| ids.is_none_or(|ids| ids.contains(&f.found.id)));
-            fs.flat_map(|f| f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))).collect()
-        }
-        let mut out: Vec<&String> = t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(of(&t.findings, None)).collect();
-        if !(t.blind && !t.state.over()) {
-            for c in &t.causes {
-                if let Ok(by) = self.task(c.unit.as_deref().unwrap_or(unit), c.task) {
-                    out.extend(of(&by.findings, Some(&c.findings)));
-                }
-            }
-        }
-        let mut seen = std::collections::HashSet::new();
-        out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
-    }
-
-    /// The name last seen for an agent session.
-    pub fn name_of(&self, session: &str) -> Option<&str> {
-        self.agents.iter().find(|a| a.session == session).map(|a| a.name.as_str())
-    }
-
-    pub fn question(&self, id: &str) -> Result<&Question, Rejected> {
-        match self.questions.iter().find(|q| q.id == id) {
-            Some(q) => Ok(q),
-            None => no(format!("no question {id}")),
-        }
-    }
-
-    /// Every id names a stored attachment.
-    fn stored<'a>(&self, ids: impl Iterator<Item = &'a String>) -> Result<(), Rejected> {
-        for id in ids {
-            if !self.attachments.iter().any(|a| &a.id == id) {
-                return no(format!("no stored attachment {id}; store the file first (workriver attach)"));
-            }
-        }
-        Ok(())
-    }
 
     /// Checks a new event against the rules and fills in what is assigned here (ids and
     /// numbers). The result is what gets stored.
@@ -1058,13 +854,6 @@ impl State {
                 MessagesRead { workspace, at: humantime::format_rfc3339_seconds(t).to_string() }
             }
         })
-    }
-
-    pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
-        match self.messages.iter().find(|m| m.id == id) {
-            Some(m) => Ok(m),
-            None => no(format!("no message {id}")),
-        }
     }
 
     /// Adds a recorded event. It passed `prepare` when it was recorded, so it is trusted.
