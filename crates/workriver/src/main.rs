@@ -12,6 +12,7 @@ mod quote;
 mod run;
 mod runtime;
 mod serve;
+mod server;
 mod show;
 mod snapshot;
 mod stall;
@@ -47,6 +48,3 @@ fn main() -> anyhow::Result<()> {
     }
     cli::run(cli)
 }
-
-#[cfg(test)]
-mod tests;

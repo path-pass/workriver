@@ -1424,7 +1424,7 @@ not a df line
     #[test]
     fn samples_this_machine_and_followed_ones_through_their_runner() {
         let dir = tempfile::tempdir().unwrap();
-        let local: Arc<dyn workriver_core::runtime::Runtime> = Arc::new(crate::tests::Fake::default());
+        let local: Arc<dyn workriver_core::runtime::Runtime> = Arc::new(crate::server::tests::support::Fake::default());
         let all = Machines::with(local.clone(), vec![("box", local.clone()), ("gone", local)]);
         all.set_runner("box", printing(dir.path(), "box", LINUX_1));
         all.drop_tunnel("gone");

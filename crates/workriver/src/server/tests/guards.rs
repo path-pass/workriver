@@ -8,7 +8,8 @@ use std::io::{Read, Write};
 
 use serde_json::{Value, json};
 
-use super::*;
+use super::support::*;
+use crate::cli::Daemon;
 
 /// Every route of this machine's listener, as `router()` declares it, with the methods it
 /// answers. The page, the CLI and the user's session use these.
@@ -287,7 +288,7 @@ fn who_may_use_each_route() {
             got.push('\n');
         }
     }
-    let path = crate_dir().join("src/tests/route-access.txt");
+    let path = crate_dir().join("src/server/tests/route-access.txt");
     if std::env::var("WORKRIVER_BLESS").is_ok_and(|v| v == "1") {
         std::fs::write(&path, &got).unwrap();
     }
@@ -426,7 +427,7 @@ fn the_json_the_page_reads_keeps_its_shape() {
     shape(&d.get("/api/workspace").unwrap(), "workspace", &mut got);
     shape(&d.get("/api/unit/u1/code").unwrap(), "code", &mut got);
     let got: String = got.into_iter().map(|l| l + "\n").collect();
-    let path = crate_dir().join("src/tests/page-json.txt");
+    let path = crate_dir().join("src/server/tests/page-json.txt");
     if std::env::var("WORKRIVER_BLESS").is_ok_and(|v| v == "1") {
         std::fs::write(&path, &got).unwrap();
     }
