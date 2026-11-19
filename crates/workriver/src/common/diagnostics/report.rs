@@ -137,7 +137,7 @@ pub fn bundle(home: &Path, bytes: usize) -> std::io::Result<PathBuf> {
         kept += raw[start].len() + 1;
     }
     raw.drain(..start);
-    let path = dir(home).join(format!("perf-bundle-{}.txt", humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string().replace(':', "")));
+    let path = dir(home).join(crate::common::home::perf_bundle(&humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string().replace(':', "")));
     let mut text = format!(
         "workriver {} timing bundle\nTimes, counts, route templates, unit ids and machine names only: no commit messages, file texts, task texts, findings, notes, prompts, tokens, cookies or paths.\n\n",
         crate::common::BUILD

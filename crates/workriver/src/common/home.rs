@@ -94,6 +94,12 @@ pub fn perf_log(k: usize) -> String {
     if k == 0 { PERF_LOG.to_string() } else { format!("{}.{k}.jsonl", PERF_LOG.trim_end_matches(".jsonl")) }
 }
 
+/// A timing bundle `workriver perf --bundle` writes beside the log, by its time:
+/// `perf-bundle-<stamp>.txt`.
+pub fn perf_bundle(stamp: &str) -> String {
+    format!("perf-bundle-{stamp}.txt")
+}
+
 /// A temporary file to write `name` through, beside it: `<name>.<hex>.tmp`.
 pub fn temporary(name: &str, hex: &str) -> String {
     format!("{name}.{hex}.tmp")
