@@ -66,6 +66,13 @@ impl Body {
             GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | CommandRan { .. }
         )
     }
+
+    /// What only workriver itself records: a receipt of what the service did, which nobody
+    /// can claim for it. That an agent was given a question to answer is one: whoever is
+    /// recorded as answering may answer it.
+    pub fn service_only(&self) -> bool {
+        matches!(self, Body::QuestionStarted { .. })
+    }
 }
 
 #[cfg(test)]

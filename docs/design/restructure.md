@@ -30,6 +30,11 @@ Sources, for what this file leaves out:
   own (u13#7, the user's decision of 2026-11-20): `POST /api/attachments/inbox` (`workriver
   attach --dir`) asks who calls (`App::who`), as AGENTS.md's rule wants of every handler;
   before, any local process could have an existing task's folder made and learn its path.
+  A second one the same way (u13#38, the user's decision of 2026-11-20, found in u13#34):
+  `question.started` is recorded by the service only (`Body::service_only`, refused for an
+  agent and for the user in `State::prepare`). The service was already its only producer;
+  before, an agent that had asked a question could record itself as the one answering it.
+  Stored events are not re-checked on replay, so old data reads as before.
 - **The user's data.** The event store, attachments, settings, sessions, pins, metrics
   history and caches keep their paths, formats and permissions. No migration. The event
   enum (`Body`) keeps its 48 variants, its tags and its serde attributes; it is moved whole,

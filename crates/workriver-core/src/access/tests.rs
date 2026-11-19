@@ -105,3 +105,22 @@ fn a_blind_task_sees_only_its_own() {
     assert!(s.state().task("u1", 3).unwrap().blind);
     assert!(replayed(&s).task("u1", 3).unwrap().blind);
 }
+
+/// Who answers a question is workriver's to say: an agent that asked cannot record itself
+/// (or anyone) as the one answering, nor can the user; the service's own record stands, and
+/// only the agent it names may answer.
+#[test]
+fn only_workriver_says_who_answers_a_question() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    add(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 2, "text": "Why a regex?"}})).unwrap();
+    let started = |agent: &str| json!({"kind": "question.started", "body": {"question": "q1", "agent": agent, "name": agent, "temporary": true}});
+    for who in ["agent-a", "boss", "user"] {
+        let e = add(&mut s, who, started(who)).unwrap_err();
+        assert!(e.contains("only workriver records this (question.started)"), "{who}: {e}");
+    }
+    assert!(s.state().questions.iter().all(|q| q.agent.is_none()), "nobody answers yet");
+    add(&mut s, "workriver", started("s-why")).unwrap();
+    assert!(add(&mut s, "boss", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Because."}})).is_err(), "an agent that could not name itself the answerer does not answer");
+    add(&mut s, "s-why", json!({"kind": "question.answered", "body": {"question": "q1", "text": "It predates the parser."}})).unwrap();
+}

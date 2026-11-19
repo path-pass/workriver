@@ -107,6 +107,10 @@ impl State {
         if body.user_only() && !user {
             return no(format!("only the user does this ({}): in the web UI, or with the CLI from a terminal that is not an agent's", name_of_kind(&body)));
         }
+        // And these are workriver's own: what the service did is not for a caller to say.
+        if body.service_only() && *who != Principal::Service {
+            return no(format!("only workriver records this ({}): it says what the service did, and is not reported by an agent or the user", name_of_kind(&body)));
+        }
         // Each kind's own rules are its domain's.
         match body {
             // Planning: planning/.
