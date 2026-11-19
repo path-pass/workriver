@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Principal, Rejected, no};
+use crate::planning::*;
 
 mod body;
 pub use body::*;
@@ -19,60 +20,6 @@ pub enum TaskKind {
     Design,
     /// Finding out (a survey, a spike, a comparison): its output is a note and attachments.
     Research,
-}
-
-/// What a unit holds: code on a branch of its own, or research and design with no branch.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum UnitKind {
-    #[default]
-    Code,
-    /// Research and design for the intent: no repository of its own, no branch, never merged;
-    /// closed with `unit.done`.
-    Research,
-    /// An experiment (measure, compare, try an approach): code on a `spike/` branch of its
-    /// own, scanned and shown like a code unit's, but never merged; closed with `unit.done`.
-    Spike,
-}
-
-impl UnitKind {
-    /// Code on a branch of its own: a code unit or a spike.
-    pub fn is_code(&self) -> bool {
-        matches!(self, UnitKind::Code | UnitKind::Spike)
-    }
-
-    /// Merged when done: a code unit. A spike and a research unit are closed with `unit.done`.
-    pub fn merges(&self) -> bool {
-        *self == UnitKind::Code
-    }
-
-    /// The default kind, left out when written.
-    fn is_default(&self) -> bool {
-        *self == UnitKind::Code
-    }
-}
-
-/// Where an intent is: in the backlog, being worked on, finished, or given up.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum IntentState {
-    Planned,
-    Active,
-    Done,
-    Dropped,
-}
-
-fn active() -> IntentState {
-    IntentState::Active
-}
-
-/// The same item in an outside tracker (Jira, Linear, GitHub Issues); only kept and shown.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct External {
-    pub system: String,
-    pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
 }
 
 /// One finding of one task; or (`task` 0, `unit` empty) a backlog finding by its id (`f3`).
@@ -330,93 +277,6 @@ pub struct NewTask {
     pub blocks: Option<u32>,
 }
 
-/// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct RuntimeRef {
-    /// Unique across machines: another machine's carries its name.
-    pub id: String,
-    pub label: String,
-    /// The machine it is on; none: this one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-}
-
-/// A commit as it was seen on a branch a unit has left.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct SeenCommit {
-    pub hash: String,
-    #[serde(default)]
-    pub subject: String,
-    /// The task it carried out there (by its trailer or a link), if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task: Option<u32>,
-    /// Its author date, which a rebase keeps: with the subject, it is found again.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub date: String,
-    /// Its patch id (`git patch-id --stable`), taken when the unit moved: a rebased copy of
-    /// it has the same one.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub patch_id: String,
-}
-
-/// Where a unit's work was before it was moved (rebased onto a new branch, say).
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Earlier {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-    pub repo: String,
-    pub branch: String,
-    pub base: String,
-    /// When it was left.
-    pub until: String,
-    pub commits: Vec<SeenCommit>,
-}
-
-/// A commit said to belong to a task (`workriver commit link`).
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct CommitLink {
-    pub hash: String,
-    pub patch_id: String,
-    pub subject: String,
-    pub date: String,
-    pub task: u32,
-    pub by: String,
-}
-
-/// Who decides an intent's open findings; set by the user alone.
-///
-/// There is no policy by severity: a finding's severity is its reviewer's own rating, so a
-/// rule that kept "P1" for the user would look like a control and be none.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum FindingsPolicy {
-    /// The user decides every finding. (Also what a record of the withdrawn
-    /// "manager-except-p1" replays as: the stricter of the two.)
-    #[serde(alias = "manager-except-p1")]
-    User,
-    /// The intent's manager decides them: the default. The user can still decide any
-    /// finding, and change what the manager decided.
-    #[default]
-    Manager,
-}
-
-impl FindingsPolicy {
-    /// Whether the intent's manager decides its findings.
-    pub fn managers(self) -> bool {
-        self == FindingsPolicy::Manager
-    }
-}
-
-/// A workspace of another machine made one with a workspace of this machine: one manager,
-/// the same intents. Workspaces are named by their labels, which outlive their ids.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Link {
-    pub machine: String,
-    pub workspace: String,
-    /// The label of the workspace on this machine.
-    pub local: String,
-}
-
 /// An agent session as last seen: the name shown for it, and its harness.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Agent {
@@ -654,129 +514,6 @@ impl Question {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Intent {
-    pub id: String,
-    pub title: String,
-    /// Before 0.2: the manager registered for it. Now the manager is the workspace's.
-    pub manager: Option<String>,
-    #[serde(default)]
-    pub goal: String,
-    /// Before 0.2: the runtime group it followed.
-    #[serde(default)]
-    pub runtime_ref: Option<RuntimeRef>,
-    pub at: String,
-    /// The project folder ("" when not known: then its units' repositories say).
-    #[serde(default)]
-    pub project: String,
-    #[serde(default = "active")]
-    pub state: IntentState,
-    #[serde(default)]
-    pub note: String,
-    #[serde(default)]
-    pub external: Option<External>,
-    /// Who added it: "user", or the agent (session) that did. Only the user merges what the
-    /// user added; agents may tidy what agents added (an import split too finely).
-    #[serde(default)]
-    pub by: String,
-    /// Where it runs while active (and last ran).
-    #[serde(default)]
-    pub workspace: Option<RuntimeRef>,
-    /// Why it was dropped.
-    #[serde(default)]
-    pub reason: Option<String>,
-    /// Who decides its open findings.
-    #[serde(default)]
-    pub findings: FindingsPolicy,
-    /// Intent-level work (research, design), numbered `i3#1`…
-    #[serde(default)]
-    pub tasks: Vec<Task>,
-}
-
-/// A registered project folder.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Project {
-    pub id: String,
-    pub path: String,
-    pub title: String,
-}
-
-/// A runtime group (a Herdr workspace): its manager and the intent new work goes to.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Workspace {
-    pub group: RuntimeRef,
-    pub manager: Option<String>,
-    pub current: Option<String>,
-    /// The project (its folder) the user says it works on; none: workriver works it out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Unit {
-    pub id: String,
-    pub intent: String,
-    pub title: String,
-    pub purpose: String,
-    pub repo: String,
-    pub branch: String,
-    pub base: String,
-    /// The machine its repository is on; none: this one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-    pub at: String,
-    /// When it was recorded as merged.
-    pub merged: Option<String>,
-    pub merged_commits: Vec<String>,
-    pub tasks: Vec<Task>,
-    /// Where its work was before, oldest first, with the commits seen there.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub earlier: Vec<Earlier>,
-    /// Commits linked to its tasks by hand.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub links: Vec<CommitLink>,
-    /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub done: Option<Closed>,
-    /// Closed as done before, then given a new task, which opened it again: that closing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reopened: Option<Closed>,
-    #[serde(default, skip_serializing_if = "UnitKind::is_default")]
-    pub kind: UnitKind,
-}
-
-impl Unit {
-    /// Code on a branch: what git is read for. A research unit and an intent's own work
-    /// (seen as a unit) have none.
-    pub fn has_code(&self) -> bool {
-        self.kind.is_code() && !self.branch.is_empty()
-    }
-}
-
-/// A unit closed by hand, or a task dropped.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Closed {
-    pub at: String,
-    pub by: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub reason: String,
-}
-
-/// Where a unit stands, from its tasks and its branch; `Done` and `Merged` are recorded.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum Progress {
-    /// A task is to be done or being done.
-    Working,
-    /// Something waits on a decision or on the user: an open finding, a waiting gate, or a
-    /// finding accepted with no work handed out for it.
-    Waiting,
-    /// Everything delivered and decided: it can be merged.
-    Ready,
-    Merged,
-    Done,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Task {
     pub n: u32,
     /// The intent it serves.
@@ -906,13 +643,6 @@ fn name_of_kind(b: &Body) -> String {
     serde_json::to_value(b).ok().and_then(|v| v["kind"].as_str().map(str::to_string)).unwrap_or_default()
 }
 
-/// What a merged intent said, as a block of its target's note: its title, goal, note and
-/// external id (with its link), one per line, empty ones left out.
-fn merged_note(i: &Intent) -> String {
-    let external = i.external.as_ref().map(|e| format!("{}:{}{}", e.system, e.key, e.url.as_deref().map(|u| format!(" {u}")).unwrap_or_default()));
-    [format!("Merged from {}: {}", i.id, i.title), i.goal.trim().to_string(), i.note.trim().to_string(), external.unwrap_or_default()].into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
-}
-
 pub fn name<T: Serialize>(v: &T) -> String {
     serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
@@ -922,12 +652,6 @@ fn blank(s: &str) -> bool {
 }
 
 impl State {
-    pub fn unit(&self, id: &str) -> Result<&Unit, Rejected> {
-        match self.units.iter().find(|u| u.id == id) {
-            Some(u) => Ok(u),
-            None => no(format!("no unit {id}")),
-        }
-    }
 
     /// The tasks of a unit, or an intent's intent-level tasks.
     pub fn tasks_of(&self, owner: &str) -> Option<&Vec<Task>> {
@@ -1011,34 +735,6 @@ impl State {
         found
     }
 
-    /// A unit, or an intent seen as a unit for its intent-level tasks (no branch; its
-    /// project folder as the repository).
-    pub fn unit_or_intent(&self, id: &str) -> Option<Unit> {
-        if let Ok(u) = self.unit(id) {
-            return Some(u.clone());
-        }
-        let i = self.intents.iter().find(|i| i.id == id)?;
-        Some(Unit {
-            id: i.id.clone(),
-            intent: i.id.clone(),
-            title: i.title.clone(),
-            purpose: i.goal.clone(),
-            repo: i.project.clone(),
-            branch: String::new(),
-            base: String::new(),
-            machine: None,
-            at: i.at.clone(),
-            merged: None,
-            merged_commits: vec![],
-            tasks: i.tasks.clone(),
-            earlier: vec![],
-            links: vec![],
-            done: None,
-            reopened: None,
-            kind: UnitKind::Code,
-        })
-    }
-
     /// A finding by reference: a task's, or a backlog one.
     pub fn finding(&self, r: &FindingRef) -> Result<&Finding, Rejected> {
         if r.task == 0 {
@@ -1051,17 +747,6 @@ impl State {
             Some(f) => Ok(f),
             None => no(format!("{}#{} has no finding {}", r.unit, r.task, r.finding)),
         }
-    }
-
-    /// The intent a unit (or intent) belongs to.
-    pub fn intent_of(&self, owner: &str) -> Option<&str> {
-        self.units.iter().find(|u| u.id == owner).map(|u| u.intent.as_str()).or_else(|| self.intents.iter().find(|i| i.id == owner).map(|i| i.id.as_str()))
-    }
-
-    /// A runtime group's record: by its id, or else by its label, since a runtime may give
-    /// its groups new ids when it restarts.
-    pub fn workspace_of(&self, r: &RuntimeRef) -> Option<&Workspace> {
-        self.workspace_at(r).map(|k| &self.workspaces[k])
     }
 
     /// The stored attachments shown with a task: its output's, its checks', its findings' and
@@ -1085,31 +770,6 @@ impl State {
         out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
     }
 
-    /// Whether `who` may put a unit of `intent` on `machine` (none: the machine workriver
-    /// runs on). The user may anywhere. An agent may on its own machine; on another only as
-    /// the intent's manager, and only where a workspace of that machine is linked with the
-    /// intent's workspace: the work must be reachable by the agents it is for.
-    fn may_place(&self, who: &Principal, intent: &str, machine: Option<&str>) -> Result<(), Rejected> {
-        let Principal::Agent { session, machine: own } = who else { return Ok(()) };
-        if own.as_deref() == machine {
-            return Ok(());
-        }
-        if self.manager_of(intent) != Some(session.as_str()) {
-            return no(format!("only the user or the manager of intent {intent} puts its units on another machine"));
-        }
-        let other = machine.or(own.as_deref()).unwrap_or_default();
-        let workspace = self.intents.iter().find(|i| i.id == intent).and_then(|i| i.workspace.as_ref()).and_then(|g| self.workspace_of(g)).map(|w| w.group.label.clone());
-        let linked = workspace.as_ref().is_some_and(|label| self.links.iter().any(|l| l.machine == other && &l.local == label));
-        if !linked {
-            return no(format!(
-                "no workspace on {other} is linked with this intent's workspace{}; the user links one first: workriver workspace link {other}:<workspace there> {}",
-                workspace.as_ref().map(|l| format!(" ({l})")).unwrap_or_default(),
-                workspace.as_deref().unwrap_or("<workspace here>")
-            ));
-        }
-        Ok(())
-    }
-
     /// Whether `actor` is the agent a task is assigned to or was done by (by session, or by
     /// the name it was assigned under).
     fn is_agent_of(&self, t: &Task, actor: &str) -> bool {
@@ -1121,76 +781,6 @@ impl State {
         let hit = |owner: &str, t: &&Task| t.causes.iter().any(|c| c.task == task && c.unit.as_deref().unwrap_or(owner) == unit && c.findings.iter().any(|f| f == finding));
         let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(move |t| hit(&u.id, t)).map(move |t| (u.id.clone(), t)));
         units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(move |t| hit(&i.id, t)).map(move |t| (i.id.clone(), t)))).collect()
-    }
-
-    /// Where unit `u` stands. A waiting gate or an open finding comes before work going on,
-    /// since it asks for someone; deferred, rejected and scheduled findings hold nothing up.
-    pub fn progress(&self, u: &Unit) -> Progress {
-        if u.done.is_some() {
-            return Progress::Done;
-        }
-        if u.merged.is_some() {
-            return Progress::Merged;
-        }
-        // Dropped work answers nothing: the finding waits for work again.
-        let answered = |t: &Task, f: &Finding| self.follow_ups(&u.id, t.n, &f.found.id).iter().any(|(_, x)| x.state != TaskState::Dropped);
-        let waits = u.tasks.iter().any(|t| {
-            t.state == TaskState::Waiting
-                || t.findings.iter().any(|f| f.state == FindingState::Open || (matches!(f.state, FindingState::Accepted | FindingState::Revised) && !answered(t, f)))
-        });
-        if waits {
-            Progress::Waiting
-        } else if u.tasks.is_empty() || u.tasks.iter().any(|t| matches!(t.state, TaskState::Todo | TaskState::Running)) {
-            Progress::Working
-        } else {
-            Progress::Ready
-        }
-    }
-
-    /// Since when a ready unit has been ready: the last time one of its tasks was delivered,
-    /// submitted, corrected or dropped, or one of their findings decided. None unless ready.
-    pub fn ready_since(&self, u: &Unit) -> Option<String> {
-        if self.progress(u) != Progress::Ready {
-            return None;
-        }
-        let times = u.tasks.iter().flat_map(|t| t.done.iter().chain(&t.amended).chain(t.dropped.as_ref().map(|d| &d.at)).chain(t.findings.iter().flat_map(|f| f.decisions.iter().map(|d| &d.at))));
-        times.max().cloned()
-    }
-
-    /// Whether every unit of `intent` is merged or done (and it has one).
-    pub fn finished(&self, intent: &str) -> bool {
-        let mut units = self.units.iter().filter(|u| u.intent == intent).peekable();
-        units.peek().is_some() && units.all(|u| matches!(self.progress(u), Progress::Merged | Progress::Done))
-    }
-
-    /// The link of a group of another machine, if it has one.
-    pub fn link_of(&self, r: &RuntimeRef) -> Option<&Link> {
-        let m = r.machine.as_ref()?;
-        self.links.iter().find(|l| &l.machine == m && l.workspace == r.label)
-    }
-
-    /// Where a group's record is. A linked group of another machine is the workspace of this
-    /// machine it is linked to; nothing else is ever matched across machines.
-    fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
-        if let Some(l) = self.link_of(r) {
-            return self.workspaces.iter().position(|w| w.group.machine.is_none() && w.group.label == l.local);
-        }
-        let here = |w: &&Workspace| w.group.machine == r.machine;
-        let at = |f: &dyn Fn(&Workspace) -> bool| self.workspaces.iter().position(|w| here(&w) && f(w));
-        at(&|w| w.group.id == r.id).or_else(|| at(&|w| w.group.label == r.label))
-    }
-
-    /// The intent new work in a runtime group goes to: the group's current intent.
-    pub fn intent_for(&self, r: &RuntimeRef) -> Option<&Intent> {
-        let id = self.workspace_of(r)?.current.as_deref()?;
-        self.intents.iter().find(|i| i.id == id)
-    }
-
-    /// The manager of an intent: the manager of the runtime group it runs in (before 0.2,
-    /// the one registered for the intent itself).
-    pub fn manager_of(&self, intent: &str) -> Option<&str> {
-        let i = self.intents.iter().find(|i| i.id == intent)?;
-        i.workspace.as_ref().and_then(|g| self.workspace_of(g)).and_then(|w| w.manager.as_deref()).or(i.manager.as_deref())
     }
 
     /// The name last seen for an agent session.
@@ -1213,13 +803,6 @@ impl State {
             }
         }
         Ok(())
-    }
-
-    pub fn intent(&self, id: &str) -> Result<&Intent, Rejected> {
-        match self.intents.iter().find(|i| i.id == id) {
-            Some(i) => Ok(i),
-            None => no(format!("no intent {id}")),
-        }
     }
 
     /// Checks a new event against the rules and fills in what is assigned here (ids and
@@ -2697,52 +2280,12 @@ impl State {
         tasks.iter_mut().find(|t| t.n == n)
     }
 
-    /// A runtime group's record, made when first needed; it follows the group's latest id and label.
-    fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
-        // A linked group's record is the local workspace's, which keeps its own id and label.
-        let local = self.link_of(g).map(|l| RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None });
-        match self.workspace_at(g) {
-            Some(k) => {
-                if local.is_none() {
-                    self.workspaces[k].group = g.clone();
-                }
-                &mut self.workspaces[k]
-            }
-            None => {
-                self.workspaces.push(Workspace { group: local.unwrap_or_else(|| g.clone()), manager: None, current: None, project: None });
-                self.workspaces.last_mut().unwrap()
-            }
-        }
-    }
-
     fn finding_mut(&mut self, r: &FindingRef) -> Option<&mut Finding> {
         if r.task == 0 {
             return self.backlog.iter_mut().find(|b| b.finding.found.id == r.finding).map(|b| &mut b.finding);
         }
         self.task_mut(&r.unit, r.task)?.findings.iter_mut().find(|f| f.found.id == r.finding)
     }
-}
-
-/// The branch prefixes a unit's branch takes: what kind of work it holds.
-const BRANCH_PREFIXES: [&str; 3] = ["feat/", "chore/", "fix/"];
-
-/// A unit's branch is its own: never its base (that would count everyone's commits on it as
-/// the unit's), and, when newly named, one of `BRANCH_PREFIXES` and a name (a spike's:
-/// `spike/` and a name, which no other unit takes). Checked when an event is written, never
-/// on replay: units named before the rule keep loading.
-fn unit_branch(branch: &str, base: &str, named: bool, kind: UnitKind) -> Result<(), Rejected> {
-    if branch == base || base.strip_prefix("origin/") == Some(branch) {
-        return no(format!("a unit's branch must not be its base ({base}): create the unit's own branch from {base} (git switch -c feat/<name> {base}) and give that: --branch feat/<name>"));
-    }
-    let named_with = |p: &str| branch.strip_prefix(p).is_some_and(|rest| !rest.is_empty());
-    let name = branch.rsplit('/').next().unwrap_or(branch);
-    if named && kind == UnitKind::Spike && !named_with("spike/") {
-        return no(format!("a spike's branch starts with spike/ and a name; {branch} does not: name it so, e.g. --branch spike/{name}"));
-    }
-    if named && kind != UnitKind::Spike && !BRANCH_PREFIXES.iter().any(|p| named_with(p)) {
-        return no(format!("a unit's branch starts with feat/, chore/ or fix/ and a name (feat/<name> for new work, fix/<name> for a fix, chore/<name> for the rest; spike/<name> is for --kind spike); {branch} does not: name it so, e.g. --branch feat/{name}"));
-    }
-    Ok(())
 }
 
 /// A dropped task is no longer worked on: refused, saying why it was dropped.

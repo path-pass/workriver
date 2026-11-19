@@ -1,4 +1,5 @@
 // What an agent on an undelivered blind task may see: its own task, unit and intent.
+use crate::planning::*;
 use crate::records::*;
 
 impl State {

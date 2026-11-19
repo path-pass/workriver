@@ -21,7 +21,7 @@ const OWN_SENSE: &[(&str, &str, &str)] = &[("frontend/web/src/components/CodeLay
 
 const STILL_HERDR: &[&str] = &[
     "crates/workriver-core/src/lib.rs",
-    "crates/workriver-core/src/records/mod.rs",
+    "crates/workriver-core/src/planning/projects.rs",
     "crates/workriver-core/src/runtime.rs",
     "crates/workriver/src/ask.rs",
     "crates/workriver/src/caller.rs",
