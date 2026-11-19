@@ -91,4 +91,103 @@ impl State {
             }
         }
     }
+
+    /// The rules of a project's or a workspace's events: `prepare`, for these kinds.
+    pub(crate) fn prepare_projects(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        Ok(match body {
+            ProjectAdded { path, title, .. } => {
+                if blank(&path) || blank(&title) {
+                    return no("a project needs its folder and a title");
+                }
+                if self.projects.iter().any(|p| p.path == path) {
+                    return no(format!("{path} is already a project"));
+                }
+                ProjectAdded { id: format!("p{}", self.projects.len() + 1), path, title }
+            }
+            ProjectRenamed { project, title } => {
+                let Some(p) = self.projects.iter().find(|p| p.id == project || p.path == project) else {
+                    return no(format!("no project {project}; a repository outside every project is registered with `workriver project add <folder> --title ...`"));
+                };
+                if blank(&title) {
+                    return no("a project needs a title");
+                }
+                ProjectRenamed { project: p.id.clone(), title }
+            }
+            WorkspaceLinked(l) => {
+                if blank(&l.machine) || blank(&l.workspace) || blank(&l.local) {
+                    return no("a link names a machine, its workspace and a workspace of this machine");
+                }
+                if let Some(old) = self.links.iter().find(|x| x.machine == l.machine && x.workspace == l.workspace) {
+                    return no(format!("{}:{} is already linked to {}; unlink it first", l.machine, l.workspace, old.local));
+                }
+                WorkspaceLinked(l)
+            }
+            WorkspaceUnlinked { machine, workspace } => {
+                if !self.links.iter().any(|x| x.machine == machine && x.workspace == workspace) {
+                    return no(format!("{machine}:{workspace} is not linked"));
+                }
+                WorkspaceUnlinked { machine, workspace }
+            }
+            WorkspaceProjectSet { workspace, project } => {
+                if blank(&workspace.id) || blank(&workspace.label) {
+                    return no("name the workspace by its id and label, as `workriver workspace list` shows it");
+                }
+                let project = match project {
+                    None => None,
+                    // A registered project (by id or folder), or a folder an intent or unit names.
+                    Some(p) => match self.projects.iter().find(|x| x.id == p || x.path == p) {
+                        Some(x) => Some(x.path.clone()),
+                        None if !blank(&p) && (self.intents.iter().any(|i| i.project == p) || self.units.iter().any(|u| u.repo == p)) => Some(p),
+                        None => return no(format!("no project {p}; name a project as `workriver project list` shows it")),
+                    },
+                };
+                WorkspaceProjectSet { workspace, project }
+            }
+            ManagerRegistered { intent, agent, workspace } => {
+                if let Some(i) = &intent {
+                    self.intent(i)?;
+                }
+                if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
+                    return no("a manager manages a runtime workspace: run `workriver manager here` in its pane");
+                }
+                // An agent registers itself; nobody is made a manager by someone else.
+                let agent = match who {
+                    Principal::Agent { session, .. } if blank(&agent) || &agent == session => session.clone(),
+                    Principal::Agent { .. } => return no("an agent registers itself as manager, not another agent"),
+                    _ => return no("a manager is an agent: run `workriver manager here` in the manager agent's pane"),
+                };
+                ManagerRegistered { intent, agent, workspace }
+            }
+            other => unreachable!("{} is not one of a project's or a workspace's kinds", name_of_kind(&other)),
+        })
+    }
+
+    /// What a project's or a workspace's events change: `apply`, for these kinds.
+    pub(crate) fn apply_projects(&mut self, e: &Event) {
+        use Body::*;
+        match &e.body {
+            ProjectAdded { id, path, title } => self.projects.push(Project { id: id.clone(), path: path.clone(), title: title.clone() }),
+            ProjectRenamed { project, title } => {
+                if let Some(p) = self.projects.iter_mut().find(|p| &p.id == project || &p.path == project) {
+                    p.title = title.clone();
+                }
+            }
+            WorkspaceLinked(l) => self.links.push(l.clone()),
+            WorkspaceUnlinked { machine, workspace } => self.links.retain(|x| !(&x.machine == machine && &x.workspace == workspace)),
+            WorkspaceProjectSet { workspace, project } => self.workspace_mut(workspace).project = project.clone(),
+            ManagerRegistered { intent, agent, workspace } => {
+                // Before 0.2: the intent's manager, which is the manager of its runtime group.
+                let mut group = workspace.clone();
+                if let Some(i) = intent.as_ref().and_then(|id| self.intents.iter_mut().find(|i| &i.id == id)) {
+                    i.manager = Some(agent.clone());
+                    group = group.or(i.workspace.clone());
+                }
+                if let Some(g) = group {
+                    self.workspace_mut(&g).manager = Some(agent.clone());
+                }
+            }
+            other => unreachable!("{} is not one of a project's or a workspace's kinds", name_of_kind(other)),
+        }
+    }
 }

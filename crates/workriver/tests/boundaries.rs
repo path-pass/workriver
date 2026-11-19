@@ -46,6 +46,8 @@ const STILL_HERDR: &[&str] = &[
     "frontend/web/src/types.ts",
 ];
 const STILL_PANE: &[&str] = &[
+    "crates/workriver-core/src/planning/intents.rs",
+    "crates/workriver-core/src/planning/projects.rs",
     "crates/workriver-core/src/records/mod.rs",
     "crates/workriver/src/main.rs",
     "crates/workriver/src/run.rs",

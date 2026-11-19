@@ -258,4 +258,186 @@ impl State {
         }
         Ok(())
     }
+
+    /// The rules of a unit's events: `prepare`, for these kinds.
+    pub(crate) fn prepare_units(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
+        use Body::*;
+        let actor = who.actor();
+        let user = *who == Principal::User;
+        Ok(match body {
+            UnitRelocated { unit, machine, repo, branch, base, previous } => {
+                let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it has no repository or branch to move"));
+                }
+                if u.merged.is_some() {
+                    return no(format!("unit {unit} is merged; its place no longer matters"));
+                }
+                if !user && self.manager_of(&u.intent) != Some(actor) {
+                    let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
+                    return no(format!(
+                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch (workriver manager tell <your task> --text \"...\"), who runs: workriver unit move {unit} --branch <new> [--base <new base>]",
+                        u.intent
+                    ));
+                }
+                self.may_place(who, &u.intent, machine.as_deref())?;
+                for (field, v) in [("repo", &repo), ("branch", &branch), ("base", &base)] {
+                    if blank(v) {
+                        return no(format!("a unit needs a {field}"));
+                    }
+                }
+                // A branch named before the rule keeps its name while only the rest moves.
+                unit_branch(&branch, &base, branch != u.branch, u.kind)?;
+                UnitRelocated { unit, machine, repo, branch, base, previous }
+            }
+            CommitLinked { unit, hash, patch_id, subject, date, task } => {
+                let u = self.unit(&unit)?;
+                if !u.kind.is_code() {
+                    return no(format!("unit {unit} is a research unit: it has no branch, so no commits to link"));
+                }
+                let t = match u.tasks.iter().find(|t| t.n == task) {
+                    Some(t) => t,
+                    None => return no(format!("no task {unit}#{task}")),
+                };
+                if blank(&hash) {
+                    return no("which commit? give its hash");
+                }
+                // By whoever did the task, the intent's manager, or the user.
+                if !user && self.manager_of(&u.intent) != Some(actor) && !self.is_agent_of(t, actor) {
+                    return no(format!("a commit is linked to {unit}#{task} by the agent of that task, the manager of its intent, or the user"));
+                }
+                CommitLinked { unit, hash, patch_id, subject, date, task }
+            }
+            CommitUnlinked { unit, hash } => {
+                if blank(&hash) {
+                    return no("which commit? give its hash");
+                }
+                let found: Vec<&Unit> = self.units.iter().filter(|u| (unit.is_empty() || u.id == unit) && u.links.iter().any(|l| l.hash.starts_with(&hash))).collect();
+                let [u] = found[..] else {
+                    return no(if found.is_empty() { format!("no commit {hash} is linked to a task") } else { format!("commit {hash} is linked in several units; name one: workriver commit unlink {hash} <unit>") });
+                };
+                let l = u.links.iter().find(|l| l.hash.starts_with(&hash)).expect("found above");
+                let own = u.tasks.iter().find(|t| t.n == l.task).is_some_and(|t| self.is_agent_of(t, actor));
+                if !user && self.manager_of(&u.intent) != Some(actor) && !own {
+                    return no("a link is taken back by the agent of its task, the manager of its intent, or the user");
+                }
+                CommitUnlinked { unit: u.id.clone(), hash: l.hash.clone() }
+            }
+            UnitCreated { intent, title, purpose, repo, branch, base, machine, kind, .. } => {
+                let i = self.intent(&intent)?;
+                if matches!(i.state, IntentState::Done | IntentState::Dropped) {
+                    return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
+                }
+                let id = format!("u{}", self.units.len() + 1);
+                // Research and design: no repository, branch or machine of its own; it reads
+                // in its intent's project folder.
+                if kind == UnitKind::Research {
+                    if blank(&title) {
+                        return no("a unit needs a title");
+                    }
+                    if !blank(&branch) || !blank(&base) || !blank(&repo) || machine.is_some() {
+                        return no("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
+                    }
+                    let folder = self.projects.iter().find(|p| p.id == i.project).map_or(&i.project, |p| &p.path).clone();
+                    return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind });
+                }
+                for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
+                    if blank(v) {
+                        return no(format!("a unit needs a {field}"));
+                    }
+                }
+                unit_branch(&branch, &base, true, kind)?;
+                self.may_place(who, &intent, machine.as_deref())?;
+                UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
+            }
+            UnitMerged { unit, commits } => {
+                let u = self.unit(&unit)?;
+                if u.kind == UnitKind::Spike {
+                    return no(format!("unit {unit} is a spike: it is never merged; close it with `workriver unit done {unit} --reason \"<what was learned>\"`"));
+                }
+                if !u.kind.merges() {
+                    return no(format!("unit {unit} is a research unit: it is never merged; close it with `workriver unit done {unit} --reason \"...\"`"));
+                }
+                if u.merged.is_some() {
+                    return no(format!("unit {unit} is already merged"));
+                }
+                UnitMerged { unit, commits }
+            }
+            UnitDone { unit, reason } => {
+                let u = self.unit(&unit)?;
+                if u.merged.is_some() || u.done.is_some() {
+                    return no(format!("unit {unit} is already {}", if u.merged.is_some() { "merged" } else { "done" }));
+                }
+                if !user && self.manager_of(&u.intent) != Some(actor) {
+                    let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
+                    return no(format!("only the manager of intent {}{manager} or the user closes its units", u.intent));
+                }
+                UnitDone { unit, reason }
+            }
+            other => unreachable!("{} is not one of a unit's kinds", name_of_kind(&other)),
+        })
+    }
+
+    /// What a unit's events change: `apply`, for these kinds.
+    pub(crate) fn apply_units(&mut self, e: &Event) {
+        use Body::*;
+        let at = &e.at;
+        match &e.body {
+            CommitLinked { unit, hash, patch_id, subject, date, task } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    // One link per commit: the later one stands.
+                    u.links.retain(|l| &l.hash != hash);
+                    u.links.push(CommitLink { hash: hash.clone(), patch_id: patch_id.clone(), subject: subject.clone(), date: date.clone(), task: *task, by: e.actor.clone() });
+                }
+            }
+            CommitUnlinked { unit, hash } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.links.retain(|l| &l.hash != hash);
+                }
+            }
+            UnitRelocated { unit, machine, repo, branch, base, previous } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    // Where it was is kept, with what was seen there.
+                    if (&u.machine, &u.repo, &u.branch, &u.base) != (machine, repo, branch, base) {
+                        u.earlier.push(Earlier { machine: u.machine.clone(), repo: u.repo.clone(), branch: u.branch.clone(), base: u.base.clone(), until: at.clone(), commits: previous.clone() });
+                    }
+                    u.machine = machine.clone();
+                    u.repo = repo.clone();
+                    u.branch = branch.clone();
+                    u.base = base.clone();
+                }
+            }
+            UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind } => self.units.push(Unit {
+                kind: *kind,
+                machine: machine.clone(),
+                id: id.clone(),
+                intent: intent.clone(),
+                title: title.clone(),
+                purpose: purpose.clone(),
+                repo: repo.clone(),
+                branch: branch.clone(),
+                base: base.clone(),
+                at: at.clone(),
+                merged: None,
+                merged_commits: vec![],
+                tasks: vec![],
+                earlier: vec![],
+                links: vec![],
+                done: None,
+                reopened: None,
+            }),
+            UnitMerged { unit, commits } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.merged = Some(at.clone());
+                    u.merged_commits = commits.clone();
+                }
+            }
+            UnitDone { unit, reason } => {
+                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
+                    u.done = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
+                }
+            }
+            other => unreachable!("{} is not one of a unit's kinds", name_of_kind(other)),
+        }
+    }
 }

@@ -105,114 +105,8 @@ impl State {
             return no(format!("only the user does this ({}): in the web UI, or with the CLI from a terminal that is not an agent's", name_of_kind(&body)));
         }
         Ok(match body {
-            IntentCreated { title, goal, runtime_ref, project, state, note, external, .. } => {
-                if blank(&title) {
-                    return no("an intent needs a title");
-                }
-                if runtime_ref.as_ref().is_some_and(|r| blank(&r.id)) {
-                    return no("a runtime group needs an id");
-                }
-                if !matches!(state, IntentState::Planned | IntentState::Active) {
-                    return no("a new intent is planned (in the backlog) or active");
-                }
-                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external }
-            }
-            ProjectAdded { path, title, .. } => {
-                if blank(&path) || blank(&title) {
-                    return no("a project needs its folder and a title");
-                }
-                if self.projects.iter().any(|p| p.path == path) {
-                    return no(format!("{path} is already a project"));
-                }
-                ProjectAdded { id: format!("p{}", self.projects.len() + 1), path, title }
-            }
-            ProjectRenamed { project, title } => {
-                let Some(p) = self.projects.iter().find(|p| p.id == project || p.path == project) else {
-                    return no(format!("no project {project}; a repository outside every project is registered with `workriver project add <folder> --title ...`"));
-                };
-                if blank(&title) {
-                    return no("a project needs a title");
-                }
-                ProjectRenamed { project: p.id.clone(), title }
-            }
-            IntentStateChanged { intent, state, reason, workspace } => {
-                let i = self.intent(&intent)?;
-                use IntentState::*;
-                match (i.state, state) {
-                    (Planned, Active) => {
-                        let Some(g) = &workspace else { return no(format!("start {intent} from its manager's pane: workriver intent start {intent}")) };
-                        let manager = self.workspace_of(g).and_then(|w| w.manager.as_deref());
-                        if !user && manager != Some(actor) {
-                            return no(format!("only the manager of workspace {} starts intents there; register with `workriver manager here` first", g.label));
-                        }
-                    }
-                    (Active, Done) | (Active, Planned) => {}
-                    (Planned, Dropped) | (Active, Dropped) => {
-                        if !user && self.manager_of(&intent) != Some(actor) {
-                            return no(format!("only the user or the manager of intent {intent} drops it"));
-                        }
-                        if reason.as_deref().is_none_or(blank) {
-                            return no("dropping an intent needs a reason: --reason \"...\"");
-                        }
-                    }
-                    (from, to) => return no(format!("intent {intent} is {}; it cannot become {}", name(&from), name(&to))),
-                }
-                IntentStateChanged { intent, state, reason, workspace }
-            }
-            IntentMoved { intent, before, after } => {
-                let i = self.intent(&intent)?;
-                if i.state != IntentState::Planned {
-                    return no(format!("intent {intent} is not in the roadmap (it is {})", name(&i.state)));
-                }
-                let Some(other) = before.as_ref().or(after.as_ref()).filter(|_| before.is_none() || after.is_none()) else {
-                    return no("move it --before or --after one other planned intent");
-                };
-                let o = self.intent(other)?;
-                if o.state != IntentState::Planned || other == &intent {
-                    return no(format!("{other} is not another planned intent"));
-                }
-                IntentMoved { intent, before, after }
-            }
-            IntentMerged { intent, from, title } => {
-                let i = self.intent(&intent)?;
-                if i.state != IntentState::Planned {
-                    return no(format!("intent {intent} is {}; only planned intents are merged", name(&i.state)));
-                }
-                if title.as_deref().is_some_and(blank) {
-                    return no("the new title is empty: give one, or leave --title out to keep the title");
-                }
-                if from.is_empty() {
-                    return no(format!("name the planned intents to merge into {intent}"));
-                }
-                // The user's own goals are the user's to merge; what agents added, agents may tidy.
-                if !user && let Some(mine) = std::iter::once(&intent).chain(&from).find(|x| self.intents.iter().any(|i| &i.id == *x && i.by == "user")) {
-                    return no(format!("{mine} was added by the user: only the user merges it (in the roadmap, or `workriver backlog merge` from the user's terminal)"));
-                }
-                for (k, f) in from.iter().enumerate() {
-                    if f == &intent || from[..k].contains(f) {
-                        return no(format!("{f} is named twice: give each intent to merge once, and not {intent} itself"));
-                    }
-                    let x = self.intent(f)?;
-                    if x.state != IntentState::Planned {
-                        return no(format!("intent {f} is {}; only planned intents are merged", name(&x.state)));
-                    }
-                    if x.project != i.project {
-                        return no(format!("{f} is in another project than {intent}"));
-                    }
-                    // Work, findings or chores of its own would be lost with it.
-                    let held = [
-                        ("tasks", !x.tasks.is_empty()),
-                        ("units", self.units.iter().any(|u| &u.intent == f)),
-                        ("backlog findings", self.backlog.iter().any(|b| b.intent.as_deref() == Some(f))),
-                        ("chores", self.chores.iter().any(|c| &c.intent == f)),
-                        ("conversations", self.threads.iter().any(|t| &t.unit == f)),
-                    ];
-                    if let Some((what, _)) = held.iter().find(|(_, has)| *has) {
-                        return no(format!("{f} has {what} of its own; only an intent with nothing attached is merged (drop it with a reason instead)"));
-                    }
-                }
-                IntentMerged { intent, from, title: title.map(|t| t.trim().to_string()) }
-            }
+            IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentLinked { .. } => return self.prepare_intents(who, body),
+            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => return self.prepare_projects(who, body),
             FindingsBatched { intent, findings } => {
                 let i = self.intent(&intent)?;
                 if i.state != IntentState::Active {
@@ -239,36 +133,6 @@ impl State {
                 }
                 FindingsBatched { intent, findings }
             }
-            WorkspaceLinked(l) => {
-                if blank(&l.machine) || blank(&l.workspace) || blank(&l.local) {
-                    return no("a link names a machine, its workspace and a workspace of this machine");
-                }
-                if let Some(old) = self.links.iter().find(|x| x.machine == l.machine && x.workspace == l.workspace) {
-                    return no(format!("{}:{} is already linked to {}; unlink it first", l.machine, l.workspace, old.local));
-                }
-                WorkspaceLinked(l)
-            }
-            WorkspaceUnlinked { machine, workspace } => {
-                if !self.links.iter().any(|x| x.machine == machine && x.workspace == workspace) {
-                    return no(format!("{machine}:{workspace} is not linked"));
-                }
-                WorkspaceUnlinked { machine, workspace }
-            }
-            WorkspaceProjectSet { workspace, project } => {
-                if blank(&workspace.id) || blank(&workspace.label) {
-                    return no("name the workspace by its id and label, as `workriver workspace list` shows it");
-                }
-                let project = match project {
-                    None => None,
-                    // A registered project (by id or folder), or a folder an intent or unit names.
-                    Some(p) => match self.projects.iter().find(|x| x.id == p || x.path == p) {
-                        Some(x) => Some(x.path.clone()),
-                        None if !blank(&p) && (self.intents.iter().any(|i| i.project == p) || self.units.iter().any(|u| u.repo == p)) => Some(p),
-                        None => return no(format!("no project {p}; name a project as `workriver project list` shows it")),
-                    },
-                };
-                WorkspaceProjectSet { workspace, project }
-            }
             FindingAdded { project, intent, finding, source, note } => {
                 if blank(&project) {
                     return no("a backlog finding needs its project (--project)");
@@ -293,163 +157,13 @@ impl State {
                 }
                 FindingDropped { unit, task, finding, reason }
             }
-            IntentLinked { intent, runtime_ref } => {
-                self.intent(&intent)?;
-                if blank(&runtime_ref.id) {
-                    return no("a runtime group needs an id");
-                }
-                IntentLinked { intent, runtime_ref }
-            }
             AgentSeen { session, name, harness } => {
                 if blank(&session) || blank(&name) {
                     return no("an agent needs a session and a name");
                 }
                 AgentSeen { session, name, harness }
             }
-            IntentUpdated { intent, title, goal, findings, add_note } => {
-                self.intent(&intent)?;
-                if !user && self.manager_of(&intent) != Some(actor) {
-                    return no(format!("only the user or the manager of intent {intent} may change it"));
-                }
-                // Who decides findings is the user's to say, never the one it is handed to.
-                if findings.is_some() && !user {
-                    return no("only the user says who decides an intent's findings (workriver intent set <intent> --findings …, or in the web UI)");
-                }
-                if title.as_deref().is_some_and(blank) {
-                    return no("an intent needs a title");
-                }
-                if add_note.as_deref().is_some_and(blank) {
-                    return no("the note to add is empty: --add-note \"...\"");
-                }
-                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() {
-                    return no("nothing to change: give a title, a goal, --add-note or --findings");
-                }
-                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()) }
-            }
-            UnitRelocated { unit, machine, repo, branch, base, previous } => {
-                let u = self.unit(&unit)?;
-                if !u.kind.is_code() {
-                    return no(format!("unit {unit} is a research unit: it has no repository or branch to move"));
-                }
-                if u.merged.is_some() {
-                    return no(format!("unit {unit} is merged; its place no longer matters"));
-                }
-                if !user && self.manager_of(&u.intent) != Some(actor) {
-                    let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
-                    return no(format!(
-                        "only the manager of intent {}{manager} or the user moves its units; tell the manager the new branch (workriver manager tell <your task> --text \"...\"), who runs: workriver unit move {unit} --branch <new> [--base <new base>]",
-                        u.intent
-                    ));
-                }
-                self.may_place(who, &u.intent, machine.as_deref())?;
-                for (field, v) in [("repo", &repo), ("branch", &branch), ("base", &base)] {
-                    if blank(v) {
-                        return no(format!("a unit needs a {field}"));
-                    }
-                }
-                // A branch named before the rule keeps its name while only the rest moves.
-                unit_branch(&branch, &base, branch != u.branch, u.kind)?;
-                UnitRelocated { unit, machine, repo, branch, base, previous }
-            }
-            CommitLinked { unit, hash, patch_id, subject, date, task } => {
-                let u = self.unit(&unit)?;
-                if !u.kind.is_code() {
-                    return no(format!("unit {unit} is a research unit: it has no branch, so no commits to link"));
-                }
-                let t = match u.tasks.iter().find(|t| t.n == task) {
-                    Some(t) => t,
-                    None => return no(format!("no task {unit}#{task}")),
-                };
-                if blank(&hash) {
-                    return no("which commit? give its hash");
-                }
-                // By whoever did the task, the intent's manager, or the user.
-                if !user && self.manager_of(&u.intent) != Some(actor) && !self.is_agent_of(t, actor) {
-                    return no(format!("a commit is linked to {unit}#{task} by the agent of that task, the manager of its intent, or the user"));
-                }
-                CommitLinked { unit, hash, patch_id, subject, date, task }
-            }
-            CommitUnlinked { unit, hash } => {
-                if blank(&hash) {
-                    return no("which commit? give its hash");
-                }
-                let found: Vec<&Unit> = self.units.iter().filter(|u| (unit.is_empty() || u.id == unit) && u.links.iter().any(|l| l.hash.starts_with(&hash))).collect();
-                let [u] = found[..] else {
-                    return no(if found.is_empty() { format!("no commit {hash} is linked to a task") } else { format!("commit {hash} is linked in several units; name one: workriver commit unlink {hash} <unit>") });
-                };
-                let l = u.links.iter().find(|l| l.hash.starts_with(&hash)).expect("found above");
-                let own = u.tasks.iter().find(|t| t.n == l.task).is_some_and(|t| self.is_agent_of(t, actor));
-                if !user && self.manager_of(&u.intent) != Some(actor) && !own {
-                    return no("a link is taken back by the agent of its task, the manager of its intent, or the user");
-                }
-                CommitUnlinked { unit: u.id.clone(), hash: l.hash.clone() }
-            }
-            ManagerRegistered { intent, agent, workspace } => {
-                if let Some(i) = &intent {
-                    self.intent(i)?;
-                }
-                if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
-                    return no("a manager manages a runtime workspace: run `workriver manager here` in its pane");
-                }
-                // An agent registers itself; nobody is made a manager by someone else.
-                let agent = match who {
-                    Principal::Agent { session, .. } if blank(&agent) || &agent == session => session.clone(),
-                    Principal::Agent { .. } => return no("an agent registers itself as manager, not another agent"),
-                    _ => return no("a manager is an agent: run `workriver manager here` in the manager agent's pane"),
-                };
-                ManagerRegistered { intent, agent, workspace }
-            }
-            UnitCreated { intent, title, purpose, repo, branch, base, machine, kind, .. } => {
-                let i = self.intent(&intent)?;
-                if matches!(i.state, IntentState::Done | IntentState::Dropped) {
-                    return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
-                }
-                let id = format!("u{}", self.units.len() + 1);
-                // Research and design: no repository, branch or machine of its own; it reads
-                // in its intent's project folder.
-                if kind == UnitKind::Research {
-                    if blank(&title) {
-                        return no("a unit needs a title");
-                    }
-                    if !blank(&branch) || !blank(&base) || !blank(&repo) || machine.is_some() {
-                        return no("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
-                    }
-                    let folder = self.projects.iter().find(|p| p.id == i.project).map_or(&i.project, |p| &p.path).clone();
-                    return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind });
-                }
-                for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {
-                    if blank(v) {
-                        return no(format!("a unit needs a {field}"));
-                    }
-                }
-                unit_branch(&branch, &base, true, kind)?;
-                self.may_place(who, &intent, machine.as_deref())?;
-                UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind }
-            }
-            UnitMerged { unit, commits } => {
-                let u = self.unit(&unit)?;
-                if u.kind == UnitKind::Spike {
-                    return no(format!("unit {unit} is a spike: it is never merged; close it with `workriver unit done {unit} --reason \"<what was learned>\"`"));
-                }
-                if !u.kind.merges() {
-                    return no(format!("unit {unit} is a research unit: it is never merged; close it with `workriver unit done {unit} --reason \"...\"`"));
-                }
-                if u.merged.is_some() {
-                    return no(format!("unit {unit} is already merged"));
-                }
-                UnitMerged { unit, commits }
-            }
-            UnitDone { unit, reason } => {
-                let u = self.unit(&unit)?;
-                if u.merged.is_some() || u.done.is_some() {
-                    return no(format!("unit {unit} is already {}", if u.merged.is_some() { "merged" } else { "done" }));
-                }
-                if !user && self.manager_of(&u.intent) != Some(actor) {
-                    let manager = self.manager_of(&u.intent).map(|m| format!(" ({})", self.name_of(m).unwrap_or(m))).unwrap_or_default();
-                    return no(format!("only the manager of intent {}{manager} or the user closes its units", u.intent));
-                }
-                UnitDone { unit, reason }
-            }
+            UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => return self.prepare_units(who, body),
             TaskCreated(t) => {
                 // A blocker is put by the agent stuck on that task, its manager or the user.
                 if let Some(b) = t.blocks
@@ -862,105 +576,8 @@ impl State {
         let at = &e.at;
         let agent_of = |actor: &str| (actor != "user").then(|| actor.to_string());
         match &e.body {
-            IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
-                self.intents.push(Intent {
-                    id: id.clone(),
-                    title: title.clone(),
-                    manager: None,
-                    goal: goal.clone(),
-                    runtime_ref: runtime_ref.clone(),
-                    at: at.clone(),
-                    project: project.clone(),
-                    state: *state,
-                    note: note.clone(),
-                    external: external.clone(),
-                    workspace: runtime_ref.clone(),
-                    reason: None,
-                    findings: FindingsPolicy::default(),
-                    tasks: vec![],
-                    by: e.actor.clone(),
-                });
-                if *state == IntentState::Planned {
-                    self.roadmap.push(id.clone());
-                }
-                // Before 0.2 an intent was its runtime group's: it is that group's current intent.
-                if let Some(g) = runtime_ref
-                    && *state == IntentState::Active
-                {
-                    self.workspace_mut(g).current = Some(id.clone());
-                }
-            }
-            ProjectAdded { id, path, title } => self.projects.push(Project { id: id.clone(), path: path.clone(), title: title.clone() }),
-            ProjectRenamed { project, title } => {
-                if let Some(p) = self.projects.iter_mut().find(|p| &p.id == project || &p.path == project) {
-                    p.title = title.clone();
-                }
-            }
-            IntentStateChanged { intent, state, reason, workspace } => {
-                let Some(k) = self.intents.iter().position(|i| &i.id == intent) else { return };
-                let before = self.intents[k].workspace.clone();
-                {
-                    let i = &mut self.intents[k];
-                    i.state = *state;
-                    if reason.is_some() {
-                        i.reason = reason.clone();
-                    }
-                    if let Some(g) = workspace {
-                        i.workspace = Some(g.clone());
-                    }
-                }
-                self.roadmap.retain(|x| x != intent);
-                match state {
-                    IntentState::Active => {
-                        if let Some(g) = workspace {
-                            self.workspace_mut(g).current = Some(intent.clone());
-                        }
-                    }
-                    _ => {
-                        // No longer worked on: no longer where new work goes. New work then
-                        // goes to the intent started last among those still active there.
-                        if let Some(g) = before {
-                            let at = self.workspace_at(&g);
-                            let next = self.intents.iter().rev().find(|i| i.state == IntentState::Active && &i.id != intent && i.workspace.as_ref().is_some_and(|x| self.workspace_at(x) == at && at.is_some())).map(|i| i.id.clone());
-                            let w = self.workspace_mut(&g);
-                            if w.current.as_deref() == Some(intent.as_str()) {
-                                w.current = next;
-                            }
-                        }
-                        if *state == IntentState::Planned {
-                            self.roadmap.push(intent.clone());
-                        }
-                    }
-                }
-            }
-            IntentMoved { intent, before, after } => {
-                self.roadmap.retain(|x| x != intent);
-                let at = before.as_ref().or(after.as_ref()).and_then(|o| self.roadmap.iter().position(|x| x == o));
-                let k = match (at, before.is_some()) {
-                    (Some(k), true) => k,
-                    (Some(k), false) => k + 1,
-                    (None, _) => self.roadmap.len(),
-                };
-                self.roadmap.insert(k, intent.clone());
-            }
-            IntentMerged { intent, from, title } => {
-                let mut blocks = vec![];
-                for f in from {
-                    if let Some(x) = self.intents.iter_mut().find(|i| &i.id == f) {
-                        blocks.push(merged_note(x));
-                        x.state = IntentState::Dropped;
-                        x.reason = Some(format!("merged into {intent}"));
-                    }
-                    self.roadmap.retain(|r| r != f);
-                }
-                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
-                    let own = i.note.trim_end().to_string();
-                    i.note = std::iter::once(own).chain(blocks).filter(|b| !b.is_empty()).collect::<Vec<_>>().join("\n\n");
-                    if let Some(t) = title {
-                        i.title = t.clone();
-                    }
-                }
-            }
+            IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentLinked { .. } => self.apply_intents(e),
+            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => self.apply_projects(e),
             FindingsBatched { intent, findings } => {
                 for r in findings {
                     if let Some(f) = self.finding_mut(r) {
@@ -973,9 +590,6 @@ impl State {
                     }
                 }
             }
-            WorkspaceLinked(l) => self.links.push(l.clone()),
-            WorkspaceUnlinked { machine, workspace } => self.links.retain(|x| !(&x.machine == machine && &x.workspace == workspace)),
-            WorkspaceProjectSet { workspace, project } => self.workspace_mut(workspace).project = project.clone(),
             FindingAdded { project, intent, finding, source, note } => {
                 let found = finding.clone();
                 self.backlog.push(BacklogFinding {
@@ -993,104 +607,12 @@ impl State {
                     f.reason = Some(reason.clone());
                 }
             }
-            IntentUpdated { intent, title, goal, findings, add_note } => {
-                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
-                    if let Some(n) = add_note {
-                        let own = i.note.trim_end();
-                        i.note = if own.is_empty() { n.clone() } else { format!("{own}\n\n{n}") };
-                    }
-                    if let Some(t) = title {
-                        i.title = t.clone();
-                    }
-                    if let Some(g) = goal {
-                        i.goal = g.clone();
-                    }
-                    if let Some(f) = findings {
-                        i.findings = *f;
-                    }
-                }
-            }
-            CommitLinked { unit, hash, patch_id, subject, date, task } => {
-                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
-                    // One link per commit: the later one stands.
-                    u.links.retain(|l| &l.hash != hash);
-                    u.links.push(CommitLink { hash: hash.clone(), patch_id: patch_id.clone(), subject: subject.clone(), date: date.clone(), task: *task, by: e.actor.clone() });
-                }
-            }
-            CommitUnlinked { unit, hash } => {
-                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
-                    u.links.retain(|l| &l.hash != hash);
-                }
-            }
-            UnitRelocated { unit, machine, repo, branch, base, previous } => {
-                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
-                    // Where it was is kept, with what was seen there.
-                    if (&u.machine, &u.repo, &u.branch, &u.base) != (machine, repo, branch, base) {
-                        u.earlier.push(Earlier { machine: u.machine.clone(), repo: u.repo.clone(), branch: u.branch.clone(), base: u.base.clone(), until: at.clone(), commits: previous.clone() });
-                    }
-                    u.machine = machine.clone();
-                    u.repo = repo.clone();
-                    u.branch = branch.clone();
-                    u.base = base.clone();
-                }
-            }
-            IntentLinked { intent, runtime_ref } => {
-                let mut active = false;
-                if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
-                    i.runtime_ref = Some(runtime_ref.clone());
-                    i.workspace = Some(runtime_ref.clone());
-                    active = i.state == IntentState::Active;
-                }
-                if active {
-                    self.workspace_mut(runtime_ref).current = Some(intent.clone());
-                }
-            }
+            UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.apply_units(e),
             AgentSeen { session, name, harness } => {
                 let seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone() };
                 match self.agents.iter_mut().find(|a| &a.session == session) {
                     Some(a) => *a = seen,
                     None => self.agents.push(seen),
-                }
-            }
-            ManagerRegistered { intent, agent, workspace } => {
-                // Before 0.2: the intent's manager, which is the manager of its runtime group.
-                let mut group = workspace.clone();
-                if let Some(i) = intent.as_ref().and_then(|id| self.intents.iter_mut().find(|i| &i.id == id)) {
-                    i.manager = Some(agent.clone());
-                    group = group.or(i.workspace.clone());
-                }
-                if let Some(g) = group {
-                    self.workspace_mut(&g).manager = Some(agent.clone());
-                }
-            }
-            UnitCreated { id, intent, title, purpose, repo, branch, base, machine, kind } => self.units.push(Unit {
-                kind: *kind,
-                machine: machine.clone(),
-                id: id.clone(),
-                intent: intent.clone(),
-                title: title.clone(),
-                purpose: purpose.clone(),
-                repo: repo.clone(),
-                branch: branch.clone(),
-                base: base.clone(),
-                at: at.clone(),
-                merged: None,
-                merged_commits: vec![],
-                tasks: vec![],
-                earlier: vec![],
-                links: vec![],
-                done: None,
-                reopened: None,
-            }),
-            UnitMerged { unit, commits } => {
-                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
-                    u.merged = Some(at.clone());
-                    u.merged_commits = commits.clone();
-                }
-            }
-            UnitDone { unit, reason } => {
-                if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {
-                    u.done = Some(Closed { at: at.clone(), by: e.actor.clone(), reason: reason.clone() });
                 }
             }
             TaskCreated(t) => {
