@@ -770,6 +770,10 @@ impl Runtime for Machines {
         self.at(machine, |r| r.run_shell(None, group, dir, line))
     }
 
+    fn close_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.close_place(None, place))
+    }
+
     fn read_place(&self, machine: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
         self.at(machine, |r| r.read_place(None, place, lines))
     }

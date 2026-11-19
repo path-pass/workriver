@@ -416,6 +416,12 @@ impl Runtime for Herdr {
         Ok(pane)
     }
 
+    /// A run's place is the one pane of its tab: closed as a temporary agent's is.
+    fn close_place(&self, _: Option<&str>, place: &str) -> Result<(), RuntimeError> {
+        self.call("pane.close", json!({ "pane_id": place }))?;
+        Ok(())
+    }
+
     fn read_place(&self, _: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
         let r = self.call("pane.read", json!({ "pane_id": place, "source": "recent_unwrapped", "lines": lines }))?;
         Ok(r["read"]["text"].as_str().unwrap_or_default().to_string())
@@ -515,6 +521,15 @@ mod tests {
         let seen = server.join().unwrap();
         assert_eq!(seen[1]["method"], "agent.prompt");
         assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
+    }
+
+    /// A run's shell is closed by its pane, the place `run_shell` gave.
+    #[test]
+    fn closes_a_place() {
+        let (_dir, herdr, server) = fake(vec![json!({ "result": { "type": "ok" } })]);
+        herdr.close_place(None, "w7:p3").unwrap();
+        let seen = server.join().unwrap();
+        assert_eq!((seen[0]["method"].as_str(), &seen[0]["params"]), (Some("pane.close"), &json!({ "pane_id": "w7:p3" })));
     }
 
     /// A new agent on a first-run prompt is blocked and not interactive-ready: taken at once,

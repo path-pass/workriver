@@ -121,6 +121,8 @@ struct Run {
     lang: Option<String>,
     prepared: std::time::Instant,
     place: Option<String>,
+    /// Its place was closed by workriver (or is about to be): no terminal to open any more.
+    closed: bool,
     output: String,
     exit: Option<i32>,
     /// Its pane is still read.
@@ -2136,7 +2138,7 @@ fn run_view(id: &str, r: &Run, state: &core::State, waiting: Option<&RuntimeAgen
     };
     json!({ "id": id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
             "started": r.place.is_some(), "output": r.output, "exit": r.exit, "watching": r.watching,
-            "kept": true, "focusable": r.place.is_some(), "review": review })
+            "kept": true, "focusable": r.place.is_some() && !r.closed, "review": review })
 }
 
 /// A run this service no longer follows (it restarted since): only what the record says,
@@ -2172,7 +2174,7 @@ impl App {
                     at: r.at.clone(),
                     state: now,
                     exit,
-                    focusable: here.is_some_and(|x| x.place.is_some()),
+                    focusable: here.is_some_and(|x| x.place.is_some() && !x.closed),
                     verdict: r.review.as_ref().map(|(v, _)| *v).or(here.and_then(|x| x.review.verdict)),
                 }
             })
@@ -2215,15 +2217,15 @@ async fn run_prepare(State(app): State<Shared>, Extension(caller): Extension<Cal
         };
         let step_text = step.and_then(|n| steps.get(n.checked_sub(1)? as usize)).map(|s| s.text.clone());
         let id = auth::random_hex(8).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let r = Run { command: p.command, dir, machine, unit, by, from: p.from, step, step_text, lang: p.lang, prepared: std::time::Instant::now(), place: None, output: String::new(), exit: None, watching: false, ran: false, review: Review::default() };
+        let r = Run { command: p.command, dir, machine, unit, by, from: p.from, step, step_text, lang: p.lang, prepared: std::time::Instant::now(), place: None, closed: false, output: String::new(), exit: None, watching: false, ran: false, review: Review::default() };
         let view = run_view(&id, &r, &state, None);
         {
             let mut runs = app.runs.lock().unwrap();
-            // Kept: what waits for its confirmation or its review, what is watched, and the
-            // recent runs' output.
+            // Kept: what waits for its confirmation or its review, what is watched, the recent
+            // runs' output, and an ended run whose shell the next run has still to close.
             runs.retain(|id, r| match r.place {
                 None => r.prepared.elapsed() < CONFIRM || r.review.pending(),
-                Some(_) => r.watching || state.runs.iter().any(|x| &x.id == id),
+                Some(_) => r.watching || (r.exit.is_some() && !r.closed) || state.runs.iter().any(|x| &x.id == id),
             });
             runs.insert(id.clone(), r);
         }
@@ -2258,6 +2260,8 @@ async fn run_command(State(app): State<Shared>, Extension(caller): Extension<Cal
             r.watching = true;
             r.clone()
         };
+        // The shells of earlier runs that ended go now; a failed one stayed until here.
+        app.close_shells(None, Duration::ZERO);
         let line = run::line(&r.dir, &r.command, &c.id);
         let place = match app.runtime.run_shell(r.machine.as_deref(), run::GROUP, &r.dir, &line) {
             Ok(p) => p,
@@ -2347,6 +2351,10 @@ impl App {
                 if let Err(e) = self.record(&Principal::Service, Body::CommandEnded { id: id.to_string(), exit }) {
                     tracing::warn!("cannot record run {id} ended: {}", e.1);
                 }
+                // Ended well: its output is kept above, nothing is left to look at there.
+                if exit == 0 {
+                    self.close_shells(Some(id), CLOSE_DELAY);
+                }
                 break;
             }
         }
@@ -2354,6 +2362,38 @@ impl App {
             r.watching = false;
         }
         // No longer followed: the page's recent runs show it (an end recorded says so too).
+        let _ = self.changed.send(());
+    }
+
+    /// Closes, after `wait` and in the background, the shells of runs that ended (`only`: of
+    /// that run), each once, on its own machine. Only places `run_shell` gave a run are ever
+    /// closed; a run whose end was not seen (running, waiting for input) keeps its shell.
+    // ponytail: the places are in memory, so shells left by a service that restarted stay
+    // until the user closes them; recording a run's place would let the next start close them.
+    fn close_shells(&self, only: Option<&str>, wait: Duration) {
+        let mut runs = self.runs.lock().unwrap();
+        let ended = runs.iter_mut().filter(|(id, r)| r.exit.is_some() && !r.closed && only.is_none_or(|o| o == id.as_str()));
+        let places: Vec<(Option<String>, String)> = ended
+            .filter_map(|(_, r)| {
+                let place = r.place.clone()?;
+                r.closed = true;
+                Some((r.machine.clone(), place))
+            })
+            .collect();
+        drop(runs);
+        if places.is_empty() {
+            return;
+        }
+        let runtime = self.runtime.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(wait);
+            for (machine, place) in places {
+                // Not tried again: the user may have closed it already.
+                if let Err(e) = runtime.close_place(machine.as_deref(), &place) {
+                    tracing::warn!("cannot close the shell of a run that ended: {e}");
+                }
+            }
+        });
         let _ = self.changed.send(());
     }
 

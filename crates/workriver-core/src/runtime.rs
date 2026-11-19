@@ -87,6 +87,11 @@ pub trait Runtime: Send + Sync {
     fn run_shell(&self, _machine: Option<&str>, _group: &str, _dir: &str, _line: &str) -> Result<String, RuntimeError> {
         Err(RuntimeError::None)
     }
+    /// Closes a place `run_shell` returned, on `machine` (none: this one), and the shell in
+    /// it with whatever still runs there. By default, no runtime can.
+    fn close_place(&self, _machine: Option<&str>, _place: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
     /// As `start_temporary`, on `machine` (none: this one) in the group labelled `group`, made
     /// on first use as for `run_shell`. By default, no runtime can.
     fn start_temporary_at(&self, _machine: Option<&str>, _group: &str, _harness: &str, _name: &str, _cwd: &str) -> Result<RuntimeAgent, RuntimeError> {

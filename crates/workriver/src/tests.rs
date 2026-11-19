@@ -154,6 +154,8 @@ pub(crate) struct Fake {
     /// Lines typed into new shells: (machine, group, dir, line); what each place shows, by place.
     shells: std::sync::Mutex<Vec<Typed>>,
     screens: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    /// Places closed, in order.
+    closed_places: std::sync::Mutex<Vec<String>>,
 }
 
 impl workriver_core::runtime::Runtime for Fake {
@@ -210,6 +212,11 @@ impl workriver_core::runtime::Runtime for Fake {
     }
     fn read_place(&self, _: Option<&str>, place: &str, _: u32) -> Result<String, workriver_core::runtime::RuntimeError> {
         self.screens.lock().unwrap().get(place).cloned().ok_or_else(|| workriver_core::runtime::RuntimeError::NoAgent(place.into()))
+    }
+    fn close_place(&self, _: Option<&str>, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        self.closed_places.lock().unwrap().push(place.into());
+        self.screens.lock().unwrap().remove(place);
+        Ok(())
     }
 }
 
@@ -2694,6 +2701,74 @@ fn the_user_runs_a_command() {
     assert_eq!((&runs[0]["state"], &runs[0]["focusable"], &runs[1]["state"], &runs[1]["exit"]), (&json!("unknown"), &json!(false), &json!("done"), &json!(1)), "{runs}");
     let seen = again.get(&format!("/api/run/{id}")).unwrap();
     assert_eq!((&seen["exit"], &seen["kept"], &seen["started"], &seen["by"]), (&json!(1), &json!(false), &json!(true), &json!("boss")), "{seen}");
+}
+
+/// A run's shell closes a moment after the run ended well, its output kept. One that failed
+/// stays until the next run, which closes every ended run's shell (on its own machine) and
+/// never one still running; nothing workriver did not make for a run is closed.
+#[test]
+fn a_runs_shell_closes() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let db = tmp.path().join("w.db");
+    let port = daemon_over(all.clone(), Some(all.clone()), &db);
+    let user = client(port, tmp.path());
+    let boss = Daemon { port, place: Some("w1:p1".into()), home: Some(tmp.path().to_path_buf()) };
+    manage_here(&boss);
+    let repo_s = repo.to_string_lossy().to_string();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
+    // Runs `command` in `unit`'s folder; its id.
+    let run = |unit: &str, command: &str| {
+        let shown = user.call("/api/run/prepare", Some(json!({ "command": command, "unit": unit }))).unwrap();
+        user.call("/api/run", Some(json!({ "id": shown["id"], "command": command }))).unwrap();
+        shown["id"].as_str().unwrap().to_string()
+    };
+    // What a run's place shows once it ended with `exit`.
+    let ends = |at: &Fake, place: &str, id: &str, exit: i32| {
+        at.screens.lock().unwrap().insert(place.into(), format!("$ typed\nsome output\n__workriver_end_{id}_{exit}__\n$ "));
+        wait_until("the end is seen", || user.get(&format!("/api/run/{id}")).unwrap()["exit"] == exit);
+    };
+    let closed = |at: &Fake| at.closed_places.lock().unwrap().clone();
+    let focusable = |id: &str| user.get("/api/workspace").unwrap()["runs"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap()["focusable"].clone();
+
+    let well = run("u1", "make");
+    let failed = run("u1", "make test");
+    let going = run("u1", "ssh box");
+    let far_failed = run("u2", "make deploy");
+    assert_eq!((local.shells.lock().unwrap().len(), far.shells.lock().unwrap().len()), (3, 1));
+    // The failures first: by the time the one that ended well is closed, they would be too.
+    ends(&local, "shell-2", &failed, 1);
+    ends(&far, "shell-1", &far_failed, 2);
+    ends(&local, "shell-1", &well, 0);
+    wait_until("the shell of the run that ended well closes", || closed(&local) == ["shell-1"]);
+    assert!(closed(&far).is_empty(), "a failed run's shell stays");
+    let seen = user.get(&format!("/api/run/{well}")).unwrap();
+    assert!(seen["output"].as_str().unwrap().ends_with("some output") && seen["exit"] == 0 && seen["focusable"] == false, "its output is kept; no terminal to open: {seen}");
+    assert_eq!((focusable(&well), focusable(&failed), focusable(&going)), (json!(false), json!(true), json!(true)));
+
+    // The next run closes the ended ones, each through its machine's runtime; not the running one.
+    let next = run("u1", "make again");
+    wait_until("the failed runs' shells close at the next run", || closed(&local).contains(&"shell-2".to_string()) && closed(&far) == ["shell-1"]);
+    assert_eq!(focusable(&failed), json!(false));
+    ends(&local, "shell-4", &next, 0);
+    wait_until("the next run's shell closes in its turn", || closed(&local).contains(&"shell-4".to_string()));
+    let mut gone = closed(&local);
+    gone.sort();
+    assert_eq!(gone, ["shell-1", "shell-2", "shell-4"], "each once; the running one is left");
+    assert!(local.screens.lock().unwrap().contains_key("shell-3") && focusable(&going) == json!(true), "still running, still there");
+    // Nothing else: of the agents, only the reviewers workriver started itself.
+    assert!(local.closed.lock().unwrap().iter().chain(far.closed.lock().unwrap().iter()).all(|a| a.starts_with("review-")));
+    assert!(local.agents.lock().unwrap().iter().any(|(_, a)| a.name == "boss"));
 }
 
 /// Every command the user is about to run is reviewed: a temporary agent starts in

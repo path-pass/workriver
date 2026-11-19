@@ -165,6 +165,10 @@ looked at now and then.
   counts; the id is random, so the command's own output cannot fake it); "Open in terminal"
   brings that tab to the front. A tab that cannot be read for five seconds (closed, or its
   shell exited) says so. The marker needs a POSIX shell (zsh, bash, sh).
+  A run that ended with exit 0 has its tab closed three seconds later (its output stays in the
+  dialog; "Open in terminal" goes). A run that failed, still runs or waits for input keeps
+  its tab, for the user to look or answer there; the next run closes the tabs of every earlier
+  run that has ended, never one still going. Only tabs workriver opened for runs are closed.
   Under the Run section's box, **Recent runs** (the newest 20, newest first; nothing when
   there are none): one row each with the command (monospace, one line, the whole text on
   hover), whose step it was (`u3#4 step 2`, a chore's id, or nothing when typed there), a
