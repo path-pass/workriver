@@ -2,7 +2,6 @@
 mod ask;
 mod attachments;
 mod auth;
-mod backlog;
 mod caller;
 mod cli;
 mod common;
