@@ -3920,3 +3920,6 @@ fn a_long_command_outlives_its_proof() {
 
 // Guards that hold today's behaviour while the files move (docs/design/restructure.md).
 mod guards;
+
+// The CLI's guards for the restructure (docs/design/restructure.md).
+mod cli_guards;

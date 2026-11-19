@@ -1,8 +1,8 @@
-//! Guards that hold today's behaviour while the files move (docs/design/restructure.md,
-//! phase 0): every route with its methods on both listeners, the guide's topics, the JSON
-//! the page reads, and where the runtime's names may appear. A move keeps these green
-//! unchanged; a test here changes only with a deliberate change of behaviour, and the
-//! ratchet's list only shrinks.
+//! The service's guards for the restructure (docs/design/restructure.md, section 5): every
+//! route with its methods on both listeners, who may use each route, and the JSON the page
+//! reads. A move keeps these green unchanged; a test or blessed file here changes only with
+//! a deliberate change of behaviour. (The CLI's guards are in `cli_guards.rs`; the runtime
+//! names' ratchet, which reads the whole repository, is `tests/boundaries.rs`.)
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 
@@ -67,18 +67,41 @@ const MACHINE: &[(&str, &[&str])] = &[
     ("/api/run/{id}/review", &["POST"]),
 ];
 
-const METHODS: [&str; 5] = ["GET", "POST", "PUT", "DELETE", "PATCH"];
 
-/// The status line's code of one request with nothing that names anyone; never waits long
-/// (the event stream would not end by itself).
-fn status(port: u16, method: &str, path: &str) -> u16 {
+/// Every standard method. A GET route answers HEAD too (axum adds it); nothing else is
+/// implied by a route.
+const METHODS: [&str; 9] = ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT"];
+
+/// The status code of one request, with these headers and this body; never waits long (the
+/// event stream would not end by itself).
+fn ask(port: u16, method: &str, path: &str, headers: &[(String, String)], body: &[u8], kind: &str) -> u16 {
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
-    let body = if method == "GET" { String::new() } else { "{}".into() };
-    write!(s, "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
-    let mut head = [0u8; 12];
-    s.read_exact(&mut head).unwrap();
-    String::from_utf8_lossy(&head[9..12]).parse().unwrap()
+    let mut head = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
+    for (k, v) in headers {
+        head += &format!("{k}: {v}\r\n");
+    }
+    if !body.is_empty() {
+        head += &format!("Content-Type: {kind}\r\nContent-Length: {}\r\n", body.len());
+    }
+    s.write_all(head.as_bytes()).unwrap();
+    s.write_all(b"\r\n").unwrap();
+    s.write_all(body).unwrap();
+    let mut line = [0u8; 12];
+    s.read_exact(&mut line).unwrap();
+    String::from_utf8_lossy(&line[9..12]).parse().unwrap()
+}
+
+/// The status line's code of one request with nothing that names anyone.
+fn status(port: u16, method: &str, path: &str) -> u16 {
+    let body: &[u8] = if matches!(method, "GET" | "HEAD") { b"" } else { b"{}" };
+    ask(port, method, path, &[], body, "application/json")
+}
+
+/// Whether a path is one of a route's template (`{id}`: any one segment).
+fn fits(template: &str, path: &str) -> bool {
+    let (t, p): (Vec<&str>, Vec<&str>) = (template.split('/').collect(), path.split('/').collect());
+    t.len() == p.len() && t.iter().zip(&p).all(|(a, b)| a == b || (a.starts_with('{') && !b.is_empty()))
 }
 
 /// A path for a route's template.
@@ -86,11 +109,12 @@ fn concrete(template: &str) -> String {
     template.replace("{id}", "x1")
 }
 
-/// Both listeners answer each declared path with exactly its methods: another method is
-/// 405, whatever it is (a POST added to a GET path fails here although the count of routes
-/// stays). On a machine's listener, every path of this machine's that is not on its
-/// allow-list is refused by the fallback, whatever the method. And the sources declare no
-/// route besides these: a new one is added to the tables in the same commit.
+/// Both listeners answer each declared path with exactly its methods, of all nine: HEAD
+/// where GET is (and only there), any other undeclared method 405 (a POST or an OPTIONS
+/// added to a GET path fails here although the count of routes stays). On a machine's
+/// listener, every path of this machine's that is not on its allow-list is refused by the
+/// fallback, whatever the method. And the sources declare no route besides these: a new one
+/// is added to the tables in the same commit.
 #[test]
 fn every_route_answers_only_its_methods() {
     let tmp = tempfile::tempdir().unwrap();
@@ -107,7 +131,8 @@ fn every_route_answers_only_its_methods() {
             let path = concrete(route);
             for m in METHODS {
                 let got = status(port, m, &path);
-                if allowed.contains(&m) {
+                let declared = allowed.contains(&m) || (m == "HEAD" && allowed.contains(&"GET"));
+                if declared {
                     assert!(got != 405 && got != 404, "{name}: {m} {route} is declared, yet answered {got}");
                 } else {
                     assert_eq!(got, 405, "{name}: {m} {route} is not declared, yet answered {got}");
@@ -135,100 +160,136 @@ fn every_route_answers_only_its_methods() {
     assert_eq!(declared.into_iter().collect::<BTreeSet<_>>(), tables);
 }
 
-/// The recipes `workriver guide how <topic>` knows, by name. Moving a recipe keeps its name;
-/// adding or removing one changes this list in the same commit.
-const TOPICS: &[&str] = &[
-    "architecture-review",
-    "ask",
-    "ask-user",
-    "attachments",
-    "blind-review",
-    "blocked",
-    "branch-moved",
-    "closing-units",
-    "closing-workers",
-    "commit-link",
-    "contract",
-    "deciding-findings",
-    "deferred-batches",
-    "design-gate",
-    "finding-additions",
-    "gates-chores",
-    "hand-off",
-    "machines",
-    "not-delivered",
-    "push-pr-merge",
-    "spike",
-    "stalled",
-    "start-intent",
-    "units",
-    "units-other-machine",
-    "updating",
-    "user-message",
+/// One request per declared route and method, with a body and query its handler takes, so
+/// that what answers is the handler's own check of who calls, not a refused body. Names in
+/// them (u1#1, w1…) are those `who_may_use_each_route` sets up; the others name nothing.
+const PROBES: &[(&str, &str, &str)] = &[
+    ("GET", "/api/session", ""),
+    ("POST", "/api/session", r#"{"code":"not-a-code"}"#),
+    ("POST", "/api/session/code", r#"{"printed":true}"#),
+    ("GET", "/api/machines", ""),
+    ("POST", "/api/machines", r#"{"label":"nowhere","action":"disable"}"#),
+    ("GET", "/api/metrics", ""),
+    ("GET", "/api/metrics/history?machine=local&hours=1", ""),
+    ("POST", "/api/metrics/thresholds", "THRESHOLDS"),
+    ("GET", "/api/settings/stall", ""),
+    ("POST", "/api/settings/stall", r#"{"minutes":30}"#),
+    ("GET", "/api/workspace", ""),
+    ("GET", "/api/unit/u1/code", ""),
+    ("GET", "/api/state", ""),
+    ("GET", "/api/task?task=u1%231", ""),
+    ("GET", "/api/status", ""),
+    ("GET", "/api/events", ""),
+    ("POST", "/api/append", r#"{"kind":"intent.created","body":{"title":"Probe","state":"planned"}}"#),
+    ("POST", "/api/decide", r#"{"unit":"u1","task":1,"finding":"P2-9","decision":"defer"}"#),
+    ("POST", "/api/task/drop", r#"{"unit":"u1","task":9,"reason":"probe"}"#),
+    ("POST", "/api/gate", r#"{"unit":"u1","task":9,"result":"done"}"#),
+    ("POST", "/api/chore-done", r#"{"chore":"c9"}"#),
+    ("POST", "/api/backlog/merge", r#"{"into":"i8","from":["i9"]}"#),
+    ("POST", "/api/focus", r#"{"agent":"nobody-here"}"#),
+    ("POST", "/api/intent/start", r#"{"intent":"i9","workspace":"chat"}"#),
+    ("POST", "/api/run/prepare", r#"{"command":"true","unit":"u9"}"#),
+    ("POST", "/api/run", r#"{"id":"r9","command":"true"}"#),
+    ("GET", "/api/run/r9", ""),
+    ("POST", "/api/run/r9/focus", ""),
+    ("POST", "/api/run/r9/review", r#"{"verdict":"ok","text":"probe"}"#),
+    ("POST", "/api/here", "{}"),
+    ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
+    ("POST", "/api/thread/end", r#"{"thread":"q9"}"#),
+    ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
+    ("POST", "/api/messages/read", r#"{"workspace":"chat","at":"2026-01-01T00:00:00Z"}"#),
+    ("POST", "/api/attachments?name=probe.txt", "BYTES"),
+    ("POST", "/api/attachments/inbox", r#"{"unit":"u1","task":1}"#),
+    ("GET", "/api/attachments/x1", ""),
 ];
 
-/// Every topic answers with its own recipe (not the index an unknown topic gets), under a
-/// head naming it; the embedded recipes are exactly these; and every guide there is still
-/// answers.
+/// Who may use each route, on both listeners: the status every route answers to a caller
+/// with nothing that names it, to an agent from its own place, and to the user (the user
+/// token, from a process in no agent's place; on a machine's listener, where no token
+/// counts, the same request). The service runs as it does for the user (no `--as`, a
+/// terminal asked for). Pinned in `route-access.txt`; and, whatever the file says, nobody is
+/// answered with success except where anyone may ask (`ANYONE`).
 #[test]
-fn the_guide_keeps_its_topics() {
-    let index = crate::guide("how", None).unwrap();
-    for topic in TOPICS {
-        let text = crate::guide("how", Some(topic)).unwrap();
-        assert!(text.starts_with(&format!("workriver {} · guide how {topic}\n\n", crate::BUILD)) && text != index, "{topic}");
-    }
-    let embedded: BTreeSet<String> = crate::Recipes::iter().map(|f| f.trim_end_matches(".md").to_string()).collect();
-    assert_eq!(embedded, TOPICS.iter().map(|t| t.to_string()).collect::<BTreeSet<_>>());
-    for (what, topic) in [("worker", None), ("manager", None), ("import", None), ("how", None), ("changes", None), ("install-stub", Some("manager")), ("install-stub", Some("howto")), ("install-stub", Some("import"))] {
-        assert!(crate::guide(what, topic).is_ok_and(|t| !t.is_empty()), "{what} {topic:?}");
-    }
-}
+fn who_may_use_each_route() {
+    use workriver_core::runtime::AgentState::*;
+    // Today the inbox folder of an existing task is made for any caller (no check of who
+    // asks); pinned as it is, reported in u13#4, not changed in a guard.
+    const ANYONE: &[(&str, &str)] = &[("GET", "/api/session"), ("GET", "/api/status"), ("POST", "/api/here"), ("POST", "/api/attachments/inbox")];
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::machines::Machines::with(local, vec![("box", far)]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let user = kernel.client(port, tmp.path());
+    let boss = kernel.daemon(port, Some("w1:p1".into()), None);
+    let far = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
 
-/// The source files that still name the runtime (`herdr`, any case) or its places (`pane`)
-/// outside the runtime adapter, as of the start of the restructure. The adapter itself
-/// (`ADAPTER`) may; every other file may only leave this list. When a file stops naming
-/// them, its line is removed here (the test says so); a moved file's line follows it.
-const ADAPTER: &str = "crates/workriver/src/herdr.rs";
-const STILL_HERDR: &[&str] = &[
-    "crates/workriver-core/src/lib.rs",
-    "crates/workriver-core/src/model.rs",
-    "crates/workriver-core/src/runtime.rs",
-    "crates/workriver/src/ask.rs",
-    "crates/workriver/src/caller.rs",
-    "crates/workriver/src/deliver.rs",
-    "crates/workriver/src/machines.rs",
-    "crates/workriver/src/main.rs",
-    "crates/workriver/src/metrics.rs",
-    "crates/workriver/src/run.rs",
-    "crates/workriver/src/serve.rs",
-    "crates/workriver/src/snapshot.rs",
-    "crates/workriver/src/stall.rs",
-    "crates/workriver/src/tests.rs",
-    "crates/workriver/tests/caller.rs",
-    "crates/workriver/tests/cli.rs",
-    "crates/workriver/tests/output.rs",
-    "frontend/web/src/components/Run.tsx",
-    "frontend/web/src/components/Settings.tsx",
-    "frontend/web/src/components/Start.tsx",
-    "frontend/web/src/i18n/en.ts",
-    "frontend/web/src/i18n/ja.ts",
-    "frontend/web/src/i18n/zh-CN.ts",
-    "frontend/web/src/runtime.ts",
-    "frontend/web/src/types.ts",
-];
-const STILL_PANE: &[&str] = &[
-    "crates/workriver-core/src/model.rs",
-    "crates/workriver/src/main.rs",
-    "crates/workriver/src/run.rs",
-    "crates/workriver/src/serve.rs",
-    "crates/workriver/src/tests.rs",
-    "crates/workriver/tests/caller.rs",
-    "crates/workriver/tests/cli.rs",
-    "crates/workriver/tests/output.rs",
-    "frontend/web/src/components/CodeLayer.tsx",
-    "frontend/web/src/i18n/en.ts",
-    "frontend/web/src/runtime.ts",
-];
+    let token = format!("Bearer {}", crate::auth::read_token(tmp.path()).unwrap());
+    // What shows the service who calls: the place a process names, its proof (this machine)
+    // and its process id (a machine's listener), and the token if it has it.
+    let from = |d: &Daemon, token: Option<&str>| -> Vec<(String, String)> {
+        let (proof, pid) = d.process(true);
+        let mut h = vec![("x-workriver-caller".to_string(), proof.unwrap_or_default()), ("x-workriver-pid".to_string(), pid.to_string())];
+        h.extend(d.place.clone().map(|p| ("x-workriver-place".to_string(), p)));
+        h.extend(token.map(|t| ("authorization".to_string(), t.to_string())));
+        h
+    };
+    // Every declared route and method has its probe.
+    for (r, ms) in LOCAL.iter().chain(MACHINE) {
+        for m in *ms {
+            assert!(PROBES.iter().any(|(pm, pp, _)| pm == m && fits(r, pp.split('?').next().unwrap())), "no probe for {m} {r}");
+        }
+    }
+    let thresholds = serde_json::to_string(&crate::metrics::Thresholds::default()).unwrap();
+    let mut got = String::new();
+    for (listener, port, table) in [("local", port, LOCAL), ("machine", all.local_port("box").unwrap(), MACHINE)] {
+        for (method, path, body) in PROBES {
+            let route = path.split('?').next().unwrap();
+            if !table.iter().any(|(r, ms)| fits(r, route) && ms.contains(method)) {
+                continue;
+            }
+            let (body, kind) = match *body {
+                "THRESHOLDS" => (thresholds.as_bytes(), "application/json"),
+                "BYTES" => (&b"probe"[..], "text/plain"),
+                b => (b.as_bytes(), "application/json"),
+            };
+            let agent = if listener == "local" { &boss } else { &far };
+            let callers: [(&str, Vec<(String, String)>); 3] = [("anonymous", vec![]), ("agent", from(agent, None)), ("user", from(&user, Some(&token)))];
+            let mut line = format!("{listener} {method} {path}");
+            for (who, headers) in callers {
+                let code = ask(port, method, path, &headers, body, kind);
+                line += &format!("  {who} {code}");
+                if who == "anonymous" {
+                    assert!(!(200..300).contains(&code) || ANYONE.contains(&(*method, route)), "{listener}: anonymous {method} {path} answered {code}");
+                }
+            }
+            got += &line;
+            got.push('\n');
+        }
+    }
+    let path = crate_dir().join("src/tests/route-access.txt");
+    if std::env::var("WORKRIVER_BLESS").is_ok_and(|v| v == "1") {
+        std::fs::write(&path, &got).unwrap();
+    }
+    let want = std::fs::read_to_string(&path).unwrap();
+    let (g, w): (BTreeSet<&str>, BTreeSet<&str>) = (got.lines().collect(), want.lines().collect());
+    assert!(g == w, "who may use a route changed; was: {:?}; now: {:?}", w.difference(&g).collect::<Vec<_>>(), g.difference(&w).collect::<Vec<_>>());
+}
 
 fn crate_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -251,39 +312,6 @@ fn sources(dir: &std::path::Path, ext: &[&str]) -> Vec<std::path::PathBuf> {
     out
 }
 
-fn names(text: &str, word: &str) -> bool {
-    let lower = text.to_lowercase();
-    if word == "herdr" {
-        return lower.contains("herdr");
-    }
-    lower.match_indices(word).any(|(at, _)| {
-        let before = lower[..at].chars().next_back().is_none_or(|c| !c.is_alphanumeric() && c != '_');
-        let rest = &lower[at + word.len()..];
-        let rest = rest.strip_prefix('s').unwrap_or(rest);
-        before && rest.chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_')
-    })
-}
-
-#[test]
-fn no_runtime_names_outside_the_adapter_but_those_still_listed() {
-    let root = crate_dir().join("../..").canonicalize().unwrap();
-    let me = crate_dir().join("src/tests/guards.rs");
-    let mut files = sources(&root.join("crates"), &["rs"]);
-    files.extend(sources(&root.join("frontend/web/src"), &["ts", "tsx"]));
-    for (word, still) in [("herdr", STILL_HERDR), ("pane", STILL_PANE)] {
-        let found: BTreeSet<String> = files
-            .iter()
-            .filter(|f| **f != me && names(&std::fs::read_to_string(f).unwrap(), word))
-            .map(|f| f.strip_prefix(&root).unwrap().to_string_lossy().into_owned())
-            .filter(|f| f != ADAPTER)
-            .collect();
-        let listed: BTreeSet<String> = still.iter().map(|s| s.to_string()).collect();
-        let new: Vec<_> = found.difference(&listed).collect();
-        let gone: Vec<_> = listed.difference(&found).collect();
-        assert!(new.is_empty(), "{word:?} named outside the runtime adapter, in files not on the list: {new:?}");
-        assert!(gone.is_empty(), "{word:?} no longer named in {gone:?}: take them off the list (it only shrinks)");
-    }
-}
 
 /// Every key path of a JSON value with the kinds of value found there (arrays: one path for
 /// all their elements, `[]`). What the page reads is these names and kinds.

@@ -1,0 +1,444 @@
+workriver
+workriver  arg actor --as value=["AGENT"] num=1 env=WORKRIVER_AS action=Set global hidden
+workriver  arg help --help -h num=0 action=Help
+workriver  arg port --port value=["PORT"] num=1 env=WORKRIVER_PORT action=Set global
+workriver  arg version --version -V num=0 action=Version
+workriver answer
+workriver answer  arg asked --asked value=["ASKED"] num=1 action=Set
+workriver answer  arg conclusion --conclusion value=["CONCLUSION"] num=0 default=["false"] action=SetTrue
+workriver answer  arg help --help -h num=0 action=Help
+workriver answer  arg question index=1 value=["QUESTION"] num=1 action=Set required
+workriver answer  arg text --text value=["TEXT"] num=1 action=Set required
+workriver ask
+workriver ask  arg file --file value=["FILE"] num=1 action=Set
+workriver ask  arg help --help -h num=0 action=Help
+workriver ask  arg lines --lines value=["A-B"] num=1 action=Set
+workriver ask  arg question index=2 value=["QUESTION"] num=1 action=Set required
+workriver ask  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver ask  arg timeout --timeout value=["TIMEOUT"] num=1 default=["600"] action=Set
+workriver ask  arg wait --wait value=["WAIT"] num=0 default=["false"] action=SetTrue
+workriver attach
+workriver attach  arg dir --dir value=["TASK"] num=1 action=Set conflicts=files conflicts=task
+workriver attach  arg files index=1 value=["FILES"] num=1.. action=Append
+workriver attach  arg finding --finding value=["FINDING"] num=1 action=Set
+workriver attach  arg help --help -h num=0 action=Help
+workriver attach  arg move --move value=["MOVE"] num=0 default=["false"] action=SetTrue
+workriver attach  arg task --task value=["TASK"] num=1 action=Set
+workriver backlog
+workriver backlog  arg help --help -h num=0 action=Help
+workriver backlog add
+workriver backlog add  arg external --external value=["SYSTEM:KEY"] num=1 action=Set
+workriver backlog add  arg goal --goal value=["GOAL"] num=1 action=Set required
+workriver backlog add  arg help --help -h num=0 action=Help
+workriver backlog add  arg note --note value=["NOTE"] num=1 default=[""] action=Set
+workriver backlog add  arg project --project value=["PROJECT"] num=1 default=["."] action=Set
+workriver backlog add  arg title index=1 value=["TITLE"] num=1 action=Set required
+workriver backlog add  arg url --url value=["URL"] num=1 action=Set
+workriver backlog add-finding
+workriver backlog add-finding  arg external --external value=["SYSTEM:KEY"] num=1 action=Set
+workriver backlog add-finding  arg help --help -h num=0 action=Help
+workriver backlog add-finding  arg impact --impact value=["IMPACT"] num=1 default=[""] action=Set
+workriver backlog add-finding  arg intent --intent value=["INTENT"] num=1 action=Set
+workriver backlog add-finding  arg note --note value=["NOTE"] num=1 default=[""] action=Set
+workriver backlog add-finding  arg problem --problem value=["PROBLEM"] num=1 action=Set required
+workriver backlog add-finding  arg project --project value=["PROJECT"] num=1 default=["."] action=Set
+workriver backlog add-finding  arg severity --severity value=["SEVERITY"] num=1 one-of=["P1", "P2", "P3"] action=Set required
+workriver backlog add-finding  arg source --source value=["SOURCE"] num=1 default=[""] action=Set
+workriver backlog add-finding  arg url --url value=["URL"] num=1 action=Set
+workriver backlog add-finding  arg where --where value=["PATH"] num=1 action=Append
+workriver backlog export
+workriver backlog export  arg help --help -h num=0 action=Help
+workriver backlog export  arg project --project value=["PROJECT"] num=1 default=["."] action=Set
+workriver backlog help
+workriver backlog help add
+workriver backlog help add-finding
+workriver backlog help export
+workriver backlog help help
+workriver backlog help list
+workriver backlog help merge
+workriver backlog help move
+workriver backlog list
+workriver backlog list  arg help --help -h num=0 action=Help
+workriver backlog list  arg project --project value=["PROJECT"] num=1 action=Set
+workriver backlog merge
+workriver backlog merge  arg from index=2 value=["FROM"] num=1.. action=Append required
+workriver backlog merge  arg help --help -h num=0 action=Help
+workriver backlog merge  arg into index=1 value=["INTO"] num=1 action=Set required
+workriver backlog merge  arg title --title value=["TITLE"] num=1 action=Set
+workriver backlog move
+workriver backlog move  arg after --after value=["AFTER"] num=1 action=Set
+workriver backlog move  arg before --before value=["BEFORE"] num=1 action=Set conflicts=after
+workriver backlog move  arg help --help -h num=0 action=Help
+workriver backlog move  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver board
+workriver board  arg help --help -h num=0 action=Help
+workriver board  arg target index=1 value=["TARGET"] num=1 action=Set
+workriver chore
+workriver chore  arg help --help -h num=0 action=Help
+workriver chore add
+workriver chore add  arg help --help -h num=0 action=Help
+workriver chore add  arg intent index=1 value=["INTENT"] num=1 action=Set
+workriver chore add  arg project --project value=["PROJECT"] num=1 action=Set conflicts=intent
+workriver chore add  arg step --step value=["STEP"] num=1 action=Append
+workriver chore add  arg title --title value=["TITLE"] num=1 action=Set required
+workriver chore add  arg unit --unit value=["UNIT"] num=1 action=Set
+workriver chore done
+workriver chore done  arg chore index=1 value=["CHORE"] num=1 action=Set required
+workriver chore done  arg help --help -h num=0 action=Help
+workriver chore help
+workriver chore help add
+workriver chore help done
+workriver chore help help
+workriver commit
+workriver commit  arg help --help -h num=0 action=Help
+workriver commit help
+workriver commit help help
+workriver commit help link
+workriver commit help unlink
+workriver commit link
+workriver commit link  arg hash index=1 value=["HASH"] num=1 action=Set required
+workriver commit link  arg help --help -h num=0 action=Help
+workriver commit link  arg task index=2 value=["TASK"] num=1 action=Set required
+workriver commit unlink
+workriver commit unlink  arg hash index=1 value=["HASH"] num=1 action=Set required
+workriver commit unlink  arg help --help -h num=0 action=Help
+workriver commit unlink  arg unit index=2 value=["UNIT"] num=1 action=Set
+workriver finding
+workriver finding  arg help --help -h num=0 action=Help
+workriver finding decide
+workriver finding decide  arg decision index=3 value=["DECISION"] num=1 one-of=["accept", "revise", "reject", "defer"] action=Set required
+workriver finding decide  arg finding index=2 value=["FINDING"] num=1 action=Set required
+workriver finding decide  arg help --help -h num=0 action=Help
+workriver finding decide  arg note --note value=["NOTE"] num=1 default=[""] action=Set
+workriver finding decide  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver finding drop
+workriver finding drop  arg finding index=2 value=["FINDING"] num=1 action=Set
+workriver finding drop  arg help --help -h num=0 action=Help
+workriver finding drop  arg reason --reason value=["REASON"] num=1 action=Set required
+workriver finding drop  arg target index=1 value=["TARGET"] num=1 action=Set required
+workriver finding help
+workriver finding help decide
+workriver finding help drop
+workriver finding help help
+workriver finding help note
+workriver finding help show
+workriver finding note
+workriver finding note  arg attach --attach value=["FILE"] num=1 action=Append
+workriver finding note  arg finding index=2 value=["FINDING"] num=1 action=Set required
+workriver finding note  arg help --help -h num=0 action=Help
+workriver finding note  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver finding note  arg text --text value=["TEXT"] num=1 default=[""] action=Set
+workriver finding show
+workriver finding show  arg finding index=2 value=["FINDING"] num=1 action=Set required
+workriver finding show  arg help --help -h num=0 action=Help
+workriver finding show  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver gate
+workriver gate  arg help --help -h num=0 action=Help
+workriver gate help
+workriver gate help help
+workriver gate help submit
+workriver gate submit
+workriver gate submit  arg findings --findings value=["FILE"] num=1 action=Set
+workriver gate submit  arg help --help -h num=0 action=Help
+workriver gate submit  arg note --note value=["NOTE"] num=1 default=[""] action=Set
+workriver gate submit  arg result index=2 value=["RESULT"] num=1 one-of=["done", "problem"] action=Set required
+workriver gate submit  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver guide
+workriver guide  arg help --help -h num=0 action=Help
+workriver guide  arg topic index=2 value=["TOPIC"] num=1 action=Set
+workriver guide  arg what index=1 value=["WHAT"] num=1 one-of=["worker", "manager", "import", "how", "changes", "install-stub"] action=Set required
+workriver help
+workriver help answer
+workriver help ask
+workriver help attach
+workriver help backlog
+workriver help backlog add
+workriver help backlog add-finding
+workriver help backlog export
+workriver help backlog list
+workriver help backlog merge
+workriver help backlog move
+workriver help board
+workriver help chore
+workriver help chore add
+workriver help chore done
+workriver help commit
+workriver help commit link
+workriver help commit unlink
+workriver help finding
+workriver help finding decide
+workriver help finding drop
+workriver help finding note
+workriver help finding show
+workriver help gate
+workriver help gate submit
+workriver help guide
+workriver help help
+workriver help intent
+workriver help intent add
+workriver help intent done
+workriver help intent drop
+workriver help intent set
+workriver help intent start
+workriver help link
+workriver help machine
+workriver help machine add
+workriver help machine disable
+workriver help machine enable
+workriver help machine list
+workriver help machine load
+workriver help machine remove
+workriver help manager
+workriver help manager here
+workriver help manager tell
+workriver help open
+workriver help perf
+workriver help project
+workriver help project add
+workriver help project list
+workriver help project rename
+workriver help reply
+workriver help run
+workriver help run review
+workriver help say
+workriver help serve
+workriver help status
+workriver help task
+workriver help task add
+workriver help task deliver
+workriver help task drop
+workriver help task show
+workriver help task start
+workriver help unit
+workriver help unit add
+workriver help unit done
+workriver help unit merged
+workriver help unit move
+workriver help workspace
+workriver help workspace link
+workriver help workspace list
+workriver help workspace project
+workriver help workspace unlink
+workriver intent
+workriver intent  arg help --help -h num=0 action=Help
+workriver intent add
+workriver intent add  arg goal --goal value=["GOAL"] num=1 default=[""] action=Set
+workriver intent add  arg help --help -h num=0 action=Help
+workriver intent add  arg project --project value=["PROJECT"] num=1 default=["."] action=Set
+workriver intent add  arg title index=1 value=["TITLE"] num=1 action=Set required
+workriver intent done
+workriver intent done  arg help --help -h num=0 action=Help
+workriver intent done  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver intent drop
+workriver intent drop  arg help --help -h num=0 action=Help
+workriver intent drop  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver intent drop  arg reason --reason value=["REASON"] num=1 action=Set required
+workriver intent help
+workriver intent help add
+workriver intent help done
+workriver intent help drop
+workriver intent help help
+workriver intent help set
+workriver intent help start
+workriver intent set
+workriver intent set  arg add_note --add-note value=["TEXT"] num=1 action=Set
+workriver intent set  arg findings --findings value=["FINDINGS"] num=1 one-of=["manager", "user"] action=Set
+workriver intent set  arg goal --goal value=["GOAL"] num=1 action=Set
+workriver intent set  arg help --help -h num=0 action=Help
+workriver intent set  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver intent set  arg title --title value=["TITLE"] num=1 action=Set
+workriver intent start
+workriver intent start  arg help --help -h num=0 action=Help
+workriver intent start  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver link
+workriver link  arg help --help -h num=0 action=Help
+workriver link  arg target index=1 value=["TARGET"] num=1 action=Set required
+workriver machine
+workriver machine  arg help --help -h num=0 action=Help
+workriver machine add
+workriver machine add  arg help --help -h num=0 action=Help
+workriver machine add  arg herdr_socket --herdr-socket value=["PATH"] num=1 action=Set
+workriver machine add  arg label index=1 value=["LABEL"] num=1 action=Set required
+workriver machine add  arg ssh --ssh value=["SSH"] num=1 action=Set required
+workriver machine disable
+workriver machine disable  arg help --help -h num=0 action=Help
+workriver machine disable  arg label index=1 value=["LABEL"] num=1 action=Set required
+workriver machine enable
+workriver machine enable  arg help --help -h num=0 action=Help
+workriver machine enable  arg label index=1 value=["LABEL"] num=1 action=Set required
+workriver machine help
+workriver machine help add
+workriver machine help disable
+workriver machine help enable
+workriver machine help help
+workriver machine help list
+workriver machine help load
+workriver machine help remove
+workriver machine list
+workriver machine list  arg help --help -h num=0 action=Help
+workriver machine load
+workriver machine load  arg help --help -h num=0 action=Help
+workriver machine load  arg hours --hours value=["N"] num=1 action=Set
+workriver machine remove
+workriver machine remove  arg help --help -h num=0 action=Help
+workriver machine remove  arg label index=1 value=["LABEL"] num=1 action=Set required
+workriver manager
+workriver manager  arg help --help -h num=0 action=Help
+workriver manager help
+workriver manager help help
+workriver manager help here
+workriver manager help tell
+workriver manager here
+workriver manager here  arg goal --goal value=["GOAL"] num=1 action=Set
+workriver manager here  arg help --help -h num=0 action=Help
+workriver manager here  arg intent --intent value=["INTENT"] num=1 action=Set hidden
+workriver manager tell
+workriver manager tell  arg help --help -h num=0 action=Help
+workriver manager tell  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver manager tell  arg text --text value=["TEXT"] num=1 action=Set required
+workriver open
+workriver open  arg help --help -h num=0 action=Help
+workriver open  arg print --print value=["PRINT"] num=0 default=["false"] action=SetTrue
+workriver perf
+workriver perf  arg bundle --bundle value=["BUNDLE"] num=0 default=["false"] action=SetTrue
+workriver perf  arg help --help -h num=0 action=Help
+workriver perf  arg since --since value=["SINCE"] num=1 action=Set
+workriver perf  arg top --top value=["TOP"] num=1 default=["20"] action=Set
+workriver project
+workriver project  arg help --help -h num=0 action=Help
+workriver project add
+workriver project add  arg folder index=1 value=["FOLDER"] num=1 action=Set required
+workriver project add  arg help --help -h num=0 action=Help
+workriver project add  arg title --title value=["TITLE"] num=1 default=[""] action=Set
+workriver project help
+workriver project help add
+workriver project help help
+workriver project help list
+workriver project help rename
+workriver project list
+workriver project list  arg help --help -h num=0 action=Help
+workriver project rename
+workriver project rename  arg help --help -h num=0 action=Help
+workriver project rename  arg project index=1 value=["PROJECT"] num=1 action=Set required
+workriver project rename  arg title index=2 value=["TITLE"] num=1 action=Set required
+workriver reply
+workriver reply  arg help --help -h num=0 action=Help
+workriver reply  arg message index=1 value=["MESSAGE"] num=1 action=Set required
+workriver reply  arg text --text value=["TEXT"] num=1 action=Set required
+workriver run
+workriver run  arg help --help -h num=0 action=Help
+workriver run help
+workriver run help help
+workriver run help review
+workriver run review
+workriver run review  arg help --help -h num=0 action=Help
+workriver run review  arg run index=1 value=["RUN"] num=1 action=Set required
+workriver run review  arg text --text value=["TEXT"] num=1 action=Set required
+workriver run review  arg verdict --verdict value=["VERDICT"] num=1 one-of=["ok", "caution", "danger"] action=Set required
+workriver say
+workriver say  arg help --help -h num=0 action=Help
+workriver say  arg text --text value=["TEXT"] num=1 action=Set required
+workriver serve
+workriver serve  arg help --help -h num=0 action=Help
+workriver serve  arg perf_detail --perf-detail value=["PERF_DETAIL"] num=0 default=["false"] action=SetTrue
+workriver serve  arg terminal_app --terminal-app value=["TERMINAL_APP"] num=1 default=["Ghostty"] env=WORKRIVER_TERMINAL_APP action=Set
+workriver status
+workriver status  arg help --help -h num=0 action=Help
+workriver task
+workriver task  arg help --help -h num=0 action=Help
+workriver task add
+workriver task add  arg after --after value=["N"] num=1 action=Append
+workriver task add  arg agent --agent value=["AGENT"] num=1 action=Set
+workriver task add  arg blind --blind value=["BLIND"] num=0 default=["false"] action=SetTrue
+workriver task add  arg blocks --blocks value=["N"] num=1 action=Set
+workriver task add  arg cause --cause value=["N:IDS"] num=1 action=Append
+workriver task add  arg gate --gate value=["GATE"] num=1 one-of=["deploy", "test", "decide"] action=Set
+workriver task add  arg help --help -h num=0 action=Help
+workriver task add  arg kind --kind value=["KIND"] num=1 one-of=["implement", "design", "research", "review", "tests", "gate"] default=["implement"] action=Set
+workriver task add  arg plan --plan value=["PLAN"] num=1 action=Append
+workriver task add  arg reviewer --reviewer value=["REVIEWER"] num=1 one-of=["code-review", "security-review", "architecture-review"] action=Set
+workriver task add  arg step --step value=["STEP"] num=1 action=Append
+workriver task add  arg text --text value=["TEXT"] num=1 default=[""] action=Set
+workriver task add  arg title --title value=["TITLE"] num=1 default=[""] action=Set
+workriver task add  arg unit index=1 value=["UNIT"] num=1 action=Set required
+workriver task deliver
+workriver task deliver  arg add_findings --add-findings value=["FILE"] num=1 action=Set conflicts=findings
+workriver task deliver  arg amend --amend value=["AMEND"] num=0 default=["false"] action=SetTrue
+workriver task deliver  arg evidence --evidence value=["EVIDENCE"] num=1 action=Append
+workriver task deliver  arg findings --findings value=["FILE"] num=1 action=Set
+workriver task deliver  arg help --help -h num=0 action=Help
+workriver task deliver  arg note --note value=["NOTE"] num=1 default=[""] action=Set
+workriver task deliver  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver task drop
+workriver task drop  arg help --help -h num=0 action=Help
+workriver task drop  arg reason --reason value=["REASON"] num=1 action=Set required
+workriver task drop  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver task help
+workriver task help add
+workriver task help deliver
+workriver task help drop
+workriver task help help
+workriver task help show
+workriver task help start
+workriver task show
+workriver task show  arg help --help -h num=0 action=Help
+workriver task show  arg json --json value=["JSON"] num=0 default=["false"] action=SetTrue
+workriver task show  arg task index=1 value=["TASK"] num=1 action=Set
+workriver task start
+workriver task start  arg agent --agent value=["AGENT"] num=1 action=Set
+workriver task start  arg help --help -h num=0 action=Help
+workriver task start  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver unit
+workriver unit  arg help --help -h num=0 action=Help
+workriver unit add
+workriver unit add  arg base --base value=["BASE"] num=1 action=Set
+workriver unit add  arg branch --branch value=["BRANCH"] num=1 action=Set
+workriver unit add  arg help --help -h num=0 action=Help
+workriver unit add  arg intent index=1 value=["INTENT"] num=1 action=Set
+workriver unit add  arg kind --kind value=["KIND"] num=1 one-of=["code", "research", "spike"] default=["code"] action=Set
+workriver unit add  arg machine --machine value=["LABEL"] num=1 action=Set
+workriver unit add  arg purpose --purpose value=["PURPOSE"] num=1 default=[""] action=Set
+workriver unit add  arg repo --repo value=["REPO"] num=1 action=Set
+workriver unit add  arg title --title value=["TITLE"] num=1 action=Set required
+workriver unit done
+workriver unit done  arg help --help -h num=0 action=Help
+workriver unit done  arg reason --reason aliases=["note"] value=["REASON"] num=1 default=[""] action=Set
+workriver unit done  arg unit index=1 value=["UNIT"] num=1 action=Set required
+workriver unit help
+workriver unit help add
+workriver unit help done
+workriver unit help help
+workriver unit help merged
+workriver unit help move
+workriver unit merged
+workriver unit merged  arg help --help -h num=0 action=Help
+workriver unit merged  arg unit index=1 value=["UNIT"] num=1 action=Set required
+workriver unit move
+workriver unit move  arg base --base value=["BASE"] num=1 action=Set
+workriver unit move  arg branch --branch value=["BRANCH"] num=1 action=Set
+workriver unit move  arg help --help -h num=0 action=Help
+workriver unit move  arg machine --machine value=["LABEL"] num=1 action=Set
+workriver unit move  arg repo --repo value=["REPO"] num=1 action=Set
+workriver unit move  arg unit index=1 value=["UNIT"] num=1 action=Set required
+workriver workspace
+workriver workspace  arg help --help -h num=0 action=Help
+workriver workspace help
+workriver workspace help help
+workriver workspace help link
+workriver workspace help list
+workriver workspace help project
+workriver workspace help unlink
+workriver workspace link
+workriver workspace link  arg help --help -h num=0 action=Help
+workriver workspace link  arg local index=2 value=["LOCAL"] num=1 action=Set required
+workriver workspace link  arg remote index=1 value=["REMOTE"] num=1 action=Set required
+workriver workspace list
+workriver workspace list  arg help --help -h num=0 action=Help
+workriver workspace project
+workriver workspace project  arg clear --clear value=["CLEAR"] num=0 default=["false"] action=SetTrue conflicts=project
+workriver workspace project  arg help --help -h num=0 action=Help
+workriver workspace project  arg project index=2 value=["PROJECT"] num=1 action=Set
+workriver workspace project  arg workspace index=1 value=["WORKSPACE"] num=1 action=Set required
+workriver workspace unlink
+workriver workspace unlink  arg help --help -h num=0 action=Help
+workriver workspace unlink  arg remote index=1 value=["REMOTE"] num=1 action=Set required
