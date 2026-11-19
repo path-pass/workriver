@@ -3,17 +3,10 @@
 // state every time.
 use serde::{Deserialize, Serialize};
 
+use crate::access::{Principal, Rejected, no};
+
 mod body;
 pub use body::*;
-
-/// A write that breaks a rule. The message is shown to whoever tried it, as is.
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct Rejected(pub String);
-
-fn no<T>(msg: impl Into<String>) -> Result<T, Rejected> {
-    Err(Rejected(msg.into()))
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -335,60 +328,6 @@ pub struct NewTask {
     /// blocker): the task follows it from then on, so the gate's result goes to its agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocks: Option<u32>,
-}
-
-/// Who a request was found to come from. The daemon works this out (a session of the web
-/// UI or the user's token; the agent in the place the calling process runs at); it is never
-/// taken from what the caller says. Events are recorded under `actor()`.
-#[derive(Clone, PartialEq, Debug)]
-pub enum Principal {
-    /// The person: authenticated with the user token or a session of the web UI.
-    User,
-    /// An agent, by its session, on a machine (none: this one).
-    Agent { session: String, machine: Option<String> },
-    /// workriver itself: deliveries, what it sees of agents, its temporary agents.
-    Service,
-}
-
-impl Principal {
-    pub fn actor(&self) -> &str {
-        match self {
-            Principal::User => "user",
-            Principal::Agent { session, .. } => session,
-            Principal::Service => "workriver",
-        }
-    }
-
-    pub fn machine(&self) -> Option<&str> {
-        match self {
-            Principal::Agent { machine, .. } => machine.as_deref(),
-            _ => None,
-        }
-    }
-}
-
-/// For tests of the rules: "user", "workriver", or an agent's session.
-#[cfg(test)]
-impl From<&str> for Principal {
-    fn from(s: &str) -> Principal {
-        match s {
-            "user" => Principal::User,
-            "workriver" => Principal::Service,
-            s => Principal::Agent { session: s.into(), machine: None },
-        }
-    }
-}
-
-impl Body {
-    /// What only the person may record: their decisions and results, and what changes
-    /// where workriver reaches (projects, links between workspaces).
-    pub fn user_only(&self) -> bool {
-        use Body::*;
-        matches!(
-            self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | CommandRan { .. }
-        )
-    }
 }
 
 /// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
@@ -1144,53 +1083,6 @@ impl State {
         }
         let mut seen = std::collections::HashSet::new();
         out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
-    }
-
-    /// The blind tasks an agent is on: assigned to it or started by it, not delivered yet.
-    pub fn blind_tasks(&self, session: &str) -> Vec<(String, u32)> {
-        let name = self.name_of(session);
-        let mine = |t: &&Task| t.blind && !t.state.over() && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
-        let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(mine).map(|t| (u.id.clone(), t.n)));
-        units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(mine).map(|t| (i.id.clone(), t.n)))).collect()
-    }
-
-    /// What an agent on a blind task may see until it delivers: its task (as handed out),
-    /// the task's unit and intent, what it attached itself. None for anyone else.
-    ///
-    /// Everything else is left out: other tasks with their output, notes, evidence, findings
-    /// and decisions, questions, deliveries, the backlog, other units and intents.
-    pub fn blind_view(&self, session: &str) -> Option<State> {
-        let mine = self.blind_tasks(session);
-        if mine.is_empty() {
-            return None;
-        }
-        let own = |owner: &str, tasks: &[Task]| -> Vec<Task> {
-            tasks
-                .iter()
-                .filter(|t| mine.iter().any(|(o, n)| o == owner && *n == t.n))
-                // What the task follows and answers would name other work.
-                .map(|t| Task { causes: vec![], delivery: None, ..t.clone() })
-                .collect()
-        };
-        // Not where the unit was before, nor what was linked: both carry others' words.
-        let units: Vec<Unit> = self.units.iter().filter(|u| mine.iter().any(|(o, _)| o == &u.id)).map(|u| Unit { tasks: own(&u.id, &u.tasks), earlier: vec![], links: vec![], ..u.clone() }).collect();
-        let intents = self
-            .intents
-            .iter()
-            .filter(|i| mine.iter().any(|(o, _)| o == &i.id) || units.iter().any(|u| u.intent == i.id))
-            .map(|i| Intent { note: String::new(), reason: None, tasks: own(&i.id, &i.tasks), ..i.clone() })
-            .collect();
-        Some(State {
-            intents,
-            units,
-            agents: self.agents.clone(),
-            attachments: self.attachments.iter().filter(|a| a.by == session).cloned().collect(),
-            projects: self.projects.clone(),
-            workspaces: self.workspaces.clone(),
-            links: self.links.clone(),
-            reduced: true,
-            ..State::default()
-        })
     }
 
     /// Whether `who` may put a unit of `intent` on `machine` (none: the machine workriver
