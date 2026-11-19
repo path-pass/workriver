@@ -116,7 +116,7 @@ fn daemon_smoke() {
     assert_eq!(d.get("/api/status").unwrap()["url"], page.as_str());
     let shown: crate::common::wire::TaskShow = serde_json::from_value(d.get("/api/task?task=u1%232").unwrap()).unwrap();
     assert_eq!(shown.link, format!("{page}/u1/2"));
-    assert!(crate::show::text(&shown).contains(&format!("\nLink: {page}/u1/2\n")));
+    assert!(crate::cli::text(&shown).contains(&format!("\nLink: {page}/u1/2\n")));
     let board = crate::cli::board_text(&d, None).unwrap();
     assert!(board.contains(&format!("i1 Chat\n  link: {page}/i1\n")) && board.contains(&format!("\n    link: {page}/u1\n")), "{board}");
     // Another Host is turned away, whatever the path.
@@ -2226,7 +2226,7 @@ fn a_task_shown_in_full() {
     assert!(user.get("/api/task").unwrap_err().to_string().contains("name the task"));
     let first: crate::common::wire::TaskShow = serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert_eq!(first.questions.iter().map(|q| (q.question.as_str(), q.asked_by.as_str())).collect::<Vec<_>>(), [("Which clock?", "boss")]);
-    assert!(crate::show::text(&first).contains("Questions:\n  q1 asked by boss ("), "{}", crate::show::text(&first));
+    assert!(crate::cli::text(&first).contains("Questions:\n  q1 asked by boss ("), "{}", crate::cli::text(&first));
 
     let shown = fix.get("/api/task?task=u1%233").unwrap();
     let s: crate::common::wire::TaskShow = serde_json::from_value(shown.clone()).unwrap();
@@ -2242,17 +2242,17 @@ fn a_task_shown_in_full() {
     let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>().join(",");
     assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,link,lostCommits,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
     assert_eq!(keys(&shown["causes"][0]["finding"]), "decisions,files,id,impact,notes,problem,reason,reportedBy,severity,state,suggestion,where");
-    let text = crate::show::text(&s);
+    let text = crate::cli::text(&s);
     for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\" (working): Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {
         assert!(text.contains(part), "{part:?} in\n{text}");
     }
     assert!(text.contains(&format!("    5) Requirement 5: {}", "x".repeat(600))));
 
     // What a task delivered, and a gate's steps.
-    let review = crate::show::text(&serde_json::from_value(user.get("/api/task?task=u1%232").unwrap()).unwrap());
+    let review = crate::cli::text(&serde_json::from_value(user.get("/api/task?task=u1%232").unwrap()).unwrap());
     assert!(review.contains("Output (delivered ") && review.contains("  P1-1 (P1, revised), reported by rev\n    Problem: Token never expires"), "{review}");
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Deploy", "inputs": [{ "from": "3" }], "steps": [{ "text": "Deploy to staging", "command": "npm run deploy" }] })).unwrap();
-    let gate = crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%234").unwrap()).unwrap());
+    let gate = crate::cli::text(&serde_json::from_value(fix.get("/api/task?task=u1%234").unwrap()).unwrap());
     assert!(gate.contains("After: u1#3\nSteps:\n  1. Deploy to staging\n     $ npm run deploy\n"), "{gate}");
 
     // A blind agent: its own task in full; nothing else.
@@ -2273,10 +2273,10 @@ fn a_task_shown_in_full() {
         let shown: crate::common::wire::TaskShow = serde_json::from_value(fix.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
         assert_eq!(shown.earlier.iter().map(|d| (d.from.as_str(), d.kind.as_str(), d.delivered_by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("u1#6", "design", "rev", "Tokens live in the store.\nThe page never holds one.")], "u1#{n}");
         assert!(shown.earlier[0].files[0].ends_with("00000000000000d6.md"), "{:?}", shown.earlier[0].files);
-        let text = crate::show::text(&shown);
+        let text = crate::cli::text(&shown);
         assert!(text.contains("Designed and found before this task (each design says whether the user confirmed it; if one seems wrong, see `workriver guide how contract`):\n  from u1#6 (design \"Where tokens live\"), designed by rev:\n      Tokens live in the store.\n      The page never holds one.\n    Files: "), "{text}");
     }
-    assert!(crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%238").unwrap()).unwrap()).starts_with("u1#8  review  todo"));
+    assert!(crate::cli::text(&serde_json::from_value(fix.get("/api/task?task=u1%238").unwrap()).unwrap()).starts_with("u1#8  review  todo"));
     assert!(s.earlier.is_empty() && !text.contains("before this task"));
     // A design for the whole intent, in a research unit, reaches the code unit's tasks once
     // delivered, before the unit's own; its research does not, nor a design not delivered.
@@ -2289,10 +2289,10 @@ fn a_task_shown_in_full() {
     assert_eq!(from("u1#7"), ["u1#6"]);
     rev.append("", "task.delivered", json!({ "unit": "u2", "task": 2, "note": "Sessions go in SQLite." })).unwrap();
     assert_eq!((from("u1#7"), from("u1#3"), from("u2#3"), from("u2#2")), (vec!["u2#2".to_string(), "u1#6".into()], vec!["u2#2".to_string()], vec!["u2#1".to_string(), "u2#2".into()], vec!["u2#1".to_string()]));
-    let wide = crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%233").unwrap()).unwrap());
+    let wide = crate::cli::text(&serde_json::from_value(fix.get("/api/task?task=u1%233").unwrap()).unwrap());
     assert!(wide.contains("  from u2#2 (design \"One session store\"), designed by rev: Sessions go in SQLite.\n"), "{wide}");
     // Research reads as found; a design says where its gate stands.
-    let show = |r: &str| crate::show::text(&serde_json::from_value(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap());
+    let show = |r: &str| crate::cli::text(&serde_json::from_value(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap());
     assert!(show("u2#3").contains("  from u2#1 (research \"Compare stores\"), found by rev: Three stores compared.\n"));
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "6" }] })).unwrap();
     assert!(show("u1#7").contains("  from u1#6 (design \"Where tokens live\"), designed by rev, not confirmed yet (gate u1#9):\n"), "{}", show("u1#7"));
@@ -2327,7 +2327,7 @@ fn a_task_shown_in_full() {
     // A blind task after the same designs is told nothing of them.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "12" }], "agent": "s-sec", "blind": true, "text": "Review the move" })).unwrap();
     let own = sec.get("/api/task?task=u1%2315").unwrap();
-    assert!(own.get("earlier").is_none() && !crate::show::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
+    assert!(own.get("earlier").is_none() && !crate::cli::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
 }
@@ -2413,7 +2413,7 @@ fn units_finish() {
     assert_eq!(u["commits"].as_array().unwrap().iter().filter(|c| c["rebasedFrom"].is_string()).count(), 3, "{u}");
     let shown: crate::common::wire::TaskShow = serde_json::from_value(w.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert!(shown.lost_commits.is_empty() && shown.commits.len() == 3 && shown.commits.iter().all(|c| c.rebased_from.is_some()));
-    assert!(crate::show::text(&shown).contains("(rebased from "));
+    assert!(crate::cli::text(&shown).contains("(rebased from "));
     let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains("#3: commits not on the current branch: ") && !board.contains("#1: commits not"), "{board}");
 
@@ -2482,7 +2482,7 @@ fn a_dropped_task_is_told_and_shown() {
 
     let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains("#1 dropped  implement Check tokens @fix") && board.contains("       dropped (superseded by u1#3)\n") && board.contains("       dropped (the branch changed; asked again)\n") && !board.contains("waiting for the user"), "{board}");
-    let shown = crate::show::text(&serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap());
+    let shown = crate::cli::text(&serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap());
     assert!(shown.contains("u1#1  implement  dropped") && shown.contains("Dropped as no longer needed by the user at ") && shown.contains("because: superseded by u1#3"), "{shown}");
     let tasks = d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"].clone();
     assert_eq!((tasks[1]["state"].as_str(), tasks[1]["dropped"]["by"].as_str(), tasks[1]["dropped"]["reason"].as_str()), (Some("dropped"), Some("boss"), Some("the branch changed; asked again")));

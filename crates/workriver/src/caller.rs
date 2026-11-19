@@ -107,17 +107,6 @@ pub fn listen(home: &Path, callers: Arc<Callers>, procs: Arc<dyn Procs>) -> anyh
     Ok(())
 }
 
-/// The CLI's side: a proof for this process from the service whose data directory is `home`;
-/// none when there is no service socket there (another machine, an older service).
-pub fn fetch(home: &Path) -> Option<String> {
-    use std::io::BufRead;
-    let stream = std::os::unix::net::UnixStream::connect(home.join(SOCKET)).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
-    let mut line = String::new();
-    std::io::BufReader::new(stream).read_line(&mut line).ok()?;
-    Some(line.trim().to_string()).filter(|p| !p.is_empty())
-}
-
 /// The root a session was first seen at.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Pin {
@@ -177,6 +166,7 @@ fn random() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::fetch;
     use crate::common::process::System;
 
     fn p(pid: u32, parent: u32, tty: Option<&str>) -> Proc {
