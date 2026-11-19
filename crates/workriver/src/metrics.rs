@@ -1153,8 +1153,6 @@ Filesystem     1024-blocks      Used Available Capacity  Mounted on
 /dev/disk3s1s1   482797652  12349052  81939804    14%    /
 ";
 
-    /// What `PS` printed on the same Mac, a few of its lines (one agent's shell made the
-    /// parent of its agent, as under Herdr).
     /// A process list that was not read, or does not hold the process asked about, is an
     /// error: never "it started nothing".
     #[test]
@@ -1174,6 +1172,8 @@ Filesystem     1024-blocks      Used Available Capacity  Mounted on
         }
     }
 
+    /// What `PS` printed on the same Mac, a few of its lines (one agent's shell made the
+    /// parent of its agent, as under Herdr).
     const PS_DARWIN: &str = "    1     0  22960 /sbin/launchd
  6286     1   1200 /usr/bin/login
  6287  6286   1328 -zsh
