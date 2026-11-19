@@ -653,8 +653,8 @@ Where it is: `crates/workriver/src/caller.rs` (the chain with `libproc` / `procf
 snippet and its parser, the caller socket and its proofs, the pins' file, the rule
 `place_of`); `App::who`, `App::place`, `App::one_place`, `App::see_roots`, `App::here` and
 `guard` in `serve.rs`; `Runtime::roots` in the core, implemented in `herdr.rs` (with the
-refusals' words) and routed per machine in `machines.rs`; `Daemon::send` and
-`Daemon::process` in `main.rs`. Tests: `caller::tests`, `herdr::tests`, the last block of
+refusals' words) and routed per machine in `machines.rs`; `Daemon::send`, `Daemon::process`
+and `from_socket` in `main.rs`. Tests: `caller::tests`, `herdr::tests`, the last block of
 `src/tests.rs` (every line of 3.1's prototype, every row of 3.2, rule 5, the other machine,
 a proof that expires under `ask --wait`), and `tests/caller.rs` (the real binary, the real
 socket, real processes, a stand-in for Herdr's socket; the u9#2 incident among them).
@@ -699,6 +699,13 @@ Where it differs from the text above, or says more:
     costs no ssh run per place (u11#3 P3-2; 3.3 names rules 1, 2 and 5 there).
   - The identity code says place, not pane (`place_of`, `App::place`, `App::one_place`), as
     the runtime interface does (u11#3 P3-3); the refusals' words stay in `herdr.rs`.
+  - Tests give the service its process reader as they give it a runtime (u11#3 P3-1, as 3.2
+    says): `Options` carries `procs` (`caller::System` for the service) and `callers` (the
+    proofs it hands out). The CLI's `Daemon` has a `prove` field: `from_socket` for the
+    CLI, a made-up process at its place for the in-process tests (`Kernel` in
+    `src/tests.rs`). No test twin of `Daemon::process`, no registry of services by port;
+    those tests run the real `Daemon::process` and `Daemon::send` (the new proof on
+    `expired`), and `tests/caller.rs` the real socket.
 - Verified on Linux (Debian, `rust:slim` container): the `procfs` chain, the snippet's
   `/proc` branch and the socket's peer pid (`caller::tests`). **Still not verified:** a real
   followed machine over ssh, a Herdr restart against rule 5, tmux inside a pane.

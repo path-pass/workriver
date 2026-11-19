@@ -195,6 +195,10 @@ pub struct Options {
     pub allow_as: bool,
     /// Read the machines' CPU and memory (the service; tests that do not look at it do not).
     pub sample: bool,
+    /// What the service reads of processes: the system's (`caller::System`), or a test's.
+    pub procs: Arc<dyn Procs>,
+    /// The proofs it gives on its caller socket, each for a process's chain.
+    pub callers: Arc<Callers>,
 }
 
 /// Which listener a request came in on: this machine's, or a followed machine's own (the
@@ -283,15 +287,9 @@ impl Default for Waits {
     }
 }
 
-/// As the tests start it: callers may say which agent they are.
-#[cfg(test)]
-pub async fn serve(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, warning: Option<String>, waits: Waits) -> anyhow::Result<()> {
-    serve_with(listener, store, runtime, Options { warning, waits, machines: None, allow_as: true, sample: false }).await
-}
-
 /// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
 pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as, sample } = options;
+    let Options { warning, waits, machines, allow_as, sample, procs, callers } = options;
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
@@ -301,11 +299,6 @@ pub async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime
     if allow_as {
         tracing::warn!("WORKRIVER_ALLOW_AS is set: any local caller may record as any agent (--as), and a command in no pane needs no terminal to be the user's. For tests and development only.");
     }
-    let callers = Arc::new(Callers::default());
-    #[cfg(not(test))]
-    let procs: Arc<dyn Procs> = Arc::new(caller::System);
-    #[cfg(test)]
-    let procs: Arc<dyn Procs> = testing::register(port, &callers);
     caller::listen(&store_home, callers.clone(), procs.clone())?;
     let metrics = Metrics::new(store_home.clone(), scan::Runner::Local, machines.clone(), runtime.clone(), changed.clone(), crate::metrics::STEP);
     if sample {
@@ -2008,8 +2001,6 @@ async fn listen(app: &Shared, label: &str, port: u16) -> Result<u16, ApiError> {
     if let Some(m) = &app.machines {
         m.listening(label, local_port);
     }
-    #[cfg(test)]
-    testing::also(local_port, app.port);
     Ok(local_port)
 }
 
@@ -2908,109 +2899,4 @@ pub async fn bind(port: u16) -> anyhow::Result<tokio::net::TcpListener> {
     tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .with_context(|| format!("cannot listen on 127.0.0.1:{port}; is workriver (or something else) already running there? Pick another with --port"))
-}
-
-/// What a test reaches of a running service: its proofs, and the processes it believes in.
-#[cfg(test)]
-pub mod testing {
-    use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{Arc, Mutex};
-
-    use super::scan;
-    use crate::caller::{Callers, Chain, Proc, Procs};
-
-    /// Processes as tests make them up: a chain per process id; any other id is a root
-    /// (a place's shell) that runs until it is killed.
-    #[derive(Default)]
-    pub struct FakeProcs {
-        chains: Mutex<HashMap<u32, Chain>>,
-        dead: Mutex<Vec<u32>>,
-    }
-
-    impl FakeProcs {
-        pub fn set(&self, pid: u32, chain: Chain) {
-            self.chains.lock().unwrap().insert(pid, chain);
-        }
-        pub fn kill(&self, pid: u32) {
-            self.dead.lock().unwrap().push(pid);
-        }
-    }
-
-    impl Procs for FakeProcs {
-        fn chain(&self, _: Option<&scan::Runner>, pid: u32) -> Result<Chain, String> {
-            if self.dead.lock().unwrap().contains(&pid) {
-                return Ok(vec![]);
-            }
-            if let Some(c) = self.chains.lock().unwrap().get(&pid) {
-                return Ok(c.clone());
-            }
-            Ok(if pid >= ROOTS { vec![shell(pid)] } else { vec![] })
-        }
-    }
-
-    #[derive(Clone)]
-    pub struct Handle {
-        pub callers: Arc<Callers>,
-        pub procs: Arc<FakeProcs>,
-        fetched: Arc<AtomicU32>,
-    }
-
-    static SERVICES: Mutex<Option<HashMap<u16, Handle>>> = Mutex::new(None);
-
-    /// Ids from here up are roots, by the name of their place.
-    const ROOTS: u32 = 1_000_000;
-
-    /// The shell at the root of `place`, in every test's runtime.
-    pub fn root(place: &str) -> u32 {
-        ROOTS + place.bytes().fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) % 1_000_000
-    }
-
-    fn shell(pid: u32) -> Proc {
-        Proc { pid, parent: 1, tty: Some(format!("tty{pid}")), start: 1, name: "zsh".into() }
-    }
-
-    pub(super) fn register(port: u16, callers: &Arc<Callers>) -> Arc<FakeProcs> {
-        let procs = Arc::new(FakeProcs::default());
-        SERVICES.lock().unwrap().get_or_insert_default().insert(port, Handle { callers: callers.clone(), procs: procs.clone(), fetched: Arc::default() });
-        procs
-    }
-
-    /// A machine's listener leads to the same service.
-    pub(super) fn also(port: u16, main: u16) {
-        let h = of(main);
-        SERVICES.lock().unwrap().get_or_insert_default().insert(port, h);
-    }
-
-    /// The service listening on `port` (its own, or one of its machines').
-    pub fn of(port: u16) -> Handle {
-        SERVICES.lock().unwrap().as_ref().and_then(|s| s.get(&port).cloned()).unwrap_or_else(|| panic!("no service on port {port}"))
-    }
-
-    /// A proof for a process with this chain, as the caller socket would give it.
-    pub fn proof(port: u16, chain: Chain) -> String {
-        of(port).callers.admit(chain).unwrap()
-    }
-
-    /// How many proofs the test CLI fetched from the service on `port`.
-    pub fn fetched(port: u16) -> u32 {
-        of(port).fetched.load(Ordering::Relaxed)
-    }
-
-    /// What the CLI's `Daemon` sends in a test: a made-up `workriver` process at `place` (a
-    /// child of its root's shell; none: at a terminal at no place), as a proof for this
-    /// machine's listener and as a process id for a machine's. None: no service on that port.
-    pub fn mint(port: u16, place: Option<&str>) -> Option<(String, u32)> {
-        static NEXT: AtomicU32 = AtomicU32::new(1000);
-        let h = SERVICES.lock().unwrap().as_ref().and_then(|s| s.get(&port).cloned())?;
-        let pid = NEXT.fetch_add(1, Ordering::Relaxed);
-        let me = |parent: u32, tty: String| Proc { pid, parent, tty: Some(tty), start: 5, name: "workriver".into() };
-        let chain = match place {
-            Some(p) => vec![me(root(p), format!("tty{}", root(p))), shell(root(p))],
-            None => vec![me(1, "ttys000".into())],
-        };
-        h.procs.set(pid, chain.clone());
-        h.fetched.fetch_add(1, Ordering::Relaxed);
-        Some((h.callers.admit(chain)?, pid))
-    }
 }

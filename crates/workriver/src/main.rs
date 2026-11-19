@@ -861,7 +861,8 @@ fn main() -> anyhow::Result<()> {
             if let Some(w) = &warning {
                 tracing::warn!("{w}");
             }
-            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as: std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1"), sample: true };
+            let allow_as = std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1");
+            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(caller::System), callers: std::sync::Arc::default() };
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port.unwrap_or(DEFAULT_PORT)).await?;
@@ -886,7 +887,7 @@ fn main() -> anyhow::Result<()> {
         _ => {}
     }
     let place = herdr::place_from_env();
-    let d = Daemon { port: port_of(cli.port), place, home: Some(core::data_dir()) };
+    let d = Daemon { port: port_of(cli.port), place, home: Some(core::data_dir()), prove: std::sync::Arc::new(from_socket) };
     if cli.actor.as_deref() == Some("user") {
         bail!("--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on");
     }
@@ -1354,6 +1355,11 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// How the CLI shows the service which process it is: the proof of its process (fetched
+/// anew when `fresh`) and its process id. The CLI's own: `from_socket`.
+type Prover = std::sync::Arc<dyn Fn(&Daemon, bool) -> (Option<String>, u32) + Send + Sync>;
+
+#[derive(Clone)]
 struct Daemon {
     port: u16,
     /// The pane the CLI finds in its environment: sent along (as a header and nowhere
@@ -1361,6 +1367,20 @@ struct Daemon {
     place: Option<String>,
     /// Where the user token is, if this machine has it; read for each request.
     home: Option<PathBuf>,
+    prove: Prover,
+}
+
+/// The proof of this process from the service's caller socket (the kernel tells the
+/// service who connected), fetched once per command, and this process's id. Where there
+/// is no such socket (a machine workriver follows: the service is elsewhere) only the id
+/// goes along, and the service checks it over there.
+fn from_socket(d: &Daemon, fresh: bool) -> (Option<String>, u32) {
+    static PROOF: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    let mut kept = PROOF.lock().unwrap();
+    if fresh || kept.is_none() {
+        *kept = d.home.as_deref().and_then(caller::fetch);
+    }
+    (kept.clone(), std::process::id())
 }
 
 const DEFAULT_PORT: u16 = 47820;
@@ -1420,36 +1440,9 @@ impl Daemon {
         seen.clone().map_err(|e| self.unreachable(e))
     }
 
-    /// The proof of this process from the service's caller socket (the kernel tells the
-    /// service who connected), fetched once per command, and this process's id. Where there
-    /// is no such socket (a machine workriver follows: the service is elsewhere) only the id
-    /// goes along, and the service checks it over there.
-    #[cfg(not(test))]
+    /// The proof of this process and its id, as `prove` gives them.
     fn process(&self, fresh: bool) -> (Option<String>, u32) {
-        static PROOF: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-        let mut kept = PROOF.lock().unwrap();
-        if fresh || kept.is_none() {
-            *kept = self.home.as_deref().and_then(caller::fetch);
-        }
-        (kept.clone(), std::process::id())
-    }
-
-    /// In tests the client is a made-up process at `place` of the service on `port`.
-    #[cfg(test)]
-    fn process(&self, fresh: bool) -> (Option<String>, u32) {
-        type Kept = std::collections::HashMap<(u16, Option<String>), (String, u32)>;
-        static KEPT: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
-        let mut kept = KEPT.lock().unwrap();
-        let kept = kept.get_or_insert_default();
-        let key = (self.port, self.place.clone());
-        if fresh || !kept.contains_key(&key) {
-            // A service a test has just started may not be there yet.
-            let made = (0..100).find_map(|_| serve::testing::mint(self.port, self.place.as_deref()).or_else(|| { std::thread::sleep(Duration::from_millis(50)); None }));
-            if let Some(made) = made {
-                kept.insert(key.clone(), made);
-            }
-        }
-        kept.get(&key).map_or((None, 0), |(proof, pid)| (Some(proof.clone()), *pid))
+        (self.prove)(self, fresh)
     }
 
     /// Sends a request (`make` adds the headers it is given) with everything that shows the
