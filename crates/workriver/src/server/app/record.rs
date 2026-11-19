@@ -211,3 +211,13 @@ impl App {
         }
     }
 }
+
+/// The machine a unit is put on: the one named ("local": the one workriver runs on), else
+/// the caller's.
+fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
+    match named {
+        Some("local") => None,
+        Some(m) => Some(m.to_string()),
+        None => callers.map(str::to_string),
+    }
+}

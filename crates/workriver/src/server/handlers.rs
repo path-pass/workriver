@@ -319,26 +319,6 @@ impl App {
         });
     }
 
-    /// Who and where the CLI is: the agent at the place its process runs at (recorded by name
-    /// the first time), that place's group, and the group's current intent, if any. At no
-    /// place: nobody, in no group. Answered without the token, but not without a process.
-    fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
-        if caller.machine.is_none() && caller.chain.is_none() {
-            return Err(ApiError(StatusCode::UNAUTHORIZED, words::NO_PROCESS.into()));
-        }
-        let chain = self.chain_of(caller)?;
-        let Some(root) = self.place(caller, &chain)? else {
-            return Ok(json!({ "actor": null, "name": null, "group": null, "intent": null }));
-        };
-        let at = &root.at;
-        if let Some(a) = &at.agent {
-            self.one_place(caller.machine.as_deref(), &root, a, &chain)?;
-            self.seen(a)?;
-        }
-        let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
-        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
-    }
-
     /// A project as given (`p1`, or a folder) as its folder: a registered project's, or the
     /// repository's top folder for a repository outside every registered project.
     pub(super) fn project_folder(&self, given: &str, machine: Option<&str>) -> Result<String, ApiError> {

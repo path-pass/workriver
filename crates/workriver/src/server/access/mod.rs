@@ -4,6 +4,7 @@
 // behind a request (caller.rs), where each session was first seen (pins.rs).
 use axum::http::StatusCode;
 use serde::Deserialize;
+use serde_json::json;
 use workriver_core::runtime::{Root, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Principal};
 
@@ -40,16 +41,6 @@ pub(super) struct Caller {
     pub(super) chain: Option<Chain>,
     /// On a machine's listener: the process id the CLI gives (its word; checked over there).
     pub(super) pid: Option<u32>,
-}
-
-/// The machine a unit is put on: the one named ("local": the one workriver runs on), else
-/// the caller's.
-pub(super) fn place(named: Option<&str>, callers: Option<&str>) -> Option<String> {
-    match named {
-        Some("local") => None,
-        Some(m) => Some(m.to_string()),
-        None => callers.map(str::to_string),
-    }
 }
 
 /// Who reads is found as for what is recorded (`App::who`); a reader names nothing but,
@@ -121,7 +112,7 @@ impl App {
     /// The calling process and its parents. This machine: as read when it connected to the
     /// caller socket. Another machine: read there now, at every request, for the process id
     /// the CLI gives; that is the caller's word, so the process must be running and be the CLI.
-    pub(super) fn chain_of(&self, caller: &Caller) -> Result<Chain, ApiError> {
+    fn chain_of(&self, caller: &Caller) -> Result<Chain, ApiError> {
         let Some(m) = caller.machine.as_deref() else {
             return caller.chain.clone().ok_or_else(|| self.no_process(caller));
         };
@@ -137,7 +128,7 @@ impl App {
 
     /// The place the calling process is at, if any (rule 1): a request that names another
     /// place than the one its process runs at is refused, with both said.
-    pub(super) fn place(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
+    fn place(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
         let machine = caller.machine.as_deref();
         let named = caller.place.as_deref();
         let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, words::cannot_ask(named.unwrap_or("?"), &e.to_string()));
@@ -181,7 +172,7 @@ impl App {
     /// and anyone may tell it. So a session is its first place's while that place's root runs:
     /// the same session from another root is refused. `chain`: the caller's, which holds the
     /// root's own line.
-    pub(super) fn one_place(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
+    fn one_place(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
         // A place where the runtime knows no shell has no root that stays: it is not pinned.
         let mine = root.shell.and_then(|pid| chain.iter().find(|p| p.pid == pid).cloned().or_else(|| {
             let runner = machine.map(|m| self.runner(Some(m))).transpose().ok()?;
@@ -256,5 +247,25 @@ impl App {
             Principal::Agent { session, .. } => store.state().blind_view(session).unwrap_or_else(|| store.state().clone()),
             _ => store.state().clone(),
         })
+    }
+
+    /// Who and where the CLI is: the agent at the place its process runs at (recorded by name
+    /// the first time), that place's group, and the group's current intent, if any. At no
+    /// place: nobody, in no group. Answered without the token, but not without a process.
+    pub(super) fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
+        if caller.machine.is_none() && caller.chain.is_none() {
+            return Err(ApiError(StatusCode::UNAUTHORIZED, words::NO_PROCESS.into()));
+        }
+        let chain = self.chain_of(caller)?;
+        let Some(root) = self.place(caller, &chain)? else {
+            return Ok(json!({ "actor": null, "name": null, "group": null, "intent": null }));
+        };
+        let at = &root.at;
+        if let Some(a) = &at.agent {
+            self.one_place(caller.machine.as_deref(), &root, a, &chain)?;
+            self.seen(a)?;
+        }
+        let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
+        Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
     }
 }

@@ -27,7 +27,6 @@ use crate::server::delivery;
 use crate::server::files;
 use crate::server::views::{self as snapshot, Cache};
 
-use crate::server::access::*;
 use crate::server::handlers::*;
 use crate::server::http::*;
 use crate::server::Waits;
