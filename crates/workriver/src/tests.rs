@@ -3910,3 +3910,6 @@ fn a_long_command_outlives_its_proof() {
     assert!(started.elapsed() >= std::time::Duration::from_millis(2300));
     assert!(kernel.fetched.load(std::sync::atomic::Ordering::Relaxed) - before >= 3, "a new proof was fetched each time the old one had expired");
 }
+
+// Guards that hold today's behaviour while the files move (docs/design/restructure.md).
+mod guards;
