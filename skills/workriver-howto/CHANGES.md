@@ -5,21 +5,28 @@ Newest first. A manager that was already running reads this once after an update
 ## 2026-11-19
 
 - **Architecture reviews** (managers, reviewers): a third reviewer, `workriver task add u1
-  --kind review --reviewer architecture-review --after <n>`: after a design it reviews the
-  solution (boundaries, where data and state live, dependency direction, deployment,
-  replaceability), after an implementation how the code is organized (layers, modules,
-  responsibilities, duplication). Review, fix, review again until a round has no P1 or P2;
-  at most 3 rounds, then a decide gate for the user. (`architecture-review`)
-- **Every review checks against the project's own rules** (reviewers, managers): its
-  `CLAUDE.md` / `AGENTS.md` and the design tasks before it, never a style of workriver's or
-  the reviewer's; a finding names the rule it holds the work to. (worker guide,
-  `architecture-review`, `blind-review`, `deciding-findings`)
+  --kind review --reviewer architecture-review --after <n>`: after a design that sets the
+  shape of the work it reviews the solution (boundaries, where data and state live,
+  dependency direction, deployment, replaceability), after an implementation that added or
+  moved more than a little code how the code is organized (layers, modules,
+  responsibilities, duplication). Review, fix, review again until a round has no accepted
+  P1 or P2; at most 3 rounds, then a decide gate for the user. A design's own decide gate
+  comes after its architecture review. (`architecture-review`)
+- **What a review judges by** (reviewers, managers): what is wrong (a bug, a hole, a
+  broken test) is a finding by itself; how the code should look or be organized is judged by
+  the project's own rules (its `CLAUDE.md` / `AGENTS.md`) and the design before it, never
+  by a style of workriver's or the reviewer's, and such a finding names the rule. (worker
+  guide, `architecture-review`, `blind-review`, `deciding-findings`)
 - **A design's output goes with the tasks after it** (workers, managers): `workriver task
-  show` of a task that comes after a delivered design or research task of its unit, however
-  many tasks between, prints each one's note and files under "Decided before this task":
-  follow it; if it seems wrong, `contract`. So does every task of an intent for the
-  delivered design tasks of the intent's research units (the design for the whole intent).
-  `--json`: `decided`. A blind task is shown none of it until it delivers. (`design-gate`)
+  show` prints, under "Designed and found before this task", the note and files of each
+  delivered design or research task the task comes after in its unit, however many tasks
+  between, and of the delivered design tasks of the intent's research units (the design for
+  the whole intent). A design says whether the user confirmed it ("confirmed by the user in
+  u1#2", "not confirmed yet (gate u1#2)", "not confirmed by the user in u1#2"); research
+  reads "found by"; a review right after a design is told it is "the design under review".
+  A design revised by a later design task (`--cause` on its gate's or review's finding) is
+  no longer shown: only the newest, once delivered. If a design seems wrong: `contract`.
+  `--json`: `earlier`. A blind task is shown none of it until it delivers. (`design-gate`)
 
 ## 2026-11-18
 

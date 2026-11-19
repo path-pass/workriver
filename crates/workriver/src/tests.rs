@@ -2036,13 +2036,13 @@ fn a_task_shown_in_full() {
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "7" }], "agent": "s-rev" })).unwrap();
     for n in [7, 8] {
         let shown: crate::show::TaskShow = serde_json::from_value(fix.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
-        assert_eq!(shown.decided.iter().map(|d| (d.from.as_str(), d.kind.as_str(), d.delivered_by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("u1#6", "design", "rev", "Tokens live in the store.\nThe page never holds one.")], "u1#{n}");
-        assert!(shown.decided[0].files[0].ends_with("00000000000000d6.md"), "{:?}", shown.decided[0].files);
+        assert_eq!(shown.earlier.iter().map(|d| (d.from.as_str(), d.kind.as_str(), d.delivered_by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("u1#6", "design", "rev", "Tokens live in the store.\nThe page never holds one.")], "u1#{n}");
+        assert!(shown.earlier[0].files[0].ends_with("00000000000000d6.md"), "{:?}", shown.earlier[0].files);
         let text = crate::show::text(&shown);
-        assert!(text.contains("Decided before this task (follow it; if it seems wrong, see `workriver guide how contract`):\n  from u1#6 (design \"Where tokens live\"), written by rev:\n      Tokens live in the store.\n      The page never holds one.\n    Files: "), "{text}");
+        assert!(text.contains("Designed and found before this task (each design says whether the user confirmed it; if one seems wrong, see `workriver guide how contract`):\n  from u1#6 (design \"Where tokens live\"), designed by rev:\n      Tokens live in the store.\n      The page never holds one.\n    Files: "), "{text}");
     }
     assert!(crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%238").unwrap()).unwrap()).starts_with("u1#8  review  todo"));
-    assert!(s.decided.is_empty() && !text.contains("Decided before"));
+    assert!(s.earlier.is_empty() && !text.contains("before this task"));
     // A design for the whole intent, in a research unit, reaches the code unit's tasks once
     // delivered, before the unit's own; its research does not, nor a design not delivered.
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Sessions", "kind": "research" })).unwrap();
@@ -2050,16 +2050,36 @@ fn a_task_shown_in_full() {
     rev.append("", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "Three stores compared." })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "One session store", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Not yet", "inputs": [{ "from": "2" }], "agent": "s-rev" })).unwrap();
-    let from = |r: &str| serde_json::from_value::<crate::show::TaskShow>(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap().decided.iter().map(|d| d.from.clone()).collect::<Vec<_>>();
+    let from = |r: &str| serde_json::from_value::<crate::show::TaskShow>(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap().earlier.iter().map(|d| d.from.clone()).collect::<Vec<_>>();
     assert_eq!(from("u1#7"), ["u1#6"]);
     rev.append("", "task.delivered", json!({ "unit": "u2", "task": 2, "note": "Sessions go in SQLite." })).unwrap();
     assert_eq!((from("u1#7"), from("u1#3"), from("u2#3"), from("u2#2")), (vec!["u2#2".to_string(), "u1#6".into()], vec!["u2#2".to_string()], vec!["u2#1".to_string(), "u2#2".into()], vec!["u2#1".to_string()]));
     let wide = crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%233").unwrap()).unwrap());
-    assert!(wide.contains("  from u2#2 (design \"One session store\"), written by rev: Sessions go in SQLite.\n"), "{wide}");
+    assert!(wide.contains("  from u2#2 (design \"One session store\"), designed by rev: Sessions go in SQLite.\n"), "{wide}");
+    // Research reads as found; a design says where its gate stands.
+    let show = |r: &str| crate::show::text(&serde_json::from_value(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap());
+    assert!(show("u2#3").contains("  from u2#1 (research \"Compare stores\"), found by rev: Three stores compared.\n"));
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "6" }] })).unwrap();
+    assert!(show("u1#7").contains("  from u1#6 (design \"Where tokens live\"), designed by rev, not confirmed yet (gate u1#9):\n"), "{}", show("u1#7"));
+    // The user does not confirm: said so; the design that answers the gate's finding takes
+    // the old one's place for every task after either, once delivered, and alone.
+    user.append("", "gate.submitted", json!({ "unit": "u1", "task": 9, "result": "problem", "findings": [{ "severity": "P2", "problem": "Tokens belong in the keychain" }] })).unwrap();
+    assert!(show("u1#7").contains("designed by rev, not confirmed by the user in u1#9:\n"));
+    user.append("", "finding.decided", json!({ "unit": "u1", "task": 9, "finding": "P2-1", "decision": "accept" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Tokens in the keychain", "causes": [{ "task": 9, "findings": ["P2-1"] }], "agent": "s-rev" })).unwrap();
+    assert_eq!(from("u1#7"), ["u2#2"], "the refused design is no longer shown");
+    rev.append("", "task.delivered", json!({ "unit": "u1", "task": 10, "note": "Tokens go in the keychain." })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm again", "inputs": [{ "from": "10" }] })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Use the keychain", "inputs": [{ "from": "11" }], "agent": "s-fix" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "10" }], "agent": "s-rev" })).unwrap();
+    assert_eq!((from("u1#12"), from("u1#7")), (vec!["u2#2".to_string(), "u1#10".into()], vec!["u2#2".to_string()]));
+    assert!(show("u1#13").contains("  from u1#10 (design \"Tokens in the keychain\", the design under review), designed by rev, not confirmed yet (gate u1#11): Tokens go in the keychain.\n"), "{}", show("u1#13"));
+    user.append("", "gate.submitted", json!({ "unit": "u1", "task": 11, "result": "done" })).unwrap();
+    assert!(show("u1#12").contains("  from u1#10 (design \"Tokens in the keychain\"), designed by rev, confirmed by the user in u1#11: Tokens go in the keychain.\n"), "{}", show("u1#12"));
     // A blind task after the same designs is told nothing of them.
-    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "7" }], "agent": "s-sec", "blind": true, "text": "Review the move" })).unwrap();
-    let own = sec.get("/api/task?task=u1%239").unwrap();
-    assert!(own.get("decided").is_none() && !crate::show::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "12" }], "agent": "s-sec", "blind": true, "text": "Review the move" })).unwrap();
+    let own = sec.get("/api/task?task=u1%2314").unwrap();
+    assert!(own.get("earlier").is_none() && !crate::show::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
 }

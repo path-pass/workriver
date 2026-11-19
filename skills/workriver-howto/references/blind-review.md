@@ -10,9 +10,11 @@ repository, branch and range, "run `workriver task show <ref>`" (its own task on
 the worker instructions: not the implementer's note, the evidence, other findings, or your
 opinion. Tell it to read the diff, not the commit messages. Use an agent new to the unit.
 
-Like every review it checks against the project's own rules (its `CLAUDE.md` /
-`AGENTS.md`), not a style of its own. The design before it is other work and stays hidden
-too: a decision the review must hold the code to goes in `--text`.
+As in every review, what is wrong (a bug, a hole, a broken test) is a finding by itself;
+how the code should look or be organized is judged by the project's own rules (its
+`CLAUDE.md` / `AGENTS.md`) and the design, never by a style of the reviewer's, and such a
+finding names the rule. The design before it is other work and stays hidden too: a decision
+the review must hold the code to goes in `--text`.
 
 **You will see:** `[blind]` on the board; the reviewer's own board starts "blind review:
 other work is hidden until you deliver" and gives the `git diff` command.

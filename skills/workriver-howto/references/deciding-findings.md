@@ -10,9 +10,10 @@ intent's manager decides**; the delivery message lists them.
     workriver finding decide u1#4 P3-2 reject --note "Not a risk here"       # or: defer
     workriver task add u1 --title "<outcome>" --cause 4:P2-1 --agent <name>  # accepted / revised
 
-A review's findings hold the work to the project's own rules (`CLAUDE.md` / `AGENTS.md`)
-and the design before it; one that only states a taste, with no rule behind it, can be
-rejected or deferred.
+What is wrong (a bug, a hole, a broken test) is a finding by itself. How the code should
+look or be organized is judged by the project's own rules (`CLAUDE.md` / `AGENTS.md`) and
+the design before it, and such a finding names the rule: one of that kind with no rule
+behind it is a taste, to reject or defer.
 
 **You will see:** `recorded`. The user can decide any finding instead and change yours:
 "The user rejected finding … This changes the earlier decision …" - stop or adjust the work
