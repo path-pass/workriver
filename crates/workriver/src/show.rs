@@ -110,25 +110,12 @@ pub struct EarlierShow {
     /// The reader is a review that follows this design directly: it is what it reviews.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub under_review: bool,
-}
-
-/// The designs a task comes after most closely: through its inputs, no further back than
-/// the first design on each way.
-fn designs_before(state: &State, owner: &str, n: u32) -> Vec<u32> {
-    let (mut seen, mut found) = (std::collections::BTreeSet::new(), vec![]);
-    let mut next: Vec<u32> = state.task(owner, n).map(|t| t.inputs.iter().filter_map(|i| i.from.parse().ok()).collect()).unwrap_or_default();
-    while let Some(k) = next.pop() {
-        let Ok(b) = state.task(owner, k) else { continue };
-        if !seen.insert(k) {
-            continue;
-        }
-        if b.kind == core::TaskKind::Design {
-            found.push(k);
-        } else {
-            next.extend(b.inputs.iter().filter_map(|i| i.from.parse::<u32>().ok()));
-        }
-    }
-    found
+    /// The reader is the design task that revises this design.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub revises: bool,
+    /// A design task not delivered yet revises it: that task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revised_in: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -269,35 +256,22 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             })
         })
         .collect();
-    // The delivered design and research tasks it comes after, however many tasks between,
-    // oldest first. A blind reader's state holds no other task, so it gets none.
-    let mut before = std::collections::BTreeSet::new();
-    let mut next: Vec<u32> = t.inputs.iter().filter_map(|i| i.from.parse().ok()).collect();
-    while let Some(k) = next.pop() {
-        if let (true, Ok(b)) = (before.insert(k), state.task(unit, k)) {
-            next.extend(b.inputs.iter().filter_map(|i| i.from.parse::<u32>().ok()));
+    // What was designed and found before it. Which design is current and which gate asks
+    // about it are the model's rules (`State::revised_by`, `State::design_gate`); here only
+    // what is shown. A blind reader's state holds no other task or unit, so it gets none.
+    let said = |owner: &str, b: &Task| -> Option<EarlierShow> {
+        if b.done.is_none() || b.dropped.is_some() {
+            return None;
         }
-    }
-    // A design that answers a finding revises the design that finding was about: the one
-    // the finding's task (a gate, a review) comes after, or is. Only the newest is shown.
-    let revised: Vec<(String, u32)> = state
-        .units
-        .iter()
-        .flat_map(|x| x.tasks.iter().filter(|b| b.kind == core::TaskKind::Design && b.dropped.is_none()).flat_map(|b| b.causes.iter().map(|c| (c.unit.clone().unwrap_or_else(|| x.id.clone()), c.task))))
-        .flat_map(|(owner, k)| {
-            let own = state.task(&owner, k).is_ok_and(|f| f.kind == core::TaskKind::Design);
-            let hit = if own { vec![k] } else { designs_before(state, &owner, k) };
-            hit.into_iter().map(move |d| (owner.clone(), d))
-        })
-        .collect();
-    // The decide gate that asks about a design: the latest one coming after it.
-    let gate_of = |owner: &str, d: u32| {
-        let gates = state.tasks_of(owner).into_iter().flatten().filter(|g| g.gate == Some(core::GateKind::Decide) && g.dropped.is_none());
-        gates.filter(|g| designs_before(state, owner, g.n).contains(&d)).max_by_key(|g| g.n)
-    };
-    let said = |owner: &str, b: &Task| {
-        let gate = (b.kind == core::TaskKind::Design).then(|| gate_of(owner, b.n)).flatten();
-        EarlierShow {
+        let design = b.kind == core::TaskKind::Design;
+        let revisions = if design { state.revised_by(owner, b.n) } else { vec![] };
+        let revises = revisions.iter().any(|(o, r)| o == unit && r.n == n);
+        // A delivered revision takes its place, except for the task that revises it.
+        if !revises && revisions.iter().any(|(_, r)| r.done.is_some()) {
+            return None;
+        }
+        let gate = design.then(|| state.design_gate(owner, b.n)).flatten();
+        Some(EarlierShow {
             from: format!("{owner}#{}", b.n),
             kind: name(&b.kind),
             title: b.title.clone(),
@@ -306,16 +280,17 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             files: files(&b.attachments),
             gate: gate.map(|g| format!("{owner}#{}", g.n)),
             confirmed: gate.and_then(|g| g.result).map(|r| r == core::GateResult::Done),
-            under_review: t.kind == core::TaskKind::Review && b.kind == core::TaskKind::Design && owner == unit && t.inputs.iter().any(|i| i.from == b.n.to_string()),
-        }
+            under_review: design && t.kind == core::TaskKind::Review && owner == unit && t.inputs.iter().any(|i| i.from == b.n.to_string()),
+            revises,
+            revised_in: revisions.iter().find(|(o, r)| !(o == unit && r.n == n)).filter(|_| !revises).map(|(o, r)| format!("{o}#{}", r.n)),
+        })
     };
-    let shown_one = |owner: &str, b: &&Task| b.done.is_some() && b.dropped.is_none() && !revised.iter().any(|(o, k)| o == owner && *k == b.n);
-    // First what was designed for the intent as a whole, in its research units: no input
-    // reaches those from another unit. (A blind reader's state holds no other unit.)
+    // First what was designed for the intent as a whole, in its research units (no input
+    // reaches those from another unit), then the design and research tasks it comes after.
     let wide = state.units.iter().filter(|x| x.kind == core::UnitKind::Research && x.id != unit && x.intent == intent_id);
     let earlier = wide
-        .flat_map(|x| x.tasks.iter().filter(|b| shown_one(&x.id, b)).filter(|b| b.kind == core::TaskKind::Design).map(|b| said(&x.id, b)))
-        .chain(before.iter().filter_map(|k| state.task(unit, *k).ok()).filter(|b| shown_one(unit, b)).filter(|b| matches!(b.kind, core::TaskKind::Design | core::TaskKind::Research)).map(|b| said(unit, b)))
+        .flat_map(|x| x.tasks.iter().filter(|b| b.kind == core::TaskKind::Design).filter_map(|b| said(&x.id, b)))
+        .chain(state.before(unit, n).iter().filter_map(|k| state.task(unit, *k).ok()).filter(|b| matches!(b.kind, core::TaskKind::Design | core::TaskKind::Research)).filter_map(|b| said(unit, b)))
         .collect();
     // Commits come from git, through the snapshot the page reads too.
     let shown = ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == unit);
@@ -489,7 +464,13 @@ pub fn text(s: &TaskShow) -> String {
         let _ = writeln!(out, "Designed and found before this task (each design says whether the user confirmed it; if one seems wrong, see `workriver guide how contract`):");
         for d in &s.earlier {
             let title = if d.title.is_empty() { String::new() } else { format!(" \"{}\"", d.title) };
-            let review = if d.under_review { ", the design under review" } else { "" };
+            let review = if d.under_review {
+                ", the design under review"
+            } else if d.revises {
+                ", the design you revise"
+            } else {
+                ""
+            };
             let by = if d.kind == "research" { "found" } else { "designed" };
             let gate = match (&d.gate, d.confirmed) {
                 (Some(g), Some(true)) => format!(", confirmed by the user in {g}"),
@@ -497,6 +478,7 @@ pub fn text(s: &TaskShow) -> String {
                 (Some(g), None) => format!(", not confirmed yet (gate {g})"),
                 (None, _) => String::new(),
             };
+            let gate = gate + &d.revised_in.as_ref().map(|r| format!(", being revised in {r}")).unwrap_or_default();
             let mut b = String::new();
             block(&mut b, &format!("from {} ({}{title}{review}), {by} by {}{gate}", d.from, d.kind, d.delivered_by), if d.note.is_empty() { "(no note)" } else { &d.note });
             if !d.files.is_empty() {

@@ -2067,8 +2067,12 @@ fn a_task_shown_in_full() {
     assert!(show("u1#7").contains("designed by rev, not confirmed by the user in u1#9:\n"));
     user.append("", "finding.decided", json!({ "unit": "u1", "task": 9, "finding": "P2-1", "decision": "accept" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Tokens in the keychain", "causes": [{ "task": 9, "findings": ["P2-1"] }], "agent": "s-rev" })).unwrap();
-    assert_eq!(from("u1#7"), ["u2#2"], "the refused design is no longer shown");
+    // Until the revision is delivered the old design stays, said to be under revision; the
+    // task that revises it is shown it as such, also afterwards.
+    assert!(show("u1#7").contains("designed by rev, not confirmed by the user in u1#9, being revised in u1#10:\n"), "{}", show("u1#7"));
+    assert!(show("u1#10").contains("  from u1#6 (design \"Where tokens live\", the design you revise), designed by rev, not confirmed by the user in u1#9:\n"), "{}", show("u1#10"));
     rev.append("", "task.delivered", json!({ "unit": "u1", "task": 10, "note": "Tokens go in the keychain." })).unwrap();
+    assert_eq!((from("u1#7"), from("u1#10")), (vec!["u2#2".to_string()], vec!["u2#2".to_string(), "u1#6".into()]), "the refused design is no longer shown but to its revision");
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm again", "inputs": [{ "from": "10" }] })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Use the keychain", "inputs": [{ "from": "11" }], "agent": "s-fix" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "10" }], "agent": "s-rev" })).unwrap();
@@ -2076,9 +2080,15 @@ fn a_task_shown_in_full() {
     assert!(show("u1#13").contains("  from u1#10 (design \"Tokens in the keychain\", the design under review), designed by rev, not confirmed yet (gate u1#11): Tokens go in the keychain.\n"), "{}", show("u1#13"));
     user.append("", "gate.submitted", json!({ "unit": "u1", "task": 11, "result": "done" })).unwrap();
     assert!(show("u1#12").contains("  from u1#10 (design \"Tokens in the keychain\"), designed by rev, confirmed by the user in u1#11: Tokens go in the keychain.\n"), "{}", show("u1#12"));
+    // A later question to merge is not the design's gate: open or refused, the design stays confirmed.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge u1 into main?", "inputs": [{ "from": "12" }] })).unwrap();
+    assert!(show("u1#12").contains("designed by rev, confirmed by the user in u1#11: "), "{}", show("u1#12"));
+    fix.append("", "task.delivered", json!({ "unit": "u1", "task": 12, "note": "In the keychain" })).unwrap();
+    user.append("", "gate.submitted", json!({ "unit": "u1", "task": 14, "result": "problem", "findings": [{ "severity": "P2", "problem": "Not yet" }] })).unwrap();
+    assert!(show("u1#12").contains("designed by rev, confirmed by the user in u1#11: "), "{}", show("u1#12"));
     // A blind task after the same designs is told nothing of them.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "12" }], "agent": "s-sec", "blind": true, "text": "Review the move" })).unwrap();
-    let own = sec.get("/api/task?task=u1%2314").unwrap();
+    let own = sec.get("/api/task?task=u1%2315").unwrap();
     assert!(own.get("earlier").is_none() && !crate::show::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);

@@ -8,8 +8,8 @@ review like those (findings, decisions, blind or not).
     workriver task add u1 --kind review --reviewer architecture-review --after 1 --agent arch --text "The design of u1#1 against CLAUDE.md"
     workriver task add u1 --kind review --reviewer architecture-review --after 3 --agent arch --text "How u1#3 is organized, against CLAUDE.md and the design u1#1"
 
-A design's decide gate comes **after** its architecture review (and after the revised design
-of a later round), never beside it: the user confirms what the review has been through.
+A design's decide gate comes **after** its architecture review (in a later round: after the
+review of the revised design), never beside it: the user confirms what the review has been through.
 
     workriver task add u1 --kind gate --gate decide --title "Confirm the design" --after 2   # 2: the review of design 1
 

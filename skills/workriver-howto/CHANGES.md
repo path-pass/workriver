@@ -24,8 +24,11 @@ Newest first. A manager that was already running reads this once after an update
   the whole intent). A design says whether the user confirmed it ("confirmed by the user in
   u1#2", "not confirmed yet (gate u1#2)", "not confirmed by the user in u1#2"); research
   reads "found by"; a review right after a design is told it is "the design under review".
-  A design revised by a later design task (`--cause` on its gate's or review's finding) is
-  no longer shown: only the newest, once delivered. If a design seems wrong: `contract`.
+  A design's gate is the decide gate reached from it through reviews only, so a later
+  question to merge is not it. A design task that answers a finding (`--cause`) of the
+  design, its review or its gate revises it: it is shown the old one as "the design you
+  revise", and once delivered takes its place (until then the old one reads "being revised
+  in u1#5"). A design answering a finding about the code revises nothing. If a design seems wrong: `contract`.
   `--json`: `earlier`. A blind task is shown none of it until it delivers. (`design-gate`)
 
 ## 2026-11-18

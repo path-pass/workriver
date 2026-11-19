@@ -47,6 +47,62 @@ fn an_architecture_review_round_trips() {
     assert_eq!(name(&Reviewer::ArchitectureReview), "architecture-review");
 }
 
+/// What a task comes after, which gate asks about a design, and which design revises it.
+#[test]
+fn designs_their_gates_and_their_revisions() {
+    let (_dir, mut s) = temp_store();
+    fn put(s: &mut Store, actor: &str, v: serde_json::Value) {
+        s.append(&actor.into(), body(v)).unwrap();
+    }
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    let found = |n: u32| json!({"kind": "task.delivered", "body": {"unit": "u1", "task": n, "findings": [{"severity": "P2", "problem": "x", "impact": "y", "where": ["a"]}]}});
+    put(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
+    put(&mut s, "boss", task("design", &["start"], json!({}))); // 1: an older design, unrelated
+    put(&mut s, "boss", task("design", &["1"], json!({}))); // 2
+    put(&mut s, "boss", task("review", &["2"], json!({"reviewer": "architecture-review"}))); // 3: of the design
+    put(&mut s, "boss", task("gate", &["3"], json!({"gate": "decide"}))); // 4: confirm design 2
+    put(&mut s, "boss", task("implement", &["4"], json!({}))); // 5
+    put(&mut s, "boss", task("review", &["5"], json!({}))); // 6: of the code
+    put(&mut s, "boss", task("gate", &["6"], json!({"gate": "decide", "title": "Merge?"}))); // 7
+    put(&mut s, "rev", found(3));
+    put(&mut s, "rev", found(6));
+    put(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P2-1", "decision": "accept"}}));
+    put(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 6, "finding": "P2-1", "decision": "accept"}}));
+    let st = |s: &Store| s.state().clone();
+    let state = st(&s);
+    assert_eq!((state.before("u1", 5), state.before("u1", 1), state.before("u1", 99)), (vec![1, 2, 3, 4], vec![], vec![]));
+    // Through reviews only; not through implementing, a gate, or another design.
+    assert_eq!((state.designs_asked("u1", 4), state.designs_asked("u1", 3), state.designs_asked("u1", 2)), (vec![2], vec![2], vec![1]));
+    assert!(state.designs_asked("u1", 7).is_empty() && state.designs_asked("u1", 6).is_empty() && state.designs_asked("u1", 5).is_empty());
+    // A later question to merge is not the design's gate; a design nobody was asked about has none.
+    assert_eq!((state.design_gate("u1", 2).map(|g| g.n), state.design_gate("u1", 1).map(|g| g.n)), (Some(4), None));
+    assert!(state.revised_by("u1", 2).is_empty());
+
+    // A design answering a finding about the code revises nothing.
+    put(&mut s, "boss", task("design", &[], json!({"causes": [{"task": 6, "findings": ["P2-1"]}]}))); // 8
+    assert!(st(&s).revised_by("u1", 2).is_empty() && st(&s).revised_by("u1", 1).is_empty());
+    // One answering the design's review, its gate, or a finding of the design itself does;
+    // not the design before that one, and not once it is dropped.
+    put(&mut s, "boss", task("design", &[], json!({"causes": [{"task": 3, "findings": ["P2-1"]}]}))); // 9
+    let state = st(&s);
+    assert_eq!(state.revised_by("u1", 2).iter().map(|(o, t)| (o.as_str(), t.n)).collect::<Vec<_>>(), [("u1", 9)]);
+    assert!(state.revised_by("u1", 1).is_empty());
+    put(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 4, "result": "problem", "findings": [{"severity": "P2", "problem": "No"}]}}));
+    put(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 4, "finding": "P2-1", "decision": "accept"}}));
+    put(&mut s, "boss", task("design", &[], json!({"causes": [{"task": 4, "findings": ["P2-1"]}]}))); // 10
+    put(&mut s, "user", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 9, "reason": "one is enough"}}));
+    assert_eq!(st(&s).revised_by("u1", 2).iter().map(|(_, t)| t.n).collect::<Vec<_>>(), [10]);
+    // Asked again after the revision: the new design's gate is its own, the old one keeps its.
+    put(&mut s, "boss", task("gate", &["10"], json!({"gate": "decide"}))); // 11
+    let state = st(&s);
+    assert_eq!((state.design_gate("u1", 10).map(|g| g.n), state.design_gate("u1", 2).map(|g| g.n)), (Some(11), Some(4)));
+}
+
 #[test]
 fn rules_assign_ids_and_accept_good_input() {
     let (_dir, mut s) = temp_store();
