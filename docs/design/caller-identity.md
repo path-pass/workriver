@@ -82,8 +82,8 @@ Codex's shared background server, read with `ps` (nothing changed):
 $ ps eww -o command= -p 15525 | tr ' ' '\n' | grep -E '^(HERDR|PWD)'
 HERDR_ENV=1
 HERDR_PANE_ID=wM:p4
-HERDR_SOCKET_PATH=/Users/zhangdongwei/.config/herdr/herdr.sock
-PWD=/Users/zhangdongwei/99_git/workriver/.local/worktrees/ja-ui
+HERDR_SOCKET_PATH=~/.config/herdr/herdr.sock
+PWD=~/99_git/workriver/.local/worktrees/ja-ui
 ```
 
 `herdr pane list` has no `wM:p4` (wM holds p1, pT, p5). The daemon was started on Nov 18 from
