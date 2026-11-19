@@ -1458,7 +1458,7 @@ impl Daemon {
             let (proof, pid) = self.process(fresh);
             let headers = [("authorization", token.clone()), ("x-workriver-place", self.place.clone().unwrap_or_default()), ("x-workriver-caller", proof.unwrap_or_default()), ("x-workriver-pid", pid.to_string())];
             let res = make(&headers).map_err(|e| self.unreachable(e))?;
-            let expired = res.headers().get("x-workriver-caller").is_some_and(|v| v == caller::EXPIRED);
+            let expired = res.headers().get("x-workriver-caller").is_some_and(|v| v == crate::common::wire::EXPIRED);
             if !expired || fresh {
                 return Ok(res);
             }
@@ -1516,8 +1516,8 @@ impl Daemon {
     /// Puts a file into the attachment store, linked to a task (and a finding) if given.
     fn upload(&self, file: &Path, actor: &str, link: Option<(&str, u32, Option<&str>)>) -> anyhow::Result<Value> {
         let bytes = std::fs::read(file).with_context(|| format!("cannot read {}", file.display()))?;
-        if bytes.len() > attachments::MAX {
-            bail!("{} is larger than {} MB, the most workriver stores", file.display(), attachments::MAX / 1024 / 1024);
+        if bytes.len() > crate::common::wire::MAX_ATTACHMENT {
+            bail!("{} is larger than {} MB, the most workriver stores", file.display(), crate::common::wire::MAX_ATTACHMENT / 1024 / 1024);
         }
         self.probe()?;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
@@ -1852,7 +1852,7 @@ fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
 }
 
 /// One task as the service shows it to this caller; none: the task this agent is on.
-fn task_show(d: &Daemon, task: Option<&str>) -> anyhow::Result<show::TaskShow> {
+fn task_show(d: &Daemon, task: Option<&str>) -> anyhow::Result<crate::common::wire::TaskShow> {
     let path = match task {
         Some(t) => {
             task_ref(t)?;
@@ -1946,7 +1946,7 @@ fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
         }
         let n = t.n.to_string();
         let mine = shown(&t_owner(&state, t))["tasks"].as_array().and_then(|ts| ts.iter().find(|x| x["id"] == n.as_str()).cloned());
-        if let Some(s) = mine.and_then(|x| serde_json::from_value::<crate::stall::Stall>(x["stalled"].clone()).ok()) {
+        if let Some(s) = mine.and_then(|x| serde_json::from_value::<crate::common::wire::Stall>(x["stalled"].clone()).ok()) {
             let _ = writeln!(out, "       {}", show::stalled_line(&s));
         }
         out

@@ -12,27 +12,11 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, IntentState, State, Task, TaskKind, TaskState};
 
+use crate::common::wire::Stall;
 use crate::quote;
-
-/// A running task whose agent stopped, as the page, the board and `task show` read it.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Stall {
-    /// Idle (or done) since then; gone: since it was first seen gone (or idle before that).
-    pub since: String,
-    /// The agent is no longer in the runtime.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub gone: bool,
-    /// When the agent itself was reminded of its task.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reminded: Option<String>,
-    /// The reminder did not help (or it is gone): the user (Needs you) and the manager are told.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub escalated: bool,
-}
 
 /// A task being watched: its stall once there is one to show, when the reminder went out (to
 /// measure the wait), and since when its agent is missing from the runtime's reads.

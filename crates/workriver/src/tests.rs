@@ -114,7 +114,7 @@ fn daemon_smoke() {
     // Links for the user: the service's own address, whoever asks.
     let page = format!("http://127.0.0.1:{port}");
     assert_eq!(d.get("/api/status").unwrap()["url"], page.as_str());
-    let shown: crate::show::TaskShow = serde_json::from_value(d.get("/api/task?task=u1%232").unwrap()).unwrap();
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(d.get("/api/task?task=u1%232").unwrap()).unwrap();
     assert_eq!(shown.link, format!("{page}/u1/2"));
     assert!(crate::show::text(&shown).contains(&format!("\nLink: {page}/u1/2\n")));
     let board = crate::board_text(&d, None).unwrap();
@@ -1668,7 +1668,7 @@ fn a_machines_listener_serves_only_agents() {
     std::fs::write(&report, b"found").unwrap();
     there.upload(&report, "", Some((&u, 1, None))).unwrap();
     there.append("", "task.delivered", json!({ "unit": u, "task": 1, "note": "Found it" })).unwrap();
-    let shown: crate::show::TaskShow = serde_json::from_value(there.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(there.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
     assert_eq!(shown.link, format!("http://127.0.0.1:{port}/{u}/1"), "the user's page, not a link through the tunnel");
     let link = &shown.output.as_ref().unwrap().files[0];
     assert!(link.starts_with("`workriver attach fetch ") && link.ends_with(".txt`"), "a command: only the CLI shows which process asks: {link}");
@@ -1676,7 +1676,7 @@ fn a_machines_listener_serves_only_agents() {
     let name = link.trim_matches('`').rsplit(' ').next().unwrap().to_string();
     assert_eq!(there.fetch(&name).unwrap(), b"found");
     assert!(kernel.daemon(box_port, None, Some(tmp.path().to_path_buf())).fetch(&name).is_err());
-    let here: crate::show::TaskShow = serde_json::from_value(user.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
+    let here: crate::common::wire::TaskShow = serde_json::from_value(user.get(&format!("/api/task?task={u}%231")).unwrap()).unwrap();
     assert!(here.output.unwrap().files[0].starts_with(&tmp.path().join("attachments").display().to_string()), "a path on this machine");
     // The same view rules over there: on a blind task, only its own.
     assert!(there.get("/api/state").unwrap()["reduced"].is_null());
@@ -1900,7 +1900,7 @@ fn units_on_another_machine() {
     assert_eq!(user.get("/api/unit/u1/code").unwrap(), code, "texts as last read");
     let worker = ws["sessions"].as_array().unwrap().iter().find(|x| x["agent"] == "worker").unwrap().clone();
     assert_eq!((worker["unreachable"].as_bool(), worker["state"].as_str()), (Some(true), Some("unknown")), "as last seen, in no state: {worker}");
-    let shown: crate::show::TaskShow = serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap();
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert!(shown.place.unwrap().disconnected_since.is_some());
     // A message for an agent there is refused at once, saying why.
     let started = std::time::Instant::now();
@@ -2218,18 +2218,18 @@ fn a_task_shown_in_full() {
     // No task named: the one this agent is on, or which ones when several.
     assert!(fix.get("/api/task").unwrap_err().to_string().contains("you have no task in progress"));
     fix.append("", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
-    let mine: crate::show::TaskShow = serde_json::from_value(fix.get("/api/task").unwrap()).unwrap();
+    let mine: crate::common::wire::TaskShow = serde_json::from_value(fix.get("/api/task").unwrap()).unwrap();
     assert_eq!(mine.reference, "u1#3");
     fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
     let several = fix.get("/api/task").unwrap_err().to_string();
     assert!(several.contains("you are on several tasks: u1#1 \"Check tokens\", u1#3 \"Expire tokens\""), "{several}");
     assert!(user.get("/api/task").unwrap_err().to_string().contains("name the task"));
-    let first: crate::show::TaskShow = serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap();
+    let first: crate::common::wire::TaskShow = serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert_eq!(first.questions.iter().map(|q| (q.question.as_str(), q.asked_by.as_str())).collect::<Vec<_>>(), [("Which clock?", "boss")]);
     assert!(crate::show::text(&first).contains("Questions:\n  q1 asked by boss ("), "{}", crate::show::text(&first));
 
     let shown = fix.get("/api/task?task=u1%233").unwrap();
-    let s: crate::show::TaskShow = serde_json::from_value(shown.clone()).unwrap();
+    let s: crate::common::wire::TaskShow = serde_json::from_value(shown.clone()).unwrap();
     assert_eq!(s.text, long, "untruncated");
     assert_eq!((s.kind.as_str(), s.state.as_str(), s.written_by.as_str(), s.agent.as_deref(), s.intent.about.as_str()), ("implement", "running", "boss", Some("fix"), "Safe login."));
     assert_eq!(s.place.as_ref().map(|p| (p.machine.clone(), p.branch.as_str(), p.base.as_str())), Some((None, "feat/f", "main")));
@@ -2257,7 +2257,7 @@ fn a_task_shown_in_full() {
 
     // A blind agent: its own task in full; nothing else.
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{ "from": "1" }], "agent": "s-sec", "blind": true, "text": "Find a way around the check" })).unwrap();
-    let own: crate::show::TaskShow = serde_json::from_value(sec.get("/api/task?task=u1%235").unwrap()).unwrap();
+    let own: crate::common::wire::TaskShow = serde_json::from_value(sec.get("/api/task?task=u1%235").unwrap()).unwrap();
     assert_eq!((own.text.as_str(), own.blind, own.causes.len(), own.commits.len()), ("Find a way around the check", true, 0, 0));
     assert!(sec.get("/api/task?task=u1%233").unwrap_err().to_string().contains("no task"), "another task is hidden");
     assert!(sec.get("/api/task?task=u1%232").is_err());
@@ -2270,7 +2270,7 @@ fn a_task_shown_in_full() {
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Move tokens", "inputs": [{ "from": "6" }], "agent": "s-fix" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "7" }], "agent": "s-rev" })).unwrap();
     for n in [7, 8] {
-        let shown: crate::show::TaskShow = serde_json::from_value(fix.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
+        let shown: crate::common::wire::TaskShow = serde_json::from_value(fix.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
         assert_eq!(shown.earlier.iter().map(|d| (d.from.as_str(), d.kind.as_str(), d.delivered_by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("u1#6", "design", "rev", "Tokens live in the store.\nThe page never holds one.")], "u1#{n}");
         assert!(shown.earlier[0].files[0].ends_with("00000000000000d6.md"), "{:?}", shown.earlier[0].files);
         let text = crate::show::text(&shown);
@@ -2285,7 +2285,7 @@ fn a_task_shown_in_full() {
     rev.append("", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "Three stores compared." })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "One session store", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Not yet", "inputs": [{ "from": "2" }], "agent": "s-rev" })).unwrap();
-    let from = |r: &str| serde_json::from_value::<crate::show::TaskShow>(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap().earlier.iter().map(|d| d.from.clone()).collect::<Vec<_>>();
+    let from = |r: &str| serde_json::from_value::<crate::common::wire::TaskShow>(fix.get(&format!("/api/task?task={}", r.replace('#', "%23"))).unwrap()).unwrap().earlier.iter().map(|d| d.from.clone()).collect::<Vec<_>>();
     assert_eq!(from("u1#7"), ["u1#6"]);
     rev.append("", "task.delivered", json!({ "unit": "u2", "task": 2, "note": "Sessions go in SQLite." })).unwrap();
     assert_eq!((from("u1#7"), from("u1#3"), from("u2#3"), from("u2#2")), (vec!["u2#2".to_string(), "u1#6".into()], vec!["u2#2".to_string()], vec!["u2#1".to_string(), "u2#2".into()], vec!["u2#1".to_string()]));
@@ -2411,7 +2411,7 @@ fn units_finish() {
     let lost: Vec<Vec<String>> = u["tasks"].as_array().unwrap().iter().map(|t| t["lostCommits"].as_array().map(|l| l.iter().map(|c| c.as_str().unwrap().to_string()).collect()).unwrap_or_default()).collect();
     assert_eq!(lost.iter().map(Vec::len).collect::<Vec<_>>(), [0, 0, 1], "only the one not carried over, once: {lost:?}");
     assert_eq!(u["commits"].as_array().unwrap().iter().filter(|c| c["rebasedFrom"].is_string()).count(), 3, "{u}");
-    let shown: crate::show::TaskShow = serde_json::from_value(w.get("/api/task?task=u1%231").unwrap()).unwrap();
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(w.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert!(shown.lost_commits.is_empty() && shown.commits.len() == 3 && shown.commits.iter().all(|c| c.rebased_from.is_some()));
     assert!(crate::show::text(&shown).contains("(rebased from "));
     let board = crate::board_text(&boss, None).unwrap();

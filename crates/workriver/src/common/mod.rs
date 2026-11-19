@@ -3,3 +3,4 @@
 pub mod diagnostics;
 pub mod home;
 pub mod process;
+pub mod wire;

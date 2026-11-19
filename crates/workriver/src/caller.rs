@@ -19,10 +19,6 @@ use crate::auth;
 /// How long a proof stands for its process.
 pub const PROOF: Duration = Duration::from_secs(30);
 
-/// What the service answers a proof it no longer has, in the header the proof came in: the
-/// CLI then fetches a new one and repeats its request.
-pub const EXPIRED: &str = "expired";
-
 /// The place a process is at: the one whose root is the process or the nearest of its
 /// parents; else the one whose root has the same controlling terminal (a job left behind by
 /// `( cmd & )` keeps it); else none. `tty_of`: the terminal of a root.

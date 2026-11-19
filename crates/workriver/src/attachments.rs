@@ -5,9 +5,6 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// ponytail: the largest file taken; raise it, or stream uploads, if real files need more.
-pub const MAX: usize = 50 * 1024 * 1024;
-
 /// A stored file's path, from its id and its original name (for the extension).
 pub fn path(home: &Path, id: &str, name: &str) -> PathBuf {
     let ext = Path::new(name).extension().map(|e| e.to_string_lossy().to_lowercase()).filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()));

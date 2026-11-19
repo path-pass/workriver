@@ -485,7 +485,7 @@ struct Task {
     dropped: Option<core::Closed>,
     /// Running, and its agent stopped without delivering (idle too long, or gone).
     #[serde(skip_serializing_if = "Option::is_none")]
-    stalled: Option<crate::stall::Stall>,
+    stalled: Option<crate::common::wire::Stall>,
 }
 
 #[derive(Serialize)]
@@ -920,7 +920,7 @@ impl Names {
 /// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
 /// (or done) the same way; `stalls`: the
 /// running tasks whose agent stopped, by (unit or intent, task).
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::stall::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
+pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();

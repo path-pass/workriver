@@ -1619,7 +1619,7 @@ fn router(app: Shared, via: Via) -> Router {
         .route("/api/thread/end", post(end_thread))
         .route("/api/message", post(message))
         .route("/api/messages/read", post(messages_read))
-        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
+        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(crate::common::wire::MAX_ATTACHMENT)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
         .route_layer(middleware::from_fn(timing))
@@ -1657,7 +1657,7 @@ fn machine_router(app: Shared, via: Via) -> Router {
         .route("/api/here", post(here))
         .route("/api/append", post(append))
         .route("/api/ask", post(ask_why))
-        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(attachments::MAX)))
+        .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(crate::common::wire::MAX_ATTACHMENT)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
         .route("/api/workspace", get(workspace))
@@ -1711,7 +1711,7 @@ async fn guard(State(app): State<Shared>, Extension(via): Extension<Via>, mut re
             (None, Some(proof)) => match app.callers.chain(&proof) {
                 Some(chain) => (Some(chain), None),
                 // A proof stands for thirty seconds; a command that lasts longer fetches another.
-                None => return (StatusCode::UNAUTHORIZED, [("x-workriver-caller", caller::EXPIRED)], "the proof of the calling process has expired; the `workriver` CLI fetches a new one and tries again").into_response(),
+                None => return (StatusCode::UNAUTHORIZED, [("x-workriver-caller", crate::common::wire::EXPIRED)], "the proof of the calling process has expired; the `workriver` CLI fetches a new one and tries again").into_response(),
             },
         };
         (text("x-workriver-place"), chain, pid)
@@ -1834,7 +1834,7 @@ struct ShowQuery {
 
 /// One task with everything its reader may see (`workriver task show`). Scoped like every
 /// read; attachments are paths on this machine and links through the tunnel on another.
-async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::show::TaskShow>, ApiError> {
+async fn task_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<ShowQuery>) -> Result<Json<crate::common::wire::TaskShow>, ApiError> {
     blocking(move || {
         let r = Reader { named: q.named, light: true, have: String::new() };
         let who = app.who(&caller, r.named.as_deref())?;
