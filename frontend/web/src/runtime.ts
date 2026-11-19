@@ -103,9 +103,13 @@ export interface Delivery { step: DeliveryStep; to: string }
 /** Where an agent will find an attachment once the daemon stores it. A placeholder for now. */
 export const attachmentPath = (a: Attachment) => `<workriver data dir>/attachments/${a.id}${a.name.match(/\.\w+$/)?.[0] ?? '.png'}`
 
-/** Take a picture the user attached. Later this uploads it; for now the page keeps it. */
+/** The largest file the service's store takes (attachments.rs `MAX`), in bytes. */
+export const MAX_ATTACHMENT = 50 * 1024 * 1024
+
+/** Take a file the user attached (a gate's picture, a file for a question): the page keeps
+ *  it until what it goes with is sent, and only then is it uploaded. */
 export function attach(file: File): Attachment {
-  return { id: Math.random().toString(36).slice(2, 10), name: file.name || 'pasted.png', url: URL.createObjectURL(file) }
+  return { id: Math.random().toString(36).slice(2, 10), name: file.name || 'pasted.png', url: URL.createObjectURL(file), type: file.type || 'application/octet-stream' }
 }
 export const detach = (a: Attachment) => { if (a.url.startsWith('blob:')) URL.revokeObjectURL(a.url) }
 
@@ -143,7 +147,7 @@ export function gateMessage(gate: Task, r: GateResult): string {
   )
 }
 
-/** Puts a picture the page holds into the service's store; its id. */
+/** Puts a file the page holds into the service's store; its id. */
 async function upload(a: Attachment): Promise<string> {
   const blob = await (await fetch(a.url)).blob()
   const res = await fetch(`/api/attachments?name=${encodeURIComponent(a.name)}`, { method: 'POST', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
@@ -196,8 +200,12 @@ export function notify(title: string, body: string | undefined, key: string, age
 
 /** Asks the service a question about a task, or with none about the unit as a whole (live
  * mode): it records it, and starts the thread's temporary agent or gives it to the one already there. */
-export async function askWhy(unit: Unit, task: Task | null, text: string, context: AskContext[], thread: string | null, conclude = false) {
-  await post('/api/ask', { unit: unit.id, task: task ? Number(task.id) : 0, text, context, thread, conclude })
+export async function askWhy(unit: Unit, task: Task | null, text: string, context: AskContext[], thread: string | null, conclude = false, files: Attachment[] = []) {
+  // Files attached in the box are stored now, and the question points at them by their ids
+  // (the same content twice is one file).
+  const stored = await Promise.all(files.map(async a => ({ kind: 'attachment' as const, label: a.name, id: await upload(a) })))
+  const attached = stored.filter((c, k) => stored.findIndex(x => x.id === c.id) === k)
+  await post('/api/ask', { unit: unit.id, task: task ? Number(task.id) : 0, text, context: [...context, ...attached], thread, conclude })
 }
 
 /** Writes to a workspace's manager (by the intent it runs, or the workspace's label): the

@@ -440,6 +440,17 @@ looked at now and then.
   changed some of them come along as chips) and puts the cursor in its box, so the code can
   be asked about with no task picked; lines no task changed are asked about the unit (the
   task is unpicked). A chip can be left out for this question (its ×).
+  Files go with a question too, any kind (a screenshot, a log, Markdown, a PDF), several at
+  once: dropped anywhere on the Ask panel (the browser never opens a dropped file in the
+  page's place, whichever conversation shows), pasted into the box, or picked with the small
+  attach button in the box, before Send. Each shows at once as a chip after the others (the
+  attach glyph, its name, a × that takes it out). As a gate's pictures, the page holds them
+  until the question is sent and they are stored only then, so one taken out is never
+  stored; one over the store's 50 MB is refused at once, in a red line above the box naming
+  it. The answering agent is given each file's path in the store (a link, for an agent on
+  another machine). In the conversation they show under the question as attachments do
+  everywhere: pictures as thumbnails, other files as chips, opening in the viewer. Only the
+  user attaches; the manager conversation takes no files.
   `?` (outside a field) does the same with picked lines, and otherwise opens the panel on
   Ask; Enter sends, Shift+Enter breaks the line. On a gate – the user's own task – the
   question goes to the agent that asked for it (the agent of the task the gate follows; with

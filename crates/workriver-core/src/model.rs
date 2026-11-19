@@ -524,7 +524,8 @@ pub struct AskContext {
     /// "task", "finding", "file", "lines" or "attachment".
     pub kind: String,
     pub label: String,
-    /// attachment: its id in the store (one shown with the task, see `State::attachments_of`).
+    /// attachment: its id in the store (one shown with the task, see `State::attachments_of`,
+    /// or one the user stored for the question).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1154,6 +1155,9 @@ pub struct Attachment {
     pub size: u64,
     pub by: String,
     pub at: String,
+    /// The user stored it (first, or the same content again): a question of theirs may point at it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub user: bool,
 }
 
 /// The user's message to a workspace's manager, and what it answered.
@@ -2465,14 +2469,15 @@ impl State {
                 }
                 // An attachment it points at is one shown with that task (with the unit: with one
                 // of its tasks): the temporary agent is given its path, so nothing else gets out.
+                // The user's question also points at a file the user stored (attached in the page).
                 let shown: Vec<&str> = match about {
                     Some(_) => self.attachments_of(&unit, task),
                     None => self.unit(&unit)?.tasks.iter().flat_map(|t| self.attachments_of(&unit, t.n)).collect(),
                 };
                 for c in context.iter().filter(|c| c.kind == "attachment") {
                     let a = c.id.as_deref().unwrap_or_default();
-                    if !shown.contains(&a) {
-                        return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a question points only at what is shown with its task"));
+                    if !shown.contains(&a) && !(user && self.attachments.iter().any(|x| x.id == a && x.user)) {
+                        return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a question points only at what is shown with its task, or at a file the user attached to it"));
                     }
                 }
                 let id = format!("q{}", self.questions.len() + 1);
@@ -3090,8 +3095,10 @@ impl State {
                 }
             }
             AttachmentAdded { id, name, mime, size, unit, task, finding } => {
-                if !self.attachments.iter().any(|a| &a.id == id) {
-                    self.attachments.push(Attachment { id: id.clone(), name: name.clone(), mime: mime.clone(), size: *size, by: e.actor.clone(), at: at.clone() });
+                let user = e.actor == "user";
+                match self.attachments.iter_mut().find(|a| &a.id == id) {
+                    Some(a) => a.user |= user,
+                    None => self.attachments.push(Attachment { id: id.clone(), name: name.clone(), mime: mime.clone(), size: *size, by: e.actor.clone(), at: at.clone(), user }),
                 }
                 if let (Some(u), Some(n)) = (unit, task)
                     && let Some(t) = self.task_mut(u, *n)

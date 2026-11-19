@@ -362,6 +362,8 @@ export const zhCN: OneForm<typeof en> = {
     label: '关于这项工作的问题',
     placeholder: '问 {{who}} 的 agent 为什么…',
     send: '发送',
+    attach: '添加文件（也可以粘贴，或拖到这个面板上）',
+    tooLarge: '未添加，超过 {{max}} MB：{{names}}',
     remove: '不带上 {{label}}',
     how: '由临时 agent 根据记录和代码回答；{{agent}} 空闲时才会去问它。',
     howAlone: '由临时 agent 根据记录和代码回答。',

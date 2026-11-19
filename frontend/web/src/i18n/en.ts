@@ -373,6 +373,8 @@ export const en = {
     label: 'Question about this work',
     placeholder: 'Ask {{who}}’s agent why…',
     send: 'Send',
+    attach: 'Attach files (or paste them, or drop them on this panel)',
+    tooLarge: 'Not attached, larger than {{max}} MB: {{names}}',
     remove: 'Leave {{label}} out',
     how: 'A temporary agent answers from the records and the code; it asks {{agent}} only when {{agent}} is idle.',
     howAlone: 'A temporary agent answers from the records and the code.',

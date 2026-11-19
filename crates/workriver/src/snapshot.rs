@@ -651,6 +651,9 @@ struct Turn {
     by: Option<String>,
     question: String,
     context: Vec<core::AskContext>,
+    /// The stored files its context points at (the user's own, or the task's), to open in the page.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<AttachmentOut>,
     answer: Option<String>,
     /// Who answered (the agent's name, or "user") and when.
     #[serde(rename = "answerBy", skip_serializing_if = "Option::is_none")]
@@ -717,6 +720,7 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                         by: (q.by != "user").then(|| names.of(&q.by)),
                         question: q.text.clone(),
                         context: q.context.clone(),
+                        attachments: attachments_of(state, &q.context.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>()),
                         answer: q.answer.clone(),
                         // The agent started for it is known by the name it was given.
                         answer_by: q.answered_by.as_ref().map(|a| q.name.clone().filter(|_| q.agent.as_ref() == Some(a)).unwrap_or_else(|| names.of(a))),

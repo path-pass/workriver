@@ -57,7 +57,8 @@ pub fn follow_up(state: &State, q: &Question, home: &Path) -> String {
 }
 
 /// The findings, files, lines and attachments a question points at. An attachment is named
-/// by the store's record (the rules let a question point only at one shown with its task) and
+/// by the store's record (the rules let a question point only at one shown with its task, or
+/// one the user attached to the question in the page) and
 /// given as its path in the store, which `App::send` turns into a link for another machine.
 fn pointed(state: &State, q: &Question, home: &Path) -> Vec<String> {
     let stored = |id: &Option<String>| id.as_ref().and_then(|id| state.attachments.iter().find(|a| &a.id == id));

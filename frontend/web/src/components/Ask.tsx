@@ -5,15 +5,16 @@
 // so an agent at work is never interrupted.
 // Manager: the user's messages to a workspace's manager, typed into its terminal, and what
 // it replied (`workriver reply`).
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { askeeOf, baseName, finderLabel, findingsOf, ms, type Lines } from '@/data'
 import { contentLang, useT } from '@/i18n'
-import { focusAgent } from '@/runtime'
-import type { AskContext, Intent, ManagerMessage, Session, Thread, Turn, Task, Unit } from '@/types'
+import { attach, detach, focusAgent, MAX_ATTACHMENT } from '@/runtime'
+import type { AskContext, Attachment, Intent, ManagerMessage, Session, Thread, Turn, Task, Unit } from '@/types'
 import { Choice } from './Choice'
 import { ChipName, Icon, Mark, Prose, Tip, Who } from './bits'
+import { Thumbs } from './Inputs'
 
 /** What a conclusion request says to the agent; content, not UI text. */
 const CONCLUDE = 'Draft a conclusion of this discussion.'
@@ -25,8 +26,9 @@ export interface Talk {
   lines: Lines | null
   /** Questions asked in this sitting, by node id ('' for the unit itself), after the recorded ones. */
   asked: Record<string, Turn[]>
-  /** `node`: the task asked about, or null for the unit; `thread`: the conversation it continues, or null for a new one. */
-  onAsk: (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude?: boolean) => void
+  /** `node`: the task asked about, or null for the unit; `thread`: the conversation it continues, or null for a new one;
+   *  `files`: what the user attached in the box, still held by the page. */
+  onAsk: (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude?: boolean, files?: Attachment[]) => void
   /** The intent on screen: its page, or the open unit's. */
   intent?: string
   /** Set to now to show the conversation with the manager. */
@@ -58,7 +60,11 @@ export const isField = (el: EventTarget | null) =>
 /** An answer: short Markdown, its file paths links that pick the file. */
 const Answer = ({ text, onFile }: { text: string; onFile: (path: string) => void }) => <Prose text={text} fold={false} onFile={onFile} />
 
-function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext) => void }) {
+/** A drag that carries files (not text dragged into the box). */
+const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+
+/** What a question is about, as chips; `files` are those attached in the box, each with a × that takes it out. */
+function Chips({ chips, onDrop, files = [], onRemove }: { chips: AskContext[]; onDrop?: (c: AskContext) => void; files?: Attachment[]; onRemove?: (a: Attachment) => void }) {
   const { t } = useT()
   return (
     <span className="flex flex-wrap gap-1">
@@ -68,6 +74,13 @@ function Chips({ chips, onDrop }: { chips: AskContext[]; onDrop?: (c: AskContext
           {onDrop && c.kind !== 'task' && c.kind !== 'unit' && (
             <button type="button" aria-label={t('ask.remove', { label: c.label })} onClick={() => onDrop(c)}><Icon name="no" className="size-3" /></button>
           )}
+        </span>
+      ))}
+      {files.map(a => (
+        <span key={a.id} className="ctx">
+          <Icon name="attach" className="size-3" />
+          <ChipName name={a.name} />
+          {onRemove && <button type="button" aria-label={t('attach.remove', { name: a.name })} onClick={() => onRemove(a)}><Icon name="no" className="size-3" /></button>}
         </span>
       ))}
     </span>
@@ -131,12 +144,16 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
   const { t } = useT()
   const answered = turn.answer !== null && !turn.conclude
   const by = turn.answerBy === 'user' ? t('ask.you') : turn.answerBy ?? t('ask.answerer')
+  // Stored files it points at open from the turn; what is left of the context stays chips.
+  const stored = turn.attachments ?? []
+  const chips = turn.context.filter(c => !(c.kind === 'attachment' && stored.some(a => a.id === c.id)))
   return (
     <>
       {/* Asked by another agent (through workriver): its mark and name, where the user is "you". */}
       <Mine who={turn.by ? <Named name={turn.by} /> : t('ask.you')} at={turn.at}>
         <p className={turn.conclude ? 'text-ink-2' : 'whitespace-pre-line wrap-anywhere'} lang={turn.conclude ? undefined : contentLang(turn.question)}>{turn.conclude ? t('ask.concludeAsked') : turn.question}</p>
-        {turn.context.length > 0 && <div className="mt-1.5"><Chips chips={turn.context} /></div>}
+        {chips.length > 0 && <div className="mt-1.5"><Chips chips={chips} /></div>}
+        <Thumbs list={stored} />
       </Mine>
       {turn.failed ? (
         <Theirs>
@@ -264,13 +281,15 @@ const LATEST = 3
 /** The last request for the cursor that a box took, so a box shown later does not take it again. */
 let tookFocus = 0
 
-/** The box fixed at the bottom: chips and actions above it, a line under it. Enter sends, Shift+Enter breaks the line. */
-function Box({ label, placeholder, focusAt, above, below, disabled, onSend }: {
-  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; onSend: (text: string) => void
+/** The box fixed at the bottom: chips and actions above it, a line under it. Enter sends, Shift+Enter breaks the line.
+ *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button. */
+function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFiles }: {
+  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
 }) {
   const { t } = useT()
   const [text, setText] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
+  const picker = useRef<HTMLInputElement>(null)
   // Asked for from outside ("Ask why", `?`): the cursor comes here, once per request, and only
   // into a box on screen (the wide panel stays mounted, hidden, on a narrow screen). A frame
   // later, so a sheet opening around it first notes where focus was, and gives it back on close.
@@ -309,7 +328,19 @@ function Box({ label, placeholder, focusAt, above, below, disabled, onSend }: {
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
           }}
+          onPaste={e => {
+            const got = [...e.clipboardData.files]
+            if (onFiles && got.length) { e.preventDefault(); onFiles(got) }
+          }}
         />
+        {onFiles && (
+          <>
+            <Tip text={t('ask.attach')}>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={t('ask.attach')} onClick={() => picker.current?.click()}><Icon name="attach" className="size-3.5" /></Button>
+            </Tip>
+            <input ref={picker} type="file" multiple hidden onChange={e => { onFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
+          </>
+        )}
         <Button size="icon-xs" aria-label={t('ask.send')} disabled={!text.trim() || disabled} onClick={send}><Icon name="send" className="size-3.5" /></Button>
       </div>
       <p className="mt-1.5 text-xs text-ink-2">{below}</p>
@@ -337,8 +368,16 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit | null; n: Task | n
   useEffect(() => { if (managerAt > managerSeen) { managerSeen = managerAt; pickMode('manager') } }, [managerAt])
   // Why about a task, or with none picked about the unit itself (not the intent's own work).
   const about = unit && talk && (n || !unit.intentLevel)
+  // Where a question can be asked, its conversations take the files dropped on the panel.
+  const takeFiles = useRef<((files: File[]) => void) | null>(null)
   return (
-    <section aria-labelledby="side-ask" className="flex min-h-0 flex-1 flex-col">
+    // A file dropped anywhere on the panel is never opened by the browser in the page's place;
+    // it is attached to the question being written, if one can be.
+    <section
+      aria-labelledby="side-ask" className="flex min-h-0 flex-1 flex-col"
+      onDragOver={e => { if (hasFiles(e)) e.preventDefault() }}
+      onDrop={e => { if (hasFiles(e)) { e.preventDefault(); takeFiles.current?.([...e.dataTransfer.files]) } }}
+    >
       <div className="mb-2 flex flex-none items-center gap-2 px-4.5">
         <h2 id="side-ask" className="text-sm font-[650]">{t('ask.why')}</h2>
         <ToggleGroup
@@ -352,13 +391,13 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit | null; n: Task | n
       {mode === 'manager' && talk
         ? <ManagerTalk unit={unit} talk={talk} />
         : about
-          ? <Conversations key={unit.id} unit={unit} n={n} finding={finding} talk={talk} />
+          ? <Conversations key={unit.id} unit={unit} n={n} finding={finding} talk={talk} takeFiles={takeFiles} />
           : <p className="px-4.5 text-sm text-ink-2">{t('ask.empty')}</p>}
     </section>
   )
 }
 
-function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task | null; finding?: string; talk: Talk }) {
+function Conversations({ unit, n, finding, talk, takeFiles }: { unit: Unit; n: Task | null; finding?: string; talk: Talk; takeFiles: RefObject<((files: File[]) => void) | null> }) {
   const { t } = useT()
   const threads = n ? threadsOf(n, talk) : withAsked(unit.threads ?? [], talk.asked[''] ?? [])
   // The box continues the last open conversation, unless the user starts a new one.
@@ -391,6 +430,21 @@ function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task | null;
   useEffect(() => setDropped([]), [chipKey])
   const context = chips.filter(c => !dropped.includes(c.label))
 
+  // Files dropped on the panel, pasted into the box or picked: the page holds them, shown as
+  // chips, until the question is sent (then they are stored); one taken out, or left when
+  // the panel goes away, is let go and never stored. Too large for the store: refused at once.
+  const [files, setFiles] = useState<Attachment[]>([])
+  const [refused, setRefused] = useState<string[]>([])
+  const held = useRef(files)
+  held.current = files
+  useEffect(() => () => held.current.forEach(detach), [])
+  const addFiles = (list: File[]) => {
+    setRefused(list.filter(f => f.size > MAX_ATTACHMENT).map(f => f.name))
+    setFiles(fs => [...fs, ...list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)])
+  }
+  const remove = (a: Attachment) => { detach(a); setFiles(fs => fs.filter(x => x !== a)) }
+  useEffect(() => { takeFiles.current = addFiles; return () => { takeFiles.current = null } })
+
   // One conversation open at a time; the one just asked in stays open. At first, one that
   // still waits for its answer, else the latest.
   const keyOf = (th: Thread, k: number) => th.id || `#${k}`
@@ -405,7 +459,9 @@ function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task | null;
   useEffect(() => { setOpen(firstKey); setOpenLast(false); setAll(false); setFresh(false) }, [n?.id])
   const openKey = openLast && threads.length ? keyOf(threads[threads.length - 1], threads.length - 1) : open
   const send = (q: string) => {
-    talk.onAsk(n, q, context, current?.id || null)
+    talk.onAsk(n, q, context, current?.id || null, false, files)
+    setFiles([])
+    setRefused([])
     setFresh(false)
     // The conversation asked in: the current one, or the new one it starts (the last).
     if (current) { setOpen(keyOf(current, threads.indexOf(current))); setOpenLast(false) } else setOpenLast(true)
@@ -440,11 +496,15 @@ function Conversations({ unit, n, finding, talk }: { unit: Unit; n: Task | null;
         placeholder={placeholder}
         focusAt={talk.focusAt}
         onSend={send}
+        onFiles={addFiles}
         above={
-          <div className="mb-1.5 flex items-start gap-2">
-            <span className="min-w-0 flex-1"><Chips chips={context} onDrop={c => setDropped(d => [...d, c.label])} /></span>
-            {current && <Button variant="ghost" size="xs" className="-my-0.5 flex-none rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button>}
-          </div>
+          <>
+            <div className="mb-1.5 flex items-start gap-2">
+              <span className="min-w-0 flex-1"><Chips chips={context} onDrop={c => setDropped(d => [...d, c.label])} files={files} onRemove={remove} /></span>
+              {current && <Button variant="ghost" size="xs" className="-my-0.5 flex-none rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button>}
+            </div>
+            {refused.length > 0 && <p className="mb-1.5 text-xs text-del wrap-anywhere" role="alert">{t('ask.tooLarge', { names: refused.join(', '), max: MAX_ATTACHMENT / 1024 / 1024 })}</p>}
+          </>
         }
         below={!n ? t('ask.howUnit') : live ? t('ask.how', { agent: askee }) : t('ask.howAlone')}
       />

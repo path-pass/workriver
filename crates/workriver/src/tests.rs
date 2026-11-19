@@ -3082,6 +3082,61 @@ fn asking_about_a_unit() {
     assert!(e.contains("workriver ask <unit>#<n>"), "{e}");
 }
 
+/// Files the user attached in the Ask box go with the question: stored when it is sent, the
+/// answering agent is given each one's path in the store, and the turn shows them. One taken
+/// out before sending was never stored: nothing names it, and a question cannot point at it.
+#[test]
+fn asking_with_files_attached() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Working))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Parser", "agent": "s-w" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+
+    let files = tmp.path().join("files");
+    std::fs::create_dir(&files).unwrap();
+    std::fs::write(files.join("shot.png"), b"\x89PNG asked").unwrap();
+    std::fs::write(files.join("server.log"), b"panic at line 3").unwrap();
+    let shot = d.upload(&files.join("shot.png"), "user", None).unwrap();
+    let log = d.upload(&files.join("server.log"), "user", None).unwrap();
+    let at = |v: &serde_json::Value| json!({ "kind": "attachment", "label": v["name"], "id": v["id"] });
+    // About a task: both files, by their paths in the store.
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "What broke?", "context": [{ "kind": "task", "label": "#1" }, at(&shot), at(&log)] }))).unwrap();
+    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q1").unwrap().1.clone();
+    let store = tmp.path().join("attachments");
+    let (shot_path, log_path) = (store.join(format!("{}.png", shot["id"].as_str().unwrap())), store.join(format!("{}.log", log["id"].as_str().unwrap())));
+    assert!(shot_path.is_file() && log_path.is_file());
+    assert!(prompt.contains(&format!("The question points at: the attachment \"shot.png\" at {}; the attachment \"server.log\" at {}.", shot_path.display(), log_path.display())), "{prompt}");
+    // The turn shows them, to open in the page.
+    let ws = d.get("/api/workspace").unwrap();
+    let turn = &ws["intents"][0]["units"][0]["tasks"][0]["threads"][0]["turns"][0];
+    assert_eq!(turn["attachments"][0], json!({ "id": shot["id"], "name": "shot.png", "url": format!("/api/attachments/{}", shot["id"].as_str().unwrap()), "type": "image/png" }), "{turn}");
+    assert_eq!(turn["attachments"][1]["name"], "server.log");
+    // About the unit, with one of them taken out before sending: only the other is named.
+    d.call("/api/ask", Some(json!({ "unit": "u1", "task": 0, "text": "And this?", "context": [{ "kind": "unit", "label": "Mentions" }, at(&log)] }))).unwrap();
+    wait_until("the unit's question is sent", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q2"));
+    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q2").unwrap().1.clone();
+    assert!(prompt.contains(&format!("The question points at: the attachment \"server.log\" at {}.", log_path.display())) && !prompt.contains("shot.png"), "{prompt}");
+    // A file that never reached the store is gone: no record, and no question points at it.
+    let e = d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "?", "context": [{ "kind": "attachment", "label": "removed.png", "id": "feedfacefeedface" }] }))).unwrap_err().to_string();
+    assert!(e.contains("is not one of u1#1's"), "{e}");
+    assert_eq!(d.get("/api/status").unwrap()["attachments"]["files"], 2);
+    // Only the user attaches to a question: an agent's own upload is not its question's to point at.
+    std::fs::write(files.join("agent.txt"), b"mine").unwrap();
+    let theirs = d.upload(&files.join("agent.txt"), "s-boss", None).unwrap();
+    let e = d.call("/api/ask", Some(json!({ "as": "s-boss", "unit": "u1", "task": 1, "text": "?", "context": [at(&theirs)] }))).unwrap_err().to_string();
+    assert!(e.contains("is not one of u1#1's"), "{e}");
+}
+
 /// The user writes to a workspace's manager from the page: typed into its terminal in
 /// workriver's words with the user's quoted; held while it waits for a person there and
 /// given once free; only that manager replies; not running, it is not delivered.

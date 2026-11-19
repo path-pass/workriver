@@ -317,6 +317,30 @@ fn questions_point_only_at_their_tasks_attachments() {
     assert!(replayed(&s).questions.iter().all(|q| q.context[0].kind == "attachment"));
 }
 
+/// The user's question may also point at a file the user stored for it (dropped, pasted or
+/// picked in the page): about any task, or the unit. An agent's question may not, and nobody
+/// points at a file only an agent stored and no task shows.
+#[test]
+fn the_users_question_points_at_files_the_user_stored() {
+    let (_dir, mut s) = temp_store();
+    seeded(&mut s);
+    let file = |id: &str| json!({"kind": "attachment.added", "body": {"id": id, "name": format!("{id}.log"), "type": "text/plain", "size": 3}});
+    add(&mut s, "user", file("mine")).unwrap();
+    add(&mut s, "agent-a", file("loose")).unwrap();
+    let ask = |task: u32, id: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "text": "What does it say?", "context": [{"kind": "attachment", "label": "x.log", "id": id}]}});
+    add(&mut s, "user", ask(1, "mine")).unwrap();
+    add(&mut s, "user", ask(2, "mine")).unwrap();
+    add(&mut s, "user", ask(0, "mine")).unwrap();
+    assert!(add(&mut s, "agent-a", ask(1, "mine")).unwrap_err().contains("is not one of u1#1's"), "an agent's question");
+    assert!(add(&mut s, "user", ask(1, "loose")).unwrap_err().contains("is not one of u1#1's"), "stored by an agent only");
+    assert!(add(&mut s, "user", ask(1, "never")).unwrap_err().contains("is not one of u1#1's"), "never stored");
+    // The same content stored by an agent first (one file per content): the user's once they store it too.
+    add(&mut s, "user", file("loose")).unwrap();
+    add(&mut s, "user", ask(1, "loose")).unwrap();
+    assert_eq!(s.state().attachments.len(), 2);
+    assert_eq!(replayed(&s).attachments, s.state().attachments);
+}
+
 fn add(s: &mut Store, actor: &str, v: serde_json::Value) -> Result<Event, String> {
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }

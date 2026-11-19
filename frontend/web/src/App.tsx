@@ -288,18 +288,21 @@ export default function App() {
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
 
-  const onAsk = (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude = false) => {
+  const onAsk = (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude = false, files: Attachment[] = []) => {
     if (!ws || !unit) return
     // Questions about the unit itself are kept under ''.
     const at = unit.id, id = node?.id ?? ''
-    const turn: Turn = { question, context, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
+    // Files attached in the box are context too; the sample shows them from the page.
+    const all = [...context, ...files.map(a => ({ kind: 'attachment' as const, label: a.name, id: a.id }))]
+    const turn: Turn = { question, context: all, attachments: MOCK && files.length ? files : undefined, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
     const put = (next: Turn) => setAsked(all => ({ ...all, [at]: { ...all[at], [id]: (all[at]?.[id] ?? []).map(x => (x === turn || x.at === turn.at ? next : x)) } }))
     // With the service, the question and its answer come back with the data; only a refusal
     // to take it stays here.
     if (!MOCK) {
-      askWhy(unit, node, question, context, thread, conclude).catch(e => {
+      // Stored (or refused), the page lets its copies go.
+      askWhy(unit, node, question, context, thread, conclude, files).catch(e => {
         setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), { ...turn, step: undefined, failed: { code: 'runtime-error', reason: String(e) } }] } }))
-      })
+      }).finally(() => files.forEach(detach))
       return
     }
     setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), turn] } }))
@@ -309,7 +312,7 @@ export default function App() {
     const busy = agents(ws).some(a => a.agent === who && a.state === 'working')
     const owner = who ? { agent: who, state: !session || session.ended ? 'ended' as const : busy ? 'busy' as const : 'idle' as const } : null
     let now = turn
-    ask(question, context, owner, step => { now = { ...now, step }; put(now) })
+    ask(question, all, owner, step => { now = { ...now, step }; put(now) })
       .then(r => put({ ...now, ...r, step: undefined }))
   }
   // Messages to managers: the service's, then any it refused (or, with the sample, all of them).

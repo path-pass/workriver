@@ -696,6 +696,8 @@ export interface Turn {
   by?: string;
   question: string;
   context: AskContext[];
+  /** The stored files its context points at (attached to the question, or the task's), to open. */
+  attachments?: Attachment[];
   /** Null while it comes. */
   answer: string | null;
   /** Who answered (an agent's name, or "user") and when; absent in the sample. */
