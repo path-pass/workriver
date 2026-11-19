@@ -3,7 +3,7 @@ use std::process::Command;
 
 use serde_json::json;
 
-use crate::Daemon;
+use crate::cli::Daemon;
 
 fn git(dir: &std::path::Path, args: &[&str]) {
     let ok = Command::new("git")
@@ -117,7 +117,7 @@ fn daemon_smoke() {
     let shown: crate::common::wire::TaskShow = serde_json::from_value(d.get("/api/task?task=u1%232").unwrap()).unwrap();
     assert_eq!(shown.link, format!("{page}/u1/2"));
     assert!(crate::show::text(&shown).contains(&format!("\nLink: {page}/u1/2\n")));
-    let board = crate::board_text(&d, None).unwrap();
+    let board = crate::cli::board_text(&d, None).unwrap();
     assert!(board.contains(&format!("i1 Chat\n  link: {page}/i1\n")) && board.contains(&format!("\n    link: {page}/u1\n")), "{board}");
     // Another Host is turned away, whatever the path.
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -868,7 +868,7 @@ fn agents_ask_each_other() {
 
     // --wait gives up with a clear message when nobody answers in time.
     d.call("/api/ask", Some(json!({ "as": "s-front", "unit": "u1", "task": 1, "text": "Unanswered?" }))).unwrap();
-    let err = crate::wait_answer(&d, "q2", std::time::Duration::from_secs(1)).unwrap_err().to_string();
+    let err = crate::cli::wait_answer(&d, "q2", std::time::Duration::from_secs(1)).unwrap_err().to_string();
     assert!(err.contains("no answer to q2 within 1 s"), "{err}");
 }
 
@@ -928,7 +928,7 @@ fn attachments_round_trip() {
     let trace = files.join("trace.txt");
     std::fs::write(&findings, json!([{ "severity": "P2", "problem": "Login fails", "impact": "No entry", "where": ["login.ts"], "attachments": [trace] }]).to_string()).unwrap();
     let evidence = format!("npx playwright test => failed: 1 failed => {}", files.join("report.html").display());
-    crate::deliver(&d, "s-t", "u1#1", "See shots".into(), &[evidence], Some(findings.to_string_lossy().into_owned()), false).unwrap();
+    crate::cli::deliver(&d, "s-t", "u1#1", "See shots".into(), &[evidence], Some(findings.to_string_lossy().into_owned()), false).unwrap();
     assert_eq!(std::fs::read_dir(&inbox).unwrap().count(), 0, "the folder is emptied");
     let state: workriver_core::State = serde_json::from_value(d.get("/api/state").unwrap()).unwrap();
     let t = state.task("u1", 1).unwrap();
@@ -1068,7 +1068,7 @@ fn replays_a_copied_database() {
 /// The cause forms the CLI takes, and the external id.
 #[test]
 fn cli_causes_and_external_ids() {
-    use crate::{parse_cause, parse_external};
+    use crate::cli::{parse_cause, parse_external};
     assert_eq!(parse_cause("4:P2-1,P3-1").unwrap(), json!({ "task": 4, "findings": ["P2-1", "P3-1"] }));
     assert_eq!(parse_cause("u1#4:P2-1").unwrap(), json!({ "unit": "u1", "task": 4, "findings": ["P2-1"] }));
     assert_eq!(parse_cause("f3,f12").unwrap(), json!({ "task": 0, "findings": ["f3", "f12"] }));
@@ -1443,11 +1443,11 @@ fn only_the_user_is_the_user() {
     assert_eq!(user.call("/api/backlog/merge", Some(merge)).unwrap()["kind"], "intent.merged");
     assert!(user.get("/api/state").unwrap()["intents"][2]["reason"] == "merged into i2");
     // The manager sees what was merged: the note, line by line, under the goal on the board.
-    assert!(crate::board_text(&boss, Some("i2")).unwrap().contains("  note:\n    Merged from i3: Split off\n"));
+    assert!(crate::cli::board_text(&boss, Some("i2")).unwrap().contains("  note:\n    Merged from i3: Split off\n"));
     // The merged one is off the whole board, and shown with why when asked for.
-    let all = crate::board_text(&boss, None).unwrap();
+    let all = crate::cli::board_text(&boss, None).unwrap();
     assert!(!all.contains("i3 Split off") && all.contains("1 dropped or merged intents not shown"), "{all}");
-    assert!(crate::board_text(&boss, Some("i3")).unwrap().contains("  dropped: merged into i2\n"));
+    assert!(crate::cli::board_text(&boss, Some("i3")).unwrap().contains("  dropped: merged into i2\n"));
     // Research and design: a unit with no branch, nothing of git; the manager (not another
     // agent) adds what it learnt to the intent's note.
     assert_eq!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "Pick a store", "kind": "research" })).unwrap()["body"]["id"], "u2");
@@ -1457,7 +1457,7 @@ fn only_the_user_is_the_user() {
     let u2 = &ws["intents"][0]["units"][1];
     assert_eq!((u2["kind"].as_str(), u2["branch"].is_null(), u2["repo"].as_str(), u2["commits"].as_array().map(Vec::len)), (Some("research"), true, Some(""), Some(0)), "{u2}");
     assert_eq!(ws["intents"][0]["note"], "Decided: SQLite");
-    assert!(crate::board_text(&boss, Some("u2")).unwrap().contains("u2 Pick a store  [research, no branch"));
+    assert!(crate::cli::board_text(&boss, Some("u2")).unwrap().contains("u2 Pick a store  [research, no branch"));
 
     // Every route that acts as the user or changes settings: 401 without the token or a session.
     let user_routes = [
@@ -1503,7 +1503,7 @@ fn only_the_user_is_the_user() {
     assert_eq!((h["hours"].as_u64(), h["points"].as_array().map(Vec::len)), (Some(24), Some(0)), "none yet: {h}");
     assert!(user.get("/api/metrics/history?machine=local&hours=169").unwrap_err().to_string().contains("168"));
     let report = user.get("/api/metrics").unwrap();
-    assert!(crate::load_text(&report).starts_with("local (here)  "), "{}", crate::load_text(&report));
+    assert!(crate::cli::load_text(&report).starts_with("local (here)  "), "{}", crate::cli::load_text(&report));
     assert_eq!((report["machines"][0]["label"].as_str(), report["machines"][0]["here"].as_bool()), (Some("local"), Some(true)), "this machine first: {report}");
     assert_eq!(report["thresholds"]["cpu"], json!({ "on": true, "percent": 90, "minutes": 5 }), "the defaults");
     let set = user.call("/api/metrics/thresholds", Some(json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } }))).unwrap();
@@ -1655,7 +1655,7 @@ fn a_machines_listener_serves_only_agents() {
     let there = kernel.daemon(box_port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
     assert_eq!(at_place(&there, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-far");
     // `workriver link` over there: the address the user opens here, not the tunnel's.
-    assert_eq!(crate::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
+    assert_eq!(crate::cli::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
     // Research over there: a unit with no branch, so nothing of that machine to check.
     let e = there.append("", "unit.created", json!({ "intent": "i1", "title": "Look around", "kind": "research" })).unwrap();
     assert_eq!(e["actor"], "s-far");
@@ -1760,7 +1760,7 @@ fn blind_reviews() {
         assert!(!text.contains(hidden) && !ws.to_string().contains(hidden) && !code.to_string().contains(hidden), "{hidden} is hidden");
     }
     std::fs::write(repo.join("auth.rs"), "fn check() {}\n").unwrap();
-    let board = crate::board_text(&sec, None).unwrap();
+    let board = crate::cli::board_text(&sec, None).unwrap();
     assert!(board.starts_with("blind review: other work is hidden until you deliver.") && board.contains("#2 running  review (security-review) [blind]") && board.contains("Find ways around the token check") && board.contains("diff main...feat/f") && !board.contains("#1 ") && !board.contains("Check tokens\n"), "{board}");
     // Files: its own, not others'.
     let mine = sec.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
@@ -1777,7 +1777,7 @@ fn blind_reviews() {
         assert!(all["reduced"].is_null() && all.to_string().contains("SECRET-NOTE") && all["units"][0]["tasks"][1]["blind"] == true);
         assert!(d.get("/api/workspace").unwrap().to_string().contains("SECRET-SUBJECT"));
     }
-    assert!(crate::board_text(&boss, None).unwrap().contains("#1 done"));
+    assert!(crate::cli::board_text(&boss, None).unwrap().contains("#1 done"));
 
     // It asks nobody and is asked by no agent.
     let ask = |d: &Daemon, task: u32| {
@@ -1883,7 +1883,7 @@ fn units_on_another_machine() {
     // Its texts as the background read found them; the snapshot has only how many lines.
     let code = user.get("/api/unit/u1/code").unwrap();
     assert!(code["commits"][0]["files"][0]["after"].is_string() && u1["commits"][0]["files"][0].get("after").is_none() && u1["commits"][0]["files"][0]["add"].as_u64() > Some(0), "{code}");
-    let board = crate::board_text(&boss, None).unwrap();
+    let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains(&format!("u1 Engine  [on box: {}, branch feat/feature from main]", path(&there))), "{board}");
 
     // The line to box dies (the computer slept): nothing waits on box until it is back.
@@ -1891,7 +1891,7 @@ fn units_on_another_machine() {
     std::fs::write(&slow, "").unwrap();
     all.drop_tunnel("box");
     let started = std::time::Instant::now();
-    let board = crate::board_text(&boss, None).unwrap();
+    let board = crate::cli::board_text(&boss, None).unwrap();
     let took = started.elapsed();
     assert!(took < std::time::Duration::from_secs(1), "board took {took:?} with box down\n{board}");
     assert!(board.contains("    box is disconnected since "), "{board}");
@@ -1914,7 +1914,7 @@ fn units_on_another_machine() {
     boss.append("", "chore.created", json!({ "title": "Pay the invoice" })).unwrap();
     let ws = user.get("/api/workspace").unwrap();
     assert_eq!(ws["chores"].as_array().unwrap().iter().map(|c| (c["title"].as_str().unwrap(), c["project"].as_str().unwrap().to_string())).collect::<Vec<_>>(), [("Renew the certificate", path(&here)), ("Pay the invoice", String::new())]);
-    assert!(crate::board_text(&boss, None).unwrap().contains("chore c2 Pay the invoice (by boss)"));
+    assert!(crate::cli::board_text(&boss, None).unwrap().contains("chore c2 Pay the invoice (by boss)"));
     user.call("/api/chore-done", Some(json!({ "chore": "c1" }))).unwrap();
 
     // The build is told, to tell a CLI and a service of different builds apart.
@@ -1989,7 +1989,7 @@ fn findings_after_the_fact() {
     let f = finding(0);
     assert_eq!((f["problem"].as_str(), f["notes"][0]["by"].as_str(), f["notes"][0]["text"].as_str(), f["notes"][0]["attachments"][0]["name"].as_str()), (Some("Token never expires"), Some("rev"), Some("The fix needs a test with an expired token"), Some("trace.txt")));
     // Whoever does the follow-up sees it with the cause.
-    let board = crate::board_text(&fix, None).unwrap();
+    let board = crate::cli::board_text(&fix, None).unwrap();
     assert!(board.contains("answers u1#2 P1-1: Token never expires\n         + rev added: The fix needs a test with an expired token"), "{board}");
 
     // More findings on the delivered review: numbered on, the decided one untouched.
@@ -2093,7 +2093,7 @@ fn linked_commits_and_rebased_branches() {
     assert_eq!(tasks(&u), [("todo".into(), 2), ("todo".into(), 0)], "the trailer and the link both follow the rebase; nothing became a gap");
     assert_eq!(u["commits"][1]["linked"], true, "found again by its patch id");
     assert_eq!(u["tasks"][1]["lostCommits"], json!([&c3[..9]]), "its commit was on the old branch only: said, not shown as none");
-    let board = crate::board_text(&boss, None).unwrap();
+    let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains("previously on feat/f (from main), 3 commits seen there") && board.contains(&format!("#2: commits not on the current branch: {}", &c3[..9])), "{board}");
 
     // Changed on the way (a conflict resolved in the rebase): its patch id is another, and it
@@ -2153,22 +2153,22 @@ fn a_manager_is_told_of_an_update_once() {
 /// unknown one, and stubs that send their reader to the installed binary.
 #[test]
 fn guides_name_their_build_and_know_their_recipes() {
-    let build = format!("workriver {} · ", crate::BUILD);
+    let build = format!("workriver {} · ", crate::common::BUILD);
     for (what, topic, has) in [("manager", None, "## Hard rules"), ("import", None, "# Import a backlog"), ("changes", None, "Findings are decided by the intent's manager"), ("how", None, "| `branch-moved` |"), ("how", Some("branch-moved"), "workriver unit move u1 --branch"), ("how", Some("no-such-topic"), "| `commit-link` |")] {
-        let text = crate::guide(what, topic).unwrap();
+        let text = crate::cli::guide(what, topic).unwrap();
         assert!(text.starts_with(&build) && text.contains(has) && !text.contains("\n---\nname:"), "{what} {topic:?}: {}", &text[..200.min(text.len())]);
     }
     // Every recipe the index names is there, and no recipe is missing from the index.
-    let index = crate::guide("how", None).unwrap();
+    let index = crate::cli::guide("how", None).unwrap();
     let named: Vec<&str> = index.lines().filter_map(|l| l.strip_prefix("| `")?.split('`').next()).collect();
-    let files: Vec<String> = crate::Recipes::iter().map(|f| f.trim_end_matches(".md").to_string()).collect();
+    let files: Vec<String> = crate::cli::Recipes::iter().map(|f| f.trim_end_matches(".md").to_string()).collect();
     assert!(named.len() >= 17 && named.iter().all(|t| files.iter().any(|f| f == t)) && files.iter().all(|f| named.contains(&f.as_str())), "{named:?} / {files:?}");
     // The worker's paragraph stays one line, build first.
-    let worker = crate::guide("worker", None).unwrap();
-    assert!(worker.starts_with(&format!("(workriver {}) ", crate::BUILD)) && worker.trim_end().lines().count() == 1);
-    let stub = crate::guide("install-stub", Some("manager")).unwrap();
+    let worker = crate::cli::guide("worker", None).unwrap();
+    assert!(worker.starts_with(&format!("(workriver {}) ", crate::common::BUILD)) && worker.trim_end().lines().count() == 1);
+    let stub = crate::cli::guide("install-stub", Some("manager")).unwrap();
     assert!(stub.starts_with("---\nname: workriver-manager\ndescription: ") && stub.contains("Run `workriver guide manager` and follow what it prints") && stub.split_whitespace().count() < 120);
-    assert!(crate::guide("install-stub", None).is_err());
+    assert!(crate::cli::guide("install-stub", None).is_err());
 }
 
 
@@ -2414,7 +2414,7 @@ fn units_finish() {
     let shown: crate::common::wire::TaskShow = serde_json::from_value(w.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert!(shown.lost_commits.is_empty() && shown.commits.len() == 3 && shown.commits.iter().all(|c| c.rebased_from.is_some()));
     assert!(crate::show::text(&shown).contains("(rebased from "));
-    let board = crate::board_text(&boss, None).unwrap();
+    let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains("#3: commits not on the current branch: ") && !board.contains("#1: commits not"), "{board}");
 
     // Merged by fast-forward: base..branch is empty; its commits stay, and it is recorded merged.
@@ -2429,7 +2429,7 @@ fn units_finish() {
     });
     assert_eq!(unit("u1")["tasks"][0]["output"]["commits"].as_array().map(Vec::len), Some(3), "from the record now");
     assert_eq!(ws()["intents"][0]["complete"], true);
-    let board = crate::board_text(&boss, None).unwrap();
+    let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains("every unit is merged or done: close it with `workriver intent done i1`") && board.contains("from main]  merged"), "{board}");
 
     // A unit finished without a merge is closed by hand, by the manager or the user.
@@ -2480,7 +2480,7 @@ fn a_dropped_task_is_told_and_shown() {
     boss.append("", "task.dropped", json!({ "unit": "u1", "task": 2, "reason": "the branch changed; asked again" })).unwrap();
     assert!(!fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.contains("u1#2")));
 
-    let board = crate::board_text(&boss, None).unwrap();
+    let board = crate::cli::board_text(&boss, None).unwrap();
     assert!(board.contains("#1 dropped  implement Check tokens @fix") && board.contains("       dropped (superseded by u1#3)\n") && board.contains("       dropped (the branch changed; asked again)\n") && !board.contains("waiting for the user"), "{board}");
     let shown = crate::show::text(&serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap());
     assert!(shown.contains("u1#1  implement  dropped") && shown.contains("Dropped as no longer needed by the user at ") && shown.contains("because: superseded by u1#3"), "{shown}");
@@ -2538,7 +2538,7 @@ fn stopped_workers_are_reminded_then_escalated() {
     assert!(told.starts_with("[workriver] ja-impl stopped") && told.contains("herdr agent read ja-impl") && told.contains("workriver task drop u1#1") && told.contains("It was reminded"), "{told}");
     std::thread::sleep(std::time::Duration::from_millis(4500));
     assert_eq!((to("s-w", "Your task"), to("s-boss", "")), (1, 1), "once per stall");
-    assert!(crate::board_text(&d, None).unwrap().contains("stalled since"), "the board says it");
+    assert!(crate::cli::board_text(&d, None).unwrap().contains("stalled since"), "the board says it");
     assert!(d.get("/api/task?task=u1%231").unwrap()["stalled"]["escalated"] == true, "task show too");
     // It works again: cleared.
     set(Working);
@@ -2787,10 +2787,10 @@ fn idle_workers_are_told_to_their_manager() {
 #[test]
 fn link_paths() {
     for (r, path) in [("u1", "/u1"), ("i3", "/i3"), ("u1#3", "/u1/3"), ("i3#1", "/i3/1"), ("u12#4:P2-1", "/u12/4?finding=P2-1")] {
-        assert_eq!(crate::link_path(r).unwrap(), path, "{r}");
+        assert_eq!(crate::cli::link_path(r).unwrap(), path, "{r}");
     }
     for r in ["", "u", "x1", "u1#", "u1#a", "u1:P2-1", "u1#3:", "u1#3:P2 1", "u1/3", "../u1"] {
-        assert!(crate::link_path(r).is_err(), "{r}");
+        assert!(crate::cli::link_path(r).is_err(), "{r}");
     }
 }
 
@@ -3960,7 +3960,7 @@ fn a_long_command_outlives_its_proof() {
         answerer.append("", "question.answered", json!({ "question": q, "text": "The wall clock." })).unwrap();
     });
     // Polls once a second: every poll after the first meets an expired proof.
-    let answer = crate::wait_answer(&boss, &id, std::time::Duration::from_secs(20)).unwrap();
+    let answer = crate::cli::wait_answer(&boss, &id, std::time::Duration::from_secs(20)).unwrap();
     answering.join().unwrap();
     assert_eq!(answer, "The wall clock.");
     assert!(started.elapsed() >= std::time::Duration::from_millis(2300));

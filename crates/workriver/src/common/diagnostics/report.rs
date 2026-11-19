@@ -140,7 +140,7 @@ pub fn bundle(home: &Path, bytes: usize) -> std::io::Result<PathBuf> {
     let path = dir(home).join(format!("perf-bundle-{}.txt", humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string().replace(':', "")));
     let mut text = format!(
         "workriver {} timing bundle\nTimes, counts, route templates, unit ids and machine names only: no commit messages, file texts, task texts, findings, notes, prompts, tokens, cookies or paths.\n\n",
-        crate::BUILD
+        crate::common::BUILD
     );
     text += &summary(home, None, 30);
     text += "\n---- raw lines, newest last ----\n";

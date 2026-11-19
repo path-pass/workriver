@@ -14,14 +14,6 @@ pub fn path(home: &Path, id: &str, name: &str) -> PathBuf {
     })
 }
 
-/// The type to serve a file as: the given one, else guessed from the name.
-pub fn mime(name: &str, given: Option<&str>) -> String {
-    match given.map(str::trim).filter(|t| !t.is_empty() && *t != "application/octet-stream") {
-        Some(t) => t.to_string(),
-        None => mime_guess::from_path(name).first_or_octet_stream().to_string(),
-    }
-}
-
 /// Stores `bytes` (once per content) and returns its id and path. Safe for the same content
 /// written by several at once (two uploads of one file): each write has a temporary file of
 /// its own (tempfile: private, a random name), renamed into place whole; whichever lands
@@ -61,8 +53,8 @@ mod tests {
         assert_eq!(std::fs::metadata(&pa).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::metadata(crate::common::home::attachments_dir(home.path())).unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(usage(home.path()), (1, 9));
-        assert_eq!(mime("a.png", None), "image/png");
-        assert_eq!(mime("report", Some("text/plain")), "text/plain");
+        assert_eq!(crate::common::files::mime("a.png", None), "image/png");
+        assert_eq!(crate::common::files::mime("report", Some("text/plain")), "text/plain");
     }
 
     /// The same content written by several at once (two uploads of one file): every write

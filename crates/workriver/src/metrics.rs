@@ -1486,7 +1486,7 @@ not a df line
         assert!(m.history("box", 0).is_err() && m.history("box", 169).unwrap_err().contains("168"));
         assert_eq!(m.history("never-seen", 24).unwrap(), []);
         assert!(m.report().machines[0].samples.is_empty());
-        let summary = crate::history_text(&serde_json::json!({ "label": "box" }), &serde_json::to_value(m.history("box", 168).unwrap()).unwrap());
+        let summary = crate::cli::history_text(&serde_json::json!({ "label": "box" }), &serde_json::to_value(m.history("box", 168).unwrap()).unwrap());
         assert_eq!(summary, "box  cpu mean 30% max 40%  memory mean 40% max 40%  (2 min)");
         // A label is a file name, never a path.
         assert_eq!(history_path(dir.path(), "../x"), dir.path().join("metrics/.._x.jsonl"));
@@ -1533,7 +1533,7 @@ not a df line
         let oom: Vec<_> = m.report().machines[1].samples.iter().rev().take(3).map(|s| (s.detail.oom_kills, s.oom_kills_watched)).collect();
         assert_eq!(oom, [(Some(1), Some(3)), (Some(6), Some(2)), (Some(4), Some(0))]);
         assert!(rx.try_recv().is_ok(), "the kills raised the OOM alert");
-        let text = crate::load_text(&serde_json::to_value(m.report()).unwrap());
+        let text = crate::cli::load_text(&serde_json::to_value(m.report()).unwrap());
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[1], "  available 8.2 GB  pressure warning  compressed 12.5 GB  compressor 17% of its limit  system free 50%  swap 3.6/4.0 GB  disk 78.1 GB free of 460.4 GB", "{text}");
         assert!(lines[2].contains("  ALERT: oom CRIT since 20"), "{text}");
@@ -1859,7 +1859,7 @@ not a df line
         assert_eq!((b[0].level, &b[0].since, b[0].threshold), (Level::Crit, &a[0].since, Some(80.0)));
         assert_eq!(m.report().machines[1].alerts["compressor"].level, Level::Crit);
         assert!(rx.try_recv().is_ok());
-        let text = crate::load_text(&serde_json::to_value(m.report()).unwrap());
+        let text = crate::cli::load_text(&serde_json::to_value(m.report()).unwrap());
         assert!(text.contains("ALERT: compressor CRIT since"), "{text}");
     }
 }

@@ -25,6 +25,7 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver-core/src/runtime.rs",
     "crates/workriver/src/ask.rs",
     "crates/workriver/src/common/process.rs",
+    "crates/workriver/src/cli/mod.rs",
     "crates/workriver/src/deliver.rs",
     "crates/workriver/src/machines.rs",
     "crates/workriver/src/main.rs",
@@ -46,10 +47,10 @@ const STILL_HERDR: &[&str] = &[
     "frontend/web/src/types.ts",
 ];
 const STILL_PANE: &[&str] = &[
+    "crates/workriver/src/cli/mod.rs",
     "crates/workriver-core/src/planning/intents.rs",
     "crates/workriver-core/src/planning/projects.rs",
     "crates/workriver-core/src/work/findings.rs",
-    "crates/workriver/src/main.rs",
     "crates/workriver/src/run.rs",
     "crates/workriver/src/serve.rs",
     "crates/workriver/src/tests.rs",

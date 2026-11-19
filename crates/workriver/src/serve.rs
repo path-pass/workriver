@@ -2755,7 +2755,7 @@ async fn attach(State(app): State<Shared>, Extension(via): Extension<Caller>, Qu
         let who = app.who(&via, u.named.as_deref())?;
         // Only the last part of the name: it is shown, never used as a path.
         let name = Path::new(&u.name).file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).ok_or_else(|| bad("an attachment needs a file name".into()))?;
-        let mime = attachments::mime(&name, given.as_deref());
+        let mime = crate::common::files::mime(&name, given.as_deref());
         let (id, path) = attachments::put(&app.home, &body, &name).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot store {name}: {e}")))?;
         let size = body.len() as u64;
         app.record(&who, Body::AttachmentAdded { id: id.clone(), name: name.clone(), mime: mime.clone(), size, unit: u.unit, task: u.task, finding: u.finding })?;

@@ -4,7 +4,7 @@
 use anyhow::bail;
 use serde_json::Value;
 
-use crate::Daemon;
+use crate::cli::Daemon;
 
 /// One deferred (or scheduled) finding: where it is, and the finding.
 struct Deferred<'a> {

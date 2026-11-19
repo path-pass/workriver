@@ -72,18 +72,18 @@ fn the_guide_keeps_its_topics() {
         let paths = &files[*topic];
         assert_eq!(paths.len(), 1, "{topic}: one recipe file with that name, not {paths:?}");
         let recipe = std::fs::read_to_string(&paths[0]).unwrap();
-        let text = crate::guide("how", Some(topic)).unwrap();
-        assert_eq!(text, format!("workriver {} · guide how {topic}\n\n{recipe}", crate::BUILD), "{topic} answers with another text than its recipe");
+        let text = crate::cli::guide("how", Some(topic)).unwrap();
+        assert_eq!(text, format!("workriver {} · guide how {topic}\n\n{recipe}", crate::common::BUILD), "{topic} answers with another text than its recipe");
     }
     assert_eq!(files.keys().map(String::as_str).collect::<Vec<_>>(), TOPICS);
-    let embedded: Vec<String> = crate::Recipes::iter().map(|f| f.rsplit('/').next().unwrap().trim_end_matches(".md").to_string()).collect();
+    let embedded: Vec<String> = crate::cli::Recipes::iter().map(|f| f.rsplit('/').next().unwrap().trim_end_matches(".md").to_string()).collect();
     let mut unique = embedded.clone();
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), embedded.len(), "two embedded recipes share a name: {embedded:?}");
     assert_eq!(unique, TOPICS);
     for (what, topic) in [("worker", None), ("manager", None), ("import", None), ("how", None), ("changes", None), ("install-stub", Some("manager")), ("install-stub", Some("howto")), ("install-stub", Some("import"))] {
-        assert!(crate::guide(what, topic).is_ok_and(|t| !t.is_empty()), "{what} {topic:?}");
+        assert!(crate::cli::guide(what, topic).is_ok_and(|t| !t.is_empty()), "{what} {topic:?}");
     }
 }
 
@@ -153,7 +153,7 @@ fn tree(cmd: &clap::Command, path: &str, out: &mut String) {
 /// and value. `WORKRIVER_BLESS=1` writes the file again after a deliberate change.
 #[test]
 fn every_command_keeps_its_options() {
-    let mut cmd = crate::Cli::command();
+    let mut cmd = crate::cli::Cli::command();
     cmd.build();
     let mut got = String::new();
     tree(&cmd, "workriver", &mut got);
