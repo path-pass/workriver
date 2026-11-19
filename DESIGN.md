@@ -502,8 +502,9 @@ every token, and appear nowhere else.
 
 Three things that used to share colour now have their own channel:
 
-- **Who raised it** is an icon: shield for security review, eye for code review, flask
-  for tests.
+- **Who raised it** is an icon: an eye for a review, flask for tests. Every review (code,
+  security, architecture) has the same eye: which kind it is stands in the node's text
+  ("Security review"), so a new kind of review needs a name, not a new icon to learn.
 - **What kind of work** is a shape: square corners for implementing, a pill for a review,
   a double frame with sharp corners for a gate (work only the user can do). Design work is
   drawn as implementing with a compass icon; its output is its design note, and it never
@@ -712,6 +713,10 @@ is information, not a call to act: no colour, no motion, not counted in Needs yo
   pass over the graph in order, never per render or per node (`src/scope.ts`).
 - The legend shows the mark with "+" and no number, as it shows the findings count without
   one: a sample, not a count.
+- The legend sits below the canvas, folded to one line ("Legend" behind a chevron) until
+  clicked: it is read once, then it is noise under every graph. Open or folded is remembered
+  per viewer (localStorage; without it, folded). It lists reviews once: the pill and the eye
+  together.
 
 ## The signature: lines are a river
 

@@ -492,6 +492,7 @@ export const en = {
   reviewer: {
     'security-review': 'Security review',
     'code-review': 'Code review',
+    'architecture-review': 'Architecture review',
     test: 'Tests'
   },
   gate: {
@@ -661,6 +662,7 @@ export const en = {
     sep: ', '
   },
   legend: {
+    title: 'Legend',
     done: 'Done',
     running: 'In progress',
     todo: 'Not started',

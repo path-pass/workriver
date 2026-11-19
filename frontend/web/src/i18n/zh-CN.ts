@@ -475,6 +475,7 @@ export const zhCN: OneForm<typeof en> = {
   reviewer: {
     'security-review': '安全审查',
     'code-review': '代码 review',
+    'architecture-review': '架构审查',
     test: '测试'
   },
   gate: {
@@ -640,6 +641,7 @@ export const zhCN: OneForm<typeof en> = {
     sep: '、'
   },
   legend: {
+    title: '图例',
     done: '做完',
     running: '正在做',
     todo: '没开始',

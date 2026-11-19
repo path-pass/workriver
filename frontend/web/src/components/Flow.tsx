@@ -765,17 +765,28 @@ function DropTask({ unit, n }: { unit: Unit; n: Task }) {
   )
 }
 
+const LEGEND = 'workriver.flow.legend'
+
+/** What the graph's shapes, colours, marks and lines mean: one line ("Legend") until opened. */
 function Legend() {
   const { t } = useT()
   const sw = (state: string, text: string) => <span className="key"><i className="sw" data-state={state} />{text}</span>
   const stroke = (state: string, text: string) => <span className="key"><i className="stroke" data-state={state} />{text}</span>
   const mark = (name: string, text: string) => <span className="key"><Icon name={name} />{text}</span>
+  // Folded to its one line until asked for; the choice is each viewer's own.
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(LEGEND) === '1' } catch { return false } })
+  const toggle = (next: boolean) => { setOpen(next); try { localStorage.setItem(LEGEND, next ? '1' : '0') } catch { /* not remembered, still shown */ } }
   return (
-    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
-      {sw('done', t('legend.done'))}{sw('running', t('legend.running'))}{sw('', t('legend.todo'))}{sw('review', t('kind.review'))}{sw('gate', t('kind.gate'))}<span className="key"><i className="count" aria-hidden />{t('legend.waiting')}</span><span className="key"><i className="grew" aria-hidden><Icon name="grew" />+</i>{t('legend.grew')}</span><span className="key"><i className="blocker" aria-hidden><Icon name="blocker" /></i>{t('flow.blocker')}</span>
-      {mark('security-review', t('reviewer.security-review'))}{mark('code-review', t('reviewer.code-review'))}{mark('test', t('reviewer.test'))}
+    <Collapsible open={open} onOpenChange={toggle} className="mt-3 text-xs text-ink-2">
+      <CollapsibleTrigger className="group/legend flex items-center gap-0.5 rounded-sm font-semibold hover:text-ink">
+        <Icon name="chev" className="size-3 transition-transform group-data-[state=open]/legend:rotate-90" />{t('legend.title')}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+      {sw('done', t('legend.done'))}{sw('running', t('legend.running'))}{sw('', t('legend.todo'))}<span className="key"><i className="sw" data-state="review" /><Icon name="code-review" />{t('kind.review')}</span>{sw('gate', t('kind.gate'))}<span className="key"><i className="count" aria-hidden />{t('legend.waiting')}</span><span className="key"><i className="grew" aria-hidden><Icon name="grew" />+</i>{t('legend.grew')}</span><span className="key"><i className="blocker" aria-hidden><Icon name="blocker" /></i>{t('flow.blocker')}</span>
+      {mark('test', t('reviewer.test'))}
       {stroke('flowed', t('legend.flowed'))}{stroke('flowing', t('legend.flowing'))}{stroke('also', t('legend.also'))}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 

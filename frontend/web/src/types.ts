@@ -564,7 +564,7 @@ export interface Attachment {
   type?: string;
 }
 
-export type Reviewer = 'security-review' | 'code-review' | 'test';
+export type Reviewer = 'security-review' | 'code-review' | 'architecture-review' | 'test';
 
 export interface TaskInput {
   /** Id of the node this one follows, or 'start' for work cut straight from the unit. */

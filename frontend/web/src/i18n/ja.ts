@@ -475,6 +475,7 @@ export const ja: OneForm<typeof en> = {
   reviewer: {
     'security-review': 'セキュリティレビュー',
     'code-review': 'コードレビュー',
+    'architecture-review': 'アーキテクチャレビュー',
     test: 'テスト'
   },
   gate: {
@@ -640,6 +641,7 @@ export const ja: OneForm<typeof en> = {
     sep: '、'
   },
   legend: {
+    title: '凡例',
     done: '完了',
     running: '進行中',
     todo: '未着手',
