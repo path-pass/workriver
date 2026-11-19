@@ -9,6 +9,7 @@
 //! runs (never serialized with it), the blind view, how each event is written again, and
 //! the ids the rules hand out next. To write it again after a deliberate change of
 //! meaning (never during a move): `WORKRIVER_BLESS=1 cargo test -p workriver-core replay`.
+//! The same history stored as rows of an old database is workriver-data's test.
 use serde_json::{Value, json};
 
 use crate::*;
@@ -85,26 +86,3 @@ fn a_synthetic_history_replays_to_the_same_state() {
     }
 }
 
-/// The same history stored as rows of an old database: opened, it replays to the same state,
-/// keeps every row, and a reopened store reads it again identically.
-#[test]
-fn the_stored_history_reopens_to_the_same_state() {
-    let events = history();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("w.db");
-    drop(Store::open(&path).unwrap());
-    let conn = rusqlite::Connection::open(&path).unwrap();
-    for e in &events {
-        let (intent, unit, task) = e.body.refs();
-        let v = serde_json::to_value(&e.body).unwrap();
-        let line: Value = serde_json::from_str(std::fs::read_to_string(fixture("events.jsonl")).unwrap().lines().nth(e.seq as usize - 1).unwrap()).unwrap();
-        // The body as the old database wrote it, not as it is written today.
-        conn.execute("INSERT INTO events (seq, at, kind, actor, intent, unit, task, body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", (e.seq, &e.at, v["kind"].as_str(), &e.actor, intent, unit, task, line["body"].to_string())).unwrap();
-    }
-    drop(conn);
-    let store = Store::open(&path).unwrap();
-    assert_eq!(store.count().unwrap(), events.len() as i64);
-    assert_eq!(store.state(), &folded(&events));
-    drop(store);
-    assert_eq!(Store::open(&path).unwrap().state(), &folded(&events));
-}

@@ -94,37 +94,6 @@ fn rules_reject_bad_input() {
     assert!(err.contains("not a waiting gate"), "{err}");
 }
 
-#[test]
-fn replay_rebuilds_the_same_state() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("w.db");
-    let before = {
-        let mut s = Store::open(&path).unwrap();
-        for b in seed() {
-            s.append(&"agent-a".into(), b).unwrap();
-        }
-        s.state().clone()
-    };
-    let again = Store::open(&path).unwrap();
-    assert_eq!(again.state(), &before);
-    assert_eq!(again.count().unwrap(), 7);
-}
-
-#[test]
-fn events_are_append_only() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("w.db");
-    let mut s = Store::open(&path).unwrap();
-    for b in seed() {
-        s.append(&"agent-a".into(), b).unwrap();
-    }
-    let conn = rusqlite::Connection::open(&path).unwrap();
-    for sql in ["UPDATE events SET actor = 'x'", "DELETE FROM events"] {
-        let err = conn.execute(sql, []).unwrap_err().to_string();
-        assert!(err.contains("append-only"), "{sql}: {err}");
-    }
-}
-
 pub(crate) fn add(s: &mut Records, actor: &str, v: serde_json::Value) -> Result<Event, String> {
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }

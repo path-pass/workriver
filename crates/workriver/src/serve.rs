@@ -21,7 +21,8 @@ use serde_json::json;
 use tokio::sync::{broadcast, watch};
 use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
 use workriver_core::runtime::{AgentState, Root, Runtime, RuntimeAgent, RuntimeError};
-use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode, Store};
+use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
+use workriver_data::Store;
 use workriver_scan as scan;
 
 use crate::machines::Machines;
@@ -1725,10 +1726,10 @@ fn bad(msg: String) -> ApiError {
     ApiError(StatusCode::UNPROCESSABLE_ENTITY, msg)
 }
 
-impl From<core::Error> for ApiError {
-    fn from(e: core::Error) -> Self {
+impl From<workriver_data::Error> for ApiError {
+    fn from(e: workriver_data::Error) -> Self {
         match e {
-            core::Error::Rejected(r) => bad(r.0),
+            workriver_data::Error::Rejected(r) => bad(r.0),
             e => ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         }
     }

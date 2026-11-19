@@ -121,7 +121,7 @@ impl World {
 
     /// Who added each planned intent, as recorded: (title, by).
     fn recorded(&self) -> Vec<(String, String)> {
-        let store = workriver_core::Store::open(&self.home.join("workriver.db")).unwrap();
+        let store = workriver_data::Store::open(&self.home.join("workriver.db")).unwrap();
         store.state().intents.iter().map(|i| (i.title.clone(), i.by.clone())).collect()
     }
 }

@@ -1760,6 +1760,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "workriver-core",
+ "workriver-data",
  "workriver-scan",
 ]
 
@@ -1768,11 +1769,20 @@ name = "workriver-core"
 version = "0.1.0"
 dependencies = [
  "humantime",
- "rusqlite",
  "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "workriver-data"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
  "serde_json",
  "tempfile",
  "thiserror",
+ "workriver-core",
 ]
 
 [[package]]

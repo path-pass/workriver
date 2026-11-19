@@ -544,7 +544,8 @@ fn paragraph(lines: Vec<String>) -> String {
 mod tests {
     use serde_json::json;
     use workriver_core::runtime::AgentState;
-    use workriver_core::{Event, Store};
+    use workriver_core::Event;
+    use workriver_data::Store;
 
     use super::*;
 

@@ -262,7 +262,8 @@ pub fn idle_message(state: &State, w: &IdleWorker) -> Option<String> {
 mod tests {
     use serde_json::json;
     use workriver_core::runtime::{AgentState, RuntimeAgent};
-    use workriver_core::{Principal, Store};
+    use workriver_core::Principal;
+    use workriver_data::Store;
 
     use super::*;
 

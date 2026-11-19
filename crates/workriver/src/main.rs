@@ -852,7 +852,7 @@ fn main() -> anyhow::Result<()> {
     match &cli.cmd {
         Cmd::Serve { terminal_app, perf_detail } => {
             perf::init(&core::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
-            let store = core::Store::open_default().context("cannot open the workriver database")?;
+            let store = workriver_data::Store::open_default().context("cannot open the workriver database")?;
             let runtime = herdr::Herdr::new(herdr::socket_path(), terminal_app.clone());
             // Without Herdr the daemon still records and shows; it just sees no agents.
             let warning = runtime.check();

@@ -4,8 +4,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, TransactionBehavior};
 
-use crate::access::{Principal, Rejected};
-use crate::records::{Body, Event, State};
+use workriver_core::{Body, Event, Principal, Rejected, State, data_dir, now};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -37,19 +36,6 @@ const MIGRATIONS: &[&str] = &["
     CREATE TRIGGER events_no_delete BEFORE DELETE ON events
         BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 "];
-
-/// Where workriver keeps its data: `$WORKRIVER_HOME`, or `~/workriver-data`.
-pub fn data_dir() -> PathBuf {
-    match std::env::var_os("WORKRIVER_HOME") {
-        Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => std::env::home_dir().unwrap_or_default().join("workriver-data"),
-    }
-}
-
-/// Now, as the times in the data are written: `2026-11-16T03:04:05Z`.
-pub fn now() -> String {
-    humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string()
-}
 
 pub struct Store {
     conn: Connection,
@@ -139,3 +125,6 @@ fn replay(conn: &Connection) -> Result<State, Error> {
     }
     Ok(state)
 }
+
+#[cfg(test)]
+mod tests;

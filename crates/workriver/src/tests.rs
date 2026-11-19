@@ -35,7 +35,7 @@ fn daemon_smoke() {
     std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "two\n\nTask: u1#1"]);
 
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -419,7 +419,7 @@ fn identity_intents_and_delivery() {
 
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -477,7 +477,7 @@ fn pick_up_survives_a_restart() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let db = tmp.path().join("w.db");
     let start = |fake: std::sync::Arc<Fake>| {
-        let store = workriver_core::Store::open(&db).unwrap();
+        let store = workriver_data::Store::open(&db).unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
         let listener = rt.block_on(crate::serve::bind(0)).unwrap();
         let kernel = Kernel::default();
@@ -559,7 +559,7 @@ fn daemon_with(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::s
 
 /// The same, with what its service believes of processes.
 fn daemon_and(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::serve::Waits) -> (Daemon, Kernel) {
-    let store = workriver_core::Store::open(db).unwrap();
+    let store = workriver_data::Store::open(db).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -789,7 +789,7 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
 #[test]
 fn asking_without_a_runtime() {
     let tmp = tempfile::tempdir().unwrap();
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -1037,7 +1037,7 @@ fn replays_a_copied_database() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("w.db");
     std::fs::copy(&from, &db).unwrap();
-    let store = workriver_core::Store::open(&db).unwrap();
+    let store = workriver_data::Store::open(&db).unwrap();
     let s = store.state();
     for i in &s.intents {
         println!("{} {:?} {:?} project={:?} workspace={:?} manager={:?}", i.id, i.title, i.state, i.project, i.workspace.as_ref().map(|g| &g.label), s.manager_of(&i.id));
@@ -1142,7 +1142,7 @@ fn machines_are_separate_until_linked() {
     all.close("why-q9").unwrap();
     all.poll_all();
 
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -1382,7 +1382,7 @@ fn only_the_user_is_the_user() {
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle)), ("w1:p2".into(), live("s-rev", "rev", "w1", Idle))];
     // As it runs for real: nobody is an agent by saying so.
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -1578,7 +1578,7 @@ fn a_machines_listener_serves_only_agents() {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
     let all = crate::machines::Machines::with(local, vec![("box", far)]);
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -1714,7 +1714,7 @@ fn blind_reviews() {
     git(&repo, &["commit", "-q", "-m", "SECRET-SUBJECT trust me, it is safe\n\nTask: u1#1"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-imp", "imp", "w1", Idle)), ("p3".into(), live("s-sec", "sec", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -1841,7 +1841,7 @@ fn units_on_another_machine() {
     let all = crate::machines::Machines::with(local, vec![("box", far)]);
     all.set_runner("box", workriver_scan::Runner::Ssh { program: fake_ssh.to_string_lossy().into_owned(), options: vec![], target: "box".into() });
     all.poll_all();
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -1947,7 +1947,7 @@ fn findings_after_the_fact() {
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -2038,7 +2038,7 @@ fn linked_commits_and_rebased_branches() {
 
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-x", "x", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -2118,7 +2118,7 @@ fn a_manager_is_told_of_an_update_once() {
     let tmp = tempfile::tempdir().unwrap();
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -2185,7 +2185,7 @@ fn a_task_shown_in_full() {
     git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-fix", "fix", "w1", Idle)), ("p4".into(), live("s-sec", "sec", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -2347,7 +2347,7 @@ fn units_finish() {
     git(&repo, &["switch", "-q", "-c", "feat/f"]);
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "w", "w1", Idle)), ("p3".into(), live("s-rev", "rev", "w1", Idle))];
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -2797,7 +2797,7 @@ fn link_paths() {
 /// Starts a daemon over `runtime` as it runs for real (no `--as`), on a free port; its port
 /// and what it believes of processes.
 fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::Runtime>, machines: Option<std::sync::Arc<crate::machines::Machines>>, db: &std::path::Path) -> (u16, Kernel) {
-    let store = workriver_core::Store::open(db).unwrap();
+    let store = workriver_data::Store::open(db).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -2896,10 +2896,10 @@ fn the_user_runs_a_command() {
     let seen = user.get(&format!("/api/run/{id}")).unwrap();
     assert!(seen["output"].as_str().unwrap().ends_with("rejected: hook says no"), "{seen}");
     assert_eq!(http(port, "GET", &format!("/api/run/{id}"), &[], None).0, 401);
-    let store = workriver_core::Store::open(&db).unwrap();
+    let store = workriver_data::Store::open(&db).unwrap();
     let ran = store.bodies("command.ran").unwrap();
     assert_eq!(ran, [json!({ "id": id, "command": "git push origin feat/f", "dir": dir, "unit": "u1", "by": "s-boss", "from": "u1#1", "step": 1 })]);
-    wait_until("the end is recorded", || workriver_core::Store::open(&db).unwrap().bodies("command.ended").unwrap() == [json!({ "id": id, "exit": 1 })]);
+    wait_until("the end is recorded", || workriver_data::Store::open(&db).unwrap().bodies("command.ended").unwrap() == [json!({ "id": id, "exit": 1 })]);
     let runs = user.get("/api/workspace").unwrap()["runs"].clone();
     assert_eq!((&runs[0]["state"], &runs[0]["exit"]), (&json!("done"), &json!(1)), "{runs}");
 
@@ -2923,7 +2923,7 @@ fn the_user_runs_a_command() {
     wait_until("the machine's listener", || all.local_port("box").is_some());
     let via_box = kernel.daemon(all.local_port("box").unwrap(), Some(format!("place-{reviewer}")), None);
     via_box.call(&path, Some(review)).unwrap();
-    wait_until("the review is recorded", || workriver_core::Store::open(&db).unwrap().bodies("command.reviewed").unwrap().iter().any(|b| b["id"] == far_id.as_str() && b["verdict"] == "danger"));
+    wait_until("the review is recorded", || workriver_data::Store::open(&db).unwrap().bodies("command.reviewed").unwrap().iter().any(|b| b["id"] == far_id.as_str() && b["verdict"] == "danger"));
     let runs = user.get("/api/workspace").unwrap()["runs"].clone();
     assert_eq!((&runs[0]["command"], &runs[0]["from"], &runs[1]["id"]), (&json!("make deploy"), &json!(null), &json!(id)), "newest first; typed by the user: {runs}");
 
@@ -3174,7 +3174,7 @@ fn a_command_is_reviewed_before_it_runs() {
     let seen = user.get(&format!("/api/run/{id}")).unwrap();
     assert_eq!(seen["review"], json!({ "state": "done", "verdict": "caution", "text": text }));
     wait_until("the review agent is closed", || fake.closed.lock().unwrap().contains(&name));
-    let reviewed = || workriver_core::Store::open(&db).unwrap().bodies("command.reviewed").unwrap();
+    let reviewed = || workriver_data::Store::open(&db).unwrap().bodies("command.reviewed").unwrap();
     assert!(reviewed().is_empty(), "nothing ran yet");
     user.call("/api/run", Some(json!({ "id": id, "command": "bash ./scripts/setup.sh" }))).unwrap();
     assert_eq!(reviewed(), [json!({ "id": id, "verdict": "caution", "text": text })]);
@@ -3500,7 +3500,7 @@ fn which_project_a_workspace_works_on() {
     }
     git(&repo, &["init", "-q", "-b", "main"]);
     let (a, b, repo) = (a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned(), repo.to_string_lossy().into_owned());
-    let mut store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let mut store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let boss = Principal::Agent { session: "s-boss".into(), machine: None };
     let body = |v: serde_json::Value| serde_json::from_value::<workriver_core::Body>(v).unwrap();
     store.append(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": a, "title": "Alpha" } }))).unwrap();
@@ -3612,7 +3612,7 @@ fn at_place(d: &Daemon, place: &str) -> Daemon {
 /// A service as it runs for real (no `--as`, a terminal asked for) over `fake`; its port and
 /// what it believes of processes.
 fn real_service(fake: std::sync::Arc<Fake>, home: &std::path::Path) -> (u16, Kernel) {
-    let store = workriver_core::Store::open(&home.join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&home.join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
@@ -3861,7 +3861,7 @@ fn a_caller_on_another_machine_is_checked_there() {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle)), ("w1:p2".into(), live("s-two", "two", "w1", Idle))];
     let all = crate::machines::Machines::with(local.clone(), vec![("box", far.clone())]);
-    let store = workriver_core::Store::open(&tmp.path().join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();

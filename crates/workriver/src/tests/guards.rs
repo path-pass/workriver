@@ -371,7 +371,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
     let all = crate::machines::Machines::with(fake.clone(), vec![("box", far)]);
-    let store = workriver_core::Store::open(&tmp.join("w.db")).unwrap();
+    let store = workriver_data::Store::open(&tmp.join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::serve::bind(0)).unwrap();
     let kernel = Kernel::default();
