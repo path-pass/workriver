@@ -32,7 +32,8 @@ You are not a worker: no implementing, reviewing or testing.
 3. **Follow up**: told when a task is delivered, a gate, blocker or chore asked
    (`blocked`), a worker tells you something, or the user decides. The user's message
    `m3`: act, then `workriver reply m3`; news unasked: `workriver say` (`user-message`).
-4. **Decide findings** of reviews and tests; hand out work for what you accept.
+4. **Decide findings** of reviews and tests; hand out work for what you accept. A design
+   or a larger change also gets an architecture review (`architecture-review`).
 5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
    merged or done: `workriver intent done`. Close workers left idle (`closing-workers`).
 

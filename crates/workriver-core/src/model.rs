@@ -118,6 +118,9 @@ pub enum GateKind {
 pub enum Reviewer {
     CodeReview,
     SecurityReview,
+    /// How the code is organized and how the solution is built, against the project's own
+    /// rules; workriver holds no style of its own.
+    ArchitectureReview,
 }
 
 /// What a review of a command the user is about to run found it to be.

@@ -31,6 +31,22 @@ fn temp_store() -> (tempfile::TempDir, Store) {
     (dir, store)
 }
 
+/// An architecture review is a review like the others: recorded under its name, kept when
+/// the events are read again, and it reports findings.
+#[test]
+fn an_architecture_review_round_trips() {
+    let (dir, mut s) = temp_store();
+    seeded(&mut s);
+    s.append(&"boss".into(), body(json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{"from": "1"}]}}))).unwrap();
+    s.append(&"arch".into(), body(json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "findings": [{"severity": "P2", "problem": "The scan reads the store", "impact": "Layers cross", "where": ["scan/lib.rs"]}]}}))).unwrap();
+    drop(s);
+    let s = Store::open(&dir.path().join("w.db")).unwrap();
+    let review = s.state().task("u1", 3).unwrap();
+    assert_eq!((review.kind, review.reviewer, review.findings.len()), (TaskKind::Review, Some(Reviewer::ArchitectureReview), 1));
+    assert_eq!(serde_json::to_value(s.state()).unwrap()["units"][0]["tasks"][2]["reviewer"], "architecture-review");
+    assert_eq!(name(&Reviewer::ArchitectureReview), "architecture-review");
+}
+
 #[test]
 fn rules_assign_ids_and_accept_good_input() {
     let (_dir, mut s) = temp_store();

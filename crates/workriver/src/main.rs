@@ -582,7 +582,9 @@ enum TaskCmd {
         #[arg(long)]
         agent: Option<String>,
         /// Review tasks: which kind of review.
-        #[arg(long, value_parser = ["code-review", "security-review"])]
+        /// (`architecture-review`: how the code is organized and the solution built, against the
+        /// project's own rules; `workriver guide how architecture-review`.)
+        #[arg(long, value_parser = ["code-review", "security-review", "architecture-review"])]
         reviewer: Option<String>,
         /// Gate tasks: what the user is asked to do (`decide`: discuss and confirm a design).
         #[arg(long, value_parser = ["deploy", "test", "decide"])]

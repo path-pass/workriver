@@ -2026,6 +2026,27 @@ fn a_task_shown_in_full() {
     assert_eq!((own.text.as_str(), own.blind, own.causes.len(), own.commits.len()), ("Find a way around the check", true, 0, 0));
     assert!(sec.get("/api/task?task=u1%233").unwrap_err().to_string().contains("no task"), "another task is hidden");
     assert!(sec.get("/api/task?task=u1%232").is_err());
+
+    // What a design before a task delivered goes with the task, however many tasks between:
+    // its note and its files. A task with no design before it says nothing of it.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Where tokens live", "inputs": [{ "from": "start" }], "agent": "s-rev" })).unwrap();
+    rev.append("", "task.delivered", json!({ "unit": "u1", "task": 6, "note": "Tokens live in the store.\nThe page never holds one." })).unwrap();
+    rev.append("", "attachment.added", json!({ "id": "00000000000000d6", "name": "tokens.md", "type": "text/markdown", "size": 3, "unit": "u1", "task": 6 })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Move tokens", "inputs": [{ "from": "6" }], "agent": "s-fix" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "7" }], "agent": "s-rev" })).unwrap();
+    for n in [7, 8] {
+        let shown: crate::show::TaskShow = serde_json::from_value(fix.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
+        assert_eq!(shown.decided.iter().map(|d| (d.from.as_str(), d.kind.as_str(), d.delivered_by.as_str(), d.note.as_str())).collect::<Vec<_>>(), [("u1#6", "design", "rev", "Tokens live in the store.\nThe page never holds one.")], "u1#{n}");
+        assert!(shown.decided[0].files[0].ends_with("00000000000000d6.md"), "{:?}", shown.decided[0].files);
+        let text = crate::show::text(&shown);
+        assert!(text.contains("Decided before this task (follow it; if it seems wrong, see `workriver guide how contract`):\n  from u1#6 (design \"Where tokens live\"), written by rev:\n      Tokens live in the store.\n      The page never holds one.\n    Files: "), "{text}");
+    }
+    assert!(crate::show::text(&serde_json::from_value(fix.get("/api/task?task=u1%238").unwrap()).unwrap()).starts_with("u1#8  review  todo"));
+    assert!(s.decided.is_empty() && !text.contains("Decided before"));
+    // A blind task after the same design is told nothing of it.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "7" }], "agent": "s-sec", "blind": true, "text": "Review the move" })).unwrap();
+    let own = sec.get("/api/task?task=u1%239").unwrap();
+    assert!(own.get("decided").is_none() && !crate::show::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
 }

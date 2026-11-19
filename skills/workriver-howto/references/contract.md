@@ -7,7 +7,8 @@
     workriver task add u1 --title "Mentions UI" --after 1 --agent front --text "Contract: docs/mentions-api.md"
 
 The design task writes the contract as a file in the repository (types, API, props). If the
-user must choose, add a decide gate (`design-gate`).
+user must choose, add a decide gate (`design-gate`). What it delivers as its note is shown
+to the tasks after it by `workriver task show`.
 
 Questions between the two go through `workriver ask`. A change to the contract is not
 agreed between the workers: the one who needs it records a review of the design task with

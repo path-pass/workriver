@@ -63,8 +63,9 @@ frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
 crates/             Rust workspace: workriver-core, workriver-scan, workriver
 skills/             what agents read; the binary embeds all of it (`workriver guide …`):
-                    workriver-manager (the role, kept under 600 words), workriver-howto (one
-                    recipe per situation in references/, and CHANGES.md), workriver-backlog-import.
+                    workriver-manager (the role, the loop and the hard rules only; details
+                    go in recipes), workriver-howto (one recipe per situation in references/,
+                    and CHANGES.md), workriver-backlog-import.
                     A change in what agents must do goes into the recipe and CHANGES.md.
 .local/             local-only working material; ignored by git, never commit it
 ```

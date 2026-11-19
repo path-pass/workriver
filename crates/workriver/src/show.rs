@@ -34,6 +34,9 @@ pub struct TaskShow {
     /// The tasks it comes after (`start`: it can begin at once).
     pub after: Vec<String>,
     pub causes: Vec<CauseShow>,
+    /// What the design and research tasks before it delivered: the task follows it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decided: Vec<DecidedShow>,
     pub plans: Vec<String>,
     pub steps: Vec<core::Step>,
     /// What it delivered, once it did.
@@ -82,6 +85,20 @@ pub struct CauseShow {
     /// The task that found it (`u1#4`), or `backlog`.
     pub from: String,
     pub finding: FindingShow,
+}
+
+/// A design or research task a task comes after, with what it delivered.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DecidedShow {
+    /// The task (`u1#1`).
+    pub from: String,
+    /// design, or research.
+    pub kind: String,
+    pub title: String,
+    pub delivered_by: String,
+    pub note: String,
+    pub files: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -222,6 +239,21 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
             })
         })
         .collect();
+    // The delivered design and research tasks it comes after, however many tasks between,
+    // oldest first. A blind reader's state holds no other task, so it gets none.
+    let mut before = std::collections::BTreeSet::new();
+    let mut next: Vec<u32> = t.inputs.iter().filter_map(|i| i.from.parse().ok()).collect();
+    while let Some(k) = next.pop() {
+        if let (true, Ok(b)) = (before.insert(k), state.task(unit, k)) {
+            next.extend(b.inputs.iter().filter_map(|i| i.from.parse::<u32>().ok()));
+        }
+    }
+    let decided = before
+        .iter()
+        .filter_map(|k| state.task(unit, *k).ok())
+        .filter(|b| matches!(b.kind, core::TaskKind::Design | core::TaskKind::Research) && b.done.is_some() && b.dropped.is_none())
+        .map(|b| DecidedShow { from: format!("{unit}#{}", b.n), kind: name(&b.kind), title: b.title.clone(), delivered_by: reporter(b), note: b.note.clone(), files: files(&b.attachments) })
+        .collect();
     // Commits come from git, through the snapshot the page reads too.
     let shown = ws["intents"].as_array().into_iter().flatten().flat_map(|i| i["units"].as_array().into_iter().flatten()).find(|x| x["id"] == unit);
     let mine = shown.and_then(|x| x["tasks"].as_array()?.iter().find(|y| y["taskId"].as_str() == Some(&n.to_string()) || y["id"].as_str() == Some(&n.to_string())));
@@ -269,6 +301,7 @@ pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dy
         written_by: who(state, &t.by),
         after: t.inputs.iter().map(|i| if i.from == "start" { "start".into() } else { format!("{unit}#{}", i.from) }).collect(),
         causes,
+        decided,
         plans: t.plans.clone(),
         steps: t.steps.clone(),
         output: done.then(|| OutputShow {
@@ -387,6 +420,18 @@ pub fn text(s: &TaskShow) -> String {
         for c in &s.causes {
             let _ = writeln!(out, "  from {}:", c.from);
             out += &finding_text(&c.finding, "    ");
+        }
+    }
+    if !s.decided.is_empty() {
+        let _ = writeln!(out, "Decided before this task (follow it; if it seems wrong, see `workriver guide how contract`):");
+        for d in &s.decided {
+            let title = if d.title.is_empty() { String::new() } else { format!(" \"{}\"", d.title) };
+            let mut b = String::new();
+            block(&mut b, &format!("from {} ({}{title}), written by {}", d.from, d.kind, d.delivered_by), if d.note.is_empty() { "(no note)" } else { &d.note });
+            if !d.files.is_empty() {
+                let _ = writeln!(b, "  Files: {}", d.files.join(", "));
+            }
+            out += &b.lines().map(|l| format!("  {l}\n")).collect::<String>();
         }
     }
     if !s.plans.is_empty() {

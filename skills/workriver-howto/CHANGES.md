@@ -2,6 +2,24 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-19
+
+- **Architecture reviews** (managers, reviewers): a third reviewer, `workriver task add u1
+  --kind review --reviewer architecture-review --after <n>`: after a design it reviews the
+  solution (boundaries, where data and state live, dependency direction, deployment,
+  replaceability), after an implementation how the code is organized (layers, modules,
+  responsibilities, duplication). Review, fix, review again until a round has no P1 or P2;
+  at most 3 rounds, then a decide gate for the user. (`architecture-review`)
+- **Every review checks against the project's own rules** (reviewers, managers): its
+  `CLAUDE.md` / `AGENTS.md` and the design tasks before it, never a style of workriver's or
+  the reviewer's; a finding names the rule it holds the work to. (worker guide,
+  `architecture-review`, `blind-review`, `deciding-findings`)
+- **A design's output goes with the tasks after it** (workers, managers): `workriver task
+  show` of a task that comes after a delivered design or research task of its unit, however
+  many tasks between, prints each one's note and files under "Decided before this task":
+  follow it; if it seems wrong, `contract`. `--json`: `decided`. A blind task is shown none
+  of it until it delivers. (`design-gate`)
+
 ## 2026-11-18
 
 - **One workspace, one manager** (managers): `workriver manager here` registers you for the

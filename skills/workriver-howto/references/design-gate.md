@@ -8,7 +8,10 @@ What is already decided needs no design task: cite the decision in the task's `-
     workriver task add u1 --title "Build the picker" --after 2 --agent builder
 
 The designer delivers the design as its note (`workriver task deliver u1#1 --note "..."`).
-The user discusses it in the browser and confirms at the gate.
+The user discusses it in the browser and confirms at the gate. Every task after it in the
+unit reads that note and its files in `workriver task show` ("Decided before this task")
+and follows it; reviews check the work against it. A design that sets the shape of the
+work can get an architecture review before the gate (`architecture-review`).
 
 A design for the whole intent (across units or repositories) goes in a research unit
 (`units`): `workriver unit add --kind research --title "…"`, then the design task and the

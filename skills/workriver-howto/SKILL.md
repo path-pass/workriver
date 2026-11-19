@@ -1,6 +1,6 @@
 ---
 name: workriver-howto
-description: Exact commands for a situation under workriver - starting an intent, a spike (an experiment kept as code, never merged), units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, adding to a decided finding, deciding findings, deferred batches, gates and chores, a worker stuck on what only the user can do (a blocker), reaching the manager, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
+description: Exact commands for a situation under workriver - starting an intent, a spike (an experiment kept as code, never merged), units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, architecture reviews (code organization and solution architecture against the project's own rules), adding to a decided finding, deciding findings, deferred batches, gates and chores, a worker stuck on what only the user can do (a blocker), reaching the manager, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
 ---
 
 # workriver: how to
@@ -27,6 +27,7 @@ copy of this file.
 | `ask-user` | the user must decide: merging, deploying, changing the goal, a repeated failure; asking again (dropping a task no longer needed) |
 | `contract` | two tasks (front and back end) must fit together |
 | `blind-review` | a review that must not be anchored by others' accounts |
+| `architecture-review` | reviewing a design's solution or an implementation's organization against the project's own rules; the review-fix loop, at most 3 rounds |
 | `finding-additions` | a reviewer adds to a finding, or has more findings, after delivery |
 | `deciding-findings` | who decides findings, and how |
 | `closing-units` | what working / waiting / ready / merged / done mean; closing units and the intent |
