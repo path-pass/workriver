@@ -94,7 +94,7 @@ pub struct App {
     tunnels: Mutex<Vec<(String, bool)>>,
     /// Who the user is: the token, sessions of the page, one-time codes.
     auth: Auth,
-    /// A caller may name the agent it records as (`--as`), and one in no pane needs no
+    /// A caller may name the agent it records as (`--as`), and one at no place needs no
     /// terminal to be the user: for tests and development only.
     allow_as: bool,
     /// The proofs given to the processes that connected to the caller socket.
@@ -177,7 +177,7 @@ struct Caller {
     /// It carries a session of the page from our own origin: the user in a browser, which
     /// has no process to check and needs none.
     session: bool,
-    /// The pane the CLI says it runs in (`x-workriver-place`, the one carrier of it): only
+    /// The place the CLI says it runs at (`x-workriver-place`, the one carrier of it): only
     /// cross-checked against where its process is.
     place: Option<String>,
     /// The process that sends it, with its parents, as read when it connected to the caller
@@ -858,8 +858,8 @@ impl App {
     }
 
     /// Who a request acts as (docs/design/caller-identity.md). Never from what it says: the
-    /// agent is the one in the pane the calling process really runs in; the user is a caller
-    /// with the token in a plain pane, or in no pane at a terminal, or the page's session.
+    /// agent is the one at the place the calling process really runs at; the user is a caller
+    /// with the token at a place with no agent, or at no place at a terminal, or the page's session.
     /// Every failure is a refusal; none falls through to the user or to another agent.
     /// The one exception, where the daemon was started to allow it: an agent named with `--as`.
     fn who(&self, caller: &Caller, named: Option<&str>) -> Result<Principal, ApiError> {
@@ -880,10 +880,10 @@ impl App {
             return Ok(Principal::User);
         }
         let chain = self.chain_of(caller)?;
-        match self.pane(caller, &chain)? {
+        match self.place(caller, &chain)? {
             Some(root) => match &root.at.agent {
                 Some(a) => {
-                    self.one_pane(machine, &root, a, &chain)?;
+                    self.one_place(machine, &root, a, &chain)?;
                     self.seen(a)?;
                     self.tell_of_update(&a.session, false);
                     Ok(Principal::Agent { session: a.session.clone(), machine: a.machine.clone() })
@@ -908,23 +908,15 @@ impl App {
     }
 
     /// The calling process and its parents. This machine: as read when it connected to the
-    /// caller socket. Another machine: read there now, for the process id the CLI gives; that
-    /// is the caller's word, so the process must be running and be the CLI.
+    /// caller socket. Another machine: read there now, at every request, for the process id
+    /// the CLI gives; that is the caller's word, so the process must be running and be the CLI.
     fn chain_of(&self, caller: &Caller) -> Result<Chain, ApiError> {
         let Some(m) = caller.machine.as_deref() else {
             return caller.chain.clone().ok_or_else(|| self.no_process(caller));
         };
         let refuse = |pid: Option<u32>, why: &str| ApiError(StatusCode::UNAUTHORIZED, crate::herdr::not_the_cli(m, pid, why));
         let pid = caller.pid.ok_or_else(|| refuse(None, "is not given"))?;
-        let key = format!("{m}:{pid}");
-        let chain = match self.callers.chain(&key) {
-            Some(c) => c,
-            None => {
-                let c = self.procs.chain(Some(&self.runner(Some(m))?), pid).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("cannot read process {pid} on machine {m}: {e}")))?;
-                self.callers.keep(&key, c.clone());
-                c
-            }
-        };
+        let chain = self.procs.chain(Some(&self.runner(Some(m))?), pid).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("cannot read process {pid} on machine {m}: {e}")))?;
         match chain.first() {
             None => Err(refuse(Some(pid), "is gone")),
             Some(p) if p.name != "workriver" => Err(refuse(Some(pid), "is not the `workriver` CLI")),
@@ -932,28 +924,29 @@ impl App {
         }
     }
 
-    /// The pane the calling process is in, if any (rule 1): a request that names another
-    /// pane than the one its process runs in is refused, with both said.
-    fn pane(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
+    /// The place the calling process is at, if any (rule 1): a request that names another
+    /// place than the one its process runs at is refused, with both said.
+    fn place(&self, caller: &Caller, chain: &Chain) -> Result<Option<Root>, ApiError> {
         let machine = caller.machine.as_deref();
         let named = caller.place.as_deref();
         let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, crate::herdr::cannot_ask(named.unwrap_or("?"), &e.to_string()));
-        // The usual case costs one look: the process descends from the root of the pane it names.
+        // The usual case costs one look: the process descends from the root of the place it names.
         if let Some(p) = named {
             let there = self.runtime.roots(machine, Some(p)).map_err(cannot)?;
-            if let Some(r) = caller::pane_of(chain, &there, &|_| None) {
+            if let Some(r) = caller::place_of(chain, &there, &|_| None) {
                 return Ok(Some(r.clone()));
             }
         }
         let all = match self.runtime.roots(machine, None) {
             Ok(all) => all,
-            // No runtime at all: there are no panes to be in.
+            // No runtime at all: there are no places to be at.
             Err(RuntimeError::None) if named.is_none() => vec![],
             Err(e) => return Err(cannot(e)),
         };
-        let runner = machine.map(|m| self.runner(Some(m))).transpose()?;
-        let tty_of = |pid: u32| self.procs.chain(runner.as_ref(), pid).ok()?.first()?.tty.clone();
-        let found = caller::pane_of(chain, &all, &tty_of).cloned();
+        // A job left behind keeps its place's terminal: looked for on this machine only.
+        // Another machine has rules 1, 2 and 5 (each root's terminal would be one run there).
+        let tty_of = |pid: u32| if machine.is_some() { None } else { self.procs.chain(None, pid).ok()?.first()?.tty.clone() };
+        let found = caller::place_of(chain, &all, &tty_of).cloned();
         match named {
             Some(p) if found.as_ref().is_none_or(|r| r.place != p) => {
                 let gone = !all.iter().any(|r| r.place == p);
@@ -973,12 +966,12 @@ impl App {
         }
     }
 
-    /// Rule 5, one session, one pane: which agent a pane holds is what the runtime was told,
-    /// and anyone may tell it. So a session is its first pane's while that pane's root runs:
+    /// Rule 5, one session, one place: which agent a place holds is what the runtime was told,
+    /// and anyone may tell it. So a session is its first place's while that place's root runs:
     /// the same session from another root is refused. `chain`: the caller's, which holds the
     /// root's own line.
-    fn one_pane(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
-        // A pane where the runtime knows no shell has no root that stays: it is not pinned.
+    fn one_place(&self, machine: Option<&str>, root: &Root, a: &RuntimeAgent, chain: &Chain) -> Result<(), ApiError> {
+        // A place where the runtime knows no shell has no root that stays: it is not pinned.
         let mine = root.shell.and_then(|pid| chain.iter().find(|p| p.pid == pid).cloned().or_else(|| {
             let runner = machine.map(|m| self.runner(Some(m))).transpose().ok()?;
             self.procs.chain(runner.as_ref(), pid).ok()?.into_iter().next()
@@ -992,11 +985,11 @@ impl App {
         if let Some(pin) = pin.filter(|p| self.runs(p)) {
             return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::held(&a.session, &pin.place, pin.machine.as_deref())));
         }
-        // First sight. On this machine every pane is looked at: a session nobody was seen
-        // with, shown in two panes at once, is neither's. (On another machine the pin goes
-        // to the first pane that calls.)
+        // First sight. On this machine every place is looked at: a session nobody was seen
+        // with, shown at two places at once, is neither's. (On another machine the pin goes
+        // to the first place that calls.)
         if machine.is_none()
-            && let Some(other) = self.runtime.roots(None, None).unwrap_or_default().iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session))
+            && let Some(other) = self.runtime.agent_roots(None).unwrap_or_default().iter().find(|r| r.place != root.place && r.at.agent.as_ref().is_some_and(|x| x.session == a.session))
         {
             return Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::twice(&a.session, &root.place, &other.place)));
         }
@@ -1006,11 +999,11 @@ impl App {
         Ok(())
     }
 
-    /// The regular read of rule 5, on this machine: a session shown in one pane with a known
+    /// The regular read of rule 5, on this machine: a session shown at one place with a known
     /// shell, and pinned to no root that runs, is pinned there; pins whose root is gone are
-    /// released. So a session is its pane's before its agent ever calls.
+    /// released. So a session is its place's before its agent ever calls.
     fn see_roots(&self) {
-        let Ok(roots) = self.runtime.roots(None, None) else { return };
+        let Ok(roots) = self.runtime.agent_roots(None) else { return };
         let mut changes: Vec<(String, Option<Pin>)> = self.pins.all().into_iter().filter(|(_, p)| p.machine.is_none() && !self.runs(p)).map(|(s, _)| (s, None)).collect();
         let shown: Vec<(&Root, &str)> = roots.iter().filter_map(|r| Some((r, r.at.agent.as_ref()?.session.as_str()))).collect();
         for (root, session) in &shown {
@@ -1033,8 +1026,8 @@ impl App {
         }
         match self.who(caller, None)? {
             Principal::User => Ok(Principal::User),
-            // The token file can be read from an agent's pane on this machine; what runs in
-            // an agent's pane is the agent's doing.
+            // The token file can be read at an agent's place on this machine; what runs at
+            // an agent's place is the agent's doing.
             _ => Err(ApiError(StatusCode::FORBIDDEN, "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command".into())),
         }
     }
@@ -1531,20 +1524,20 @@ impl App {
         }
     }
 
-    /// Who and where the CLI is: the agent in the pane its process runs in (recorded by name
-    /// the first time), that pane's group, and the group's current intent, if any. In no
-    /// pane: nobody, in no group. Answered without the token, but not without a process.
+    /// Who and where the CLI is: the agent at the place its process runs at (recorded by name
+    /// the first time), that place's group, and the group's current intent, if any. At no
+    /// place: nobody, in no group. Answered without the token, but not without a process.
     fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
         if caller.machine.is_none() && caller.chain.is_none() {
             return Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::NO_PROCESS.into()));
         }
         let chain = self.chain_of(caller)?;
-        let Some(root) = self.pane(caller, &chain)? else {
+        let Some(root) = self.place(caller, &chain)? else {
             return Ok(json!({ "actor": null, "name": null, "group": null, "intent": null }));
         };
         let at = &root.at;
         if let Some(a) = &at.agent {
-            self.one_pane(caller.machine.as_deref(), &root, a, &chain)?;
+            self.one_place(caller.machine.as_deref(), &root, a, &chain)?;
             self.seen(a)?;
         }
         let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().state().intent_for(g).map(|i| i.id.clone()));
@@ -1593,7 +1586,7 @@ const NOT_THE_USER: &str = "workriver answers the user, and agents from their ow
 /// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
 /// acts as the user or changes where workriver reaches asks for the user in its handler
 /// (`App::user`); recording and reading ask who the caller is (`App::who`, `App::view`: the
-/// user, or the agent in the pane the calling process runs in, which on a blind task sees
+/// user, or the agent at the place the calling process runs at, which on a blind task sees
 /// only its own). Only `status` and the session routes answer anyone local; `here` answers
 /// any local process.
 fn router(app: Shared, via: Via) -> Router {
@@ -2040,7 +2033,7 @@ struct MachineSet {
 }
 
 /// CPU and memory of this machine and the followed ones, with the thresholds: read by the
-/// user (the page) and by an agent in its pane here (to weigh where to put work); set by
+/// user (the page) and by an agent at its place here (to weigh where to put work); set by
 /// the user alone. Not on a machine's listener.
 async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::metrics::Report>, ApiError> {
     app.who(&caller, r.named.as_deref())?;
@@ -2066,7 +2059,7 @@ fn a_day() -> u32 {
 }
 
 /// One machine's minutes over the last `hours` (1 to 168), read as `GET /api/metrics` is:
-/// the user, or an agent in its pane on this machine.
+/// the user, or an agent at its place on this machine.
 async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
     app.who(&caller, q.named.as_deref())?;
     if let Some(m) = caller.machine.as_deref().filter(|m| *m != q.machine) {
@@ -2692,7 +2685,7 @@ async fn run_review(State(app): State<Shared>, Extension(caller): Extension<Call
         if text.is_empty() || text.chars().count() > run::REVIEW_CAP {
             return Err(bad(format!("a review says what the command does, in at most {} characters", run::REVIEW_CAP)));
         }
-        // The agent in the caller's pane, as the runtime names it now: an agent started on a
+        // The agent at the caller's place, as the runtime names it now: an agent started on a
         // first-run prompt was known by its pane then and by its harness's own session since.
         let named = match &who {
             Principal::Agent { session, machine } => app.runtime.agents().ok().and_then(|l| l.into_iter().find(|a| &a.session == session && &a.machine == machine)).map(|a| a.name),
@@ -2928,7 +2921,7 @@ pub mod testing {
     use crate::caller::{Callers, Chain, Proc, Procs};
 
     /// Processes as tests make them up: a chain per process id; any other id is a root
-    /// (a pane's shell) that runs until it is killed.
+    /// (a place's shell) that runs until it is killed.
     #[derive(Default)]
     pub struct FakeProcs {
         chains: Mutex<HashMap<u32, Chain>>,
@@ -3005,7 +2998,7 @@ pub mod testing {
     }
 
     /// What the CLI's `Daemon` sends in a test: a made-up `workriver` process at `place` (a
-    /// child of its root's shell; none: at a terminal in no pane), as a proof for this
+    /// child of its root's shell; none: at a terminal at no place), as a proof for this
     /// machine's listener and as a process id for a machine's. None: no service on that port.
     pub fn mint(port: u16, place: Option<&str>) -> Option<(String, u32)> {
         static NEXT: AtomicU32 = AtomicU32::new(1000);

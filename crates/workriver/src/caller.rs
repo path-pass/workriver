@@ -186,7 +186,7 @@ pub fn show(chain: &[Proc]) -> String {
 /// The place a process is at: the one whose root is the process or the nearest of its
 /// parents; else the one whose root has the same controlling terminal (a job left behind by
 /// `( cmd & )` keeps it); else none. `tty_of`: the terminal of a root.
-pub fn pane_of<'a>(chain: &[Proc], roots: &'a [Root], tty_of: &dyn Fn(u32) -> Option<String>) -> Option<&'a Root> {
+pub fn place_of<'a>(chain: &[Proc], roots: &'a [Root], tty_of: &dyn Fn(u32) -> Option<String>) -> Option<&'a Root> {
     let own = chain.iter().find_map(|p| roots.iter().find(|r| r.pids().contains(&p.pid)));
     own.or_else(|| {
         let tty = chain.first()?.tty.as_ref()?;
@@ -220,12 +220,6 @@ impl Callers {
     /// The chain a proof stands for, while it lasts.
     pub fn chain(&self, proof: &str) -> Option<Chain> {
         self.proofs.lock().unwrap().get(proof).filter(|(_, until)| *until > Instant::now()).map(|(c, _)| c.clone())
-    }
-
-    /// A chain kept under a key of the service's own (a process of another machine).
-    pub fn keep(&self, key: &str, chain: Chain) {
-        let until = Instant::now() + *self.ttl.lock().unwrap();
-        self.proofs.lock().unwrap().insert(key.into(), (chain, until));
     }
 
     #[cfg(test)]
@@ -360,7 +354,7 @@ mod tests {
     }
 
     /// What `SNIPPET` printed in `docker run --rm debian:stable-slim` for a `sleep` under
-    /// two shells (no `ps` there), and on a Mac for a command in a Herdr pane: the name may
+    /// two shells (no `ps` there), and on a Mac for a command run under Herdr: the name may
     /// hold spaces and brackets, the Mac's is a whole path.
     const STAT: &str = "stat 9 (sleep) S 8 1 1 34816 1 4194304 96 0 0 0 0 0 0 0 20 0 1 0 51234 2412544 211 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 5 0 0 0 0 0\nstat 8 (my (odd) sh) S 1 1 1 34816 1 4194560 317 2104 0 0 0 0 1 0 20 0 1 0 51201 2531328 233 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 2 0 0 0 0 0\nstat 1 (sh) S 0 1 1 0 1 4194560 317 2104 0 0 0 0 1 0 20 0 1 0 51200 2531328 233 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 2 0 0 0 0 0\n";
     const PS: &str = "ps 27157 27074 ??       Thu Nov 19 10:09:43 2026     /Users/x/target/debug/workriver\nps 27074 83970 ??       Thu Nov 19 10:09:42 2026     /bin/zsh\nps 83970 83912 ttys016  Thu Nov 19 09:40:43 2026     /Users/x/Library/Application Support/claude/2.1.328\nps 83912  6286 ttys016  Thu Nov 19 09:40:43 2026     -zsh\nps     1     0 ??       Fri Nov 13 18:21:17 2026     /sbin/launchd\n";
@@ -408,23 +402,23 @@ mod tests {
     fn a_process_is_at_the_place_whose_root_it_descends_from() {
         let roots = [root("p1", Some(10), &[]), root("p2", Some(20), &[21]), root("p3", None, &[30, 31])];
         let none = |_: u32| None;
-        let at = |c: &[Proc]| pane_of(c, &roots, &none).map(|r| r.place.as_str());
+        let at = |c: &[Proc]| place_of(c, &roots, &none).map(|r| r.place.as_str());
         assert_eq!(at(&[p(99, 21, None), p(21, 20, None), p(20, 1, None), p(1, 0, None)]), Some("p2"), "a grandchild of its shell");
         assert_eq!(at(&[p(10, 1, None)]), Some("p1"), "the shell itself");
         assert_eq!(at(&[p(99, 31, None), p(31, 1, None)]), Some("p3"), "no shell known: what is in front is the root");
         assert_eq!(at(&[p(99, 21, None), p(21, 1, None)]), None, "what is in front of a known shell is not a root");
         assert_eq!(at(&[p(99, 5, None), p(5, 1, None)]), None);
         assert_eq!(at(&[]), None);
-        // A pane inside a pane: the nearest root.
+        // A place inside a place: the nearest root.
         let nested = [root("outer", Some(20), &[]), root("inner", Some(21), &[])];
-        assert_eq!(pane_of(&[p(99, 21, None), p(21, 20, None), p(20, 1, None)], &nested, &none).map(|r| r.place.as_str()), Some("inner"));
+        assert_eq!(place_of(&[p(99, 21, None), p(21, 20, None), p(20, 1, None)], &nested, &none).map(|r| r.place.as_str()), Some("inner"));
         // A job left behind (`( cmd & )`) keeps its terminal; one that left its session has none.
         let tty = |pid: u32| (pid == 10).then(|| "ttys022".to_string());
-        assert_eq!(pane_of(&[p(99, 1, Some("ttys022")), p(1, 0, None)], &roots, &tty).map(|r| r.place.as_str()), Some("p1"));
-        assert_eq!(pane_of(&[p(99, 1, Some("ttys000")), p(1, 0, None)], &roots, &tty).map(|r| r.place.as_str()), None);
-        assert_eq!(pane_of(&[p(99, 1, None), p(1, 0, None)], &roots, &tty).map(|r| r.place.as_str()), None);
+        assert_eq!(place_of(&[p(99, 1, Some("ttys022")), p(1, 0, None)], &roots, &tty).map(|r| r.place.as_str()), Some("p1"));
+        assert_eq!(place_of(&[p(99, 1, Some("ttys000")), p(1, 0, None)], &roots, &tty).map(|r| r.place.as_str()), None);
+        assert_eq!(place_of(&[p(99, 1, None), p(1, 0, None)], &roots, &tty).map(|r| r.place.as_str()), None);
         // Descent comes before the terminal.
-        assert_eq!(pane_of(&[p(99, 20, Some("ttys022")), p(20, 1, None)], &roots, &tty).map(|r| r.place.as_str()), Some("p2"));
+        assert_eq!(place_of(&[p(99, 20, Some("ttys022")), p(20, 1, None)], &roots, &tty).map(|r| r.place.as_str()), Some("p2"));
     }
 
     #[test]
@@ -445,11 +439,8 @@ mod tests {
         assert_eq!(callers.chain("no-such-proof"), None);
         callers.set_ttl(Duration::from_millis(30));
         let short = callers.admit(chain.clone()).unwrap();
-        callers.keep("box:7", chain.clone());
-        assert_eq!(callers.chain("box:7"), Some(chain));
         std::thread::sleep(Duration::from_millis(60));
         assert_eq!(callers.chain(&short), None, "expired");
-        assert_eq!(callers.chain("box:7"), None);
         assert!(callers.chain(&proof).is_some(), "the earlier one still stands");
     }
 

@@ -114,6 +114,11 @@ pub trait Runtime: Send + Sync {
     fn roots(&self, _machine: Option<&str>, _place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
         Ok(vec![])
     }
+    /// The roots of the places on `machine` (none: this one) that hold an agent, read fresh:
+    /// what the service reads on every tick. By default, `roots` of every place, kept to those.
+    fn agent_roots(&self, machine: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
+        Ok(self.roots(machine, None)?.into_iter().filter(|r| r.at.agent.is_some()).collect())
+    }
     /// Types `line` into a new plain shell of the user's (no agent) on `machine` (none: this
     /// one), in a place of its own inside the group named `group` (made on first use), started
     /// in `dir`, and submits it; returns the place. By default, no runtime can.

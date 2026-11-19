@@ -3687,6 +3687,12 @@ fn a_caller_on_another_machine_is_checked_there() {
     let record = |pid: u32| http(box_port, "POST", "/api/append", &[("authorization", bearer.as_str()), ("x-workriver-pid", &pid.to_string())], Some(&json!({ "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()));
     let (code, text) = record(7004);
     assert!(code == 401 && text.contains("is in no pane of the Herdr workriver follows on machine box"), "{text}");
+    // A terminal there is not looked for (rules 1, 2 and 5 there): a process outside its
+    // place with that place's terminal is in no place, and no root's terminal is read.
+    let tty = format!("tty{p2}");
+    procs.set(7005, vec![proc(7005, 1, Some(&tty), "workriver")]);
+    let (code, text) = record(7005);
+    assert!(code == 401 && text.contains("is in no pane of the Herdr workriver follows on machine box"), "{code} {text}");
     assert!(record(7001).1.contains("\"actor\":\"s-far\""));
     // This machine's proof is not read on a machine's listener, and its pid not on ours.
     let local_proof = crate::serve::testing::proof(port, vec![proc(9, root("w1:p1"), None, "workriver"), proc(root("w1:p1"), 1, None, "zsh")]);
@@ -3703,6 +3709,12 @@ fn a_caller_on_another_machine_is_checked_there() {
     assert_eq!(actor(here(None, Some(7001))), "s-far");
     procs.kill(p1);
     assert_eq!(actor(here(None, Some(7002))), "s-far");
+    // A process is read there at every call: once it has ended, its id is nobody's, even
+    // right after it was seen.
+    assert_eq!(actor(here(None, Some(7002))), "s-far");
+    procs.kill(7002);
+    let (code, text) = here(None, Some(7002));
+    assert!(code == 401 && text.contains("is gone"), "{code} {text}");
 }
 
 /// A command that lasts longer than its proof fetches a new one and goes on (`ask --wait`

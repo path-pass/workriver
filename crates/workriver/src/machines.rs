@@ -777,6 +777,14 @@ impl Runtime for Machines {
         }
     }
 
+    /// The service reads this machine's on its tick; another machine's are not read so.
+    fn agent_roots(&self, machine: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
+        match machine {
+            None => self.local.agent_roots(None),
+            Some(_) => Ok(self.roots(machine, None)?.into_iter().filter(|r| r.at.agent.is_some()).collect()),
+        }
+    }
+
     /// On the machine named, through its own runtime: the shell is the user's over there.
     fn run_shell(&self, machine: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, RuntimeError> {
         self.at(machine, |r| r.run_shell(None, group, dir, line))

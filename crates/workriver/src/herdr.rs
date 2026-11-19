@@ -276,6 +276,29 @@ impl Herdr {
         self.machine.as_deref()
     }
 
+    /// The roots of `place`, or of every pane (`agents`: of every pane that holds an agent).
+    fn roots_of(&self, place: Option<&str>, agents: bool) -> Result<Vec<Root>, RuntimeError> {
+        let (snap, list) = self.read()?;
+        let mut panes: Vec<(&str, &str)> = snap.panes.iter().map(|p| (p.pane_id.as_str(), p.workspace_id.as_str())).collect();
+        for a in &snap.agents {
+            if !panes.iter().any(|(p, _)| *p == a.pane_id) {
+                panes.push((&a.pane_id, &a.workspace_id));
+            }
+        }
+        let mut out = vec![];
+        for (pane, workspace) in panes.into_iter().filter(|(p, _)| place.is_none_or(|x| x == *p)) {
+            let agent = list.iter().find(|(p, _)| p == pane).map(|(_, a)| a.clone());
+            if agents && agent.is_none() {
+                continue;
+            }
+            let Ok(r) = self.call("pane.process_info", json!({ "pane_id": pane })) else { continue };
+            let info = &r["process_info"];
+            let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
+            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent, group: group(&snap, workspace, self.label()) } });
+        }
+        Ok(out)
+    }
+
     /// The pane of an agent given by session or by name.
     fn pane_of(&self, agent: &str) -> Result<String, RuntimeError> {
         if let Some(p) = self.panes.lock().unwrap().get(agent) {
@@ -462,22 +485,11 @@ impl Runtime for Herdr {
     /// One `pane.process_info` per pane asked for. A pane Herdr does not list, or no longer
     /// answers for, is not there.
     fn roots(&self, _: Option<&str>, place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
-        let (snap, list) = self.read()?;
-        let mut panes: Vec<(&str, &str)> = snap.panes.iter().map(|p| (p.pane_id.as_str(), p.workspace_id.as_str())).collect();
-        for a in &snap.agents {
-            if !panes.iter().any(|(p, _)| *p == a.pane_id) {
-                panes.push((&a.pane_id, &a.workspace_id));
-            }
-        }
-        let mut out = vec![];
-        for (pane, workspace) in panes.into_iter().filter(|(p, _)| place.is_none_or(|x| x == *p)) {
-            let Ok(r) = self.call("pane.process_info", json!({ "pane_id": pane })) else { continue };
-            let info = &r["process_info"];
-            let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
-            let agent = list.iter().find(|(p, _)| p == pane).map(|(_, a)| a.clone());
-            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent, group: group(&snap, workspace, self.label()) } });
-        }
-        Ok(out)
+        self.roots_of(place, false)
+    }
+
+    fn agent_roots(&self, _: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
+        self.roots_of(None, true)
     }
 
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
@@ -727,6 +739,12 @@ mod tests {
         let (_dir, herdr, _server) = fake(replies);
         let all: Vec<(String, Vec<u32>, bool)> = herdr.roots(None, None).unwrap().into_iter().map(|r| (r.place.clone(), r.pids(), r.at.agent.is_some())).collect();
         assert_eq!(all, [("w5:p1".into(), vec![100], true), ("w5:p2".into(), vec![200, 201], true), ("w5:p3".into(), vec![300], false), ("w5:p4".into(), vec![500], true)]);
+        // Only the places that hold an agent: a plain pane is not asked about.
+        let (_dir, herdr, server) = fake(vec![snapshot(), info(json!(100), json!([])), info(json!(200), json!([])), info(json!(400), json!([])), info(json!(500), json!([]))]);
+        let held: Vec<String> = herdr.agent_roots(None).unwrap().into_iter().map(|r| r.place).collect();
+        assert_eq!(held, ["w5:p1", "w5:p2", "w5:p12", "w5:p4"]);
+        let asked: Vec<Value> = server.join().unwrap().iter().skip(1).map(|r| r["params"]["pane_id"].clone()).collect();
+        assert_eq!(asked, [json!("w5:p1"), json!("w5:p2"), json!("w5:p12"), json!("w5:p4")]);
     }
 
     #[test]

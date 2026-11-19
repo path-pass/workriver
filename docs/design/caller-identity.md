@@ -651,7 +651,7 @@ Three points are the user's to confirm; the design assumes the first answer of e
 
 Where it is: `crates/workriver/src/caller.rs` (the chain with `libproc` / `procfs`, the
 snippet and its parser, the caller socket and its proofs, the pins' file, the rule
-`pane_of`); `App::who`, `App::pane`, `App::one_pane`, `App::see_roots`, `App::here` and
+`place_of`); `App::who`, `App::place`, `App::one_place`, `App::see_roots`, `App::here` and
 `guard` in `serve.rs`; `Runtime::roots` in the core, implemented in `herdr.rs` (with the
 refusals' words) and routed per machine in `machines.rs`; `Daemon::send` and
 `Daemon::process` in `main.rs`. Tests: `caller::tests`, `herdr::tests`, the last block of
@@ -671,11 +671,34 @@ Where it differs from the text above, or says more:
   whether or not its environment names a pane.
 - Pane-named agents (`herdr:<pane>`) are pinned like the others. It changes nothing: that
   name can only come from the pane itself.
-- On another machine the chain read for a process id is kept as long as a proof (30 s), so
-  a command that makes several requests, or polls, costs one run of the snippet.
+- On another machine the chain of the process id a request gives is read there at every
+  request (one run of the snippet each), so a process that has ended is nobody's at once
+  (u11#2 P3-1; it was kept 30 s, which let a program there name the id of a `workriver`
+  call that had just ended).
 - `workriver attach fetch` takes the stored file's name (`<id>.<ext>`) or a link ending in
   it, and saves it in the current folder.
 - A caller on a machine's listener that shows no process is answered 401 (it was 403).
+- After the reviews (u11#4):
+  - **The page's session** (u11#2 P1-1): the cookie was a random part signed with the token,
+    so whoever read the token could make one and be the user, past every rule above. Now it
+    is 32 random bytes the service hands out for a one-time code and nothing derives; the
+    service keeps only their SHA-256 and the second each ends (`<home>/user-sessions`, mode
+    600, written whole and renamed), so sessions outlive a restart and neither the token
+    nor that file yields one. Cookies of the old form are refused; the page is opened again
+    with `workriver open`. A line written into the file counts after a restart: the same
+    class as writing the database (section 6, the files).
+  - `GET /api/session` answers `App::user(..).is_ok()` (u11#2 P3-2), so it says the user
+    only where every route would take the request for the user.
+  - The regular read (every 2 s) asks the runtime for the roots of places that hold an
+    agent only (`Runtime::agent_roots`; Herdr: `pane.process_info` for agent panes only),
+    as section 5 costs it; so does rule 5's "shown in two places" check (u11#3 P3-2). What
+    remains beyond section 5: each tick reads `session.snapshot` twice (once for the agents
+    the page shows, once with the roots).
+  - On another machine a process outside every place's root is in no place: the terminal
+    fallback (the `( cmd & )` case) is looked for on this machine only, so a refusal there
+    costs no ssh run per place (u11#3 P3-2; 3.3 names rules 1, 2 and 5 there).
+  - The identity code says place, not pane (`place_of`, `App::place`, `App::one_place`), as
+    the runtime interface does (u11#3 P3-3); the refusals' words stay in `herdr.rs`.
 - Verified on Linux (Debian, `rust:slim` container): the `procfs` chain, the snippet's
   `/proc` branch and the socket's peer pid (`caller::tests`). **Still not verified:** a real
   followed machine over ssh, a Herdr restart against rule 5, tmux inside a pane.
