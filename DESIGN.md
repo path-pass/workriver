@@ -441,13 +441,19 @@ looked at now and then.
   be asked about with no task picked; lines no task changed are asked about the unit (the
   task is unpicked). A chip can be left out for this question (its ×).
   Files go with a question too, any kind (a screenshot, a log, Markdown, a PDF), several at
-  once: dropped anywhere on the Ask panel (the browser never opens a dropped file in the
-  page's place, whichever conversation shows), pasted into the box, or picked with the small
-  attach button in the box, before Send. Each shows at once as a chip after the others (the
+  once: dropped anywhere on the Ask panel, pasted into the box, or picked with the small
+  attach button in the box, before Send. The browser never opens a dropped file in the
+  page's place, wherever on the page it is let go: outside what takes files (the Ask panel
+  in its Why mode, a gate's form) the cursor says it cannot be dropped. The box is a text
+  box first: pasted rich text (a spreadsheet's cells, a paragraph) goes in as text and the
+  picture of it that comes along is not attached; a pasted file is attached, and text of its
+  own beside it goes in too (not text that only names the file). A pasted file with no name
+  is named from its type (pasted.png, pasted.txt). Each shows at once as a chip after the others (the
   attach glyph, its name, a × that takes it out). As a gate's pictures, the page holds them
   until the question is sent and they are stored only then, so one taken out is never
   stored; one over the store's 50 MB is refused at once, in a red line above the box naming
-  it. The answering agent is given each file's path in the store (a link, for an agent on
+  it, which goes with its ×, when a chip is taken out, with the next file attached, when the
+  question is sent, or with another task picked. The answering agent is given each file's path in the store (a link, for an agent on
   another machine). In the conversation they show under the question as attachments do
   everywhere: pictures as thumbnails, other files as chips, opening in the viewer. Only the
   user attaches; the manager conversation takes no files.

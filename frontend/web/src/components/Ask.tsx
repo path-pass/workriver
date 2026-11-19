@@ -329,8 +329,15 @@ function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFi
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
           }}
           onPaste={e => {
+            // A text box first. Rich text (a spreadsheet's cells, a document's paragraph) comes
+            // with a picture of itself: the text goes in, the picture is not taken. Otherwise
+            // the files are taken, and text of its own beside them goes in too (not when it
+            // only names them, as a file manager's copy does).
             const got = [...e.clipboardData.files]
-            if (onFiles && got.length) { e.preventDefault(); onFiles(got) }
+            if (!onFiles || !got.length || e.clipboardData.types.includes('text/html')) return
+            const text = e.clipboardData.getData('text/plain').trim()
+            if (!text || got.some(f => f.name && text.includes(f.name))) e.preventDefault()
+            onFiles(got)
           }}
         />
         {onFiles && (
@@ -371,11 +378,10 @@ export function Ask({ unit, n, finding, talk }: { unit: Unit | null; n: Task | n
   // Where a question can be asked, its conversations take the files dropped on the panel.
   const takeFiles = useRef<((files: File[]) => void) | null>(null)
   return (
-    // A file dropped anywhere on the panel is never opened by the browser in the page's place;
-    // it is attached to the question being written, if one can be.
+    // A file dropped anywhere on the panel is attached to the question being written, if one
+    // can be. (The browser never opens a dropped file, here or elsewhere: App's window listener.)
     <section
-      aria-labelledby="side-ask" className="flex min-h-0 flex-1 flex-col"
-      onDragOver={e => { if (hasFiles(e)) e.preventDefault() }}
+      aria-labelledby="side-ask" className="flex min-h-0 flex-1 flex-col" data-takes-files={about && !(mode === 'manager' && talk) ? '' : undefined}
       onDrop={e => { if (hasFiles(e)) { e.preventDefault(); takeFiles.current?.([...e.dataTransfer.files]) } }}
     >
       <div className="mb-2 flex flex-none items-center gap-2 px-4.5">
@@ -442,7 +448,9 @@ function Conversations({ unit, n, finding, talk, takeFiles }: { unit: Unit; n: T
     setRefused(list.filter(f => f.size > MAX_ATTACHMENT).map(f => f.name))
     setFiles(fs => [...fs, ...list.filter(f => f.size <= MAX_ATTACHMENT).map(attach)])
   }
-  const remove = (a: Attachment) => { detach(a); setFiles(fs => fs.filter(x => x !== a)) }
+  const remove = (a: Attachment) => { detach(a); setFiles(fs => fs.filter(x => x !== a)); setRefused([]) }
+  // A refusal is about the question it was made on: gone with another task picked.
+  useEffect(() => setRefused([]), [n?.id])
   useEffect(() => { takeFiles.current = addFiles; return () => { takeFiles.current = null } })
 
   // One conversation open at a time; the one just asked in stays open. At first, one that
@@ -500,10 +508,15 @@ function Conversations({ unit, n, finding, talk, takeFiles }: { unit: Unit; n: T
         above={
           <>
             <div className="mb-1.5 flex items-start gap-2">
-              <span className="min-w-0 flex-1"><Chips chips={context} onDrop={c => setDropped(d => [...d, c.label])} files={files} onRemove={remove} /></span>
+              <span className="min-w-0 flex-1"><Chips chips={context} onDrop={c => { setDropped(d => [...d, c.label]); setRefused([]) }} files={files} onRemove={remove} /></span>
               {current && <Button variant="ghost" size="xs" className="-my-0.5 flex-none rounded-sm" onClick={() => setFresh(true)}><Icon name="plus" className="size-3" />{t('ask.fresh')}</Button>}
             </div>
-            {refused.length > 0 && <p className="mb-1.5 text-xs text-del wrap-anywhere" role="alert">{t('ask.tooLarge', { names: refused.join(', '), max: MAX_ATTACHMENT / 1024 / 1024 })}</p>}
+            {refused.length > 0 && (
+              <p className="mb-1.5 flex items-start gap-1 text-xs text-del" role="alert">
+                <span className="min-w-0 flex-1 wrap-anywhere">{t('ask.tooLarge', { names: refused.join(', '), max: MAX_ATTACHMENT / 1024 / 1024 })}</span>
+                <button type="button" className="flex-none rounded-sm hover:text-ink" aria-label={t('ask.dismiss')} onClick={() => setRefused([])}><Icon name="no" className="size-3.5" /></button>
+              </p>
+            )}
           </>
         }
         below={!n ? t('ask.howUnit') : live ? t('ask.how', { agent: askee }) : t('ask.howAlone')}

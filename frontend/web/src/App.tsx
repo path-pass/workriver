@@ -101,6 +101,19 @@ export default function App() {
   const [sheet, setSheet] = useState<Section | null>(null)
   // How wide the side panel is now, open or folded to its strip: the attachment viewer stops there.
   useEffect(() => document.documentElement.style.setProperty('--side-now', side ? 'var(--side-w, 340px)' : '2.75rem'), [side])
+  // A file dragged over the page is never opened by the browser in the page's place, wherever
+  // it is let go; only what takes files (`data-takes-files`: the Ask panel, a gate's form)
+  // offers to, and takes them in its own handler.
+  useEffect(() => {
+    const keep = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return
+      e.preventDefault()
+      if (e.type === 'dragover' && !(e.target instanceof Element && e.target.closest('[data-takes-files]'))) e.dataTransfer.dropEffect = 'none'
+    }
+    window.addEventListener('dragover', keep)
+    window.addEventListener('drop', keep)
+    return () => { window.removeEventListener('dragover', keep); window.removeEventListener('drop', keep) }
+  }, [])
 
   // What the user put in during this sitting; the data shown is the data with it on top.
   const [edits, setEdits] = useState<Edits>(NO_EDITS)

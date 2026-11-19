@@ -364,6 +364,7 @@ export const ja: OneForm<typeof en> = {
     send: '送信',
     attach: 'ファイルを添付（貼り付け、またはこのパネルへのドロップも可）',
     tooLarge: '添付できません（{{max}} MB 超）：{{names}}',
+    dismiss: '閉じる',
     remove: '{{label}} を外す',
     how: '一時的なエージェントが記録とコードから回答します。{{agent}} が待機中のときだけ {{agent}} に確認します。',
     howAlone: '一時的なエージェントが記録とコードから回答します。',

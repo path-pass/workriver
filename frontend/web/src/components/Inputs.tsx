@@ -206,6 +206,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     <form
       className="flex flex-col gap-2"
       onSubmit={e => { e.preventDefault(); submit() }}
+      data-takes-files
       onDragOver={e => e.preventDefault()}
       onDrop={dropped(addNote)}
     >

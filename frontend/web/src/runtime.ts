@@ -109,7 +109,10 @@ export const MAX_ATTACHMENT = 50 * 1024 * 1024
 /** Take a file the user attached (a gate's picture, a file for a question): the page keeps
  *  it until what it goes with is sent, and only then is it uploaded. */
 export function attach(file: File): Attachment {
-  return { id: Math.random().toString(36).slice(2, 10), name: file.name || 'pasted.png', url: URL.createObjectURL(file), type: file.type || 'application/octet-stream' }
+  // A pasted file may have no name: it is named from its type, so the stored file's ending says what it is.
+  const sub = file.type.split('/')[1]?.split(/[+;]/)[0] ?? ''
+  const ext = { 'text/plain': 'txt', 'text/markdown': 'md', 'image/jpeg': 'jpg', 'image/svg+xml': 'svg' }[file.type] ?? (/^[a-z0-9]+$/.test(sub) ? sub : 'bin')
+  return { id: Math.random().toString(36).slice(2, 10), name: file.name || `pasted.${ext}`, url: URL.createObjectURL(file), type: file.type || 'application/octet-stream' }
 }
 export const detach = (a: Attachment) => { if (a.url.startsWith('blob:')) URL.revokeObjectURL(a.url) }
 
