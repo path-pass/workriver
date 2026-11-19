@@ -120,30 +120,6 @@ pub fn remote_ref(id: &str, machine: &str) -> String {
     format!("{id}@{machine}")
 }
 
-/// Runs a command to its end, or kills it after `wait`.
-pub fn output_within(mut cmd: std::process::Command, wait: Duration) -> std::io::Result<std::process::Output> {
-    use std::process::Stdio;
-    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-    let until = std::time::Instant::now() + wait;
-    // ponytail: output is read after exit, fine for answers that fit a pipe buffer only if
-    // drained; so drain on threads.
-    let (mut out, mut err) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
-    let o = std::thread::spawn(move || { let mut b = vec![]; let _ = std::io::Read::read_to_end(&mut out, &mut b); b });
-    let e = std::thread::spawn(move || { let mut b = vec![]; let _ = std::io::Read::read_to_end(&mut err, &mut b); b });
-    let status = loop {
-        if let Some(s) = child.try_wait()? {
-            break s;
-        }
-        if std::time::Instant::now() > until {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("no answer within {}s", wait.as_secs())));
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    Ok(std::process::Output { status, stdout: o.join().unwrap_or_default(), stderr: e.join().unwrap_or_default() })
-}
-
 #[derive(Deserialize)]
 struct Snap {
     #[serde(default)]

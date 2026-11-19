@@ -28,7 +28,8 @@ use workriver_scan as scan;
 use crate::machines::Machines;
 use crate::metrics::Metrics;
 use crate::auth::{self, Auth};
-use crate::caller::{self, Callers, Chain, Pin, Pins, Procs};
+use crate::caller::{self, Callers, Pin, Pins};
+use crate::common::process::{self, Chain, Procs};
 use crate::{ask, attachments, deliver, run};
 use crate::snapshot::{self, Cache};
 
@@ -196,7 +197,7 @@ pub struct Options {
     pub allow_as: bool,
     /// Read the machines' CPU and memory (the service; tests that do not look at it do not).
     pub sample: bool,
-    /// What the service reads of processes: the system's (`caller::System`), or a test's.
+    /// What the service reads of processes: the system's (`process::System`), or a test's.
     pub procs: Arc<dyn Procs>,
     /// The proofs it gives on its caller socket, each for a process's chain.
     pub callers: Arc<Callers>,
@@ -886,12 +887,12 @@ impl App {
                 None => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_agent_at(&root.place))),
             },
             None => match machine {
-                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_pane_on(m, &caller::show(&chain)))),
+                Some(m) => Err(ApiError(StatusCode::UNAUTHORIZED, crate::herdr::no_pane_on(m, &process::show(&chain)))),
                 None if !caller.token => Err(ApiError(StatusCode::UNAUTHORIZED, NOT_THE_USER.into())),
                 // A helper of a harness, or a background job, has no terminal; the user at
                 // a terminal window has one.
                 None if self.allow_as || chain.first().is_some_and(|p| p.tty.is_some()) => Ok(Principal::User),
-                None => Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::no_terminal(&caller::show(&chain)))),
+                None => Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::no_terminal(&process::show(&chain)))),
             },
         }
     }
@@ -944,7 +945,7 @@ impl App {
         match named {
             Some(p) if found.as_ref().is_none_or(|r| r.place != p) => {
                 let gone = !all.iter().any(|r| r.place == p);
-                Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::elsewhere(p, gone, &caller::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
+                Err(ApiError(StatusCode::FORBIDDEN, crate::herdr::elsewhere(p, gone, &process::show(chain), found.as_ref().map(|r| r.place.as_str()), machine)))
             }
             _ => Ok(found),
         }

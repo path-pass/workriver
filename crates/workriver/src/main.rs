@@ -865,7 +865,7 @@ fn main() -> anyhow::Result<()> {
                 tracing::warn!("{w}");
             }
             let allow_as = std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1");
-            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(caller::System), callers: std::sync::Arc::default() };
+            let options = serve::Options { warning, waits: serve::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default() };
             let rt = tokio::runtime::Runtime::new()?;
             return rt.block_on(async {
                 let listener = serve::bind(cli.port.unwrap_or(DEFAULT_PORT)).await?;

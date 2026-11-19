@@ -135,20 +135,20 @@ fn root(place: &str) -> u32 {
     ROOTS + place.bytes().fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) % 1_000_000
 }
 
-fn shell(pid: u32) -> crate::caller::Proc {
-    crate::caller::Proc { pid, parent: 1, tty: Some(format!("tty{pid}")), start: 1, name: "zsh".into() }
+fn shell(pid: u32) -> crate::common::process::Proc {
+    crate::common::process::Proc { pid, parent: 1, tty: Some(format!("tty{pid}")), start: 1, name: "zsh".into() }
 }
 
 /// Processes as tests make them up: a chain per process id; any other id from `ROOTS` up
 /// is a root (a place's shell) that runs until it is killed.
 #[derive(Default)]
 struct FakeProcs {
-    chains: std::sync::Mutex<std::collections::HashMap<u32, crate::caller::Chain>>,
+    chains: std::sync::Mutex<std::collections::HashMap<u32, crate::common::process::Chain>>,
     dead: std::sync::Mutex<Vec<u32>>,
 }
 
 impl FakeProcs {
-    fn set(&self, pid: u32, chain: crate::caller::Chain) {
+    fn set(&self, pid: u32, chain: crate::common::process::Chain) {
         self.chains.lock().unwrap().insert(pid, chain);
     }
     fn kill(&self, pid: u32) {
@@ -156,8 +156,8 @@ impl FakeProcs {
     }
 }
 
-impl crate::caller::Procs for FakeProcs {
-    fn chain(&self, _: Option<&workriver_scan::Runner>, pid: u32) -> Result<crate::caller::Chain, String> {
+impl crate::common::process::Procs for FakeProcs {
+    fn chain(&self, _: Option<&workriver_scan::Runner>, pid: u32) -> Result<crate::common::process::Chain, String> {
         if self.dead.lock().unwrap().contains(&pid) {
             return Ok(vec![]);
         }
@@ -213,7 +213,7 @@ impl Kernel {
         let key = place.map(str::to_string);
         if fresh || !kept.contains_key(&key) {
             let pid = NEXT.fetch_add(1, Ordering::Relaxed);
-            let me = |parent: u32, tty: String| crate::caller::Proc { pid, parent, tty: Some(tty), start: 5, name: "workriver".into() };
+            let me = |parent: u32, tty: String| crate::common::process::Proc { pid, parent, tty: Some(tty), start: 5, name: "workriver".into() };
             let chain = match place {
                 Some(p) => vec![me(root(p), format!("tty{}", root(p))), shell(root(p))],
                 None => vec![me(1, "ttys000".into())],
@@ -227,7 +227,7 @@ impl Kernel {
     }
 
     /// A proof for a process with this chain, as the caller socket would give it.
-    fn proof(&self, chain: crate::caller::Chain) -> String {
+    fn proof(&self, chain: crate::common::process::Chain) -> String {
         self.callers.admit(chain).unwrap()
     }
 }
@@ -3599,9 +3599,9 @@ fn http_at(d: &Daemon, port: u16, place: &str, method: &str, path: &str, extra: 
 }
 
 /// A process as a test makes it up.
-fn proc(pid: u32, parent: u32, tty: Option<&str>, name: &str) -> crate::caller::Proc {
+fn proc(pid: u32, parent: u32, tty: Option<&str>, name: &str) -> crate::common::process::Proc {
     // A pane's root started before what runs in it, and always at the same time.
-    crate::caller::Proc { pid, parent, tty: tty.map(str::to_string), start: if pid >= 1_000_000 { 1 } else { 5 }, name: name.into() }
+    crate::common::process::Proc { pid, parent, tty: tty.map(str::to_string), start: if pid >= 1_000_000 { 1 } else { 5 }, name: name.into() }
 }
 
 /// The same client, as a command run at `place`.
@@ -3651,7 +3651,7 @@ fn a_caller_is_who_its_process_is() {
     let (port, kernel) = real_service(fake.clone(), tmp.path());
     let (p1, p2) = (root("w1:p1"), root("w1:p2"));
     let tty = |pid: u32| format!("tty{pid}");
-    let run = |token: bool, says: Option<&str>, chain: Vec<crate::caller::Proc>| try_record(port, tmp.path(), token, says, Some(&kernel.proof(chain)));
+    let run = |token: bool, says: Option<&str>, chain: Vec<crate::common::process::Proc>| try_record(port, tmp.path(), token, says, Some(&kernel.proof(chain)));
     let actor = |(code, text): (u16, String)| {
         assert_eq!(code, 200, "{text}");
         serde_json::from_str::<serde_json::Value>(&text).unwrap()["actor"].as_str().unwrap().to_string()
@@ -3726,7 +3726,7 @@ fn here_is_where_the_process_is() {
     *fake.agents.lock().unwrap() = vec![("p2".into(), live("s-two", "two", "w1", Idle)), ("p3".into(), live("s-three", "three", "w2", Idle))];
     let (port, kernel) = real_service(fake.clone(), tmp.path());
     let p2 = root("p2");
-    let here = |says: Option<&str>, chain: Option<Vec<crate::caller::Proc>>| {
+    let here = |says: Option<&str>, chain: Option<Vec<crate::common::process::Proc>>| {
         let given = chain.map(|c| kernel.proof(c));
         let mut headers: Vec<(&str, &str)> = says.map(|p| ("x-workriver-place", p)).into_iter().collect();
         headers.extend(given.as_deref().map(|p| ("x-workriver-caller", p)));

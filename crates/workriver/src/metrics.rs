@@ -25,7 +25,6 @@ use tokio::sync::broadcast;
 use workriver_core::runtime::{Runtime, RuntimeAgent};
 use workriver_scan as scan;
 
-use crate::herdr;
 use crate::machines::Machines;
 
 /// The name of the machine workriver runs on (a followed machine may not take it).
@@ -640,7 +639,7 @@ const TOP: usize = 5;
 /// read and holds `pid` itself: a list that could not be read (ssh failed and printed
 /// nothing) never says "nothing runs".
 pub fn has_children(runner: &scan::Runner, pid: u32) -> std::io::Result<bool> {
-    let out = herdr::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT)?;
+    let out = crate::common::process::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT)?;
     let ps = parse_ps(&String::from_utf8_lossy(&out.stdout));
     if !out.status.success() || !ps.iter().any(|p| p.0 == pid) {
         return Err(std::io::Error::other(format!("the process list was not read, or has no process {pid} ({})", out.status)));
@@ -946,7 +945,7 @@ impl Metrics {
     pub fn sample(&self, label: &str) {
         let read = self.runner(label).map(|r| {
             let started = Instant::now();
-            let out = herdr::output_within(r.command(&["sh", "-c", PROBE]), TIMEOUT).map_err(|e| format!("cannot run the probe: {e}"));
+            let out = crate::common::process::output_within(r.command(&["sh", "-c", PROBE]), TIMEOUT).map_err(|e| format!("cannot run the probe: {e}"));
             tracing::debug!(target: "perf", kind = "probe", machine = label, ms = started.elapsed().as_millis() as u64);
             out.and_then(|o| if o.status.success() { parse(&String::from_utf8_lossy(&o.stdout)) } else { Err(String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("the probe failed").trim().to_string()) })
         });
@@ -1014,7 +1013,7 @@ impl Metrics {
     fn top(&self, label: &str) -> Vec<Proc> {
         let Some(runner) = self.runner(label) else { return vec![] };
         let started = Instant::now();
-        let out = herdr::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT);
+        let out = crate::common::process::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT);
         tracing::debug!(target: "perf", kind = "ps", machine = label, ms = started.elapsed().as_millis() as u64);
         let ps = match out {
             Ok(o) => parse_ps(&String::from_utf8_lossy(&o.stdout)),

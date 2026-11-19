@@ -548,7 +548,7 @@ pub fn publish(program: &str, target: &str, port: u16, host: &str) -> Result<(),
     }
     cmd.args(["-o", "ClearAllForwardings=yes", "--", target, &script]);
     let started = Instant::now();
-    let out = herdr::output_within(cmd, Duration::from_secs(15)).map_err(|e| format!("cannot run ssh: {e}"))?;
+    let out = crate::common::process::output_within(cmd, Duration::from_secs(15)).map_err(|e| format!("cannot run ssh: {e}"))?;
     tracing::debug!(target: "perf", kind = "ssh", purpose = "publish", ms = started.elapsed().as_millis() as u64, code = out.status.code().unwrap_or(-1));
     if out.status.success() {
         Ok(())
@@ -565,7 +565,7 @@ fn ask_socket(program: &str, ssh: &str) -> Result<String, String> {
     // This one sets up no forward, so the config's are cleared.
     cmd.args(["-o", "ClearAllForwardings=yes", "--", ssh, ASK_SOCKET]);
     let started = Instant::now();
-    let out = herdr::output_within(cmd, Duration::from_secs(20)).map_err(|e| format!("cannot run ssh: {e}"))?;
+    let out = crate::common::process::output_within(cmd, Duration::from_secs(20)).map_err(|e| format!("cannot run ssh: {e}"))?;
     tracing::debug!(target: "perf", kind = "ssh", purpose = "herdr_socket", ms = started.elapsed().as_millis() as u64, code = out.status.code().unwrap_or(-1));
     let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if out.status.success() && path.starts_with('/') {
