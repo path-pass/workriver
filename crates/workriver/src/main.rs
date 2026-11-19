@@ -12,7 +12,6 @@ mod metrics;
 mod quote;
 mod run;
 mod serve;
-mod perf;
 mod show;
 mod snapshot;
 mod stall;
@@ -852,7 +851,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match &cli.cmd {
         Cmd::Serve { terminal_app, perf_detail } => {
-            perf::init(&common::home::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
+            common::diagnostics::init(&common::home::data_dir(), *perf_detail || std::env::var("WORKRIVER_PERF").is_ok_and(|v| v == "detail"));
             // A directory or file that cannot be made is the store's error, as when it made them.
             let path = common::home::database().map_err(workriver_data::Error::from).context("cannot open the workriver database")?;
             let store = workriver_data::Store::open(&path).context("cannot open the workriver database")?;
@@ -875,11 +874,11 @@ fn main() -> anyhow::Result<()> {
         Cmd::Perf { since, top, bundle } => {
             let home = common::home::data_dir();
             if *bundle {
-                let path = perf::bundle(&home, 2 * 1024 * 1024)?;
+                let path = common::diagnostics::bundle(&home, 2 * 1024 * 1024)?;
                 println!("{}", path.display());
                 eprintln!("It holds times, counts, route templates, unit ids and machine names; no commit messages, file texts, task texts, findings, notes, prompts, tokens, cookies or paths. Look before you send it.");
             } else {
-                print!("{}", perf::summary(&home, since.as_deref().map(perf::parse_since).transpose()?, *top));
+                print!("{}", common::diagnostics::summary(&home, since.as_deref().map(common::diagnostics::parse_since).transpose()?, *top));
             }
             return Ok(());
         }

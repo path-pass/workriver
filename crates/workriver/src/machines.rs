@@ -623,7 +623,7 @@ fn poll_once(e: &Entry, quiet: bool) -> bool {
     let ms = started.elapsed().as_millis() as u64;
     match &read {
         Ok((a, _)) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, agents = a.len(), ok = true, slow = ms >= crate::snapshot::SLOW_MS),
-        Err(err) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, ok = false, error = crate::perf::kind_of(&err.to_string()), slow = ms >= crate::snapshot::SLOW_MS),
+        Err(err) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, ok = false, error = crate::common::diagnostics::kind_of(&err.to_string()), slow = ms >= crate::snapshot::SLOW_MS),
     }
     let mut seen = e.seen.lock().unwrap();
     match read {
@@ -939,7 +939,7 @@ pub fn supervise(words: &[String], tunnel: &Mutex<Tunnel>, stop: &AtomicBool, pa
                 tracing::warn!("tunnel `{}`: {why}", words.join(" "));
             }
             if t.up {
-                tracing::info!(target: "perf", kind = "tunnel", event = "down", machine = %machine, up_ms = started.elapsed().as_millis() as u64, error = crate::perf::kind_of(&why));
+                tracing::info!(target: "perf", kind = "tunnel", event = "down", machine = %machine, up_ms = started.elapsed().as_millis() as u64, error = crate::common::diagnostics::kind_of(&why));
                 down_at = Instant::now();
             }
             *t = Tunnel { up: false, error: Some(why), port: None, since: Some(workriver_core::now()), retry: Some(Instant::now() + wait) };
