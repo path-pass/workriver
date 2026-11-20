@@ -262,3 +262,70 @@ fn a_task_shown_in_full() {
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
 }
+
+/// A file another open unit of the same project and repository also changes is named on
+/// each unit: by its net change, uncommitted work included; a merged or closed unit, and a
+/// unit of another project, are not.
+#[test]
+fn files_two_open_units_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = |name: &str| {
+        let r = tmp.path().join(name);
+        std::fs::create_dir(&r).unwrap();
+        git(&r, &["init", "-q", "-b", "main"]);
+        for f in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            std::fs::write(r.join(f), format!("{f}\n")).unwrap();
+        }
+        git(&r, &["add", "."]);
+        git(&r, &["commit", "-q", "-m", "base"]);
+        r
+    };
+    let branch = |r: &std::path::Path, name: &str, files: &[&str]| {
+        git(r, &["switch", "-q", "-c", name, "main"]);
+        for f in files {
+            std::fs::write(r.join(f), format!("{f} on {name}\n")).unwrap();
+        }
+        git(r, &["commit", "-q", "-am", name]);
+        git(r, &["switch", "-q", "main"]);
+    };
+    let (one, other) = (repo("one"), repo("other"));
+    branch(&one, "feat/one", &["a.txt", "b.txt"]);
+    branch(&one, "feat/two", &["a.txt", "d.txt"]);
+    branch(&one, "feat/three", &["c.txt"]);
+    branch(&one, "feat/four", &["a.txt"]);
+    branch(&one, "feat/five", &["b.txt"]);
+    branch(&other, "feat/six", &["a.txt"]);
+    // feat/one in a work tree of its own, writing d.txt.
+    let work = tmp.path().join("one-work");
+    git(&one, &["worktree", "add", "-q", &work.to_string_lossy(), "feat/one"]);
+    std::fs::write(work.join("d.txt"), "d.txt, being written\n").unwrap();
+
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let port = listener.local_addr().unwrap().port();
+    let options = crate::server::Options { allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
+    let d = kernel.client(port, tmp.path());
+    let (one, other) = (one.to_string_lossy().to_string(), other.to_string_lossy().to_string());
+    for (title, project) in [("Search", &one), ("Login", &one), ("Elsewhere", &other)] {
+        d.append("user", "intent.created", json!({ "title": title, "project": project })).unwrap();
+    }
+    for (intent, r, b) in [("i1", &one, "feat/one"), ("i2", &one, "feat/two"), ("i1", &one, "feat/three"), ("i2", &one, "feat/four"), ("i2", &one, "feat/five"), ("i3", &other, "feat/six")] {
+        d.append("user", "unit.created", json!({ "intent": intent, "title": b, "repo": r, "branch": b, "base": "main" })).unwrap();
+    }
+    d.append("user", "unit.merged", json!({ "unit": "u4" })).unwrap();
+    d.append("user", "unit.done", json!({ "unit": "u5", "reason": "superseded" })).unwrap();
+
+    let ws = d.get("/api/workspace").unwrap();
+    let overlaps = |id: &str| {
+        let u = ws["intents"].as_array().unwrap().iter().flat_map(|i| i["units"].as_array().unwrap()).find(|u| u["id"] == id).unwrap();
+        u.get("overlaps").cloned().unwrap_or(json!([]))
+    };
+    assert_eq!(overlaps("u1"), json!([{ "path": "a.txt", "units": ["u2"] }, { "path": "d.txt", "units": ["u2"] }]), "b.txt: u5 is closed, u4 merged");
+    assert_eq!(overlaps("u2"), json!([{ "path": "a.txt", "units": ["u1"] }, { "path": "d.txt", "units": ["u1"] }]));
+    for id in ["u3", "u4", "u5", "u6"] {
+        assert_eq!(overlaps(id), json!([]), "{id}");
+    }
+}

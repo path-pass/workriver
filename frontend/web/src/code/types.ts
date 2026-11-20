@@ -116,5 +116,8 @@ export interface FileDelta {
   del: number
 }
 
+/** Another open unit that changes a file too: its id and its intent's. */
+export interface Also { unit: string; intent: string; title: string }
+
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }

@@ -675,7 +675,8 @@ export const en = {
     from: 'Changed by',
     unchanged: 'This unit has not changed {{path}} yet.',
     onlyChanges: 'Only the changes',
-    whole: 'Whole file'
+    whole: 'Whole file',
+    also: 'Also changed by'
   },
   tree: {
     label: 'Files',
@@ -686,7 +687,8 @@ export const en = {
     expand: 'Expand file tree',
     resize: 'Width of the file tree',
     planned: 'Planned, not changed yet',
-    ghost: 'Planned, not there yet'
+    ghost: 'Planned, not there yet',
+    also: 'Also changed by {{units}}'
   },
   change: {
     A: 'Added',

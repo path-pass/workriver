@@ -46,3 +46,45 @@ fn the_code_token_follows_uncommitted_entries() {
         assert_ne!(token(changed.clone()), was, "{changed:?}");
     }
 }
+
+/// A unit's changed files are what its code tree shows with nothing picked (the page's
+/// `fileDelta` over all its commits): git entries compared at the ends, uncommitted work's
+/// side by the object id its text would get.
+#[test]
+fn a_units_changed_files_are_its_net_change() {
+    const GONE: &str = "000000";
+    let (one, two) = ("5626abf0f72e58d7a153368ba57db4c673c0e171", "814f4a422927b82f5f8a43f8fab6d3839e3983f2");
+    let zero = "0".repeat(40);
+    let f = |path: &str, before: (&str, &str), after: (&str, &str), texts: (Option<&str>, Option<&str>)| scan::FileChange {
+        path: path.into(),
+        status: "M".into(),
+        add: 0,
+        del: 0,
+        before: texts.0.map(Into::into),
+        after: texts.1.map(Into::into),
+        before_mode: before.0.into(),
+        before_id: before.1.into(),
+        after_mode: after.0.into(),
+        after_id: after.1.into(),
+    };
+    let commit = |files: Vec<scan::FileChange>| scan::Commit { id: "c".into(), hash: "c".into(), subject: String::new(), date: String::new(), author: String::new(), task: None, merge: false, files };
+    let commits = [
+        commit(vec![
+            f("kept.txt", ("100644", one), ("100644", two), (None, None)),
+            f("back.txt", ("100644", one), ("100644", two), (None, None)),
+            f("gone.txt", (GONE, &zero), ("100644", one), (None, None)),
+            f("mode.sh", ("100644", one), ("100755", two), (None, None)),
+            f("undone.txt", ("100644", one), ("100644", two), (None, None)),
+        ]),
+        commit(vec![f("gone.txt", ("100644", one), (GONE, &zero), (None, None)), f("mode.sh", ("100755", two), ("100755", one), (None, None))]),
+    ];
+    let live = [
+        // Changed back to the base's text in the work tree: not a change any more.
+        f("back.txt", ("100644", two), ("100644", &zero), (Some("one\ntwo\n"), Some("one\n"))),
+        // Changed in the work tree alone.
+        f("new.txt", (GONE, &zero), ("100644", &zero), (None, Some("one\n"))),
+        f("undone.txt", ("100644", two), ("100644", &zero), (Some("one\ntwo\n"), Some("one\ntwo\nthree\n"))),
+    ];
+    let got: Vec<String> = changed_paths(&commits, &live).into_iter().collect();
+    assert_eq!(got, ["kept.txt", "mode.sh", "new.txt", "undone.txt"]);
+}

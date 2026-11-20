@@ -230,9 +230,11 @@ crates/workriver/
 │   │   │   ├── store.rs              # Paths, content ids, atomic put, usage.
 │   │   │   └── tests.rs
 │   │   ├── views/                    # What the page and the CLI read; git attribution; caches.
-│   │   │   ├── mod.rs                # Workspace build, project/group derivation.
+│   │   │   ├── mod.rs                # Workspace build, project/group derivation, the files
+│   │   │   │                         # two open units both change.
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads.
-│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads.
+│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads,
+│   │   │   │                         # the files a unit's net change holds.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).

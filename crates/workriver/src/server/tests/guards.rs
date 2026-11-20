@@ -354,7 +354,11 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     std::fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "feat/index"]);
+    // Another unit's branch, changing a file u1 changes too.
+    git(&repo, &["switch", "-q", "-c", "feat/other"]);
+    std::fs::write(repo.join("a.txt"), "one\nother\n").unwrap();
+    git(&repo, &["commit", "-q", "-am", "Other"]);
+    git(&repo, &["switch", "-q", "-c", "feat/index", "main"]);
     std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "Build\n\nTask: u1#2"]);
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -410,6 +414,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let context = json!([{ "kind": "task", "label": "#1", "task": 1 }, { "kind": "lines", "label": "a.txt L1–2", "path": "a.txt", "from": 1, "to": 2 }, { "kind": "attachment", "label": "shot.png", "id": shot["id"] }]);
     d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?", "unit": "u1", "task": 2, "context": context }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Design confirmed." })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "purpose": "", "repo": repo, "branch": "feat/other", "base": "main" })).unwrap();
     (d, fake)
 }
 
