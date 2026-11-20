@@ -3,17 +3,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// What a question is about besides its task: a finding, a file, lines of a file, or one of
-/// the task's attachments.
+/// What a question or a message to a manager is about besides its task: a finding, a file,
+/// lines of a file, one of the task's attachments (or a file the user stored), another task.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct AskContext {
-    /// "task", "finding", "file", "lines" or "attachment".
+    /// "task", "finding", "file", "lines" or "attachment" ("unit": a question's own, old).
     pub kind: String,
     pub label: String,
     /// attachment: its id in the store (one shown with the task, see `State::attachments_of`,
     /// or one the user stored for the question).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// task: its number in the unit (the label is only the page's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -107,13 +110,9 @@ impl State {
                 // An attachment it points at is one shown with that task (with the unit: with one
                 // of its tasks): the temporary agent is given its path, so nothing else gets out.
                 // The user's question also points at a file the user stored (attached in the page).
-                let shown: Vec<&str> = match about {
-                    Some(_) => self.attachments_of(&unit, task),
-                    None => self.unit(&unit)?.tasks.iter().flat_map(|t| self.attachments_of(&unit, t.n)).collect(),
-                };
                 for c in context.iter().filter(|c| c.kind == "attachment") {
                     let a = c.id.as_deref().unwrap_or_default();
-                    if !shown.contains(&a) && !(user && self.attachments.iter().any(|x| x.id == a && x.user)) {
+                    if !self.pointable(&unit, task, a, user) {
                         return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a question points only at what is shown with its task, or at a file the user attached to it"));
                     }
                 }

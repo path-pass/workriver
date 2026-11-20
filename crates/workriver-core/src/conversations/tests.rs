@@ -219,3 +219,79 @@ fn a_manager_says_and_the_user_reads() {
     assert_eq!(s.state().read["chat"], "2026-11-18T10:00:05Z");
     assert_eq!(replayed(&s), *s.state());
 }
+
+/// What the user picked goes with a message as records: a unit, one of its tasks, and context
+/// (findings, files, lines, attachments, other tasks of the unit by number). The user's own
+/// files need no unit; everything else does, and must be of the message's intent. Nothing
+/// goes to a manager on a blind task. Messages recorded before replay unchanged.
+#[test]
+fn a_message_carries_what_the_user_picked() {
+    let mut s = Records::default();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat v2", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    // The seed's unit and tasks, in that intent.
+    for b in seed().into_iter().skip(1) {
+        s.append(&"agent-a".into(), b).unwrap();
+    }
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "Paging", "repo": "/r", "branch": "feat/paging", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "mine", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "rep", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "loose", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
+    let say = |intent: &str, workspace: &str, unit: &str, task: u32, context: serde_json::Value| {
+        json!({"kind": "message.sent", "body": {"intent": intent, "workspace": workspace, "unit": unit, "task": task, "text": "Why not paged?", "context": context}})
+    };
+    let lines = json!({"kind": "lines", "label": "mention.ts L3–4", "path": "app/mention.ts", "from": 3, "to": 4});
+    let file = |id: &str| json!({"kind": "attachment", "label": "x", "id": id});
+
+    // With everything a picked review shows: recorded with it, as sent.
+    let context = json!([{"kind": "task", "label": "#1", "task": 1}, {"kind": "finding", "label": "P2-1"}, lines, file("rep"), file("mine")]);
+    let e = add(&mut s, "user", say("i1", "", "u1", 2, context.clone())).unwrap();
+    let Body::MessageSent { unit, task, context: got, .. } = &e.body else { panic!() };
+    assert_eq!((unit.as_str(), *task, got.len()), ("u1", 2, 5));
+    assert_eq!(got[0].task, Some(1));
+    let m = s.state().message("m1").unwrap();
+    assert_eq!((m.unit.as_str(), m.task, m.context.len()), ("u1", 2, 5));
+    // By workspace alone, a unit of an intent that runs there.
+    add(&mut s, "user", say("", "chat", "u1", 1, json!([lines]))).unwrap();
+    // Only the user's own files: no unit needed, from any workspace's conversation.
+    add(&mut s, "user", say("", "chat", "", 0, json!([file("mine")]))).unwrap();
+    add(&mut s, "user", say("i1", "", "", 0, json!([file("mine")]))).unwrap();
+
+    // Everything else needs a unit.
+    for c in [json!({"kind": "finding", "label": "P2-1"}), json!({"kind": "file", "label": "a.ts", "path": "app/a.ts"}), lines.clone(), json!({"kind": "task", "label": "#1", "task": 1}), file("rep")] {
+        let e = add(&mut s, "user", say("i1", "", "", 0, json!([c]))).unwrap_err();
+        assert!(e.contains("needs the unit it is about"), "{c}: {e}");
+    }
+    assert!(add(&mut s, "user", say("i1", "", "", 1, json!([]))).unwrap_err().contains("needs the unit it is about"), "a task with no unit");
+    // Of the message's intent; a task of the unit; an extra task of the unit, by number.
+    assert!(add(&mut s, "user", say("i1", "", "u2", 0, json!([]))).unwrap_err().contains("u2 is not of intent i1"));
+    assert!(add(&mut s, "user", say("", "chat", "u2", 0, json!([]))).unwrap_err().contains("u2 is not of an intent of workspace \"chat\""));
+    assert!(add(&mut s, "user", say("i1", "", "u9", 0, json!([]))).unwrap_err().contains("no unit u9"));
+    assert!(add(&mut s, "user", say("i1", "", "u1", 9, json!([]))).unwrap_err().contains("no task u1#9"));
+    assert!(add(&mut s, "user", say("i1", "", "u1", 2, json!([{"kind": "task", "label": "#7", "task": 7}]))).unwrap_err().contains("no task u1#7"));
+    assert!(add(&mut s, "user", say("i1", "", "u1", 2, json!([{"kind": "task", "label": "#1"}]))).unwrap_err().contains("names its task by number"));
+    // An attachment neither the user's nor shown with the task.
+    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([file("rep")]))).unwrap_err().contains("is not one of u1#1's"));
+    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([file("loose")]))).unwrap_err().contains("is not one of u1#1's"));
+    assert!(add(&mut s, "user", say("i1", "", "", 0, json!([file("loose")]))).unwrap_err().contains("needs the unit it is about"));
+    // With the unit alone, one shown with any of its tasks.
+    add(&mut s, "user", say("i1", "", "u1", 0, json!([file("rep")]))).unwrap();
+    // Nothing else is pointed at.
+    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([{"kind": "unit", "label": "Mentions"}]))).unwrap_err().contains("a message points at"));
+    assert_eq!(replayed(&s), *s.state());
+
+    // A manager on a blind task in progress hears of no other work: written to once it delivers.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "1"}], "agent": "boss", "blind": true}})).unwrap();
+    assert!(add(&mut s, "user", say("i1", "", "", 0, json!([]))).unwrap_err().contains("is on a blind task: write once it is delivered"));
+    add(&mut s, "boss", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "findings": []}})).unwrap();
+    add(&mut s, "user", say("i1", "", "", 0, json!([]))).unwrap();
+
+    // A message recorded before it carried any of this replays as it was.
+    let n = s.state().messages.len();
+    let s = recorded_before(s, "user", json!({"kind": "message.sent", "body": {"id": format!("m{}", n + 1), "intent": "i1", "workspace": "chat", "manager": "boss", "text": "Old."}}));
+    let m = s.state().messages.last().unwrap();
+    assert_eq!((m.text.as_str(), m.unit.as_str(), m.task, m.context.len()), ("Old.", "", 0, 0));
+}

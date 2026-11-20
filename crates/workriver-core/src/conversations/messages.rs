@@ -20,6 +20,14 @@ pub struct Message {
     /// The manager's session it went to: only that one replies.
     pub manager: String,
     pub text: String,
+    /// What the user had picked: a unit (empty: none), one of its tasks (0: none), and the
+    /// rest (findings, files, lines, attachments, other tasks).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub unit: String,
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
+    pub task: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<AskContext>,
     pub at: String,
     pub delivery: Option<Delivery>,
     #[serde(default)]
@@ -49,6 +57,54 @@ impl State {
         }
     }
 
+    /// What the user picked for a message (`MessageSent`): a unit of the message's intent
+    /// (with none named, of an intent that runs in the workspace), a task of it, and context
+    /// that needs that unit, but for files the user stored, which may go to any manager.
+    fn picked(&self, intent: &str, workspace: &str, unit: &str, task: u32, context: &[AskContext]) -> Result<(), Rejected> {
+        let needs = |what: &str| no(format!("{what} needs the unit it is about; pick it (or take {what} out)"));
+        if unit.is_empty() {
+            if task != 0 {
+                return needs(&format!("task {task}"));
+            }
+        } else {
+            let Some(of) = self.intent_of(unit) else { return no(format!("no unit {unit}")) };
+            if !intent.is_empty() && of != intent {
+                return no(format!("{unit} is not of intent {intent}"));
+            }
+            let here = |i: &Intent| i.workspace.as_ref().is_some_and(|g| self.workspace_of(g).map_or(&g.label, |w| &w.group.label) == workspace);
+            if intent.is_empty() && !self.intents.iter().any(|i| i.id == of && here(i)) {
+                return no(format!("{unit} is not of an intent of workspace {workspace:?}"));
+            }
+            if task != 0 {
+                self.task(unit, task)?;
+            }
+        }
+        for c in context {
+            match c.kind.as_str() {
+                "attachment" => {
+                    let a = c.id.as_deref().unwrap_or_default();
+                    if self.pointable(unit, task, a, true) {
+                        continue;
+                    }
+                    if unit.is_empty() {
+                        return needs(&format!("attachment {a:?}"));
+                    }
+                    return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a message points only at what is shown with its task, or at a file the user attached"));
+                }
+                "task" | "finding" | "file" | "lines" if unit.is_empty() => return needs(&format!("{} {:?}", c.kind, c.label)),
+                "task" => match c.task {
+                    Some(n) => {
+                        self.task(unit, n)?;
+                    }
+                    None => return no(format!("a task pointed at names its task by number ({:?} has none)", c.label)),
+                },
+                "finding" | "file" | "lines" => {}
+                k => return no(format!("a message points at tasks, findings, files, lines and attachments, not {k:?}")),
+            }
+        }
+        Ok(())
+    }
+
     /// The rules of a message's events: `prepare`, for these kinds.
     pub(crate) fn prepare_messages(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
         use Body::*;
@@ -61,7 +117,7 @@ impl State {
                 }
                 AgentSeen { session, name, harness }
             }
-            MessageSent { intent, workspace, text, .. } => {
+            MessageSent { intent, workspace, text, unit, task, context, .. } => {
                 if blank(&text) {
                     return no("a message needs its text");
                 }
@@ -77,7 +133,12 @@ impl State {
                 let Some(manager) = manager else {
                     return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
                 };
-                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text }
+                // Nothing about other work is typed into a blind agent.
+                if !self.blind_tasks(&manager).is_empty() {
+                    return no(format!("the manager {} is on a blind task: write once it is delivered", self.name_of(&manager).unwrap_or(&manager)));
+                }
+                self.picked(&intent, &workspace, &unit, task, &context)?;
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context }
             }
             MessageDelivery { id, delivery } => {
                 if *who != Principal::Service {
@@ -88,7 +149,7 @@ impl State {
             }
             ManagerTold { unit, task, text } => {
                 if user {
-                    return no("the user writes to a manager in workriver's page (Ask, Manager)");
+                    return no("the user writes to a manager in workriver's page (Manager)");
                 }
                 self.task(&unit, task)?;
                 if self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor) {
@@ -112,7 +173,7 @@ impl State {
             }
             MessageSaid { text, .. } => {
                 if user {
-                    return no("the user writes to a manager in workriver's page (Ask, Manager)");
+                    return no("the user writes to a manager in workriver's page (Manager)");
                 }
                 let Some(w) = self.workspaces.iter().find(|w| w.manager.as_deref() == Some(actor)) else {
                     return no("only a workspace's manager says something to the user; a worker tells its manager: `workriver manager tell <task> --text \"...\"`");
@@ -146,12 +207,15 @@ impl State {
                     None => self.agents.push(seen),
                 }
             }
-            MessageSent { id, intent, workspace, manager, text } => self.messages.push(Message {
+            MessageSent { id, intent, workspace, manager, text, unit, task, context } => self.messages.push(Message {
                 id: id.clone(),
                 intent: intent.clone(),
                 workspace: workspace.clone(),
                 manager: manager.clone(),
                 text: text.clone(),
+                unit: unit.clone(),
+                task: *task,
+                context: context.clone(),
                 at: at.clone(),
                 delivery: None,
                 replies: vec![],
@@ -163,6 +227,9 @@ impl State {
                 workspace: workspace.clone(),
                 manager: e.actor.clone(),
                 text: text.clone(),
+                unit: String::new(),
+                task: 0,
+                context: vec![],
                 at: at.clone(),
                 delivery: None,
                 replies: vec![],

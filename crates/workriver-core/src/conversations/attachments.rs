@@ -40,6 +40,21 @@ impl State {
         out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
     }
 
+    /// Whether a question or a message may point at stored attachment `id`: one shown with
+    /// task `n` of `unit` (n 0: with any of its tasks), or, for the user, one the user stored
+    /// (attached in the page), which needs no unit. Its path is given to an agent, so
+    /// nothing else gets out.
+    pub fn pointable(&self, unit: &str, n: u32, id: &str, user: bool) -> bool {
+        if user && self.attachments.iter().any(|a| a.id == id && a.user) {
+            return true;
+        }
+        match n {
+            _ if unit.is_empty() => false,
+            0 => self.tasks_of(unit).is_some_and(|ts| ts.iter().any(|t| self.attachments_of(unit, t.n).contains(&id))),
+            n => self.attachments_of(unit, n).contains(&id),
+        }
+    }
+
     /// Every id names a stored attachment.
     pub(crate) fn stored<'a>(&self, ids: impl Iterator<Item = &'a String>) -> Result<(), Rejected> {
         for id in ids {

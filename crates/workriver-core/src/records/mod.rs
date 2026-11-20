@@ -22,6 +22,10 @@ pub(crate) fn is_true(b: &bool) -> bool {
     *b
 }
 
+pub(crate) fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 pub(crate) fn user() -> String {
     "user".into()
 }

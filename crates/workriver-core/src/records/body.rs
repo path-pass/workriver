@@ -448,6 +448,16 @@ pub enum Body {
         #[serde(default)]
         manager: String,
         text: String,
+        /// The unit (or an intent's own work) the user had picked, if any.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        unit: String,
+        /// One of its tasks; 0: the unit, or none.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        task: u32,
+        /// What else the user picked or attached: findings, files, lines, attachments, other
+        /// tasks of the unit.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<AskContext>,
     },
     /// Where the user's message to a manager is; workriver's alone to record.
     #[serde(rename = "message.delivery")]

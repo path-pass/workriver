@@ -104,7 +104,6 @@ fn only_the_user_is_the_user() {
         ("/api/run/prepare", json!({ "command": "ls", "unit": "u1" })),
         ("/api/run", json!({ "id": "x", "command": "ls" })),
         ("/api/run/x/focus", json!({})),
-        ("/api/thread/end", json!({ "thread": "q1" })),
         ("/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),
         ("/api/metrics/thresholds", json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } })),
         ("/api/session/code", json!({})),
@@ -247,7 +246,6 @@ fn a_machines_listener_serves_only_agents() {
         ("POST", "/api/run", json!({ "id": "x", "command": "ls" })),
         ("GET", "/api/run/x", json!(null)),
         ("POST", "/api/run/x/focus", json!({})),
-        ("POST", "/api/thread/end", json!({ "thread": "q1" })),
         ("POST", "/api/machines", json!({ "label": "x", "action": "add", "ssh": "x" })),
         ("GET", "/api/machines", json!(null)),
         ("POST", "/api/metrics/thresholds", json!({ "cpu": { "on": true, "percent": 80, "minutes": 2 }, "memory": { "on": false, "percent": 95, "minutes": 10 } })),
@@ -371,6 +369,8 @@ fn blind_reviews() {
     std::fs::write(&shot, b"\x89PNG imp").unwrap();
     let theirs = imp.upload(&shot, "", Some(("u1", 1, None))).unwrap()["id"].as_str().unwrap().to_string();
     imp.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SECRET-NOTE nothing to see", "evidence": [{ "command": "cargo test", "result": "passed", "summary": "SECRET-EVIDENCE" }] })).unwrap();
+    // The user's message to the manager, with what it points at: none of it is the blind reviewer's to read.
+    user.call("/api/message", Some(json!({ "intent": "i1", "text": "SECRET-MESSAGE why so?", "unit": "u1", "task": 1, "context": [{ "kind": "attachment", "label": "shot.png", "id": theirs }] }))).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "text": "Find ways around the token check", "inputs": [{ "from": "1" }], "agent": "s-sec", "blind": true })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{ "from": "1" }] })).unwrap();
     sec.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
@@ -391,7 +391,8 @@ fn blind_reviews() {
     let code = sec.get("/api/unit/u1/code").unwrap();
     assert!(code["commits"].as_array().unwrap().iter().all(|c| c["files"].as_array().unwrap().is_empty()) && code["code"].is_null(), "{code}");
     assert!(user.get("/api/unit/u1/code").unwrap().to_string().contains("SECRET-LIVE"), "the user sees them");
-    for hidden in ["SECRET-NOTE", "SECRET-EVIDENCE", "SECRET-SUBJECT", "Try it", "SECRET-LIVE", "fn check", theirs.as_str()] {
+    assert!(ws["messages"].as_array().is_none_or(|m| m.is_empty()) && state["messages"].as_array().is_none_or(|m| m.is_empty()), "no messages");
+    for hidden in ["SECRET-NOTE", "SECRET-EVIDENCE", "SECRET-SUBJECT", "SECRET-MESSAGE", "Try it", "SECRET-LIVE", "fn check", theirs.as_str()] {
         assert!(!text.contains(hidden) && !ws.to_string().contains(hidden) && !code.to_string().contains(hidden), "{hidden} is hidden");
     }
     std::fs::write(repo.join("auth.rs"), "fn check() {}\n").unwrap();
