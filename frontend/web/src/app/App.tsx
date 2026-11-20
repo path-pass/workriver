@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/work/Activity'
-import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from '@/components/Side'
+import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from './Side'
 import type { CommitFocus } from '@/code/types'
-import { Notes } from '@/components/bits'
 import { Progress, Squashed } from '@/planning/Rail'
 import { Topics } from '@/agents/Mark'
 import { MachineChip } from '@/machines/format'
@@ -33,7 +32,7 @@ import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { Pick } from '@/work/types'
 import type { Lines } from '@/code/types'
 import { contentLang, useT } from '@/i18n'
-import { linkTo, pathOf, placeOf, resolve } from '@/app/link'
+import { linkTo, pathOf, placeOf, resolve } from './link'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Task } from '@/work/types'
@@ -42,6 +41,7 @@ import type { MachineAlert } from '@/machines/types'
 import type { AskContext, ManagerMessage, Turn } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
+import { NOTE, type Remote } from '@/api/actions'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
@@ -500,5 +500,29 @@ export default function App() {
     </ViewerContext.Provider>
     </RunContext.Provider>
     </ActContext.Provider>
+  )
+}
+
+/** A short note at the bottom of the screen: what the UI cannot do itself yet, or where a
+ *  terminal brought to the front on another machine is (read longer). */
+export function Notes() {
+  const { t } = useT()
+  const [text, setText] = useState<string | null>(null)
+  useEffect(() => {
+    let timer = 0
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ agent?: string; remote?: Remote }>).detail
+      const r = d.remote
+      setText(r ? t('terminal.remote', { what: r.agent ?? t('terminal.command'), machine: r.machine, workspace: r.workspace ?? '?' }) : t('terminal.note', { agent: d.agent }))
+      clearTimeout(timer)
+      timer = window.setTimeout(() => setText(null), r ? 8000 : 2500)
+    }
+    window.addEventListener(NOTE, on)
+    return () => { window.removeEventListener(NOTE, on); clearTimeout(timer) }
+  }, [t])
+  return (
+    <div role="status" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      {text && <div className="max-w-xl rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{text}</div>}
+    </div>
   )
 }

@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
-import App from './App'
+import App from '@/app/App'
 import { Session } from '@/session/Session'
 import './i18n'
 import { applyTheme, readTheme } from './theme'
