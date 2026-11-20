@@ -13,6 +13,11 @@ intent goes in the intent's research unit (`units`; add one if it has none), aft
 that raised it, or `--after start` when none did. Put in `--text` what the user needs to decide without
 opening anything else: what is ready or wrong, what was checked, the options.
 
+**After research:** the user may discuss the report with its researcher before deciding,
+in the research task's detail (`discussion`); keep the researcher until the gate is
+submitted. The conclusion comes to you as a message saying what is next; research
+concluded with no gate after it needs one only when work must start on it.
+
 **Pointing the user at it** (or at any task, unit or intent): `workriver link u2#5` prints
 the link that opens it in the user's browser (`u2`, `i3`, `u2#5:P2-1` work too),
 also on another machine. `workriver task show` and `workriver board` print links as well.

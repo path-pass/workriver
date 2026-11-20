@@ -4,6 +4,14 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **The user discusses a delivered research or design result with its agent** (managers,
+  workers): in the task's detail, each question goes straight to the agent that did it,
+  which answers with `workriver answer` and, when the user asks for the conclusion, amends
+  its delivery first if the result changed. No task or gate per round. Managers keep that
+  agent until the gate that asks about the result is submitted (the idle reminder waits too),
+  hear of an amendment and of the conclusion, not of each round, and point the user at the
+  task instead of relaying. Once the gate is submitted the discussion is over: a change is a
+  new task. (`discussion`, `closing-workers`, `user-message`, `design-gate`, `ask-user`)
 - **The `Task:` line sits in the commit message's last paragraph** (everyone): with any
   other trailers such as `Co-Authored-By:`, no blank line between them. git reads trailers
   only from the last paragraph, so a `Task:` line followed by a blank line and another

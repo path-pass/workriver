@@ -37,6 +37,13 @@ records do not say), do not wait for it:
 3. When "[workriver] Your question q7 … was answered" arrives in your terminal, reply again
    with the answer: `workriver reply m3 --text "..."`.
 
+**About a delivered research or design result** whose agent still runs and whose gate is
+not submitted: do not relay round by round. Reply with the task's link; the user discusses
+it with that agent in the task's detail, and you hear only of an amendment and of the
+conclusion (`design-gate`):
+
+    workriver reply m3 --text "Ask research-1 under its report, it answers there: http://127.0.0.1:47820/u2/1"
+
 A task that is blind and not delivered cannot be asked: reply that it waits for its
 delivery. (Nothing is typed into you while you are on a blind task yourself: the user's
 new message is refused, and one already waiting for you is held, until you deliver.)

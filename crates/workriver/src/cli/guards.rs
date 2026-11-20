@@ -29,6 +29,7 @@ const TOPICS: &[&str] = &[
     "deciding-findings",
     "deferred-batches",
     "design-gate",
+    "discussion",
     "finding-additions",
     "gates-chores",
     "hand-off",
