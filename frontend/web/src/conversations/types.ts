@@ -5,15 +5,15 @@ import type { Lines } from '@/code/types'
 import type { Intent } from '@/planning/types'
 import type { Session } from '@/agents/types'
 
-/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). */
+/** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). Or one to every manager (`to`). */
 export interface ManagerMessage {
   /** "m3"; a local one the service refused has none. */
   id?: string;
   /** The intent it is about, if any. */
   intent?: string;
-  /** The runtime workspace whose manager it went to, by label. */
+  /** The runtime workspace whose manager it went to, by label; `EVERY` (empty): to every manager. */
   workspace: string;
-  /** The manager's name. */
+  /** The manager's name; empty for one to every manager. */
   manager: string;
   text: string;
   /** What the user picked with it: the unit, one of its tasks, and the rest, shown as chips. */
@@ -31,10 +31,26 @@ export interface ManagerMessage {
   blocked?: { agent: string; session: string };
   /** Each reply is the manager's; unread: written after the user last read this workspace's conversation. */
   replies: { by: string; text: string; at: string; unread?: boolean }[];
+  /** To every manager: each copy, where it is, with its manager's replies (`replies` then empty). */
+  to?: Copy[];
   /** Started by the manager (`workriver say`): `text` is the manager's, and nothing above it is the user's. */
   byManager?: boolean;
   /** The manager's message (byManager), not read yet. */
   unread?: boolean;
+}
+
+/** One manager's copy of the user's message to every manager. */
+export interface Copy {
+  /** The workspace it manages, by label, and its machine (absent: this one). */
+  workspace: string;
+  machine?: string;
+  /** The manager's name. */
+  manager: string;
+  step: ManagerMessage['step'];
+  reasonCode?: ReasonCode;
+  reason?: string;
+  blocked?: { agent: string; session: string };
+  replies: ManagerMessage['replies'];
 }
 
 /**
@@ -142,5 +158,5 @@ export interface Talk {
   intents: Intent[]
   messages: ManagerMessage[]
   /** `about`: the unit, task and context the message carries; `files`: the user's, still held by the page. */
-  onTell: (to: { intent?: string; workspace: string }, text: string, manager: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[]) => void
+  onTell: (to: { intent?: string; workspace: string; all?: boolean }, text: string, manager: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[]) => void
 }

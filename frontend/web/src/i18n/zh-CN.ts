@@ -439,6 +439,13 @@ export const zhCN: OneForm<typeof en> = {
     none: '这个工作区没有在运行的管理者，没人会读到。',
     noWorkspace: '还没有哪个工作区有管理者。',
     empty: '写给 {{workspace}} 的管理者：它在终端里读到，在这里回复。',
+    every: '所有管理者',
+    everyEmpty: '一次写给所有在运行的管理者（本机和关注的机器上的）：每个管理者在自己的终端里读到，在这里回复，各自只管自己的工作区。',
+    everyPlaceholder: '写给所有管理者…',
+    everyHow_other: '连同上面的文件一起输入到 {{count, number}} 个在运行的管理者的终端里；每个都在这里回复。',
+    everyNone: '没有在运行的管理者，没人会读到。',
+    place: '{{machine}} 上的 {{workspace}}',
+    copies: '每个管理者那一份的状态',
     step: {
       sending: '正在发给 {{agent}}…',
       held: '等待中：{{agent}} 正在做盲审任务，交付后才会发给它',

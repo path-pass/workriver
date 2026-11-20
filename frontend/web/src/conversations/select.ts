@@ -5,7 +5,13 @@ import type { Attachment } from '@/attachments/types'
 import type { Lines } from '@/code/types'
 import type { Unit } from '@/planning/types'
 import type { Task } from '@/work/types'
-import type { AskContext, Thread } from './types'
+import type { AskContext, ManagerMessage, Thread } from './types'
+
+/** The conversation with every manager, as the service names it: under no workspace's label. */
+export const EVERY = ''
+
+/** A message's replies: its manager's, or (to every manager) each copy's. */
+export const repliesOf = (m: ManagerMessage) => [...m.replies, ...(m.to ?? []).flatMap(c => c.replies)]
 
 /** A task's conversations: from the service, or the sample's single one. */
 export function threadsOf(n: Task): Thread[] {

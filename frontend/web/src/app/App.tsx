@@ -14,7 +14,7 @@ import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
 import { Manager } from '@/conversations/Manager'
-import type { Talk, AskContext, ManagerMessage } from '@/conversations/types'
+import type { Talk, AskContext, Copy, ManagerMessage } from '@/conversations/types'
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
@@ -298,10 +298,16 @@ export default function App() {
   const onTell: Talk['onTell'] = (to, text, manager, about, files) => {
     // The files go with it as attachments; the sample shows them from the page.
     const context = [...about.context, ...files.map(a => ({ kind: 'attachment' as const, label: a.name, id: a.id }))]
-    const m: ManagerMessage = { workspace: to.workspace, intent: to.intent, manager, text, ...about, context, attachments: files, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
+    const step: ManagerMessage['step'] = MOCK ? 'delivered' : 'sending'
+    // To every manager, the sample's: a copy for each running one (the service names its own).
+    const copies = to.all && MOCK ? (ws?.sessions ?? []).filter(s => s.manager && !s.ended && s.group).map((s): Copy => ({ workspace: s.group!.label, machine: s.machine, manager: s.agent, step, replies: [] })) : undefined
+    const m: ManagerMessage = { workspace: to.workspace, intent: to.intent, manager, text, ...about, context, attachments: files, at: new Date().toISOString(), step, replies: [], ...(to.all ? { to: copies ?? [] } : {}) }
     if (MOCK) {
       setTold(all => [...all, m])
-      setTimeout(() => setTold(all => all.map(x => (x === m ? { ...m, replies: [{ by: manager, text: mockReply(text), at: new Date().toISOString() }] } : x))), 1200)
+      // Made-up replies: the manager's, or each copy's one after another.
+      const reply = (by: string) => ({ by, text: mockReply(text), at: new Date().toISOString() })
+      if (!copies) setTimeout(() => setTold(all => all.map(x => (x === m ? { ...m, replies: [reply(manager)] } : x))), 1200)
+      copies?.forEach((c, k) => setTimeout(() => setTold(all => all.map(x => (x.at === m.at && x.to ? { ...x, to: x.to.map(y => (y.manager === c.manager ? { ...y, replies: [reply(c.manager)] } : y)) } : x))), 1200 * (k + 1)))
       return
     }
     // Stored (or refused), the page lets its copies go: the service's message shows the stored ones.

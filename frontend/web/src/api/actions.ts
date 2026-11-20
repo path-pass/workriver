@@ -139,10 +139,10 @@ export function notify(title: string, body: string | undefined, key: string, age
 }
 
 /** Writes to a workspace's manager (by the intent it runs, or the workspace's label), with
- * what the user picked: the service types it into the manager's terminal; the manager
- * answers with `workriver reply`. The user's files are stored now and the message points at
+ * what the user picked, or (`all`) to every manager running: the service types it into each
+ * manager's terminal; each answers with `workriver reply`. The user's files are stored now and the message points at
  * them by their ids (the same content twice is one file). */
-export async function tellManager(to: { intent?: string; workspace: string }, text: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[] = []) {
+export async function tellManager(to: { intent?: string; workspace: string; all?: boolean }, text: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[] = []) {
   const stored = await Promise.all(files.map(async a => ({ kind: 'attachment' as const, label: a.name, id: await upload(a) })))
   const attached = stored.filter((c, k) => stored.findIndex(x => x.id === c.id) === k)
   await post('/api/message', { ...to, text, ...about, context: [...about.context, ...attached] })

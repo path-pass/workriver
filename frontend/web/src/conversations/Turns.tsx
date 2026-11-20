@@ -6,7 +6,7 @@ import { ms } from '@/planning/select'
 import { contentLang, useT } from '@/i18n'
 import { focusAgent } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { AskContext, ManagerMessage, Thread, Turn } from './types'
+import type { AskContext, Copy, ManagerMessage, Thread, Turn } from './types'
 import { Who } from '@/agents/Mark'
 import { Prose } from '@/content/Prose'
 import { ChipName } from '@/content/Chips'
@@ -240,22 +240,23 @@ export function Questions({ id, threads, agent, onFile }: { id: string; threads:
   )
 }
 
-/** Where the user's message to a manager is, under it. */
-function Step({ m }: { m: ManagerMessage }) {
+/** Where the user's message to a manager (or one copy of it, after its `place`) is, under it. */
+function Step({ m, place }: { m: Pick<ManagerMessage, 'manager' | 'step' | 'reasonCode' | 'reason' | 'blocked'>; place?: ReactNode }) {
   const { t } = useT()
+  const at = place && <span className="mr-1.5 font-semibold text-ink">{place}</span>
   if (m.step === 'blocked' && m.blocked)
     return (
       <div className="mt-1.5 flex flex-col items-start gap-1.5">
-        <p className="text-xs text-you-ink">{t('talk.step.blocked', { agent: m.manager })}</p>
+        <p className="text-xs text-you-ink">{at}{t('talk.step.blocked', { agent: m.manager })}</p>
         <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(m.blocked!.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
       </div>
     )
   // Its manager is on a blind task: it goes once that task is delivered (the service's words on hover).
   if (m.step === 'held')
-    return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-ink-2">{t('talk.step.held', { agent: m.manager })}</p></Tip>
+    return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-ink-2">{at}{t('talk.step.held', { agent: m.manager })}</p></Tip>
   if (m.step === 'not-delivered')
-    return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-del">{t('talk.step.not-delivered', { reason: t(`deliver.reason.${m.reasonCode ?? 'unknown'}`) })}</p></Tip>
-  return <p className="mt-1 text-xs text-ink-2">{m.step === 'sending' && <span className="pending" aria-hidden />}{t(`talk.step.${m.step}`, { agent: m.manager })}</p>
+    return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-del">{at}{t('talk.step.not-delivered', { reason: t(`deliver.reason.${m.reasonCode ?? 'unknown'}`) })}</p></Tip>
+  return <p className="mt-1 text-xs text-ink-2">{at}{m.step === 'sending' && <span className="pending" aria-hidden />}{t(`talk.step.${m.step}`, { agent: m.manager })}</p>
 }
 
 /** What the user picked with a message: its unit or task and the rest as chips, then the
@@ -275,6 +276,11 @@ function Picked({ m }: { m: ManagerMessage }) {
 
 export function MessageView({ m }: { m: ManagerMessage }) {
   const { t } = useT()
+  // To every manager: each copy's replies, in the order they came, labelled by its workspace.
+  const copies = m.to ?? []
+  const replies = copies.length
+    ? copies.flatMap(c => c.replies.map(r => ({ ...r, place: <Place c={c} /> }))).sort((a, b) => ms(a.at) - ms(b.at))
+    : m.replies.map(r => ({ ...r, place: null }))
   return (
     <>
       {/* One the manager started: its words alone, nothing of the user's above them. */}
@@ -284,14 +290,23 @@ export function MessageView({ m }: { m: ManagerMessage }) {
           <Mine who={t('ask.you')} at={m.at}>
             <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
             <Picked m={m} />
-            <Step m={m} />
+            {copies.length
+              ? <ul className="mt-1 flex flex-col" aria-label={t('talk.copies')}>{copies.map((c, k) => <li key={k}><Step m={c} place={<Place c={c} />} /></li>)}</ul>
+              : <Step m={m} />}
           </Mine>
         )}
-      {m.replies.map((r, j) => (
-        <Theirs key={j} who={<Named name={r.by} manager />} at={r.at}>
+      {replies.map((r, j) => (
+        <Theirs key={j} who={<>{<Named name={r.by} manager />}{r.place && <span className="min-w-0 truncate">{r.place}</span>}</>} at={r.at}>
           <Prose text={r.text} fold={false} />
         </Theirs>
       ))}
     </>
   )
+}
+
+/** The workspace a copy of a message to every manager went to (and its machine, when another). */
+function Place({ c }: { c: Copy }) {
+  const { t } = useT()
+  const text = c.machine ? t('talk.place', { workspace: c.workspace, machine: c.machine }) : c.workspace
+  return <span lang={contentLang(c.workspace)}>{text}</span>
 }

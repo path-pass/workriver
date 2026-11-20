@@ -6,6 +6,7 @@ import { useAct } from '@/work/actions'
 import { Button } from '@/ui/primitives/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
 import { inbox, type InboxRow } from './select'
+import { EVERY } from '@/conversations/select'
 import { finderLabel, openFindings, severityCounts } from '@/work/select'
 import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
@@ -33,7 +34,8 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
         <span className="meta">
           <span className="flex-none font-semibold text-you-ink">{t('inbox.unread', { count: m.count })}</span>
           <span className="flex min-w-0 items-center gap-1"><Who name={m.manager} /><span className="truncate">{m.manager}</span></span>
-          <span className="unit" lang={contentLang(m.workspace)}>{m.workspace}</span>
+          {/* The conversation with every manager is under no workspace's label. */}
+          {m.workspace === EVERY ? <span className="unit">{t('talk.every')}</span> : <span className="unit" lang={contentLang(m.workspace)}>{m.workspace}</span>}
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>

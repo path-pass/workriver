@@ -6,6 +6,7 @@ import type { MachineAlert } from '@/machines/types'
 import type { ManagerMessage } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import { ms } from '@/planning/select'
+import { repliesOf } from '@/conversations/select'
 import { type Working, working, openCount, openFindings, SEVERITIES } from '@/work/select'
 
 export interface Attention {
@@ -111,7 +112,7 @@ export function inbox(ws: Workspace): Inbox {
   // The manager's words not read yet (a message it started, replies), by workspace.
   const unread = new Map<string, { m: ManagerMessage; by: string; text: string; at: string }[]>()
   for (const m of ws.messages ?? []) {
-    const said = [...(m.byManager && m.unread ? [{ m, by: m.manager, text: m.text, at: m.at }] : []), ...m.replies.filter(r => r.unread).map(r => ({ m, ...r }))]
+    const said = [...(m.byManager && m.unread ? [{ m, by: m.manager, text: m.text, at: m.at }] : []), ...repliesOf(m).filter(r => r.unread).map(r => ({ m, ...r }))]
     if (said.length) unread.set(m.workspace, [...(unread.get(m.workspace) ?? []), ...said])
   }
   box.messages = [...unread].map(([workspace, said]): InboxRow => {

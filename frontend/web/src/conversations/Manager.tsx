@@ -16,7 +16,7 @@ import type { Talk } from './types'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { chipKey, chipsOf, leaveOut, messageOf } from './select'
+import { chipKey, chipsOf, EVERY, leaveOut, messageOf, repliesOf } from './select'
 import { Chips, Log, MessageView } from './Turns'
 
 /** Whether pasted html holds text of its own (tags, styles and scripts left out). Parsed
@@ -117,10 +117,14 @@ const READ_AFTER = 1500
 /** The last request to show a workspace's conversation that was followed. */
 let managerSeen = 0
 
+/** The select's value for the conversation with every manager (a workspace's is `w:` and its label). */
+const ALL = 'all'
+
 /**
  * The conversation with a workspace's manager: the picked unit's intent's workspace, or one
- * picked from those with a manager. What the user writes is typed into the manager's
- * terminal (held while it waits for a person there); it replies with `workriver reply`.
+ * picked from those with a manager, or every manager at once. What the user writes is typed
+ * into the manager's terminal (held while it waits for a person there); it replies with
+ * `workriver reply`. To every manager: each running one gets its copy, and replies under it.
  */
 export function Manager({ unit, n, finding, talk }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null }) {
   const { t } = useT()
@@ -144,6 +148,8 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   const own = intent?.state === 'active' ? intent.workspace?.label : undefined
   const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
   const labels = [...new Set([own, ...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter((l): l is string => !!l))]
+  // Every manager at once: offered with more than one running, or once written to.
+  const every = running.length > 1 || talk.messages.some(m => m.workspace === EVERY)
   const [chosen, setChosen] = useState<string | null>(talk.to ?? null)
   // Asked for again (Needs you, an intent's page): the workspace named, or the one on screen.
   // (Kept outside the component: the section may mount with the request already made.)
@@ -154,8 +160,9 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   // Asked about something on screen ("Ask the manager", `?`): the unit's own workspace.
   const focusSeen = useRef(talk.focusAt)
   useEffect(() => { if (talk.focusAt !== focusSeen.current) { focusSeen.current = talk.focusAt; setChosen(null) } }, [talk.focusAt])
-  const label = (chosen && labels.includes(chosen) ? chosen : null) ?? own ?? labels[0] ?? null
-  const manager = running.find(s => s.group!.label === label)
+  const label = (chosen !== null && (labels.includes(chosen) || (chosen === EVERY && every)) ? chosen : null) ?? own ?? labels[0] ?? null
+  const all = label === EVERY
+  const manager = all ? undefined : running.find(s => s.group!.label === label)
   const list = talk.messages.filter(m => m.workspace === label)
 
   // What is picked, as chips; only to the unit's own workspace's manager. A chip left out
@@ -184,10 +191,10 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
 
   // The manager's newest words not read yet: read once the conversation has been on screen a
   // moment (not in a hidden tab, nor in the panel hidden on a narrow screen).
-  const newest = list.flatMap(m => [...(m.byManager && m.unread ? [m.at] : []), ...m.replies.filter(r => r.unread).map(r => r.at)]).sort((a, b) => ms(a) - ms(b)).at(-1)
+  const newest = list.flatMap(m => [...(m.byManager && m.unread ? [m.at] : []), ...repliesOf(m).filter(r => r.unread).map(r => r.at)]).sort((a, b) => ms(a) - ms(b)).at(-1)
   const shown = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!label || !newest) return
+    if (label === null || !newest) return
     let k = 0
     const look = () => {
       clearTimeout(k)
@@ -198,25 +205,29 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
     return () => { clearTimeout(k); document.removeEventListener('visibilitychange', look) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [label, newest])
-  const size = list.length + ':' + list.map(m => m.step + m.replies.length).join(',')
-  const options = labels.map(l => {
-    const m = running.find(s => s.group!.label === l)
-    return { value: l, label: m ? `${l} · ${m.agent}` : l }
-  })
+  const size = list.length + ':' + list.map(m => m.step + repliesOf(m).length + (m.to ?? []).map(c => c.step).join('')).join(',')
+  const options = [
+    ...(every ? [{ value: ALL, label: t('talk.every') }] : []),
+    ...labels.map(l => {
+      const m = running.find(s => s.group!.label === l)
+      return { value: `w:${l}`, label: m ? `${l} · ${m.agent}` : l }
+    }),
+  ]
   const send = (text: string) => {
-    if (!label || !manager) return
-    talk.onTell(label === own && intent ? { intent: intent.id, workspace: label } : { workspace: label }, text, manager.agent, messageOf(context, []), files)
+    if (label === null || (all ? !running.length : !manager)) return
+    if (all) talk.onTell({ workspace: EVERY, all: true }, text, '', messageOf(context, []), files)
+    else talk.onTell(label === own && intent ? { intent: intent.id, workspace: label } : { workspace: label }, text, manager!.agent, messageOf(context, []), files)
     setFiles([])
     setRefused([])
   }
   return (
     <>
       <div ref={shown} className="flex min-h-0 flex-1 flex-col px-4 pb-3 text-sm">
-        {labels.length > 1 && <Choice value={label ?? ''} onChange={setChosen} options={options} label={t('talk.workspace')} className="mb-2 flex-none" />}
+        {options.length > 1 && <Choice value={label === null ? '' : all ? ALL : `w:${label}`} onChange={v => setChosen(v === ALL ? EVERY : v.slice(2))} options={options} label={t('talk.workspace')} className="mb-2 flex-none" />}
         {label === null
           ? <p className="text-ink-2">{t('talk.noWorkspace')}</p>
           : !list.length
-            ? <p className="text-ink-2">{t('talk.empty', { workspace: label })}</p>
+            ? <p className="text-ink-2">{all ? t('talk.everyEmpty') : t('talk.empty', { workspace: label })}</p>
             : (
               <Log size={size} label={t('talk.label')}>
                 <ol className="chat">
@@ -229,9 +240,9 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
       </div>
       <Box
         label={t('talk.label')}
-        placeholder={t('talk.placeholder', { agent: manager?.agent ?? t('manager.state.none') })}
+        placeholder={all ? t('talk.everyPlaceholder') : t('talk.placeholder', { agent: manager?.agent ?? t('manager.state.none') })}
         focusAt={talk.focusAt}
-        disabled={!manager || !label}
+        disabled={all ? !running.length : !manager}
         onSend={send}
         onFiles={addFiles}
         above={(context.length > 0 || files.length > 0 || refused.length > 0) && (
@@ -247,7 +258,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
             )}
           </>
         )}
-        below={manager ? t('talk.how', { agent: manager.agent }) : t('talk.none')}
+        below={all ? (running.length ? t('talk.everyHow', { count: running.length }) : t('talk.everyNone')) : manager ? t('talk.how', { agent: manager.agent }) : t('talk.none')}
       />
     </>
   )
