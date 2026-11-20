@@ -83,6 +83,9 @@ export interface Thread {
   live: boolean;
   conclusion?: string;
   turns: Turn[];
+  /** The user's discussion of a delivered design or research with the agent that did it:
+   *  one per task, its box under it while the task may be discussed. */
+  discuss?: boolean;
 }
 
 export interface Turn {
@@ -110,12 +113,18 @@ export interface Turn {
   failed?: { code: ReasonCode; reason: string };
   /** A request for the thread's conclusion rather than a question. */
   conclude?: boolean;
+  /** step 'held': why, in the service's words (its agent is at work, or on a blind task). */
+  reason?: string;
+  /** A discussion's answer the user has not read yet. */
+  unread?: boolean;
 }
 
 /** Why a message was not delivered, or a question got no answer. */
-export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error' | 'no-workspace' | 'timeout' | 'restarted' | 'blocked' | 'not-ready';
+export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error' | 'no-workspace' | 'timeout' | 'restarted' | 'blocked' | 'not-ready' | 'agent-gone' | 'gate-submitted';
 
-export type AskStep = 'starting' | 'reading' | 'asking' | 'blocked';
+/** A discussion's question goes straight to its task's agent: "starting" is its "sending",
+ *  "held" waits while that agent works or is on a blind task. */
+export type AskStep = 'starting' | 'reading' | 'asking' | 'blocked' | 'held';
 
 /** What the side panel's Manager section and the task detail need from the page. */
 export interface Talk {
@@ -143,4 +152,9 @@ export interface Talk {
   messages: ManagerMessage[]
   /** `about`: the unit, task and context the message carries; `files`: the user's, still held by the page. */
   onTell: (to: { intent?: string; workspace: string }, text: string, manager: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[]) => void
+  /** A question (or, `conclude`, the request for the conclusion) in the discussion of a
+   *  delivered design or research, to its own agent; refused: the service's words. */
+  onDiscuss: (unit: string, task: string, agent: string, text: string, conclude: boolean, files: Attachment[]) => Promise<void>
+  /** The user has seen a task's discussion, up to its newest answer shown. */
+  onDiscussRead: (unit: string, task: string, at: string) => void
 }

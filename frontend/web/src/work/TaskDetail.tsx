@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import type { Unit } from '@/planning/types'
 import { threadsOf } from '@/conversations/select'
 import { Questions } from '@/conversations/Turns'
+import { Discussion } from '@/conversations/Discussion'
 import type { Talk } from '@/conversations/types'
 import { GateForm, GateSent } from './GateForm'
 import { Thumbs } from '@/attachments/Thumbs'
@@ -69,7 +70,21 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
     // Whoever did the work the gate follows wrote its steps (the sample's guess; the service knows).
-    input = <><Prose text={n.input.text || n.title} /><RunSteps steps={n.input.steps ?? []} ask={{ unit: unit.id, from: `${unit.id}#${n.id}`, by: byId(n.inputs.find(i => i.primary)?.from)?.agent ?? undefined }} /></>
+    // The results this gate asks about that the user may still discuss with their agents.
+    const discussed = n.state === 'waiting' ? unit.tasks.filter(x => x.output.gate === n.id && x.discuss === 'open') : []
+    input = <>
+      <Prose text={n.input.text || n.title} />
+      <RunSteps steps={n.input.steps ?? []} ask={{ unit: unit.id, from: `${unit.id}#${n.id}`, by: byId(n.inputs.find(i => i.primary)?.from)?.agent ?? undefined }} />
+      {discussed.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {discussed.map(x => (
+            <Button key={x.id} variant="outline" size="xs" className="rounded-sm" onClick={() => onPick({ kind: 'task', id: x.id })}>
+              <Icon name="talk" className="size-3" />{t('discuss.atGate', { task: `#${x.taskId ?? x.id}`, agent: x.agent ?? '' })}
+            </Button>
+          ))}
+        </div>
+      )}
+    </>
     output = n.state === 'waiting'
       ? <GateForm key={gateKey(unit, n)} unit={unit} gate={n} />
       : <>
@@ -176,10 +191,13 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
           {output}
         </div>
       </div>
-      {/* Past questions about it (the user's, and agents' to each other), read-only. */}
-      {threads.length > 0 && (
+      {/* Past questions about it (the user's, and agents' to each other), read-only; and the
+          discussion of a delivered design or research with its agent, with its box. */}
+      {(threads.length > 0 || n.discuss) && (
         <div className="border-t border-line p-3">
-          <Questions id={`questions-${unit.id}-${n.id}`} key={unit.id + n.id} threads={threads} agent={n.agent} onFile={talk.onFile} />
+          <Questions id={`questions-${unit.id}-${n.id}`} key={unit.id + n.id} threads={threads} agent={n.agent} onFile={talk.onFile} onRead={at => talk.onDiscussRead(unit.id, n.id, at)}>
+            {n.discuss && <Discussion unit={unit} n={n} talk={talk} />}
+          </Questions>
         </div>
       )}
       {/* Talking happens in the side panel; here only the way there, the task as its chip. */}

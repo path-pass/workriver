@@ -14,7 +14,7 @@ import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
 import { Manager } from '@/conversations/Manager'
-import type { Talk, AskContext, ManagerMessage } from '@/conversations/types'
+import type { Talk, AskContext, ManagerMessage, Turn } from '@/conversations/types'
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
@@ -29,7 +29,7 @@ import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
-import { choreDone, notify, decideFinding, detach, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
+import { choreDone, discuss, notify, decideFinding, detach, MANAGER, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
@@ -315,12 +315,31 @@ export default function App() {
     setEdits(e => ({ ...e, read: { ...e.read, [workspace]: at } }))
     readMessages(workspace, at)
   }
+  // A question in a task's discussion: to the service, which gives it to the task's agent; the
+  // sample answers it itself a moment later, as unread.
+  const onDiscuss: Talk['onDiscuss'] = async (unitId, task, agent, text, conclude, files) => {
+    if (!MOCK) {
+      try { await discuss(unitId, Number(task), text, conclude, files) } finally { files.forEach(detach) }
+      return
+    }
+    const key = `${unitId}:${task}`
+    const turn: Turn = { question: text, context: [], attachments: files, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
+    setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: [...(e.discussed[key] ?? []), turn] } }))
+    setTimeout(() => {
+      const answered: Turn = { ...turn, answer: mockAnswer(text, conclude), answerBy: agent, answeredAt: new Date().toISOString(), step: undefined, unread: true }
+      setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: (e.discussed[key] ?? []).map(x => (x === turn ? answered : x)) } }))
+    }, 1200)
+  }
+  const onDiscussRead: Talk['onDiscussRead'] = (unitId, task, at) => {
+    setEdits(e => ({ ...e, discussRead: { ...e.discussRead, [`${unitId}:${task}`]: at } }))
+    readDiscussion(unitId, Number(task), at)
+  }
   // The manager conversation needs no unit on screen (Needs you opens it from anywhere).
   const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines,
         intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
-        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell,
+        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,

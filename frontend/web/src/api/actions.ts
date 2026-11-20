@@ -153,6 +153,26 @@ export function readMessages(workspace: string, at: string) {
   if (!MOCK) post('/api/messages/read', { workspace, at }).catch(e => console.warn(e))
 }
 
+/** A question in the discussion of a delivered design or research (or, `conclude`, the request
+ * for its conclusion): the service types it into the task's own agent, which answers with
+ * `workriver answer`. The user's files are stored first and named by their ids. A refusal is
+ * thrown with the service's words. */
+export async function discuss(unit: string, task: number, text: string, conclude: boolean, files: Attachment[] = []) {
+  const stored = await Promise.all(files.map(async a => ({ kind: 'attachment' as const, label: a.name, id: await upload(a) })))
+  const context = stored.filter((c, k) => stored.findIndex(x => x.id === c.id) === k)
+  await post('/api/discuss', { unit, task, text, conclude, context })
+}
+
+/** The user has read a task's discussion, up to `at`. */
+export function readDiscussion(unit: string, task: number, at: string) {
+  if (!MOCK) post('/api/discuss/read', { unit, task, at }).catch(e => console.warn(e))
+}
+
+/** The sample's made-up answer from a task's agent; content, not UI text. */
+export const mockAnswer = (text: string, conclude: boolean) => conclude
+  ? '（示例结论，还没有接到真正的 agent）\n- 决定：照报告的推荐做\n- 改了：没有\n- 未定：无'
+  : `（示例回答，还没有接到真正的 agent）关于「${text}」：报告里第 2 节写了理由。`
+
 /** The sample's made-up reply from a manager; content, not UI text. */
 export const mockReply = (text: string) => `（示例回复，还没有接到真正的 manager）收到：「${text}」，我会安排。`
 

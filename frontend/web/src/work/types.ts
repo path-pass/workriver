@@ -163,6 +163,10 @@ export interface Task {
    * was reminded, and whether that did not help (then it is the user's and the manager's).
    */
   stalled?: { since: string; gone?: boolean; reminded?: string; escalated?: boolean };
+  /** A delivered design or research with its agent: the user may discuss it with that agent
+   *  now (open); its agent is no longer running (gone); the gate that asks about it was
+   *  submitted (over). */
+  discuss?: 'open' | 'gone' | 'over';
   /** Review nodes only. */
   reviewer?: Reviewer;
   /** Review nodes only: found problems, found none, or still running. */
@@ -189,6 +193,8 @@ export interface Task {
     attachments?: Attachment[];
     /** Implement and tests tasks: the commands run to check the work, and what came of them. */
     evidence?: Evidence[];
+    /** A design or research: the gate that asks the user about it, by its id. */
+    gate?: string;
   };
   /** Paths the work still expects to change (files or folders, possibly not existing yet). */
   plans: string[];

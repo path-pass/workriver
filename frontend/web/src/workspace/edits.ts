@@ -2,6 +2,7 @@
 import type { Finding, Task, GateResult, Decision } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { Workspace } from './types'
+import type { Turn } from '@/conversations/types'
 import { ms } from '@/planning/select'
 
 /** Everything the user has put in during this sitting; the data shown is the data with these on top. */
@@ -17,9 +18,13 @@ export interface Edits {
   starts: Record<string, { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }>
   /** Up to when the user has read each workspace's conversation with its manager, by label. */
   read: Record<string, string>
+  /** The sample's questions in a task's discussion (the service's come with the workspace), by `unit:task`. */
+  discussed: Record<string, Turn[]>
+  /** Up to when the user has read each task's discussion, by `unit:task`. */
+  discussRead: Record<string, string>
 }
 
-export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {}, read: {} }
+export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {}, read: {}, discussed: {}, discussRead: {} }
 
 const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
@@ -38,6 +43,16 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
           }))
         : []
       out = { ...n, state: 'done', since: g.at, output: { ...n.output, note: g.note, attachments: g.attachments, findings } }
+    }
+    // The discussion: the sample's own questions after the service's, and what was read.
+    const key = `${unit.id}:${n.id}`
+    const mine = edits.discussed[key]
+    const read = edits.discussRead[key]
+    if (mine?.length || read) {
+      const threads = out.threads ?? []
+      const had = threads.some(th => th.discuss)
+      const all = had ? threads.map(th => (th.discuss ? { ...th, turns: [...th.turns, ...(mine ?? [])] } : th)) : mine?.length ? [...threads, { id: '', ended: false, live: false, discuss: true, turns: mine }] : threads
+      out = { ...out, threads: all.map(th => (th.discuss && read ? { ...th, turns: th.turns.map(x => (x.unread && x.answeredAt && ms(x.answeredAt) <= ms(read) ? { ...x, unread: false } : x)) } : th)) }
     }
     const found = out.output.findings
     if (found?.some(f => edits.decisions[`${unit.id}:${n.id}:${f.id}`]))
