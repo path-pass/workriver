@@ -62,8 +62,13 @@ The user's rule.
 
 - **The rule is by state in core** (`prepare_intents`), no longer by whether `manager_of`
   finds someone. That closes the returned-to-roadmap gap above for edits and for dropping:
-  a planned intent is dropped by the user only (merging agent-added planned intents stays
-  as it is: tidying, its own event and rule).
+  a planned intent is dropped by the user only.
+- **Merging planned intents by an agent keeps the title.** Agents may still merge planned
+  intents that agents added (tidying an import; the sources' text goes into the target's
+  note as an addition), but an `intent.merged` with a `title` recorded by an agent is
+  refused in core ("the title is the user's: merge without --title; the user renames it on
+  the page"). The merged intent keeps its target's title. The user's merges take a title as
+  now.
 - **Title and goal are the user's.** They say what the user asked for; a manager that thinks
   they should read otherwise says so to the user. Today a manager may change them: that
   ends (CHANGES.md, section 4).
@@ -73,14 +78,19 @@ The user's rule.
   was missing: a manager told something by the user about an intent still in the roadmap
   writes it down where whoever starts it will read it. Add only: replacing would rewrite
   what the user or another manager put there, on an intent nobody answers for yet.
-  - Core checks that the caller manages a workspace (a `manager.registered` for it that
-    still holds) and sends `add_note` only. Same project is the service's check, in the
-    append handler before recording, with the same reckoning as the start dialog
-    (`group_project`: what the user set, the folder its manager runs in, its current
-    intent) against the intent's project (`project_folder`). It needs the runtime and the
-    file tree, which core does not see. A project unknown on either side, or a runtime
-    that cannot be read, is a refusal ("i3 belongs to project workriver; your workspace's
-    project is not known: ask the user"), never a pass.
+  - **The whole rule is core's, on recorded facts only**, checked in `prepare_intents` under
+    the same lock as the record: the caller manages a workspace (the one whose `manager`
+    it is), sends `add_note` only, and that workspace's project is the intent's.
+    - The workspace's project: what the user set (`workspace.project`), else the project
+      of its current intent. The intent's: `project_folder`. Both are in `State`;
+      `project_of` and `project_folder` are pure functions of it and move from the
+      service's `views` to core (the views call them there).
+    - Not the folder the manager's pane runs in: the manager chooses it (a `cd` would make
+      it another project's), and reading it needs the runtime. That source stays for the
+      start-time warning only, where it is advice.
+    - Unknown on either side is refused: "i3 belongs to project workriver; your
+      workspace's project is not known: ask the user to set it (Settings, or `workriver
+      workspace project`)". Never a pass.
 - **Done or dropped: the user only.** The work on it is over; the user may still correct a
   record (a title, a link to the outcome).
 - **Other agents: no.** A worker tells its manager (`workriver manager tell`).
@@ -99,12 +109,24 @@ The user's rule.
   by: the event's actor, never the body) and `changed` (the version that last changed each
   of title, goal and note). That is all the base check and the board need; `/api/state` and
   `/api/workspace` carry these few fields and no history.
-- **The history is built on read.** A named read of the port, `WorkStore::intent_events(id)`
-  (the events that make its versions, oldest first), and one core function over them
-  (`intent_versions`) that applies the rule above. Each version holds what its event set:
-  the `add_note` paragraph, not the whole note, so the list grows with the events, not with
-  the square of the paragraphs. The whole text of version N is the same function replaying
-  up to N.
+- **The history is built on read.** A named read of the port, `WorkStore::intent_events(id)`,
+  and one core function over what it returns (`intent_versions`) that applies the rule
+  above. Each version holds what its event set: the `add_note` paragraph, not the whole
+  note, so the list grows with the events, not with the square of the paragraphs. The whole
+  text of version N is core's own `apply` replaying those events, up to N, into a state of
+  their own.
+- **What `intent_events` returns**: the intent's own events (`intent.created`,
+  `intent.updated`, `intent.merged` into it) and those of every intent merged into it,
+  transitively (each `intent.merged` names its sources), oldest first. A merge's version
+  adds `merged_note` of each source as it stood at the merge: its title, goal, note and
+  link, which come from the source's own events (and from merges into it). Replaying them
+  all with the same `apply` gives that text exactly. The sources' own changes are not
+  versions of the target; they are read only to rebuild it.
+  - Not the other way (the merge event keeping the text it added): a merge already
+    recorded has no such text, so the history would need a second path for those, and
+    the text would be a second copy of what `merged_note` computes. Reading the sources
+    costs a few more events, only for an intent that had merges, only when its history is
+    opened.
 - **The route**: `GET /api/intent/{id}/history` lists the versions (n, at, by, the fields
   changed, what the event set, the intents merged in); `?version=N` answers version N whole
   and N−1 whole, for the diff. The page and `workriver intent history` both read it.
@@ -147,13 +169,17 @@ The user's rule.
 - **CHANGES.md** (managers): title and goal are the user's now (a manager's `--title` or
   `--goal` is refused: ask the user); `--note` replaces the whole note; `--title`, `--goal`,
   `--note` need `--base` from `workriver intent history`, and the refusal on a changed base;
-  `--add-note` on a planned intent of your workspace's project now works, add only;
-  dropping a planned intent is the user's; the message above.
+  `--add-note` on a planned intent of your workspace's project now works, add only (the
+  project as the user set it, else your current intent's; unknown is refused: ask the
+  user to set it); dropping a planned intent is the user's; `backlog merge --title` is
+  refused for agents (merge without it); the message above.
 - **Recipes**: `start-intent` (the note paragraph: replace as well as add, the base, the
   message when the user edits; title and goal are the user's; writing down what the user
   said about a planned intent with `--add-note`; the returned-to-roadmap intent is no longer
-  the manager's to drop). `units`, `design-gate`, `spike` keep `--add-note` on the active
-  intent and need no change. The manager skill's hard rules do not change.
+  the manager's to drop; `backlog merge` without `--title`). The `workriver-backlog-import`
+  skill: its merge loses `[--title …]` (the user renames the target on the page). `units`,
+  `design-gate`, `spike` keep `--add-note` on the active intent and need no change. The
+  manager skill's hard rules do not change.
 
 ## 5. Security
 
@@ -164,15 +190,16 @@ The user's rule.
   record it too; the user-only parts (title, goal, `findings`, replacing a planned note,
   anything on a done or dropped intent, dropping a planned intent) are refused in
   `prepare_intents` for anyone else.
-- **The project check** for a planned intent's addition is the service's, before the record:
-  any read it needs that fails (store, runtime) fails the request; an unknown project is a
-  refusal. Core still refuses anyone but a manager, and anything but `add_note`, whatever
-  the service let through.
-- **Reads**: `GET /api/intent/{id}/history` asks `App::who`; for an agent on an undelivered
-  blind task (`blind_view` gives a cut) it is refused, as the note is hidden from it; else it
-  reads `intent_events` through the port. A missing intent is refused in core's words
-  (`no intent i9`, 422) as other reads by id are; a failed read fails the request (500). One
-  line in `route-access.txt` per listener.
+- **The project check** for a planned intent's addition is core's, with the rest of the
+  rule (section 2): on recorded facts, at the moment of the record, the same for page and
+  CLI. The service adds nothing to it and reads no runtime for it, so a runtime that cannot
+  be read changes nothing here.
+- **Reads**: `GET /api/intent/{id}/history` goes through `App::view`, as every route that
+  returns records. A reduced view (`state.reduced`: an agent on an undelivered blind task)
+  is refused, as the note is hidden from it; an intent missing from the view is refused in
+  core's words (`no intent i9`, 422) as other reads by id are; then it reads
+  `intent_events` through the port. A failed read fails the request (500). One line in
+  `route-access.txt` per listener.
 - **On `machine_router` too**: `workriver intent history` now reads it, and a manager may run
   on another machine (a linked workspace); it is a read under the same cut as `/api/task`,
   which is already there. Nothing written goes there that is not already (`/api/append`).
@@ -204,7 +231,7 @@ The user's rule.
 - Removing or hiding a version: the record is append-only.
 - Anything about edits in the rail.
 
-## What this revision answers
+## What the revisions answer
 
 - The review: versions out of `State`, history built on read through its own route, the
   CLI on that route → section 3 ("What `State` keeps", "The history is built on read",
@@ -218,3 +245,13 @@ The user's rule.
   intent's manager's; additions to a planned intent's note from a manager of its project;
   done and dropped the user's; every edit kept and restorable) → section 2, with sections 4
   (what managers are told) and 5 (where each part is checked).
+- Round 2: the same-project check in core, on recorded facts (the workspace's project as
+  the user set it, else its current intent's), not the manager's folder; unknown refused →
+  section 2 ("The whole rule is core's"), section 5 (The project check).
+- Round 2: a merge's version rebuilt from events alone, by reading the merged intents'
+  events with the target's, and why not a copy on the merge event → section 3 ("What
+  `intent_events` returns").
+- Round 2: the history route through `App::view` (a reduced view refused) → section 5
+  (Reads).
+- Round 2: an agent's merge with a title refused, the title being the user's → section 2
+  ("Merging planned intents by an agent keeps the title"), section 4.
