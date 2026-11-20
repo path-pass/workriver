@@ -4,6 +4,7 @@ import type { Intent, Unit } from '@/planning/types'
 import type { Session } from './types'
 import type { Workspace } from '@/workspace/types'
 import { unitsOf, ms } from '@/planning/select'
+
 /**
  * Where a live agent is, in the order the rail lists them. Agents cross units, so this is
  * worked out over the whole workspace:

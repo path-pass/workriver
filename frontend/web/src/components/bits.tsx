@@ -1,7 +1,7 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
 import { createContext, useContext, useEffect, useState } from 'react'
 import { Button } from '@/ui/primitives/button'
-import { contentLang, useT } from '@/i18n'
+import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE, type Remote } from '@/api/actions'
 import type { Unit } from '@/planning/types'
@@ -77,18 +77,6 @@ export function Notes() {
     <div role="status" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
       {text && <div className="max-w-xl rounded-md bg-ink px-3 py-2 text-xs text-canvas shadow-pick">{text}</div>}
     </div>
-  )
-}
-
-/** The machine something is on, when it is not this one: a small chip with its name. */
-export function MachineChip({ machine, away = false, since }: { machine?: string; away?: boolean; since?: string }) {
-  const { t, date } = useT()
-  if (!machine) return null
-  const why = since ? t('machines.disconnected', { machine, time: date(since) }) : t('machines.unreachable', { machine })
-  return (
-    <Tip text={away ? why : t('machines.on', { machine })}>
-      <span className="ext-chip" data-away={away || undefined}><Icon name="machine" className="size-3" /><span className="chip-name" lang={contentLang(machine)}>{machine}</span></span>
-    </Tip>
   )
 }
 

@@ -5,6 +5,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primit
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { Icon } from '@/ui/Icon'
+
 /** Web links in plain text, cut before trailing punctuation. */
 const LINK = /https?:\/\/[^\s<>"'）。，、]+[^\s<>"'）。，、.,;:!?)]/g
 

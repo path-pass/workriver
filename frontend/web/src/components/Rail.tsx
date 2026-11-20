@@ -17,7 +17,8 @@ import { useResize } from '@/lib/useResize'
 import { record } from '@/api/actions'
 import type { Intent, Unit } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
-import { MachineChip, Progress } from './bits'
+import { Progress } from './bits'
+import { MachineChip } from '@/machines/format'
 import { Content, ExternalChip, Slot, SLOT } from '@/content/Chips'
 import { CopyButton } from '@/ui/CopyButton'
 import { Icon } from '@/ui/Icon'
@@ -27,7 +28,7 @@ import { MergeDialog } from './Merge'
 
 /** All projects, in the project switch (Radix takes no empty value). */
 const ALL = '*'
-import { Settings } from './Settings'
+import { Settings } from '@/machines/Settings'
 
 /** What waits for the user in some units: gates an agent is stuck on, and everything else. */
 export function needs(units: Unit[]) {

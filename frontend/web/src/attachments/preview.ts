@@ -1,5 +1,6 @@
 // How an attachment previews: as a picture, as Markdown, as plain text, or not at all.
 import type { Attachment } from './types'
+
 type Kind = 'image' | 'markdown' | 'text'
 const MD = /\.(md|markdown|mdown|mkd)$/i
 const TEXT = /\.(txt|text|log|out|json|jsonl|ndjson|ya?ml|toml|ini|cfg|conf|csv|tsv|xml|diff|patch|sql|sh|env)$/i

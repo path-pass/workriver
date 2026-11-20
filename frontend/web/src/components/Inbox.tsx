@@ -16,7 +16,7 @@ import { Content, Slot, SLOT } from '@/content/Chips'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { RunSteps } from '@/commands/context'
-import { alertLimit, alertValue, topLine } from './Machines'
+import { alertLimit, alertValue, topLine } from '@/machines/format'
 
 const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
 

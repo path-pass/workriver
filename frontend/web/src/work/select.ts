@@ -4,6 +4,7 @@ import type { T } from '@/i18n'
 import type { Finding, Severity, Task } from './types'
 import type { Unit } from '@/planning/types'
 import type { Pick } from './types'
+
 // ---- findings ----
 
 export const SEVERITIES: Severity[] = ['P1', 'P2', 'P3']

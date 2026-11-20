@@ -5,6 +5,7 @@ import { contentLang } from '@/i18n'
 import type { External } from '@/planning/types'
 import { Tip } from '@/ui/Tip'
 import { Icon } from '@/ui/Icon'
+
 /** Content (a title, what someone typed) in its own element, marked with its guessed language. */
 export const Content = ({ text }: { text: string }) => <span lang={contentLang(text)}>{text}</span>
 
