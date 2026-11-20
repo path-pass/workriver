@@ -174,17 +174,27 @@ For the conclusion: amend first if the result must change, then `workriver answe
 on. It is given through `hand` as a duty (`For::Duty`): held while the manager is on a blind
 task in progress, waits for a person in its terminal, is not listed or cannot be sent to,
 and given once it can take it; never dropped while the service runs (a restart loses one
-still held, as every held notice).
+still held, as every held notice). The same held kind gives every other notice an agent must
+act on: a worker's `workriver manager tell`, a dropped task's "stop" to its agent and the
+news to the manager, work over (a unit merged or done, an intent done) to the manager, and an
+addition to a finding to the agents of the work it led to and the manager
+(`App::deliver`).
 
 - an amendment of the result while its gate is not submitted, whoever made it: "agent-R
   amended u2#1 … while the user discusses it; its gate u2#3 … is not submitted yet." Then,
-  when a review between the result and its gate has started (it read the old text): drop
-  the gate, add the review again and a new decide gate after it; one not started yet reads
-  the amended result, and the gate asks about that;
+  when a review between the result and its gate read an earlier delivery: drop the gate,
+  add the review again and a new decide gate after it; one not started yet reads the
+  amended result, and the gate asks about that;
 - the conclusion: whether the result was amended since the discussion began, what is next
-  (the gate waits for the user; amended after its review started: drop the gate, review
-  again, a new gate; no gate: one only if work must start on this), and the conclusion
-  quoted as the agent's.
+  (the gate waits for the user; a review that read an earlier delivery: drop the gate,
+  review again, a new gate; no gate: one only if work must start on this), and the
+  conclusion quoted as the agent's.
+
+Both are decided in event order, never by comparing times (a second holds several events):
+core keeps, as the events are applied and never stored, which reviews of a result had
+started when it was amended (`Task.read_before`: they read an earlier delivery) and whether
+a discussion's task was amended after it began (`Thread.amended`). Amended, then reviewed,
+then concluded keeps the review and its gate.
 
 The manager keeps the agent of a delivered research or design task while its gate is not
 submitted (`closing-workers`), and the idle reminder (`reminders::idle_workers`) does not
@@ -208,8 +218,11 @@ conversation, it replies with the task's link instead of relaying (`user-message
 - A restart keeps open discussion questions (`open_questions` leaves them out; their
   answerer goes on), and gives the ones never given (`open_discussions`). First, given or
   not, one whose result's gate was submitted fails: a run that stopped between recording
-  the gate and failing them left it open. A question is checked so again before it is
-  given.
+  the gate and failing them left it open.
+- Right before each send, held retries too, a question is checked against the records: one
+  closed meanwhile goes nowhere, one whose gate was submitted fails then, and with records
+  that cannot be read it waits. Each poll also fails the open ones whose gate was submitted
+  (`discussions_over`): a read that failed right after the gate's commit left them open.
 - The gate submitted: the open discussion questions of the results it asks about fail
   (`gate-submitted`).
 

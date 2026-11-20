@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **What you must act on waits for you instead of being lost** (managers, workers): while
+  you are on a blind task (or wait for a person in your terminal), a worker's `manager tell`,
+  "your task was dropped: stop", "u2 is done / close your workers" and an addition to a
+  finding are held, and typed in once you can take them, as answers and decisions already
+  were. Before, they were dropped. (`blind-review`, `blocked`, `closing-workers`)
 - **The user discusses a delivered research or design result with its agent** (managers,
   workers): in the task's detail, each question goes straight to the agent that did it,
   which answers with `workriver answer` and, when the user asks for the conclusion, amends
