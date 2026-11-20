@@ -46,7 +46,7 @@ anything in `frontend/`.
 | [`navigation.md`](docs/design/ui/navigation.md) | The rail, an intent's page, merging planned intents, the side panel and its Needs you, Agents and Backlog sections, signing in, addresses |
 | [`activity.md`](docs/design/ui/activity.md) | The main area and its first layer (the graph), a node's detail, findings, gates and chores, what the user puts in, evidence, where the scope grew |
 | [`code.md`](docs/design/ui/code.md) | The code layer, the Commits section, the view by function (postponed) |
-| [`conversations.md`](docs/design/ui/conversations.md) | Asking why, the manager conversation, agents asking each other |
+| [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, agents asking each other |
 | [`operations.md`](docs/design/ui/operations.md) | Running a command as the user, Machines, other machines, stopped workers, machine alerts, opening a terminal |
 | [`attachments.md`](docs/design/ui/attachments.md) | Attachments and the viewer |
 | [`presentation.md`](docs/design/ui/presentation.md) | Colour, type, space and shape, the river lines, states, loading |
@@ -67,7 +67,7 @@ word but for paths made whole and "see …" naming the file):
 | Structure: a second view by function (postponed) | `code.md` (A view by function) |
 | Structure: picking a node, longer text as Markdown | `activity.md` (A node's detail) |
 | Structure: Other machines; Stopped workers; Machine alerts; Opening a terminal | `operations.md` |
-| Structure: Asking why (with the manager, and agents asking each other) | `conversations.md` |
+| Structure: Asking why (with the manager, and agents asking each other) | `conversations.md` (since i29: the Manager section, past questions) |
 | Colour means one thing | `presentation.md` |
 | Findings; Gates and chores | `activity.md` |
 | What the user puts in: the gate's form, an open finding, delivery | `activity.md` |

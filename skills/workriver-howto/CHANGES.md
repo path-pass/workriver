@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-20
 
+- **Messages from the page carry what the user picked and attached** (managers): the page
+  has no Ask why any more; the user writes to you, and the message says what it points at
+  (tasks, a finding, lines with their work tree and branch, the user's files by path).
+  Answer, or reply that the task's agent is asked, `workriver ask` it without `--wait`, and
+  reply again with its answer. A temporary agent now closes only after its idle time.
+  (`user-message`, `ask`)
 - **`workriver attach --dir` asks who you are** (everyone): like every other command that
   records or reads, it works from your own pane (or as the user) and is refused from a
   process in no pane without a terminal, where before it made the folder for anyone. Run

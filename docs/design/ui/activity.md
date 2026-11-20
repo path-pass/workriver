@@ -41,8 +41,13 @@ its sections went.
   running or still to do, the header names its agent and, while the session lives, a
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
+  After Output, a **Questions** block holds the past questions about the task (the user's
+  from before i29, agents' to each other), read-only, folded to rows (`conversations.md`,
+  Past questions); at the bottom a small "Ask the manager" opens the Manager box with the
+  task as its chip. With no node picked, the unit's own past questions show under the graph
+  the same way, when it has any.
   Longer text written by agents or the user – a task's input, a delivery or gate note, an
-  answer in Ask why – is short Markdown, rendered compact by the same safe renderer as
+  answer to a question, a manager's reply – is short Markdown, rendered compact by the same safe renderer as
   Markdown attachments (see Attachments, `attachments.md`): the surrounding size, headings no bigger than the
   text, tight lists, and a single line break kept as one. In the detail a long one shows its
   first six lines fading out, with "Show more"; until the renderer has loaded, the plain

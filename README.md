@@ -87,17 +87,19 @@ folders that nothing before it on its line had touched: there the work grew in s
 long graph opens on its latest work, with a minimap of the whole; zoomed out, as here, all
 of it shows.
 
-![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, two marked where the scope grew, a dropped question to merge, and a try-out gate near the end](docs/images/activity-graph.en.png)
+![The activity graph of the unit "加一个 @ 功能": implement tasks, the security and code reviews after them, the tasks the code review's findings led to, two marked where the scope grew, a dropped question to merge, a try-out gate near the end, and under the graph an earlier question about the unit](docs/images/activity-graph.en.png)
 
 **Why a node is the way it is.** Pick a node and its detail says what went in and what came
 out. Task #1 was asked to find the people mentioned in a message; it delivered the commit
 "feat(chat): find the people mentioned in a message", its reports and screenshots, and a
 check, `npm test app/chat/mention.test.ts`, 6 passed. Evidence is recorded the same way
-whoever ran it. "Ask why" opens a question in the side panel: a temporary agent answers
-from the records and the code, and asks the agent that did the work only while that agent
-is idle. With no node picked, the question is about the whole unit.
+whoever ran it. "Ask the manager" opens the conversation with the intent's manager in the
+side panel, with the task as a chip; picked lines, a finding or an open screenshot go along
+as chips too, and so do files you drop or paste. The manager answers, or asks the agent that
+did the work and passes its answer on. Earlier questions about a task stay readable in its
+detail.
 
-![The detail of task #1: its input, its output with the commit, attachments and a passed check, and Ask why](docs/images/task-detail.en.png)
+![The detail of task #1: its input, its output with the commit, attachments and a passed check, and Ask the manager](docs/images/task-detail.en.png)
 
 **Findings, decided once.** The code review of #6 found nine problems, rated P1 to P3. Each
 is accepted, revised (accepted, but fixed your way), rejected or deferred. By default the
@@ -109,7 +111,7 @@ what is still open waits for you: P2-4 and P3-1, each with the reviewer's sugges
 decision goes to the manager, and an accepted finding stays visible on the tasks it caused,
 since that work must meet it.
 
-![The code review of task #6: nine findings grouped by severity, P2-4 open with the reviewer's suggestion, its impact and place and the four decisions, others accepted with the tasks they led to, decided by the manager, rejected or deferred](docs/images/review-findings.en.png)
+![The code review of task #6: nine findings grouped by severity, P2-4 open with the reviewer's suggestion, its impact and place and the four decisions, others accepted with the tasks they led to, decided by the manager, rejected or deferred, and an earlier question about the review](docs/images/review-findings.en.png)
 
 **What is waiting on you.** Needs you is one queue across every workspace. First what
 blocks someone: agents waiting for a person in their terminal, workers that stopped

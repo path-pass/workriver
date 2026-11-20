@@ -8,10 +8,11 @@ type into another agent's terminal.
 
 A temporary agent answers from the records and the code; it asks the task's own agent
 only while that one is idle. workriver never types into the task's own agent itself. A question
-always names a task; only the user asks about a whole unit (from the page).
+always names a task.
 
 **You will see:** the question id (`q7`); later, in your terminal, "Your question q7 … was
-answered" with the answer quoted. With `--wait` the command prints it.
+answered" with the answer quoted. With `--wait` the command prints it, but blocks until then
+(up to 600 s): a manager, whom everyone reports to, asks without it (`user-message`).
 
 If the answer means an agreed contract or plan must change, do not agree it between you:
 the manager decides (`contract`).
