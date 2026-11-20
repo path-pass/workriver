@@ -413,3 +413,27 @@ fn a_far_managers_choice_is_answered_to_it() {
     assert_eq!(manager, "far");
     assert_eq!(replayed(&s), *s.state());
 }
+
+/// Linking a far workspace to the local one of its label makes the local manager the one that
+/// manages it, as every message is resolved: a question the far manager asked before is then
+/// closed and its answer refused, though both managers still run; the unlinked case stays open.
+#[test]
+fn linking_closes_an_earlier_far_managers_question() {
+    let mut s = Records::default();
+    let far = Principal::Agent { session: "s-far".into(), machine: Some("box".into()) };
+    let remote = json!({"id": "r1", "label": "chat", "machine": "box"});
+    let local = json!({"id": "l1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Remote chat", "state": "planned"}})).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "manager.registered", "body": {"workspace": remote}}))).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": remote}}))).unwrap();
+    add(&mut s, "s-local", json!({"kind": "manager.registered", "body": {"workspace": local}})).unwrap();
+    let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("short", "Short"), opt("long", "Long")], &[])).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "message.said", "body": {"text": "What format?", "choice": choice}}))).unwrap();
+    assert!(s.state().choice_open("m1", 0), "unlinked: the far manager manages its own chat");
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "chat", "local": "chat"}})).unwrap();
+    assert_eq!(s.state().manager_of("i1"), Some("s-local"));
+    assert!(!s.state().choice_open("m1", 0), "linked: the local manager manages it now");
+    let e = add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "intent": "i1", "text": "", "answer": {"message": "m1", "selected": ["short"]}}})).unwrap_err();
+    assert!(e.contains("asked by an earlier manager"), "{e}");
+}

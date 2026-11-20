@@ -97,9 +97,14 @@ impl State {
     }
 
     /// Whether `session` manages a workspace of this label now, on this machine or another
-    /// (the conversation's workspace is named by its label).
+    /// (the conversation's workspace is named by its label): a record of that label it was
+    /// registered on, resolved as every message is (a linked group of another machine is the
+    /// local workspace it is linked to), whose manager it still is.
     fn manages(&self, label: &str, session: &str) -> bool {
-        self.workspaces.iter().any(|w| w.group.label == label && w.manager.as_deref() == Some(session))
+        self.workspaces
+            .iter()
+            .filter(|w| w.group.label == label && w.manager.as_deref() == Some(session))
+            .any(|w| self.workspace_of(&w.group).and_then(|now| now.manager.as_deref()) == Some(session))
     }
 
     /// Whether the user can still answer a manager's choice in a conversation: not answered,
