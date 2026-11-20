@@ -100,8 +100,12 @@ never import each other (except the service's tests, which drive it through the 
 client), `runtime/` imports neither, `common/` none of the three, and only `runtime/`
 imports `runtime/herdr/`. The service holds storage only as core's `ports::WorkStore`
 (`App.store`): it reads what is recorded and records through that, and only `main.rs` and
-`server/mod.rs`, where the service is put together, name workriver-data; no SQL, table or
-connection outside that crate. `docs/architecture.md` is the map;
+`server/mod.rs`, where the service is put together, name workriver-data, besides tests; no
+SQL, table or connection outside that crate. One record, or what a previous run left, is
+read by the port's named reads (add one when it is missing); `recorded()`, the whole state,
+only where a function of the whole state is called or several records of one revision are
+needed. Every read may fail: a handler passes that on with `?` (500, never 422), and a
+read outside a request goes through `got`. `docs/architecture.md` is the map;
 `docs/design/restructure.md` (section 2) has the detail.
 
 The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`),
