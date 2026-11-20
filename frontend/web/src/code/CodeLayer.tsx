@@ -22,6 +22,7 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import type { CommitFocus } from './types'
 import { useResize } from '@/lib/useResize'
+import { CODE_TREE_WIDTH } from '@/config/defaults'
 
 /** Narrower than this, the code block shows its tree as a drawer over the diff, not beside it. */
 const WIDE = 768
@@ -350,7 +351,7 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
     if (narrow) setDrawer(d => !d)
     else setPane(p => { remember(TREE_OPEN, p ? 'closed' : 'open'); return !p })
   }
-  const size = useResize({ key: 'workriver.code.tree.width', variable: '--code-tree-w', def: 280, min: 220, max: Math.max(220, Math.round(width / 2)), edge: 'right' })
+  const size = useResize({ key: 'workriver.code.tree.width', variable: '--code-tree-w', ...CODE_TREE_WIDTH, max: Math.max(CODE_TREE_WIDTH.min, Math.round(width / 2)), edge: 'right' })
   const treeId = useId()
   const toggler = useRef<HTMLButtonElement>(null)
   const [q, setQ] = useState('')

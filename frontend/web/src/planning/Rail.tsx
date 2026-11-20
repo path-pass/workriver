@@ -14,6 +14,7 @@ import { repoOf } from '@/code/select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { useResize } from '@/lib/useResize'
+import { RAIL_WIDTH } from '@/config/defaults'
 import { record } from '@/api/actions'
 import type { Intent, Unit } from './types'
 import type { Workspace } from '@/workspace/types'
@@ -344,7 +345,7 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
 export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, project, onProject, onStart, onIntent, onWidth }: Props) {
   const { t } = useT()
   // The right edge drags the width, between narrow and roomy; double-click: the default.
-  const size = useResize({ key: 'workriver.rail.width', variable: '--rail-w', def: 248, min: 200, max: 480, edge: 'right' })
+  const size = useResize({ key: 'workriver.rail.width', variable: '--rail-w', ...RAIL_WIDTH, edge: 'right' })
   useEffect(() => onWidth?.(size.width), [onWidth, size.width])
   const projects = ws?.projects ?? []
   const intents = (ws?.intents ?? []).filter(i => !project || i.project === project)

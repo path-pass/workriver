@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/ui/primitives/sheet'
 import type { Pick } from '@/work/types'
 import { useT } from '@/i18n'
 import { useResize } from '@/lib/useResize'
+import { SIDE_WIDTH } from '@/config/defaults'
 import type { Workspace } from '@/workspace/types'
 import { BacklogList } from '@/attention/Backlog'
 import { InboxList } from '@/attention/Inbox'
@@ -115,7 +116,7 @@ interface PanelProps extends Omit<ContentProps, 'section'> {
 export function SidePanel({ section, onSection, onClose, onWidth, ...content }: PanelProps) {
   const { t } = useT()
   // The left edge drags the width; double-click: the default.
-  const size = useResize({ key: 'workriver.side.width', variable: '--side-w', def: 340, min: 280, max: 720, edge: 'left' })
+  const size = useResize({ key: 'workriver.side.width', variable: '--side-w', ...SIDE_WIDTH, edge: 'left' })
   useEffect(() => onWidth?.(size.width), [onWidth, size.width])
   if (!section)
     return (
