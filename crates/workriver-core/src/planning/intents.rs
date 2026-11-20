@@ -186,8 +186,39 @@ impl State {
                         if !user && manager != Some(actor) {
                             return no(format!("only the manager of workspace {} starts intents there; register with `workriver manager here` first", g.label));
                         }
+                        // A manager starts its workspace's project's intents only: else it would become
+                        // the manager of another project's intent (and make its workspace that
+                        // project's). The user may start any, anywhere.
+                        // Where its workspace's project is not known by the records, its start would
+                        // make it that project's: the user starts the first one, or sets it.
+                        let theirs = self.project_folder(i);
+                        if !user && !theirs.is_empty() {
+                            let title = |p: &str| self.project_of(p).map_or(p.to_string(), |x| x.title.clone());
+                            match self.workspace_of(g).and_then(|w| self.workspace_project(w)) {
+                                Some(ours) if ours == theirs => {}
+                                Some(ours) => {
+                                    return no(format!(
+                                        "{intent} belongs to project {}; your workspace works on {}: ask the user to start it (in the roadmap, in a workspace of its project) or to set your workspace's project (Settings, or `workriver workspace project`)",
+                                        title(&theirs),
+                                        title(&ours)
+                                    ));
+                                }
+                                None => {
+                                    return no(format!(
+                                        "{intent} belongs to project {}; your workspace's project is not known yet: ask the user to start {intent} from the roadmap in your workspace, or to set your workspace's project (Settings, or `workriver workspace project`); then you start that project's intents yourself",
+                                        title(&theirs)
+                                    ));
+                                }
+                            }
+                        }
                     }
-                    (Active, Done) | (Active, Planned) => {}
+                    // Closing or shelving an intent is its manager's or the user's, as dropping it is:
+                    // who may edit an intent goes by its state.
+                    (Active, Done) | (Active, Planned) => {
+                        if !user && self.manager_of(&intent) != Some(actor) {
+                            return no(format!("only the user or the manager of intent {intent} marks it {}", name(&state)));
+                        }
+                    }
                     (Planned, Dropped) | (Active, Dropped) => {
                         // In the roadmap it is the user's, whoever managed it when it ran.
                         if !user && i.state == Planned {
@@ -286,7 +317,8 @@ impl State {
                     self.may_edit(actor, i, title.is_some() || goal.is_some(), findings.is_some(), note.is_some())?;
                 }
                 self.unchanged_since(i, base, title.is_some(), goal.is_some(), note.is_some())?;
-                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()), note: note.map(|n| n.trim().to_string()), base }
+                // The whole note as written: its indentation and blank lines are Markdown.
+                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()), note, base }
             }
             other => unreachable!("{} is not one of an intent's kinds", name_of_kind(&other)),
         })
@@ -494,9 +526,24 @@ impl State {
     }
 
     /// The project a workspace works on, from the records: what the user set, else the
-    /// project of its current intent. None: not known.
+    /// project of its current intent, else the one project of the intents that ran in it
+    /// (none, or several: not known). Never what an agent could steer: a manager starts only
+    /// its workspace's project's intents, and none of a known project while this is not known.
     pub fn workspace_project(&self, w: &Workspace) -> Option<String> {
-        w.project.clone().or_else(|| w.current.as_deref().and_then(|c| self.intents.iter().find(|i| i.id == c)).map(|i| self.project_folder(i)).filter(|p| !p.is_empty()))
+        if let Some(p) = &w.project {
+            return Some(p.clone());
+        }
+        let current = w.current.as_deref().and_then(|c| self.intents.iter().find(|i| i.id == c)).map(|i| self.project_folder(i)).filter(|p| !p.is_empty());
+        current.or_else(|| {
+            let ran: std::collections::BTreeSet<String> = self
+                .intents
+                .iter()
+                .filter(|i| i.workspace.as_ref().and_then(|g| self.workspace_of(g)).is_some_and(|x| x.group == w.group))
+                .map(|i| self.project_folder(i))
+                .filter(|p| !p.is_empty())
+                .collect();
+            (ran.len() == 1).then(|| ran.into_iter().next()).flatten()
+        })
     }
 
     /// The registered project whose folder holds `path`, the deepest one.
