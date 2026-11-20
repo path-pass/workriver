@@ -244,7 +244,7 @@ impl App {
     /// refused.
     pub(super) fn view(&self, caller: &Caller, r: &Reader) -> Result<core::State, ApiError> {
         let who = self.who(caller, r.named.as_deref())?;
-        let all = self.store.lock().unwrap().recorded();
+        let all = self.store.lock().unwrap().recorded()?;
         Ok(match &who {
             Principal::Agent { session, .. } => all.blind_view(session).unwrap_or_else(|| all.into_state()),
             _ => all.into_state(),
@@ -267,7 +267,10 @@ impl App {
             self.one_place(caller.machine.as_deref(), &root, a, &chain)?;
             self.seen(a)?;
         }
-        let intent = at.group.as_ref().and_then(|g| self.store.lock().unwrap().recorded().intent_for(g).map(|i| i.id.clone()));
+        let intent = match &at.group {
+            Some(g) => self.store.lock().unwrap().intent_in(g)?.map(|i| i.id),
+            None => None,
+        };
         Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
     }
 }

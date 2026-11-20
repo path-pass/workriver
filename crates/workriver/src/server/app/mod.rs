@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use notify_debouncer_mini::Debouncer;
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use tokio::sync::{broadcast, watch};
-use workriver_core::ports::WorkStore;
+use workriver_core::ports::{DataError, WorkStore};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
 use workriver_scan as scan;
@@ -119,6 +119,20 @@ pub(super) struct App {
 }
 
 pub(super) type Shared = Arc<App>;
+
+/// A read made outside a request (the poll, what follows a record, start-up): what is not
+/// there is nothing, as it was; a store that could not be read is logged and the step
+/// skipped, as for a write that failed there. A request's read uses `?` instead.
+pub(in crate::server) fn got<T>(answer: Result<T, DataError>) -> Option<T> {
+    match answer {
+        Ok(t) => Some(t),
+        Err(DataError::Rejected(_)) => None,
+        Err(e) => {
+            tracing::warn!("cannot read the records: {e}");
+            None
+        }
+    }
+}
 
 impl App {
     pub(super) fn live(&self) -> Option<Vec<RuntimeAgent>> {

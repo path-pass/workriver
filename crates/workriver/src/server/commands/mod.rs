@@ -102,8 +102,7 @@ const CONFIRM: Duration = Duration::from_secs(600);
 /// A run as the page shows it: in the confirm dialog, then with what its place shows.
 /// `waiting`: its review agent, when it waits for a person in its terminal (a first-run
 /// prompt such as "trust this folder?"): the page says so and leads there.
-fn run_view(id: &str, r: &Run, state: &core::State, waiting: Option<&RuntimeAgent>) -> serde_json::Value {
-    let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
+fn run_view(id: &str, r: &Run, by: &str, waiting: Option<&RuntimeAgent>) -> serde_json::Value {
     let v = &r.review;
     let review = match (&v.verdict, &v.failed) {
         (Some(verdict), _) => json!({ "state": "done", "verdict": verdict, "text": v.text }),
@@ -120,8 +119,7 @@ fn run_view(id: &str, r: &Run, state: &core::State, waiting: Option<&RuntimeAgen
 
 /// A run this service no longer follows (it restarted since): only what the record says,
 /// without its output or its terminal.
-fn recorded_view(r: &core::CommandRun, state: &core::State) -> serde_json::Value {
-    let by = if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) };
+fn recorded_view(r: &core::CommandRun, by: &str) -> serde_json::Value {
     let review = r.review.as_ref().map(|(verdict, text)| json!({ "state": "done", "verdict": verdict, "text": text }));
     json!({ "id": r.id, "command": r.command, "dir": r.dir, "machine": r.machine, "unit": r.unit, "by": by,
             "started": true, "output": "", "exit": r.exit, "watching": false, "kept": false, "focusable": false, "review": review })
@@ -133,7 +131,7 @@ pub(super) async fn run_prepare(State(app): State<Shared>, Extension(caller): Ex
     app.user(&caller)?;
     blocking(move || {
         shell::check(&p.command).map_err(bad)?;
-        let state = app.store.lock().unwrap().recorded();
+        let state = app.store.lock().unwrap().recorded()?;
         let (dir, machine, unit) = match (&p.unit, &p.project) {
             (Some(u), _) => {
                 let u = state.unit(u)?;
@@ -163,7 +161,7 @@ pub(super) async fn run_prepare(State(app): State<Shared>, Extension(caller): Ex
         let step_text = step.and_then(|n| steps.get(n.checked_sub(1)? as usize)).map(|s| s.text.clone());
         let id = auth::random_hex(8).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let r = Run { command: p.command, dir, machine, unit, by, from: p.from, step, step_text, lang: p.lang, prepared: std::time::Instant::now(), place: None, closed: false, output: String::new(), exit: None, watching: false, ran: false, review: Review::default() };
-        let view = run_view(&id, &r, &state, None);
+        let view = run_view(&id, &r, if r.by == "user" { "user" } else { state.name_of(&r.by).unwrap_or(&r.by) }, None);
         {
             let mut runs = app.runs.lock().unwrap();
             // Kept: what waits for its confirmation or its review, what is watched, the recent
@@ -256,15 +254,17 @@ pub(super) async fn run_command(State(app): State<Shared>, Extension(caller): Ex
 pub(super) async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     let live = app.runs.lock().unwrap().get(&id).cloned();
-    let state = &app.store.lock().unwrap().recorded();
-    match (live, state.runs.iter().find(|r| r.id == id)) {
+    let recorded = app.store.lock().unwrap().run(&id)?;
+    // Who wrote it, by the name it goes by: "user", or an agent's name if it was ever seen.
+    let name = |by: &str| -> Result<String, ApiError> { Ok(if by == "user" { None } else { app.store.lock().unwrap().agent_name(by)? }.unwrap_or_else(|| by.to_string())) };
+    match (live, recorded) {
         (Some(r), _) => {
             // Its review agent as the runtime last saw it, when it waits for a person.
             let waiting = r.review.agent.as_ref().filter(|_| r.review.pending()).and_then(|a| app.live()?.into_iter().find(|x| x.name == a.name && x.machine == a.machine && x.state == AgentState::Blocked));
-            Ok(Json(run_view(&id, &r, state, waiting.as_ref())))
+            Ok(Json(run_view(&id, &r, &name(&r.by)?, waiting.as_ref())))
         }
         // Recorded before this service started: its output was never read here.
-        (None, Some(r)) => Ok(Json(recorded_view(r, state))),
+        (None, Some(r)) => Ok(Json(recorded_view(&r, &name(&r.by)?))),
         (None, None) => Err(ApiError(StatusCode::NOT_FOUND, format!("no run {id}"))),
     }
 }

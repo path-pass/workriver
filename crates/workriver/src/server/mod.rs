@@ -9,6 +9,7 @@ use std::time::Duration;
 use anyhow::Context;
 use notify_debouncer_mini::{DebounceEventResult, new_debouncer};
 use tokio::sync::{broadcast, watch};
+use workriver_core::ports::WorkStore;
 use workriver_core::runtime::Runtime;
 use workriver_data::Store;
 use workriver_scan as scan;
@@ -78,9 +79,15 @@ impl Default for Waits {
 
 /// Following other machines too when `machines` is given (`runtime` is then `machines` itself).
 pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
+    let home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
+    serve_over(listener, Box::new(store), home, runtime, options).await
+}
+
+/// The service over whatever keeps the work, as the data port, with its data directory
+/// (`store_home`: the token, the caller socket, the attachments, the settings).
+pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn WorkStore>, store_home: std::path::PathBuf, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
     let Options { warning, waits, machines, allow_as, sample, procs, callers } = options;
     let port = listener.local_addr()?.port();
-    let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
     let shared = Arc::new(Mutex::new(views::Shared::default()));
     let (kick, kicked) = std::sync::mpsc::channel::<()>();
@@ -101,7 +108,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
         procs,
         pins: Pins::open(&store_home),
         told: Mutex::default(),
-        store: Mutex::new(Box::new(store)),
+        store: Mutex::new(store),
         cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
         remote_kick: kick,
         machines,
@@ -152,7 +159,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
         Ok(d) => *app.watcher.lock().unwrap() = Some(d),
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
-    let units: Vec<(String, String)> = app.store.lock().unwrap().recorded().units.iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
+    let units: Vec<(String, String)> = got(app.store.lock().unwrap().units()).unwrap_or_default().iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }

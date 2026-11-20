@@ -55,8 +55,9 @@ impl App {
         let threshold = self.waits.minute * self.stall_minutes.load(std::sync::atomic::Ordering::Relaxed);
         let idle = self.idle_since.lock().unwrap().clone();
         let mut tell = vec![];
+        let Some(state) = got(self.store.lock().unwrap().recorded()) else { return false };
         let changed = {
-            let state = &self.store.lock().unwrap().recorded();
+            let state = &state;
             let mut stalls = self.stalls.lock().unwrap();
             let (next, found) = delivery::reminders::step(state, live, &idle, threshold, self.waits.minute, &read, &stalls);
             for f in &found {
@@ -109,8 +110,9 @@ impl App {
         let read = self.readable(live);
         let mut told = self.idle_told.lock().unwrap();
         told.retain(|(s, since)| idle.get(s).is_some_and(|(x, _)| x == since));
+        let Some(state) = got(self.store.lock().unwrap().recorded()) else { return };
         let tell: Vec<_> = {
-            let state = &self.store.lock().unwrap().recorded();
+            let state = &state;
             let reachable = |m: &str| live.iter().any(|a| a.session == m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty();
             delivery::reminders::idle_workers(state, live, &idle, threshold, &read)
                 .into_iter()
@@ -137,8 +139,9 @@ impl App {
         let squash = self.shared.lock().unwrap().squash.clone();
         let after = self.waits.hour * self.ready_hours;
         let mut tell = vec![];
+        let Some(state) = got(self.store.lock().unwrap().recorded()) else { return };
         {
-            let state = &self.store.lock().unwrap().recorded();
+            let state = &state;
             let told = self.merge_told.lock().unwrap();
             // A spike is never merged: nothing to remind of.
             for u in state.units.iter().filter(|u| u.has_code() && u.kind.merges()) {
@@ -195,7 +198,7 @@ impl App {
     /// would tell it. `fresh`: it registers now, having just read this build's guide.
     // Which manager was told of which build is kept in a small file next to the database.
     pub(in crate::server) fn tell_of_update(&self, session: &str, fresh: bool) {
-        if !fresh && !self.store.lock().unwrap().recorded().workspaces.iter().any(|w| w.manager.as_deref() == Some(session)) {
+        if !fresh && !got(self.store.lock().unwrap().manages(session)).unwrap_or(false) {
             return;
         }
         let _one = self.told.lock().unwrap();

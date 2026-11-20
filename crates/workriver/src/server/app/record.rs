@@ -5,7 +5,7 @@ use super::*;
 impl App {
     /// Records the name a live agent goes by, the first time and when it changes.
     pub(in crate::server) fn seen(&self, a: &RuntimeAgent) -> Result<(), ApiError> {
-        let known = self.store.lock().unwrap().agent_name(&a.session).as_deref() == Some(a.name.as_str());
+        let known = self.store.lock().unwrap().agent_name(&a.session)?.as_deref() == Some(a.name.as_str());
         if !known {
             self.record(&Principal::Service, Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
         }
@@ -15,7 +15,7 @@ impl App {
     /// One workspace, one manager: an agent manages the workspace it runs in (not the one its
     /// CLI names), and takes it over only from a manager no longer running.
     fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<(), ApiError> {
-        let state = self.store.lock().unwrap().recorded();
+        let state = self.store.lock().unwrap().recorded()?;
         // Before 0.2 a manager named its intent; it manages that intent's workspace.
         let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(()) };
         let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
@@ -52,7 +52,7 @@ impl App {
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
         // One on another machine is read again in the background.
         if let (_, Some(unit), _) = e.body.refs() {
-            let found = self.store.lock().unwrap().unit(&unit).ok().filter(|u| u.has_code()).map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
+            let found = got(self.store.lock().unwrap().unit(&unit)).filter(|u| u.has_code()).map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
             match found {
                 Some((false, repo, branch)) => self.watch(Path::new(&repo), &branch),
                 Some((true, ..)) => {
@@ -164,8 +164,8 @@ impl App {
         // A dropped task likewise: its agent (to stop) and the manager.
         // Work over: the manager hears which of its workers it may close.
         if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
+            let Some(all) = got(self.store.lock().unwrap().recorded()) else { return };
             let to = {
-                let all = self.store.lock().unwrap().recorded();
                 match e.body {
                     Body::FindingNoted { .. } => delivery::notes(&all, live.as_deref(), &self.home, e),
                     Body::TaskDropped { .. } => delivery::dropped(&all, live.as_deref(), e),
@@ -181,8 +181,8 @@ impl App {
             }
             return;
         }
-        let plan = delivery::plan(&self.store.lock().unwrap().recorded(), live.as_deref(), &self.home, e);
-        let Some(plan) = plan else { return };
+        let Some(all) = got(self.store.lock().unwrap().recorded()) else { return };
+        let Some(plan) = delivery::plan(&all, live.as_deref(), &self.home, e) else { return };
         let delivery = match &plan.to {
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
             Ok(to) => match self.send(to, &plan.message) {

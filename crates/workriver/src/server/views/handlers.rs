@@ -67,7 +67,7 @@ pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller
 pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     let (s, storage) = {
         let store = app.store.lock().unwrap();
-        (store.recorded(), store.status()?)
+        (store.recorded()?, store.status()?)
     };
     let (files, bytes) = store::usage(&app.home);
     Ok(Json(json!({

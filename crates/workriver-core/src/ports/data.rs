@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::access::{Principal, Rejected};
 use crate::records::{Body, Event, State};
-use crate::{Question, Task, Unit};
+use crate::{Agent, CommandRun, Delivery, DeliveryStep, Intent, Project, Question, RuntimeRef, Task, Thread, Unit};
 
 /// How far the record has got: the number of its last committed change (that event's
 /// `seq`), 0 before the first. History is read by it too: it is the cursor.
@@ -73,6 +73,17 @@ pub struct DataStatus {
     pub revision: Revision,
 }
 
+/// A message that was given to its receiver and not yet seen picked up: what it is about
+/// (a task, one of its findings, or a chore, then with no unit or task) and how far it got.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Delivered {
+    pub unit: String,
+    pub task: u32,
+    pub finding: Option<String>,
+    pub chore: Option<String>,
+    pub delivery: Delivery,
+}
+
 /// Why the store did not do what was asked. The texts are shown as they are.
 #[derive(Debug, thiserror::Error)]
 pub enum DataError {
@@ -94,12 +105,16 @@ pub enum DataError {
 /// (the service's `App::who` and `App::view`, which cuts a blind agent's view with core's
 /// rule); no read takes a caller's word, and none is answered to a request directly.
 ///
-/// A read does not fail: a store answers from what it holds at its revision. One that had to
-/// go to its storage for a read would change this contract, not hide an error behind it.
+/// Every read may fail as a write may: `Unavailable` or `Corrupt` when the storage could not
+/// be read, which is never the caller's fault. What is asked for by id and is not there is
+/// `Rejected` in the rules' words where the rules have words for it (`unit`, `task`,
+/// `question`), else `None`.
 pub trait WorkStore: Send {
-    /// Everything recorded, at the revision of this call: for what needs the whole of it
-    /// (the page, a message's plan, the reminders, what a previous run left).
-    fn recorded(&self) -> Recorded;
+    /// Everything recorded, at the revision of this call: for what calls a function of the
+    /// whole state (the page, a message's plan, a prompt, the reminders, a blind view) or
+    /// needs several records of one revision. One record, or what a previous run left, has
+    /// a read of its own below: a store need not put the whole work together for those.
+    fn recorded(&self) -> Result<Recorded, DataError>;
 
     /// Records `request` as `who`: checked against the rules on what is recorded now
     /// (`State::prepare`), then committed and added. `who` is who the caller was found to
@@ -107,27 +122,107 @@ pub trait WorkStore: Send {
     /// record, not what is read, not the next id. There is no other way to write.
     fn record(&mut self, who: &Principal, request: Body) -> Result<Committed, DataError>;
 
-    /// Up to `limit` events recorded after `after`, oldest first.
+    /// Up to `limit` events recorded after `after`, oldest first. For the service itself and
+    /// for tests only: there is no blind cut for events (core's blind rule cuts a `State`),
+    /// so nothing of this may be answered to a reader until there is one.
     fn history(&self, after: Revision, limit: usize) -> Result<History, DataError>;
 
     fn status(&self) -> Result<DataStatus, DataError>;
 
-    // ---- one record, by its id: a store need not put the whole work together for these ----
+    // ---- one record, by its id ----
 
-    fn unit(&self, id: &str) -> Result<Unit, Rejected> {
-        self.recorded().unit(id).cloned()
+    fn unit(&self, id: &str) -> Result<Unit, DataError> {
+        Ok(self.recorded()?.unit(id)?.clone())
     }
 
-    fn task(&self, unit: &str, n: u32) -> Result<Task, Rejected> {
-        self.recorded().task(unit, n).cloned()
+    fn task(&self, unit: &str, n: u32) -> Result<Task, DataError> {
+        Ok(self.recorded()?.task(unit, n)?.clone())
     }
 
-    fn question(&self, id: &str) -> Result<Question, Rejected> {
-        self.recorded().question(id).cloned()
+    fn question(&self, id: &str) -> Result<Question, DataError> {
+        Ok(self.recorded()?.question(id)?.clone())
+    }
+
+    /// A question's thread, or any thread, by its id.
+    fn thread(&self, id: &str) -> Result<Option<Thread>, DataError> {
+        Ok(self.recorded()?.threads.iter().find(|t| t.id == id).cloned())
+    }
+
+    /// The agent of `session` as it was last seen (its name, its harness), if ever.
+    fn agent(&self, session: &str) -> Result<Option<Agent>, DataError> {
+        Ok(self.recorded()?.agents.iter().find(|a| a.session == session).cloned())
     }
 
     /// The name the agent of `session` goes by, if it was ever seen.
-    fn agent_name(&self, session: &str) -> Option<String> {
-        self.recorded().name_of(session).map(str::to_string)
+    fn agent_name(&self, session: &str) -> Result<Option<String>, DataError> {
+        Ok(self.agent(session)?.map(|a| a.name))
+    }
+
+    /// A command the user ran, as recorded.
+    fn run(&self, id: &str) -> Result<Option<CommandRun>, DataError> {
+        Ok(self.recorded()?.runs.iter().find(|r| r.id == id).cloned())
+    }
+
+    /// A registered project by its id (`p1`).
+    fn project(&self, id: &str) -> Result<Option<Project>, DataError> {
+        Ok(self.recorded()?.projects.iter().find(|p| p.id == id).cloned())
+    }
+
+    /// The intent a runtime group works on now, if any.
+    fn intent_in(&self, group: &RuntimeRef) -> Result<Option<Intent>, DataError> {
+        Ok(self.recorded()?.intent_for(group).cloned())
+    }
+
+    /// Whether `session` is the manager of any workspace.
+    fn manages(&self, session: &str) -> Result<bool, DataError> {
+        Ok(self.recorded()?.workspaces.iter().any(|w| w.manager.as_deref() == Some(session)))
+    }
+
+    /// Every unit, in the order they were made.
+    fn units(&self) -> Result<Vec<Unit>, DataError> {
+        Ok(self.recorded()?.units.clone())
+    }
+
+    // ---- what a previous run left, for the service's start ----
+
+    /// Messages given to their receiver and not seen picked up: tasks' and their findings'
+    /// in the units' order, then chores'.
+    fn delivered(&self) -> Result<Vec<Delivered>, DataError> {
+        let all = self.recorded()?;
+        let delivered = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Delivered);
+        let mut out = vec![];
+        for u in &all.units {
+            for t in &u.tasks {
+                if let Some(d) = delivered(&t.delivery) {
+                    out.push(Delivered { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d });
+                }
+                for f in &t.findings {
+                    if let Some(d) = delivered(&f.delivery) {
+                        out.push(Delivered { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
+                    }
+                }
+            }
+        }
+        for c in &all.chores {
+            if let Some(d) = delivered(&c.delivery) {
+                out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The ids of the questions neither answered nor failed.
+    fn open_questions(&self) -> Result<Vec<String>, DataError> {
+        Ok(self.recorded()?.questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect())
+    }
+
+    /// The ids of the user's messages to a manager that got no delivery yet.
+    fn held_messages(&self) -> Result<Vec<String>, DataError> {
+        Ok(self.recorded()?.messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect())
+    }
+
+    /// The names of the temporary agents threads were last answered by.
+    fn thread_agents(&self) -> Result<Vec<String>, DataError> {
+        Ok(self.recorded()?.threads.iter().filter_map(|t| t.name.clone()).collect())
     }
 }

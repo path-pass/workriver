@@ -54,14 +54,17 @@ pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): E
         // Its manager would get work from a project it is not in: only once the user confirmed.
         if !s.confirm_other_project {
             let live = app.runtime.agents().unwrap_or_default();
-            if let Some(why) = views::other_project(&app.store.lock().unwrap().recorded(), &live, &group, &s.intent) {
+            let all = app.store.lock().unwrap().recorded()?;
+            if let Some(why) = views::other_project(&all, &live, &group, &s.intent) {
                 return Err(ApiError(StatusCode::CONFLICT, format!("{why}: its manager would get work from a project it is not in. Pick a workspace of that project, or confirm starting it there anyway (confirmOtherProject)")));
             }
         }
         let e = app.record(&who, Body::IntentStateChanged { intent: s.intent.clone(), state: core::IntentState::Active, reason: None, workspace: Some(group) })?;
         let live = app.runtime.agents().ok();
-        let plan = delivery::started(&app.store.lock().unwrap().recorded(), live.as_deref(), &s.intent);
-        let name = |to: &str| app.store.lock().unwrap().agent_name(to).unwrap_or_else(|| to.to_string());
+        let all = app.store.lock().unwrap().recorded()?;
+        let plan = delivery::started(&all, live.as_deref(), &s.intent);
+        drop(all);
+        let name = |to: &str| got(app.store.lock().unwrap().agent_name(to)).flatten().unwrap_or_else(|| to.to_string());
         let delivery = match plan {
             Ok((to, message)) => match app.send(&to, &message) {
                 Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(name(&to)), reason_code: None, reason: None, message },
@@ -80,9 +83,8 @@ impl App {
     /// A project as given (`p1`, or a folder) as its folder: a registered project's, or the
     /// repository's top folder for a repository outside every registered project.
     pub(super) fn project_folder(&self, given: &str, machine: Option<&str>) -> Result<String, ApiError> {
-        let state = self.store.lock().unwrap().recorded();
-        if let Some(p) = state.projects.iter().find(|p| p.id == given) {
-            return Ok(p.path.clone());
+        if let Some(p) = self.store.lock().unwrap().project(given)? {
+            return Ok(p.path);
         }
         // On another machine: the repository's top folder there.
         if machine.is_some() {
@@ -91,7 +93,8 @@ impl App {
         }
         let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
         let path = path.to_string_lossy().into_owned();
-        if let Some(p) = views::project_of(&state, &path) {
+        let all = self.store.lock().unwrap().recorded()?;
+        if let Some(p) = views::project_of(&all, &path) {
             return Ok(p.path.clone());
         }
         scan::toplevel(&scan::Runner::Local, Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))

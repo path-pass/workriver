@@ -99,8 +99,9 @@ impl Store {
 }
 
 impl WorkStore for Store {
-    fn recorded(&self) -> Recorded {
-        Recorded::new(self.revision(), self.state.clone())
+    /// From memory: this store holds the whole state, so a read of it never fails.
+    fn recorded(&self) -> Result<Recorded, DataError> {
+        Ok(Recorded::new(self.revision(), self.state.clone()))
     }
 
     fn record(&mut self, who: &Principal, request: Body) -> Result<Committed, DataError> {

@@ -210,6 +210,82 @@ fn what_a_previous_run_left_is_closed_at_the_next_start() {
     wait_until("the question's agent is closed", || next.closed.lock().unwrap().iter().any(|n| n == "why-q1"));
 }
 
+/// The real store, whose reads fail while `down` is set: a storage that cannot be read.
+struct Flaky {
+    inner: workriver_data::Store,
+    down: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl workriver_core::ports::WorkStore for Flaky {
+    fn recorded(&self) -> Result<workriver_core::ports::Recorded, workriver_core::ports::DataError> {
+        if self.down.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(workriver_core::ports::DataError::Unavailable("the disk is gone".into()));
+        }
+        self.inner.recorded()
+    }
+    fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
+        self.inner.record(who, request)
+    }
+    fn history(&self, after: workriver_core::ports::Revision, limit: usize) -> Result<workriver_core::ports::History, workriver_core::ports::DataError> {
+        self.inner.history(after, limit)
+    }
+    fn status(&self) -> Result<workriver_core::ports::DataStatus, workriver_core::ports::DataError> {
+        self.inner.status()
+    }
+}
+
+/// A store that cannot be read is the service's error, not the caller's: a request is
+/// answered 500 with the storage's words (never 422, never "no task"), the poll and what
+/// follows a record skip their step, and everything works again once the store does.
+#[test]
+fn a_store_that_cannot_be_read_is_the_services_error() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let db = tmp.path().join("w.db");
+    let down = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let store = Flaky { inner: workriver_data::Store::open(&db).unwrap(), down: down.clone() };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let port = listener.local_addr().unwrap().port();
+    let user = kernel.client(port, tmp.path());
+    let (options, runtime, home) = (crate::server::Options { allow_as: true, ..kernel.options() }, fake.clone(), tmp.path().to_path_buf());
+    std::thread::spawn(move || rt.block_on(crate::server::serve_over(listener, Box::new(store), home, runtime, options)));
+    manage(&user, "p1", "s-boss");
+    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
+    // As the manager from its place, with the status of each answer.
+    let ask = |method: &str, path: &str, body: Option<&str>| {
+        let (status, answer) = http_at(&user, port, "p1", method, path, &[("content-type", "application/json")], body);
+        (status, answer.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
+    };
+    assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":9}"#)).0, 422, "a task that is not there is the caller's error");
+
+    down.store(true, SeqCst);
+    // The whole state, one record by id, and a record whose completion reads a unit.
+    assert_eq!(ask("GET", "/api/state", None), (500, "the disk is gone".into()));
+    assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":1}"#)), (500, "the disk is gone".into()));
+    assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":9}"#)), (500, "the disk is gone".into()), "not: no such task");
+    assert_eq!(ask("POST", "/api/append", Some(r#"{"kind":"unit.merged","body":{"unit":"u1"}}"#)), (500, "the disk is gone".into()));
+    // A record still commits (writing works); what follows it and the poll skip their reads.
+    let mark = stored(&db).len();
+    user.append("user", "intent.created", json!({ "title": "Later", "state": "planned" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll, with nothing to read
+    assert_eq!(stored(&db).len(), mark + 1);
+
+    down.store(false, SeqCst);
+    assert_eq!(ask("GET", "/api/state", None).0, 200);
+    assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":1}"#)).0, 200);
+    user.append("s-boss", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+}
+
 /// A copy of a real database (WORKRIVER_REPLAY_DB) replays onto the current model. The
 /// copy is made into a temp folder; the given file is only read.
 #[test]

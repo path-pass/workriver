@@ -26,8 +26,7 @@ impl App {
         // task's own agent while that one is idle (its prompt says how).
         // A follow-up goes to the thread's agent while it lives, which keeps its context.
         let current = {
-            let s = &self.store.lock().unwrap().recorded();
-            s.question(id).ok().and_then(|q| s.threads.iter().find(|t| t.id == q.thread)).and_then(|t| Some((t.id.clone(), t.agent.clone()?, t.name.clone()?)))
+            self.thread_of(id).and_then(|t| Some((t.id, t.agent?, t.name?)))
         };
         if let Some((thread, agent, name)) = current.filter(|(_, _, n)| live.iter().any(|a| &a.name == n)) {
             self.idle.lock().unwrap().retain(|(t, _, _)| *t != thread);
@@ -36,14 +35,14 @@ impl App {
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
             let text = {
-                let all = self.store.lock().unwrap().recorded();
-                all.question(id).ok().map(|q| prompts::follow_up(&all, q, &self.home)).unwrap_or_default()
+                let all = got(self.store.lock().unwrap().recorded());
+                all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default()
             };
             self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None });
             return;
         }
+        let Some(s) = got(self.store.lock().unwrap().recorded()) else { return };
         let (q, unit, task_agent, manager, group) = {
-            let s = &self.store.lock().unwrap().recorded();
             let Ok(q) = s.question(id).cloned() else { return };
             let Some(u) = s.unit_or_intent(&q.unit) else { return };
             let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
@@ -52,6 +51,7 @@ impl App {
             let group = intent.and_then(|i| i.workspace.clone());
             (q, u, task_agent, manager, group)
         };
+        drop(s);
         let live_one = |s: &Option<String>| s.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).cloned();
         let (worker, boss) = (live_one(&task_agent), live_one(&manager));
         // Work on another machine is read there: the group of that machine that is the
@@ -59,7 +59,7 @@ impl App {
         let group = match &unit.machine {
             None => group,
             Some(m) => {
-                let state = self.store.lock().unwrap().recorded();
+                let Some(state) = got(self.store.lock().unwrap().recorded()) else { return };
                 let same = |g: &core::RuntimeRef| group.as_ref().is_some_and(|w| state.workspace_of(g).is_some_and(|a| state.workspace_of(w).is_some_and(|b| a.group == b.group)));
                 let there = |g: &&core::RuntimeRef| g.machine.as_ref() == Some(m);
                 let groups = self.groups.lock().unwrap().clone();
@@ -70,7 +70,7 @@ impl App {
             return fail(ReasonCode::NoWorkspace, words::no_group(&unit.intent));
         };
         // Which harness: the task's agent's, else the manager's, else claude.
-        let known = |s: &Option<String>| s.as_ref().and_then(|s| self.store.lock().unwrap().recorded().agents.iter().find(|a| &a.session == s).map(|a| a.harness.clone()));
+        let known = |s: &Option<String>| s.as_ref().and_then(|s| got(self.store.lock().unwrap().agent(s)).flatten().map(|a| a.harness));
         let harness = worker.map(|a| a.harness).or_else(|| known(&task_agent)).or_else(|| boss.map(|a| a.harness)).or_else(|| known(&manager)).unwrap_or_else(|| "claude".into());
         // Intent-level work has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
@@ -86,7 +86,7 @@ impl App {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-        let prompt = prompts::prompt(&self.store.lock().unwrap().recorded(), &q, &dir, &commits, &self.home).unwrap_or_default();
+        let prompt = got(self.store.lock().unwrap().recorded()).and_then(|all| prompts::prompt(&all, &q, &dir, &commits, &self.home)).unwrap_or_default();
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
@@ -126,12 +126,18 @@ impl App {
         let _ = self.changed.send(());
     }
 
+    /// The thread a question belongs to, as recorded now.
+    fn thread_of(&self, question: &str) -> Option<core::Thread> {
+        let q = got(self.store.lock().unwrap().question(question))?;
+        got(self.store.lock().unwrap().thread(&q.thread)).flatten()
+    }
+
     /// Records a question as failed (if still open) and closes its temporary agent, which
     /// did not answer.
     pub(in crate::server) fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
         self.drop_question(id, code, why);
         // Only an agent started for it is closed; a task's own agent is not.
-        let name = self.store.lock().unwrap().question(id).ok().filter(|q| q.temporary).and_then(|q| q.name.clone());
+        let name = got(self.store.lock().unwrap().question(id)).filter(|q| q.temporary).and_then(|q| q.name.clone());
         if let Some(name) = name {
             self.close_later(name);
         }
@@ -153,18 +159,15 @@ impl App {
         self.held.lock().unwrap().retain(|h| h.question != id);
         // An agent that asked hears the answer in its terminal.
         let back = {
-            let s = &self.store.lock().unwrap().recorded();
-            s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), prompts::answer_back(s, q)))
+            let s = got(self.store.lock().unwrap().recorded());
+            s.as_ref().and_then(|s| s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), prompts::answer_back(s, q))))
         };
         if let Some((asker, text)) = back
             && let Err(e) = self.send(&asker, &text)
         {
             tracing::warn!("cannot give {asker} the answer to {id}: {e}");
         }
-        let found = {
-            let s = &self.store.lock().unwrap().recorded();
-            s.question(id).ok().and_then(|q| s.threads.iter().find(|t| t.id == q.thread)).map(|t| (t.id.clone(), t.name.clone()))
-        };
+        let found = self.thread_of(id).map(|t| (t.id, t.name));
         if let Some((thread, Some(name))) = found {
             let mut idle = self.idle.lock().unwrap();
             idle.retain(|(t, _, _)| *t != thread);
@@ -175,7 +178,7 @@ impl App {
     /// The user ended a thread: its agent goes now.
     pub(in crate::server) fn end_thread(&self, thread: &str) {
         self.idle.lock().unwrap().retain(|(t, _, _)| t != thread);
-        let name = self.store.lock().unwrap().recorded().threads.iter().find(|t| t.id == thread).and_then(|t| t.name.clone());
+        let name = got(self.store.lock().unwrap().thread(thread)).flatten().and_then(|t| t.name);
         if let Some(name) = name {
             self.close_later(name);
         }

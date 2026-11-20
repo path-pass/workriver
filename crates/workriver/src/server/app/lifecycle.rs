@@ -190,7 +190,7 @@ impl App {
                 if *remote.stopping.borrow() {
                     break;
                 }
-                let state = remote.store.lock().unwrap().recorded();
+                let Some(state) = got(remote.store.lock().unwrap().recorded()) else { continue };
                 if !state.units.iter().any(|u| u.machine.is_some()) {
                     continue;
                 }
@@ -217,44 +217,22 @@ impl App {
         let app = self;
         // Messages delivered before a restart are watched again; whether their receiver was seen
         // idle since is lost, so it must be seen not working first.
-        let pending: Vec<Pending> = {
-            let all = app.store.lock().unwrap().recorded();
-            let delivered = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Delivered);
-            let now = std::time::Instant::now();
-            let mut out = vec![];
-            for u in &all.units {
-                for t in &u.tasks {
-                    if let Some(d) = delivered(&t.delivery) {
-                        out.push(Pending { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d, armed: false, sent: now });
-                    }
-                    for f in &t.findings {
-                        if let Some(d) = delivered(&f.delivery) {
-                            out.push(Pending { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d, armed: false, sent: now });
-                        }
-                    }
-                }
-            }
-            for c in &all.chores {
-                if let Some(d) = delivered(&c.delivery) {
-                    out.push(Pending { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d, armed: false, sent: now });
-                }
-            }
-            out
-        };
+        let now = std::time::Instant::now();
+        let pending: Vec<Pending> = got(app.store.lock().unwrap().delivered()).unwrap_or_default().into_iter().map(|d| Pending { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery: d.delivery, armed: false, sent: now }).collect();
         app.pending.lock().unwrap().extend(pending);
         // Questions left open by a previous run have lost their wait; close them.
-        let open: Vec<String> = app.store.lock().unwrap().recorded().questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect();
+        let open = got(app.store.lock().unwrap().open_questions()).unwrap_or_default();
         for id in open {
             app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
         }
         // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
-        let held: Vec<String> = app.store.lock().unwrap().recorded().messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect();
+        let held = got(app.store.lock().unwrap().held_messages()).unwrap_or_default();
         for id in held {
             app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
         }
         // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
         // the next question starts a new one with the thread so far.
-        let left: Vec<String> = app.store.lock().unwrap().recorded().threads.iter().filter_map(|t| t.name.clone()).collect();
+        let left = got(app.store.lock().unwrap().thread_agents()).unwrap_or_default();
         for name in left {
             let _ = app.runtime.close(&name);
         }

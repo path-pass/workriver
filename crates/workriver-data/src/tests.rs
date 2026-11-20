@@ -36,12 +36,12 @@ fn seed(s: &mut dyn WorkStore) {
 fn a_record_returns_the_committed_change_and_its_revision() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = open(dir.path());
-    assert_eq!(s.recorded().revision(), Revision(0));
+    assert_eq!(s.recorded().unwrap().revision(), Revision(0));
     let done = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Chat v2"}}))).unwrap();
     assert_eq!(done.revision, Revision(1));
     assert_eq!((done.event.seq, done.event.actor.as_str()), (1, "agent-a"));
     assert!(matches!(&done.event.body, Body::IntentCreated { id, .. } if id == "i1"), "the rules gave the id: {:?}", done.event.body);
-    let now = s.recorded();
+    let now = s.recorded().unwrap();
     assert_eq!(now.revision(), done.revision);
     assert_eq!(now.intents.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["i1"]);
     let user = s.record(&Principal::User, body(json!({"kind": "intent.created", "body": {"title": "Search"}}))).unwrap();
@@ -54,12 +54,12 @@ fn what_was_read_stays_at_its_revision() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = open(dir.path());
     seed(&mut *s);
-    let before = s.recorded();
+    let before = s.recorded().unwrap();
     let kept = before.clone().into_state();
     s.record(&agent_a(), body(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}))).unwrap();
-    assert_eq!((before.revision(), s.recorded().revision()), (Revision(3), Revision(4)));
+    assert_eq!((before.revision(), s.recorded().unwrap().revision()), (Revision(3), Revision(4)));
     assert_eq!(*before, kept, "the earlier read did not change");
-    assert_ne!(*s.recorded(), kept, "the new one has the start");
+    assert_ne!(*s.recorded().unwrap(), kept, "the new one has the start");
 }
 
 /// A request the rules refuse is the caller's error and changes nothing: not the revision,
@@ -69,13 +69,13 @@ fn a_refused_request_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = open(dir.path());
     seed(&mut *s);
-    let before = s.recorded();
+    let before = s.recorded().unwrap();
     let err = s.record(&agent_a(), body(json!({"kind": "task.started", "body": {"unit": "u9", "task": 1}}))).unwrap_err();
     assert!(matches!(err, DataError::Rejected(_)), "{err:?}");
     // What only the user may record is refused for an agent here too, whoever asks the store.
     let err = s.record(&agent_a(), body(json!({"kind": "project.added", "body": {"path": "/r", "title": "R"}}))).unwrap_err();
     assert!(matches!(&err, DataError::Rejected(r) if r.0.starts_with("only the user does this")), "{err:?}");
-    assert_eq!(s.recorded(), before);
+    assert_eq!(s.recorded().unwrap(), before);
     assert_eq!(s.history(Revision(0), 100).unwrap().events.len(), 3);
     assert_eq!(s.status().unwrap().events, 3);
     let next = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Search"}}))).unwrap();
@@ -99,11 +99,11 @@ fn history_is_read_by_cursor_and_survives_reopening() {
     assert_eq!((end.events.len(), end.next), (0, Revision(4)), "nothing after the last: the cursor stays");
     let all = s.history(Revision(0), usize::MAX).unwrap();
     assert_eq!(all.events.len(), 4);
-    let work = s.recorded();
+    let work = s.recorded().unwrap();
     drop(s);
     let again = open(dir.path());
     assert_eq!(again.history(Revision(0), usize::MAX).unwrap(), all);
-    assert_eq!(again.recorded(), work, "the same work at the same revision");
+    assert_eq!(again.recorded().unwrap(), work, "the same work at the same revision");
 }
 
 /// One record by its id is the reader's own copy; one that is not there is refused in the
@@ -116,12 +116,22 @@ fn one_record_is_read_by_its_id() {
     s.record(&Principal::Service, body(json!({"kind": "agent.seen", "body": {"session": "agent-a", "name": "ann", "harness": "claude"}}))).unwrap();
     assert_eq!(s.unit("u1").unwrap().branch, "feat/mention");
     assert_eq!(s.task("u1", 1).unwrap().title, "Find mentions");
-    assert_eq!(s.agent_name("agent-a").as_deref(), Some("ann"));
-    assert_eq!(s.agent_name("agent-b"), None);
-    let all = s.recorded();
-    assert_eq!(s.unit("u9").unwrap_err().0, all.unit("u9").unwrap_err().0);
-    assert_eq!(s.task("u1", 7).unwrap_err().0, all.task("u1", 7).unwrap_err().0);
-    assert_eq!(s.question("q1").unwrap_err().0, all.question("q1").unwrap_err().0);
+    assert_eq!(s.agent_name("agent-a").unwrap().as_deref(), Some("ann"));
+    assert_eq!(s.agent_name("agent-b").unwrap(), None);
+    let all = s.recorded().unwrap();
+    // Not there: refused in the rules' words, the caller's error.
+    let refused = |e: DataError| match e {
+        DataError::Rejected(r) => r.0,
+        e => panic!("{e:?}"),
+    };
+    assert_eq!(refused(s.unit("u9").unwrap_err()), all.unit("u9").unwrap_err().0);
+    assert_eq!(refused(s.task("u1", 7).unwrap_err()), all.task("u1", 7).unwrap_err().0);
+    assert_eq!(refused(s.question("q1").unwrap_err()), all.question("q1").unwrap_err().0);
+    // The others say there is none.
+    assert_eq!(s.agent("agent-a").unwrap().map(|a| a.harness).as_deref(), Some("claude"));
+    assert_eq!((s.agent("agent-b").unwrap(), s.thread("q1").unwrap(), s.run("r1").unwrap(), s.project("p1").unwrap()), (None, None, None, None));
+    assert_eq!(s.units().unwrap().iter().map(|u| u.id.as_str()).collect::<Vec<_>>(), ["u1"]);
+    assert!(!s.manages("agent-a").unwrap());
 }
 
 /// What the storage says of itself: where it is, how many events, how far it has got.

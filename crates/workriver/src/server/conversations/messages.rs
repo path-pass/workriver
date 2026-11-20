@@ -6,12 +6,12 @@ impl App {
     /// person there (`hand`), or recorded as not delivered when it is not running.
     pub(in crate::server) fn tell_manager(&self, id: &str) {
         let Some((to, text)) = ({
-            let all = self.store.lock().unwrap().recorded();
-            all.message(id).ok().map(|m| (m.manager.clone(), delivery::user_message(&all, m)))
+            let all = got(self.store.lock().unwrap().recorded());
+            all.as_ref().and_then(|all| all.message(id).ok().map(|m| (m.manager.clone(), delivery::user_message(all, m))))
         }) else {
             return;
         };
-        let name = self.store.lock().unwrap().agent_name(&to).unwrap_or_else(|| to.clone());
+        let name = got(self.store.lock().unwrap().agent_name(&to)).flatten().unwrap_or_else(|| to.clone());
         match self.runtime.agents() {
             Err(_) => self.message_not_delivered(id, None, ReasonCode::RuntimeDown, words::NOT_CONNECTED),
             Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
@@ -29,8 +29,8 @@ impl App {
 
     pub(in crate::server) fn message_not_delivered(&self, id: &str, to: Option<&str>, code: ReasonCode, why: &str) {
         let message = {
-            let all = self.store.lock().unwrap().recorded();
-            all.message(id).ok().map(|m| delivery::user_message(&all, m)).unwrap_or_default()
+            let all = got(self.store.lock().unwrap().recorded());
+            all.as_ref().and_then(|all| all.message(id).ok().map(|m| delivery::user_message(all, m))).unwrap_or_default()
         };
         self.message_delivery(id, Delivery { step: DeliveryStep::NotDelivered, to: to.map(str::to_string), reason_code: Some(code), reason: Some(why.into()), message });
     }
