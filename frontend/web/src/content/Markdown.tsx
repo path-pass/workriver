@@ -2,11 +2,14 @@
 // a delivery note, an answer. Its text is untrusted: react-markdown builds React elements
 // (never an HTML string), raw HTML in it is dropped, unsafe link protocols are removed (its
 // default urlTransform), links open in a new tab without access to this one, and images are
-// not fetched: each is a link to where it points. Loaded only when one is shown (react-markdown
-// with remark-gfm, about 50 kB gzip), so the main bundle does not carry it.
-import Markdown from 'react-markdown'
+// not fetched: each is a link to where it points. A ```mermaid block is drawn as a diagram,
+// shown only as an image (Diagram.tsx). Loaded only when one is shown (react-markdown with
+// remark-gfm, about 50 kB gzip), so the main bundle does not carry it.
+import type { ComponentProps } from 'react'
+import Markdown, { type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { contentLang, useT } from '@/i18n'
+import { Diagram } from './Diagram'
 
 /** File paths in the text: the same pattern answers used before they were Markdown. */
 const PATH = /[\w-]+(?:\/[\w.-]+)+\.\w+/g
@@ -36,6 +39,21 @@ function filePaths() {
   return (tree: unknown) => walk(tree as MdNode)
 }
 
+/** The text of a ```mermaid block, without the line break that ends it; of any other, nothing. */
+function mermaidCode(node: ExtraProps['node']): string | undefined {
+  const code = node?.children[0]
+  if (node?.children.length !== 1 || code?.type !== 'element' || code.tagName !== 'code') return undefined
+  const lang = code.properties.className
+  if (!Array.isArray(lang) || !lang.includes('language-mermaid')) return undefined
+  return code.children.map(c => (c.type === 'text' ? c.value : '')).join('').replace(/\n$/, '')
+}
+
+/** A code block, or a mermaid block's diagram. Defined once, so a diagram drawn stays when the text re-renders. */
+function Pre({ node, children }: ComponentProps<'pre'> & ExtraProps) {
+  const code = mermaidCode(node)
+  return code === undefined ? <pre>{children}</pre> : <Diagram code={code} />
+}
+
 export default function MarkdownView({ text, compact = false, onFile }: { text: string; compact?: boolean; onFile?: (path: string) => void }) {
   const { t } = useT()
   return (
@@ -44,6 +62,7 @@ export default function MarkdownView({ text, compact = false, onFile }: { text: 
         remarkPlugins={onFile ? [remarkGfm, filePaths] : [remarkGfm]}
         skipHtml
         components={{
+          pre: Pre,
           a: ({ href, children }) =>
             onFile && href?.startsWith(FILE)
               ? <button type="button" className="md-file" onClick={() => onFile(href.slice(FILE.length))}>{children}</button>

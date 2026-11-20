@@ -567,6 +567,11 @@
   .md.md-sm pre { padding: 6px 8px; }
   .md .md-file { font: 12px var(--font-mono); color: var(--you-ink); text-align: left; text-underline-offset: 3px; }
   .md .md-file:hover { text-decoration: underline; }
+  /* A mermaid diagram: an image at its own size on the code block's ground, scrolled sideways
+     when wider than the text, as code and tables are. */
+  .md .md-diagram { overflow-x: auto; padding: 8px 12px; border-radius: 6px; background: var(--sunken); scrollbar-width: thin; }
+  .md .md-diagram img { display: block; max-width: none; height: auto; }
+  .md .md-note { font-size: 12px; color: var(--ink-2); }
   /* A long text cut to its first lines, fading out, until "show more". */
   .prose-fold { max-height: 9em; overflow: hidden; }
   .prose-fold[data-all] { max-height: none; }

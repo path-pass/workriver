@@ -13,6 +13,9 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:47820', changeOrigin: true, headers: { origin: 'http://127.0.0.1:47820' } },
     },
   },
+  // The script of the frame mermaid draws in (src/content/drawDiagram.ts) is built on its own,
+  // as a worker's is; as modules, so each kind of diagram stays a chunk loaded when needed.
+  worker: { format: 'es' },
   // `npm test`: the page's logic and its safety-relevant views, in a DOM of happy-dom.
   test: { environment: 'happy-dom', include: ['src/**/*.test.{ts,tsx}'] },
 })

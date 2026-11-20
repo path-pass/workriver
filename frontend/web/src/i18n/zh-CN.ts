@@ -514,7 +514,9 @@ export const zhCN: OneForm<typeof en> = {
     loading: '正在读取…',
     failed: '读不到这个文件，请下载查看。',
     cut: '只显示前 {{shown}}（共 {{size}}），其余请下载。',
-    mdImage: '图片：{{name}}'
+    mdImage: '图片：{{name}}',
+    mdDiagram: '图表',
+    mdDiagramFailed: '这张图画不出来，下面是它的原文。'
   },
   deliver: {
     pending: '还没送出',

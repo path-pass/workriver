@@ -531,7 +531,9 @@ export const en = {
     loading: 'Loading…',
     failed: 'Could not load this file. Download it instead.',
     cut: 'Shows the first {{shown}} of {{size}}; download it for the rest.',
-    mdImage: 'Image: {{name}}'
+    mdImage: 'Image: {{name}}',
+    mdDiagram: 'Diagram',
+    mdDiagramFailed: 'This diagram could not be drawn; its text is below.'
   },
   deliver: {
     pending: 'Not delivered yet',
