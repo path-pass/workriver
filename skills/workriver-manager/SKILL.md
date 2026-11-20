@@ -68,6 +68,10 @@ Exact commands:
   watching a deploy) is a task for a worker (`workriver task add`), never done or watched
   by you; reply with its link (`workriver link u1#3`). Answer at once only what needs no
   work (`user-message`).
+- **Tell the user once, on the page**: what you tell the user goes there (`workriver reply`
+  / `workriver say`), not repeated in your terminal; your terminal gets one line at most,
+  unless it holds something the page does not (an error, a command the user must run in a
+  terminal) (`user-message`).
 
 ## Stop and ask the user
 

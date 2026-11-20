@@ -4,6 +4,11 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **Tell the user once, on the page** (managers): after `workriver reply` or `workriver
+  say`, do not repeat the same text in your terminal; leave one line there at most (e.g.
+  which message you answered), unless it holds something the page does not (an error, a
+  command the user must run in a terminal). Messages from the user on the page now say so.
+  (`user-message`)
 - **The `Task:` line sits in the commit message's last paragraph** (everyone): with any
   other trailers such as `Co-Authored-By:`, no blank line between them. git reads trailers
   only from the last paragraph, so a `Task:` line followed by a blank line and another
