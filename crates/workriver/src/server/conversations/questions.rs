@@ -25,8 +25,11 @@ impl App {
         // Every question, the user's or an agent's, goes to a temporary agent; it may ask the
         // task's own agent while that one is idle (its prompt says how).
         // A follow-up goes to the thread's agent while it lives, which keeps its context.
-        let current = {
-            self.thread_of(id).and_then(|t| Some((t.id, t.agent?, t.name?)))
+        // Whether it is one is read, not assumed: a store that cannot be read starts no agent.
+        let unread = |Unread(why)| fail(ReasonCode::RuntimeError, why);
+        let current = match self.thread_of(id) {
+            Ok(t) => t.and_then(|t| Some((t.id, t.agent?, t.name?))),
+            Err(e) => return unread(e),
         };
         if let Some((thread, agent, name)) = current.filter(|(_, _, n)| live.iter().any(|a| &a.name == n)) {
             self.idle.lock().unwrap().retain(|(t, _, _)| *t != thread);
@@ -34,14 +37,21 @@ impl App {
                 tracing::warn!("question {id}: {}", e.1);
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-            let text = {
-                let all = got(self.store.lock().unwrap().recorded());
-                all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default()
+            // Nothing is given in place of a text that could not be read: the question fails.
+            let read = got(self.store.lock().unwrap().recorded());
+            let text = match read {
+                Ok(all) => all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default(),
+                Err(e) => return unread(e),
             };
             self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None });
             return;
         }
-        let Some(s) = got(self.store.lock().unwrap().recorded()) else { return };
+        let read = got(self.store.lock().unwrap().recorded());
+        let s = match read {
+            Ok(Some(s)) => s,
+            Ok(None) => return,
+            Err(e) => return unread(e),
+        };
         let (q, unit, task_agent, manager, group) = {
             let Ok(q) = s.question(id).cloned() else { return };
             let Some(u) = s.unit_or_intent(&q.unit) else { return };
@@ -59,7 +69,12 @@ impl App {
         let group = match &unit.machine {
             None => group,
             Some(m) => {
-                let Some(state) = got(self.store.lock().unwrap().recorded()) else { return };
+                let read = got(self.store.lock().unwrap().recorded());
+                let state = match read {
+                    Ok(Some(state)) => state,
+                    Ok(None) => return,
+                    Err(e) => return unread(e),
+                };
                 let same = |g: &core::RuntimeRef| group.as_ref().is_some_and(|w| state.workspace_of(g).is_some_and(|a| state.workspace_of(w).is_some_and(|b| a.group == b.group)));
                 let there = |g: &&core::RuntimeRef| g.machine.as_ref() == Some(m);
                 let groups = self.groups.lock().unwrap().clone();
@@ -69,9 +84,28 @@ impl App {
         let Some(group) = group.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
             return fail(ReasonCode::NoWorkspace, words::no_group(&unit.intent));
         };
-        // Which harness: the task's agent's, else the manager's, else claude.
-        let known = |s: &Option<String>| s.as_ref().and_then(|s| got(self.store.lock().unwrap().agent(s)).flatten().map(|a| a.harness));
-        let harness = worker.map(|a| a.harness).or_else(|| known(&task_agent)).or_else(|| boss.map(|a| a.harness)).or_else(|| known(&manager)).unwrap_or_else(|| "claude".into());
+        // Which harness: the task's agent's, else the manager's, else claude. Claude only
+        // when it is known that neither is on record: with a store that cannot be read, none.
+        let known = |s: &Option<String>| match s {
+            Some(s) => got(self.store.lock().unwrap().agent(s)).map(|a| a.flatten().map(|a| a.harness)),
+            None => Ok(None),
+        };
+        let harness = (|| {
+            if let Some(a) = worker {
+                return Ok(a.harness);
+            }
+            if let Some(h) = known(&task_agent)? {
+                return Ok(h);
+            }
+            if let Some(a) = boss {
+                return Ok(a.harness);
+            }
+            Ok(known(&manager)?.unwrap_or_else(|| "claude".into()))
+        })();
+        let harness = match harness {
+            Ok(h) => h,
+            Err(e) => return unread(e),
+        };
         // Intent-level work has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         let dir = at.as_ref().and_then(|at| scan::worktree_of(at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
@@ -86,7 +120,13 @@ impl App {
             tracing::warn!("question {id}: {}", e.1);
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-        let prompt = got(self.store.lock().unwrap().recorded()).and_then(|all| prompts::prompt(&all, &q, &dir, &commits, &self.home)).unwrap_or_default();
+        // Nothing is given in place of a prompt that could not be read: the question fails,
+        // and its agent is closed as one that did not answer.
+        let read = got(self.store.lock().unwrap().recorded());
+        let prompt = match read {
+            Ok(all) => all.and_then(|all| prompts::prompt(&all, &q, &dir, &commits, &self.home)).unwrap_or_default(),
+            Err(e) => return unread(e),
+        };
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
@@ -127,9 +167,9 @@ impl App {
     }
 
     /// The thread a question belongs to, as recorded now.
-    fn thread_of(&self, question: &str) -> Option<core::Thread> {
-        let q = got(self.store.lock().unwrap().question(question))?;
-        got(self.store.lock().unwrap().thread(&q.thread)).flatten()
+    fn thread_of(&self, question: &str) -> Result<Option<core::Thread>, Unread> {
+        let Some(q) = got(self.store.lock().unwrap().question(question))? else { return Ok(None) };
+        Ok(got(self.store.lock().unwrap().thread(&q.thread))?.flatten())
     }
 
     /// Records a question as failed (if still open) and closes its temporary agent, which
@@ -137,7 +177,7 @@ impl App {
     pub(in crate::server) fn fail_question(&self, id: &str, code: ReasonCode, why: &str) {
         self.drop_question(id, code, why);
         // Only an agent started for it is closed; a task's own agent is not.
-        let name = got(self.store.lock().unwrap().question(id)).filter(|q| q.temporary).and_then(|q| q.name.clone());
+        let name = got(self.store.lock().unwrap().question(id)).ok().flatten().filter(|q| q.temporary).and_then(|q| q.name.clone());
         if let Some(name) = name {
             self.close_later(name);
         }
@@ -159,7 +199,7 @@ impl App {
         self.held.lock().unwrap().retain(|h| h.question != id);
         // An agent that asked hears the answer in its terminal.
         let back = {
-            let s = got(self.store.lock().unwrap().recorded());
+            let s = got(self.store.lock().unwrap().recorded()).ok().flatten();
             s.as_ref().and_then(|s| s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), prompts::answer_back(s, q))))
         };
         if let Some((asker, text)) = back
@@ -167,7 +207,7 @@ impl App {
         {
             tracing::warn!("cannot give {asker} the answer to {id}: {e}");
         }
-        let found = self.thread_of(id).map(|t| (t.id, t.name));
+        let found = self.thread_of(id).ok().flatten().map(|t| (t.id, t.name));
         if let Some((thread, Some(name))) = found {
             let mut idle = self.idle.lock().unwrap();
             idle.retain(|(t, _, _)| *t != thread);
@@ -178,7 +218,7 @@ impl App {
     /// The user ended a thread: its agent goes now.
     pub(in crate::server) fn end_thread(&self, thread: &str) {
         self.idle.lock().unwrap().retain(|(t, _, _)| t != thread);
-        let name = got(self.store.lock().unwrap().thread(thread)).flatten().and_then(|t| t.name);
+        let name = got(self.store.lock().unwrap().thread(thread)).ok().flatten().flatten().and_then(|t| t.name);
         if let Some(name) = name {
             self.close_later(name);
         }

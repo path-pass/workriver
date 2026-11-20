@@ -190,7 +190,7 @@ impl App {
                 if *remote.stopping.borrow() {
                     break;
                 }
-                let Some(state) = got(remote.store.lock().unwrap().recorded()) else { continue };
+                let Ok(Some(state)) = got(remote.store.lock().unwrap().recorded()) else { continue };
                 if !state.units.iter().any(|u| u.machine.is_some()) {
                     continue;
                 }
@@ -218,21 +218,21 @@ impl App {
         // Messages delivered before a restart are watched again; whether their receiver was seen
         // idle since is lost, so it must be seen not working first.
         let now = std::time::Instant::now();
-        let pending: Vec<Pending> = got(app.store.lock().unwrap().delivered()).unwrap_or_default().into_iter().map(|d| Pending { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery: d.delivery, armed: false, sent: now }).collect();
+        let pending: Vec<Pending> = got(app.store.lock().unwrap().delivered()).ok().flatten().unwrap_or_default().into_iter().map(|d| Pending { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery: d.delivery, armed: false, sent: now }).collect();
         app.pending.lock().unwrap().extend(pending);
         // Questions left open by a previous run have lost their wait; close them.
-        let open = got(app.store.lock().unwrap().open_questions()).unwrap_or_default();
+        let open = got(app.store.lock().unwrap().open_questions()).ok().flatten().unwrap_or_default();
         for id in open {
             app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
         }
         // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
-        let held = got(app.store.lock().unwrap().held_messages()).unwrap_or_default();
+        let held = got(app.store.lock().unwrap().held_messages()).ok().flatten().unwrap_or_default();
         for id in held {
             app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
         }
         // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
         // the next question starts a new one with the thread so far.
-        let left = got(app.store.lock().unwrap().thread_agents()).unwrap_or_default();
+        let left = got(app.store.lock().unwrap().thread_agents()).ok().flatten().unwrap_or_default();
         for name in left {
             let _ = app.runtime.close(&name);
         }

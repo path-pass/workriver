@@ -120,16 +120,24 @@ pub(super) struct App {
 
 pub(super) type Shared = Arc<App>;
 
-/// A read made outside a request (the poll, what follows a record, start-up): what is not
-/// there is nothing, as it was; a store that could not be read is logged and the step
-/// skipped, as for a write that failed there. A request's read uses `?` instead.
-pub(in crate::server) fn got<T>(answer: Result<T, DataError>) -> Option<T> {
+/// A read that failed, already logged: the storage's words, for whoever has to say why
+/// something did not happen.
+pub(in crate::server) struct Unread(pub(in crate::server) String);
+
+/// A read made where no request can be failed for it any more: after a request's record is
+/// committed, in the poll, at start-up. (Before the commit a handler uses `?`: the request
+/// fails, 500.) `Ok(None)`: what was asked for is not there. `Err`: the store could not be
+/// read; it is logged here, and the caller skips its step or ends it as it ends a failure.
+/// It never goes on with a value in place of the one it could not read. Take the answer
+/// into a `let` before matching on it: the store's lock is then free for what the arms do
+/// (recording a failure locks it again).
+pub(in crate::server) fn got<T>(answer: Result<T, DataError>) -> Result<Option<T>, Unread> {
     match answer {
-        Ok(t) => Some(t),
-        Err(DataError::Rejected(_)) => None,
+        Ok(t) => Ok(Some(t)),
+        Err(DataError::Rejected(_)) => Ok(None),
         Err(e) => {
             tracing::warn!("cannot read the records: {e}");
-            None
+            Err(Unread(format!("cannot read the records: {e}")))
         }
     }
 }

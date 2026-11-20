@@ -159,7 +159,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         Ok(d) => *app.watcher.lock().unwrap() = Some(d),
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
-    let units: Vec<(String, String)> = got(app.store.lock().unwrap().units()).unwrap_or_default().iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
+    let units: Vec<(String, String)> = got(app.store.lock().unwrap().units()).ok().flatten().unwrap_or_default().iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }

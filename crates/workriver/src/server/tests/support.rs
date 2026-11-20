@@ -338,6 +338,73 @@ pub(super) fn daemon_and(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits
     (d, kernel)
 }
 
+/// What a test makes fail in a `Flaky` store, in the words "the disk is gone".
+#[derive(Default)]
+pub(super) struct Faults {
+    /// Every read fails while this is set.
+    pub(super) down: std::sync::atomic::AtomicBool,
+    /// Reads start failing (`down` is set) as soon as an event of this kind is committed.
+    pub(super) down_after: std::sync::Mutex<Option<String>>,
+    /// Only the read of an agent by its session fails.
+    pub(super) agents_down: std::sync::atomic::AtomicBool,
+}
+
+/// The real store, with reads that fail when the test says so: a storage that cannot be
+/// read. Writing works throughout.
+pub(super) struct Flaky {
+    inner: workriver_data::Store,
+    faults: std::sync::Arc<Faults>,
+}
+
+fn gone<T>() -> Result<T, workriver_core::ports::DataError> {
+    Err(workriver_core::ports::DataError::Unavailable("the disk is gone".into()))
+}
+
+impl workriver_core::ports::WorkStore for Flaky {
+    fn recorded(&self) -> Result<workriver_core::ports::Recorded, workriver_core::ports::DataError> {
+        if self.faults.down.load(std::sync::atomic::Ordering::SeqCst) {
+            return gone();
+        }
+        self.inner.recorded()
+    }
+    fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
+        let done = self.inner.record(who, request)?;
+        let mut after = self.faults.down_after.lock().unwrap();
+        if after.as_deref() == serde_json::to_value(&done.event).unwrap()["kind"].as_str() {
+            *after = None;
+            self.faults.down.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(done)
+    }
+    fn history(&self, after: workriver_core::ports::Revision, limit: usize) -> Result<workriver_core::ports::History, workriver_core::ports::DataError> {
+        self.inner.history(after, limit)
+    }
+    fn status(&self) -> Result<workriver_core::ports::DataStatus, workriver_core::ports::DataError> {
+        self.inner.status()
+    }
+    fn agent(&self, session: &str) -> Result<Option<workriver_core::Agent>, workriver_core::ports::DataError> {
+        if self.faults.agents_down.load(std::sync::atomic::Ordering::SeqCst) {
+            return gone();
+        }
+        Ok(self.recorded()?.agents.iter().find(|a| a.session == session).cloned())
+    }
+}
+
+/// A daemon as `daemon_and` starts one, over a `Flaky` store: its client as the user, its
+/// kernel, and what the test may make fail.
+pub(super) fn flaky_service(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits: crate::server::Waits) -> (Daemon, Kernel, std::sync::Arc<Faults>) {
+    let faults = std::sync::Arc::new(Faults::default());
+    let store = Flaky { inner: workriver_data::Store::open(db).unwrap(), faults: faults.clone() };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let home = db.parent().unwrap().to_path_buf();
+    let d = kernel.client(listener.local_addr().unwrap().port(), &home);
+    let options = crate::server::Options { waits, allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_over(listener, Box::new(store), home, fake, options)));
+    (d, kernel, faults)
+}
+
 /// Every event stored in the database at `db`, oldest first, read beside a running service
 /// through the data port's history.
 pub(super) fn stored(db: &std::path::Path) -> Vec<workriver_core::Event> {

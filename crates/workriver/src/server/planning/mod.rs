@@ -61,10 +61,16 @@ pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): E
         }
         let e = app.record(&who, Body::IntentStateChanged { intent: s.intent.clone(), state: core::IntentState::Active, reason: None, workspace: Some(group) })?;
         let live = app.runtime.agents().ok();
-        let all = app.store.lock().unwrap().recorded()?;
-        let plan = delivery::started(&all, live.as_deref(), &s.intent);
-        drop(all);
-        let name = |to: &str| got(app.store.lock().unwrap().agent_name(to)).flatten().unwrap_or_else(|| to.to_string());
+        // The intent is started from here on: a store that cannot be read now does not make
+        // this a failed request. Its manager is then not told, and the answer says so.
+        let read = got(app.store.lock().unwrap().recorded());
+        let (plan, names) = match read {
+            Ok(Some(all)) => (delivery::started(&all, live.as_deref(), &s.intent), Some(all)),
+            Ok(None) => (Err((ReasonCode::RuntimeError, "cannot read the records".to_string())), None),
+            Err(Unread(why)) => (Err((ReasonCode::RuntimeError, why)), None),
+        };
+        // An agent with no name on record goes by its session, as everywhere.
+        let name = |to: &str| names.as_ref().and_then(|all| all.name_of(to)).unwrap_or(to).to_string();
         let delivery = match plan {
             Ok((to, message)) => match app.send(&to, &message) {
                 Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(name(&to)), reason_code: None, reason: None, message },

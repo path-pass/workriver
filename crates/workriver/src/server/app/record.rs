@@ -52,7 +52,7 @@ impl App {
         // A unit's branch may have got a work tree of its own since; watching again is cheap.
         // One on another machine is read again in the background.
         if let (_, Some(unit), _) = e.body.refs() {
-            let found = got(self.store.lock().unwrap().unit(&unit)).filter(|u| u.has_code()).map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
+            let found = got(self.store.lock().unwrap().unit(&unit)).ok().flatten().filter(|u| u.has_code()).map(|u| (u.machine.is_some(), u.repo.clone(), u.branch.clone()));
             match found {
                 Some((false, repo, branch)) => self.watch(Path::new(&repo), &branch),
                 Some((true, ..)) => {
@@ -164,7 +164,7 @@ impl App {
         // A dropped task likewise: its agent (to stop) and the manager.
         // Work over: the manager hears which of its workers it may close.
         if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
-            let Some(all) = got(self.store.lock().unwrap().recorded()) else { return };
+            let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
             let to = {
                 match e.body {
                     Body::FindingNoted { .. } => delivery::notes(&all, live.as_deref(), &self.home, e),
@@ -181,7 +181,7 @@ impl App {
             }
             return;
         }
-        let Some(all) = got(self.store.lock().unwrap().recorded()) else { return };
+        let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
         let Some(plan) = delivery::plan(&all, live.as_deref(), &self.home, e) else { return };
         let delivery = match &plan.to {
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },

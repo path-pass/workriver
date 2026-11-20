@@ -55,7 +55,7 @@ impl App {
         let threshold = self.waits.minute * self.stall_minutes.load(std::sync::atomic::Ordering::Relaxed);
         let idle = self.idle_since.lock().unwrap().clone();
         let mut tell = vec![];
-        let Some(state) = got(self.store.lock().unwrap().recorded()) else { return false };
+        let Ok(Some(state)) = got(self.store.lock().unwrap().recorded()) else { return false };
         let changed = {
             let state = &state;
             let mut stalls = self.stalls.lock().unwrap();
@@ -110,7 +110,7 @@ impl App {
         let read = self.readable(live);
         let mut told = self.idle_told.lock().unwrap();
         told.retain(|(s, since)| idle.get(s).is_some_and(|(x, _)| x == since));
-        let Some(state) = got(self.store.lock().unwrap().recorded()) else { return };
+        let Ok(Some(state)) = got(self.store.lock().unwrap().recorded()) else { return };
         let tell: Vec<_> = {
             let state = &state;
             let reachable = |m: &str| live.iter().any(|a| a.session == m && a.state != AgentState::Unknown) && state.blind_tasks(m).is_empty();
@@ -139,7 +139,7 @@ impl App {
         let squash = self.shared.lock().unwrap().squash.clone();
         let after = self.waits.hour * self.ready_hours;
         let mut tell = vec![];
-        let Some(state) = got(self.store.lock().unwrap().recorded()) else { return };
+        let Ok(Some(state)) = got(self.store.lock().unwrap().recorded()) else { return };
         {
             let state = &state;
             let told = self.merge_told.lock().unwrap();
@@ -198,7 +198,7 @@ impl App {
     /// would tell it. `fresh`: it registers now, having just read this build's guide.
     // Which manager was told of which build is kept in a small file next to the database.
     pub(in crate::server) fn tell_of_update(&self, session: &str, fresh: bool) {
-        if !fresh && !got(self.store.lock().unwrap().manages(session)).unwrap_or(false) {
+        if !fresh && !got(self.store.lock().unwrap().manages(session)).ok().flatten().unwrap_or(false) {
             return;
         }
         let _one = self.told.lock().unwrap();

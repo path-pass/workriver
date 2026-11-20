@@ -103,9 +103,14 @@ impl App {
     /// failure is kept on the run. Blocking: it waits for the agent to be ready.
     pub(super) fn review_run(&self, id: &str) {
         let Some(r) = self.runs.lock().unwrap().get(id).cloned() else { return };
-        // The author's harness, which that machine has; else claude.
+        // The author's harness, which that machine has; else claude. Only when it is known
+        // that there is none on record: a store that cannot be read starts no reviewer.
         let (harness, by) = {
-            let author = got(self.store.lock().unwrap().agent(&r.by)).flatten();
+            let read = got(self.store.lock().unwrap().agent(&r.by));
+            let author = match read {
+                Ok(a) => a.flatten(),
+                Err(Unread(why)) => return self.review_failed(id, &why),
+            };
             let harness = author.as_ref().map(|a| a.harness.clone()).filter(|h| !h.is_empty()).unwrap_or_else(|| "claude".into());
             (harness, if r.by == "user" { "user".to_string() } else { author.map(|a| a.name).unwrap_or_else(|| r.by.clone()) })
         };

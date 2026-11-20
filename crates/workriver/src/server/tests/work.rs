@@ -210,30 +210,6 @@ fn what_a_previous_run_left_is_closed_at_the_next_start() {
     wait_until("the question's agent is closed", || next.closed.lock().unwrap().iter().any(|n| n == "why-q1"));
 }
 
-/// The real store, whose reads fail while `down` is set: a storage that cannot be read.
-struct Flaky {
-    inner: workriver_data::Store,
-    down: std::sync::Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl workriver_core::ports::WorkStore for Flaky {
-    fn recorded(&self) -> Result<workriver_core::ports::Recorded, workriver_core::ports::DataError> {
-        if self.down.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(workriver_core::ports::DataError::Unavailable("the disk is gone".into()));
-        }
-        self.inner.recorded()
-    }
-    fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
-        self.inner.record(who, request)
-    }
-    fn history(&self, after: workriver_core::ports::Revision, limit: usize) -> Result<workriver_core::ports::History, workriver_core::ports::DataError> {
-        self.inner.history(after, limit)
-    }
-    fn status(&self) -> Result<workriver_core::ports::DataStatus, workriver_core::ports::DataError> {
-        self.inner.status()
-    }
-}
-
 /// A store that cannot be read is the service's error, not the caller's: a request is
 /// answered 500 with the storage's words (never 422, never "no task"), the poll and what
 /// follows a record skip their step, and everything works again once the store does.
@@ -247,17 +223,11 @@ fn a_store_that_cannot_be_read_is_the_services_error() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let db = tmp.path().join("w.db");
-    let down = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let fake = std::sync::Arc::new(Fake::default());
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
-    let store = Flaky { inner: workriver_data::Store::open(&db).unwrap(), down: down.clone() };
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let listener = rt.block_on(crate::server::bind(0)).unwrap();
-    let kernel = Kernel::default();
-    let port = listener.local_addr().unwrap().port();
-    let user = kernel.client(port, tmp.path());
-    let (options, runtime, home) = (crate::server::Options { allow_as: true, ..kernel.options() }, fake.clone(), tmp.path().to_path_buf());
-    std::thread::spawn(move || rt.block_on(crate::server::serve_over(listener, Box::new(store), home, runtime, options)));
+    let (user, kernel, faults) = flaky_service(fake.clone(), &db, crate::server::Waits::default());
+    let (port, down) = (user.port, &faults.down);
+    let _ = &kernel;
     manage(&user, "p1", "s-boss");
     user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
@@ -284,6 +254,142 @@ fn a_store_that_cannot_be_read_is_the_services_error() {
     assert_eq!(ask("GET", "/api/state", None).0, 200);
     assert_eq!(ask("POST", "/api/attachments/inbox", Some(r#"{"unit":"u1","task":1}"#)).0, 200);
     user.append("s-boss", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+}
+
+/// A read that fails after a request's record is committed does not make the request a
+/// failed one: the record stands, the answer is a success, and what the read was for is
+/// said as not done (a started intent's manager is not told, and the answer says why; a
+/// manager's own start only loses its warning).
+#[test]
+fn a_read_that_fails_after_the_commit_does_not_fail_the_request() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let (user, kernel, faults) = flaky_service(fake.clone(), &db, crate::server::Waits::default());
+    let boss = kernel.daemon(user.port, Some("p1".into()), None);
+    let group = json!({ "id": "w1", "label": "chat" });
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    user.append("", "intent.created", json!({ "title": "Search", "state": "planned" })).unwrap();
+    let state_of = |intent: &str| stored(&db).iter().rev().map(|e| serde_json::to_value(e).unwrap()).find(|v| v["kind"] == "intent.state_changed" && v["body"]["intent"] == intent).map(|v| v["body"]["state"].clone());
+
+    // The user starts an intent from the page; the store cannot be read once it is recorded.
+    *faults.down_after.lock().unwrap() = Some("intent.state_changed".into());
+    let sent = fake.sent.lock().unwrap().len();
+    let out = user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": "w1" }))).expect("the request succeeds: the intent is started");
+    assert_eq!(state_of("i1"), Some(json!("active")));
+    assert_eq!((out["event"]["kind"].as_str(), out["delivery"]["step"].as_str(), out["delivery"]["to"].is_null()), (Some("intent.state_changed"), Some("not-delivered"), true), "{out}");
+    assert_eq!(out["delivery"]["reason"], "cannot read the records: the disk is gone");
+    assert_eq!(fake.sent.lock().unwrap().len(), sent, "nobody was told anything made up");
+    faults.down.store(false, SeqCst);
+
+    // The manager starts one itself, as the CLI does: the event is its answer, without the
+    // warning that needed a read.
+    *faults.down_after.lock().unwrap() = Some("intent.state_changed".into());
+    let out = boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).expect("the request succeeds: the intent is started");
+    assert_eq!(state_of("i2"), Some(json!("active")));
+    assert_eq!((out["kind"].as_str(), out.get("warning")), (Some("intent.state_changed"), None), "{out}");
+    faults.down.store(false, SeqCst);
+}
+
+/// A command's reviewer is started with its author's harness, or with the default when it
+/// is known that the author is on no record. When the author cannot be read, no reviewer
+/// is started at all: the review fails, saying why.
+#[test]
+fn no_reviewer_is_started_when_its_author_cannot_be_read() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    let mut author = live("s-boss", "boss", "w1", Idle);
+    author.harness = "codex".into();
+    *fake.agents.lock().unwrap() = vec![("p1".into(), author)];
+    let (user, _kernel, faults) = flaky_service(fake.clone(), &db, crate::server::Waits::default());
+    manage(&user, "p1", "s-boss");
+    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Set up", "steps": [{ "text": "Set up", "command": "bash ./scripts/setup.sh" }] })).unwrap();
+    let prepare = || user.call("/api/run/prepare", Some(json!({ "command": "bash ./scripts/setup.sh", "unit": "u1", "from": "u1#1", "step": 1 }))).unwrap();
+    let review = |id: &str| user.get(&format!("/api/run/{id}")).unwrap()["review"].clone();
+
+    // Its author cannot be read: nothing is started, with any harness.
+    faults.agents_down.store(true, SeqCst);
+    let id = prepare()["id"].as_str().unwrap().to_string();
+    std::thread::sleep(std::time::Duration::from_millis(1500)); // the review, in the background
+    assert_eq!(*fake.started.lock().unwrap(), [], "no reviewer, with no harness");
+    assert!(user.get(&format!("/api/run/{id}")).is_err(), "the run's author cannot be shown either: the request fails");
+
+    // Read again: the review failed saying why, and the next one gets its author's harness.
+    faults.agents_down.store(false, SeqCst);
+    assert_eq!(review(&id), json!({ "state": "failed", "reason": "cannot read the records: the disk is gone" }));
+    let id = prepare()["id"].as_str().unwrap().to_string();
+    wait_until("the reviewer starts", || !fake.started.lock().unwrap().is_empty());
+    let started = fake.started.lock().unwrap()[0].clone();
+    assert_eq!((started.1.as_str(), started.2), ("codex", format!("review-{id}")));
+}
+
+/// A question is never given as an empty text. When the records cannot be read for its
+/// prompt, a new question and a follow-up alike send nothing and fail, saying why, as a
+/// question whose agent could not be started does; and no agent is started on a guess.
+#[test]
+fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let waits = crate::server::Waits { answer: std::time::Duration::from_secs(600), idle: std::time::Duration::from_secs(600), ..Default::default() };
+    let (user, _kernel, faults) = flaky_service(fake.clone(), &db, waits);
+    manage(&user, "p1", "s-boss");
+    user.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    user.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    // How question `q` ended, if it failed: its reason.
+    let failed = |q: &str| stored(&db).iter().map(|e| serde_json::to_value(e).unwrap()).find(|v| v["kind"] == "question.failed" && v["body"]["question"] == q).map(|v| (v["body"]["reason_code"].clone(), v["body"]["reason"].clone()));
+    let unread = Some((json!("runtime-error"), json!("cannot read the records: the disk is gone")));
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+
+    // A new question: the records cannot be read once its agent is recorded as started.
+    *faults.down_after.lock().unwrap() = Some("question.started".into());
+    user.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why paged?" }))).unwrap();
+    wait_until("the question fails", || failed("q1").is_some());
+    assert_eq!(failed("q1"), unread);
+    assert_eq!(sent_to("why-q1"), [] as [String; 0], "nothing was given, least of all an empty text");
+    faults.down.store(false, SeqCst);
+
+    // A question that is read gets its text; its thread's agent then waits for a follow-up.
+    user.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why one table?" }))).unwrap();
+    wait_until("the question is given", || sent_to("why-q2").len() == 1);
+    assert!(sent_to("why-q2")[0].ends_with("Question q2, the user asks: «Why one table?»"), "{:?}", sent_to("why-q2"));
+    user.append("s-why-q2", "question.answered", json!({ "question": "q2", "text": "It is small." })).unwrap();
+
+    // The follow-up to that agent: unreadable once it is recorded as started. Not sent.
+    *faults.down_after.lock().unwrap() = Some("question.started".into());
+    user.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q2", "text": "And later?" }))).unwrap();
+    wait_until("the follow-up fails", || failed("q3").is_some());
+    assert_eq!(failed("q3"), unread);
+    assert_eq!(sent_to("why-q2").len(), 1, "the follow-up was not given: {:?}", sent_to("why-q2"));
+    faults.down.store(false, SeqCst);
+
+    // Unreadable before anything is known of the question: no agent is started for it.
+    let started = fake.started.lock().unwrap().len();
+    faults.down_after.lock().unwrap().replace("question.asked".into());
+    user.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "A third thing" }))).unwrap();
+    wait_until("it fails", || failed("q4").is_some());
+    assert_eq!(failed("q4"), unread);
+    assert_eq!(fake.started.lock().unwrap().len(), started, "no agent started on a guess");
 }
 
 /// A copy of a real database (WORKRIVER_REPLAY_DB) replays onto the current model. The

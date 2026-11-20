@@ -91,8 +91,11 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
         // A manager that starts an intent of another project than its workspace's is told so.
         if let Body::IntentStateChanged { intent, state: core::IntentState::Active, workspace: Some(g), .. } = &e.body {
             let live = app.runtime.agents().unwrap_or_default();
-            let all = app.store.lock().unwrap().recorded()?;
-            if let Some(why) = views::other_project(&all, &live, g, intent) {
+            // The event is recorded: a store that cannot be read now only leaves the warning out.
+            let read = got(app.store.lock().unwrap().recorded());
+            if let Ok(Some(all)) = read
+                && let Some(why) = views::other_project(&all, &live, g, intent)
+            {
                 out["warning"] = json!(format!("{why}. If you do not work on that project, do not split it: ask the user with a decide gate first (`workriver guide how ask-user`)."));
             }
         }
