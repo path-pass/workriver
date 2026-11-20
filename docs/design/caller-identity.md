@@ -120,7 +120,7 @@ Without the token the stale pane is refused (`Herdr lists no agent in pane wM:p4
 | no pane at all (`env -u HERDR_PANE_ID`) from an agent's pane | yes | **the user** |
 | another agent's pane | either | **that agent** (also reads as it: blind reviews) |
 
-The code: `App::who` (serve.rs:838) takes `place` from the request; with no agent there and
+The code: `App::who` (then serve.rs:838; now `server/access/mod.rs`) takes `place` from the request; with no agent there and
 `caller.user` it falls through to `App::user`, which refuses only when the *named* pane holds
 an agent.
 
@@ -222,7 +222,7 @@ it); else none.
    - **An agent without a session id** is named by its pane (`herdr:<pane>`, with the
      machine's label on another machine), and that name is made only by the runtime
      implementation from the pane the agent is in. A *reported* session id of that form is
-     not taken as a session: `herdr.rs` drops it and names the agent by its own pane, so a
+     not taken as a session: `herdr.rs` (now `runtime/herdr/agents.rs`) drops it and names the agent by its own pane, so a
      pane that reports `herdr:w1:p3` as its session is `herdr:<its own pane>`, never the
      agent of `w1:p3`. (The review u10#5 measured the hole this closes: such a report was
      recorded as the live pane `w1:p3`'s agent. `user` and `workriver` as reported ids are
@@ -600,22 +600,24 @@ says" and the "Claiming another pane" limit are replaced by the above.
 ## 7. What changes
 
 - `crates/workriver-core/src/runtime.rs`: `Runtime` gains "the root processes of a place"
-  (default: none); `machines.rs` routes it per machine; `herdr.rs` implements it with
-  `pane.process_info` and holds the Herdr words of the refusals. No harness is named in
+  (default: none); `machines.rs` (now `runtime/follow.rs`) routes it per machine;
+  `herdr.rs` (now `runtime/herdr/`) implements it with `pane.process_info` and holds the
+  Herdr words of the refusals (now `runtime/herdr/words.rs`). No harness is named in
   the code: refusals point at `workriver guide how hand-off`. In `agents_of`
-  (herdr.rs:278) a reported session id that starts with `herdr:` is dropped, so the agent
+  (herdr.rs:278; now `runtime/herdr/agents.rs`) a reported session id that starts with `herdr:` is dropped, so the agent
   is named by its pane.
-- `crates/workriver/src/serve.rs`: the socket and the proofs beside `Auth`; `Caller` carries
+- `crates/workriver/src/serve.rs` (now `server/access/`, its guard `server/http/guard.rs`):
+  the socket and the proofs beside `Auth`; `Caller` carries
   the chain and the header's pane; `App::who` loses its `place` argument and applies rules 1
   to 5, `App::user` uses `pane(P)`; `App::here` answers about `pane(P)`; the `place` fields
   of `Reader`, `Append`, `Here`, `Upload` and the others go; the pins of rule 5 with their
   file; the machine listener takes `x-workriver-pid` (3.3). `App::view` is unchanged (it
   goes through `who`). `machine_router` gets no new route.
-- `crates/workriver/src/main.rs`: the CLI fetches a proof once per command and again when
+- `crates/workriver/src/main.rs` (now `cli/client.rs`): the CLI fetches a proof once per command and again when
   it has expired; sends the pane only as the header, and its pid; `attach fetch`.
 - The chain: one function, `libproc` (macOS) and `procfs` (Linux) as target-specific
   dependencies of the outer crate; the snippet for the other machine beside `metrics::PS`,
-  with its parser and tests on both formats.
+  with its parser and tests on both formats (now all in `common/process.rs`).
 - Tests: each row of 3.2, each line of the prototype, the four lines of rule 5, a reported
   `herdr:` id and a pane with no known shell as tests
   with a fake runtime and a fake chain; one end-to-end test with a real socket and a real
@@ -649,14 +651,19 @@ Three points are the user's to confirm; the design assumes the first answer of e
 
 ## 9. As built (u11#1)
 
-Where it is: `crates/workriver/src/caller.rs` (the chain with `libproc` / `procfs`, the
-snippet and its parser, the caller socket and its proofs, the pins' file, the rule
-`place_of`); `App::who`, `App::place`, `App::one_place`, `App::see_roots`, `App::here` and
-`guard` in `serve.rs`; `Runtime::roots` in the core, implemented in `herdr.rs` (with the
-refusals' words) and routed per machine in `machines.rs`; `Daemon::send`, `Daemon::process`
-and `from_socket` in `main.rs`. Tests: `caller::tests`, `herdr::tests`, the last block of
-`src/tests.rs` (every line of 3.1's prototype, every row of 3.2, rule 5, the other machine,
-a proof that expires under `ask --wait`), and `tests/caller.rs` (the real binary, the real
+Where it is (paths since the restructure, intent i25; u11#1 built it in `caller.rs`,
+`serve.rs`, `herdr.rs`, `machines.rs`, `main.rs` and `src/tests.rs`): the chain with
+`libproc` / `procfs`, the snippet and its parser in `crates/workriver/src/common/process.rs`;
+the caller socket and its proofs and the rule `place_of` in `server/access/caller.rs`, the
+pins' file in `server/access/pins.rs`; `App::who`, `App::place`, `App::one_place`,
+`App::see_roots` and `App::here` in `server/access/mod.rs`, `guard` in
+`server/http/guard.rs`; `Runtime::roots` in the core, implemented in `runtime/herdr/` (the
+refusals' words in `runtime/herdr/words.rs`) and routed per machine in `runtime/follow.rs`;
+`Daemon::send`, `Daemon::process` and `from_socket` in `cli/client.rs`. Tests:
+`server/access/tests.rs` (was `caller::tests`), `runtime/herdr/tests.rs` (was
+`herdr::tests`), `server/tests/access.rs` (was the last block of `src/tests.rs`: every line
+of 3.1's prototype, every row of 3.2, rule 5, the other machine, a proof that expires under
+`ask --wait`), and `tests/caller.rs` (the real binary, the real
 socket, real processes, a stand-in for Herdr's socket; the u9#2 incident among them).
 
 Where it differs from the text above, or says more:
@@ -698,12 +705,13 @@ Where it differs from the text above, or says more:
     fallback (the `( cmd & )` case) is looked for on this machine only, so a refusal there
     costs no ssh run per place (u11#3 P3-2; 3.3 names rules 1, 2 and 5 there).
   - The identity code says place, not pane (`place_of`, `App::place`, `App::one_place`), as
-    the runtime interface does (u11#3 P3-3); the refusals' words stay in `herdr.rs`.
+    the runtime interface does (u11#3 P3-3); the refusals' words stay in `herdr.rs` (now
+    `runtime/herdr/words.rs`).
   - Tests give the service its process reader as they give it a runtime (u11#3 P3-1, as 3.2
     says): `Options` carries `procs` (`caller::System` for the service) and `callers` (the
     proofs it hands out). The CLI's `Daemon` has a `prove` field: `from_socket` for the
     CLI, a made-up process at its place for the in-process tests (`Kernel` in
-    `src/tests.rs`). No test twin of `Daemon::process`, no registry of services by port;
+    `src/tests.rs`, now `server/tests/support.rs`). No test twin of `Daemon::process`, no registry of services by port;
     those tests run the real `Daemon::process` and `Daemon::send` (the new proof on
     `expired`), and `tests/caller.rs` the real socket.
 - After the second review (u11#7, u11#5 P3-1): rule 5's first-sight question (does the
@@ -714,7 +722,7 @@ Where it differs from the text above, or says more:
   pinned by nobody (a pane closed between the two calls gives the same, until the next
   read).
 - Verified on Linux (Debian, `rust:slim` container): the `procfs` chain, the snippet's
-  `/proc` branch and the socket's peer pid (`caller::tests`). **Still not verified:** a real
+  `/proc` branch and the socket's peer pid (`caller::tests`, now `server/access/tests.rs`). **Still not verified:** a real
   followed machine over ssh, a Herdr restart against rule 5, tmux inside a pane.
 
 ## Appendix: the experiments

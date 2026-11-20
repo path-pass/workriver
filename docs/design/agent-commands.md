@@ -590,9 +590,10 @@ Choices the design takes that the user may want otherwise:
 - The code: `workriver-core/src/runtime.rs`; `runtime/herdr/{mod,agents,terminals}.rs`
   (the session → place table, `launch`'s error path, `close`, `send`); `runtime/follow.rs`
   (routing by name across machines; `agents()` answering with an empty local list on a
-  local error); `serve.rs` (`App::who`, `may_manage`, `machine_router`); `quote.rs`
-  (`clean`, `name`, `quoted`); the event rules for `question.started`
-  (`conversations/questions.rs`: no check of who records).
+  local error); `serve.rs` (`App::who`, `may_manage`, `machine_router`; now, since phase 5
+  of the restructure, `server/access/mod.rs`, `server/app/record.rs`, `server/http/mod.rs`);
+  `quote.rs` (`clean`, `name`, `quoted`; now `server/delivery/quote.rs`); the event rules
+  for `question.started` (core's `conversations/questions.rs`: no check of who records).
 - The reviewers' traces attached to u13#34 (the unconditional `pane.close` and
   `agent.prompt` after a snapshot; the remote name routed to a local agent; the
   `agent_not_ready` start that closes its place; the idle-at-ack wait; a worker recording
