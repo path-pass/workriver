@@ -46,14 +46,18 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const { t } = useT()
   const act = useAct()
   const choice = gate.input.choice
-  const [result, setResult] = useState<GateResult['result']>(choice ? 'answered' : 'done')
-  const [picked, setPicked] = useState<string>()
+  // What was sent from here and not taken by the service: the form starts from it again.
+  const back = act.retry[gateKey(unit, gate)]
+  const [result, setResult] = useState<GateResult['result']>(back?.result ?? (choice ? 'answered' : 'done'))
+  const [picked, setPicked] = useState<string | undefined>(back?.selected?.[0])
   const [noteMissing, setNoteMissing] = useState(false)
   // A conclusion reached by asking about it starts the note; the user edits it.
-  const [note, setNote] = useState(gate.draft ?? '')
+  const [note, setNote] = useState(back?.note ?? gate.draft ?? '')
   useEffect(() => { if (gate.draft) setNote(n => n || gate.draft!) }, [gate.draft])
-  const [files, setFiles] = useState<Attachment[]>([])
-  const [drafts, setDrafts] = useState<Draft[]>([])
+  const [files, setFiles] = useState<Attachment[]>(back?.attachments ?? [])
+  const [drafts, setDrafts] = useState<Draft[]>(
+    () => back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
+  )
   const [error, setError] = useState(false)
   // Pictures not handed in are let go when the form goes away.
   const kept = useRef<Attachment[]>([])

@@ -26,7 +26,7 @@ import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { blame, shownDelta } from '@/code/files'
 import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
-import type { Pick, Task } from '@/work/types'
+import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
 import { answerManager, choreDone, notify, decideFinding, detach, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
@@ -366,6 +366,7 @@ export default function App() {
   // ---- what the user puts in, and where it is on its way ----
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
   const [message, setMessage] = useState<Record<string, string>>({})
+  const [retry, setRetry] = useState<Record<string, GateResult>>({})
   const cancels = useRef<Record<string, () => void>>({})
   const track = (key: string) => (d: Delivery) => setDelivery(all => ({ ...all, [key]: d }))
   const sent = (key: string, out: { message: string; cancel: () => void }) => {
@@ -377,11 +378,15 @@ export default function App() {
     submitGate: (u, g, r) => {
       const key = gateKey(u, g)
       setEdits(e => ({ ...e, gates: { ...e.gates, [key]: r } }))
-      // Not taken by the service: the gate is as it was, its form again, the line saying so.
+      setRetry(all => drop(all, key))
+      // Not taken by the service: the gate is as it was, its form again with what was sent
+      // (while the service still has it waiting), the line saying so.
       const step = track(key)
       sent(key, submitGate(u, g, r, waitsOn(u, g) ?? MANAGER, d => {
         step(d)
-        if (d.step === 'failed') setEdits(e => ({ ...e, gates: drop(e.gates, key) }))
+        if (d.step !== 'failed') return
+        setEdits(e => ({ ...e, gates: drop(e.gates, key) }))
+        setRetry(all => ({ ...all, [key]: r }))
       }))
     },
     decide: (u, n, f, d, note) => {
@@ -404,6 +409,7 @@ export default function App() {
     merge: (into, from, title) => mergeIntents(into, from, title).then(() => setEdits(e => ({ ...e, merges: [...e.merges, { into, from, title }] }))),
     delivery,
     message,
+    retry,
   }
 
   return (
