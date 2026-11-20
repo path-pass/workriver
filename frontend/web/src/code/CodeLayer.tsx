@@ -255,7 +255,7 @@ function Pickable({ path, commit, lines, onLines, onAsk, children }: LinePicking
       {children}
       {mine && top !== null && (
         <Button size="xs" className="askfloat rounded-sm" style={{ top }} onClick={e => { e.stopPropagation(); onAsk(mine) }}>
-          <Icon name="talk" className="size-3" />{t('ask.why')}
+          <Icon name="talk" className="size-3" />{t('talk.ask')}
         </Button>
       )}
     </div>

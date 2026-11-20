@@ -1,6 +1,6 @@
 // The side panel, right of the main area: what asks something of the user (the inbox),
 // where the agents are, what was committed lately, the backlog, the machines' CPU and memory,
-// or asking why about the picked task – one at a time. Neither is looked at all the time, so the panel folds
+// or the conversation with a workspace's manager – one at a time. Neither is looked at all the time, so the panel folds
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
@@ -21,8 +21,8 @@ import { Agents } from '@/agents/Agents'
 import type { CommitFocus } from '@/code/types'
 import { Commits } from '@/code/Commits'
 
-export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'ask'
-export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'run', 'ask']
+export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'talk'
+export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'run', 'talk']
 
 interface ContentProps {
   ws: Workspace
@@ -34,15 +34,15 @@ interface ContentProps {
   commit: CommitFocus | null
   /** The project picked in the rail, or null for all: the backlog shows its findings. */
   project: string | null
-  /** The Ask section, made by the caller: it lays itself out (its box stays at the bottom). */
-  ask: ReactNode
+  /** The Manager section, made by the caller: it lays itself out (its box stays at the bottom). */
+  talk: ReactNode
   /** Shows another section (a machine's alert in Needs you opens Machines). */
   onSection: (s: Section) => void
-  /** Opens Ask on a workspace's conversation with its manager (unread messages in Needs you). */
+  /** Opens Manager on a workspace's conversation (unread messages in Needs you). */
   onTalk: (workspace: string) => void
 }
 
-function Content({ ws, here, onOpen, section, onCommit, commit, project, onSection, onTalk }: Omit<ContentProps, 'ask'>) {
+function Content({ ws, here, onOpen, section, onCommit, commit, project, onSection, onTalk }: Omit<ContentProps, 'talk'>) {
   const { t, num } = useT()
   const live = ws.sessions.filter(s => !s.ended).length
   return (
@@ -85,9 +85,9 @@ function Content({ ws, here, onOpen, section, onCommit, commit, project, onSecti
   )
 }
 
-/** Ask keeps its box at the bottom, so it scrolls inside itself; the others scroll whole. */
+/** Manager keeps its box at the bottom, so it scrolls inside itself; the others scroll whole. */
 function Body(props: ContentProps) {
-  if (props.section === 'ask') return props.ask
+  if (props.section === 'talk') return props.talk
   return <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!"><Content {...props} /></ScrollArea>
 }
 
@@ -101,7 +101,7 @@ export function SideButtons({ active, onPick }: { active: Section | null; onPick
       </Button>
     </Tip>
   )
-  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('machines', 'machine', t('metrics.title'))}{button('run', 'terminal', t('run.section'))}{button('ask', 'talk', t('ask.why'))}</>
+  return <>{button('inbox', 'inbox', t('inbox.title'))}{button('agents', 'agents', t('agents.title'))}{button('commits', 'commits', t('commits.title'))}{button('backlog', 'backlog', t('backlog.title'))}{button('machines', 'machine', t('metrics.title'))}{button('run', 'terminal', t('run.section'))}{button('talk', 'talk', t('talk.title'))}</>
 }
 
 interface PanelProps extends Omit<ContentProps, 'section'> {

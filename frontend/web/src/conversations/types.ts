@@ -2,7 +2,6 @@
 // and where a message is on its way.
 import type { Attachment } from '@/attachments/types'
 import type { Lines } from '@/code/types'
-import type { Task } from '@/work/types'
 import type { Intent } from '@/planning/types'
 import type { Session } from '@/agents/types'
 
@@ -17,6 +16,12 @@ export interface ManagerMessage {
   /** The manager's name. */
   manager: string;
   text: string;
+  /** What the user picked with it: the unit, one of its tasks, and the rest, shown as chips. */
+  unit?: string;
+  task?: number;
+  context?: AskContext[];
+  /** The stored files its context points at (the page's own copies with the sample), to open. */
+  attachments?: Attachment[];
   at: string;
   /** blocked: the manager waits for a person in its terminal; the message goes in once it is free. */
   step: 'sending' | 'blocked' | 'delivered' | 'not-delivered';
@@ -59,6 +64,8 @@ export interface AskContext {
   /** lines: the first and last line. */
   from?: number;
   to?: number;
+  /** task: its number in the unit (the label is only the page's). */
+  task?: number;
 }
 
 /**
@@ -108,37 +115,30 @@ export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runti
 
 export type AskStep = 'starting' | 'reading' | 'asking' | 'blocked';
 
+/** What the side panel's Manager section and the task detail need from the page. */
 export interface Talk {
   sessions: Session[]
   /** The file picked in the code layer, and lines picked in it. */
   file: string | null
   lines: Lines | null
-  /** Questions asked in this sitting, by node id ('' for the unit itself), after the recorded ones. */
-  asked: Record<string, Turn[]>
-  /** `node`: the task asked about, or null for the unit; `thread`: the conversation it continues, or null for a new one;
-   *  `files`: what the user attached in the box, still held by the page. */
-  onAsk: (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude?: boolean, files?: Attachment[]) => void
   /** The intent on screen: its page, or the open unit's. */
   intent?: string
-  /** Set to now to show the conversation with the manager. */
+  /** Set to now to show the conversation with a workspace's manager. */
   managerAt?: number
   /** With `managerAt`: the workspace whose conversation to show; none: the one on screen. */
   to?: string
   /** The user has seen a workspace's conversation, up to the manager's newest words shown. */
   onRead: (workspace: string, at: string) => void
-  /** Ends a conversation (with the service). */
-  onEnd: (thread: string) => void
-  /** Questions go to the service and real agents (not the sample). */
-  live: boolean
   onFile: (path: string) => void
-  /** Changes when the box should take the cursor (`?`, or "Ask why" on picked lines). */
+  /** Changes when the box should take the cursor (`?`, "Ask the manager" on lines, the viewer or a task). */
   focusAt: number
-  /** Opens the side panel on Ask, the box taking the cursor (the node detail's "Ask why"). */
+  /** Opens the side panel on Manager, the box taking the cursor (the node detail's "Ask the manager"). */
   onOpen: () => void
-  /** More context to go with the next question: other tasks that changed the picked lines. */
+  /** More chips for the next message: other tasks that changed the picked lines, the open attachment. */
   extra: AskContext[]
-  /** For the manager conversation: the intents (whose workspace runs the picked unit), the messages so far. */
+  /** The intents (whose workspace runs the picked unit), the messages so far. */
   intents: Intent[]
   messages: ManagerMessage[]
-  onTell: (to: { intent?: string; workspace: string }, text: string, manager: string) => void
+  /** `about`: the unit, task and context the message carries; `files`: the user's, still held by the page. */
+  onTell: (to: { intent?: string; workspace: string }, text: string, manager: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[]) => void
 }
