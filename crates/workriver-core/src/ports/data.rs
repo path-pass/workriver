@@ -48,11 +48,14 @@ impl Deref for Recorded {
 }
 
 /// A request that was recorded: the event as it was committed (ids and numbers given by the
-/// rules, the time, who it was recorded as), and the revision it made.
+/// rules, the time, who it was recorded as), the revision it made, and everything recorded
+/// at that revision: what follows the record is worked out on the state it made, not on
+/// whatever was recorded after it by the time it is read again.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Committed {
     pub event: Event,
     pub revision: Revision,
+    pub recorded: Recorded,
 }
 
 /// A stretch of the history, oldest first, and where to read on from.
@@ -128,6 +131,13 @@ pub trait WorkStore: Send {
     fn history(&self, after: Revision, limit: usize) -> Result<History, DataError>;
 
     fn status(&self) -> Result<DataStatus, DataError>;
+
+    /// The events that make intent `id`'s versions, oldest first: its `intent.created`,
+    /// `intent.updated` and `intent.merged` into it, and the same of every intent merged into
+    /// it, and into those (`intent_versions` and `intent_text` rebuild its history from them).
+    /// None for an intent that is not recorded. Not to be answered to a reader as they are:
+    /// whoever asks is checked first (`App::view`).
+    fn intent_events(&self, id: &str) -> Result<Vec<Event>, DataError>;
 
     // ---- one record, by its id ----
 

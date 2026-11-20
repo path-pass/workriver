@@ -194,7 +194,7 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
         _ => String::new(),
     };
     format!(
-        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. {at}{code}{details}{}",
+        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. {at}{code}{details}{}",
         m.id,
         m.id,
         users("The user says, in workriver", &m.text)

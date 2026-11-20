@@ -128,12 +128,16 @@ they need with `workriver attach <file> --task u1#3 --move`.
 
 ## 5. What happens next
 
+You start the workspace's first intent: "Start" on i1 "Mentions" in the roadmap, picking the
+workspace (or set the workspace's project in Settings and let the manager start it). From
+then on the workspace works on that project, and its manager starts that project's next
+intents itself (`workriver intent start i2`); another project's it leaves to you.
+
 The manager, from its terminal:
 
 ```sh
 workriver manager here                 # registers it as the workspace's manager
-workriver backlog list                 # the roadmap: i1 "Mentions" ...
-workriver intent start i1              # active here; the workspace's current intent
+workriver backlog list                 # the roadmap: i1 "Mentions" (active, started by you) ...
 workriver unit add --title "Mentions" --branch feat/mention   # its own branch: feat/, fix/ or chore/
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
 ```
@@ -247,6 +251,14 @@ Do the same build on **every other machine** you follow (`git pull`, `cargo buil
 --release` there): the `workriver` command agents run there must match the service.
 `workriver status`, here and on each of them, shows the version and the commit of the
 service and says so when the command it was run with is another build.
+
+Cargo never removes old builds from `target/`: after some weeks of updates `target/debug`
+can pass 20 GB. `cargo clean --profile dev` removes `target/debug` only; the
+`target/release/workriver` the service runs from stays. Each git worktree has its own
+`target/` (about 1.5 GB after a build and its tests), removed with the worktree. Worktrees
+do not share one build folder on purpose: cargo names this repository's own crates by their
+path inside the checkout and decides what to rebuild by file times, so a worktree whose
+files are older than another's last build would run that other worktree's code.
 
 ## Troubleshooting
 

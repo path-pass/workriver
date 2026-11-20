@@ -19,7 +19,9 @@ You are not a worker: no implementing, reviewing or testing.
 1. `workriver status` must say "agent runtime: connected".
 2. `workriver manager here` registers you. Always run `workriver` from your own pane.
 3. `workriver backlog list`, then `workriver intent start <id>` for the goal the user named
-   (else the first). `workriver board` shows it all.
+   (else the first) of your workspace's project. A new workspace's first intent the user
+   starts on the page (or sets your workspace's project); ask them. `workriver board` shows
+   it all.
 
 ## The loop
 
@@ -72,6 +74,10 @@ Exact commands:
   watching a deploy) is a task for a worker (`workriver task add`), never done or watched
   by you; reply with its link (`workriver link u1#3`). Answer at once only what needs no
   work (`user-message`).
+- **Tell the user once, on the page**: what you tell the user goes there (`workriver reply`
+  / `workriver say`), not repeated in your terminal; your terminal gets one line at most,
+  unless it holds something the page does not (an error, a command the user must run in a
+  terminal) (`user-message`).
 
 ## Stop and ask the user
 

@@ -1,15 +1,15 @@
 // The one place where the UI reaches out to agents, through the workriver service. With the
 // sample (VITE_MOCK=1) nothing is reached: focusing a terminal only says so, and a
 // manager's reply is made up.
-import { MOCK } from '@/workspace/source'
+import { MOCK, MOCK_CHANGED } from '@/workspace/source'
 import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
-import type { Unit } from '@/planning/types'
+import type { Intent, IntentText, IntentVersion, Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import type { Answer, AskContext, Sent } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
-import { call, post, SIGNED_OUT } from './http'
+import { call, post, read, SIGNED_OUT } from './http'
 import { labelOf } from '@/content/choice/surface'
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
@@ -186,6 +186,32 @@ export async function record(kind: string, body: unknown) {
 export async function dropTask(unit: Unit, task: Task, reason: string) {
   if (MOCK) return
   await post('/api/task/drop', { unit: unit.id, task: Number(task.id), reason })
+}
+
+/**
+ * Records the user's edit of an intent's title, goal or note (`editBody`); a refusal is
+ * thrown with the service's words (an edit from an older version: `conflictOf`). With the
+ * sample it is kept in memory and the sample shown again with it.
+ */
+export async function editIntent(intent: Intent, body: Record<string, unknown>) {
+  if (MOCK) {
+    const changed = (await import('@/mock/history')).mockEdit(intent, body)
+    window.dispatchEvent(new CustomEvent(MOCK_CHANGED, { detail: (ws: Workspace) => ({ ...ws, intents: ws.intents.map(i => (i.id === intent.id ? { ...i, ...changed } : i)) }) }))
+    return
+  }
+  await post('/api/append', { kind: 'intent.updated', body })
+}
+
+/** An intent's versions, oldest first (who, when, what each changed). */
+export async function intentHistory(intent: Intent): Promise<IntentVersion[]> {
+  if (MOCK) return (await import('@/mock/history')).mockHistory(intent)
+  return (await read<{ versions: IntentVersion[] }>(`/api/intent/${encodeURIComponent(intent.id)}/history`)).versions
+}
+
+/** Version `n` of an intent whole, with the one before it (none before the first). */
+export async function intentVersion(intent: Intent, n: number): Promise<{ text: IntentText; before: IntentText | null }> {
+  if (MOCK) return (await import('@/mock/history')).mockVersion(intent, n)
+  return read(`/api/intent/${encodeURIComponent(intent.id)}/history?version=${n}`)
 }
 
 /** Merges planned intents into one: the user's alone, so it has a route of its own. */

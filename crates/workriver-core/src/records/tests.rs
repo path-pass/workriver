@@ -27,6 +27,11 @@ impl Records {
     pub(crate) fn state(&self) -> &State {
         &self.state
     }
+
+    /// Every event recorded so far, in order.
+    pub(crate) fn events(&self) -> &[Event] {
+        &self.events
+    }
 }
 
 /// An intent, a unit, an implement task delivered with evidence and a review with two findings.
@@ -48,7 +53,9 @@ pub(crate) fn seed() -> Vec<Body> {
 
 pub(crate) fn seeded(s: &mut Records) {
     for b in seed() {
-        s.append(&"agent-a".into(), b).unwrap();
+        // An active intent is made by the user (an agent's starts in the roadmap).
+        let who = if matches!(b, Body::IntentCreated { .. }) { "user" } else { "agent-a" };
+        s.append(&who.into(), b).unwrap();
     }
 }
 

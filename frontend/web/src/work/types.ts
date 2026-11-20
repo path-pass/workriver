@@ -188,7 +188,7 @@ export interface Task {
     findings?: Finding[];
     /** Gate nodes: what the user reported back, in a few words. */
     note?: string;
-    /** Gate nodes: pictures with the note. */
+    /** Files with the output: an agent's (on a gate too, shown while it waits), and a gate's pictures with the note. */
     attachments?: Attachment[];
     /** Implement and tests tasks: the commands run to check the work, and what came of them. */
     evidence?: Evidence[];

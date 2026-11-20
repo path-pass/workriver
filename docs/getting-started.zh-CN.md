@@ -115,12 +115,15 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 
 ## 5. 接下来会发生什么
 
+工作区的第一个意图由你来开始：在路线图里 i1 "Mentions" 上点"开始"，选这个工作区（或者先在设置里
+给工作区设定项目，再让管理者开始它）。此后这个工作区就在做那个项目，管理者自己开始这个项目的其他意图
+（`workriver intent start i2`）；别的项目的意图留给你。
+
 管理者在自己的终端里：
 
 ```sh
 workriver manager here                 # 登记为这个工作区的管理者
-workriver backlog list                 # 路线图：i1 "Mentions" ……
-workriver intent start i1              # 在这里开始；成为这个工作区的当前意图
+workriver backlog list                 # 路线图：i1 "Mentions"（进行中，由你开始）……
 workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
 ```
@@ -216,6 +219,13 @@ cargo build --release
 你跟踪的**每一台其他机器**上也要做同样的构建（在那边 `git pull`、`cargo build --release`）：
 那边 agent 用的 `workriver` 命令要和服务是同一个版本。在这边和那边运行 `workriver status`，
 都会显示服务的版本和提交号；如果运行它的命令是另一个构建，会明说。
+
+Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` 可能超过 20 GB。
+`cargo clean --profile dev` 只删 `target/debug`，服务运行所用的 `target/release/workriver`
+不受影响。每个 git worktree 有自己的 `target/`（构建并编译测试后约 1.5 GB），随 worktree
+删除。worktree 有意不共用一个构建目录：cargo 按 checkout 内的路径给本仓库自己的 crate
+命名，按文件时间决定要不要重编，所以文件比别的 worktree 上次构建更旧的 worktree
+会跑到那个 worktree 的代码。
 
 ## 排错
 

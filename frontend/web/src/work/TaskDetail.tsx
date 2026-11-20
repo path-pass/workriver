@@ -71,8 +71,9 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
     // Whoever did the work the gate follows wrote its steps (the sample's guess; the service knows).
     input = <><Prose text={n.input.text || n.title} /><RunSteps steps={n.input.steps ?? []} ask={{ unit: unit.id, from: `${unit.id}#${n.id}`, by: byId(n.inputs.find(i => i.primary)?.from)?.agent ?? undefined }} /></>
+    // What was attached to the gate (by its agent) is there to look at before answering it.
     output = n.state === 'waiting'
-      ? <GateForm key={gateKey(unit, n)} unit={unit} gate={n} />
+      ? <div className="flex flex-col gap-2"><Thumbs list={n.output.attachments ?? []} /><GateForm key={gateKey(unit, n)} unit={unit} gate={n} /></div>
       : <>
           {n.output.selected?.map(v => <Chose key={v} choice={n.input.choice} value={v} />)}
           {n.output.note && <Prose text={n.output.note} />}

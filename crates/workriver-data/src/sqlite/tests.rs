@@ -14,6 +14,11 @@ fn agent_a() -> Principal {
     Principal::Agent { session: "agent-a".into(), machine: None }
 }
 
+/// Who records a seeded event: an active intent is the user's to add, the rest agent-a's.
+fn by(b: &Body) -> Principal {
+    if matches!(b, Body::IntentCreated { .. }) { Principal::User } else { agent_a() }
+}
+
 fn seed() -> Vec<Body> {
     let steps = [
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
@@ -37,7 +42,7 @@ fn replay_rebuilds_the_same_state() {
     let before = {
         let mut s = Store::open(&path).unwrap();
         for b in seed() {
-            s.append(&agent_a(), b).unwrap();
+            s.append(&by(&b), b).unwrap();
         }
         s.state().clone()
     };
@@ -52,7 +57,7 @@ fn events_are_append_only() {
     let path = dir.path().join("w.db");
     let mut s = Store::open(&path).unwrap();
     for b in seed() {
-        s.append(&agent_a(), b).unwrap();
+        s.append(&by(&b), b).unwrap();
     }
     let conn = rusqlite::Connection::open(&path).unwrap();
     for sql in ["UPDATE events SET actor = 'x'", "DELETE FROM events"] {
@@ -110,4 +115,34 @@ fn the_stored_history_reopens_to_the_same_state() {
     assert_eq!(store.state(), &folded(&events));
     drop(store);
     assert_eq!(Store::open(&path).unwrap().state(), &folded(&events));
+}
+
+/// An intent's history is read from its own events and those of the intents merged into
+/// it, transitively; nothing else. Rebuilt from them, it is what the whole record gives.
+#[test]
+fn an_intents_history_is_read_with_what_was_merged_into_it() {
+    use workriver_core::ports::WorkStore;
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+    for v in [
+        json!({"kind": "intent.created", "body": {"title": "Search", "project": "/p", "state": "planned"}}),
+        json!({"kind": "intent.created", "body": {"title": "Emoji", "note": "By name", "project": "/p", "state": "planned"}}),
+        json!({"kind": "intent.created", "body": {"title": "Codes", "project": "/p", "state": "planned"}}),
+        json!({"kind": "intent.created", "body": {"title": "Elsewhere", "project": "/p", "state": "planned"}}),
+        json!({"kind": "intent.updated", "body": {"intent": "i3", "add_note": "Shortcodes"}}),
+        json!({"kind": "intent.merged", "body": {"intent": "i2", "from": ["i3"]}}),
+        json!({"kind": "intent.updated", "body": {"intent": "i4", "add_note": "Not ours"}}),
+        json!({"kind": "intent.moved", "body": {"intent": "i1", "before": "i2"}}),
+        json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2"], "title": "Search and emoji"}}),
+        json!({"kind": "intent.updated", "body": {"intent": "i1", "add_note": "After"}}),
+    ] {
+        s.append(&Principal::User, body(v)).unwrap();
+    }
+    let got = s.intent_events("i1").unwrap();
+    assert_eq!(got.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 2, 3, 5, 6, 9, 10], "its own, i2's and i3's: no move, nothing of i4");
+    let all = s.history(workriver_core::ports::Revision(0), 100).unwrap().events;
+    assert_eq!(intent_versions(&got, "i1"), intent_versions(&all, "i1"));
+    assert_eq!(intent_text(&got, "i1", 2), intent_text(&all, "i1", 2));
+    assert_eq!(intent_text(&got, "i1", 3).unwrap().note, s.state().intent("i1").unwrap().note);
+    assert!(s.intent_events("i9").unwrap().is_empty());
 }

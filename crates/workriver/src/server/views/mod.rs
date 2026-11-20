@@ -232,13 +232,13 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             goal: i.goal.clone(),
             state: i.state,
             findings: i.findings,
-            project: project_folder(state, i),
+            project: state.project_folder(i),
             note: i.note.clone(),
             external: i.external.clone(),
             workspace: i.workspace.clone(),
             order: (i.state == core::IntentState::Planned).then(|| {
-                let mine = project_folder(state, i);
-                state.roadmap.iter().filter_map(|id| state.intents.iter().find(|x| &x.id == id)).filter(|x| project_folder(state, x) == mine).position(|x| x.id == i.id)
+                let mine = state.project_folder(i);
+                state.roadmap.iter().filter_map(|id| state.intents.iter().find(|x| &x.id == id)).filter(|x| state.project_folder(x) == mine).position(|x| x.id == i.id)
             }).flatten(),
             reason: i.reason.clone(),
             units: intent_unit(state, live, i, &names)
@@ -254,6 +254,8 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             manager: state.manager_of(&i.id).map(|m| names.of(m)),
             manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
             complete: i.state == core::IntentState::Active && state.finished(&i.id),
+            version: i.edits.version,
+            edited: Edited { at: i.edits.at.clone(), by: (i.edits.by != "user").then(|| names.of(&i.edits.by)) },
         })
         .collect::<Vec<Intent>>();
     for u in intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
@@ -302,7 +304,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|b| {
             let f = &b.finding;
             BacklogOut {
-                project: project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone()),
+                project: state.project_of(&b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone()),
                 intent: b.intent.clone(),
                 source: b.source.clone(),
                 by: names.of(&b.by),
@@ -341,7 +343,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .chores
         .iter()
         .filter(|c| c.intent.is_empty())
-        .map(|c| chore(c, &names, Some(project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
+        .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
     let messages = messages(state, live, &names);
     Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
@@ -358,12 +360,7 @@ pub(super) fn group_project(state: &core::State, live: &[RuntimeAgent], g: &core
     if let Some(p) = manager.and_then(|a| project_at(state, a.machine.as_deref(), &a.cwd)) {
         return Some((p, Known::Manager));
     }
-    state.intent_for(g).map(|i| project_folder(state, i)).filter(|p| !p.is_empty()).map(|p| (p, Known::Intents))
-}
-
-/// The registered project whose folder holds `path`, the deepest one.
-pub(super) fn project_of<'a>(state: &'a core::State, path: &str) -> Option<&'a core::Project> {
-    state.projects.iter().filter(|p| Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
+    state.intent_for(g).map(|i| state.project_folder(i)).filter(|p| !p.is_empty()).map(|p| (p, Known::Intents))
 }
 
 /// The project a folder is in. Here: the deepest registered project holding it, else the
@@ -378,16 +375,16 @@ fn project_at(state: &core::State, machine: Option<&str>, cwd: &str) -> Option<S
     if let Some(m) = machine {
         let u = state.units.iter().filter(|u| u.machine.as_deref() == Some(m) && u.has_code() && cwd.starts_with(&u.repo)).max_by_key(|u| u.repo.len())?;
         let i = state.intents.iter().find(|i| i.id == u.intent)?;
-        return Some(project_folder(state, i)).filter(|p| !p.is_empty());
+        return Some(state.project_folder(i)).filter(|p| !p.is_empty());
     }
-    if let Some(p) = project_of(state, &cwd.to_string_lossy()) {
+    if let Some(p) = state.project_of(&cwd.to_string_lossy()) {
         return Some(p.path.clone());
     }
     let top = cwd.ancestors().find(|d| d.join(".git").exists())?;
     // A linked worktree's `.git` is a file: `gitdir: <main>/.git/worktrees/<name>`.
     let main = std::fs::read_to_string(top.join(".git")).ok().and_then(|g| g.trim().strip_prefix("gitdir:").and_then(|d| d.trim().split_once("/.git/worktrees/")).map(|(m, _)| m.to_string()));
     let top = main.unwrap_or_else(|| top.to_string_lossy().into_owned());
-    Some(project_of(state, &top).map(|p| p.path.clone()).unwrap_or(top))
+    Some(state.project_of(&top).map(|p| p.path.clone()).unwrap_or(top))
 }
 
 /// A project's title: a registered one's, else its folder's name.
@@ -402,7 +399,7 @@ pub(super) fn project_title(state: &core::State, folder: &str) -> String {
 /// two, in a sentence. None when they agree or either is unknown.
 pub(super) fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef, intent: &str) -> Option<String> {
     let i = state.intents.iter().find(|i| i.id == intent)?;
-    let mine = project_folder(state, i);
+    let mine = state.project_folder(i);
     let (theirs, known) = group_project(state, live, g)?;
     if mine.is_empty() || mine == theirs {
         return None;
@@ -420,15 +417,6 @@ pub(super) fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core
     ))
 }
 
-/// An intent's project folder: as recorded, else where its first unit's repository is.
-pub(super) fn project_folder(state: &core::State, i: &core::Intent) -> String {
-    let path = if i.project.is_empty() { state.units.iter().find(|u| u.intent == i.id).map(|u| u.repo.clone()).unwrap_or_default() } else { i.project.clone() };
-    if path.is_empty() {
-        return path;
-    }
-    project_of(state, &path).map(|p| p.path.clone()).unwrap_or(path)
-}
-
 /// Registered projects with the repositories in them, and one implicit project per
 /// repository that intents use outside all of them.
 fn projects(state: &core::State) -> Vec<ProjectOut> {
@@ -442,7 +430,7 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
         list
     };
     let mut out: Vec<ProjectOut> = state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), registered: true, repos: repos_in(&p.path) }).collect();
-    let folders = state.intents.iter().map(|i| project_folder(state, i)).chain(state.chores.iter().filter(|c| c.intent.is_empty()).map(|c| project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))).chain(state.backlog.iter().map(|b| project_of(state, &b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
+    let folders = state.intents.iter().map(|i| state.project_folder(i)).chain(state.chores.iter().filter(|c| c.intent.is_empty()).map(|c| state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))).chain(state.backlog.iter().map(|b| state.project_of(&b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
     for folder in folders {
         if !folder.is_empty() && !out.iter().any(|p| p.id == folder) {
             let title = Path::new(&folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.clone());

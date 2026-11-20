@@ -133,6 +133,9 @@ its output is a short note and, for a try-out that went wrong, findings like a r
 A decide gate may instead ask a **question with options** (a choice gate, see Choices
 below): named "Question", answered by picking one; nothing follows from the answer but what
 the manager adds after it.
+Files attached to the gate (a plan to read, a build to try) show with its output the way a
+task's attachments do (`attachments.md`), while it waits too: above the form, to be looked
+at before answering it. Submitted, they stay, the form's pictures after them.
 A **chore** blocks nobody (clean the disk, rotate a key) and is never on the graph or
 attached to a task. It belongs to an intent (sometimes to one of its units): it is the
 last, quietest group of the inbox, opening the same list of steps (with "Run" too; a chore
@@ -157,7 +160,7 @@ records it and delivers it to the agents through Herdr.
   if it is left, where), at least one. Pictures can be pasted into the note or a finding,
   dropped on the form, or picked with "Attach"; they show as thumbnails with a ×, and one
   opens large on a click. Only images in the form. They go into the service's store when
-  the result goes out. Submitted, the gate is done, its findings are
+  the result goes out, after the files the gate already had. Submitted, the gate is done, its findings are
   open findings like a review's (so they wait in Needs you) and the work behind it stays
   not started until they are decided. The pictures stay with the gate's output and with
   each finding, wherever it shows, including as the cause of the work it led to.

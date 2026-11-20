@@ -1,7 +1,7 @@
 // An intent's own page (`/i3`): what it is for and what more was said about it, where it runs
 // and who manages it, its units with where each stands, and the research and design recorded
 // on the intent itself before those became units of their own.
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { lastMove, quietSince } from './select'
 import type { Pick } from '@/work/types'
@@ -21,6 +21,9 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Choice } from '@/ui/Choice'
 import { Activity } from '@/work/Activity'
+import { EditIntentDialog } from './EditIntent'
+import { HistoryDialog, HistoryLine } from './IntentHistory'
+import { draftOf, type Draft } from './edit'
 
 /** A label and its value, one row of the "where it runs" list. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -78,7 +81,11 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
   const units = intent.units.filter(u => !u.intentLevel)
   const session = intent.manager ? ws.sessions.find(s => s.manager && !s.ended && s.agent === intent.manager) : undefined
   const worksOn = ws.workspaces?.find(w => w.id === intent.workspace?.id)?.projectTitle
-  const note = intent.note?.trim()
+  // The note as written (its indentation is Markdown); only a blank one is none.
+  const note = intent.note?.trim() ? intent.note : ''
+  // The edit dialog (with what it starts from: its text, or a version to restore) and the history.
+  const [editing, setEditing] = useState<{ draft: Draft; restoring?: number } | null>(null)
+  const [history, setHistory] = useState(false)
   return (
     <>
       <header className="flex items-start gap-3">
@@ -86,11 +93,15 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
           <h1 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xl font-[650] tracking-[-0.012em] wrap-anywhere">
             <span><span className="mr-2 font-mono text-base font-normal tracking-normal text-ink-2">{intent.id}</span><span lang={contentLang(intent.title)}>{intent.title}</span></span>
             <CopyButton text={linkTo(pathOf(intent.id, null))} aria={t('link.copy')} className="self-center text-ink-2" />
+            <Tip text={t('intent.edit.open')}>
+              <Button variant="ghost" size="icon-xs" className="flex-none self-center text-ink-2" aria-label={t('intent.edit.open')} onClick={() => setEditing({ draft: draftOf(intent) })}><Icon name="pen" className="size-3.5" /></Button>
+            </Tip>
             <span className="tag self-center font-normal tracking-normal">{t(`intent.state.${state}`)}</span>
             {intent.complete && <Tip text={t('unit.complete')}><span className="tag self-center font-normal tracking-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
             <span className="self-center"><ExternalChip ext={intent.external} /></span>
           </h1>
           {intent.goal && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(intent.goal)}>{intent.goal}</p>}
+          <HistoryLine intent={intent} onOpen={() => setHistory(true)} />
           {state === 'dropped' && intent.reason && <p className="mt-0.5 text-sm text-ink-2"><Slot text={t('intent.dropped', { reason: SLOT })}><Content text={intent.reason} /></Slot></p>}
         </div>
         {state === 'planned' && (
@@ -152,6 +163,9 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
           ? <ul className="-mx-2.5 flex flex-col">{units.map(u => <UnitRow key={u.id} ws={ws} unit={u} onUnit={onUnit} />)}</ul>
           : <p className="text-sm text-ink-2">{t('rail.noUnits')}</p>}
       </section>
+
+      {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} onClose={() => setEditing(null)} />}
+      {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: text, restoring: n }) }} />}
 
       {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
     </>

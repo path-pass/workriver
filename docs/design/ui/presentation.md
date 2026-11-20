@@ -35,7 +35,8 @@ Three things that used to share colour now have their own channel:
   and is used nowhere else.
 
 Added and removed lines are green and red, the convention of every diff viewer; they
-appear only in the code layer.
+appear only in the code layer, and as words in an intent's history and in the conflict of
+its edit dialog.
 
 Colours are defined in OKLCH as semantic tokens. A theme remaps the tokens; components
 never name a raw colour.

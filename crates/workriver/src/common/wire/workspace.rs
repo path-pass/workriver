@@ -267,6 +267,18 @@ pub(crate) struct Intent {
     /// Still active, and every unit of it merged or done: it can be closed.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) complete: bool,
+    /// Its last version (1 when never changed): what an edit names as its base.
+    pub(crate) version: u32,
+    /// Who made that version and when; its history is read on its own route.
+    pub(crate) edited: Edited,
+}
+
+/// Who made an intent's last version, and when.
+#[derive(Serialize)]
+pub(crate) struct Edited {
+    pub(crate) at: String,
+    /// The agent's name; none: the user.
+    pub(crate) by: Option<String>,
 }
 
 /// Where the message about a user's input is, as the page shows it.

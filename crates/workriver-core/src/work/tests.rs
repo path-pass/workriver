@@ -31,7 +31,7 @@ fn designs_their_gates_and_their_revisions() {
         json!({"kind": "task.created", "body": b})
     };
     let found = |n: u32| json!({"kind": "task.delivered", "body": {"unit": "u1", "task": n, "findings": [{"severity": "P2", "problem": "x", "impact": "y", "where": ["a"]}]}});
-    put(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
     put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
     put(&mut s, "boss", task("design", &["start"], json!({}))); // 1: an older design, unrelated
     put(&mut s, "boss", task("design", &["1"], json!({}))); // 2
@@ -115,9 +115,9 @@ fn corrections_after_delivery() {
     s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
     let late = s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
     assert!(late.contains("already decided") && late.contains("--amend --add-findings"), "{late}");
-    // The goal: the user or the intent's manager only.
+    // The goal: the user's only.
     let other = s.append(&"agent-b".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
-    assert!(other.contains("only the user or the manager"), "{other}");
+    assert!(other.contains("are the user's"), "{other}");
     s.append(&"user".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
     assert_eq!(s.state().intents[0].goal, "Let people mention each other");
 }

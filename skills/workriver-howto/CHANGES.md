@@ -15,6 +15,36 @@ Newest first. A manager that was already running reads this once after an update
   gives its manager the options. Asked without options, a question whose words list some gets
   a hint line. (`ask-user`, `user-message`, `push-pr-merge`, `design-gate`,
   `architecture-review`, `gates-chores`, `blocked`)
+- **Tell the user once, on the page** (managers): after `workriver reply` or `workriver
+  say`, do not repeat the same text in your terminal; leave one line there at most (e.g.
+  which message you answered), unless it holds something the page does not (an error, a
+  command the user must run in a terminal). Messages from the user on the page now say so.
+  (`user-message`)
+- **Where an intent runs is set only by a checked start or by the user** (managers): an
+  intent with no project (from before projects) is the user's to start ("i3 has no project:
+  ask the user to start it"); an agent's `intent.created` is planned and names no workspace
+  (`workriver backlog add` already sends that), and `intent.linked` is the user's alone. No
+  command of yours sends the last two; `manager here --goal` with no current intent now adds
+  the intent to the roadmap and asks you to have the user start it. (`start-intent`)
+- **You start only your workspace's project's intents** (managers): `workriver intent start`
+  of an intent of another project than your workspace's (as the user set it, else its
+  current intent's, else that of the intents that ran in it) is refused, no longer only
+  warned; ask the user, who starts it where it belongs. A new workspace has no project yet:
+  the user starts its first intent on the page (or sets its project, `workriver workspace
+  project`); then you start that project's intents yourself. An active intent is marked done
+  or put back in the roadmap only by its manager or the user, as dropping it is.
+  (`start-intent`)
+- **An intent's title and goal are the user's; its note keeps every version** (managers):
+  `workriver intent set i3 --title/--goal` from an agent is refused (ask the user; they edit
+  them on the intent's page). The note of your active intent you add to (`--add-note`) or
+  replace whole (`--note "…" --base N`); `--title`, `--goal` and `--note` need `--base`, the
+  version you read (`workriver intent history i3`: who changed what, `--version N` one whole,
+  `--diff N` what it changed), and are refused when what they replace changed since. A
+  planned intent of your workspace's project takes your `--add-note` (nothing more): write
+  there what the user tells you about it. Dropping a planned intent is the user's, also one
+  you once ran; done and dropped intents are the user's alone. `backlog merge --title` is the
+  user's: merge without it. When the user edits your active intent you are told: `[workriver]
+  The user changed i3 (now v5): …`. (`start-intent`)
 - **The `Task:` line sits in the commit message's last paragraph** (everyone): with any
   other trailers such as `Co-Authored-By:`, no blank line between them. git reads trailers
   only from the last paragraph, so a `Task:` line followed by a blank line and another

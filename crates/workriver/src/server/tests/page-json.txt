@@ -43,6 +43,9 @@ workspace.intents[].chores[].steps[].text: string
 workspace.intents[].chores[].steps[]: object
 workspace.intents[].chores[].title: string
 workspace.intents[].chores[]: object
+workspace.intents[].edited.at: string
+workspace.intents[].edited.by: null
+workspace.intents[].edited: object
 workspace.intents[].external.key: string
 workspace.intents[].external.system: string
 workspace.intents[].external.url: string
@@ -220,6 +223,7 @@ workspace.intents[].units[].tasks[].writing: bool
 workspace.intents[].units[].tasks[]: object
 workspace.intents[].units[].title: string
 workspace.intents[].units[]: object
+workspace.intents[].version: number
 workspace.intents[].workspace.id: string
 workspace.intents[].workspace.label: string
 workspace.intents[].workspace: object
