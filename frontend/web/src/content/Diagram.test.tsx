@@ -68,6 +68,15 @@ describe('a mermaid block in Markdown', () => {
     expect(host.querySelectorAll('img')).toHaveLength(1)
   })
 
+  it('too heavy to draw is never handed to mermaid: its code shows, under a note', async () => {
+    const heavy = 'graph TD\n' + Array.from({ length: 150 }, (_, i) => `N0-->N${i + 1}`).join('\n')
+    await show('```mermaid\n' + heavy + '\n```')
+    expect(draw.calls).toEqual([])
+    expect(host.querySelector('img')).toBeNull()
+    expect(host.querySelector('pre code')?.textContent).toBe(heavy + '\n')
+    expect(host.textContent).toContain('This diagram could not be drawn; its text is below.')
+  })
+
   it('that mermaid cannot draw shows its code with a note, and nothing throws', async () => {
     draw.answer = () => Promise.reject(new Error('Parse error on line 1'))
     await show('```mermaid\ngraph TD\n  A--\n```')

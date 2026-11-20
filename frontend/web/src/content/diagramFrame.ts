@@ -2,6 +2,7 @@
 // page, draws it with mermaid and sends back the SVG text, or that it could not. The page
 // shows that only as an image (Diagram.tsx).
 import mermaid from 'mermaid'
+import { tooHeavy } from './diagramBounds'
 import { mermaidConfig } from './mermaidConfig'
 
 /** Mermaid's SVG is HTML text (an `xlink:href` with its prefix undeclared, say); an image
@@ -19,8 +20,12 @@ addEventListener('message', async (e: MessageEvent<{ id: number; code: string; d
   if (e.source !== parent || e.origin !== origin) return
   const { id, code, dark } = e.data
   try {
+    // The page refuses these already; nothing too heavy reaches mermaid in any case.
+    if (tooHeavy(code)) throw new Error('too heavy')
     mermaid.initialize(mermaidConfig(dark))
     const { svg } = await mermaid.render(`d${n++}`, code)
+    // What mermaid draws in place of a diagram it refuses is not one.
+    if (/aria-roledescription="error"|Maximum text size in diagram exceeded/.test(svg)) throw new Error('refused')
     parent.postMessage({ id, svg: asXml(svg) }, origin)
   } catch {
     parent.postMessage({ id, failed: true }, origin)

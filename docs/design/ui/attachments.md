@@ -59,11 +59,35 @@ its sections went.
     `new Image()` in the page).
   - The page gets the SVG text back and shows it only as an image (an `<img>` of a `data:`
     URL): an SVG image runs no script, loads nothing, and its links cannot be clicked.
-  - One diagram is drawn at a time, with a pause between, so many or large ones do not hold
-    the page; one no longer shown is skipped. Mermaid refuses a block over 50 000
-    characters or 500 edges (its defaults).
+  - The frame shares the page's thread, and mermaid cannot be stopped once it started (a
+    timer on that thread does not fire until it is done). So a block too heavy to draw is
+    never handed to it: weighed from its text, without mermaid (`diagramBounds.ts`), it may
+    have at most 10 000 characters, no run without white space over 1 000 (mermaid breaks
+    one in time growing with its square: 732 ms for 10 000), and a weight of at most 80.
+    The weight counts, statement by statement (lines, or parts between `;`), the links
+    (`a & b --> c & d` as every edge it makes), or the things named besides a link's ends (a
+    block diagram's row), at least one; labels, strings and text after a spaced `:` are left
+    out. Mermaid's own limits (`maxTextSize`, `maxEdges`) are set to the same, and what it
+    draws in place of a diagram it refuses (its error diagram, "Maximum text size in diagram
+    exceeded") counts as not drawn.
+  - The bound and its budget are measured (Chrome for Testing 1217, headless, on the Mac
+    workriver runs on; each input in a fresh page, mermaid warmed by a two-node graph): the
+    budget is that the page's 5 ms heartbeat never stops longer than 1 s. At the bound, the
+    heaviest shapes found held it for 0.2–0.4 s: a class diagram of 78 relations half of them
+    spanning the whole chain (357–412 ms), state and ER diagrams of that shape (286–390),
+    78 such flowchart edges with labels up to 10 000 characters (306–357), `;`-joined and
+    one-line chains, block rows, kanban, nested subgraphs (125–295); sequence diagrams,
+    gantt, pie and the other kinds stay far under (at 200 statements: 75 ms and less). The
+    cost grows with the square of edges that span many ranks: 100 of them 0.3–0.7 s, 200
+    of them 1.6–2.9 s, the reviewed 499 (u15#6) 24 s, so the bound sits where the worst is
+    half the budget, room for a slower machine. In the page itself (the app, then the
+    first diagram, mermaid loaded then) the heaviest allowed held it for 404 ms on the
+    production build; the reviewed block and one of 50 001 characters are refused and held
+    it for under 10 ms.
+  - One diagram is drawn at a time, with a pause between, so many do not hold the page; one
+    no longer shown is skipped.
   - Until it is drawn the block shows its code as any code block does; one mermaid cannot
-    draw keeps its code, under a short note ("This diagram could not be drawn; its text is
+    draw, or too heavy to draw, keeps its code, under a short note ("This diagram could not be drawn; its text is
     below."), never a broken picture or an error. The diagram is drawn in the page's theme
     (mermaid's `neutral` in light, `dark` in dark) and again when the theme changes; it keeps
     its own size, on the code block's ground, scrolled sideways when wider than the text, as

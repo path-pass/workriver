@@ -2,6 +2,7 @@
 // change: strict security, no HTML labels, and a page that may fetch nothing.
 import { describe, expect, it } from 'vitest'
 import { FRAME, inTurn, size } from './drawDiagram'
+import { BOUNDS } from './diagramBounds'
 import { mermaidConfig } from './mermaidConfig'
 
 const later = () => new Promise(r => setTimeout(r))
@@ -53,6 +54,8 @@ describe("mermaid's settings", () => {
       expect(c.theme).toBe(dark ? 'dark' : 'neutral')
       // ELK, mermaid 12's default, is left out of the build (vite.config.ts).
       expect(c.layout).toBe('dagre')
+      // Its own limits no looser than ours (diagramBounds.ts), checked before it draws.
+      expect([c.maxTextSize, c.maxEdges]).toEqual([BOUNDS.chars, BOUNDS.weight])
       for (const key of ['securityLevel', 'htmlLabels', 'layout', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode'])
         expect(c.secure).toContain(key)
     }

@@ -7,6 +7,7 @@
 // keeps a block's %%{init}%% directive or front matter from changing any of this, the theme
 // or the fonts.
 import type { MermaidConfig } from 'mermaid'
+import { BOUNDS } from './diagramBounds'
 
 export function mermaidConfig(dark: boolean): MermaidConfig {
   return {
@@ -14,6 +15,9 @@ export function mermaidConfig(dark: boolean): MermaidConfig {
     securityLevel: 'strict',
     htmlLabels: false,
     layout: 'dagre',
+    // Mermaid's own limits, no looser than ours (diagramBounds.ts), which are checked first.
+    maxTextSize: BOUNDS.chars,
+    maxEdges: BOUNDS.weight,
     theme: dark ? 'dark' : 'neutral',
     darkMode: dark,
     // System fonts only (nothing to fetch), the same that the image is shown with.
