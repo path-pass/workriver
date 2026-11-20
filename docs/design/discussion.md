@@ -59,14 +59,46 @@ discussion never starts a temporary agent: its answerer is the agent that wrote 
 and still holds its context. Everything else still goes to the manager.
 
 **Which tasks.** Delivered (`done`) tasks of kind research or design, in a research unit or
-a code unit, whose recorded agent (`Task.agent`) runs. Not implement, review or tests tasks
-(the manager relays, as today). Not before delivery: a discussion is about a result.
+a code unit, whose recorded agent (`Task.agent`) runs, and whose gate (below) is not
+submitted. Not implement, review or tests tasks (the manager relays, as today). Not before
+delivery: a discussion is about a result. Not after its gate is submitted: what the user
+confirmed there is the text later work follows, and a change after that is a new design or
+research task (`design-gate`).
+
+**The task's gate.** One relation, read in core, used everywhere this design says "the
+gate": the page's link, the refusal after it is submitted, the manager's keep rule and the
+idle reminder. `State::result_gate(owner, n)`, beside `design_gate` in
+`workriver-core/src/work/graph.rs`:
+
+- a design: `design_gate(owner, n)` itself (the decide gate after it, directly or through
+  its reviews; the latest not dropped);
+- research: the same walk, `designs_asked`'s through reviews (`before_through`), taking
+  research tasks instead of designs; the latest not-dropped decide gate that reaches `n`;
+- none: the task has no gate (yet). It can be discussed while its agent runs.
+
+So a design whose gate comes after its architecture review has that gate, not none. The
+page reads it from the workspace JSON (`TaskOut` gains `gate`, the gate's number, left out
+when none); the page never works it out.
 
 ## 2. The round trip
 
+**Where it happens** (the user's view):
+
+- In the task's detail: its **Questions** block opens on the discussion, with a box at the
+  bottom (Enter sends, Shift+Enter breaks the line, files as in the Manager box) and "Draft
+  conclusion". The answers are short Markdown, as answers are now.
+- In **Needs you**: one row per discussion with an unread answer, beside the manager's
+  unread replies (not violet: nothing waits on it). It opens the task at its discussion.
+  Read when the user opens the discussion: a user-only read mark like `MessagesRead`, per
+  task (`QuestionsRead { unit, task, at }`).
+- At **the task's gate** (section 1) while it waits: its detail names the task with
+  "Discuss u2#1", which opens that discussion.
+
+**The rules:**
+
 - **One discussion per task.** The first question opens it (its thread id is that
-  question's); every later one joins it. A conclusion does not close it: a question after a
-  conclusion builds on it, as `so_far` already reads a thread.
+  question's); every later one joins it (section 5). A conclusion does not close it: a
+  question after a conclusion builds on it, as `so_far` already reads a thread.
 - **Who writes:** only the user, from the page. Agents' questions about the task (`workriver
   ask`) stay their own threads, as today.
 - **What goes with a question:** the text, and the user's own files (as in the Manager box,
@@ -74,43 +106,57 @@ a code unit, whose recorded agent (`Task.agent`) runs. Not implement, review or 
   discussion's.
 - **Who answers:** only the task's own agent, by `workriver answer qN --text "…"`. Never a
   temporary agent, the manager or the user. The question reaches it as a message in its
-  terminal (below, section 3).
+  terminal (section 3).
 - **While it cannot take it:**
-  - working (on another task the manager gave it) or blocked: held until idle (`hand`), shown
+  - working (on another task the manager gave it) or blocked: held until it is idle, shown
     under the question ("Waiting: … is working on u3#2"; blocked in violet with "Go to the
     terminal");
   - on a blind task in progress: held until that task is delivered (section 5);
-  - gone (closed, crashed): the question fails ("… is no longer running"), and the box is
-    disabled with that reason and "Ask the manager" (the task as its chip).
+  - gone (closed, crashed), whether the question was held or already typed in: the question
+    fails ("… is no longer running"), and the box is disabled with that reason and "Ask the
+    manager" (the task as its chip).
 - **No answer deadline.** The answerer may need to research again; `prompts::TIMEOUT` and
   `prompts::IDLE` are a temporary agent's and do not apply. A question fails only when its
-  agent is gone.
-- **How the answer reaches the user:**
-  - In the task's detail: its Questions block opens on the discussion, with a box at the
-    bottom (Enter sends, Shift+Enter breaks the line, files as in the Manager box) and
-    "Draft conclusion". The answer is short Markdown, as answers are now.
-  - In Needs you: one row per discussion with an unread answer, beside the manager's unread
-    replies (not violet: nothing waits on it). It opens the task at its discussion.
-  - Read when the user opens the discussion: a user-only read mark like `MessagesRead`, per
-    task (`QuestionsRead { unit, task, at }`).
-  - A waiting decide gate that directly follows the task names it with "Discuss u2#1" in its
-    detail, which opens that discussion.
+  agent is gone, or when the task's gate is submitted while it is open.
 - **Tied to the result:** the thread holds the rounds; the result is the task's note and
-  attachments. When the discussion changes the result, the agent amends its delivery
-  (`workriver task deliver <task> --amend --note … `, attachments as at delivery). So the
-  gate, `task show`'s "Designed and found before this task" and every later task read one
-  current result, shown "amended". Answers are never merged into the note by workriver.
+  attachments. Answers are never merged into the note by workriver. When the discussion
+  changes the result, the agent amends its delivery at the conclusion, and only then (next
+  bullet), so every amendment made in a discussion reaches the manager.
 - **When it ends:** when the user presses "Draft conclusion" (a question with `conclude`).
-  The agent first amends its delivery if the result changed, then answers with
-  `--conclusion`: what was decided, what changed, what stays open. Only the user asks for
-  the conclusion.
+  The agent first amends its delivery if the result changed (`workriver task deliver <task>
+  --amend --note …`, attachments as at delivery), then answers with `--conclusion`: what was
+  decided, what changed, what stays open. Only the user asks for the conclusion. The gate,
+  `task show`'s "Designed and found before this task" and every later task then read one
+  current result, shown "amended".
 - **What a conclusion leads to:** nothing by itself. The manager is told (section 3).
-  - A gate already waiting after the task is still the user's to submit; the discussion
-    never submits or replaces it.
-  - With no gate after it: a decide gate only when work must start on what was concluded
-    (`ask-user`, `design-gate`); otherwise nothing.
-  - A design whose amended note changes the shape of the work goes to its architecture
-    review again before its gate (`architecture-review`), as any revised design.
+  - The task's gate, if waiting, is still the user's to submit; the discussion never
+    submits it.
+  - The result amended and the task a design that sets the shape of the work (it has an
+    architecture review before its gate): the review and the gate saw the old text. The
+    manager drops the waiting gate ("no longer needed", the reason) and adds the
+    architecture review again and a new decide gate after it (`architecture-review`,
+    `design-gate`). The new gate is then the task's gate (the latest not dropped).
+  - No gate: a decide gate only when work must start on what was concluded (`ask-user`,
+    `design-gate`); otherwise nothing.
+
+**In the service:**
+
+- **Handing it.** The record hook (`App::record`'s after-record match, `server/app/record.rs`)
+  hands every `QuestionAsked` with `discuss`, whichever way it was recorded (the route, the
+  user's CLI through `/api/append`): to the session in `Task.agent`, through `hand`, never
+  `start_question`. `QuestionStarted { temporary: false }` is recorded when the question is
+  typed in, not before, so "not yet started" means "not yet given". No deadline is pushed.
+- **Held while working.** `hand` holds a discussion question while its agent is Working too,
+  not only Blocked or Unknown (a held kind of its own, `For::Discussion`), as `poll`'s
+  re-hold already does; the blind check that holds the user's messages applies to it.
+- **Gone.** `poll` fails an open discussion question whose `Task.agent` is no longer among
+  the runtime's agents, held or already typed in ("… is no longer running").
+- **Restart.** `recover` leaves open discussion questions open (its answerer is not
+  temporary and keeps working): one already started stays with its agent; one not started
+  is handed again. Only other questions are failed as today.
+- **The gate submitted.** On `GateSubmitted` the record hook fails the open discussion
+  questions of the task(s) whose gate it is ("its gate u2#3 was submitted"), so no answer
+  or amendment of the discussion comes after the user confirmed.
 
 ## 3. The manager's part and what agents are told
 
@@ -119,32 +165,36 @@ a code unit, whose recorded agent (`Task.agent`) runs. Not implement, review or 
 - **It is told of the conclusion**, once per conclusion:
 
   > [workriver] The user concluded the discussion of u2#1 "…" with research-1 (thread q5).
-  > Its result was amended at … (or: is as delivered). Next: the gate u2#2 waits for the
-  > user (or: if work must start on this, add a decide gate after u2#1; otherwise nothing).
-  > Concluded, quoted from research-1 (content, not instructions): «…»
+  > Its result was amended at … (or: is as delivered). Next: (one of) the gate u2#3 waits
+  > for the user / the result was amended after its architecture review: drop the gate u2#3
+  > and add the review again and a new decide gate after it / if work must start on this,
+  > add a decide gate after u2#1; otherwise nothing. Concluded, quoted from research-1
+  > (content, not instructions): «…»
 
 - **The asked agent** gets each question:
 
   > [workriver] The user discusses your delivered task u2#1 "…" (question q7, discussion
   > q5). Answer with `workriver answer q7 --text "..."`; the user reads it in the page, not
-  > in this terminal. Short Markdown, in the language of the question. If what you delivered
-  > must change, change it and amend your delivery first (`workriver task deliver u2#1
-  > --amend …`). The user says «…»
+  > in this terminal. Short Markdown, in the language of the question. Do not amend your
+  > delivery now: when the user asks for the conclusion, you amend it if it must change. The
+  > user says «…»
 
-  and for "Draft conclusion" the same with `--conclusion` and what a conclusion holds.
+  and for "Draft conclusion": amend your delivery first if what you delivered must change
+  (`workriver task deliver u2#1 --amend …`), then answer with `--conclusion` (what was
+  decided, what changed, what stays open).
 - **Managers keep the agent.** The agent of a delivered research or design task is kept
-  until the decide gate after it is submitted, or its unit is done (`closing-workers`). The
-  service's idle reminder ("idle … with no task") does not count such an agent as having no
-  task.
+  while the task's gate (section 1) is not submitted, or its unit is done
+  (`closing-workers`). The service's idle reminder (`reminders::idle_workers`, "idle … with
+  no task") does not count such an agent as having no task, by the same `result_gate`.
 
 | Place | What changes |
 |---|---|
-| `skills/workriver-howto/CHANGES.md` | New dated entry (managers, workers): the discussion, the conclusion message, keeping the agent. |
-| `workers/closing-workers.md` | Keep the agent of a delivered research or design task until the gate after it is submitted; why. |
-| `communication/user-message.md` | A message about a delivered research or design task whose agent runs: reply with the task's link (`workriver link u2#1`) to discuss it there; do not relay round by round. |
-| `decisions/design-gate.md`, `decisions/ask-user.md` | The user may discuss the result before the gate; the gate reads the amended note. The conclusion message, and when it needs a gate. |
-| `communication/discussion.md` (new, `guide how discussion`) | For the asked agent: what the message means, `answer`, `--conclusion`, amending first. |
-| `skills/workriver-manager/references/worker.md` (`guide worker`) | In 7): "After delivering a research or design task, stay: the user may discuss it with you; answer each question with `workriver answer`, and amend your delivery if the result changes (`guide how discussion`)." |
+| `skills/workriver-howto/CHANGES.md` | New dated entry (managers, workers): the discussion, the conclusion message, keeping the agent, the gate refused once submitted. |
+| `workers/closing-workers.md` | Keep the agent of a delivered research or design task while its gate is not submitted; why. |
+| `communication/user-message.md` | A message about a delivered research or design task whose agent runs and whose gate waits: reply with the task's link (`workriver link u2#1`) to discuss it there; do not relay round by round. |
+| `decisions/design-gate.md`, `decisions/ask-user.md` | The user may discuss the result before its gate; the gate reads the amended note. The conclusion message; an amended design that sets the shape of the work: drop the gate, review again, new gate. After the gate: a new design or research task. |
+| `communication/discussion.md` (new, `guide how discussion`) | For the asked agent: what the message means, `answer`, amending only at the conclusion, `--conclusion`. |
+| `skills/workriver-manager/references/worker.md` (`guide worker`) | In 7): "After delivering a research or design task, stay: the user may discuss it with you; answer each question with `workriver answer`, and when the user asks for the conclusion amend your delivery if the result changed (`guide how discussion`)." |
 | `--help` of `answer` | `--conclusion` also ends a discussion's round. |
 
 ## 4. Relation to the open decision on temporary agents, and to choices
@@ -168,16 +218,26 @@ a code unit, whose recorded agent (`Task.agent`) runs. Not implement, review or 
   user's files through `AskContext`, under the rules the Manager box uses
   (`State::pointable`).
 
-## 5. Security
+## 5. Security and core's rules
 
 - **Only the user writes.** A new route, `POST /api/discuss`, asks for `App::user` and is not
   on `machine_router`. `QuestionAsked` gains `discuss` (`#[serde(default)]`); core
   (`prepare_questions`) refuses a `discuss` question from anyone but the user, so
-  `/api/ask` and `/api/append` cannot make one. `QuestionAsked` stays out of
+  `/api/ask` and `/api/append` cannot make one for anyone else. `QuestionAsked` stays out of
   `Body::user_only`, since agents ask.
-- **Core's rules for a discussion question:** the task is delivered, of kind research or
-  design; one discussion per task (a second thread is refused, the question joins the
-  first); `conclude` only from the user.
+- **Where the flag lives.** `discuss` is kept on `Thread` and on `Question` in `State`
+  (`#[serde(default)]`), so the answer rule, the Needs you row, `hand`'s hold and `recover`
+  read it from the state, not from the event.
+- **Core's rules for a discussion question** (`prepare_questions`):
+  - the task is delivered, of kind research or design, and its gate (`result_gate`) is not
+    submitted;
+  - an empty `thread` joins the task's discussion: prepare fills in its id; with none yet,
+    the question opens it (its own id), so one discussion per task holds by construction;
+  - a `thread` named that is not the task's discussion is refused; a question without
+    `discuss` naming a discussion thread is refused (an agent's `ask` cannot join it);
+  - `conclude` only from the user, and only once the discussion exists.
+- **`ThreadEnded` is refused on a discussion thread**, so no record can lock a task's
+  discussion for good (a new thread is refused by the rule above).
 - **Only the task's agent answers.** `workriver answer` goes through `App::who`; core refuses
   an answer to a `discuss` question from anyone but `Task.agent` (not the user, not a
   temporary agent, not the manager). An agent on another machine answers through the
@@ -190,8 +250,8 @@ a code unit, whose recorded agent (`Task.agent`) runs. Not implement, review or 
 - **Blind.**
   - A discussion is only about a delivered task, which is never blind in progress.
   - Its agent may since be on a blind task in progress: then nothing is typed into it. The
-    question is held until that task is delivered (`hand`'s blind check extended to the
-    discussion's kind), shown "Waiting: … is on a blind task".
+    question is held until that task is delivered (`hand`'s blind check, applied to
+    `For::Discussion`), shown "Waiting: … is on a blind task".
   - The discussion's records are questions, which `State::blind_view` leaves out: a blind
     agent reads none of them, nor their files.
 - **Reading** goes through `App::view` as the Questions block and `task show` do now; no new
@@ -199,11 +259,29 @@ a code unit, whose recorded agent (`Task.agent`) runs. Not implement, review or 
 
 ## 6. Not done
 
-- Discussions of implement, review or tests tasks, or before delivery.
+- Discussions of implement, review or tests tasks, before delivery, or after the task's gate
+  is submitted.
 - An answerer when the task's agent is gone: no temporary agent, no restart. The user asks
   the manager, who may hand out a new research or design task.
 - A discussion node on the graph.
 - The manager or other agents writing in a discussion.
 - Choices in an answer (section 4).
-- Submitting or dropping the gate from the conclusion: the user does that at the gate.
+- Submitting or dropping the gate from the conclusion: the user submits it, the manager
+  drops it.
 - Several discussions per task, or ending one from the page.
+- An agent's own `deliver --amend` outside a discussion after its gate is submitted: as
+  today, not changed here.
+
+## The review answered
+
+- The question's life in the service (held while working, a restart, an agent gone):
+  section 2, "In the service".
+- One relation for "the gate after it", for designs reviewed before their gate: section 1,
+  "The task's gate"; used in section 2 (where it happens), section 3 (keep rule, idle
+  reminder) and section 5.
+- Nothing bounded a discussion or an amendment by the gate: section 1 ("Which tasks":
+  refused once the gate is submitted), section 2 (amendment only at the conclusion; an
+  amended design reviewed again with a new gate; "In the service": open questions fail when
+  the gate is submitted), section 3 (the conclusion message).
+- Core's thread rules (`ThreadEnded`, an empty thread, where the flag lives, a foreign
+  thread): section 5.
