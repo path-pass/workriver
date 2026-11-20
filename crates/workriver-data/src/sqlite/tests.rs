@@ -14,6 +14,11 @@ fn agent_a() -> Principal {
     Principal::Agent { session: "agent-a".into(), machine: None }
 }
 
+/// Who records a seeded event: an active intent is the user's to add, the rest agent-a's.
+fn by(b: &Body) -> Principal {
+    if matches!(b, Body::IntentCreated { .. }) { Principal::User } else { agent_a() }
+}
+
 fn seed() -> Vec<Body> {
     let steps = [
         json!({"kind": "intent.created", "body": {"title": "Chat v2"}}),
@@ -37,7 +42,7 @@ fn replay_rebuilds_the_same_state() {
     let before = {
         let mut s = Store::open(&path).unwrap();
         for b in seed() {
-            s.append(&agent_a(), b).unwrap();
+            s.append(&by(&b), b).unwrap();
         }
         s.state().clone()
     };
@@ -52,7 +57,7 @@ fn events_are_append_only() {
     let path = dir.path().join("w.db");
     let mut s = Store::open(&path).unwrap();
     for b in seed() {
-        s.append(&agent_a(), b).unwrap();
+        s.append(&by(&b), b).unwrap();
     }
     let conn = rusqlite::Connection::open(&path).unwrap();
     for sql in ["UPDATE events SET actor = 'x'", "DELETE FROM events"] {

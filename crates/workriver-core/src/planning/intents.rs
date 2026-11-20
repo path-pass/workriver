@@ -174,6 +174,12 @@ impl State {
                 if !matches!(state, IntentState::Planned | IntentState::Active) {
                     return no("a new intent is planned (in the backlog) or active");
                 }
+                // Where an intent runs (a workspace's current intent, its project, the intent's
+                // manager) is set by a start the rules check, or by the user; an agent's intent
+                // starts in the roadmap. (Before 0.2 an intent was made in its runtime group.)
+                if !user && (runtime_ref.is_some() || state == IntentState::Active) {
+                    return no("an agent adds an intent to the roadmap, planned and in no workspace (`workriver backlog add`); it runs where it is started (`workriver intent start`)");
+                }
                 IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external }
             }
             IntentStateChanged { intent, state, reason, workspace } => {
@@ -192,7 +198,11 @@ impl State {
                         // Where its workspace's project is not known by the records, its start would
                         // make it that project's: the user starts the first one, or sets it.
                         let theirs = self.project_folder(i);
-                        if !user && !theirs.is_empty() {
+                        // One of no known project (records from before projects) is the user's to start.
+                        if !user && theirs.is_empty() {
+                            return no(format!("{intent} has no project: ask the user to start it (in the roadmap, in a workspace of the project it belongs to)"));
+                        }
+                        if !user {
                             let title = |p: &str| self.project_of(p).map_or(p.to_string(), |x| x.title.clone());
                             match self.workspace_of(g).and_then(|w| self.workspace_project(w)) {
                                 Some(ours) if ours == theirs => {}

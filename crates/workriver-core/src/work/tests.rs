@@ -31,7 +31,7 @@ fn designs_their_gates_and_their_revisions() {
         json!({"kind": "task.created", "body": b})
     };
     let found = |n: u32| json!({"kind": "task.delivered", "body": {"unit": "u1", "task": n, "findings": [{"severity": "P2", "problem": "x", "impact": "y", "where": ["a"]}]}});
-    put(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
     put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
     put(&mut s, "boss", task("design", &["start"], json!({}))); // 1: an older design, unrelated
     put(&mut s, "boss", task("design", &["1"], json!({}))); // 2

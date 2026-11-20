@@ -273,9 +273,9 @@ fn a_note_grows_by_paragraphs() {
 /// for a runtime group is active and that group's current intent, its manager the group's.
 #[test]
 fn old_records_map_onto_workspaces() {
-    let mut s = Records::default();
     let w = json!({"id": "wM", "label": "workriver"});
-    add(&mut s, "workriver", json!({"kind": "intent.created", "body": {"id": "", "title": "workriver", "goal": "", "runtime_ref": w}})).unwrap();
+    // As recorded before 0.2 (no rule then on where an intent was made).
+    let mut s = recorded_before(Records::default(), "workriver", json!({"kind": "intent.created", "body": {"id": "i1", "title": "workriver", "goal": "", "runtime_ref": w}}));
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "boss"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "ja", "repo": "/r", "branch": "feat/ja-ui", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "impl"}})).unwrap();
@@ -588,10 +588,12 @@ fn a_manager_starts_only_its_workspaces_projects_intents() {
     add(&mut s, "idle", json!({"kind": "manager.registered", "body": {"agent": "idle", "workspace": w2}})).unwrap();
     let e = add(&mut s, "idle", start2("i3")).unwrap_err();
     assert!(e.contains("i3 belongs to project Q; your workspace's project is not known") && e.contains("workriver workspace project"), "{e}");
-    // An intent of no known project it starts.
-    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Somewhere", "state": "planned"}})).unwrap();
-    add(&mut s, "idle", start2("i4")).unwrap();
-    assert!(add(&mut s, "idle", start2("i3")).is_err(), "an intent of no project does not make it one's");
+    // Nor one of no known project (records from before projects): the user starts it.
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Somewhere", "note": "The user's own words", "state": "planned"}})).unwrap();
+    let e = add(&mut s, "idle", start2("i4")).unwrap_err();
+    assert!(e.contains("i4 has no project") && e.contains("ask the user to start it"), "{e}");
+    assert!(add(&mut s, "boss", start("i4")).is_err(), "not even in a workspace whose project is known");
+    add(&mut s, "user", start2("i4")).unwrap();
     add(&mut s, "user", start2("i3")).unwrap();
     assert!(add(&mut s, "idle", start2("i1")).unwrap_err().contains("your workspace works on Q"));
     // Once its intents are over it still works on that project: the next of Q it starts.
@@ -638,4 +640,36 @@ fn a_whole_note_keeps_its_whitespace() {
     add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i2", "note": code, "base": 4}})).unwrap();
     assert_eq!(intent_text(s.events(), "i2", 5).unwrap().note, code);
     assert_eq!(replayed(&s), *s.state());
+}
+
+/// Where an intent runs, and so which workspace's project it is and who manages it, is set
+/// only by a start the rules checked or by the user: an agent adds an intent planned and
+/// with no workspace, and never links one to a workspace. Old records that did replay as
+/// they were.
+#[test]
+fn agents_do_not_set_where_an_intent_runs() {
+    let mut s = two_projects();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    let w2 = json!({"id": "w2", "label": "docs"});
+    add(&mut s, "other", json!({"kind": "manager.registered", "body": {"agent": "other", "workspace": w2}})).unwrap();
+    // Creating an intent in its own workspace, active or planned, to make the workspace Q's.
+    for state in ["active", "planned"] {
+        let e = add(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Decoy", "project": "/q", "state": state, "runtime_ref": w1}})).unwrap_err();
+        assert!(e.contains("an agent adds an intent to the roadmap"), "{state}: {e}");
+    }
+    let e = add(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Decoy", "project": "/p", "state": "active"}})).unwrap_err();
+    assert!(e.contains("an agent adds an intent to the roadmap"), "{e}");
+    add(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Fine", "project": "/p", "state": "planned"}})).unwrap();
+    // Linking another workspace's active intent to its own, to become its manager.
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "active", "workspace": w2}})).unwrap();
+    let e = add(&mut s, "boss", json!({"kind": "intent.linked", "body": {"intent": "i3", "runtime_ref": w1}})).unwrap_err();
+    assert!(e.contains("only the user does this (intent.linked)"), "{e}");
+    assert_eq!(s.state().manager_of("i3"), Some("other"));
+    // The user may do both.
+    add(&mut s, "user", json!({"kind": "intent.linked", "body": {"intent": "i3", "runtime_ref": w1}})).unwrap();
+    assert_eq!(s.state().manager_of("i3"), Some("boss"));
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Here", "project": "/p", "state": "active", "runtime_ref": w1}})).unwrap();
+    // Recorded before the rule, an agent's intent made in its group still replays as it was.
+    let old = recorded_before(s, "boss", json!({"kind": "intent.created", "body": {"id": "i6", "title": "Old", "state": "active", "runtime_ref": w2}}));
+    assert_eq!(old.state().intent_for(&RuntimeRef { id: "w2".into(), label: "docs".into(), machine: None }).map(|i| i.id.as_str()), Some("i6"));
 }
