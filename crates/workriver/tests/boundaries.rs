@@ -22,7 +22,7 @@ const ADAPTER: &str = "crates/workriver/src/runtime/herdr/";
 const FACADE: (&str, &[&str]) = ("crates/workriver/src/runtime/mod.rs", &["mod herdr;", "use herdr as adapter;"]);
 
 /// Files where a word means something of workriver's own, not the runtime's.
-const OWN_SENSE: &[(&str, &str, &str)] = &[("frontend/web/src/components/CodeLayer.tsx", "pane", "the file tree beside the diff, a layout term (selector `data-tree=\"pane\"`)")];
+const OWN_SENSE: &[(&str, &str, &str)] = &[("frontend/web/src/code/CodeLayer.tsx", "pane", "the file tree beside the diff, a layout term (selector `data-tree=\"pane\"`)")];
 
 const STILL_HERDR: &[&str] = &[
     "crates/workriver-core/src/lib.rs",

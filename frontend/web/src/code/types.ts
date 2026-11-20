@@ -106,3 +106,6 @@ export interface FileDelta {
   add: number
   del: number
 }
+
+/** A commit opened from the panel: the code block shows it. `at` changes with every request. */
+export type CommitFocus = { unit: string; id: string; at: number }

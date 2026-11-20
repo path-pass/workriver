@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/components/Flow'
-import { SECTIONS, SideButtons, SidePanel, SideSheet, type CommitFocus, type Section } from '@/components/Side'
+import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from '@/components/Side'
+import type { CommitFocus } from '@/code/types'
 import { Notes, Progress, Squashed } from '@/components/bits'
 import { Topics } from '@/agents/Mark'
 import { MachineChip } from '@/machines/format'
@@ -16,7 +17,7 @@ import type { RunAsk } from '@/commands/types'
 import { Ask } from '@/conversations/Ask'
 import type { Talk } from '@/conversations/types'
 import { isField } from '@/lib/isField'
-import { CodeLayer } from '@/components/CodeLayer'
+import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
 import { Rail } from '@/components/Rail'
 import { IntentPage } from '@/components/IntentPage'
@@ -27,10 +28,9 @@ import { askeeOf, selectionOf } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { blame, shownDelta } from '@/code/files'
-import { loadCode, withCode } from '@/code/load'
 import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { Pick } from '@/work/types'
-import type { Lines, UnitCode } from '@/code/types'
+import type { Lines } from '@/code/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from '@/app/link'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery } from '@/api/actions'
@@ -40,34 +40,11 @@ import type { Intent, Unit } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { AskContext, ManagerMessage, Turn } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
+import { useCode } from '@/code/useCode'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
 const PROJECT = 'workriver.project'
-
-/**
- * The unit with its files' texts, for the code layer: read when it is shown, and again only
- * when its `code` changes. Until the new texts are there, the unit as they were read for.
- * Null until the first arrive. The sample has them inline.
- */
-function useCode(unit: Unit | null): Unit | null {
-  const [got, setGot] = useState<{ unit: Unit; code: UnitCode } | null>(null)
-  const want = unit && !MOCK && !noCode(unit) ? `${unit.id}\0${unit.code ?? ''}` : null
-  const latest = useRef(unit)
-  latest.current = unit
-  useEffect(() => {
-    const u = latest.current
-    if (!want || !u) return
-    let gone = false
-    loadCode(u).then(code => { if (!gone) setGot({ unit: u, code }) }, e => console.warn(e))
-    return () => { gone = true }
-  }, [want])
-  return useMemo(() => {
-    if (!unit || MOCK || noCode(unit)) return unit
-    if (got?.unit.id !== unit.id) return null
-    return withCode(got.code.code === (unit.code ?? '') ? unit : got.unit, got.code)
-  }, [unit, got])
-}
 
 /**
  * The same object as long as its content is the same: a new snapshot that did not change the
