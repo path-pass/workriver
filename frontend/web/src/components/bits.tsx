@@ -4,41 +4,10 @@ import { Button } from '@/ui/primitives/button'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE, type Remote } from '@/api/actions'
-import type { Step } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import { Tip } from '@/ui/Tip'
 import { Icon } from '@/ui/Icon'
 import { CopyButton } from '@/ui/CopyButton'
-
-/**
- * What an agent prepared for the user to do by hand: the same for a gate and for a chore.
- * With `onRun`, each command also has "Run", which asks to run it as the user.
- */
-export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string, step: number) => void }) {
-  const { t } = useT()
-  return (
-    <ol className="steps">
-      {steps.map((s, k) => (
-        <li key={k}>
-          <span className="whitespace-pre-line" lang={contentLang(s.text)}>{s.text}</span>
-          {s.command && (
-            <div className="cmd">
-              <code>{s.command}</code>
-              <CopyButton text={s.command} />
-              {onRun && (
-                <Tip text={t('run.buttonFor', { command: s.command })}>
-                  <Button variant="ghost" size="xs" className="flex-none rounded-sm" aria-label={t('run.buttonFor', { command: s.command })} onClick={() => onRun(s.command!, k + 1)}>
-                    <Icon name="play" className="size-3" />{t('run.button')}
-                  </Button>
-                </Tip>
-              )}
-            </div>
-          )}
-        </li>
-      ))}
-    </ol>
-  )
-}
 
 // Names one letter apart land far apart on the colour wheel.
 const hue = (name: string) => [...name].reduce((n, ch) => (n * 31 + ch.charCodeAt(0) * 97) % 360, 7)

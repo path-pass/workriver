@@ -8,7 +8,7 @@ import { MOCK } from '@/workspace/source'
 import { useT } from '@/i18n'
 import { rememberWanted, startSession } from '@/api/session'
 import { SIGNED_OUT } from '@/api/http'
-import { Steps } from './bits'
+import { Steps } from '@/commands/context'
 
 export function Session({ children }: { children: ReactNode }) {
   const { t } = useT()

@@ -38,7 +38,7 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver/tests/output.rs",
     "frontend/web/src/agents/types.ts",
     "frontend/web/src/api/actions.ts",
-    "frontend/web/src/components/Run.tsx",
+    "frontend/web/src/commands/Run.tsx",
     "frontend/web/src/components/Start.tsx",
     "frontend/web/src/i18n/en.ts",
     "frontend/web/src/i18n/ja.ts",

@@ -10,7 +10,7 @@ import type { Intent } from '@/planning/types'
 import type { RuntimeWorkspace, Session } from '@/agents/types'
 import type { Workspace } from '@/workspace/types'
 import { Choice } from '@/ui/Choice'
-import { Steps } from './bits'
+import { Steps } from '@/commands/context'
 import { Content, Slot, slot, SLOT } from '@/content/Chips'
 import { Icon } from '@/ui/Icon'
 

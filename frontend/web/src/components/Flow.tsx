@@ -30,7 +30,7 @@ import { Content, ExternalChip, Slot, SLOT } from '@/content/Chips'
 import { CopyButton } from '@/ui/CopyButton'
 import { Icon, Mark, Waiting } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { RunSteps } from './Run'
+import { RunSteps } from '@/commands/context'
 import { Choice } from '@/ui/Choice'
 
 const W = 176, H = 48, R = 18

@@ -15,7 +15,7 @@ import { TerminalButton, Who } from './bits'
 import { Content, Slot, SLOT } from '@/content/Chips'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { RunSteps } from './Run'
+import { RunSteps } from '@/commands/context'
 import { alertLimit, alertValue, topLine } from './Machines'
 
 const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
