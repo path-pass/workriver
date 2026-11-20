@@ -13,7 +13,6 @@ use tokio::sync::{broadcast, watch};
 use workriver_core::ports::WorkStore;
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
-use workriver_data::Store;
 use workriver_scan as scan;
 
 use crate::common::BUILD;
@@ -39,7 +38,8 @@ pub(super) use lifecycle::*;
 pub(super) use progress::*;
 
 pub(super) struct App {
-    pub(super) store: Mutex<Store>,
+    /// What keeps the work, as core's data port: the service knows nothing else of it.
+    pub(super) store: Mutex<Box<dyn WorkStore>>,
     pub(super) cache: Mutex<Cache>,
     /// Wakes the background read of repositories on other machines.
     pub(super) remote_kick: std::sync::mpsc::Sender<()>,

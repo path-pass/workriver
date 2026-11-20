@@ -247,6 +247,7 @@ mod tests {
     use serde_json::json;
     use workriver_core::runtime::{AgentState, RuntimeAgent};
     use workriver_core::Principal;
+    use workriver_core::ports::WorkStore;
     use workriver_data::Store;
 
     use super::*;
@@ -261,7 +262,7 @@ mod tests {
     fn an_idle_worker_on_an_unread_machine_is_unknown() {
         let dir = tempfile::tempdir().unwrap();
         let mut s = Store::open(&dir.path().join("w.db")).unwrap();
-        let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.append(&who, serde_json::from_value(v).unwrap()).unwrap();
+        let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
         at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat"}}));
         at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
@@ -287,7 +288,7 @@ mod tests {
     fn a_disconnected_machine_is_unknown() {
         let dir = tempfile::tempdir().unwrap();
         let mut s = Store::open(&dir.path().join("w.db")).unwrap();
-        let mut at = |who: Principal, v: serde_json::Value| s.append(&who, serde_json::from_value(v).unwrap()).unwrap();
+        let mut at = |who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         at(Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat"}}));
         at(Principal::User, json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
         at(Principal::User, json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x"}}));

@@ -165,6 +165,7 @@ fn pick_up_survives_a_restart() {
 #[test]
 #[ignore = "needs WORKRIVER_REPLAY_DB"]
 fn replays_a_copied_database() {
+    use workriver_core::ports::WorkStore;
     let from = std::env::var("WORKRIVER_REPLAY_DB").expect("WORKRIVER_REPLAY_DB");
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("w.db");
@@ -187,12 +188,12 @@ fn replays_a_copied_database() {
     let mut cache = crate::server::views::Cache::default();
     let snap = serde_json::to_value(crate::server::views::build(s, &mut cache, None, &Default::default(), &Default::default(), &Default::default(), &[])).unwrap();
     println!("projects: {}", snap["projects"]);
-    println!("events: {}", store.count().unwrap());
+    println!("events: {}", store.status().unwrap().events);
     // The whole replayed state, for comparing a copy before and after a change byte for byte
     // (docs/design/restructure.md, "Replaying a copy of the real database").
     if let Ok(out) = std::env::var("WORKRIVER_REPLAY_OUT") {
         let runs: Vec<String> = s.runs.iter().map(|r| format!("{r:?}")).collect();
-        let all = json!({ "events": store.count().unwrap(), "state": s, "runs": runs });
+        let all = json!({ "events": store.status().unwrap().events, "state": s, "runs": runs });
         std::fs::write(&out, serde_json::to_string_pretty(&all).unwrap() + "\n").unwrap();
     }
 }

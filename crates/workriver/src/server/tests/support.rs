@@ -345,6 +345,12 @@ pub(super) fn stored(db: &std::path::Path) -> Vec<workriver_core::Event> {
     workriver_data::Store::open(db).unwrap().history(Revision(0), usize::MAX).unwrap().events
 }
 
+/// The bodies of every stored event of `kind`, oldest first: what is only in the record
+/// (commands the user ran).
+pub(super) fn bodies(db: &std::path::Path, kind: &str) -> Vec<serde_json::Value> {
+    stored(db).iter().map(|e| serde_json::to_value(e).unwrap()).filter(|v| v["kind"] == kind).map(|v| v["body"].clone()).collect()
+}
+
 pub(super) fn wait_until(what: &str, mut ok: impl FnMut() -> bool) {
     assert!((0..60).any(|_| ok() || { std::thread::sleep(std::time::Duration::from_millis(200)); false }), "{what}");
 }

@@ -9,7 +9,6 @@ use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
 use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
-use workriver_core::ports::WorkStore;
 use workriver_core as core;
 use workriver_scan as scan;
 
@@ -66,8 +65,10 @@ pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller
 }
 
 pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
-    let store = app.store.lock().unwrap();
-    let s = store.recorded();
+    let (s, storage) = {
+        let store = app.store.lock().unwrap();
+        (store.recorded(), store.status()?)
+    };
     let (files, bytes) = store::usage(&app.home);
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -77,8 +78,8 @@ pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<
         // The page as the user opens it, on this machine: `workriver link` builds on it, also
         // through a machine's tunnel.
         "url": app.page(),
-        "db": store.path(),
-        "events": store.count()?,
+        "db": storage.location,
+        "events": storage.events,
         "intents": s.intents.len(),
         "units": s.units.len(),
         "runtime": { "connected": app.live().is_some(), "warning": app.warning },

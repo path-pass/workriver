@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::Context;
 use notify_debouncer_mini::{DebounceEventResult, new_debouncer};
 use tokio::sync::{broadcast, watch};
-use workriver_core::ports::WorkStore;
 use workriver_core::runtime::Runtime;
 use workriver_data::Store;
 use workriver_scan as scan;
@@ -102,7 +101,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
         procs,
         pins: Pins::open(&store_home),
         told: Mutex::default(),
-        store: Mutex::new(store),
+        store: Mutex::new(Box::new(store)),
         cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
         remote_kick: kick,
         machines,

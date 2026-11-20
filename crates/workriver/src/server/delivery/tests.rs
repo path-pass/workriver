@@ -1,6 +1,7 @@
 use serde_json::json;
 use workriver_core::runtime::AgentState;
 use workriver_core::Event;
+use workriver_core::ports::WorkStore;
 use workriver_data::Store;
 
 use super::*;
@@ -14,7 +15,7 @@ fn at(store: &mut Store, actor: &str, v: serde_json::Value) -> Event {
         "user" => workriver_core::Principal::User,
         a => workriver_core::Principal::Agent { session: a.into(), machine: None },
     };
-    store.append(&who, serde_json::from_value(v).unwrap()).unwrap()
+    store.record(&who, serde_json::from_value(v).unwrap()).unwrap().event
 }
 
 #[test]

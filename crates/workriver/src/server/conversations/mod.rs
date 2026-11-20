@@ -7,7 +7,6 @@ use std::time::Duration;
 use axum::extract::State;
 use axum::{Extension, Json};
 use serde::Deserialize;
-use workriver_core::ports::WorkStore;
 use workriver_core::runtime::{AgentState, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
 use workriver_scan as scan;

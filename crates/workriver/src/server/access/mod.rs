@@ -7,7 +7,6 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use workriver_core::ports::WorkStore;
 use workriver_core::runtime::{Root, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Principal};
 

@@ -60,10 +60,9 @@ fn the_user_runs_a_command() {
     let seen = user.get(&format!("/api/run/{id}")).unwrap();
     assert!(seen["output"].as_str().unwrap().ends_with("rejected: hook says no"), "{seen}");
     assert_eq!(http(port, "GET", &format!("/api/run/{id}"), &[], None).0, 401);
-    let store = workriver_data::Store::open(&db).unwrap();
-    let ran = store.bodies("command.ran").unwrap();
+    let ran = bodies(&db, "command.ran");
     assert_eq!(ran, [json!({ "id": id, "command": "git push origin feat/f", "dir": dir, "unit": "u1", "by": "s-boss", "from": "u1#1", "step": 1 })]);
-    wait_until("the end is recorded", || workriver_data::Store::open(&db).unwrap().bodies("command.ended").unwrap() == [json!({ "id": id, "exit": 1 })]);
+    wait_until("the end is recorded", || bodies(&db, "command.ended") == [json!({ "id": id, "exit": 1 })]);
     let runs = user.get("/api/workspace").unwrap()["runs"].clone();
     assert_eq!((&runs[0]["state"], &runs[0]["exit"]), (&json!("done"), &json!(1)), "{runs}");
 
@@ -87,7 +86,7 @@ fn the_user_runs_a_command() {
     wait_until("the machine's listener", || all.local_port("box").is_some());
     let via_box = kernel.daemon(all.local_port("box").unwrap(), Some(format!("place-{reviewer}")), None);
     via_box.call(&path, Some(review)).unwrap();
-    wait_until("the review is recorded", || workriver_data::Store::open(&db).unwrap().bodies("command.reviewed").unwrap().iter().any(|b| b["id"] == far_id.as_str() && b["verdict"] == "danger"));
+    wait_until("the review is recorded", || bodies(&db, "command.reviewed").iter().any(|b| b["id"] == far_id.as_str() && b["verdict"] == "danger"));
     let runs = user.get("/api/workspace").unwrap()["runs"].clone();
     assert_eq!((&runs[0]["command"], &runs[0]["from"], &runs[1]["id"]), (&json!("make deploy"), &json!(null), &json!(id)), "newest first; typed by the user: {runs}");
 
@@ -338,7 +337,7 @@ fn a_command_is_reviewed_before_it_runs() {
     let seen = user.get(&format!("/api/run/{id}")).unwrap();
     assert_eq!(seen["review"], json!({ "state": "done", "verdict": "caution", "text": text }));
     wait_until("the review agent is closed", || fake.closed.lock().unwrap().contains(&name));
-    let reviewed = || workriver_data::Store::open(&db).unwrap().bodies("command.reviewed").unwrap();
+    let reviewed = || bodies(&db, "command.reviewed");
     assert!(reviewed().is_empty(), "nothing ran yet");
     user.call("/api/run", Some(json!({ "id": id, "command": "bash ./scripts/setup.sh" }))).unwrap();
     assert_eq!(reviewed(), [json!({ "id": id, "verdict": "caution", "text": text })]);

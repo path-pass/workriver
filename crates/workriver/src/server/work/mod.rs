@@ -7,7 +7,6 @@ use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use workriver_core::ports::WorkStore;
 use workriver_core::{self as core, Body, Principal};
 
 use crate::server::delivery;

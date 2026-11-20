@@ -435,6 +435,7 @@ fn the_user_starts_an_intent_from_the_page() {
 fn which_project_a_workspace_works_on() {
     use crate::server::views::{Known, group_project, other_project};
     use workriver_core::Principal;
+    use workriver_core::ports::WorkStore;
     use workriver_core::runtime::AgentState::*;
     let tmp = tempfile::tempdir().unwrap();
     let (a, b, repo) = (tmp.path().join("alpha"), tmp.path().join("beta"), tmp.path().join("repo"));
@@ -446,11 +447,11 @@ fn which_project_a_workspace_works_on() {
     let mut store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let boss = Principal::Agent { session: "s-boss".into(), machine: None };
     let body = |v: serde_json::Value| serde_json::from_value::<workriver_core::Body>(v).unwrap();
-    store.append(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": a, "title": "Alpha" } }))).unwrap();
-    store.append(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": b, "title": "Beta" } }))).unwrap();
-    store.append(&boss, body(json!({ "kind": "manager.registered", "body": { "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
-    store.append(&Principal::User, body(json!({ "kind": "intent.created", "body": { "title": "Login", "project": b, "state": "planned" } }))).unwrap();
-    store.append(&boss, body(json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
+    store.record(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": a, "title": "Alpha" } }))).unwrap();
+    store.record(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": b, "title": "Beta" } }))).unwrap();
+    store.record(&boss, body(json!({ "kind": "manager.registered", "body": { "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
+    store.record(&Principal::User, body(json!({ "kind": "intent.created", "body": { "title": "Login", "project": b, "state": "planned" } }))).unwrap();
+    store.record(&boss, body(json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
     let g = workriver_core::RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None };
     let at = |cwd: &str, machine: Option<&str>| {
         let mut m = live("s-boss", "boss", "w1", Idle);
@@ -474,11 +475,11 @@ fn which_project_a_workspace_works_on() {
 
     // Set by hand: the user's alone, and it wins over the manager's folder; cleared, worked out again.
     let set = |p: Option<&str>| body(json!({ "kind": "workspace.project_set", "body": { "workspace": { "id": "w1", "label": "chat" }, "project": p } }));
-    assert!(store.append(&boss, set(Some("p2"))).unwrap_err().to_string().contains("only the user"));
-    assert!(store.append(&Principal::User, set(Some("p9"))).unwrap_err().to_string().contains("no project p9"));
-    store.append(&Principal::User, set(Some("p2"))).unwrap();
+    assert!(store.record(&boss, set(Some("p2"))).unwrap_err().to_string().contains("only the user"));
+    assert!(store.record(&Principal::User, set(Some("p9"))).unwrap_err().to_string().contains("no project p9"));
+    store.record(&Principal::User, set(Some("p2"))).unwrap();
     assert_eq!(group_project(store.state(), &at(&format!("{a}/sub"), None), &g), Some((b.clone(), Known::User)));
-    store.append(&Principal::User, set(None)).unwrap();
+    store.record(&Principal::User, set(None)).unwrap();
     assert_eq!(group_project(store.state(), &at(&format!("{a}/sub"), None), &g), Some((a.clone(), Known::Manager)));
 }
 

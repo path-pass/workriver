@@ -9,7 +9,6 @@ use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use workriver_core::ports::WorkStore;
 use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, Body};
 use workriver_scan as scan;
