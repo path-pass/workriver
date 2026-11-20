@@ -2,7 +2,7 @@
 // background read of other machines' repositories, the branches it watches, its poll of the
 // runtime (a tick's steps as they have always run), and the stop.
 use super::*;
-use crate::run;
+use crate::server::commands::{review, shell};
 
 /// How often the runtime's agents are read.
 pub(in crate::server) const POLL: Duration = Duration::from_secs(2);
@@ -259,7 +259,7 @@ impl App {
             let _ = app.runtime.close(&name);
         }
         // So is an agent a previous run started to review a command: what it would say is lost.
-        let left: Vec<String> = app.runtime.agents().unwrap_or_default().into_iter().filter(|a| a.name.starts_with(&run::reviewer("")) && a.group.as_ref().is_some_and(|g| g.label == run::GROUP)).map(|a| a.name).collect();
+        let left: Vec<String> = app.runtime.agents().unwrap_or_default().into_iter().filter(|a| a.name.starts_with(&review::reviewer("")) && a.group.as_ref().is_some_and(|g| g.label == shell::GROUP)).map(|a| a.name).collect();
         for name in left {
             let _ = app.runtime.close(&name);
         }

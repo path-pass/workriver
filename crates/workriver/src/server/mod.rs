@@ -24,6 +24,7 @@ use crate::server::views::Cache;
 
 mod access;
 mod app;
+mod commands;
 pub(super) mod delivery;
 pub(super) mod files;
 mod handlers;

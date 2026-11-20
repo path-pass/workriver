@@ -27,9 +27,9 @@ use crate::server::delivery;
 use crate::server::files;
 use crate::server::views::{self, Cache};
 
-use crate::server::handlers::*;
 use crate::server::http::*;
 use crate::server::Waits;
+use crate::server::commands::*;
 
 mod lifecycle;
 mod progress;

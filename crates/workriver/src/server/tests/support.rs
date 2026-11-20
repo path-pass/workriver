@@ -183,7 +183,7 @@ pub(super) fn nobody() -> u32 {
 impl Fake {
     /// As Herdr's implementation: only a place that is there, in the runs' group, a plain shell.
     fn run_shell_at(&self, group: &str, place: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        assert_eq!(group, crate::run::GROUP);
+        assert_eq!(group, crate::server::commands::shell::GROUP);
         if !self.screens.lock().unwrap().contains_key(place) || self.not_shells.lock().unwrap().iter().any(|p| p == place) {
             return Err(workriver_core::runtime::RuntimeError::NoPlace(format!("{place} is no longer a shell in {group}")));
         }
