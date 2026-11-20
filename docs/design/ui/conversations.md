@@ -19,8 +19,9 @@ Agents still ask each other that way (below).
   last), in the same place as the others; no switch in its heading. The workspace is the
   open unit's intent's, or picked from those with a manager (a select, when there are
   several; Needs you's unread messages and an intent's "Write to the manager" open the
-  section on a workspace). Its messages read as a chat, at the bottom, fixed: the chips, the
-  box, and the line saying where it goes.
+  section on a workspace), or **All managers**, the select's first option (below). Its
+  messages read as a chat, at the bottom, fixed: the chips, the box, and the line saying where
+  it goes.
 - **What the user writes** is typed into the manager's terminal ("The user writes to you
   from workriver's page (message m3) … Reply with `workriver reply m3 …`", what it points
   at in workriver's words, then the user's text quoted as theirs); a manager waiting for a
@@ -33,6 +34,18 @@ Agents still ask each other that way (below).
   message already waiting for it (held while it waited for a person) waits for that task
   too, saying so quietly under it ("Waiting: … is on a blind task"; the service's words on
   hover), and goes once the task is delivered.
+- **All managers.** With more than one manager running (or once written to), the select
+  offers "All managers" first: one conversation with every manager at once, here and on
+  followed machines. What the user writes there (text and their own files; never chips) is
+  recorded once and typed into the terminal of each workspace's manager running then, each
+  copy held and given like any message (waiting for a person, a blind task) and never
+  skipped: one that cannot be given says "Not delivered" and why. The message shows once,
+  with a line per copy under it (the workspace, "on <machine>" for another machine, then
+  where that copy is, in the same words and colours as a single message's), and each
+  manager's replies follow it on the left in the order they came, each headed by the
+  manager, its crown and its workspace. The box says how many managers it goes to; with none
+  running it is disabled and says so. Needs you counts its unread replies as one row, "All
+  managers", which opens this conversation; reading it there marks them read.
 - **What is picked goes with it, as chips** above the box: the unit (its title), the picked
   task (its number, a gate's title, a review's label), the picked finding, the picked file –
   or, when lines are picked, the lines instead of their file – the other tasks that changed
@@ -128,6 +141,23 @@ Agents still ask each other that way (below).
   - Nothing is written to a manager on an undelivered blind task: refused ("… is on a blind
     task: write once it is delivered"), since nothing about other work is typed into a
     blind agent.
+- **To every manager.** `MessageSent.to` (`serde(default)`, empty for a message to one
+  manager) lists the managers it goes to, a `Recipient` each: the workspace's record (its
+  group, so a workspace of another machine keeps its machine) and its manager's session. The
+  service fills it (`/api/message` with `all`; `App::running_managers`): each workspace's
+  manager on record (`State::managers`) that the runtime shows running; none running, or the
+  runtime unreachable, is a refusal. The rules (`MessageSent` with `to`): each recipient is
+  the recorded manager of its workspace, each once; no intent, unit or task, and context
+  only the user's own files (`State::picked` with no unit); a manager on a blind task is not
+  refused, since its copy is held. The message's `workspace` and `manager` are empty: its
+  conversation is the one under no workspace's label, and `messages.read` with an empty
+  workspace reads it. `MessageDelivery.manager` names the copy (the recipient's session; it
+  must be one of them, and is empty for a message to one manager), whose `delivery` it
+  sets. Each recipient replies (`MessageReplied`), nobody else; a reply's `by` keeps them
+  apart. The page's JSON (`MessageOut.to`, a `CopyOut` each) gives each copy's workspace,
+  machine, manager, where it is (as a message's step, reason and wait) and its manager's
+  replies; the message's own `replies` are then empty and its `step` is "sending" until
+  every copy is given or not.
 - **Files.** The page stores each one with `POST /api/attachments` when the message is sent
   (the same content once) and names the ids in `context`; not `/api/attachments/inbox`,
   which makes a task's folder for an agent. Until sent they are held in the page; one taken
@@ -161,6 +191,18 @@ then the user's text quoted. For example:
 - To a manager on another machine each store path becomes `workriver attach fetch
   <id>.<ext>` (`App::send`).
 - The delivery record (`MessageDelivery.message`) holds this text.
+- To every manager, each copy is `delivery::broadcast_message`: that it went to every
+  manager, how many, and which workspace is this manager's own (its label, and "on machine
+  …" for another machine, through `quote::name`), so it answers for that one only; then the
+  same reply instruction as a single message (`replying`), the user's files (`pointed`),
+  and the user's text quoted. For example:
+
+      [workriver] The user writes to every manager from workriver's page (message m4, to
+      the managers of 3 workspaces): answer for your own workspace, "chat", only. Reply with
+      `workriver reply m4 --text "..."`; … The user says, in workriver: «I shut down at six.»
+
+  Each copy is held (`For::Broadcast`, keyed by the message and its manager) and recorded
+  apart; a restart while a copy waits marks that copy not delivered.
 - **When it is held.** A manager waiting for a person in its terminal is not typed over: the
   message waits and goes in once it is free. If its manager is then on a blind task in
   progress, it waits for that task's delivery too. A restart while it waits marks it not
@@ -170,9 +212,11 @@ then the user's text quoted. For example:
 
 ## Security
 
-- `/api/message` is user-only (`App::user`), and `MessageSent` is in `Body::user_only`.
-  Neither it nor anything of this conversation is on the machine listener
-  (`machine_router`).
+- `/api/message` is user-only (`App::user`), and `MessageSent` is in `Body::user_only`, a
+  message to every manager too. Neither it nor anything of this conversation is on the
+  machine listener (`machine_router`). The recipients are the service's (the records and
+  the runtime), never the request's; one recorded through `/api/append` may still name only
+  managers on record.
 - Files reach a message only through the store's route, and the service names them only
   after the rules above, so a message cannot hand the manager a file the user could not
   point at.

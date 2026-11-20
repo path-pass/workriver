@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **The user writes to every manager at once** (managers): a message may come to every
+  running manager, here and on followed machines: `[workriver] The user writes to every
+  manager from workriver's page (message m3, to the managers of 3 workspaces): answer for
+  your own workspace, "chat", only.` Answer for your own workspace alone (what runs there,
+  what you did there), with `workriver reply m3` as usual; the other managers answer for
+  theirs, and the page shows each reply under the message with its workspace. (`user-message`)
 - **Tell the user once, on the page** (managers): after `workriver reply` or `workriver
   say`, do not repeat the same text in your terminal; leave one line there at most (e.g.
   which message you answered), unless it holds something the page does not (an error, a

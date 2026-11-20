@@ -55,8 +55,24 @@ Something only the user may decide (a merge, a deploy, the goal) still goes thro
 gate (`ask-user`); say in the reply that it waits there.
 
 **Refusals:** "message m3 went to … only that manager replies to it" - it was sent to
-another manager (an earlier one of this workspace); the user can write again. "no message
-m3" - check the id in the message.
+another manager (an earlier one of this workspace); the user can write again. "message m3
+went to every manager; only the managers it went to reply to it" - it went to the managers
+running when it was sent, and you were not one of them. "no message m3" - check the id in
+the message.
+
+## A message to every manager
+
+The user may write once to every manager running (here and on followed machines). It arrives
+like this:
+
+    [workriver] The user writes to every manager from workriver's page (message m3, to the managers of 3 workspaces): answer for your own workspace, "chat", only. Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. … The user says, in workriver: «I shut down at six: clean up the worktrees you no longer use.»
+
+Every other manager got the same message; each answers for its own workspace. Do for yours
+what it asks (pause your workers, close those you no longer need, hand a clean-up to a
+worker, `closing-workers`), never for another workspace, and reply with what you did or will
+do there: `workriver reply m3 --text "chat: paused u2; worktrees of u1 removed."`. The page
+shows the message once, each manager's reply under it, labelled by its workspace. It points
+at nothing of an intent; it may carry the user's files, by their paths, as any message.
 
 ## Telling the user something unasked
 
