@@ -31,8 +31,8 @@ function shown(n: Task) {
 describe('requirements added to a task', () => {
   it('each under the other, oldest first, with who and when; the user as "you"', () => {
     const { label, items } = shown(task([
-      { by: 'boss', at: '2026-11-20T10:00:00Z', text: 'Also cover the Codex adapter' },
-      { by: 'user', at: '2026-11-20T11:00:00Z', text: 'And keep the old flag' },
+      { by: 'boss', user: false, at: '2026-11-20T10:00:00Z', text: 'Also cover the Codex adapter' },
+      { by: 'user', user: true, at: '2026-11-20T11:00:00Z', text: 'And keep the old flag' },
     ]))
     expect(label).toBe('Added to what it asks')
     expect(items).toHaveLength(2)
@@ -40,6 +40,12 @@ describe('requirements added to a task', () => {
     expect(items[0]).toContain('Also cover the Codex adapter')
     expect(items[1]).toContain('You added to what it asks')
     expect(items[1]).toContain('And keep the old flag')
+  })
+
+  it('"you" only for what the user recorded, not for an agent that goes by "user"', () => {
+    const { items } = shown(task([{ by: 'user', user: false, at: '2026-11-20T10:00:00Z', text: 'Also the docs' }]))
+    expect(items[0]).toContain('user added to what it asks')
+    expect(items[0]).not.toContain('You added')
   })
 
   it('nothing for a task with none', () => {

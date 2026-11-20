@@ -124,7 +124,7 @@ fn attachments_of(state: &core::State, ids: &[String]) -> Vec<AttachmentOut> {
 
 /// What was added to a finding or to what a task asks, as the page shows it.
 fn notes_of(state: &core::State, names: &Names, notes: &[core::FindingNote]) -> Vec<NoteOut> {
-    notes.iter().map(|n| NoteOut { by: names.of(&n.by), at: n.at.clone(), text: n.text.clone(), attachments: attachments_of(state, &n.attachments) }).collect()
+    notes.iter().map(|n| NoteOut { by: names.of(&n.by), user: n.by == "user", at: n.at.clone(), text: n.text.clone(), attachments: attachments_of(state, &n.attachments) }).collect()
 }
 
 /// A task's conversations, from the records, with the runtime's word on their agents.

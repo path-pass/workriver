@@ -198,7 +198,9 @@ Blindness guards against bias, not against an agent that sets out to look. What 
   agent's terminal shows is not workriver's to hide.
 - **The manager's message.** What the manager writes into the hand-off, or adds to the task
   later (`workriver task note`, which the blind agent is told and shown: it is its own
-  task), is up to it; its instructions say what to leave out.
+  task), is up to it; its instructions say what to leave out. workriver's own words in that
+  notice name the task only as the blind agent's view shows it; an addition to another task
+  of the same agent waits, like any other notice, until it delivers.
 
 ## What this does not protect against
 

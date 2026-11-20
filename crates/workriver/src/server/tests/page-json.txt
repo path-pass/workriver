@@ -105,6 +105,7 @@ workspace.intents[].units[].tasks[].input.notes[].attachments[].url: string
 workspace.intents[].units[].tasks[].input.notes[].attachments[]: object
 workspace.intents[].units[].tasks[].input.notes[].by: string
 workspace.intents[].units[].tasks[].input.notes[].text: string
+workspace.intents[].units[].tasks[].input.notes[].user: bool
 workspace.intents[].units[].tasks[].input.notes[]: object
 workspace.intents[].units[].tasks[].input.steps: array
 workspace.intents[].units[].tasks[].input.text: string
@@ -145,6 +146,7 @@ workspace.intents[].units[].tasks[].output.findings[].notes: array
 workspace.intents[].units[].tasks[].output.findings[].notes[].at: string
 workspace.intents[].units[].tasks[].output.findings[].notes[].by: string
 workspace.intents[].units[].tasks[].output.findings[].notes[].text: string
+workspace.intents[].units[].tasks[].output.findings[].notes[].user: bool
 workspace.intents[].units[].tasks[].output.findings[].notes[]: object
 workspace.intents[].units[].tasks[].output.findings[].problem: string
 workspace.intents[].units[].tasks[].output.findings[].severity: string

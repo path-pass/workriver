@@ -163,33 +163,66 @@ pub(super) fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::pa
     out
 }
 
-/// Who is told that a requirement was added to a task: its agent, while the task is started
-/// and not delivered, live and not the one who added it. Not started yet: nobody, it reads
-/// it at `task show`. A blind task's agent is told too: the addition is about its own task,
-/// which its blind view shows anyway. What was added goes in as a quote.
-pub(super) fn task_noted(state: &State, live: Option<&[RuntimeAgent]>, home: &Path, e: &Event) -> Vec<(String, String)> {
-    let Body::TaskNoted { unit, task, text, attachments } = &e.body else { return vec![] };
-    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+/// The message about a requirement added to a task, for its agent.
+#[derive(Debug, PartialEq)]
+pub(super) struct Noted {
+    /// The agent's session, and the name it is shown by.
+    pub(super) to: String,
+    pub(super) name: String,
+    pub(super) message: String,
+    /// It is the agent's own blind task: told now, named as its blind view shows it. Else it
+    /// is told as anything else is (held while the agent is on a blind task).
+    pub(super) own_blind: bool,
+}
+
+/// Who is told that a requirement was added to a task, and what; else why nobody is. Its
+/// agent, while the task is started and not delivered, live (in `live`, the runtime now) and
+/// not the one who added it. The agent is the session the task was started with; a name
+/// recorded before sessions were is only the one live agent going by it, and a session that
+/// is gone is nobody else. Not started: nobody, it reads it at `task show`. An agent on a
+/// blind task hears of that task by what its blind view shows. What was added goes in as a
+/// quote.
+pub(super) fn task_noted(state: &State, live: &[RuntimeAgent], home: &Path, e: &Event) -> Result<Noted, String> {
+    let Body::TaskNoted { unit, task, text, attachments } = &e.body else { return Err("it is not a requirement added to a task".into()) };
+    let t = state.task(unit, *task).map_err(|e| e.to_string())?;
     if t.state != workriver_core::TaskState::Running {
-        return vec![];
+        return Err(format!("{unit}#{task} is not started; its agent reads it with `workriver task show {unit}#{task}`"));
     }
-    // Assigned by session, or by the name the agent goes by.
-    let Some(to) = t.agent.as_deref().and_then(|a| live.iter().find(|x| x.session == a || x.name == a)).map(|x| x.session.clone()) else { return vec![] };
+    let Some(agent) = t.agent.as_deref() else { return Err(format!("{unit}#{task} has no agent")) };
+    let Some(to) = running(state, live, agent) else { return Err(format!("{} is not running", who(state, agent))) };
     if to == e.actor {
-        return vec![];
+        return Err("you are its agent".into());
     }
+    let own_blind = state.blind_tasks(&to).iter().any(|(o, n)| o == unit && n == task);
+    let view = if own_blind { state.blind_view(&to) } else { None };
+    let seen = view.as_ref().unwrap_or(state);
+    let t = seen.task(unit, *task).map_err(|e| e.to_string())?;
     let user = e.actor == "user";
     let from = if user { "the user".to_string() } else { format!("your manager ({})", who(state, &e.actor)) };
     let said = if user { users("The user wrote", text) } else { quoted(&format!("What was added, quoted from {}", who(state, &e.actor)), text) };
-    let files: Vec<String> = attachments.iter().filter_map(|id| state.attachments.iter().find(|a| &a.id == id)).filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name)).map(|p| p.display().to_string()).collect();
+    let files: Vec<String> = attachments.iter().filter_map(|id| seen.attachments.iter().find(|a| &a.id == id)).filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name)).map(|p| p.display().to_string()).collect();
     let files = if files.is_empty() { String::new() } else { format!(" Attachments: {}.", files.join(", ")) };
-    vec![(
-        to,
-        format!(
-            "[workriver] Your task {} has an added requirement from {from}: it is part of what the task asks now. Read it with `workriver task show {unit}#{task}`.{files} {said}",
-            label(state, unit, t)
-        ),
-    )]
+    let message = format!(
+        "[workriver] Your task {} has an added requirement from {from}: it is part of what the task asks now. Read it with `workriver task show {unit}#{task}`.{files} {said}",
+        label(seen, unit, t)
+    );
+    Ok(Noted { name: who(state, &to), to, message, own_blind })
+}
+
+/// The live session of the agent a task was given to: by its session; a name recorded before
+/// sessions were, only when one live agent goes by it. A known session that is not live is
+/// nobody: another agent may go by a name that looks like it.
+fn running(state: &State, live: &[RuntimeAgent], agent: &str) -> Option<String> {
+    if live.iter().any(|a| a.session == agent) {
+        return Some(agent.to_string());
+    }
+    if state.name_of(agent).is_some() {
+        return None;
+    }
+    match live.iter().filter(|a| a.name == agent).collect::<Vec<_>>()[..] {
+        [one] => Some(one.session.clone()),
+        _ => None,
+    }
 }
 
 /// Who is told that a task was dropped: its agent (assigned or started), to stop it, and

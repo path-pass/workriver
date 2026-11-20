@@ -161,15 +161,14 @@ impl App {
         // An addition to a finding goes to several at once; it is on the page either way, so
         // what does not arrive is only logged.
         // ponytail: these are not followed up as "delivered / picked up" like decisions are.
-        // A dropped task likewise: its agent (to stop) and the manager; a requirement added
-        // to a task, its agent.
+        // A dropped task likewise: its agent (to stop) and the manager.
         // Work over: the manager hears which of its workers it may close.
-        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
+        // A requirement added to a task: `noted`, which says how far it got.
+        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
             let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
             let to = {
                 match e.body {
                     Body::FindingNoted { .. } => delivery::notes(&all, live.as_deref(), &self.home, e),
-                    Body::TaskNoted { .. } => delivery::task_noted(&all, live.as_deref(), &self.home, e),
                     Body::TaskDropped { .. } => delivery::dropped(&all, live.as_deref(), e),
                     Body::ManagerTold { .. } => delivery::told(&all, live.as_deref(), e),
                     _ => delivery::finished(&all, live.as_deref(), e),
@@ -194,6 +193,33 @@ impl App {
                 let message = plan.message.clone();
                 let _ = self.tell(&to, &message, Some(plan));
             }
+        }
+    }
+
+    /// Tells a task's agent of a requirement added to it (`task.noted`, recorded), and says how
+    /// far that got, in the service's words: the note stands either way. The agent is looked
+    /// for in the runtime now, not in the last poll: it may have started since. Its own blind
+    /// task it hears of at once; anything else as `tell` has it (held while it is blind).
+    pub(in crate::server) fn noted(&self, e: &core::Event) -> String {
+        let read = got(self.store.lock().unwrap().recorded());
+        let Ok(Some(all)) = read else { return "its agent was not told: the records cannot be read now".into() };
+        let live = match self.runtime.agents() {
+            Ok(live) => live,
+            Err(err) => return format!("its agent was not told: {err}"),
+        };
+        let n = match delivery::task_noted(&all, &live, &self.home, e) {
+            Ok(n) => n,
+            Err(why) => return format!("its agent was not told: {why}"),
+        };
+        let name = n.name.clone();
+        let sent = if n.own_blind { Ok(self.send(&n.to, &n.message)) } else { self.tell(&n.to, &n.message, None) };
+        match sent {
+            Ok(Ok(())) => format!("{name} was told in its terminal"),
+            Ok(Err(err)) => {
+                tracing::warn!("cannot tell {name} of a requirement added: {err}");
+                format!("its agent was not told: cannot reach {name}: {err}")
+            }
+            Err(why) => format!("not told yet: {why}"),
         }
     }
 

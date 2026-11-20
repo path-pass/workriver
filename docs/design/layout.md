@@ -140,8 +140,11 @@ the service answers 422 for a broken rule and 500 otherwise.
 
 `App::record` keeps, outside the adapter, what surrounds a write: `may_manage` and
 `complete` before it, and after the commit, in this order, delivery, the kind's follow-up,
-the branch watch and the page's signal. How a failed read is handled before and after the
-commit is in AGENTS.md (Layout).
+the branch watch and the page's signal. A requirement added to a task (`task.noted`) is
+told apart: the append handler calls `App::noted` after the commit, which tells the task's
+agent (found in the runtime now, not the last poll) and gives how far that got, answered
+beside the recorded event. How a failed read is handled before and after the commit is in
+AGENTS.md (Layout).
 
 ## The outer crate
 
@@ -189,7 +192,7 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/complete/may_manage, post-commit order.
+│   │   │   ├── record.rs             # App::record/complete/may_manage/noted, post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
 │   │   │   ├── mod.rs                # App::who/user/view/here, the Caller and the Reader.

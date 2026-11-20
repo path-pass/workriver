@@ -99,7 +99,10 @@ export interface Finding {
 
 /** Something added later, to a finding or to what a task asks: by whom, when, what. */
 export interface Note {
+  /** The name its author is shown by. */
   by: string;
+  /** The user wrote it (the service says so from who recorded it, never from the name). */
+  user: boolean;
   at: string;
   text: string;
   attachments?: Attachment[];

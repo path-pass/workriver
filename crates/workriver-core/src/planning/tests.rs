@@ -288,6 +288,30 @@ fn old_records_map_onto_workspaces() {
     assert_eq!(st.task("u1", 1).unwrap().intent, "i1");
 }
 
+/// A registration that names an intent (as before 0.2) is for the workspace that intent runs
+/// in: not for an intent that runs in none, not with another workspace. What was recorded
+/// before this rule replays as it did.
+#[test]
+fn a_manager_registers_for_its_intents_workspace() {
+    let mut s = Records::default();
+    let (w1, w2) = (json!({"id": "w1", "label": "chat"}), json!({"id": "w2", "label": "search"}));
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Nowhere", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "workriver", json!({"kind": "intent.created", "body": {"title": "Chat", "runtime_ref": w1}})).unwrap();
+    let e = add(&mut s, "far", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap_err();
+    assert!(e.contains("i1 runs in no workspace") && e.contains("workriver manager here"), "{e}");
+    let e = add(&mut s, "far", json!({"kind": "manager.registered", "body": {"intent": "i1", "workspace": w2}})).unwrap_err();
+    assert!(e.contains("i1 runs in no workspace"), "{e}");
+    let e = add(&mut s, "far", json!({"kind": "manager.registered", "body": {"intent": "i2", "workspace": w2}})).unwrap_err();
+    assert!(e.contains("i2 runs in workspace chat, not search"), "{e}");
+    assert_eq!((s.state().manager_of("i1"), s.state().manager_of("i2")), (None, None));
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i2", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i2"}})).unwrap();
+    assert_eq!(s.state().manager_of("i2"), Some("boss"));
+    // Recorded before: replayed as it was.
+    let s = recorded_before(s, "far", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "far", "workspace": w2}}));
+    assert_eq!(s.state().manager_of("i1"), Some("far"));
+}
+
 /// Workspaces of two machines are never one by their labels alone: only a recorded link
 /// makes a remote workspace the local one (one manager, the same current intent).
 #[test]
@@ -305,8 +329,9 @@ fn remote_workspaces_are_linked_explicitly() {
     let st = replayed(&s);
     assert_eq!(st.intent_for(&remote).map(|i| i.id.as_str()), Some("i1"));
     assert_eq!(st.workspace_of(&remote).and_then(|w| w.manager.as_deref()), Some("boss"));
-    // A manager on the other machine registers for the linked workspace: the one record, which stays the local one.
-    add(&mut s, "far", json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": remote}})).unwrap();
+    // A manager on the other machine registers for the linked workspace (naming its intent too:
+    // the intent runs there): the one record, which stays the local one.
+    add(&mut s, "far", json!({"kind": "manager.registered", "body": {"intent": "i1", "agent": "far", "workspace": remote}})).unwrap();
     let st = s.state();
     assert_eq!((st.workspaces.len(), st.workspaces[0].manager.as_deref(), st.workspaces[0].group.id.as_str()), (1, Some("far"), "w1"));
     assert_eq!(st.manager_of("i1"), Some("far"));

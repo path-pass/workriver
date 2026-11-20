@@ -65,7 +65,7 @@ export function Added({ n }: { n: Task }) {
         <li key={k}>
           <div className="flex items-center gap-1.5 text-xs text-ink-2">
             <Who name={x.by} />
-            {x.by === 'user' ? t('task.addedByYou') : t('task.added', { by: x.by })} · {when(ms(x.at))}
+            {x.user ? t('task.addedByYou') : t('task.added', { by: x.by })} · {when(ms(x.at))}
           </div>
           <div className="mt-0.5"><Prose text={x.text} /></div>
           <Thumbs list={x.attachments ?? []} />

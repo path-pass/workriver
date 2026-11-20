@@ -492,10 +492,13 @@ pub(crate) struct Finding {
     pub(crate) reason: Option<String>,
 }
 
-/// An addition to a finding.
+/// An addition to a finding, or to what a task asks.
 #[derive(Serialize)]
 pub(crate) struct NoteOut {
+    /// The name its author is shown by.
     pub(crate) by: String,
+    /// The user wrote it: told by who recorded it, never by the name (an agent may be called "user").
+    pub(crate) user: bool,
     pub(crate) at: String,
     pub(crate) text: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
