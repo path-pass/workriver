@@ -275,6 +275,76 @@ fn findings_after_the_fact() {
     wait_until("the open finding falls to the user", || finding(1)["noManager"] == true && finding(1)["decider"].is_null());
 }
 
+/// What follows a record keeps its order, at each of the three places the service writes.
+/// A request: the event is stored before anyone is told of it, the delivery is stored after
+/// the message was taken, and the caller is answered after both. What a kind brings with it
+/// (a message to a manager is handed over) comes after its own record. The poll: a pick-up
+/// is stored once the receiver is seen working. A refused request is followed by nothing.
+#[test]
+fn what_follows_a_record_keeps_its_order() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle))];
+    let (user, kernel) = daemon_and(fake.clone(), &db, crate::server::Waits::default());
+    let at = |place: &str| kernel.daemon(user.port, Some(place.into()), None);
+    let (boss, rev) = (at("p1"), at("p2"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens" })).unwrap();
+    rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    rev.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P1", "problem": "Token never expires", "impact": "Stolen tokens work forever", "where": ["auth.rs"] }] })).unwrap();
+
+    // What is stored, as "kind by actor" (a delivery with its step), from event `from` on.
+    let line = |e: &workriver_core::Event| {
+        let v = serde_json::to_value(e).unwrap();
+        let step = v["body"]["step"].as_str().map(|s| format!(" ({s})")).unwrap_or_default();
+        format!("{} by {}{step}", v["kind"].as_str().unwrap(), e.actor)
+    };
+    let since = |from: usize| stored(&db)[from..].iter().map(line).collect::<Vec<_>>();
+    // Each message as it is taken: who gets it, and the last event stored by then.
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let (log, path) = (seen.clone(), db.clone());
+    *fake.on_send.lock().unwrap() = Some(Box::new(move |to| log.lock().unwrap().push(format!("{to} told after {}", line(stored(&path).last().unwrap())))));
+    let told = || std::mem::take(&mut *seen.lock().unwrap());
+
+    // A request with a message to deliver: stored, sent, the delivery stored, then answered.
+    let mark = stored(&db).len();
+    user.call("/api/decide", Some(json!({ "unit": "u1", "task": 2, "finding": "P1-1", "decision": "accept" }))).unwrap();
+    assert_eq!(since(mark), ["finding.decided by user", "delivery.updated by workriver (delivered)"], "both are stored when the caller is answered");
+    assert_eq!(told(), ["s-boss told after finding.decided by user"]);
+
+    // The poll: the receiver is seen working, so what it was given (the review's delivery
+    // before, the decision now) was picked up.
+    let mark = stored(&db).len();
+    fake.agents.lock().unwrap()[0].1.state = Working;
+    wait_until("the pick-ups are stored", || since(mark).len() == 2);
+    assert_eq!(since(mark), ["delivery.updated by workriver (picked)", "delivery.updated by workriver (picked)"]);
+    assert_eq!(told(), [] as [&str; 0]);
+    fake.agents.lock().unwrap()[0].1.state = Idle;
+
+    // What a kind brings with it: the user's message is handed to the manager after its own
+    // record, and where it got to is stored after that.
+    let mark = stored(&db).len();
+    user.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?" }))).unwrap();
+    assert_eq!(since(mark), ["message.sent by user", "message.delivery by workriver (delivered)"]);
+    assert_eq!(told(), ["s-boss told after message.sent by user"]);
+
+    // Refused: nothing stored, nobody told.
+    let mark = stored(&db).len();
+    assert!(rev.append("", "message.sent", json!({ "intent": "i1", "text": "x" })).is_err());
+    assert_eq!((since(mark), told()), (vec![], vec![]));
+}
+
 /// A manager that was running before the service was updated is told once, at its next
 /// command, to read what changed; one that registers now is not (it just read the guide).
 #[test]

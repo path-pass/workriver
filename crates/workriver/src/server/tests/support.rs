@@ -166,7 +166,13 @@ pub(in crate::server) struct Fake {
     pub(super) no_shell: std::sync::Mutex<Vec<String>>,
     /// Which places hold an agent cannot be asked (the runtime errs), the rest can.
     pub(super) agent_roots_down: std::sync::atomic::AtomicBool,
+    /// Called with the receiver as a message is taken, before `send` returns: what a test
+    /// wants to look at at that very moment.
+    pub(super) on_send: std::sync::Mutex<Option<Look>>,
 }
+
+/// What a test does as a message is taken, given its receiver.
+type Look = Box<dyn Fn(&str) + Send>;
 
 /// The shell of a place nobody set: a real process that started nothing (a shell is only
 /// taken for idle when its machine's process list holds it).
@@ -242,6 +248,9 @@ impl workriver_core::runtime::Runtime for Fake {
             return Err(workriver_core::runtime::RuntimeError::Blocked(format!("herdr agent.prompt: agent {session} is blocked (agent_blocked)")));
         }
         self.sent.lock().unwrap().push((session.into(), text.into()));
+        if let Some(look) = &*self.on_send.lock().unwrap() {
+            look(session);
+        }
         Ok(())
     }
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
@@ -327,6 +336,13 @@ pub(super) fn daemon_and(fake: std::sync::Arc<Fake>, db: &std::path::Path, waits
     let options = crate::server::Options { waits, allow_as: true, ..kernel.options() };
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, fake, options)));
     (d, kernel)
+}
+
+/// Every event stored in the database at `db`, oldest first, read beside a running service
+/// through the data port's history.
+pub(super) fn stored(db: &std::path::Path) -> Vec<workriver_core::Event> {
+    use workriver_core::ports::{Revision, WorkStore};
+    workriver_data::Store::open(db).unwrap().history(Revision(0), usize::MAX).unwrap().events
 }
 
 pub(super) fn wait_until(what: &str, mut ok: impl FnMut() -> bool) {
