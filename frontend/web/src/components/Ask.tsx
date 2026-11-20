@@ -25,7 +25,7 @@ import { Prose } from '@/content/Prose'
 import { ChipName } from '@/content/Chips'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { Thumbs } from './Inputs'
+import { Thumbs } from '@/attachments/Thumbs'
 
 /** What a conclusion request says to the agent; content, not UI text. */
 const CONCLUDE = 'Draft a conclusion of this discussion.'
