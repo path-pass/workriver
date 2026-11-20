@@ -41,29 +41,29 @@ export function blame(unit: Unit, path: string, upTo: number): number[] {
 }
 
 /**
- * A file's change over some commits taken together: its text before the first of them that
- * touches it against its text after the last. Null when none touches it, and when that is
- * no change: a file added and then moved or deleted (no text either side), or changed and
- * changed back. Over the whole unit this is the branch's net change against its base, as
- * `git diff base...head` names it: a moved file is only where it is now. The tree's counts
- * and the single-file view both come from here, so they agree.
- *
- * Same text is not always no change: git also changes a file's mode (100644 to 100755).
- * The page gets no modes, only each commit's status; a commit that has a file modified
- * with the same text on both sides changed its mode, and then the file stays, M +0 -0.
- * (A mode changed and changed back in the same scope therefore still shows.)
+ * A file's change over some commits taken together: its git entry (mode and object id)
+ * before the first of them that touches it against its entry after the last; the texts give
+ * only the line counts. Null when none touches it, and when the entries are the same: a file
+ * added and then moved or deleted, or changed and changed back (its mode, a submodule's
+ * pointer too). A mode or type changed alone stays, M +0 -0. Uncommitted work's side has
+ * no object id, so its text stands for one. Over the whole unit this is the branch's net
+ * change against its base, as `git diff base...head` names it: a moved file is only where it
+ * is now. The tree's counts and the single-file view both come from here, so they agree.
  */
 export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
   const touched = scope.filter(k => unit.commits[k].files.some(f => f.path === path))
   if (!touched.length) return null
   const at = (k: number) => unit.commits[k].files.find(f => f.path === path)!
   const first = at(touched[0]), last = at(touched.at(-1)!)
-  const before = first.before, after = last.after
-  const modeOnly = (f: FileChange) => f.status === 'M' && f.before !== null && f.before === f.after
-  if (before === after && (before === null || !touched.some(k => modeOnly(at(k))))) return null
+  // Uncommitted work's side has no object id (git has not hashed it): its text stands for it.
+  const unhashed = last.afterId === NULL && last.afterMode !== GONE
+  if (first.beforeMode === last.afterMode && (unhashed ? first.before === last.after : first.beforeId === last.afterId)) return null
   const { add, del } = counted(first, last)
-  return { touched, before, after, status: before === null ? 'A' : after === null ? 'D' : 'M', add, del }
+  return { touched, before: first.before, after: last.after, status: first.beforeMode === GONE ? 'A' : last.afterMode === GONE ? 'D' : 'M', add, del }
 }
+
+/** git's mode and object id for a side that does not exist; the id also of one not hashed. */
+const GONE = '000000', NULL = '0'.repeat(40)
 
 // Line counts from one file version's `before` to another's `after`, kept per pair: a file's
 // versions stay the same objects while its unit's code is unchanged, and diffing whole texts

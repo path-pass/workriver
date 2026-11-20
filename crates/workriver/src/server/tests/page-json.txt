@@ -3,7 +3,11 @@ code.commits: array
 code.commits[].files: array
 code.commits[].files[].add: number
 code.commits[].files[].after: string
+code.commits[].files[].afterId: string
+code.commits[].files[].afterMode: string
 code.commits[].files[].before: string
+code.commits[].files[].beforeId: string
+code.commits[].files[].beforeMode: string
 code.commits[].files[].del: number
 code.commits[].files[].path: string
 code.commits[].files[].status: string
@@ -63,6 +67,10 @@ workspace.intents[].units[].commits[].author: string
 workspace.intents[].units[].commits[].date: string
 workspace.intents[].units[].commits[].files: array
 workspace.intents[].units[].commits[].files[].add: number
+workspace.intents[].units[].commits[].files[].afterId: string
+workspace.intents[].units[].commits[].files[].afterMode: string
+workspace.intents[].units[].commits[].files[].beforeId: string
+workspace.intents[].units[].commits[].files[].beforeMode: string
 workspace.intents[].units[].commits[].files[].del: number
 workspace.intents[].units[].commits[].files[].path: string
 workspace.intents[].units[].commits[].files[].status: string

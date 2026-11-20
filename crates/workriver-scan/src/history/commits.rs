@@ -66,11 +66,6 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
         Ok(o) => o,
         Err(_) => return hashes.iter().map(|h| commit(at, repo, h)).collect(),
     };
-    const NULL: &str = "0000000000000000000000000000000000000000";
-    struct Raw {
-        head: Vec<String>,
-        files: Vec<(String, String, String, String)>, // status, path, before blob, after blob
-    }
     let mut raws = vec![];
     for chunk in out.split(|b| *b == 1).filter(|c| !c.is_empty()) {
         let text = String::from_utf8_lossy(chunk);
@@ -79,32 +74,21 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
         if head.len() < 6 {
             continue;
         }
-        let mut files = vec![];
-        let mut tokens = parts.next().unwrap_or_default().split('\0').map(|t| t.trim_start_matches('\n'));
-        while let Some(t) = tokens.next() {
-            let Some(meta) = t.strip_prefix(':') else { continue };
-            let Some(path) = tokens.next() else { break };
-            let m: Vec<&str> = meta.split(' ').collect();
-            if m.len() >= 5 {
-                let status = if m[4].starts_with('A') || m[4].starts_with('D') { m[4][..1].to_string() } else { "M".into() };
-                files.push((status, path.to_string(), m[2].to_string(), m[3].to_string()));
-            }
-        }
-        raws.push(Raw { head, files });
+        raws.push((head, raw(parts.next().unwrap_or_default())));
     }
     // Every text needed, in one call.
-    let specs: Vec<String> = raws.iter().flat_map(|r| r.files.iter().flat_map(|f| [f.2.clone(), f.3.clone()])).filter(|b| b != NULL).collect();
+    let specs: Vec<String> = raws.iter().flat_map(|(_, files)| files.iter().flat_map(|f| f.ids.clone())).filter(|b| b != NULL).collect();
     let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
     let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
     Ok(raws
         .into_iter()
-        .map(|r| {
-            let [hash, author, date, parents, task, subject] = <[String; 6]>::try_from(r.head).expect("six fields");
+        .map(|(head, files)| {
+            let [hash, author, date, parents, task, subject] = <[String; 6]>::try_from(head).expect("six fields");
             let id = hash.chars().take(9).collect();
             let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
-            let files = r.files.into_iter().filter_map(|(status, path, before, after)| {
-                let (b, a) = (if status == "A" { None } else { Some(text(&before).unwrap_or_default()) }, if status == "D" { None } else { Some(text(&after).unwrap_or_default()) });
-                change(path, status, b, a)
+            let files = files.into_iter().filter_map(|f| {
+                let (b, a) = (if f.status == "A" { None } else { Some(text(&f.ids[0]).unwrap_or_default()) }, if f.status == "D" { None } else { Some(text(&f.ids[1]).unwrap_or_default()) });
+                change(f, b, a)
             });
             Commit { id, hash, subject, date, author, task, merge: parents.split(' ').count() > 1, files: files.collect() }
         })
@@ -122,10 +106,12 @@ pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
     let parent = parents.split(' ').next().filter(|p| !p.is_empty()).unwrap_or(EMPTY_TREE);
     let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
     let mut files = vec![];
-    for (status, path) in name_status(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--name-status", parent, hash], &[])?) {
-        let before = if status == "A" { None } else { Some(blob(at, repo, parent, &path)?) };
-        let after = if status == "D" { None } else { Some(blob(at, repo, hash, &path)?) };
-        if let Some(c) = change(path, status, before, after) {
+    for f in raw(&String::from_utf8_lossy(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--raw", "--no-abbrev", parent, hash], &[])?)) {
+        // By object id, as `commits` reads them: a submodule's pointer has no text of its own.
+        let text = |id: &String| blobs(at, repo, std::slice::from_ref(id)).map(|mut b| b.pop().flatten().unwrap_or_default());
+        let before = if f.status == "A" { None } else { Some(text(&f.ids[0])?) };
+        let after = if f.status == "D" { None } else { Some(text(&f.ids[1])?) };
+        if let Some(c) = change(f, before, after) {
             files.push(c);
         }
     }

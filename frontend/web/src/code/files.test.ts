@@ -7,8 +7,14 @@ import type { Commit, FileChange, ModuleNode } from './types'
 import type { Unit } from '@/planning/types'
 import { selectionOf } from '@/work/select'
 
-const change = (path: string, before: string | null, after: string | null): FileChange =>
-  ({ path, status: before === null ? 'A' : after === null ? 'D' : 'M', before, after, ...changeOf(before, after) })
+const GONE = '000000', NULL = '0'.repeat(40)
+// A file change with git's entries for both sides: a regular file's mode unless given, and its
+// text standing for its object id unless ids are given (a submodule pointer has no text).
+const change = (path: string, before: string | null, after: string | null, modes = ['100644', '100644'], ids?: [string, string]): FileChange => ({
+  path, status: before === null ? 'A' : after === null ? 'D' : 'M', before, after, ...changeOf(before, after),
+  beforeMode: before === null ? GONE : modes[0], afterMode: after === null ? GONE : modes[1],
+  beforeId: ids?.[0] ?? before ?? NULL, afterId: ids?.[1] ?? after ?? NULL,
+})
 const commit = (id: string, files: FileChange[]): Commit =>
   ({ id, subject: id, date: '2026-11-21T00:00:00Z', author: 'a', live: false, files })
 const task = (id: string, commits: string[]) =>
@@ -63,22 +69,67 @@ describe('the code tree shows the net change', () => {
     expect(shownDelta(u, selectionOf(u, null), 'keep.ts')).toBeNull()
   })
 
+  // The reviewer's cases (u16#2, u16#4): a file is unchanged over a scope only when it has
+  // the same existence, mode and object id at both ends; the texts only give the counts.
+  const scopes = (u: Unit, path: string) => [null, 't1'].map(pick => [fileRows(u, pick)[path] ?? null, shownDelta(u, selectionOf(u, pick ? { kind: 'task', id: pick } : null), path)?.status ?? null])
+  const sh = '#!/bin/sh\necho hello\n'
+
   it('a mode-only change (100644 to 100755) stays, as M +0 -0, picked or not', () => {
-    // The reviewer's input: git reports run.sh modified, its text the same on both sides.
-    const u = unit([commit('c1', [change('run.sh', '#!/bin/sh\necho hello\n', '#!/bin/sh\necho hello\n')])])
-    for (const pick of [null, 't1']) {
-      expect(fileRows(u, pick)).toEqual({ 'run.sh': { status: 'M', add: 0, del: 0, inPick: true } })
-      expect(shownDelta(u, selectionOf(u, pick ? { kind: 'task', id: pick } : null), 'run.sh')?.status).toBe('M')
-    }
+    const u = unit([commit('c1', [change('run.sh', sh, sh, ['100644', '100755'])])])
+    expect(scopes(u, 'run.sh')).toEqual([[{ status: 'M', add: 0, del: 0, inPick: true }, 'M'], [{ status: 'M', add: 0, del: 0, inPick: true }, 'M']])
+  })
+
+  it('a mode and text change, then the text restored: the mode change stays', () => {
+    const u = unit([
+      commit('c1', [change('run.sh', sh, 'new\n', ['100644', '100755'])]),
+      commit('c2', [change('run.sh', 'new\n', sh, ['100755', '100755'])]),
+    ])
+    expect(scopes(u, 'run.sh')).toEqual([[{ status: 'M', add: 0, del: 0, inPick: true }, 'M'], [{ status: 'M', add: 0, del: 0, inPick: true }, 'M']])
+  })
+
+  it('a file made a symlink with its text changed, then the text restored: the type change stays', () => {
+    const u = unit([
+      commit('c1', [change('link', sh, 'run.sh', ['100644', '120000'])]),
+      commit('c2', [change('link', 'run.sh', sh, ['120000', '120000'])]),
+    ])
+    expect(scopes(u, 'link')).toEqual([[{ status: 'M', add: 0, del: 0, inPick: true }, 'M'], [{ status: 'M', add: 0, del: 0, inPick: true }, 'M']])
+  })
+
+  it('a mode changed and changed back is no change', () => {
+    const u = unit([commit('c1', [change('run.sh', sh, sh, ['100644', '100755'])]), commit('c2', [change('run.sh', sh, sh, ['100755', '100644'])])])
+    expect(scopes(u, 'run.sh')).toEqual([[null, null], [null, null]])
   })
 
   it('a mode change stays when the text is changed and changed back around it', () => {
     const u = unit([
       commit('c1', [change('keep.ts', 'k\n', 'k2\n')]),
-      commit('c2', [change('keep.ts', 'k2\n', 'k2\n')]),
-      commit('c3', [change('keep.ts', 'k2\n', 'k\n')]),
+      commit('c2', [change('keep.ts', 'k2\n', 'k2\n', ['100644', '100755'])]),
+      commit('c3', [change('keep.ts', 'k2\n', 'k\n', ['100755', '100755'])]),
     ])
     expect(fileRows(u)).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+  })
+
+  // A submodule pointer: scan's text is the pointed-to commit's when the repository has it,
+  // empty when not; the pointer is the entry's id either way.
+  for (const [objects, a, b] of [['present', 'tree a\n', 'tree b\n'], ['missing', '', '']]) {
+    const pointer = (from: string, to: string, ids: [string, string]) => change('sub', from, to, ['160000', '160000'], ids)
+    const A = '1'.repeat(40), B = '2'.repeat(40)
+
+    it(`a submodule pointer moved stays (objects ${objects})`, () => {
+      const u = unit([commit('c1', [pointer(a, b, [A, B])])])
+      expect(scopes(u, 'sub').map(([, s]) => s)).toEqual(['M', 'M'])
+    })
+
+    it(`a submodule pointer moved and moved back is no change (objects ${objects})`, () => {
+      const u = unit([commit('c1', [pointer(a, b, [A, B])]), commit('c2', [pointer(b, a, [B, A])])])
+      expect(scopes(u, 'sub')).toEqual([[null, null], [null, null]])
+    })
+  }
+
+  it('uncommitted work that undoes a commit is no change; git has not hashed it, so its text stands for its id', () => {
+    const live = (after: string) => ({ ...commit('live', [{ ...change('keep.ts', 'k2\n', after), afterId: NULL }]), live: true })
+    expect(fileRows(unit([commit('c1', [change('keep.ts', 'k\n', 'k2\n')]), live('k\n')]))).toEqual({})
+    expect(fileRows(unit([commit('c1', [change('keep.ts', 'k\n', 'k2\n')]), live('k3\n')]))).toEqual({ 'keep.ts': { status: 'M', add: 1, del: 1, inPick: true } })
   })
 
   it('with a task picked: its files show its own change, the others the unit net change, faded, no vanished path', () => {

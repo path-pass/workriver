@@ -372,3 +372,60 @@ fn line_counts() {
     assert_eq!(counts("a", "a\n"), (1, 1));
     assert_eq!(counts("same\n", "same\n"), (0, 0));
 }
+
+/// Each file change carries both sides' git entry, as `--raw` names it (mode and object id;
+/// "000000" and zeros for a side that does not exist), read at once or one by one alike: a
+/// mode change, a file made a symlink, a submodule pointer (its commit not in the repository),
+/// an add and a delete; uncommitted work has the work tree's mode and an id git has not
+/// worked out (zeros).
+#[test]
+fn file_changes_carry_their_git_entries() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let id = |rev: &str| String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["rev-parse", rev]).output().unwrap().stdout).unwrap().trim().to_string();
+    let (gone, zero) = ("000000", "0".repeat(40));
+    let (pointer_a, pointer_b) = ("1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222");
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "run.sh", "echo hi\n");
+    write(repo, "link", "text\n");
+    write(repo, "old.txt", "old\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["update-index", "--add", "--cacheinfo", &format!("160000,{pointer_a},sub")]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    let (run, link, old) = (id("HEAD:run.sh"), id("HEAD:link"), id("HEAD:old.txt"));
+    sh(repo, &["update-index", "--chmod=+x", "run.sh"]);
+    std::fs::remove_file(repo.join("link")).unwrap();
+    std::os::unix::fs::symlink("run.sh", repo.join("link")).unwrap();
+    sh(repo, &["rm", "-q", "old.txt"]);
+    write(repo, "new.txt", "new\n");
+    sh(repo, &["add", "link", "new.txt"]);
+    sh(repo, &["update-index", "--cacheinfo", &format!("160000,{pointer_b},sub")]);
+    sh(repo, &["commit", "-q", "-m", "change"]);
+    let (to, new) = (id("HEAD:link"), id("HEAD:new.txt"));
+    let head = id("HEAD");
+    let entries = |c: &Commit| {
+        let mut e: Vec<_> = c.files.iter().map(|f| (f.path.clone(), f.before_mode.clone(), f.before_id.clone(), f.after_mode.clone(), f.after_id.clone())).collect();
+        e.sort();
+        e
+    };
+    let s = |x: &str| x.to_string();
+    let want = vec![
+        (s("link"), s("100644"), link, s("120000"), to),
+        (s("new.txt"), s(gone), zero.clone(), s("100644"), new),
+        (s("old.txt"), s("100644"), old, s(gone), zero.clone()),
+        (s("run.sh"), s("100644"), run.clone(), s("100755"), run.clone()),
+        (s("sub"), s("160000"), s(pointer_a), s("160000"), s(pointer_b)),
+    ];
+    assert_eq!(entries(&commits(&Runner::Local, repo, std::slice::from_ref(&head)).unwrap()[0]), want, "at once");
+    assert_eq!(entries(&commit(&Runner::Local, repo, &head).unwrap()), want, "one by one");
+
+    // The work tree as committed (executable, the submodule unpopulated), then changed.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(repo.join("run.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir(repo.join("sub")).unwrap();
+    write(repo, "run.sh", "echo bye\n");
+    write(repo, "draft.txt", "draft\n");
+    let mut now: Vec<_> = live_in(&Runner::Local, repo).unwrap().into_iter().map(|f| (f.path, f.before_mode, f.before_id, f.after_mode, f.after_id)).collect();
+    now.sort();
+    assert_eq!(now, vec![(s("draft.txt"), s(gone), zero.clone(), s("100644"), zero.clone()), (s("run.sh"), s("100755"), run, s("100755"), zero)]);
+}
