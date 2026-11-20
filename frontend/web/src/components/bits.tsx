@@ -1,30 +1,14 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE, type Remote } from '@/api/actions'
 import type { Step } from '@/work/types'
-import type { External, Unit } from '@/planning/types'
+import type { Unit } from '@/planning/types'
 import { Tip } from '@/ui/Tip'
 import { Icon } from '@/ui/Icon'
 import { CopyButton } from '@/ui/CopyButton'
-
-/** Content (a title, what someone typed) in its own element, marked with its guessed language. */
-export const Content = ({ text }: { text: string }) => <span lang={contentLang(text)}>{text}</span>
-
-/**
- * A UI sentence with content in it: translate with slot(i) as the i-th content's value, and
- * each content goes where its slot landed, in whatever order the language puts them, so it
- * keeps its own language inside the UI's. SLOT is slot(0), for a sentence with one.
- */
-export const slot = (i: number) => String.fromCharCode(0xe000 + i)
-export const SLOT = slot(0)
-export function Slot({ text, children }: { text: string; children: ReactNode | ReactNode[] }) {
-  const fill = Array.isArray(children) ? children : [children]
-  return <>{text.split(/([\uE000-\uE0FF])/).map((part, k) => (k % 2 ? <Fragment key={k}>{fill[part.charCodeAt(0) - 0xe000]}</Fragment> : part))}</>
-}
 
 /**
  * What an agent prepared for the user to do by hand: the same for a gate and for a chore.
@@ -127,15 +111,6 @@ export function Notes() {
   )
 }
 
-/** Where an item is tracked elsewhere (jira:ABC-12), as a small chip; a link when there is one. */
-export function ExternalChip({ ext }: { ext?: External }) {
-  if (!ext) return null
-  const text = `${ext.system}:${ext.key}`
-  return ext.url
-    ? <a className="ext-chip" href={ext.url} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()}><Icon name="link" className="size-3" /><ChipName name={text} /></a>
-    : <span className="ext-chip"><ChipName name={text} /></span>
-}
-
 /** The machine something is on, when it is not this one: a small chip with its name. */
 export function MachineChip({ machine, away = false, since }: { machine?: string; away?: boolean; since?: string }) {
   const { t, date } = useT()
@@ -178,118 +153,3 @@ export function Squashed({ unit }: { unit: Unit }) {
   )
 }
 
-/** Longer than this, a name in a chip is shortened in the middle. */
-const CHIP_CHARS = 30
-
-/**
- * A name or path inside a chip: on one line, shortened in the middle when long so its start
- * and its extension stay ("2026-11-16-new-acc…source.md"), and cut at the end by the chip's
- * width as a last resort. The whole name is in the tooltip and read out by screen readers.
- */
-export function ChipName({ name }: { name: string }) {
-  if (name.length <= CHIP_CHARS) return <span className="chip-name" lang={contentLang(name)}>{name}</span>
-  const ext = /\.[A-Za-z0-9]{1,8}$/.exec(name)?.[0] ?? ''
-  const tail = name.slice(-Math.max(ext.length + 6, 10))
-  const shown = `${name.slice(0, CHIP_CHARS - tail.length - 1)}…${tail}`
-  return (
-    <Tip text={<Content text={name} />}>
-      <span className="chip-name" lang={contentLang(name)}>
-        <span aria-hidden>{shown}</span>
-        <span className="sr-only">{name}</span>
-      </span>
-    </Tip>
-  )
-}
-
-/** Web links in plain text, cut before trailing punctuation. */
-const LINK = /https?:\/\/[^\s<>"'）。，、]+[^\s<>"'）。，、.,;:!?)]/g
-
-/** Quiet text on the dark rail or on the page. */
-const QUIET = { rail: 'text-rail-ink-2 [&_:is(a,button):hover]:text-rail-ink', page: 'text-ink-2 [&_:is(a,button):hover]:text-ink' }
-
-/**
- * An intent's note: plain text with its line breaks, its links clickable. A long one shows
- * its first lines, with "show more".
- */
-export function IntentNote({ text, tone }: { text: string; tone: 'rail' | 'page' }) {
-  const { t } = useT()
-  const box = useRef<HTMLParagraphElement>(null)
-  const [long, setLong] = useState(false)
-  const [all, setAll] = useState(false)
-  // Measured while clamped: more than fits in the first lines.
-  useLayoutEffect(() => {
-    const el = box.current
-    if (el && !all) setLong(el.scrollHeight > el.clientHeight + 1)
-  }, [text, all])
-  const parts: ReactNode[] = []
-  let last = 0
-  for (const m of text.matchAll(LINK)) {
-    parts.push(text.slice(last, m.index))
-    parts.push(<a key={m.index} href={m[0]} target="_blank" rel="noreferrer" className="underline underline-offset-2">{m[0]}</a>)
-    last = m.index + m[0].length
-  }
-  parts.push(text.slice(last))
-  return (
-    <div className={cn('text-xs', QUIET[tone])}>
-      <p ref={box} lang={contentLang(text)} className={cn('whitespace-pre-line wrap-anywhere', !all && 'line-clamp-3')}>{parts}</p>
-      {(long || all) && (
-        <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold" onClick={() => setAll(a => !a)}>
-          {t(all ? 'rail.noteLess' : 'rail.noteMore')}
-        </button>
-      )}
-    </div>
-  )
-}
-
-const MarkdownView = lazy(() => import('./Markdown'))
-
-/**
- * Longer text an agent or the user wrote (a task's input, a delivery note, a gate's note, an
- * answer): short Markdown, rendered compact by the safe renderer, which loads the first time
- * one shows; until then the plain text with its line breaks. With `fold`, a long one shows its
- * first lines, with "show more".
- */
-export function Prose({ text, fold = true, onFile }: { text: string; fold?: boolean; onFile?: (path: string) => void }) {
-  const { t } = useT()
-  const outer = useRef<HTMLDivElement>(null)
-  const inner = useRef<HTMLDivElement>(null)
-  const [long, setLong] = useState(false)
-  // Opened for this text: another task's text starts cut again.
-  const [opened, setOpened] = useState<string | null>(null)
-  const all = opened === text
-  // Measured while cut, and again when the rendered Markdown replaces the plain text.
-  useEffect(() => {
-    const o = outer.current, i = inner.current
-    if (!o || !i) return
-    const check = () => setLong(i.offsetHeight > o.clientHeight + 1)
-    const watch = new ResizeObserver(check)
-    watch.observe(i)
-    watch.observe(o)
-    return () => watch.disconnect()
-  }, [fold])
-  const body = <Suspense fallback={<div className="whitespace-pre-line" lang={contentLang(text)}>{text}</div>}><MarkdownView text={text} compact onFile={onFile} /></Suspense>
-  if (!fold) return body
-  return (
-    <div>
-      <div ref={outer} className="prose-fold" data-cut={(!all && long) || undefined} data-all={all || undefined}><div ref={inner}>{body}</div></div>
-      {(long || all) && (
-        <button type="button" aria-expanded={all} className="mt-0.5 rounded-sm text-[11px] font-semibold text-ink-2 hover:text-ink" onClick={() => setOpened(all ? null : text)}>
-          {t(all ? 'rail.noteLess' : 'rail.noteMore')}
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** A note behind a small disclosure, where rows must stay compact (the roadmap). */
-export function NoteDisclosure({ text, tone }: { text: string; tone: 'rail' | 'page' }) {
-  const { t } = useT()
-  return (
-    <Collapsible className={QUIET[tone]}>
-      <CollapsibleTrigger className="group/note mt-0.5 flex items-center gap-0.5 rounded-sm text-[11px] font-semibold">
-        <Icon name="chev" className="size-3 transition-transform group-data-[state=open]/note:rotate-90" />{t('rail.note')}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pt-0.5"><IntentNote text={text} tone={tone} /></CollapsibleContent>
-    </Collapsible>
-  )
-}

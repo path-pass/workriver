@@ -13,7 +13,7 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 
 /** react-markdown and remark-gfm load only once a Markdown file is opened. */
-const MarkdownView = lazy(() => import('./Markdown'))
+const MarkdownView = lazy(() => import('@/content/Markdown'))
 
 /** What the shell does for the viewer: hears which stored attachment is shown (the ask box
  *  offers it), and opens Ask. */

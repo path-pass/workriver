@@ -10,7 +10,8 @@ import type { Intent } from '@/planning/types'
 import type { RuntimeWorkspace, Session } from '@/agents/types'
 import type { Workspace } from '@/workspace/types'
 import { Choice } from '@/ui/Choice'
-import { Content, Slot, slot, SLOT, Steps } from './bits'
+import { Steps } from './bits'
+import { Content, Slot, slot, SLOT } from '@/content/Chips'
 import { Icon } from '@/ui/Icon'
 
 /** `project`: the title of the project shown, when only it has nothing yet. */

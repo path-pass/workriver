@@ -13,7 +13,7 @@ import type { Workspace } from '@/workspace/types'
 import { Trans } from 'react-i18next'
 import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
-import { Content, Slot, SLOT } from './bits'
+import { Content, Slot, SLOT } from '@/content/Chips'
 import { Choice } from '@/ui/Choice'
 
 /** Not linked, in the link picker (Radix takes no empty value). */

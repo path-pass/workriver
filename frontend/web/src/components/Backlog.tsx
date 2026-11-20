@@ -12,7 +12,7 @@ import { record } from '@/api/actions'
 import type { Finding } from '@/work/types'
 import type { Intent } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
-import { ExternalChip } from './bits'
+import { ExternalChip } from '@/content/Chips'
 import { Icon } from '@/ui/Icon'
 import { Choice } from '@/ui/Choice'
 

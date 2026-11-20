@@ -9,7 +9,8 @@ import { useAct } from '@/work/actions'
 import { contentLang, useT } from '@/i18n'
 import type { Intent } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
-import { Content, NoteDisclosure, slot, Slot, SLOT } from './bits'
+import { NoteDisclosure } from '@/content/Prose'
+import { Content, slot, Slot, SLOT } from '@/content/Chips'
 import { Choice } from '@/ui/Choice'
 
 /** What an intent holds that a merge would lose; the service refuses those (`intent.merged`). */
