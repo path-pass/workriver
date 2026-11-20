@@ -147,8 +147,9 @@ pub(super) fn added_message(state: &State, actor: &str, unit: &str, n: u32, adde
 }
 
 /// What a manager reads when the user writes to it from the page: workriver's words (what it
-/// is, how to reply, what the user picked and where the code is), then the user's own, quoted
-/// as theirs (only the user records `message.sent`, see `Body::user_only`). `dir`: where the
+/// is, how to reply, that work that takes time goes to a worker, what the user picked and
+/// where the code is), then the user's own, quoted as theirs (only the user records
+/// `message.sent`, see `Body::user_only`). `dir`: where the
 /// unit's branch is checked out (or its repository), found by the caller when the message
 /// points at files or lines; named whenever given.
 pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message, home: &Path, dir: Option<&str>) -> String {
@@ -171,7 +172,7 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
         _ => String::new(),
     };
     format!(
-        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. {at}{code}{details}{}",
+        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. {at}{code}{details}{}",
         m.id,
         m.id,
         users("The user says, in workriver", &m.text)

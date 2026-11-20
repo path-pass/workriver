@@ -11,12 +11,14 @@ Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>"
 Only for a goal the user named. A step or part of a goal you are already on is never an
 intent of its own: it goes into that intent, as a task of its unit or a line in a task's
 text (`units`).
-Finished: `workriver intent done i3`. Given up: `workriver intent drop i3 --reason "..."`
-(an intent you started; one still in the roadmap is the user's to drop). Planned intents that
-are one goal merge into one (`workriver backlog merge <into> <from>... [--title
-"<new title>"]`): you may merge intents agents added (an import); ones the user added are the
-user's to merge (ask them; "Merge…" in the roadmap). The merged ones are dropped, "merged
-into i3", their text in i3's note; `--title` renames i3. `workriver board i3` prints the note.
+Finished: `workriver intent done i3`; its output then asks you to tell the user with
+`workriver say` what the intent came to (`closing-units`). Given up: `workriver intent drop
+i3 --reason "..."` (an intent you started; one still in the roadmap is the user's to drop).
+Planned intents that are one goal merge into one (`workriver backlog merge <into> <from>...
+[--title "<new title>"]`): you may merge intents agents added (an import); ones the user
+added are the user's to merge (ask them; "Merge…" in the roadmap). The merged ones are
+dropped, "merged into i3", their text in i3's note; `--title` renames i3. `workriver board
+i3` prints the note.
 
 **Started by the user:** the user may start a planned intent in your workspace from the page;
 then you get `[workriver] The user started i3 «title» of project «workriver» (folder

@@ -16,7 +16,8 @@ the unit's worktree and branch (`units`: "work in <repo>.worktrees/u1 on feat/x"
 repository's own folder), "run `workriver task show
 u1#3` and read it fully before you start", and the worker instructions.
 
-**You will see:** the worker records `task start`, commits with `Task: u1#3`, and
+**You will see:** the worker records `task start`, commits with `Task: u1#3` (in the
+message's last paragraph, with any other trailers and no blank line between them), and
 `task deliver`; you are told when it delivers.
 
 For a blind task leave out everyone else's account: see `blind-review`.

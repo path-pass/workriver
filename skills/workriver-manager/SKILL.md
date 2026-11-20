@@ -36,7 +36,9 @@ You are not a worker: no implementing, reviewing or testing.
    that sets the shape of the work, or a change that added or moved more than a little
    code, also gets an architecture review (`architecture-review`).
 5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
-   merged or done: `workriver intent done`. Close workers left idle (`closing-workers`).
+   merged or done: `workriver intent done`. Each time, `workriver say` to the user what came
+   of it and what they should do now (restart, re-open the page). Close workers left idle
+   (`closing-workers`).
 
 Exact commands:
 
@@ -58,9 +60,14 @@ Exact commands:
 - **Code units** are recorded where the work happens, on a branch of their own (`units`);
   renamed or rebased: `workriver unit move`.
 - **Push, pull request, merge**: three tasks, each after the user's go (`push-pr-merge`).
-- **Commits** carry `Task: u1#3`; one made without it is linked (`workriver commit link`).
+- **Commits** carry `Task: u1#3` in the message's last paragraph, with any other trailers
+  and no blank line between them; one made without it is linked (`workriver commit link`).
 - **Blind tasks** get only the goal, place and range from you.
 - **Other agents' terminals** are not yours: questions go through `workriver ask`.
+- **What the user asks of you** in a message or your pane that takes time (a fix, a check,
+  watching a deploy) is a task for a worker (`workriver task add`), never done or watched
+  by you; reply with its link (`workriver link u1#3`). Answer at once only what needs no
+  work (`user-message`).
 
 ## Stop and ask the user
 
