@@ -9,52 +9,9 @@ import type { Finding, Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import type { AskContext, AskStep, Sent, Turn } from '@/conversations/types'
-import type { Verdict } from '@/commands/types'
 import type { Workspace } from '@/workspace/types'
-
-/** Sent on the window when the service says this page is not the user (any more). */
-export const SIGNED_OUT = 'workriver:signed-out'
-
-async function post(path: string, body: unknown) {
-  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
-  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`)
-}
-
-/**
- * Whether this page is the user's. A one-time code in the address (`#k=…`, from
- * `workriver open`) is exchanged for the session cookie first and taken out of the address,
- * so it is not kept in history or shared with a copied link.
- */
-export async function startSession(): Promise<boolean> {
-  const code = new URLSearchParams(location.hash.slice(1)).get('k')
-  if (code) {
-    // `workriver open` opens the root: a link the user opened while signed out lands there.
-    const wanted = recallWanted()
-    history.replaceState(null, '', location.pathname === '/' && wanted ? wanted : location.pathname + location.search)
-    await fetch('/api/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }) }).catch(() => undefined)
-  }
-  const res = await fetch('/api/session')
-  if (!res.ok) throw new Error(await res.text())
-  return (await res.json()).user === true
-}
-
-const WANTED = 'workriver.signin-to'
-
-/** A link opened while signed out (`/u1/3`), kept for the sign-in that follows in a new tab. */
-export function rememberWanted() {
-  if (location.pathname === '/') return
-  try { localStorage.setItem(WANTED, JSON.stringify({ path: location.pathname + location.search, at: Date.now() })) } catch { /* lands on the root */ }
-}
-
-/** That link, once, if it is from the last ten minutes. */
-function recallWanted(): string | null {
-  try {
-    const w = JSON.parse(localStorage.getItem(WANTED) ?? 'null')
-    localStorage.removeItem(WANTED)
-    return w && Date.now() - w.at < 600_000 && typeof w.path === 'string' && /^\/(?!\/)/.test(w.path) ? w.path : null
-  } catch { return null }
-}
+import type { RunView, RunReview, RunAsk } from '@/commands/types'
+import { call, post, SIGNED_OUT } from './http'
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
 export const NOTE = 'workriver:note'
@@ -267,7 +224,7 @@ export async function mergeIntents(into: string, from: string[], title?: string)
 
 /** CPU and memory of this machine and the followed ones, with the alert thresholds. */
 export async function metrics(): Promise<MetricsReport> {
-  if (MOCK) return (await import('./mock/metrics')).mockMetrics()
+  if (MOCK) return (await import('@/mock/metrics')).mockMetrics()
   const res = await fetch('/api/metrics')
   if (!res.ok) throw new Error(await res.text())
   return res.json()
@@ -275,7 +232,7 @@ export async function metrics(): Promise<MetricsReport> {
 
 /** One machine's minutes (means of its samples) over the last `hours`, oldest first. */
 export async function metricsHistory(machine: string, hours = 24): Promise<MetricSample[]> {
-  if (MOCK) return (await import('./mock/metrics')).mockHistory(machine, hours)
+  if (MOCK) return (await import('@/mock/metrics')).mockHistory(machine, hours)
   const res = await fetch(`/api/metrics/history?machine=${encodeURIComponent(machine)}&hours=${hours}`)
   if (!res.ok) throw new Error(await res.text())
   return (await res.json()).points
@@ -284,7 +241,7 @@ export async function metricsHistory(machine: string, hours = 24): Promise<Metri
 /** Sets when a machine alerts (the same for every machine); answers the report after it. */
 export async function setThresholds(t: Thresholds): Promise<MetricsReport> {
   if (MOCK) {
-    const mock = await import('./mock/metrics')
+    const mock = await import('@/mock/metrics')
     mock.setMockThresholds(t)
     return mock.mockMetrics()
   }
@@ -332,14 +289,6 @@ export async function setMachine(label: string, action: 'add' | 'enable' | 'disa
 /** The runtime workspace the user's command shells are in (the service's `run::GROUP`). */
 export const RUN_GROUP = 'workriver-commands'
 
-/** A POST that answers JSON; a refusal is thrown with the service's words. */
-async function call<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
-  if (!res.ok) throw new Error(await res.text())
-  return res.status === 204 ? (undefined as T) : res.json()
-}
-
 /** Where the message to the workspace's manager went. */
 export type StartDelivery = Omit<Sent, 'toManager'>
 
@@ -351,52 +300,6 @@ export async function startIntent(intent: string, workspace: string, manager?: s
   if (MOCK) return manager ? { step: 'delivered', to: manager, message: '' } : { step: 'not-delivered', to: null, reasonCode: 'no-manager', message: '' }
   return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace, confirmOtherProject })).delivery
 }
-
-/** A command to run as the user, and where: a unit's work tree, or a project's folder. */
-export interface RunAsk {
-  command: string
-  /** A run already made (from the recent runs): shown, not prepared again. */
-  id?: string
-  unit?: string
-  project?: string
-  /** Whose step it is: a task (`u1#3`) or a chore (`c2`); none: the user's own. */
-  from?: string
-  /** Which of its steps (from 1). */
-  step?: number
-  /** For the sample only: who wrote it, the folder and machine it would run in. */
-  by?: string
-  dir?: string
-  machine?: string
-}
-
-/** A run as the service shows it: what the confirm dialog shows, then what its pane shows. */
-export interface RunView {
-  id: string
-  command: string
-  dir: string
-  machine?: string | null
-  /** "user", or the agent that wrote it. */
-  by: string
-  started: boolean
-  output: string
-  exit: number | null
-  /** Its pane is still read. */
-  watching: boolean
-  /** False: recorded before the service restarted; its output was not kept. */
-  kept?: boolean
-  /** Its terminal can be brought to the front. */
-  focusable?: boolean
-  /** What a workriver agent says it will do; none for a run recorded without one. */
-  review?: RunReview | null
-}
-
-/** A command's review: being written, written (a verdict and short Markdown), or given up. */
-export type RunReview =
-  | { state: 'pending' }
-  /** Its agent waits for a person in its terminal (a first-run prompt): `session` to go there. */
-  | { state: 'blocked'; agent: string; session: string }
-  | { state: 'done'; verdict: Verdict; text: string }
-  | { state: 'failed'; reason: string }
 
 // The sample makes runs up, in memory; a review comes a moment after the dialog opens.
 const mockRuns = new Map<string, RunView & { at: number; prepared: number }>()
@@ -445,7 +348,7 @@ export async function readRun(id: string): Promise<RunView> {
     const r = mockRuns.get(id)
     if (!r) {
       // One of the sample's recent runs.
-      const s = ((await import('./mock/demo.json')).default as unknown as Workspace).runs!.find(x => x.id === id)!
+      const s = ((await import('@/mock/demo.json')).default as unknown as Workspace).runs!.find(x => x.id === id)!
       const kept = s.state !== 'unknown'
       const review = s.verdict ? { ...mockReview(s.command), verdict: s.verdict } : null
       return { id, command: s.command, dir: s.dir, machine: s.machine ?? null, by: s.from ? 'agent-A' : 'user', started: true, output: kept ? lines.slice(0, s.state === 'running' ? 2 : 4).join('\n') : '', exit: s.exit ?? null, watching: s.state === 'running', kept, focusable: s.focusable, review }

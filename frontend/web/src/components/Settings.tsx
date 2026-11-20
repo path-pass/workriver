@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { MOCK } from '@/workspace/source'
-import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, RUN_GROUP, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/runtime'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, RUN_GROUP, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/api/actions'
 import type { RuntimeWorkspace } from '@/agents/types'
 import type { Levels, Machine, Thresholds } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'

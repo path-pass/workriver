@@ -1,7 +1,7 @@
 // A link opened while signed out (`/u1/3`) is where the sign-in from `workriver open` lands,
 // once, and only within ten minutes; the one-time code leaves the address before anything else.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { rememberWanted, startSession } from './runtime'
+import { rememberWanted, startSession } from './session'
 
 const posted: string[] = []
 beforeEach(() => {

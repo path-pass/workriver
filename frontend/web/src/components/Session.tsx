@@ -6,7 +6,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Waves } from 'lucide-react'
 import { MOCK } from '@/workspace/source'
 import { useT } from '@/i18n'
-import { rememberWanted, SIGNED_OUT, startSession } from '@/runtime'
+import { rememberWanted, startSession } from '@/api/session'
+import { SIGNED_OUT } from '@/api/http'
 import { Steps } from './bits'
 
 export function Session({ children }: { children: ReactNode }) {

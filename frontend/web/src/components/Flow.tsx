@@ -11,7 +11,7 @@ import { untested, finderLabel, findingsOf, nodeLabel, openCount, related, revie
 import { ms } from '@/planning/select'
 import { commitStats } from '@/code/select'
 import type { Pick } from '@/work/types'
-import { dropTask, record } from '@/runtime'
+import { dropTask, record } from '@/api/actions'
 import { Input } from '@/components/ui/input'
 import { contentLang, useT, type T } from '@/i18n'
 import { growth, type Growth } from '@/work/growth'

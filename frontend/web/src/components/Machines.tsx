@@ -8,7 +8,7 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { ms } from '@/planning/select'
 import { type T, useT } from '@/i18n'
-import { metrics as loadMetrics, metricsHistory } from '@/runtime'
+import { metrics as loadMetrics, metricsHistory } from '@/api/actions'
 import type { Disk, DiskLimit, Level, Limit, MachineAlert, MachineMetrics, Metric, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import { MachineChip } from './bits'
 

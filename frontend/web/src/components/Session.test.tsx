@@ -5,8 +5,8 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const session = vi.hoisted(() => ({ answer: Promise.resolve<boolean>(false), remembered: 0 }))
-vi.mock('@/runtime', async original => ({
-  ...(await original<typeof import('@/runtime')>()),
+vi.mock('@/api/session', async original => ({
+  ...(await original<typeof import('@/api/session')>()),
   startSession: () => session.answer,
   rememberWanted: () => { session.remembered += 1 },
 }))

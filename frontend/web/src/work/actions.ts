@@ -2,7 +2,7 @@
 // down from the shell to wherever it is done.
 import { createContext, useContext } from 'react'
 import type { Decision, GateResult } from './types'
-import type { Delivery } from '@/runtime'
+import type { Delivery } from '@/api/actions'
 import type { Finding, Task } from './types'
 import type { Unit } from '@/planning/types'
 

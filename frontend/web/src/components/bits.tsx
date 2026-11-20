@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { focusAgent, NOTE, type Remote } from '@/runtime'
+import { focusAgent, NOTE, type Remote } from '@/api/actions'
 import type { Step } from '@/work/types'
 import type { External, Unit } from '@/planning/types'
 
