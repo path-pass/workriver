@@ -59,9 +59,12 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     () => back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
   )
   const [error, setError] = useState(false)
-  // Pictures not handed in are let go when the form goes away.
+  // Pictures not handed in are let go when the form goes away, but for those of a result the
+  // service did not take: that draft holds them until it is sent again (then what the new
+  // result no longer carries goes), so the form coming back shows and sends them.
+  const held = (a: Attachment) => !!back && [...back.attachments, ...back.findings.flatMap(f => f.attachments)].some(x => x.url === a.url)
   const kept = useRef<Attachment[]>([])
-  kept.current = [...files, ...drafts.flatMap(d => d.files)]
+  kept.current = [...files, ...drafts.flatMap(d => d.files)].filter(a => !held(a))
   const sent = useRef(false)
   useEffect(() => () => { if (!sent.current) kept.current.forEach(detach) }, [])
 
@@ -75,7 +78,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     add(images(e.dataTransfer.files))
   }
   const addNote = (a: Attachment[]) => setFiles(f => [...f, ...a])
-  const drop = (a: Attachment) => { detach(a); setFiles(f => f.filter(x => x !== a)); setDrafts(ds => ds.map(d => ({ ...d, files: d.files.filter(x => x !== a) }))) }
+  const drop = (a: Attachment) => { if (!held(a)) detach(a); setFiles(f => f.filter(x => x !== a)); setDrafts(ds => ds.map(d => ({ ...d, files: d.files.filter(x => x !== a) }))) }
   const findings: NewFinding[] = drafts.filter(d => d.problem.trim()).map(d => ({
     severity: d.severity, problem: d.problem.trim(), impact: d.impact.trim(),
     evidence: d.where.split(/[,，\n]/).map(p => p.trim()).filter(Boolean), attachments: d.files,
@@ -85,6 +88,9 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     const asked = choice && result === 'answered'
     if (asked && (!picked || (needsNote(choice, picked) && !note.trim()))) return setNoteMissing(true)
     sent.current = true
+    // The held draft goes with this result: its pictures this one no longer carries go too.
+    const sending = [...files, ...(result === 'problem' ? drafts.flatMap(d => d.files) : [])]
+    if (back) [...back.attachments, ...back.findings.flatMap(f => f.attachments)].filter(p => !sending.some(x => x.url === p.url)).forEach(detach)
     act.submitGate(unit, gate, { result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files, findings: result === 'problem' ? findings : [], at: new Date().toISOString() })
   }
   const noteNeeded = !!(choice && result === 'answered' && picked && needsNote(choice, picked))
