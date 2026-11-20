@@ -181,7 +181,7 @@ fn the_service_takes_the_pane_from_the_process() {
     let (ok, out) = two.run("\"$W\" open --print");
     assert!(!ok && out.contains("the user's"), "{out}");
 
-    // The incident (u9#2): a command run outside every pane, by a process that kept the
+    // The incident this check was built for: a command run outside every pane, by a process that kept the
     // environment of a pane that is gone, with the token in reach. It was recorded as the
     // user; it is refused, and told why.
     let stale = w.cli().env("HERDR_PANE_ID", "wM:p4").args(["backlog", "add", "From a stale pane", "--goal", "g", "--project"]).arg(&repo).output().unwrap();

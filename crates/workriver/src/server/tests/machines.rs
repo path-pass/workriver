@@ -381,8 +381,7 @@ fn a_machines_socket_is_a_path_or_nothing() {
 }
 
 /// An attachment's id is the store's own form: an agent over there cannot record one that
-/// names a file outside the store, nor read such a file through the store's route
-/// (review u14#11 P1-1).
+/// names a file outside the store, nor read such a file through the store's route.
 #[test]
 fn an_attachment_id_cannot_name_a_file_outside_the_store() {
     use workriver_core::runtime::AgentState::*;

@@ -71,7 +71,7 @@ export default function App() {
   const [sideWidth, setSideWidth] = useState(0)
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
-  // (Before i29 the conversation's section was 'ask'.)
+  // (A section remembered as 'ask', from when the page had its own Ask, opens as 'talk'.)
   const [side, setSide] = useState<Section | null>(() => { const r = recall(SIDE); const v = (r === 'ask' ? 'talk' : r) as Section; return SECTIONS.includes(v) ? v : null })
   // The project the rail and the backlog show, or all; remembered.
   const [picked, setProject] = useState<string | null>(() => recall(PROJECT) || null)

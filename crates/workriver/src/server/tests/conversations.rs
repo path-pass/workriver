@@ -573,7 +573,7 @@ fn a_manager_says_and_the_user_reads_it() {
 
 /// A path from the records or git (a repository's folder, a work tree) is named in the
 /// manager's text as workriver's words: it cannot break the line nor open or close a quote
-/// (review u14#8 P2-1).
+/// (a folder name holding a newline or `»`).
 #[test]
 fn a_folder_name_cannot_break_the_managers_text() {
     use workriver_core::runtime::AgentState::*;
@@ -595,8 +595,7 @@ fn a_folder_name_cannot_break_the_managers_text() {
 }
 
 /// A message held while its manager waits for a person in its terminal is not given to it
-/// once it is on a blind task: it waits, says why, and goes once that task is delivered
-/// (review u14#8 P2-2).
+/// once it is on a blind task: it waits, says why, and goes once that task is delivered.
 #[test]
 fn a_held_message_waits_while_its_manager_is_blind() {
     use workriver_core::runtime::AgentState::*;
@@ -630,7 +629,7 @@ fn a_held_message_waits_while_its_manager_is_blind() {
 
 /// Everything else from the records or the request in the manager's text stays on one line,
 /// inside its quotes or named by the record; the request's labels for tasks and files are
-/// not used (review u14#8, its control).
+/// not used (the control of the test above).
 #[test]
 fn crafted_names_and_labels_stay_cleaned() {
     use workriver_core::runtime::AgentState::*;
@@ -665,7 +664,7 @@ fn crafted_names_and_labels_stay_cleaned() {
 
 /// Attachment ids are the store's own form, so a stored file's path in any message to a
 /// manager (a delivery, a finding noted) is the store's: one line, no quote marks; an id
-/// that is anything else is refused (review u14#11 P1-1).
+/// that is anything else is refused.
 #[test]
 fn store_paths_in_every_managers_message_stay_clean() {
     use workriver_core::runtime::AgentState::*;
@@ -693,8 +692,7 @@ fn store_paths_in_every_managers_message_stay_clean() {
 }
 
 /// An answer to a question the manager asked, coming while it is on a blind task, is held and
-/// given once that task is delivered: never typed in while blind, never lost (review u14#11
-/// P2-1, probe A).
+/// given once that task is delivered: never typed in while blind, never lost.
 #[test]
 fn an_answer_waits_for_a_blind_manager() {
     use workriver_core::runtime::AgentState::*;
@@ -720,8 +718,7 @@ fn an_answer_waits_for_a_blind_manager() {
 }
 
 /// What `delivery::plan` tells a manager (here a worker's delivery) waits while the manager is
-/// on a blind task, and goes, recorded as delivered, once that task is (review u14#11 P2-1,
-/// probe B).
+/// on a blind task, and goes, recorded as delivered, once that task is.
 #[test]
 fn a_delivery_notice_waits_for_a_blind_manager() {
     use workriver_core::runtime::AgentState::*;
@@ -746,7 +743,7 @@ fn a_delivery_notice_waits_for_a_blind_manager() {
 }
 
 /// To a manager on another machine a stored file is the command that fetches it, whatever
-/// the data folder's name (review u14#11 P3-1: two spaces in it).
+/// the data folder's name (here two spaces in it).
 #[test]
 fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
     use workriver_core::runtime::{AgentState::*, Runtime};

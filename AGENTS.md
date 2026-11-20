@@ -115,8 +115,8 @@ delivered); the request still answers as the committed one it is. A failed read 
 replaced by a value: no default harness, no empty text, no "not there". `docs/architecture.md` is the map;
 `docs/design/restructure.md` (section 2) has the detail.
 
-The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`),
-whose phases are all done.
+The layout above is the one of the restructure (`docs/design/restructure.md`), whose
+phases are all done.
 
 ## Language rules
 
@@ -133,6 +133,15 @@ whose phases are all done.
 
 - `.local/` holds plans, prototypes and research notes. It is in `.gitignore`. Put new
   material of that kind there, not in the tree that gets committed.
+- Committed files (code, comments, tests, documents) name no local workriver id: no
+  intent, unit, task, finding or message of this project's own records (`i<N>`, `u<N>`,
+  `u<N>#<n>`, a finding of one, `m<N>`), which exist only on the machine that keeps them. Say what was
+  decided or found instead. Generic examples that show the format (`u1#3`, `i3` in CLI
+  help, recipes and tests) are not such ids. A commit message's `Task:` trailer stays:
+  workriver links commits by it.
+- A feature's design document lives on its branch. Before the branch is merged, its rules
+  go into the living spec (`docs/design/ui/`, or the file of `docs/design/` for that part)
+  and the design file is removed.
 - Before the first push, the repository is cleaned: nothing local-only, no generated
   files, no third-party skill copies.
 - Prefer an established, maintained library over writing the same thing by hand. Write

@@ -307,7 +307,7 @@ fn a_message_carries_what_the_user_picked() {
 
 /// An attachment's id is the store's own form, 16 lowercase hex characters (a short hash of
 /// the content, as the service makes it): the service builds the file's path from it, so
-/// nothing else is recorded (review u14#11 P1-1). Old records replay as they were.
+/// nothing else is recorded. Old records replay as they were.
 #[test]
 fn an_attachment_id_is_the_stores_own_form() {
     let mut s = Records::default();

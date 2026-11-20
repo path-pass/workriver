@@ -488,7 +488,8 @@ fn a_caller_is_who_its_process_is() {
     //  8, 10, 12: in no pane and without a terminal: a helper or a background job, not the user.
     refused(run(true, None, helper(None)), 403, &["process code-mode-host(56690) > app-server(15525) > app-server(69172) is in no pane and has no terminal", "workriver guide how hand-off"]);
     refused(run(true, None, vec![proc(4714, 1, None, "python3")]), 403, &["is in no pane and has no terminal"]);
-    //  9: the incident (u9#2). A stale pane with no agent, and the token: refused, not the user.
+    //  9: the incident this check was built for: a stale pane with no agent, and the token.
+    //     Refused, not the user.
     refused(run(true, Some("wM:p4"), helper(None)), 403, &["says it runs in pane wM:p4 (there is no pane wM:p4 any more)", "runs in no pane"]);
     // The same helper giving its command a terminal still names a pane it is not in.
     refused(run(true, Some("wM:p4"), helper(Some("ttys026"))), 403, &["runs in no pane"]);

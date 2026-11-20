@@ -864,7 +864,7 @@ fn idle_workers_are_told_to_their_manager() {
 }
 
 /// A stopped worker's escalation to a manager on a blind task waits until that task is
-/// delivered, then goes (review u14#11 P2-1: the stall escalation).
+/// delivered, then goes.
 #[test]
 fn an_escalation_waits_for_a_blind_manager() {
     use workriver_core::runtime::AgentState::*;
@@ -891,7 +891,7 @@ fn an_escalation_waits_for_a_blind_manager() {
 /// What workriver holds for a manager on a blind task (a worker's delivery, the user's
 /// decision) is recorded as held, with why, so the page shows it; given once that task is
 /// delivered, it is recorded as delivered; a restart in between records it as not delivered
-/// (restarted), so the user sees it and can send it again (review u14#14 P3-1).
+/// (restarted), so the user sees it and can send it again.
 #[test]
 fn a_held_notice_is_recorded_and_survives_a_restart() {
     use workriver_core::runtime::AgentState::*;

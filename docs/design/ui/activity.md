@@ -42,7 +42,7 @@ its sections went.
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
   After Output, a **Questions** block holds the past questions about the task (the user's
-  from before i29, agents' to each other), read-only, folded to rows (`conversations.md`,
+  from when the page had its own Ask, agents' to each other), read-only, folded to rows (`conversations.md`,
   Past questions); at the bottom a small "Ask the manager" opens the Manager box with the
   task as its chip. With no node picked, the unit's own past questions show under the graph
   the same way, when it has any.

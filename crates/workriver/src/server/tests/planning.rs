@@ -534,7 +534,7 @@ fn starting_an_intent_in_another_projects_workspace() {
 
 /// Starting an intent in a workspace whose manager is on a blind task in progress tells it
 /// nothing of the new intent until that task is delivered: the answer says the delivery is
-/// held, in the service's words (review u14#14 P2-1).
+/// held, in the service's words.
 #[test]
 fn an_intent_start_waits_for_a_blind_manager() {
     use workriver_core::runtime::AgentState::*;

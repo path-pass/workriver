@@ -67,7 +67,7 @@ word but for paths made whole and "see …" naming the file):
 | Structure: a second view by function (postponed) | `code.md` (A view by function) |
 | Structure: picking a node, longer text as Markdown | `activity.md` (A node's detail) |
 | Structure: Other machines; Stopped workers; Machine alerts; Opening a terminal | `operations.md` |
-| Structure: Asking why (with the manager, and agents asking each other) | `conversations.md` (since i29: the Manager section, past questions) |
+| Structure: Asking why (with the manager, and agents asking each other) | `conversations.md` (now the Manager section and past questions) |
 | Colour means one thing | `presentation.md` |
 | Findings; Gates and chores | `activity.md` |
 | What the user puts in: the gate's form, an open finding, delivery | `activity.md` |
