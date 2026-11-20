@@ -130,6 +130,9 @@ started, and the lines around a waiting gate do not flow, so a stuck branch is v
 the graph. Its input is the steps the agent prepared, each command with a copy button and
 "Run" (see Running a command as the user, `operations.md`);
 its output is a short note and, for a try-out that went wrong, findings like a review's.
+A decide gate may instead ask a **question with options** (a choice gate, see Choices
+below): named "Question", answered by picking one; nothing follows from the answer but what
+the manager adds after it.
 A **chore** blocks nobody (clean the disk, rotate a key) and is never on the graph or
 attached to a task. It belongs to an intent (sometimes to one of its units): it is the
 last, quietest group of the inbox, opening the same list of steps (with "Run" too; a chore
@@ -158,6 +161,13 @@ records it and delivers it to the agents through Herdr.
   open findings like a review's (so they wait in Needs you) and the work behind it stays
   not started until they are decided. The pictures stay with the gate's output and with
   each finding, wherever it shows, including as the cause of the work it led to.
+- **A waiting choice gate's form** reads Answer | Problem (Answer first). Under Answer, its
+  options as radio buttons (Choices), none picked at first; then the note and its pictures;
+  then "Answer", inactive until an option is picked. An option marked "say why" makes the
+  note required ("Why (needed for this answer)"), with the error in place when it is empty.
+  Problem is the form above (the question itself is wrong, no option fits). The undo window
+  and the delivery line are as for any gate. Submitted, the output shows "Chose: <the
+  option's words>", then the note and pictures.
 
 - **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer, with an
   optional one-line note; the agent's suggestion, if any, is the filled button. The row
@@ -214,3 +224,48 @@ is information, not a call to act: no colour, no motion, not counted in Needs yo
   clicked: it is read once, then it is noise under every graph. Open or folded is remembered
   per viewer (localStorage; without it, folded). It lists reviews once: the pill and the eye
   together.
+
+## Choices
+
+A question to the user with options carries them as data, whoever asks it: a decide gate
+(above) or a manager's message or reply in the conversation (`conversations.md`). One
+stored form, one renderer, the same rules.
+
+- **The stored form** is a fixed subset of A2UI v1.0 (a `createSurface` message, version
+  `1.0`, the basic catalog): a Column (the one root, `id: "root"`) holding a single-choice
+  ChoicePicker (`mutuallyExclusive`, `options: [{label, value}]`, labels literal text, its
+  value bound to `/selected`) and a primary Button (`action.event` `answer` with
+  `context.selected`, the `required` check on `/selected` as its `@checks`) whose label is a
+  Text bound to `/ui/submit`; and beside the surface `needs_note`, the values whose answer
+  needs the user's note (A2UI's option items hold a label and a value only). 2 to 8 options;
+  a value is 1 to 32 of `[a-z0-9-]`, unique; a label one line of 1 to 200 characters. Agents
+  never write it: `--option ID=LABEL` and `--require-note ID` on `task add`, `say` and `reply`
+  are built into it by core (`workriver-core/src/choices/`), which also refuses, on every
+  path, any choice that is not exactly the form it builds from its own options (another
+  component, property, binding, function, catalog or version). A test validates every form
+  core builds against the A2UI v1.0 JSON Schemas (`docs/design/guards.md`).
+- **The answer** is the chosen values, `selected` (one now; a list so that multiple choice
+  needs no new shape), checked by core against the stored values, with a note where the
+  option needs one. The page sends the value only, never the label; the label is the
+  asker's text, shown plain (no Markdown, no links), and quoted as the asker's in messages.
+- **Not on every gate.** A design's gate (after a design, directly or through its reviews)
+  takes no options: its choices stay in its text, and done confirms the design. A blocker
+  takes none, and only the intent's manager or the user asks with options. No task hangs
+  after a choice gate until it is answered.
+- **The renderer** is one component, `frontend/web/src/content/choice/Choice.tsx`
+  (`ChoiceSurface`, and `Chose` for a pick shown), over the installed Radix (shadcn's
+  `radio-group`, no other package): the ChoicePicker as radio buttons, then what the carrier
+  puts before the action (a note, pictures), then the Button, its words the page's
+  ("Answer"), inactive with nothing picked. Nothing else of a surface is drawn; one that is
+  not the subset's shape shows no options (`surface.ts`).
+- **A2UI's own renderer later.** Turned down for now: `@a2ui/react` with `@a2ui/web_core`
+  0.15.0, about 128,588 B gzip for these four components against 10,408 B for the Radix
+  radio group, and it rejects the 1.0 spec's `@checks`. When a published package accepts the
+  spec, it replaces only `Choice.tsx`'s insides: loaded only when a choice is shown, as its
+  own chunk (as the mermaid frame's script is fetched only for a diagram); each surface
+  namespaced by its carrier (`u2#8`, `m7`, `m3/2`), since every stored one is `"choice"`; the
+  `answer` action's `context.selected` handed to the carrier. The carrier's note then goes
+  after the surface (the official Column draws picker and button together) and the carrier
+  holds the action until a required note is there. The stored form, core's checks and the
+  routes stay as they are.
+

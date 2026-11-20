@@ -72,6 +72,15 @@ Agents still ask each other that way (below).
   goes with its ×, when a chip is taken out, with the next file attached, or when the
   message is sent. The manager is given each file's path in the store (a command that
   fetches it, for a manager on another machine).
+- **A manager's question with options** (`say` or `reply` with `--option`, see Choices in
+  `activity.md`) shows its options under its words. While the user can answer it (not
+  answered, and asked by the workspace's manager now) they are radio buttons, a one-line
+  note (required for an option marked "say why") and "Answer". The answer is a message of the
+  user's, through the same route and rules as one typed, naming the question and the value;
+  it shows as "Chose: <the option's words>" with the note, and the question shows the pick.
+  It is answered once, and it starts nothing: the manager is only told. A question asked by
+  an earlier manager of the workspace is shown read-only, saying it can no longer be answered
+  here and that the user can write to the manager instead.
 - **Under the sent message** what it pointed at shows as a turn did: its unit or task and
   the other chips, then the files as attachments show everywhere: pictures as thumbnails,
   other files as chips, opening in the viewer.
