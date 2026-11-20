@@ -2,10 +2,12 @@
 // the side panel. One person works one queue; a list keeps order and age where chips would
 // only pile up.
 import { useMemo, useState } from 'react'
-import { useAct } from '@/act'
+import { useAct } from '@/work/actions'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { finderLabel, inbox, openFindings, severityCounts, type InboxRow, type Pick } from '@/data'
+import { inbox, type InboxRow } from '@/attention/select'
+import { finderLabel, openFindings, severityCounts } from '@/work/select'
+import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/workspace/types'
 import { focusAgent } from '@/runtime'

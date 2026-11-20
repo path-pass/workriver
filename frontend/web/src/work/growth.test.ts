@@ -1,7 +1,7 @@
 // Where a unit's scope grew: along each line of work, a task whose commits reach folders
 // nothing before it on its line reached. Commits only, never merges; reviews and gates never.
 import { describe, expect, it } from 'vitest'
-import { growth } from './scope'
+import { growth } from './growth'
 import type { Unit } from '@/planning/types'
 
 type T = { id: string; kind?: string; after?: string[]; commits?: string[] }

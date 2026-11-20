@@ -5,7 +5,8 @@
 // roadmap, not here.
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { ms, type Pick } from '@/data'
+import { ms } from '@/planning/select'
+import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { record } from '@/runtime'
 import type { Finding } from '@/work/types'

@@ -1,7 +1,8 @@
 // Each unit, intent and task has its own address: `/u1`, `/u1/3` (task 3 picked, its detail
 // open), `/i3` (the intent), `/i3/1` (a task of the intent's own work), and optionally
 // `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
-import { unitsOf, type Pick } from './data'
+import { unitsOf } from '@/planning/select'
+import type { Pick } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
 
 /** What an address names; null: the page's root. */

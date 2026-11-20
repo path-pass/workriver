@@ -1,6 +1,6 @@
 // Where a unit's work grew in scope: along each line of work through its task graph, the
 // folders changed so far; a task that reaches folders outside all of them is marked.
-import type { Task } from '@/work/types'
+import type { Task } from './types'
 import type { Unit } from '@/planning/types'
 
 export interface Growth {

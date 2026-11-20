@@ -6,7 +6,7 @@
 // its reading. The memory pressure word has a colour of its own: green, amber, red, as the
 // system rates it.
 import { type ReactNode, useEffect, useState } from 'react'
-import { ms } from '@/data'
+import { ms } from '@/planning/select'
 import { type T, useT } from '@/i18n'
 import { metrics as loadMetrics, metricsHistory } from '@/runtime'
 import type { Disk, DiskLimit, Level, Limit, MachineAlert, MachineMetrics, Metric, MetricSample, MetricsReport, Thresholds } from '@/machines/types'

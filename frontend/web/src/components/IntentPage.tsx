@@ -3,9 +3,10 @@
 // on the intent itself before those became units of their own.
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { lastMove, quietSince, type Pick } from '@/data'
+import { lastMove, quietSince } from '@/planning/select'
+import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
-import { linkTo, pathOf } from '@/link'
+import { linkTo, pathOf } from '@/app/link'
 import { record } from '@/runtime'
 import type { Intent, Unit } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'

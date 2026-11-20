@@ -2,7 +2,8 @@
 // sample (VITE_MOCK=1) nothing is reached: focusing a terminal only says so. Asking is made
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
-import { MOCK, type Decision, type GateResult } from './data'
+import { MOCK } from '@/workspace/source'
+import type { Decision, GateResult } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
 import type { Finding, Task } from '@/work/types'
 import type { Unit } from '@/planning/types'

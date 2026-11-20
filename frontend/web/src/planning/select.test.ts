@@ -1,7 +1,8 @@
 // Quiet: a unit or intent where nothing moved for three days, worked out in the page.
 import { describe, expect, it } from 'vitest'
-import { intentQuietSince, lastMove, QUIET, quietSince } from './data'
-import type { Intent, Unit } from '@/planning/types'
+import { intentQuietSince, lastMove, quietSince } from './select'
+import { QUIET } from '@/config/defaults'
+import type { Intent, Unit } from './types'
 
 const day = 864e5
 const now = Date.parse('2026-11-20T12:00:00Z')

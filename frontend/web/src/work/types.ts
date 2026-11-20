@@ -202,3 +202,26 @@ export interface Task {
   /** Dropped as no longer needed: when, by whom ("user", or an agent's name), why. */
   dropped?: { at: string; by: string; reason: string };
 }
+
+/** What is picked inside a unit: one piece of work, or one finding (by its id) of a review. */
+export type Pick = { kind: 'task'; id: string; finding?: string } | null
+
+// ---- what the user puts in: gate results, decisions on findings, chores done ----
+
+export type Decision = 'accept' | 'revise' | 'reject' | 'defer'
+
+export interface NewFinding {
+  severity: Severity
+  problem: string
+  impact: string
+  evidence: string[]
+  attachments: Attachment[]
+}
+
+export interface GateResult {
+  result: 'done' | 'problem'
+  note: string
+  attachments: Attachment[]
+  findings: NewFinding[]
+  at: string
+}

@@ -4,7 +4,7 @@
 // one, nothing of the app is shown: only how to open it.
 import { useEffect, useState, type ReactNode } from 'react'
 import { Waves } from 'lucide-react'
-import { MOCK } from '@/data'
+import { MOCK } from '@/workspace/source'
 import { useT } from '@/i18n'
 import { rememberWanted, SIGNED_OUT, startSession } from '@/runtime'
 import { Steps } from './bits'
