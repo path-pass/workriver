@@ -1,9 +1,11 @@
-//! workriver's core: the events, the state they add up to, the write rules and the runtime
-//! interface. Knows nothing about the network, the UI, storage or the agent runtime (the
-//! SQLite store is workriver-data; the data directory is the outer crate's common/home.rs).
+//! workriver's core: the events, the state they add up to, the write rules, the runtime
+//! interface and the data port. Knows nothing about the network, the UI, storage or the
+//! agent runtime (what keeps the work implements `ports::WorkStore`: workriver-data, the
+//! SQLite store; the data directory is the outer crate's common/home.rs).
 pub mod access;
 pub mod conversations;
 pub mod planning;
+pub mod ports;
 pub mod records;
 pub mod runtime;
 pub mod work;
