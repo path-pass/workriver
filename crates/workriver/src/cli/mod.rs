@@ -62,7 +62,8 @@ Terms:
 const ABOUT_END: &str = "
 
 Commits are read from git: a commit belongs to a task when its message has the trailer
-line `Task: u1#3`. A commit on the unit's branch without one shows as unregistered.
+line `Task: u1#3` in its last paragraph (with any other trailers, no blank line between
+them). A commit on the unit's branch without one shows as unregistered.
 
 Typical flow for an agent:
   workriver task start u1#3

@@ -60,7 +60,8 @@ Exact commands:
 - **Code units** are recorded where the work happens, on a branch of their own (`units`);
   renamed or rebased: `workriver unit move`.
 - **Push, pull request, merge**: three tasks, each after the user's go (`push-pr-merge`).
-- **Commits** carry `Task: u1#3`; one made without it is linked (`workriver commit link`).
+- **Commits** carry `Task: u1#3` in the message's last paragraph, with any other trailers
+  and no blank line between them; one made without it is linked (`workriver commit link`).
 - **Blind tasks** get only the goal, place and range from you.
 - **Other agents' terminals** are not yours: questions go through `workriver ask`.
 - **What the user asks of you** in a message or your pane that takes time (a fix, a check,
