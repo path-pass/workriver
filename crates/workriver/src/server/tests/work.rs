@@ -160,6 +160,56 @@ fn pick_up_survives_a_restart() {
     }));
 }
 
+/// What a previous run left without its wait is put right at the next start, in this order:
+/// a question still open is failed as restarted, a message that was held for its manager is
+/// recorded as not delivered, and the question's temporary agent is closed.
+#[test]
+fn what_a_previous_run_left_is_closed_at_the_next_start() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let db = tmp.path().join("w.db");
+    let start = |fake: std::sync::Arc<Fake>| daemon_with(fake, &db, crate::server::Waits::default());
+    // What is stored from event `from` on, as "kind by actor" with why it failed, if it says.
+    let since = |from: usize| {
+        let line = |e: &workriver_core::Event| {
+            let v = serde_json::to_value(e).unwrap();
+            let why = v["body"]["reason_code"].as_str().map(|c| format!(" ({c})")).unwrap_or_default();
+            format!("{} by {}{why}", v["kind"].as_str().unwrap(), e.actor)
+        };
+        stored(&db)[from..].iter().map(line).collect::<Vec<_>>()
+    };
+
+    // The first run: a question whose new agent waits for a person, and a message held for
+    // a manager that does too. Neither got anywhere.
+    let first = std::sync::Arc::new(Fake::default());
+    *first.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let a = start(first.clone());
+    manage(&a, "p1", "s-boss");
+    a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    *first.start_as.lock().unwrap() = Some(Blocked);
+    a.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why paged?" }))).unwrap();
+    wait_until("the question has its agent", || since(0).contains(&"question.started by workriver".to_string()));
+    first.agents.lock().unwrap()[0].1.state = Blocked;
+    a.call("/api/message", Some(json!({ "intent": "i1", "text": "Still there?" }))).unwrap();
+    let left = since(0);
+    assert!(!left.iter().any(|l| l.starts_with("question.failed") || l.starts_with("message.delivery")), "nothing came of either: {left:?}");
+    let mark = left.len();
+
+    // The next run, on the same records.
+    let next = std::sync::Arc::new(Fake::default());
+    *next.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let _b = start(next.clone());
+    wait_until("both are recorded", || since(mark).len() >= 2);
+    assert_eq!(since(mark)[..2], ["question.failed by workriver (restarted)", "message.delivery by workriver (restarted)"]);
+    wait_until("the question's agent is closed", || next.closed.lock().unwrap().iter().any(|n| n == "why-q1"));
+}
+
 /// A copy of a real database (WORKRIVER_REPLAY_DB) replays onto the current model. The
 /// copy is made into a temp folder; the given file is only read.
 #[test]
