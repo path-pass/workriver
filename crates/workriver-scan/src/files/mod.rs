@@ -102,7 +102,8 @@ pub fn live_in(at: &Runner, dir: &Path) -> Result<Vec<FileChange>> {
     let mut files = vec![];
     for r in changed {
         let before = if r.status == "A" { None } else { Some(before.next().flatten().unwrap_or_default()) };
-        let after = if r.status == "D" { None } else { at.read(&dir.join(&r.path)) };
+        // A symlink's text is where it points (as git stores it), not the file there.
+        let after = if r.status == "D" { None } else if r.modes[1] == LINK { at.read_link(&dir.join(&r.path)) } else { at.read(&dir.join(&r.path)) };
         if let Some(c) = change(r, before, after) {
             files.push(c);
         }
@@ -140,6 +141,8 @@ pub(crate) fn split0(out: &[u8]) -> impl Iterator<Item = String> + '_ {
 /// The mode of a side that does not exist, and its object id (git's, in `--raw`).
 pub(crate) const GONE: &str = "000000";
 pub(crate) const NULL: &str = "0000000000000000000000000000000000000000";
+/// A symlink's mode.
+const LINK: &str = "120000";
 
 /// One file of `--raw` output: its status ("A", "M" or "D"; a type change and the like show
 /// as modified), path, and each side's mode and object id.

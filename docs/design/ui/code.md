@@ -31,7 +31,7 @@ its sections went.
      where it is now (and as deleted where it was, if the base has it). Whether a file
      changed is whether its git entry (existence, mode and object id) differs at the two
      ends, never its text, which gives only the +/− counts (uncommitted work, which git
-     has not hashed, is compared by its text): a file whose mode or type
+     has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
      alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
      text changed and changed back on the way; a mode or a submodule pointer changed and
      changed back is not. A picked piece of

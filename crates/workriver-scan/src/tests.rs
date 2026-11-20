@@ -429,3 +429,22 @@ fn file_changes_carry_their_git_entries() {
     now.sort();
     assert_eq!(now, vec![(s("draft.txt"), s(gone), zero.clone(), s("100644"), zero.clone()), (s("run.sh"), s("100755"), run, s("100755"), zero)]);
 }
+
+/// An uncommitted symlink's text is where it points, not what the file there holds: a link
+/// moved from old-target to new-target, whose file holds the text "old-target", still changed.
+#[test]
+fn an_uncommitted_symlink_is_its_target() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "old-target", "original payload\n");
+    write(repo, "new-target", "old-target");
+    std::os::unix::fs::symlink("old-target", repo.join("link.txt")).unwrap();
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    std::fs::remove_file(repo.join("link.txt")).unwrap();
+    std::os::unix::fs::symlink("new-target", repo.join("link.txt")).unwrap();
+    let now: Vec<_> = live_in(&Runner::Local, repo).unwrap().into_iter().map(|f| (f.path, f.before, f.after, f.after_mode)).collect();
+    let s = |x: &str| x.to_string();
+    assert_eq!(now, vec![(s("link.txt"), Some(s("old-target")), Some(s("new-target")), s("120000"))]);
+}
