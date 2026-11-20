@@ -584,34 +584,16 @@
        "merge": true,
        "files": [
         {
-         "path": "app/chat/mention.ts",
+         "path": "app/search/highlight.ts",
          "status": "A",
          "before": null,
-         "after": "// The people a message mentions: @name, made of letters, digits and underscores.\nconst MENTION = /@(\\w+)/g\n\nexport function parseMentions(text) {\n  const names = [...text.matchAll(MENTION)].map(m => m[1])\n  return [...new Set(names)]\n}\n\nexport function hasMention(text) {\n  return /@\\w+/.test(text)\n}\n\nexport function stripMentions(text) {\n  return text.replace(MENTION, '').replace(/\\s+/g, ' ').trim()\n}\n"
+         "after": "// Marks the searched word in a message.\nexport function highlight(text: string, word: string) {\n  if (!word) return [text]\n  return text.split(new RegExp(`(${word.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')})`, 'i'))\n}\n"
         },
         {
-         "path": "app/chat/send.ts",
-         "status": "M",
-         "before": "// Sending a message: check the sender may post, store it, hand it back.\nimport { canPost } from '../auth/permissions'\nimport { save } from '../store/messages'\n\nexport interface Sent {\n  id: string\n  channel: string\n  at: number\n}\n\nfunction trimmed(text) {\n  const t = text.trim()\n  if (!t) throw new Error('empty message')\n  if (t.length > 4000) throw new Error('message too long')\n  return t\n}\n\nexport function sendMessage(channel, text) {\n  if (!canPost(channel)) throw new Error('forbidden')\n  return save(channel, trimmed(text))\n}\n\nexport function editMessage(message, text) {\n  if (message.author !== currentUser()) throw new Error('forbidden')\n  return save(message.channel, trimmed(text), message.id)\n}\n",
-         "after": "// Sending a message: check the sender may post, store it, hand it back.\nimport { canPost } from '../auth/permissions'\nimport { save } from '../store/messages'\nimport { push } from '../notify/push'\nimport { parseMentions } from './mention'\n\nexport interface Sent {\n  id: string\n  channel: string\n  at: number\n}\n\nfunction trimmed(text) {\n  const t = text.trim()\n  if (!t) throw new Error('empty message')\n  if (t.length > 4000) throw new Error('message too long')\n  return t\n}\n\nexport function sendMessage(channel, text) {\n  if (!canPost(channel)) throw new Error('forbidden')\n  const message = save(channel, trimmed(text))\n  for (const user of parseMentions(text)) push(user, message)\n  return message\n}\n\nexport function editMessage(message, text) {\n  if (message.author !== currentUser()) throw new Error('forbidden')\n  return save(message.channel, trimmed(text), message.id)\n}\n"
-        },
-        {
-         "path": "app/notify/push.ts",
-         "status": "M",
-         "before": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n",
-         "after": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at, from: payload.author } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n"
-        },
-        {
-         "path": "app/store/mentions.ts",
+         "path": "docs/search.md",
          "status": "A",
          "before": null,
-         "after": "// Who mentioned whom, kept so a notification can say it.\nexport interface Mention {\n  messageId: string\n  from: string\n  to: string\n}\n\nconst mentions: Mention[] = []\n\nexport function remember(m: Mention) {\n  mentions.push(m)\n}\n\nexport function mentionedBy(messageId: string, to: string) {\n  return mentions.find(m => m.messageId === messageId && m.to === to)?.from\n}\n"
-        },
-        {
-         "path": "app/ui/notice/mentioned-by.tsx",
-         "status": "A",
-         "before": null,
-         "after": "// The line under a notification: who mentioned you.\nexport function MentionedBy({ name }: { name: string }) {\n  return <span className=\"mentioned-by\">@{name}</span>\n}\n"
+         "after": "# Search\n\nType a word in the box above the message list; messages that contain it are listed, newest first.\n"
         }
        ]
       },
@@ -631,6 +613,41 @@
        ]
       }
      ],
+     "net": {
+      "id": "sample-base..sample-tip",
+      "files": [
+       {
+        "path": "app/chat/mention.ts",
+        "status": "A",
+        "before": null,
+        "after": "// The people a message mentions: @name, made of letters, digits and underscores.\nconst MENTION = /@(\\w+)/g\n\nexport function parseMentions(text) {\n  const names = [...text.matchAll(MENTION)].map(m => m[1])\n  return [...new Set(names)]\n}\n\nexport function hasMention(text) {\n  return /@\\w+/.test(text)\n}\n\nexport function stripMentions(text) {\n  return text.replace(MENTION, '').replace(/\\s+/g, ' ').trim()\n}\n"
+       },
+       {
+        "path": "app/chat/send.ts",
+        "status": "M",
+        "before": "// Sending a message: check the sender may post, store it, hand it back.\nimport { canPost } from '../auth/permissions'\nimport { save } from '../store/messages'\n\nexport interface Sent {\n  id: string\n  channel: string\n  at: number\n}\n\nfunction trimmed(text) {\n  const t = text.trim()\n  if (!t) throw new Error('empty message')\n  if (t.length > 4000) throw new Error('message too long')\n  return t\n}\n\nexport function sendMessage(channel, text) {\n  if (!canPost(channel)) throw new Error('forbidden')\n  return save(channel, trimmed(text))\n}\n\nexport function editMessage(message, text) {\n  if (message.author !== currentUser()) throw new Error('forbidden')\n  return save(message.channel, trimmed(text), message.id)\n}\n",
+        "after": "// Sending a message: check the sender may post, store it, hand it back.\nimport { canPost } from '../auth/permissions'\nimport { save } from '../store/messages'\nimport { push } from '../notify/push'\nimport { parseMentions } from './mention'\n\nexport interface Sent {\n  id: string\n  channel: string\n  at: number\n}\n\nfunction trimmed(text) {\n  const t = text.trim()\n  if (!t) throw new Error('empty message')\n  if (t.length > 4000) throw new Error('message too long')\n  return t\n}\n\nexport function sendMessage(channel, text) {\n  if (!canPost(channel)) throw new Error('forbidden')\n  const message = save(channel, trimmed(text))\n  for (const user of parseMentions(text)) push(user, message)\n  return message\n}\n\nexport function editMessage(message, text) {\n  if (message.author !== currentUser()) throw new Error('forbidden')\n  return save(message.channel, trimmed(text), message.id)\n}\n"
+       },
+       {
+        "path": "app/notify/push.ts",
+        "status": "M",
+        "before": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n",
+        "after": "// Push notifications to a user's devices.\nimport { devicesOf } from '../store/devices'\n\nexport interface Push {\n  userId: string\n  payload: unknown\n}\n\nconst queue: Push[] = []\n\nexport function push(userId, payload) {\n  const item = { userId, payload: { channel: payload.channel, at: payload.at, from: payload.author } }\n  queue.push(item)\n  return item\n}\n\nexport function flush(send) {\n  for (const item of queue.splice(0)) {\n    for (const device of devicesOf(item.userId)) send(device, item.payload)\n  }\n}\n"
+       },
+       {
+        "path": "app/store/mentions.ts",
+        "status": "A",
+        "before": null,
+        "after": "// Who mentioned whom, kept so a notification can say it.\nexport interface Mention {\n  messageId: string\n  from: string\n  to: string\n}\n\nconst mentions: Mention[] = []\n\nexport function remember(m: Mention) {\n  mentions.push(m)\n}\n\nexport function mentionedBy(messageId: string, to: string) {\n  return mentions.find(m => m.messageId === messageId && m.to === to)?.from\n}\n"
+       },
+       {
+        "path": "app/ui/notice/mentioned-by.tsx",
+        "status": "A",
+        "before": null,
+        "after": "// The line under a notification: who mentioned you.\nexport function MentionedBy({ name }: { name: string }) {\n  return <span className=\"mentioned-by\">@{name}</span>\n}\n"
+       }
+      ]
+     },
      "tasks": [
       {
        "id": "s1",

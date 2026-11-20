@@ -92,7 +92,7 @@ workriver/
 │           ├── history/
 │           │   ├── mod.rs            # Repo/rev/ref discovery, names, history exports.
 │           │   ├── branches.rs       # Branch membership, fork/squash, patch ids.
-│           │   └── commits.rs        # Batched commit/blob reads, commit metadata.
+│           │   └── commits.rs        # Batched commit/blob reads, commit metadata, where a branch meets its base, diffs.
 │           ├── files/
 │           │   ├── mod.rs            # FileChange/counts, before/after, live/worktree reads.
 │           │   └── tree.rs           # Module tree and line counts.
@@ -232,7 +232,7 @@ crates/workriver/
 │   │   ├── views/                    # What the page and the CLI read; git attribution; caches.
 │   │   │   ├── mod.rs                # Workspace build, project/group derivation.
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads.
-│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads.
+│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads, net change.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).

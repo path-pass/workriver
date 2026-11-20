@@ -35,9 +35,9 @@ export interface Commit {
   /** The same change as this commit of a branch the unit left (a rebase): its old hash. */
   rebasedFrom?: string;
   /**
-   * A merge that brought the base into the branch: its files are against the base's side, the
-   * branch's whole change as of it (`git diff base...merge`), and none of them work of its
-   * own. The unit's whole change starts from the last one; no task's change holds one.
+   * A merge that brought the base into the branch: its files, against its first parent as
+   * every commit's, are the base's work: no task's change holds it, and its lines are the
+   * base's. A merge of any other branch is not one: what it brought is the branch's.
    */
   merge?: boolean;
   files: FileChange[];
@@ -69,8 +69,15 @@ export interface FileChange {
   afterId: string;
 }
 
-/** A unit's file texts, by commit id and path, as of its `code`. */
-export interface UnitCode { code: string; files: Map<string, FileChange> }
+/**
+ * A unit's net change against its base, as `git diff base...head` names it: from where the
+ * branch meets its base now (merged: where it met it before) to its last commit. `id` is
+ * "from..tip": it changes when the base moves, the commits the same.
+ */
+export interface Net { id: string; files: FileChange[] }
+
+/** A unit's file texts, by commit id and path, and its net change's, as of its `code`. */
+export interface UnitCode { code: string; files: Map<string, FileChange>; net?: Net }
 
 // ---- the file tree: where the unit changed, plans to change, or is writing right now ----
 
@@ -100,7 +107,8 @@ export interface TreeRow {
 
 /**
  * Lines picked in the code, by their numbers: in the single-file view, in the file as shown;
- * in the list, in the file as `commit` (an index into the unit's commits) left it.
+ * in the list, and in a part of the single-file view, in the file as `commit` (an index into
+ * the unit's commits) left it.
  */
 export interface Lines { path: string; from: number; to: number; commit?: number }
 
@@ -111,14 +119,24 @@ export interface FileTree {
 }
 
 export interface FileDelta {
-  /** Indexes of the scope's commits that touch the file, oldest first. */
+  /** Indexes of the commits the change comes from, oldest first: the scope's that touch the file. */
   touched: number[]
+  /** The last part's texts, and the commit its `after` is the file as of (`blame`). */
   before: string | null
   after: string | null
+  upTo: number
   status: 'A' | 'M' | 'D'
+  /** Over all parts. */
   add: number
   del: number
+  /**
+   * The stretches compared one by one, oldest first: one, unless another commit touched the
+   * file between the scope's (a merge of the base, other work), where their texts do not chain.
+   */
+  parts: FilePart[]
 }
+
+export interface FilePart { touched: number[]; upTo: number; before: string | null; after: string | null; add: number; del: number }
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }

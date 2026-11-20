@@ -3,6 +3,7 @@
 // select.ts.
 import type { Workspace } from './types'
 import { withLines } from '@/code/load'
+import type { FileChange } from '@/code/types'
 import { fileTree, shownDelta } from '@/code/files'
 import { repoOf } from '@/code/select'
 import { unitsOf, noCode } from '@/planning/select'
@@ -20,7 +21,11 @@ export const MOCK = import.meta.env.VITE_MOCK === '1'
  */
 function prepare(ws: Workspace): Workspace {
   setRuntime(ws.runtime)
-  for (const unit of unitsOf(ws)) for (const c of unit.commits) c.files = c.files.map(f => (f.before === undefined && f.after === undefined ? { ...f, before: null, after: null, lines: [] } : withLines(f)))
+  const textless = (f: FileChange) => (f.before === undefined && f.after === undefined ? { ...f, before: null, after: null, lines: [] } : withLines(f))
+  for (const unit of unitsOf(ws)) {
+    for (const c of unit.commits) c.files = c.files.map(textless)
+    if (unit.net) unit.net.files = unit.net.files.map(textless)
+  }
   if (import.meta.env.DEV && MOCK) checkCounts(ws)
   return ws
 }
@@ -33,7 +38,7 @@ async function loadWorkspace(): Promise<Workspace> {
   const ws = demo as unknown as Workspace
   // The sample names no git entries: each file is a regular one, its text standing for its id.
   const entry = (text?: string | null) => (text == null ? ['000000', '0'.repeat(40)] : ['100644', text])
-  for (const c of unitsOf(ws).flatMap(u => u.commits)) for (const f of c.files) if (f.beforeMode === undefined) [[f.beforeMode, f.beforeId], [f.afterMode, f.afterId]] = [entry(f.before), entry(f.after)]
+  for (const c of unitsOf(ws).flatMap(u => [...u.commits, ...(u.net ? [u.net] : [])])) for (const f of c.files) if (f.beforeMode === undefined) [[f.beforeMode, f.beforeId], [f.afterMode, f.afterId]] = [entry(f.before), entry(f.after)]
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
   for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const a of [...(n.output.attachments ?? []), ...(n.output.findings ?? []).flatMap(f => f.attachments ?? [])]) a.url = pictures[a.url] ?? a.url

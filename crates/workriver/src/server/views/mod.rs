@@ -87,6 +87,7 @@ fn hide_unit(u: &mut Unit) {
     u.tasks.retain(|t| t.state != "unregistered");
     u.commits.retain(|c| !c.live);
     u.code.clear();
+    u.net = None;
     for c in &mut u.commits {
         c.subject.clear();
         c.author.clear();
@@ -467,6 +468,7 @@ fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names:
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks: u.tasks.iter().map(|t| task(state, live, u, t, names, manager, vec![])).collect(),
         commits: vec![],
+        net: None,
         code: String::new(),
         squash: None,
         overdue: None,
@@ -514,25 +516,26 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let merged = u.merged.is_some();
     // On another machine: as the background read it last (it never waits on ssh here); what
     // was read stays while the machine cannot be reached.
-    let (commits, files, patch) = if u.machine.is_some() && !cache.remote_reads {
+    let (commits, files, patch, net) = if u.machine.is_some() && !cache.remote_reads {
         let shared = cache.shared.lock().unwrap();
-        let (c, f, p) = shared.units.get(&u.id).cloned().unwrap_or_default();
-        (c, if cache.light { vec![] } else { f }, p)
+        let (c, f, p, n) = shared.units.get(&u.id).cloned().unwrap_or_default();
+        (c, if cache.light { vec![] } else { f }, p, if cache.light { None } else { n })
     } else {
         match cache.runner(u.machine.as_deref()) {
             None => Default::default(),
             Some(at) => {
-                let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
+                let (c, f, n) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
                 let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
                 if u.machine.is_some() {
-                    cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone()));
+                    cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone(), n.clone()));
                 }
-                (c, f, p)
+                (c, f, p, n)
             }
         }
     };
-    let code = code_of(&commits, &files);
+    let code = code_of(&commits, &files, net.as_ref());
     let (commits, files) = if cache.light || cache.bare { (commits.iter().map(bare_commit).collect(), files.iter().map(scan::FileChange::bare).collect()) } else { (commits, files) };
+    let net = net.map(|(id, files)| Net { id, files: if cache.light || cache.bare { files.iter().map(scan::FileChange::bare).collect() } else { files } });
 
     // A commit linked to a task by hand: by its hash; or, for a link whose commit is gone (a
     // rebase), by the same patch id, else by the same subject and author date.
@@ -569,7 +572,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         .zip(linked)
         .map(|(c, linked)| {
             let rebased_from = again.get(&c.hash).cloned();
-            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.from_base, files: c.files, linked, rebased_from }
+            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.base_merge, files: c.files, linked, rebased_from }
         })
         .collect();
     // Uncommitted work belongs to the running implement task started last.
@@ -615,6 +618,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks,
         commits: shown,
+        net,
         code,
         squash: (progress_now == core::Progress::Ready).then(|| cache.shared.lock().unwrap().squash.get(&u.id).cloned()).flatten(),
         // Waiting for a merge too long; a spike waits for none.

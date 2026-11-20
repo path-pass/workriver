@@ -16,94 +16,106 @@ export const baseName = (p: string) => p.split('/').pop() ?? p
 
 export const ROOT = '/'
 
-// Each line of `after`: the owner it had in `before` where a line diff keeps it, undefined
-// where it is new.
-function carry(before: string, after: string, owner: number[]): (number | undefined)[] {
-  const next: (number | undefined)[] = []
-  let at = 0
-  for (const part of diffLines(before, after)) {
-    const n = part.count ?? 0
-    if (part.removed) at += n
-    else if (part.added) for (let i = 0; i < n; i++) next.push(undefined)
-    else { next.push(...owner.slice(at, at + n)); at += n }
-  }
-  return next
-}
-
 /**
  * Which commit last changed each line of a file, as of commit `upTo`: one index into the
- * unit's commits per line, -1 for a line from before the unit. A merge that brought the base
- * in is read against the base's side, not the branch's text before it: a line the branch had
- * keeps its commit, one the base brought is from before the unit, and only a line neither
- * had (a conflict resolved by hand) is the merge's.
+ * unit's commits per line, -1 for a line from before the unit. Every commit is read against
+ * its first parent, so the texts chain; a line a merge of the base brought in (or wrote while
+ * resolving a conflict with it) is the base's, from before the unit, never a task's.
  */
 export function blame(unit: Unit, path: string, upTo: number): number[] {
   let owner: number[] = []
-  let text: string | null = null
+  let started = false
   unit.commits.slice(0, upTo + 1).forEach((c, k) => {
     const f = c.files.find(x => x.path === path)
     if (!f) return
-    const before = f.before ?? '', after = f.after ?? ''
-    if (c.merge) {
-      const kept = text === null ? [] : carry(text, after, owner)
-      owner = carry(before, after, before.split('\n').slice(0, -1).map(() => -1)).map((b, i) => kept[i] ?? b ?? k)
-    } else {
-      if (text === null) owner = before.split('\n').slice(0, -1).map(() => -1)
-      owner = carry(before, after, owner).map(o => o ?? k)
+    if (!started) { owner = (f.before ?? '').split('\n').slice(0, -1).map(() => -1); started = true }
+    const next: number[] = []
+    let at = 0
+    for (const part of diffLines(f.before ?? '', f.after ?? '')) {
+      const n = part.count ?? 0
+      if (part.removed) at += n
+      else if (part.added) for (let i = 0; i < n; i++) next.push(c.merge ? -1 : k)
+      else { next.push(...owner.slice(at, at + n)); at += n }
     }
-    text = after
+    owner = next
   })
   return owner
 }
 
-const wholes = new WeakMap<Unit['commits'], number[]>()
-/**
- * The unit's whole change, as indexes into its commits: from the last merge that brought the
- * base in, else all of them. scan reads such a merge against the base's side, so it holds the
- * branch's whole change as of it and the commits before it are in it already; over these,
- * `fileDelta` is `git diff base...head`, and nothing the base did is the unit's.
- */
-export function wholeScope(unit: Unit): number[] {
-  let scope = wholes.get(unit.commits)
-  if (!scope) {
-    const from = Math.max(unit.commits.findLastIndex(c => c.merge), 0)
-    wholes.set(unit.commits, (scope = unit.commits.flatMap((_, k) => (k >= from ? [k] : []))))
-  }
-  return scope
-}
-
-/**
- * A file's change over some commits taken together: its git entry (mode and object id)
- * before the first of them that touches it against its entry after the last; the texts give
- * only the line counts. Null when none touches it, and when the entries are the same: a file
- * added and then moved or deleted, or changed and changed back (its mode, a submodule's
- * pointer too). A mode or type changed alone stays, M +0 -0. Uncommitted work's side has
- * no object id, so its text stands for one. Over the whole unit (`wholeScope`) this is the
- * branch's net change against its base, as `git diff base...head` names it: a moved file is
- * only where it is now. The tree's counts and the single-file view both come from here, so
- * they agree.
- */
-export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
-  const touched = scope.filter(k => unit.commits[k].files.some(f => f.path === path))
-  if (!touched.length) return null
-  const at = (k: number) => unit.commits[k].files.find(f => f.path === path)!
-  const first = at(touched[0]), last = at(touched.at(-1)!)
-  // Uncommitted work's side has no object id (git has not hashed it): its text stands for it.
-  const unhashed = last.afterId === NULL && last.afterMode !== GONE
-  if (first.beforeMode === last.afterMode && (unhashed ? first.before === last.after : first.beforeId === last.afterId)) return null
-  const { add, del } = counted(first, last)
-  return { touched, before: first.before, after: last.after, status: first.beforeMode === GONE ? 'A' : last.afterMode === GONE ? 'D' : 'M', add, del }
-}
-
 /** git's mode and object id for a side that does not exist; the id also of one not hashed. */
 const GONE = '000000', NULL = '0'.repeat(40)
+
+/**
+ * Whether a file is the same at two ends: the same git entry (existence, mode, object id).
+ * Uncommitted work's side has no object id (git has not hashed it): its text stands for one.
+ */
+function same(first: FileChange, last: FileChange) {
+  const unhashed = last.afterId === NULL && last.afterMode !== GONE
+  return first.beforeMode === last.afterMode && (unhashed ? first.before === last.after : first.beforeId === last.afterId)
+}
+
+const statusOf = (first: FileChange, last: FileChange) => (first.beforeMode === GONE ? 'A' : last.afterMode === GONE ? 'D' : 'M')
+
+/**
+ * A file's change over some commits taken together, from their own changes only: its git
+ * entry before the first of them that touches it against its entry after the last, the texts
+ * giving only the line counts. Where another commit touched the file between two of them (a
+ * merge of the base, other work), their texts do not chain: each stretch is a part of its
+ * own, compared alone, and the counts are the parts' sums. Null when none touches it, when
+ * every part leaves it as it was (added and then moved or deleted, changed and changed back:
+ * its mode, a submodule's pointer too), and when it is not there at either end (the work
+ * added and deleted it itself). A mode or type changed alone stays, M +0 -0. The tree's
+ * counts and the single-file view both come from here, so they agree.
+ */
+export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
+  const at = (k: number) => unit.commits[k].files.find(f => f.path === path)
+  const touched = scope.filter(k => at(k))
+  if (!touched.length) return null
+  const stretches: number[][] = []
+  for (const k of touched) {
+    const prev = stretches.at(-1)?.at(-1)
+    if (prev !== undefined && !unit.commits.slice(prev + 1, k).some(c => c.files.some(f => f.path === path))) stretches.at(-1)!.push(k)
+    else stretches.push([k])
+  }
+  const first = at(touched[0])!, last = at(touched.at(-1)!)!
+  if (first.beforeMode === GONE && last.afterMode === GONE) return null
+  const parts = stretches.flatMap(ks => {
+    const a = at(ks[0])!, b = at(ks.at(-1)!)!
+    return same(a, b) ? [] : [{ touched: ks, upTo: ks.at(-1)!, before: a.before, after: b.after, ...counted(a, b) }]
+  })
+  if (!parts.length) return null
+  const shown = parts.at(-1)!
+  return { touched, before: shown.before, after: shown.after, upTo: shown.upTo, status: statusOf(first, last), add: sum(parts, 'add'), del: sum(parts, 'del'), parts }
+}
+
+const sum = (parts: { add: number; del: number }[], k: 'add' | 'del') => parts.reduce((s, p) => s + p[k], 0)
+
+/**
+ * A file's change over the whole unit: the branch's net change against its base, as
+ * `git diff base...head` names it (`unit.net`, from where the branch meets its base, which
+ * the service works out), with uncommitted work on top. Nothing the base did is in it, however
+ * the base came in; a moved file is only where it is now. The work it comes from is the
+ * unit's commits that touched the file, not a merge of the base. Without a net change (the
+ * sample's other units, a service that could not tell) the unit's commits taken together.
+ */
+export function wholeDelta(unit: Unit, path: string): FileDelta | null {
+  if (!unit.net) return fileDelta(unit, path, unit.commits.map((_, k) => k))
+  const live = unit.commits.at(-1)?.live ? unit.commits.at(-1)!.files.find(f => f.path === path) : undefined
+  const net = unit.net.files.find(f => f.path === path)
+  const first = net ?? live, last = live ?? net
+  if (!first || !last || same(first, last)) return null
+  const touched = unit.commits.flatMap((c, k) => (!c.merge && c.files.some(f => f.path === path) ? [k] : []))
+  const { add, del } = counted(first, last)
+  const upTo = unit.commits.length - 1
+  return { touched, before: first.before, after: last.after, upTo, status: statusOf(first, last), add, del, parts: [{ touched, upTo, before: first.before, after: last.after, add, del }] }
+}
 
 // Line counts from one file version's `before` to another's `after`, kept per pair: a file's
 // versions stay the same objects while its unit's code is unchanged, and diffing whole texts
 // again on every pick made picking a task in a big unit take up to a second.
 const counts = new WeakMap<FileChange, WeakMap<FileChange, { add: number; del: number }>>()
 function counted(first: FileChange, last: FileChange) {
-  if (first === last) return first
+  if (first === last) return { add: first.add, del: first.del }
   let to = counts.get(first)
   if (!to) counts.set(first, (to = new WeakMap()))
   let c = to.get(last)
@@ -116,18 +128,7 @@ function counted(first: FileChange, last: FileChange) {
  * picked work's commits when they touch it, otherwise over the whole unit.
  */
 export function shownDelta(unit: Unit, sel: Selection, path: string): FileDelta | null {
-  return fileDelta(unit, path, sel.commits) ?? fileDelta(unit, path, wholeScope(unit))
-}
-
-/**
- * The commits a file's shown change comes from, as indexes: those of its scope that touch
- * it; through a merge that brought the base in, which is no work of its own, every commit of
- * the unit's own that touched the file.
- */
-export function shownFrom(unit: Unit, sel: Selection, path: string): number[] {
-  const touched = shownDelta(unit, sel, path)?.touched ?? []
-  if (!touched.some(k => unit.commits[k].merge)) return touched
-  return unit.commits.flatMap((c, k) => (!c.merge && c.files.some(f => f.path === path) ? [k] : []))
+  return fileDelta(unit, path, sel.commits) ?? wholeDelta(unit, path)
 }
 
 export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChanged: boolean, narrow = false): FileTree {
@@ -138,7 +139,7 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   // files it touched, the whole unit's for the others. The single-file view shows the same.
   const did = new Map<string, FileDelta & { inPick: boolean }>()
   // A path with no change in either scope (gone from the branch) is not drawn.
-  for (const path of new Set(unit.commits.flatMap(c => c.files.map(f => f.path)))) {
+  for (const path of new Set([...unit.commits.flatMap(c => c.files.map(f => f.path)), ...(unit.net?.files ?? []).map(f => f.path)])) {
     const d = shownDelta(unit, sel, path)
     if (d) did.set(path, { ...d, inPick: !!fileDelta(unit, path, sel.commits) })
   }

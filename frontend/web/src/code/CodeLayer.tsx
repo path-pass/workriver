@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primit
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { Switch } from '@/ui/primitives/switch'
 import type { Selection } from '@/work/select'
-import { changeOf, fileTree, filterTree, ROOT, shownDelta, shownFrom } from './files'
+import { changeOf, fileTree, filterTree, ROOT, shownDelta } from './files'
 import type { Pick } from '@/work/types'
 import type { Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus } from './types'
 import { contentLang, useT } from '@/i18n'
@@ -274,17 +274,20 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
   const { t } = useT()
   const delta = shownDelta(unit, sel, path)
   const touched = delta?.touched ?? []
-  const by = useMemo(() => shownFrom(unit, sel, path), [unit, sel, path])
-  const before = delta?.before ?? null, after = delta?.after ?? null, status = delta?.status ?? 'M'
   // Every line of the file, or only the changes with a few lines around each (remembered).
   const [folded, setFolded] = useState(() => recall(FOLDED) === '1')
   const fold = (on: boolean) => { setFolded(on); remember(FOLDED, on ? '1' : '0') }
-  const change = useMemo(
-    () => ({ path, status, ...changeOf(before, after, folded ? 3 : Number.MAX_SAFE_INTEGER) }) as Change,
-    [path, status, before, after, folded],
+  // One diff, or one per part where other commits touched the file between the pick's.
+  const parts = delta?.parts
+  const changes = useMemo(
+    () => (parts ?? []).map(p => ({
+      path, status: parts!.length === 1 ? delta!.status : p.before === null ? 'A' : p.after === null ? 'D' : 'M',
+      ...changeOf(p.before, p.after, folded ? 3 : Number.MAX_SAFE_INTEGER),
+    }) as Change),
+    [path, parts, delta, folded],
   )
   // Which pieces of work the shown change comes from; a commit that names none, by its hash.
-  const from = [...new Map(by.map(k => {
+  const from = [...new Map(touched.map(k => {
     const c = unit.commits[k], n = unit.tasks.find(x => x.output.commits?.includes(c.id))
     return [n?.id ?? c.id, { node: n, label: n?.taskId ? `#${n.taskId}` : c.live ? t('io.uncommitted') : c.id }] as const
   })).values()]
@@ -292,7 +295,7 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
         <Button variant="ghost" size="xs" className="-ml-2 rounded-sm" onClick={onBack}><Icon name="back" className="size-3.5" />{t('file.back')}</Button>
-        {touched.length > 0 && (
+        {delta && (
           <Button variant="ghost" size="xs" className="rounded-sm" aria-pressed={folded} onClick={() => fold(!folded)}>
             <Icon name={folded ? 'unfold' : 'foldLines'} className="size-3.5" />{folded ? t('file.whole') : t('file.onlyChanges')}
           </Button>
@@ -304,9 +307,16 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
             : <span key={label} className="font-mono">{label}</span>
         ))}
       </div>
-      {touched.length
-        ? <Pickable path={path} {...picking}><FileDiff file={change} whole /></Pickable>
-        : <p className="text-sm text-ink-2">{t('file.unchanged', { path })}</p>}
+      {!delta || !parts
+        ? <p className="text-sm text-ink-2">{t('file.unchanged', { path })}</p>
+        : parts.length === 1
+          ? <Pickable path={path} {...picking}><FileDiff file={changes[0]} whole /></Pickable>
+          : parts.map((p, i) => (
+              <div key={p.upTo} className="flex flex-col gap-1">
+                <div className="font-mono text-xs text-ink-2">{p.touched.map(k => unit.commits[k].id).join(' · ')}</div>
+                <Pickable path={path} commit={p.upTo} {...picking}><FileDiff file={changes[i]} whole /></Pickable>
+              </div>
+            ))}
     </div>
   )
 }
