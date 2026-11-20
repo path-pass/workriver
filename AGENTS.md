@@ -60,30 +60,54 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
 ## Layout
 
 ```
-docs/               documents for people, English and Chinese
+docs/               documents for people, English and Chinese: getting-started, security,
+                    architecture (the code map), runtimes/herdr (what is Herdr's own)
+docs/design/        specifications for agents, English only: ui/ (the page's rules, one
+                    file per part; DESIGN.md is their overview), caller-identity,
+                    agent-commands, restructure
 frontend/web/       the web UI; everything a user sees is built here
+  src/              by domain: app/ (composition), api/ (the only way to the service),
+                    workspace/, planning/, work/, attention/, agents/, conversations/,
+                    code/, attachments/, commands/, machines/, session/; shared: content/,
+                    ui/ (ui/primitives/: shadcn), lib/, config/, i18n/; mock/ (sample data)
 frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
-crates/             Rust workspace: workriver-core, workriver-scan, workriver
+crates/             Rust workspace, four crates:
+  workriver-core/   records/ (Body, Event, State), planning/, work/, conversations/,
+                    access/ (authority, the blind view), runtime.rs (the runtime interface)
+  workriver-data/   the SQLite event store (sqlite/)
+  workriver-scan/   git and the file tree: runner.rs, history/, files/
+  workriver/        the binary: cli/ (the CLI process), server/ (the service: app/,
+                    access/, http/, then a folder per domain), runtime/ (the facade;
+                    herdr/, the one adapter, private to it), common/ (both sides: config/,
+                    home.rs, process.rs, wire/, diagnostics/)
 skills/             what agents read; the binary embeds all of it (`workriver guide …`):
                     workriver-manager (the role, the loop and the hard rules only; details
-                    go in recipes), workriver-howto (one recipe per situation in references/,
-                    and CHANGES.md), workriver-backlog-import.
+                    go in recipes), workriver-howto (one recipe per situation in
+                    references/<group>/, the groups planning, workers, decisions, reviews,
+                    communication, operations; and CHANGES.md), workriver-backlog-import.
                     A change in what agents must do goes into the recipe and CHANGES.md.
 .local/             local-only working material; ignored by git, never commit it
 ```
 
-Layering follows memriver: a core crate with models, storage and write rules that knows
-nothing about the network or the UI; a scan crate that reads git and the file tree; an
-outer crate with the daemon, the CLI and the Herdr runtime implementation.
+Layering follows memriver: a core crate with models and write rules that knows nothing
+about the network, the UI or how events are stored; a data crate with the SQLite store; a
+scan crate that reads git and the file tree; an outer crate with the daemon, the CLI and
+the Herdr runtime implementation. Dependencies run one way: the outer crate on the other
+three, data on core, core and scan on neither. Inside the outer crate `cli/` and `server/`
+never import each other (except the service's tests, which drive it through the CLI's
+client), `runtime/` imports neither, `common/` none of the three, and only `runtime/`
+imports `runtime/herdr/`. `docs/architecture.md` is the map;
+`docs/design/restructure.md` (section 2) has the detail.
 
-During the restructure (intent i25), `docs/design/restructure.md` governs layout and
-layering where it differs from this file; this file is rewritten in its phase 7.
+The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`).
+Its phase 8, the data port, is still to come; until it is done that plan governs where it
+differs from this file.
 
 ## Language rules
 
 - Code comments: English.
-- Documents for agents (this file, `DESIGN.md`, skills, prompts): English.
+- Documents for agents (this file, `DESIGN.md`, `docs/design/`, skills, prompts): English.
 - Documents for people: English and Chinese, as `name.md` and `name.zh-CN.md`, kept in
   step. Only the English `README.md` sits at the root. Its Chinese version and every
   other document live under `docs/`.
@@ -121,6 +145,7 @@ layering where it differs from this file; this file is rewritten in its phase 7.
   returns records goes through `App::view` (the user sees all; an agent sees all unless it
   is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new
   read route that skips it breaks blind reviews.
-- Read `DESIGN.md` before changing anything in `frontend/`.
+- Read `DESIGN.md`, and the file of `docs/design/ui/` for the part you change, before
+  changing anything in `frontend/`.
 - Runtimes come from mise (node, rust). Do not install tools globally; keep dependencies
   inside the project.
