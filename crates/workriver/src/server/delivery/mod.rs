@@ -10,8 +10,8 @@ use workriver_core::{Body, Decision, Event, Finding, GateKind, GateResult, Reaso
 use quote::{quoted, users};
 
 mod messages;
-pub mod quote;
-pub mod reminders;
+pub(super) mod quote;
+pub(super) mod reminders;
 
 pub use messages::*;
 

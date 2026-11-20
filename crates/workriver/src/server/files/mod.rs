@@ -17,23 +17,23 @@ use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
 
-pub mod store;
+pub(super) mod store;
 
 /// Where a file in the daemon's store is for an agent on a machine: through its tunnel, on
 /// the port of the connection there is when it is fetched (a shell fills it in).
-pub fn attachment_url(id: &str) -> String {
+fn attachment_url(id: &str) -> String {
     format!("http://127.0.0.1:$(cat ~/{PORT_FILE})/api/attachments/{id}")
 }
 
 /// How an agent on another machine gets a file of the daemon's store: a command, since the
 /// service answers no reader that is nobody and only the CLI shows which process asks.
-pub fn fetch_command(name: &str) -> String {
+pub(super) fn fetch_command(name: &str) -> String {
     format!("`workriver attach fetch {name}`")
 }
 
 /// A message for an agent on another machine: every path into the attachment store
 /// (`dir` + `<id>.<ext>`) becomes the command that fetches it through its tunnel.
-pub fn links(text: &str, dir: &str) -> String {
+pub(super) fn links(text: &str, dir: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(k) = rest.find(dir) {

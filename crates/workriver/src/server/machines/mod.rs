@@ -10,7 +10,7 @@ use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
 
-pub mod metrics;
+pub(super) mod metrics;
 
 /// Follows a machine: a listener of its own here (the far end of its tunnel), then its
 /// connection and the reading of its agents.

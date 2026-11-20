@@ -13,7 +13,7 @@ use crate::server::delivery::quote;
 mod cache;
 mod code;
 mod handlers;
-pub mod task;
+pub(super) mod task;
 
 pub use cache::*;
 pub use code::*;

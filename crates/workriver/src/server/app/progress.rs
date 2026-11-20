@@ -31,14 +31,14 @@ pub(in crate::server) enum For {
 /// A delivered message: picked up once its receiver is seen working after it arrived.
 /// Rebuilt from the records at start.
 pub(in crate::server) struct Pending {
-    pub(in crate::server) unit: String,
-    pub(in crate::server) task: u32,
-    pub(in crate::server) finding: Option<String>,
-    pub(in crate::server) chore: Option<String>,
-    pub(in crate::server) delivery: Delivery,
+    pub(super) unit: String,
+    pub(super) task: u32,
+    pub(super) finding: Option<String>,
+    pub(super) chore: Option<String>,
+    pub(super) delivery: Delivery,
     /// The receiver was seen not working since the message went out.
-    pub(in crate::server) armed: bool,
-    pub(in crate::server) sent: std::time::Instant,
+    pub(super) armed: bool,
+    pub(super) sent: std::time::Instant,
 }
 
 /// How long a delivered message is watched for its pick-up; the receiver may vanish from

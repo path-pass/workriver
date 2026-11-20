@@ -254,7 +254,7 @@ impl App {
     /// Who and where the CLI is: the agent at the place its process runs at (recorded by name
     /// the first time), that place's group, and the group's current intent, if any. At no
     /// place: nobody, in no group. Answered without the token, but not without a process.
-    pub(super) fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
+    fn here(&self, caller: &Caller) -> Result<serde_json::Value, ApiError> {
         if caller.machine.is_none() && caller.chain.is_none() {
             return Err(ApiError(StatusCode::UNAUTHORIZED, words::NO_PROCESS.into()));
         }

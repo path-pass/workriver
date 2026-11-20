@@ -1,6 +1,7 @@
 // The service process: where it is put together and started (the concrete storage and
 // runtime meet here, and nowhere else in the service), and the folders of its parts.
-// handlers.rs holds what phase 5c moves to the domain folders.
+// Each folder carries the name of the core domain it serves; access/, app/ and http/ are
+// the spine they all pass through.
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -12,27 +13,27 @@ use workriver_core::runtime::Runtime;
 use workriver_data::Store;
 use workriver_scan as scan;
 
+use crate::common::process::Procs;
 use crate::runtime::follow::Machines;
 use crate::runtime::words;
-use crate::server::machines::metrics::Metrics;
 use crate::server::access::auth::Auth;
 use crate::server::access::caller::{self, Callers};
 use crate::server::access::pins::Pins;
-use crate::common::process::Procs;
 use crate::server::conversations::prompts;
+use crate::server::machines::metrics::Metrics;
 use crate::server::views::Cache;
 
 mod access;
 mod app;
 mod commands;
 mod conversations;
-pub(super) mod delivery;
-pub(super) mod files;
+mod delivery;
+mod files;
 mod http;
-mod work;
-mod planning;
 mod machines;
+mod planning;
 mod views;
+mod work;
 #[cfg(test)]
 mod tests;
 

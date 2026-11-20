@@ -12,9 +12,9 @@ use serde_json::json;
 use workriver_core as core;
 
 use crate::server::access::auth;
+use crate::server::views::{events, metrics, metrics_history, stall_get, state, status, unit_code, workspace};
 use crate::server::access::*;
 use crate::server::app::*;
-use crate::server::views::{events, metrics, metrics_history, stall_get, state, status, unit_code, workspace};
 
 mod assets;
 mod error;

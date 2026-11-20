@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::Debouncer;
+use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use tokio::sync::{broadcast, watch};
 use workriver_core::runtime::{AgentState, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
@@ -16,20 +16,19 @@ use workriver_data::Store;
 use workriver_scan as scan;
 
 use crate::common::BUILD;
+use crate::common::process::Procs;
 use crate::runtime::follow::Machines;
 use crate::runtime::words;
-use crate::server::machines::metrics::Metrics;
+use crate::server::Waits;
 use crate::server::access::auth::Auth;
 use crate::server::access::caller::Callers;
 use crate::server::access::pins::Pins;
-use crate::common::process::Procs;
 use crate::server::delivery;
 use crate::server::files;
+use crate::server::machines::metrics::Metrics;
 use crate::server::views::{self, Cache};
-
-use crate::server::http::*;
-use crate::server::Waits;
 use crate::server::commands::*;
+use crate::server::http::*;
 
 mod lifecycle;
 mod progress;
