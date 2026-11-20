@@ -139,3 +139,16 @@ fn an_answer_is_one_stored_value_with_its_note() {
     assert!(refused(&["先再审一轮"], "").contains("not one of"));
     assert!(refused(&["hold"], "  ").contains("needs a note"));
 }
+
+/// The stored choice is closed outside its surface too: a field beside `surface` and
+/// `needs_note` is refused when a record is read, not dropped; what was recorded still reads.
+#[test]
+fn a_choice_takes_no_other_field() {
+    let said = |choice: Value| serde_json::from_value::<crate::Body>(json!({"kind": "message.said", "body": {"text": "Which?", "choice": choice}}));
+    let mut extra = serde_json::to_value(three()).unwrap();
+    extra["hidden"] = json!("dropped silently before");
+    assert!(said(extra).is_err());
+    assert!(said(serde_json::to_value(three()).unwrap()).is_ok());
+    // As recorded with no note required: `needs_note` left out.
+    assert!(said(serde_json::to_value(Choice::new(&[opt("a", "A"), opt("b", "B")], &[])).unwrap()).is_ok());
+}

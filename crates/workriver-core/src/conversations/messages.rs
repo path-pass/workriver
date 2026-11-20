@@ -96,12 +96,18 @@ impl State {
         }
     }
 
+    /// Whether `session` manages a workspace of this label now, on this machine or another
+    /// (the conversation's workspace is named by its label).
+    fn manages(&self, label: &str, session: &str) -> bool {
+        self.workspaces.iter().any(|w| w.group.label == label && w.manager.as_deref() == Some(session))
+    }
+
     /// Whether the user can still answer a manager's choice in a conversation: not answered,
-    /// and asked by the workspace's manager now (an earlier one's answer would go nowhere).
+    /// and its asker still manages the question's workspace (an earlier manager's answer would
+    /// go nowhere). The same rule routes the answer (`prepare` of `message.sent`).
     pub fn choice_open(&self, message: &str, reply: u32) -> bool {
         let Ok(m) = self.message(message) else { return false };
-        let now = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == m.workspace).and_then(|w| w.manager.as_deref());
-        self.asked(message, reply).is_ok_and(|(by, _, answered)| answered.is_none() && now == Some(by))
+        self.asked(message, reply).is_ok_and(|(by, _, answered)| answered.is_none() && self.manages(&m.workspace, by))
     }
 
     pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
@@ -178,15 +184,30 @@ impl State {
                 if blank(&text) && answer.is_none() {
                     return no("a message needs its text");
                 }
-                // To the manager of the intent's workspace, or of the workspace named (here).
-                // (Resolved once: the unit picked must be of an intent that runs in it.)
-                let (workspace, manager, target) = if intent.is_empty() {
+                // An answer goes to whoever asked, in the question's workspace and about its
+                // intent, while it manages that workspace (here or on another machine).
+                // Otherwise to the manager of the intent's workspace, or of the workspace
+                // named (here). (Resolved once: the unit picked must be of an intent that runs
+                // in it.)
+                let (intent, workspace, manager, target) = if let Some(a) = &answer {
+                    let (by, choice, answered) = self.asked(&a.message, a.reply)?;
+                    if answered.is_some() {
+                        return no(format!("{} is answered already; write to the manager instead", a.message));
+                    }
+                    let q = self.message(&a.message)?;
+                    if !self.manages(&q.workspace, by) {
+                        return no(format!("{} was asked by an earlier manager of this workspace; write to the manager instead", a.message));
+                    }
+                    choice.check_answer(&a.selected, &text)?;
+                    (q.intent.clone(), q.workspace.clone(), Some(by.to_string()), None)
+                } else if intent.is_empty() {
                     let w = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == workspace);
-                    (workspace, w.and_then(|w| w.manager.clone()), w)
+                    (intent, workspace, w.and_then(|w| w.manager.clone()), w)
                 } else {
                     let i = self.intent(&intent)?;
                     let label = self.intent_workspace(&intent).map(|w| &w.group.label).or(i.workspace.as_ref().map(|g| &g.label)).cloned().unwrap_or_default();
-                    (label, self.manager_of(&intent).map(str::to_string), None)
+                    let manager = self.manager_of(&intent).map(str::to_string);
+                    (intent, label, manager, None)
                 };
                 let Some(manager) = manager else {
                     return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
@@ -196,16 +217,6 @@ impl State {
                     return no(format!("the manager {} is on a blind task: write once it is delivered", self.name_of(&manager).unwrap_or(&manager)));
                 }
                 self.picked(&intent, target, &unit, task, &context)?;
-                if let Some(a) = &answer {
-                    let (by, choice, answered) = self.asked(&a.message, a.reply)?;
-                    if by != manager || self.message(&a.message)?.workspace != workspace {
-                        return no(format!("{} was asked by an earlier manager of this workspace; write to the manager instead", a.message));
-                    }
-                    if answered.is_some() {
-                        return no(format!("{} is answered already; write to the manager instead", a.message));
-                    }
-                    choice.check_answer(&a.selected, &text)?;
-                }
                 MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context, answer }
             }
             MessageDelivery { id, delivery } => {

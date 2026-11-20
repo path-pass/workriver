@@ -18,6 +18,7 @@ const CATALOG: &str = "https://a2ui.org/specification/v1_0/catalogs/basic/catalo
 /// A question's options: the A2UI surface, and the values whose answer needs a note (a rule of
 /// workriver's own: A2UI's option items hold a label and a value only).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Choice {
     pub surface: Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

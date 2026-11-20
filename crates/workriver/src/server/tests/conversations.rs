@@ -820,7 +820,7 @@ fn choices_go_to_the_page_and_the_answer_to_the_manager() {
     assert_eq!(sent["body"]["id"], "m2");
     assert_eq!((said(0)["answered"].clone(), said(0).get("open").cloned()), (json!({ "by": "m2", "selected": ["merge"] }), None));
     assert_eq!(said(1)["answer"], json!({ "message": "m1", "selected": ["merge"] }));
-    wait_until("typed to the manager", || to_boss().iter().any(|m| m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2): option `merge`.")));
+    wait_until("typed to the manager", || to_boss().iter().any(|m| m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2, about intent i1 \"Chat\"): option `merge`.")));
     // In a reply, and closed once another manager runs the workspace.
     d.append("s-boss", "message.replied", json!({ "message": "m2", "text": "Then?", "choice": choice })).unwrap();
     assert_eq!(said(1)["replies"][0]["open"], true);

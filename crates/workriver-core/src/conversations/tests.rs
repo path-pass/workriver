@@ -379,3 +379,37 @@ fn the_user_answers_a_managers_choice_with_a_message() {
     let plain = serde_json::to_value(replayed.message("m2").unwrap()).unwrap();
     assert!(plain.get("choice").is_none() && plain.get("answered").is_none());
 }
+
+/// A manager on another machine, in a workspace not linked to one here (of the same label as a
+/// local one with its own manager), asks with options: the question is open while it manages
+/// that workspace, and the user's answer goes to it, whatever the page names; not to the local
+/// manager of the same label.
+#[test]
+fn a_far_managers_choice_is_answered_to_it() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Here", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Far", "state": "planned"}})).unwrap();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    let far = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
+    let remote = json!({"id": "w1@box", "label": "chat", "machine": "box"});
+    let as_far = |s: &mut Records, v: serde_json::Value| s.append(&far, crate::records::tests::body(v));
+    as_far(&mut s, json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": remote}})).unwrap();
+    as_far(&mut s, json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": remote}})).unwrap();
+    let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("a", "A"), opt("b", "B")], &[])).unwrap();
+    as_far(&mut s, json!({"kind": "message.said", "body": {"text": "Which?", "choice": choice}})).unwrap();
+    assert!(s.state().choice_open("m1", 0), "its manager still manages it");
+    // The page names the question's workspace by its label; the answer goes to the asker.
+    let e = add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "", "answer": {"message": "m1", "selected": ["a"]}}})).unwrap();
+    let Body::MessageSent { manager, intent, .. } = &e.body else { panic!() };
+    assert_eq!((manager.as_str(), intent.as_str()), ("far", "i2"));
+    assert!(!s.state().choice_open("m1", 0));
+    // By intent, as a remote message is addressed, it goes to the asker too.
+    as_far(&mut s, json!({"kind": "message.said", "body": {"text": "And?", "choice": choice}})).unwrap();
+    let e = add(&mut s, "user", json!({"kind": "message.sent", "body": {"intent": "i2", "text": "", "answer": {"message": "m3", "selected": ["b"]}}})).unwrap();
+    let Body::MessageSent { manager, .. } = &e.body else { panic!() };
+    assert_eq!(manager, "far");
+    assert_eq!(replayed(&s), *s.state());
+}

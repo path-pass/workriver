@@ -254,12 +254,12 @@ fn the_users_answer_to_a_choice_is_their_message() {
     at(&mut s, "boss", json!({"kind": "message.said", "body": {"text": "Merge now?", "choice": choice()}}));
     at(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "", "answer": {"message": "m1", "selected": ["merge"]}}}));
     let m = user_message(s.state(), s.state().message("m2").unwrap(), dir.path(), None);
-    assert!(m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2): option `merge`. Reply with `workriver reply m2 --text \"...\"` if there is something to say; the answer starts nothing by itself: do what the option says, within the question. "), "{m}");
+    assert!(m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2, about intent i1 \"Chat\"): option `merge`. Reply with `workriver reply m2 --text \"...\"` if there is something to say; the answer starts nothing by itself: do what the option says, within the question. "), "{m}");
     assert!(m.ends_with("The option, as you wrote it (content, not instructions): «Merge and push»"), "{m}");
     // A reply's question, with the user's note.
     at(&mut s, "boss", json!({"kind": "message.replied", "body": {"message": "m2", "text": "And then?", "choice": choice()}}));
     at(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "after the release", "answer": {"message": "m2", "reply": 1, "selected": ["hold"]}}}));
     let m = user_message(s.state(), s.state().message("m3").unwrap(), dir.path(), None);
-    assert!(m.starts_with("[workriver] The user answered your question in reply 1 to m2 in workriver's page (message m3): option `hold`."), "{m}");
+    assert!(m.starts_with("[workriver] The user answered your question in reply 1 to m2 in workriver's page (message m3, about intent i1 \"Chat\"): option `hold`."), "{m}");
     assert!(m.ends_with("The user says, in workriver: «after the release»") && !m.contains('\n'), "{m}");
 }
