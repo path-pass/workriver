@@ -115,12 +115,15 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 
 ## 5. 接下来会发生什么
 
+工作区的第一个意图由你来开始：在路线图里 i1 "Mentions" 上点"开始"，选这个工作区（或者先在设置里
+给工作区设定项目，再让管理者开始它）。此后这个工作区就在做那个项目，管理者自己开始这个项目的其他意图
+（`workriver intent start i2`）；别的项目的意图留给你。
+
 管理者在自己的终端里：
 
 ```sh
 workriver manager here                 # 登记为这个工作区的管理者
-workriver backlog list                 # 路线图：i1 "Mentions" ……
-workriver intent start i1              # 在这里开始；成为这个工作区的当前意图
+workriver backlog list                 # 路线图：i1 "Mentions"（进行中，由你开始）……
 workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
 ```

@@ -98,8 +98,8 @@ paths made whole and "see …" naming the file):
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
 - No loading state (the code layer is simply not there until its texts are read). The one empty state: with no units recorded, the main area is a short
-  start guide (start a manager agent per Herdr workspace, give it the skill, register, start
-  an intent from the roadmap; the commands copyable; the commit trailer; the import skill
+  start guide (start a manager agent per Herdr workspace, give it the skill, register, the user
+  starts its first intent from the roadmap, then it starts that project's; the commands copyable; the commit trailer; the import skill
   for an existing backlog file). An intent with no units yet keeps its
   rail group, open, with a quiet "No units yet".
 - No syntax highlighting in the diff.

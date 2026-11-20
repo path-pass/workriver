@@ -36,7 +36,9 @@ its sections went.
   it into units and tasks (`workriver guide how start-intent`)", its goal quoted; the dialog
   then says where it started and whether the message was delivered (or why not, in the user's
   language). A workspace without a manager says so and shows the steps to start one, with the
-  commands to copy – workriver never starts an agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
+  commands to copy, the last being to start the intent here once it has one (a workspace's
+  first intent is the user's to start; its manager starts only its project's) – workriver
+  never starts an agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
   "+" adds one inline, title and one-sentence goal, to the project shown; a quiet "Merge…"
   in the heading, when a project has two planned intents or more, opens a dialog to merge
   them), and **Done**,
@@ -103,14 +105,18 @@ its sections went.
 - **Editing** is a dialog opened by the pencil, on every state (the page is the user's, who
   edits every field of every intent; who else may is in `docs/security.md`): Title (one line,
   required), Goal (two rows), Note (a textarea, Markdown, with a Write / Preview switch; the
-  preview renders as the note does). Save records only the fields that changed, with the
-  version they were edited from (`base`); it is disabled when nothing changed or the title is
+  preview renders as the note does). Save records only the fields that changed against the
+  intent as the dialog opened it, with that version as `base`: the page reading the
+  workspace again meanwhile changes neither (the same for a restore). The note is saved as
+  written, its indentation and blank lines included (they are Markdown); spaces at the ends
+  of the title and goal are not kept. Save is disabled when nothing changed or the title is
   blank. Cancel and Escape close it. Not inline: three fields, a conflict and a preview need
   one place.
 - **A conflict**: when a field it saves was changed meanwhile, the service refuses it; the
-  dialog stays open with the user's text, says which field and the version it is at, shows
-  what that field says now against the user's text, word by word, and offers "Save anyway"
-  (saved from the newest version). Nothing is lost: what it said stays in the history. No
+  dialog stays open with the user's text and, for every field it saves that changed since it
+  opened (not only the one the service names), says so with the version the intent is at and
+  shows what that field says now against the user's text, word by word; then it offers "Save
+  anyway" (saved from that version). Nothing is lost: what it said stays in the history. No
   three-way merge, and no live sign while the dialog is open.
 - **The history** is a dialog opened by "History": the versions, the newest first, each with
   its number, who (an agent with its robot mark, as the manager's decisions are shown; "you"

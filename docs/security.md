@@ -114,10 +114,17 @@ dropping a planned one, is yours alone. These are the rules of the event store
 route. Every change is kept as a version, recorded as whoever the service found the caller
 to be, and you can restore any of them on the intent's page; when you change an active
 intent, its manager is told, your words quoted. Its history is read like the rest
-(`App::view`); an agent on a blind task cannot read it, since it holds the note. Not closed
-yet: any agent may record an active intent done or back in the roadmap (those two moves check
-no actor, unlike dropping), and since the rules above go by the intent's state, that also
-takes its note from its manager; they are to become yours or its manager's.
+(`App::view`); an agent on a blind task cannot read it, since it holds the note.
+
+Since these rules go by the intent's state and by the project its workspace works on, who
+moves an intent and which project a workspace works on are held as well. An active intent is
+marked done, put back in the roadmap or dropped by you or its manager only. A manager starts
+only intents of the project its workspace works on by the records (what you set, else its
+current intent's, else the one project of the intents that ran in it); while nothing
+recorded says, it starts none of a known project: you start a workspace's first intent (or
+set its project), so no agent makes its workspace another project's, or becomes the manager
+of another project's intent, by starting it. You may start any intent anywhere (the page
+asks you to confirm another project's).
 
 Findings are the exception by design: by default the intent's **manager decides them**, so
 that work does not wait for you. The trade-off, plainly: a manager that is compromised or

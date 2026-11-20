@@ -122,7 +122,8 @@ Core defines `WorkStore` in `ports/data.rs`; it is all the service knows of stor
 - `recorded()`: everything recorded at one `Revision`, as the reader's own value (never a
   borrowed replay cache).
 - `record(&Principal, Body)`: checks the request with the rules on what is recorded now,
-  commits it and returns the committed event and its revision. The only way to write; there
+  commits it and returns the committed event, its revision and what is recorded at it (what
+  follows a record is worked out on the state it made, not on a later read). The only way to write; there
   is no unchecked write path.
 - `history(after, limit)`: events oldest first, by cursor. A revision is the number of the
   last committed event and is the history's cursor too. For the service and tests only:

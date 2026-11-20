@@ -4,6 +4,14 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **You start only your workspace's project's intents** (managers): `workriver intent start`
+  of an intent of another project than your workspace's (as the user set it, else its
+  current intent's, else that of the intents that ran in it) is refused, no longer only
+  warned; ask the user, who starts it where it belongs. A new workspace has no project yet:
+  the user starts its first intent on the page (or sets its project, `workriver workspace
+  project`); then you start that project's intents yourself. An active intent is marked done
+  or put back in the roadmap only by its manager or the user, as dropping it is.
+  (`start-intent`)
 - **An intent's title and goal are the user's; its note keeps every version** (managers):
   `workriver intent set i3 --title/--goal` from an agent is refused (ask the user; they edit
   them on the intent's page). The note of your active intent you add to (`--add-note`) or
