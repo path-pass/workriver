@@ -1,15 +1,18 @@
-// The one SQLite file: an append-only table of events, and the state rebuilt from it.
+// The one SQLite file: an append-only table of events, and the state rebuilt from it. It
+// keeps the work as core's data port asks (`WorkStore`): nothing of SQLite leaves this folder.
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rusqlite::{Connection, TransactionBehavior};
 
+use workriver_core::ports::{Committed, DataError, DataStatus, History, Recorded, Revision, WorkStore};
 use workriver_core::{Body, Event, Principal, Rejected, State, now};
 
 mod events;
 mod migrations;
 
-use events::{insert, replay};
+use events::{insert, read, replay};
 use migrations::MIGRATIONS;
 
 #[derive(Debug, thiserror::Error)]
@@ -24,9 +27,25 @@ pub enum Error {
     Io(#[from] std::io::Error),
 }
 
+/// What the port says of a failure: a broken rule stays one, an unreadable row is corrupt,
+/// anything else (SQLite, the file) is the storage not available, in the same words.
+impl From<Error> for DataError {
+    fn from(e: Error) -> DataError {
+        match e {
+            Error::Rejected(r) => DataError::Rejected(r),
+            e @ Error::Corrupt { .. } => DataError::Corrupt(e.to_string()),
+            e => DataError::Unavailable(e.to_string()),
+        }
+    }
+}
+
 pub struct Store {
     conn: Connection,
-    state: State,
+    /// What the stored events add up to. Shared with whoever read it (`recorded`): it is
+    /// copied before the next event is added while a reader still holds it.
+    state: Arc<State>,
+    /// The number of the last stored event.
+    last: i64,
     path: PathBuf,
 }
 
@@ -43,8 +62,8 @@ impl Store {
             tx.pragma_update(None, "user_version", k as i64 + 1)?;
         }
         tx.commit()?;
-        let state = replay(&conn)?;
-        Ok(Store { conn, state, path: path.to_path_buf() })
+        let (state, last) = replay(&conn)?;
+        Ok(Store { conn, state: Arc::new(state), last, path: path.to_path_buf() })
     }
 
     pub fn state(&self) -> &State {
@@ -75,8 +94,34 @@ impl Store {
         let at = now();
         let seq = insert(&self.conn, &at, actor, &body)?;
         let e = Event { seq, at, actor: actor.to_string(), body };
-        self.state.apply(&e);
+        Arc::make_mut(&mut self.state).apply(&e);
+        self.last = seq;
         Ok(e)
+    }
+
+    fn revision(&self) -> Revision {
+        Revision(self.last as u64)
+    }
+}
+
+impl WorkStore for Store {
+    fn recorded(&self) -> Recorded {
+        Recorded::new(self.revision(), self.state.clone())
+    }
+
+    fn record(&mut self, who: &Principal, request: Body) -> Result<Committed, DataError> {
+        let event = self.append(who, request)?;
+        Ok(Committed { event, revision: self.revision() })
+    }
+
+    fn history(&self, after: Revision, limit: usize) -> Result<History, DataError> {
+        let events = read(&self.conn, i64::try_from(after.0).unwrap_or(i64::MAX), i64::try_from(limit).unwrap_or(i64::MAX))?;
+        let next = events.last().map_or(after, |e| Revision(e.seq as u64));
+        Ok(History { events, next })
+    }
+
+    fn status(&self) -> Result<DataStatus, DataError> {
+        Ok(DataStatus { location: self.path.clone(), events: self.count()? as u64, revision: self.revision() })
     }
 }
 

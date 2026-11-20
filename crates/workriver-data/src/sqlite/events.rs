@@ -18,20 +18,40 @@ pub(super) fn insert(conn: &Connection, at: &str, actor: &str, body: &Body) -> R
     Ok(conn.last_insert_rowid())
 }
 
-/// The state, rebuilt by adding every stored event in order.
+/// The state, rebuilt by adding every stored event in order, and the last one's number
+/// (0: none stored).
 // ponytail: full replay at every start; add snapshots when it gets slow.
-pub(super) fn replay(conn: &Connection) -> Result<State, Error> {
+pub(super) fn replay(conn: &Connection) -> Result<(State, i64), Error> {
     let mut state = State::default();
+    let mut last = 0;
     let mut stmt = conn.prepare("SELECT seq, at, actor, kind, body FROM events ORDER BY seq")?;
     let mut rows = stmt.query([])?;
     while let Some(r) = rows.next()? {
-        let seq: i64 = r.get(0)?;
-        let kind: String = r.get(3)?;
-        let body: String = r.get(4)?;
-        let body = serde_json::from_str(&body)
-            .and_then(|b: serde_json::Value| serde_json::from_value(serde_json::json!({ "kind": kind, "body": b })))
-            .map_err(|err| Error::Corrupt { seq, err })?;
-        state.apply(&Event { seq, at: r.get(1)?, actor: r.get(2)?, body });
+        let e = event(r)?;
+        last = e.seq;
+        state.apply(&e);
     }
-    Ok(state)
+    Ok((state, last))
+}
+
+/// Up to `limit` stored events after number `after`, in order.
+pub(super) fn read(conn: &Connection, after: i64, limit: i64) -> Result<Vec<Event>, Error> {
+    let mut stmt = conn.prepare("SELECT seq, at, actor, kind, body FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2")?;
+    let mut rows = stmt.query((after, limit))?;
+    let mut out = vec![];
+    while let Some(r) = rows.next()? {
+        out.push(event(r)?);
+    }
+    Ok(out)
+}
+
+/// One row (seq, at, actor, kind, body) as the event it was written from.
+fn event(r: &rusqlite::Row) -> Result<Event, Error> {
+    let seq: i64 = r.get(0)?;
+    let kind: String = r.get(3)?;
+    let body: String = r.get(4)?;
+    let body = serde_json::from_str(&body)
+        .and_then(|b: serde_json::Value| serde_json::from_value(serde_json::json!({ "kind": kind, "body": b })))
+        .map_err(|err| Error::Corrupt { seq, err })?;
+    Ok(Event { seq, at: r.get(1)?, actor: r.get(2)?, body })
 }
