@@ -25,7 +25,7 @@ fn guides_name_their_build_and_know_their_recipes() {
     // Every recipe the index names is there, and no recipe is missing from the index.
     let index = crate::cli::guide("how", None).unwrap();
     let named: Vec<&str> = index.lines().filter_map(|l| l.strip_prefix("| `")?.split('`').next()).collect();
-    let files: Vec<String> = crate::cli::Recipes::iter().map(|f| f.trim_end_matches(".md").to_string()).collect();
+    let files: Vec<String> = crate::cli::Recipes::iter().map(|f| f.rsplit('/').next().unwrap().trim_end_matches(".md").to_string()).collect();
     assert!(named.len() >= 17 && named.iter().all(|t| files.iter().any(|f| f == t)) && files.iter().all(|f| named.contains(&f.as_str())), "{named:?} / {files:?}");
     // The worker's paragraph stays one line, build first.
     let worker = crate::cli::guide("worker", None).unwrap();

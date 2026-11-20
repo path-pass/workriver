@@ -12,7 +12,8 @@ pub(super) const GUIDE_HOW: &str = include_str!("../../../../skills/workriver-ho
 
 pub(super) const GUIDE_CHANGES: &str = include_str!("../../../../skills/workriver-howto/CHANGES.md");
 
-/// The recipes of `workriver guide how <topic>`, one file each.
+/// The recipes of `workriver guide how <topic>`, one file each, in folders by work domain; a
+/// topic is a file's name without its folder (the guide guard keeps the names unique).
 #[derive(rust_embed::Embed)]
 #[folder = "../../skills/workriver-howto/references/"]
 pub(crate) struct Recipes;
@@ -27,7 +28,8 @@ pub(super) fn body(skill: &str) -> &str {
 /// stays one line (it goes into a terminal message) and names the build at its start.
 pub(crate) fn guide(what: &str, topic: Option<&str>) -> anyhow::Result<String> {
     let head = |name: &str| format!("workriver {BUILD} · {name}\n\n");
-    let recipe = |t: &str| Recipes::get(&format!("{t}.md")).map(|f| String::from_utf8_lossy(&f.data).into_owned());
+    let file = |t: &str| Recipes::iter().find(|p| p.rsplit('/').next() == Some(format!("{t}.md").as_str()));
+    let recipe = |t: &str| file(t).and_then(|p| Recipes::get(&p)).map(|f| String::from_utf8_lossy(&f.data).into_owned());
     Ok(match (what, topic) {
         ("worker", _) => format!("(workriver {BUILD}) {}", GUIDE_WORKER),
         ("manager", _) => head("guide manager") + body(GUIDE_MANAGER),

@@ -444,7 +444,7 @@ new wall: a `workriver` call from Codex already has to run outside the sandbox t
 **What a Codex worker must do.** Be started with `--no-daemon`:
 `herdr agent start <name> --kind codex --pane <id> -- --no-daemon` (Herdr passes what follows
 `--` to the agent; `herdr agent start --help`), and `codex resume --no-daemon` to come back.
-This is written in `skills/workriver-howto/references/hand-off.md` and `CHANGES.md`, and
+This is written in `skills/workriver-howto/references/workers/hand-off.md` and `CHANGES.md`, and
 nowhere in the code. A Codex worker in daemon mode is refused on its first `workriver task
 start` by rule 1 with the sentence of 3.2, which points at that recipe; its manager restarts
 it. Nothing in the user's Codex config has to change, and the daemon may keep running for
