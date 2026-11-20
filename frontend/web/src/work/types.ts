@@ -2,6 +2,7 @@
 import type { Sent, Thread, Turn } from '@/conversations/types'
 import type { External } from '@/planning/types'
 import type { Attachment } from '@/attachments/types'
+import type { Choice } from '@/content/choice/surface'
 
 /** One thing to do by hand, with the command for it when there is one. */
 export interface Step {
@@ -177,6 +178,8 @@ export interface Task {
     causes: { review: string; findings: string[] }[];
     /** Gate nodes only: what the agent prepared for the user to do. */
     steps?: Step[];
+    /** A decide gate's options (the manager's), which the user picks from. */
+    choice?: Choice;
   };
   output: {
     /** Implement nodes: ids of the commits that carry the work out. */
@@ -189,6 +192,8 @@ export interface Task {
     attachments?: Attachment[];
     /** Implement and tests tasks: the commands run to check the work, and what came of them. */
     evidence?: Evidence[];
+    /** An answered decide gate: the option picked (its value). */
+    selected?: string[];
   };
   /** Paths the work still expects to change (files or folders, possibly not existing yet). */
   plans: string[];
@@ -219,7 +224,9 @@ export interface NewFinding {
 }
 
 export interface GateResult {
-  result: 'done' | 'problem'
+  /** answered: a gate with options, one picked (`selected`). */
+  result: 'done' | 'problem' | 'answered'
+  selected?: string[]
   note: string
   attachments: Attachment[]
   findings: NewFinding[]

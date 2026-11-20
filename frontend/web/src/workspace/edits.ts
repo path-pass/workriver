@@ -2,6 +2,7 @@
 import type { Finding, Task, GateResult, Decision } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { Workspace } from './types'
+import type { Asked } from '@/conversations/types'
 import { ms } from '@/planning/select'
 
 /** Everything the user has put in during this sitting; the data shown is the data with these on top. */
@@ -17,9 +18,11 @@ export interface Edits {
   starts: Record<string, { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }>
   /** Up to when the user has read each workspace's conversation with its manager, by label. */
   read: Record<string, string>
+  /** A manager's questions the user answered, by `message:reply` (0: the message): the value picked. */
+  answers: Record<string, string[]>
 }
 
-export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {}, read: {} }
+export const NO_EDITS: Edits = { gates: {}, decisions: {}, chores: [], merges: [], starts: {}, read: {}, answers: {} }
 
 const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer: 'deferred' } as const
 
@@ -37,7 +40,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
             impact: f.impact, evidence: f.evidence, state: 'open', leadsTo: [], attachments: f.attachments,
           }))
         : []
-      out = { ...n, state: 'done', since: g.at, output: { ...n.output, note: g.note, attachments: g.attachments, findings } }
+      out = { ...n, state: 'done', since: g.at, output: { ...n.output, note: g.note, attachments: g.attachments, findings, ...(g.selected && { selected: g.selected }) } }
     }
     const found = out.output.findings
     if (found?.some(f => edits.decisions[`${unit.id}:${n.id}:${f.id}`]))
@@ -57,11 +60,16 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
   }
   // And its new title, if one was given.
   const titleOf = (i: Intent) => edits.merges.find(m => m.into === i.id && m.title && ws.intents.some(x => mergedInto(x) === i.id))?.title ?? i.title
+  // Answered here: no longer open, the pick shown (the service's record says by which message).
+  const answered = (key: string, q: Asked) => (edits.answers[key] && !q.answered ? { answered: { by: '', selected: edits.answers[key] }, open: false } : {})
   // Read: the manager's words up to then are no longer new.
   const fresh = (workspace: string, at: string) => !(ms(at) <= ms(edits.read[workspace]))
   return {
     ...ws,
-    messages: ws.messages?.map(m => ({ ...m, unread: m.unread && fresh(m.workspace, m.at), replies: m.replies.map(r => ({ ...r, unread: r.unread && fresh(m.workspace, r.at) })) })),
+    messages: ws.messages?.map(m => ({
+      ...m, ...answered(`${m.id}:0`, m), unread: m.unread && fresh(m.workspace, m.at),
+      replies: m.replies.map((r, k) => ({ ...r, ...answered(`${m.id}:${k + 1}`, r), unread: r.unread && fresh(m.workspace, r.at) })),
+    })),
     chores: ws.chores?.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     intents: ws.intents.map(i => ({
       ...i,

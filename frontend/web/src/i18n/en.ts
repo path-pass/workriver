@@ -490,6 +490,7 @@ export const en = {
     deploy: 'Manual deploy',
     test: 'Manual test',
     decide: 'Confirm design',
+    choice: 'Question',
     result: 'Result',
     done: 'Done',
     problem: 'Problem',
@@ -499,8 +500,19 @@ export const en = {
     where: 'Where: file paths, comma or line separated',
     addFinding: 'Add a finding',
     removeFinding: 'Remove this finding',
+    answer: 'Answer',
     needFinding: 'A problem needs at least one finding with what is wrong.',
     submit: 'Submit'
+  },
+  choice: {
+    pick: 'Options',
+    answer: 'Answer',
+    withNote: 'say why',
+    chose: 'Chose: {{label}}',
+    note: 'Note (optional)',
+    noteNeeded: 'Why (needed for this answer)',
+    needNote: 'This answer needs a note saying why.',
+    closed: 'Asked by an earlier manager of this workspace: it can no longer be answered here. Write to the manager instead.'
   },
   attach: {
     add: 'Attach',

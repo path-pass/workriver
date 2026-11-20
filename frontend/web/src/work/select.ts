@@ -23,7 +23,7 @@ export const severityCounts = (found: Finding[]) =>
 
 /** Who found a finding: the reviewer, or the kind of gate. */
 export const finderLabel = (t: T, n: Task): string =>
-  n.gate ? t(`gate.${n.gate}`) : n.reviewer ? t(`reviewer.${n.reviewer}`) : t('kind.review')
+  n.gate ? t(n.input.choice ? 'gate.choice' : `gate.${n.gate}`) : n.reviewer ? t(`reviewer.${n.reviewer}`) : t('kind.review')
 
 export function reviewLabel(t: T, n: Task): string {
   const by = finderLabel(t, n)
