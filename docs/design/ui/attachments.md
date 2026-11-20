@@ -40,17 +40,20 @@ its sections went.
 - **Diagrams in Markdown**: a ` ```mermaid ` block, wherever Markdown is rendered (an
   attachment, a task's input, a delivery note, an answer), is drawn as a diagram by mermaid
   (12; the format agents already write). Loaded only when a block is shown: the frame's
-  script with mermaid's core, 43 kB gzip, then each kind of diagram's own chunks (a flowchart
-  and a sequence diagram together 688 kB gzip, 457 kB of it ELK, mermaid 12's default layout
-  for flowcharts; every kind together 1.5 MB gzip). The app's bundle grew by 301 bytes (the
-  UI text) and its CSS by 221 (measured). What mermaid draws is as untrusted as the text:
+  script with mermaid's core, 43 kB gzip, then each kind of diagram's own chunks (with the
+  first flowchart 214 kB gzip in all, a sequence diagram 31 kB more; every kind together
+  1.0 MB gzip, 3.7 MB, on disk and in the binary). Flowcharts are laid out with dagre, not
+  mermaid 12's default ELK: ELK alone is 1.5 MB (457 kB gzip), so the build leaves its chunk
+  out (an empty module in its place, `vite.config.ts`) and a block cannot ask for it. The
+  app's bundle grew by 301 bytes (the UI text) and its CSS by 221 (measured). What mermaid
+  draws is as untrusted as the text:
   - Mermaid runs in a frame of its own, made the first time a block is shown, whose page may
     run only its own script and fetch nothing (`default-src 'none'; script-src 'self';
     style-src 'unsafe-inline'`): an image shape's URL, a stylesheet or a font a block asks
     for is refused there, and that block falls back as one mermaid cannot draw.
   - Security level `strict` (labels sanitized, a click directive calls nothing) and no HTML
-    labels (every label is SVG text); a block's `%%{init}%%` cannot change these, the theme
-    or the fonts. Mermaid's own `sandbox` level is not used: its iframe allows top
+    labels (every label is SVG text); a block's `%%{init}%%` or front matter cannot change
+    these, the layout, the theme or the fonts. Mermaid's own `sandbox` level is not used: its iframe allows top
     navigation by a click and popups, so a `click … href` link would still open, and it does
     not stop what mermaid fetches while drawing (an image shape loads its URL with
     `new Image()` in the page).

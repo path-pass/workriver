@@ -44,14 +44,16 @@ describe('the size of what mermaid drew', () => {
 })
 
 describe("mermaid's settings", () => {
-  it('strict, no HTML labels, the theme of the page; a block cannot change them', () => {
+  it('strict, no HTML labels, dagre layout, the theme of the page; a block cannot change them', () => {
     for (const dark of [false, true]) {
       const c = mermaidConfig(dark)
       expect(c.securityLevel).toBe('strict')
       expect(c.htmlLabels).toBe(false)
       expect(c.startOnLoad).toBe(false)
       expect(c.theme).toBe(dark ? 'dark' : 'neutral')
-      for (const key of ['securityLevel', 'htmlLabels', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode'])
+      // ELK, mermaid 12's default, is left out of the build (vite.config.ts).
+      expect(c.layout).toBe('dagre')
+      for (const key of ['securityLevel', 'htmlLabels', 'layout', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode'])
         expect(c.secure).toContain(key)
     }
   })
