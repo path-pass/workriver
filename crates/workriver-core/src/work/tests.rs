@@ -419,3 +419,35 @@ fn a_later_task_says_what_it_follows() {
     assert!(e.contains("u2 already has tasks"), "{e}");
     add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
 }
+
+/// The gate that asks about a design or a research result: for a design its design gate
+/// (after its reviews), for research the same walk taking research; the latest not dropped.
+#[test]
+fn a_results_gate_is_found_through_its_reviews() {
+    let mut s = Records::default();
+    let put = |s: &mut Records, actor: &str, v: serde_json::Value| {
+        s.append(&actor.into(), body(v)).unwrap();
+    };
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    put(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
+    put(&mut s, "boss", task("design", &["start"], json!({}))); // 1
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
+    put(&mut s, "boss", task("gate", &["2"], json!({"gate": "decide"}))); // 3
+    put(&mut s, "boss", task("research", &["start"], json!({}))); // 4
+    put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 5
+    put(&mut s, "boss", task("implement", &["3"], json!({}))); // 6
+    put(&mut s, "boss", task("gate", &["6"], json!({"gate": "decide", "title": "Merge?"}))); // 7
+    put(&mut s, "boss", task("research", &["6"], json!({}))); // 8: no gate after it
+    let st = s.state().clone();
+    let gate = |owner: &str, n: u32| st.result_gate(owner, n).map(|g| g.n);
+    assert_eq!((gate("u1", 1), gate("u1", 4), gate("u1", 8), gate("u1", 6), gate("u1", 9)), (Some(3), Some(5), None, None, None));
+    // Asked again: the latest gate not dropped.
+    put(&mut s, "boss", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 5, "reason": "asked again"}}));
+    put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 9
+    assert_eq!(s.state().result_gate("u1", 4).map(|g| g.n), Some(9));
+}

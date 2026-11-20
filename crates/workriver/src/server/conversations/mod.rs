@@ -83,7 +83,7 @@ pub(super) async fn messages_read(State(app): State<Shared>, Extension(caller): 
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.
 pub(super) async fn ask_why(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Ask>) -> Result<Json<core::Event>, ApiError> {
-    let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude };
+    let body = Body::QuestionAsked { id: String::new(), thread: a.thread.unwrap_or_default(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude, discuss: false };
     let starter = app.clone();
     let e = blocking(move || {
         let who = app.who(&caller, a.named.as_deref())?;

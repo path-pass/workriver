@@ -243,9 +243,17 @@ pub trait WorkStore: Send {
         Ok(out)
     }
 
-    /// The ids of the questions neither answered nor failed.
+    /// The ids of the questions neither answered nor failed, but those of a discussion (their
+    /// answerer is the task's own agent, not one a run of the service started).
     fn open_questions(&self) -> Result<Vec<String>, DataError> {
-        Ok(self.recorded()?.questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect())
+        Ok(self.recorded()?.questions.iter().filter(|q| q.open() && !q.discuss).map(|q| q.id.clone()).collect())
+    }
+
+    /// The questions of a discussion neither answered nor failed, with the agent of their task
+    /// (its session; none when the task has none).
+    fn open_discussions(&self) -> Result<Vec<(Question, Option<String>)>, DataError> {
+        let s = self.recorded()?;
+        Ok(s.questions.iter().filter(|q| q.open() && q.discuss).map(|q| (q.clone(), s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone()))).collect())
     }
 
     /// The ids of the user's messages to a manager that got no delivery yet.

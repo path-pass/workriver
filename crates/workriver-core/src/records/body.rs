@@ -386,7 +386,15 @@ pub enum Body {
         /// A request to write the thread's conclusion rather than a question.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         conclude: bool,
+        /// The user discusses a delivered design or research with its own agent: one thread
+        /// per task, answered by that agent alone, until the task's gate is submitted.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        discuss: bool,
     },
+    /// The user has read the discussion of a task (`unit#task`) up to `at` (the time of the
+    /// newest answer the page showed); the page records it.
+    #[serde(rename = "questions.read")]
+    QuestionsRead { unit: String, task: u32, at: String },
     /// The temporary agent that answers it is running.
     #[serde(rename = "question.started")]
     QuestionStarted {
@@ -503,6 +511,7 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
+            QuestionsRead { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
             ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),

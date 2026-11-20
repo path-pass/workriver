@@ -322,3 +322,72 @@ fn an_attachment_id_is_the_stores_own_form() {
     let s = recorded_before(s, "agent-a", file("a1"));
     assert!(s.state().attachments.iter().any(|a| a.id == "a1"));
 }
+
+/// A delivered design or research is discussed by the user with its own agent, in one thread
+/// per task, until the gate that asks about it is submitted.
+#[test]
+fn discussions_are_the_users_with_the_tasks_own_agent() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    let ok = |s: &mut Records, actor: &str, v: serde_json::Value| add(s, actor, v).unwrap();
+    let says = |s: &mut Records, actor: &str, v: serde_json::Value, what: &str| {
+        let e = add(s, actor, v).unwrap_err();
+        assert!(e.contains(what), "{e:?} does not say {what:?}");
+    };
+    let task = |kind: &str, inputs: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": inputs.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    ok(&mut s, "boss", task("design", &["2"], json!({}))); // 3
+    ok(&mut s, "boss", task("review", &["3"], json!({"reviewer": "architecture-review"}))); // 4
+    ok(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 5: confirms design 3
+    ok(&mut s, "designer", json!({"kind": "task.started", "body": {"unit": "u1", "task": 3}}));
+    let discuss = |text: &str, more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "task": 3, "text": text, "discuss": true});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "question.asked", "body": b})
+    };
+    // Only a delivered design or research, and only the user.
+    says(&mut s, "user", discuss("Why?", json!({})), "is not delivered");
+    ok(&mut s, "designer", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "Use a trie."}}));
+    says(&mut s, "boss", discuss("Why?", json!({})), "only the user discusses");
+    says(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why?", "discuss": true}}), "research or design");
+    says(&mut s, "user", discuss("Sum it up", json!({"conclude": true})), "nothing to conclude");
+
+    // The first question opens the discussion; the next joins it with no thread named.
+    ok(&mut s, "user", discuss("Why a trie?", json!({}))); // q1
+    ok(&mut s, "user", discuss("And memory?", json!({}))); // q2
+    let st = s.state().clone();
+    assert_eq!(st.questions.iter().map(|q| (q.id.as_str(), q.thread.as_str(), q.discuss)).collect::<Vec<_>>(), [("q1", "q1", true), ("q2", "q1", true)]);
+    assert_eq!(st.threads.iter().map(|t| (t.id.as_str(), t.discuss)).collect::<Vec<_>>(), [("q1", true)]);
+    // Another thread of the task is not the discussion, and an agent's question cannot join it.
+    ok(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "Which trie?"}})); // q3, its own thread
+    says(&mut s, "user", discuss("x", json!({"thread": "q3"})), "not the discussion");
+    says(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "thread": "q1", "text": "x"}}), "is a discussion");
+    // Nobody ends a discussion.
+    says(&mut s, "user", json!({"kind": "thread.ended", "body": {"thread": "q1"}}), "is not ended");
+
+    // Only the task's own agent answers it: not the user, not another agent.
+    says(&mut s, "user", json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}), "answered by the agent of u1#3");
+    says(&mut s, "agent-a", json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}), "answered by the agent of u1#3");
+    ok(&mut s, "designer", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Fast prefix lookups."}}));
+    ok(&mut s, "user", discuss("Sum it up", json!({"conclude": true}))); // q4
+    assert_eq!(s.state().question("q4").unwrap().thread, "q1");
+
+    // The user has read it up to a time: user-only, stored per task.
+    says(&mut s, "designer", json!({"kind": "questions.read", "body": {"unit": "u1", "task": 3, "at": "2026-01-01T00:00:00Z"}}), "only the user does this");
+    ok(&mut s, "user", json!({"kind": "questions.read", "body": {"unit": "u1", "task": 3, "at": "2026-01-01T00:00:00Z"}}));
+    assert_eq!(s.state().questions_read.get("u1#3").map(String::as_str), Some("2026-01-01T00:00:00Z"));
+
+    // Once the gate that asks about it is submitted: no more questions, no late answers.
+    ok(&mut s, "arch", json!({"kind": "task.started", "body": {"unit": "u1", "task": 4}}));
+    ok(&mut s, "arch", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "findings": []}}));
+    ok(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 5, "result": "done"}}));
+    says(&mut s, "user", discuss("One more", json!({})), "u1#5 was submitted");
+    says(&mut s, "designer", json!({"kind": "question.answered", "body": {"question": "q2", "text": "late", "conclusion": false}}), "u1#5 was submitted");
+
+    // Old records replay as they were: a question without the flag is no discussion.
+    let state = replayed(&s);
+    assert_eq!(&state, s.state());
+}
