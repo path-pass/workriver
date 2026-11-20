@@ -120,10 +120,12 @@ waits on is already a node, the decide gate.
   dropped). Research: the same walk through reviews, taking research. None: no gate (yet).
   The page reads it as the task output's `gate` (the gate's id), never works it out.
 - **Where.** In the task's detail, its **Questions** block opens on the discussion (a
-  thread with a small neutral "Discussion" tag), the discussion's box under it: the Manager
+  thread with a small neutral "Discussion" tag, never folded behind "N earlier"), the
+  discussion's box under it: the Manager
   box (Enter sends, Shift+Enter breaks the line, the user's files pasted, picked or dropped
   on it, as there; no chips: the task is the discussion's), a line saying where it goes, and
-  "Draft conclusion". In **Needs you**, one row per discussion with an unread answer, with
+  "Draft conclusion" once the result has been discussed (before, there is nothing to
+  conclude, and the service refuses it). In **Needs you**, one row per discussion with an unread answer, with
   the messages (`navigation.md`). At the task's gate while it waits, "Discuss #1 with
   agent-R" (`activity.md`).
 - **One discussion per task.** The first question opens it (its thread id is that
@@ -138,8 +140,9 @@ waits on is already a node, the decide gate.
   a person in its terminal (violet, "Go to the terminal"), being answered, answered, or "No
   answer will come: …" (its agent is no longer running; its gate was submitted). There is no
   answer deadline: the agent may need to research again.
-- **Read.** An answer is unread until the discussion has been open on screen a moment (not
-  in a hidden tab), then read up to its newest answer: `questions.read` with the unit, the
+- **Read.** An answer is unread until the discussion itself has been open on screen a moment
+  (measured on it, not on the block around it; not in a hidden tab), then read up to its
+  newest answer: `questions.read` with the unit, the
   task and that time, recorded through `POST /api/discuss/read`.
 - **Closed.** With its agent gone, or its gate submitted, the box is disabled and its line
   says why ("agent-R is no longer running: ask the manager to go on"; "The gate #2 was
@@ -168,17 +171,20 @@ For the conclusion: amend first if the result must change, then `workriver answe
 --conclusion`. What it points at (the user's files) is named as for a question.
 
 **What the manager hears** (`delivery::discussed`), never each round, only what it must act
-on, while it runs and is not on a blind task:
+on. It is given through `hand` as a duty (`For::Duty`): held while the manager is on a blind
+task in progress, waits for a person in its terminal, is not listed or cannot be sent to,
+and given once it can take it; never dropped while the service runs (a restart loses one
+still held, as every held notice).
 
 - an amendment of the result while its gate is not submitted, whoever made it: "agent-R
   amended u2#1 … while the user discusses it; its gate u2#3 … is not submitted yet." Then,
-  when a review comes between the result and its gate (it saw the old text): drop the gate,
-  add the review again and a new decide gate after it; else the gate now asks about the
-  amended result;
+  when a review between the result and its gate has started (it read the old text): drop
+  the gate, add the review again and a new decide gate after it; one not started yet reads
+  the amended result, and the gate asks about that;
 - the conclusion: whether the result was amended since the discussion began, what is next
-  (the gate waits for the user; a reviewed result amended: drop the gate, review again, a
-  new gate; no gate: one only if work must start on this), and the conclusion quoted as the
-  agent's.
+  (the gate waits for the user; amended after its review started: drop the gate, review
+  again, a new gate; no gate: one only if work must start on this), and the conclusion
+  quoted as the agent's.
 
 The manager keeps the agent of a delivered research or design task while its gate is not
 submitted (`closing-workers`), and the idle reminder (`reminders::idle_workers`) does not
@@ -191,12 +197,19 @@ conversation, it replies with the task's link instead of relaying (`user-message
   through `hand` (held kind `For::Discussion`), never `start_question`; it records
   `question.started` (not temporary) when the question is typed in, and no deadline.
 - `hand` holds it while the agent works, waits for a person, is on a blind task in
-  progress, or is not listed; `poll` gives it once the agent is listed idle.
-- Gone: `poll` fails an open discussion question, held or typed in, whose `Task.agent` is
-  missing from a list known complete for its machine (`App::readable`, as the idle
-  reminder); a failed or empty read, or a machine not reached, says nothing.
+  progress, or is not listed; `poll` gives it once the agent is listed idle, and holds it
+  again when the agent is not listed (not listed is not gone).
+- Gone (`conversations::gone_from`, each poll): the machine each session was last listed on
+  is remembered; a session is gone when that machine's read now is complete (`App::readable`,
+  as the idle reminder) without it. Never listed in this run, or its machine not read now:
+  unknown, never gone. `poll` then fails its open discussion questions, held or typed in, and
+  the page reads its discussion "gone" from the same set; the unit's machine plays no part
+  (its author may run on a followed machine).
 - A restart keeps open discussion questions (`open_questions` leaves them out; their
-  answerer goes on), and gives the ones never given (`open_discussions`).
+  answerer goes on), and gives the ones never given (`open_discussions`). First, given or
+  not, one whose result's gate was submitted fails: a run that stopped between recording
+  the gate and failing them left it open. A question is checked so again before it is
+  given.
 - The gate submitted: the open discussion questions of the results it asks about fail
   (`gate-submitted`).
 
@@ -303,6 +316,8 @@ then the user's text quoted. For example:
   words. Nothing is typed into an agent on a blind task in progress (held until it
   delivers), and a blind agent reads no discussion (questions are not in
   `State::blind_view`).
+- That a question failed (`question.failed`) is workriver's receipt (`Body::service_only`):
+  no agent, nor the user, can close a question in workriver's words.
 - Files reach a message only through the store's route, and the service names them only
   after the rules above, so a message cannot hand the manager a file the user could not
   point at.
