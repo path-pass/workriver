@@ -843,11 +843,12 @@ fn discussing_a_delivered_design_with_its_agent() {
     assert!(tasks()[0]["threads"][0]["turns"][0].get("unread").is_none());
     let boss_before = to("s-boss").len();
 
-    // An amendment while the gate waits (after a review): the manager hears it, with what to do.
+    // An amendment while the gate waits: the manager hears it. Its review has not started, so
+    // it reads the amended design (`an_amendment_asks_for_the_review_again_only_when_it_started`).
     d.append("s-d", "task.amended", json!({ "unit": "u1", "task": 1, "note": "A trie, compressed." })).unwrap();
     wait_until("the manager hears of the amendment", || to("s-boss").len() == boss_before + 1);
     let m = to("s-boss").last().unwrap().clone();
-    assert!(m.contains("amended u1#1 \"Design the index\" while the user discusses it") && m.contains("workriver task drop u1#3") && m.contains("review again"), "{m}");
+    assert!(m.contains("amended u1#1 \"Design the index\" while the user discusses it") && m.contains("has not started") && !m.contains("workriver task drop"), "{m}");
 
     // The conclusion: the agent is asked to amend first; the manager hears the conclusion, quoted.
     d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
@@ -924,4 +925,157 @@ fn a_discussion_follows_its_agent_not_the_service() {
     let failed = state(&d)["questions"][1]["failed"].clone();
     assert_eq!((failed[0].as_str(), failed[1].as_str()), (Some("agent-gone"), Some("researcher is no longer running")));
     assert_eq!(d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["discuss"], "gone");
+}
+
+/// A research unit: manager s-boss (p1), researcher s-r (p2, did u1#1), another agent s-x
+/// (p3), and a decide gate u1#2 about the research, waiting.
+fn researched(fake: &std::sync::Arc<Fake>, db: &std::path::Path) -> Daemon {
+    use workriver_core::runtime::AgentState::*;
+    *fake.agents.lock().unwrap() = vec![
+        ("p1".into(), live("s-boss", "boss", "w1", Idle)),
+        ("p2".into(), live("s-r", "researcher", "w1", Idle)),
+        ("p3".into(), live("s-x", "other", "w1", Idle)),
+    ];
+    let d = daemon_with(fake.clone(), db, crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Compare stores", "agent": "s-r" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-r", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-r", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SQLite." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    d
+}
+
+fn sent(fake: &Fake, to: &str) -> Vec<String> {
+    fake.sent.lock().unwrap().iter().filter(|(t, _)| t == to).map(|(_, m)| m.clone()).collect()
+}
+
+/// After `researched`: an architecture review by s-x between the research and a second gate
+/// (u1#3, u1#4), started when `started`, and a question of the user's given to s-r.
+fn reviewed_and_discussed(d: &Daemon, fake: &Fake, started: bool) {
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "agent": "s-x", "inputs": [{ "from": "1" }] })).unwrap(); // 3
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store, reviewed?", "inputs": [{ "from": "3" }] })).unwrap(); // 4
+    if started {
+        d.append("s-x", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+        d.append("s-x", "task.delivered", json!({ "unit": "u1", "task": 3, "findings": [] })).unwrap();
+    }
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why not Postgres?" }))).unwrap();
+    wait_until("given", || sent(fake, "s-r").len() == 1);
+}
+
+/// A manager on a blind task is told nothing of a discussion while blind, and what it must
+/// act on (the amendment, the conclusion) once that task is delivered: held, never lost.
+#[test]
+fn a_blind_manager_hears_of_the_discussion_later() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    reviewed_and_discussed(&d, &fake, true);
+    // The manager takes a blind review of other work.
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Other design", "agent": "s-x" })).unwrap();
+    d.append("s-x", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "OTHER" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    let before = sent(&fake, "s-boss").len();
+    d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, AMENDED_IN_DISCUSSION." })).unwrap();
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
+    wait_until("conclusion asked", || sent(&fake, "s-r").len() == 2);
+    d.append("s-r", "question.answered", json!({ "question": "q2", "text": "CONCLUSION_TEXT", "conclusion": true })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    let blind_got: Vec<String> = sent(&fake, "s-boss")[before..].to_vec();
+    assert!(blind_got.iter().all(|m| !m.contains("CONCLUSION_TEXT") && !m.contains("amended u1#1")), "nothing typed into a blind manager: {blind_got:?}");
+    // Its blind task delivered: what it must act on reaches it now.
+    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
+    wait_until("the manager hears both", || {
+        let later = sent(&fake, "s-boss")[before..].to_vec();
+        later.iter().any(|m| m.contains("amended u1#1")) && later.iter().any(|m| m.contains("CONCLUSION_TEXT"))
+    });
+}
+
+/// A manager waiting for a person in its terminal is not typed over: what it must act on
+/// waits, and is given once it is free.
+#[test]
+fn a_blocked_manager_hears_of_an_amendment_once_free() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    reviewed_and_discussed(&d, &fake, true);
+    let before = sent(&fake, "s-boss").len();
+    fake.agents.lock().unwrap()[0].1.state = Blocked;
+    d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, amended." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    assert_eq!(sent(&fake, "s-boss").len(), before, "not typed over a person's prompt");
+    fake.agents.lock().unwrap()[0].1.state = Idle;
+    wait_until("given once free", || sent(&fake, "s-boss")[before..].iter().any(|m| m.contains("amended u1#1")));
+}
+
+/// An amendment while the gate waits always reaches the manager; it asks for the review
+/// again only when the review could have read the earlier text (it started).
+#[test]
+fn an_amendment_asks_for_the_review_again_only_when_it_started() {
+    for started in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake = std::sync::Arc::new(Fake::default());
+        let d = researched(&fake, &tmp.path().join("w.db"));
+        reviewed_and_discussed(&d, &fake, started);
+        let before = sent(&fake, "s-boss").len();
+        d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, amended." })).unwrap();
+        wait_until("the manager hears of it", || sent(&fake, "s-boss")[before..].iter().any(|m| m.contains("amended u1#1")));
+        let m = sent(&fake, "s-boss")[before..].iter().find(|m| m.contains("amended u1#1")).unwrap().clone();
+        if started {
+            assert!(m.contains("workriver task drop u1#4") && m.contains("review again"), "{m}");
+        } else {
+            assert!(!m.contains("workriver task drop") && m.contains("has not started"), "{m}");
+        }
+    }
+}
+
+/// A question held while its agent shows no state yet survives a read that lists nobody:
+/// only a complete read says its agent is gone.
+#[test]
+fn an_empty_read_does_not_fail_a_held_question() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    fake.agents.lock().unwrap()[1].1.state = Unknown;
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Still there?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let keep = fake.agents.lock().unwrap().clone();
+    fake.agents.lock().unwrap().clear(); // a read that lists nobody: incomplete
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    let q = d.get("/api/state").unwrap()["questions"][0].clone();
+    *fake.agents.lock().unwrap() = keep;
+    assert!(q["failed"].is_null(), "an empty read failed it: {}", q["failed"]);
+}
+
+/// The gate submitted and the service gone before it failed the open questions: at the next
+/// start they fail then, given or not, and nothing more is typed into the agent.
+#[test]
+fn a_restart_after_the_gate_asks_nothing_more() {
+    use workriver_core::ports::WorkStore;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &db);
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Given?" }))).unwrap();
+    wait_until("given", || sent(&fake, "s-r").len() == 1);
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Held?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    drop(d);
+    // What a run that stopped right after committing the gate leaves: the gate, no failure.
+    let mut store = workriver_data::Store::open(&db).unwrap();
+    store.record(&workriver_core::Principal::User, serde_json::from_value(json!({ "kind": "gate.submitted", "body": { "unit": "u1", "task": 2, "result": "done" } })).unwrap()).unwrap();
+    drop(store);
+    let next = std::sync::Arc::new(Fake::default());
+    *next.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Idle))];
+    let d = daemon_with(next.clone(), &db, crate::server::Waits::default());
+    let failed = |k: usize| d.get("/api/state").unwrap()["questions"][k]["failed"][0].as_str().map(str::to_string);
+    wait_until("both fail as over", || failed(0).as_deref() == Some("gate-submitted") && failed(1).as_deref() == Some("gate-submitted"));
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(sent(&next, "s-r").is_empty(), "nothing typed into the agent: {:?}", sent(&next, "s-r"));
 }

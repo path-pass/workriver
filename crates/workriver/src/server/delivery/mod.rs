@@ -205,11 +205,13 @@ pub(super) fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> V
 
 /// What the intent's manager hears of the user's discussion of a delivered design or
 /// research: not each round, only what it must act on. An amendment of the result while the
-/// gate that asks about it is not submitted (after a review, the gate would confirm a text the
-/// review did not see: drop it, review again, a new gate), and the conclusion, quoted as the
-/// agent's. Only a live manager not on a blind task, never the one who did it.
+/// gate that asks about it is not submitted (after a review that started, the gate would
+/// confirm a text the review did not see: drop it, review again, a new gate; a review not
+/// started yet reads the amended result), and the conclusion, quoted as the agent's. Never
+/// to the one who did it. Who can take it when is `App::hand`'s (`For::Duty`): held while the
+/// manager is on a blind task, never dropped.
 pub(super) fn discussed(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
-    let Some(live) = live else { return vec![] };
+    let live = live.unwrap_or_default();
     // As the runtime lists it, else as last recorded.
     let named = |s: &str| live.iter().find(|a| a.session == s).map(|a| quote::name(&a.name)).unwrap_or_else(|| who(state, s));
     let found = || -> Option<(String, String)> {
@@ -227,19 +229,25 @@ pub(super) fn discussed(state: &State, live: Option<&[RuntimeAgent]>, e: &Event)
         let gate = state.result_gate(&unit, n).filter(|g| g.state != TaskState::Done);
         let what = label(state, &unit, t);
         let agent = t.agent.as_deref().map(named).unwrap_or_default();
-        // A review between the result and its gate saw the text before the amendment.
-        let reviewed = gate.and_then(|g| {
-            let before = state.before(&unit, g.n);
-            state.tasks_of(&unit)?.iter().find(|r| r.kind == TaskKind::Review && before.contains(&r.n) && state.before(&unit, r.n).contains(&n))
-        });
+        // The reviews between the result and its gate: one that started read the text before
+        // the amendment; one not started yet reads the amended result.
+        let reviews: Vec<&Task> = gate
+            .and_then(|g| {
+                let before = state.before(&unit, g.n);
+                Some(state.tasks_of(&unit)?.iter().filter(|r| r.kind == TaskKind::Review && r.dropped.is_none() && before.contains(&r.n) && state.before(&unit, r.n).contains(&n)).collect())
+            })
+            .unwrap_or_default();
+        let reviewed = reviews.iter().copied().find(|r| r.state != TaskState::Todo);
+        let pending = reviews.iter().copied().find(|r| r.state == TaskState::Todo);
         let again = |g: &Task, r: &Task| format!("{} reviewed the text before it: drop the gate (`workriver task drop {unit}#{} --reason \"...\"`), then add the review again and a new decide gate after it (`workriver guide how design-gate`).", label(state, &unit, r), g.n);
         let m = state.intent_of(&unit).and_then(|i| state.manager_of(i))?.to_string();
         let text = match &e.body {
             Body::TaskAmended { .. } => {
                 let g = gate?;
-                let next = match reviewed {
-                    Some(r) => again(g, r),
-                    None => "The gate now asks about the amended result; nothing to do unless the change needs a review.".into(),
+                let next = match (reviewed, pending) {
+                    (Some(r), _) => again(g, r),
+                    (None, Some(r)) => format!("{} has not started: it reads the amended result, and the gate asks about that.", label(state, &unit, r)),
+                    (None, None) => "The gate now asks about the amended result; nothing to do unless the change needs a review.".into(),
                 };
                 format!("[workriver] {} amended {what} while the user discusses it; its gate {} is not submitted yet. {next} {}", named(&e.actor), label(state, &unit, g), details(&unit, n))
             }
@@ -260,7 +268,7 @@ pub(super) fn discussed(state: &State, live: Option<&[RuntimeAgent]>, e: &Event)
         };
         Some((m, text))
     };
-    found().into_iter().filter(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty()).collect()
+    found().into_iter().filter(|(to, _)| to != &e.actor).collect()
 }
 
 /// Who is told that work is over (a unit merged or done, an intent done): its manager, to

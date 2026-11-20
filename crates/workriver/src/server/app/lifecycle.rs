@@ -127,6 +127,7 @@ impl App {
                             // Only to an agent listed and free: whether it is gone is
                             // `discussions_gone`'s to say, from a complete read.
                             For::Discussion => matches!(state(h), Some(AgentState::Idle | AgentState::Done)),
+                            For::Duty => matches!(state(h), Some(s) if !matches!(s, AgentState::Blocked | AgentState::Unknown)),
                             _ => !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown)),
                         }
                 };
@@ -144,12 +145,16 @@ impl App {
                             let gone = RuntimeError::NoAgent(h.name.clone());
                             self.told(h, Err(gone))
                         }
-                        For::Discussion => self.drop_question(&h.question, ReasonCode::AgentGone, &format!("{} is no longer running", h.name)),
+                        // Not listed is not gone: only `discussions_gone`, from a complete read, says
+                        // that; a duty waits for its manager. Both are held again.
+                        For::Discussion | For::Duty => self.held.lock().unwrap().push(Held { not_ready: None, ..h }),
                     },
                     Some(_) => self.hand(h),
                 }
             }
-            self.discussions_gone(agents, &self.readable(agents));
+            let gone = crate::server::conversations::gone_from(&mut self.seen_on.lock().unwrap(), agents, &self.readable(agents));
+            *self.gone.lock().unwrap() = gone.clone();
+            self.discussions_gone(&gone);
         }
         // Questions whose temporary agent has not answered in time.
         let now = std::time::Instant::now();

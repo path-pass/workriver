@@ -160,6 +160,7 @@ impl App {
         (cache.light, cache.bare) = (light, true);
         cache.ready_after = Some(self.waits.hour * self.ready_hours);
         let mut ws = views::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &groups);
+        views::mark_gone(&mut ws, &self.gone.lock().unwrap());
         cache.save();
         if state.reduced {
             views::hide(&mut ws);

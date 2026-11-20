@@ -149,7 +149,7 @@ impl App {
         // A manager on a blind task is told nothing of other work: the user's message waits
         // (`poll` tries again) until that task is delivered. Checked at every try, since it may
         // have become blind while the message was held. Unread, it is not given either.
-        if matches!(h.kind, For::Message | For::Notice | For::Discussion) && !self.blind_free(&h.to) {
+        if matches!(h.kind, For::Message | For::Notice | For::Discussion | For::Duty) && !self.blind_free(&h.to) {
             h.not_ready = None;
             self.held.lock().unwrap().push(h);
             return;
@@ -166,13 +166,20 @@ impl App {
             // A discussion never interrupts its agent's work; one not listed (the runtime not
             // read, or gone) waits for `poll`, which alone says it is gone.
             Some(AgentState::Working) | None if h.kind == For::Discussion => h.not_ready = None,
+            None if h.kind == For::Duty => h.not_ready = None,
             _ => match self.send(&h.to, &h.text) {
                 Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
                 Ok(()) if h.kind == For::Discussion => return self.discussion_given(&h),
+                Ok(()) if h.kind == For::Duty => return,
                 Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
                 Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
+                // Never lost while the service runs: tried again at the next poll.
+                Err(e) if h.kind == For::Duty => {
+                    tracing::warn!("cannot tell {} of a discussion yet: {e}", h.name);
+                    h.not_ready = None
+                }
                 Err(e) => {
                     return match h.kind {
                         For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
@@ -180,6 +187,7 @@ impl App {
                         For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
                         For::Notice => self.told(h, Err(e)),
                         For::Discussion => self.drop_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                        For::Duty => unreachable!("a duty is held, never dropped"),
                     };
                 }
             },

@@ -35,6 +35,10 @@ pub(in crate::server) enum For {
     /// The user's question in a discussion, to the task's own agent: held while it works too,
     /// and while it is on a blind task in progress or not listed; never timed out.
     Discussion,
+    /// What a manager must act on (a discussed result amended while its gate waits, the
+    /// conclusion): held like a notice, and also while the manager is not listed or a send
+    /// fails, until it is given; never dropped while the service runs.
+    Duty,
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.

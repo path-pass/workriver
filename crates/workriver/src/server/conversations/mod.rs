@@ -19,6 +19,8 @@ use crate::server::app::*;
 use crate::server::http::*;
 
 mod discussions;
+
+pub(super) use discussions::gone_from;
 mod messages;
 pub(super) mod prompts;
 mod questions;

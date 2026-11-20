@@ -69,9 +69,10 @@ impl Body {
 
     /// What only workriver itself records: a receipt of what the service did, which nobody
     /// can claim for it. That an agent was given a question to answer is one: whoever is
-    /// recorded as answering may answer it.
+    /// recorded as answering may answer it. That a question failed is another: it closes the
+    /// question, in workriver's words, so no agent may close the user's.
     pub fn service_only(&self) -> bool {
-        matches!(self, Body::QuestionStarted { .. })
+        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. })
     }
 }
 

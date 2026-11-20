@@ -391,3 +391,18 @@ fn discussions_are_the_users_with_the_tasks_own_agent() {
     let state = replayed(&s);
     assert_eq!(&state, s.state());
 }
+
+/// That a question failed is workriver's receipt: nobody else records it, so no agent can
+/// close the user's question (a discussion's or any other) in workriver's words.
+#[test]
+fn only_workriver_fails_a_question() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why?"}})).unwrap();
+    let failed = json!({"kind": "question.failed", "body": {"question": "q1", "reason_code": "gate-submitted", "reason": "its gate u1#2 was submitted"}});
+    for who in ["agent-x", "agent-a", "user"] {
+        let e = add(&mut s, who, failed.clone()).unwrap_err();
+        assert!(e.contains("only workriver records this (question.failed)"), "{who}: {e}");
+    }
+    add(&mut s, "workriver", failed).unwrap();
+}

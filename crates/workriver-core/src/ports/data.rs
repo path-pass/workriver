@@ -85,12 +85,12 @@ pub struct Delivered {
 }
 
 /// A question of a discussion neither answered nor failed: with the agent of its task (its
-/// session; none when the task has none) and the machine its unit is on (none: this one).
+/// session; none when the task has none). Which machine that agent runs on is the runtime's
+/// to say, not the unit's.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Discussed {
     pub question: Question,
     pub agent: Option<String>,
-    pub machine: Option<String>,
 }
 
 /// Why the store did not do what was asked. The texts are shown as they are.
@@ -261,11 +261,7 @@ pub trait WorkStore: Send {
     /// The questions of a discussion neither answered nor failed.
     fn open_discussions(&self) -> Result<Vec<Discussed>, DataError> {
         let s = self.recorded()?;
-        let of = |q: &Question| Discussed {
-            question: q.clone(),
-            agent: s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone()),
-            machine: s.unit_or_intent(&q.unit).and_then(|u| u.machine),
-        };
+        let of = |q: &Question| Discussed { question: q.clone(), agent: s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone()) };
         Ok(s.questions.iter().filter(|q| q.open() && q.discuss).map(of).collect())
     }
 

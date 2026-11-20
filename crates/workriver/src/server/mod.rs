@@ -125,6 +125,8 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         waits,
         blocked: Mutex::default(),
         idle_since: Mutex::default(),
+        seen_on: Mutex::default(),
+        gone: Mutex::default(),
         stalls: Mutex::default(),
         stall_minutes: crate::runtime::Settings::stall_minutes(&store_home).into(),
         ready_hours: crate::runtime::Settings::ready_hours(&store_home),

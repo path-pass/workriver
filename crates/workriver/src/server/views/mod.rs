@@ -198,18 +198,24 @@ fn discussion_wait<'a>(state: &core::State, live: &'a [RuntimeAgent], names: &Na
     })
 }
 
-/// Whether the user may discuss delivered design or research `t` with its agent now: "open";
-/// its agent gone from a read that listed agents ("gone"); its gate submitted ("over"). None:
-/// not such a task.
-fn discussable(state: &core::State, live: &[RuntimeAgent], owner: &str, t: &core::Task) -> Option<&'static str> {
+/// Whether the user may discuss delivered design or research `t` with its agent now: "open",
+/// or its gate submitted ("over"); `mark_gone` makes an open one "gone". None: not such a task.
+fn discussable(state: &core::State, owner: &str, t: &core::Task) -> Option<&'static str> {
     if !matches!(t.kind, TaskKind::Design | TaskKind::Research) || t.state != TaskState::Done {
         return None;
     }
-    let a = t.agent.as_deref()?;
-    if state.result_gate(owner, t.n).is_some_and(|g| g.state == TaskState::Done) {
-        return Some("over");
+    t.agent.as_ref()?;
+    Some(if state.result_gate(owner, t.n).is_some_and(|g| g.state == TaskState::Done) { "over" } else { "open" })
+}
+
+/// An open discussion whose agent is gone (`conversations::gone_from`: last listed on a machine
+/// whose read now is complete without it) reads "gone"; unknown is not gone.
+pub(super) fn mark_gone(ws: &mut Workspace, gone: &std::collections::HashSet<String>) {
+    for t in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()).flat_map(|u| u.tasks.iter_mut()) {
+        if t.discuss == Some("open") && t.agent_session.as_ref().is_some_and(|s| gone.contains(s)) {
+            t.discuss = Some("gone");
+        }
     }
-    Some(if !live.is_empty() && !live.iter().any(|x| x.session == a || x.name == a) { "gone" } else { "open" })
 }
 
 /// The id of the live commit, as in the UI's data.
@@ -793,7 +799,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         amended: t.amended.clone(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
         stalled: None,
-        discuss: discussable(state, live, &u.id, t),
+        discuss: discussable(state, &u.id, t),
     }
 }
 

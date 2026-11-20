@@ -60,6 +60,12 @@ pub(super) struct App {
     /// When each live agent was first seen blocked, by session.
     // ponytail: in memory; a restart makes a blocked agent's wait start again.
     pub(super) blocked: Mutex<std::collections::HashMap<String, String>>,
+    /// The machine each session was last listed on (none: this one), and the sessions gone:
+    /// last listed on a machine whose read now is complete without them. What a discussion's
+    /// author being gone is judged on.
+    // ponytail: in memory; after a restart a session not listed again is unknown, never gone.
+    pub(super) seen_on: Mutex<std::collections::HashMap<String, Option<String>>>,
+    pub(in crate::server) gone: Mutex<std::collections::HashSet<String>>,
     /// When each live agent was first seen idle or done, by session (and when, to measure it).
     // ponytail: in memory, like `blocked`; a restart starts every idle wait again.
     pub(super) idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
