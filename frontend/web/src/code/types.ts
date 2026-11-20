@@ -34,7 +34,11 @@ export interface Commit {
   linked?: boolean;
   /** The same change as this commit of a branch the unit left (a rebase): its old hash. */
   rebasedFrom?: string;
-  /** A merge commit (the base merged into the branch): its files are not work of its own. */
+  /**
+   * A merge that brought the base into the branch: its files are against the base's side, the
+   * branch's whole change as of it (`git diff base...merge`), and none of them work of its
+   * own. The unit's whole change starts from the last one; no task's change holds one.
+   */
   merge?: boolean;
   files: FileChange[];
 }

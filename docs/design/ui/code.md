@@ -28,7 +28,15 @@ its sections went.
      count if several write inside). The unit's change is the branch's net change against
      its base, as `git diff base...head` gives it: a file added and later moved or deleted
      on the branch, or changed and changed back, is not there, and a moved file shows only
-     where it is now (and as deleted where it was, if the base has it). Whether a file
+     where it is now (and as deleted where it was, if the base has it). The base is as
+     the branch last took it in: a merge that brings the base (or its upstream) into the
+     branch is read against the base's side, so the unit's change counts from there and
+     nothing the base did is the unit's. Such a merge is no piece of work's change, even
+     when its message names one: picked, that work has no change of its own; the list of
+     commits shows nothing under it and its +/− are none; a line that came through it keeps
+     the commit that wrote it, or is from before the unit when the base brought it, and
+     only a line the merge alone wrote (a conflict resolved by hand) is the merge's. A merge
+     of any other branch is the branch's work, against its first parent. Whether a file
      changed is whether its git entry (existence, mode and object id) differs at the two
      ends, never its text, which gives only the +/− counts (uncommitted work, which git
      has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type

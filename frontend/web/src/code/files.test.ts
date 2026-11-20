@@ -2,7 +2,8 @@
 // path the branch added and later moved or deleted is not there; a moved file is only where
 // it is now.
 import { describe, expect, it } from 'vitest'
-import { changeOf, fileTree, shownDelta } from './files'
+import { blame, changeOf, fileTree, shownDelta, shownFrom } from './files'
+import { commitStats } from './select'
 import type { Commit, FileChange, ModuleNode } from './types'
 import type { Unit } from '@/planning/types'
 import { selectionOf } from '@/work/select'
@@ -155,6 +156,79 @@ describe('the code tree shows the net change', () => {
       const sel = selectionOf(moved, pick ? { kind: 'task', id: pick } : null)
       for (const [path, r] of Object.entries(fileRows(moved, pick))) {
         const d = shownDelta(moved, sel, path)!
+        expect([d.status, d.add, d.del]).toEqual([r.status, r.add, r.del])
+      }
+    }
+  })
+})
+
+describe('a base merged into the branch is not the unit\'s change', () => {
+  // The base had keep.ts "k" and same.ts "s". t1 changes keep.ts to "k1", same.ts to "s2" and
+  // adds own.ts; then the base adds main.ts, appends "m" to keep.ts and makes same.ts "s2" too;
+  // t2 merges the base in (scan reads that merge against the base's side: the branch's whole
+  // change as of it, so not main.ts, nor same.ts, which the base has the same); t3 changes
+  // own.ts again. git diff base...head: M keep.ts (+1 -1), A own.ts (+2).
+  const merged = unit(
+    [
+      commit('c1', [change('keep.ts', 'k\n', 'k1\n'), change('same.ts', 's\n', 's2\n'), change('own.ts', null, 'o\n')]),
+      { ...commit('m2', [change('keep.ts', 'k\nm\n', 'k1\nm\n'), change('own.ts', null, 'o\n')]), merge: true },
+      commit('c3', [change('own.ts', 'o\n', 'o\no2\n')]),
+    ],
+    [task('t1', ['c1']), task('t2', ['m2']), task('t3', ['c3'])],
+  )
+
+  it('with nothing picked: the branch against the base it last took in, as git diff base...head', () => {
+    expect(fileRows(merged)).toEqual({
+      'keep.ts': { status: 'M', add: 1, del: 1, inPick: true },
+      'own.ts': { status: 'A', add: 2, del: 0, inPick: true },
+    })
+    const d = shownDelta(merged, selectionOf(merged, null), 'keep.ts')!
+    expect([d.before, d.after]).toEqual(['k\nm\n', 'k1\nm\n'])
+    expect(shownDelta(merged, selectionOf(merged, null), 'same.ts')).toBeNull()
+  })
+
+  it('the merge is no task\'s change: picked, the task that merged has none; another its own commits', () => {
+    expect(selectionOf(merged, { kind: 'task', id: 't2' }).commits).toEqual([])
+    expect(fileRows(merged, 't2')).toEqual({
+      'keep.ts': { status: 'M', add: 1, del: 1, inPick: false },
+      'own.ts': { status: 'A', add: 2, del: 0, inPick: false },
+    })
+    expect(fileRows(merged, 't1')).toEqual({
+      'keep.ts': { status: 'M', add: 1, del: 1, inPick: true },
+      'own.ts': { status: 'A', add: 1, del: 0, inPick: true },
+      'same.ts': { status: 'M', add: 1, del: 1, inPick: true },
+    })
+  })
+
+  it('the work a file\'s change comes from is the commits of the unit\'s own, never the merge', () => {
+    expect(shownFrom(merged, selectionOf(merged, null), 'keep.ts')).toEqual([0])
+    expect(shownFrom(merged, selectionOf(merged, null), 'own.ts')).toEqual([0, 2])
+    expect(shownFrom(merged, selectionOf(merged, { kind: 'task', id: 't3' }), 'own.ts')).toEqual([2])
+  })
+
+  it('a line keeps the commit that wrote it through the merge; one the base brought is from before the unit', () => {
+    expect(blame(merged, 'keep.ts', 1)).toEqual([0, -1])
+    expect(blame(merged, 'own.ts', 2)).toEqual([0, 2])
+  })
+
+  it('a line only the merge wrote (a conflict resolved by hand) is the merge\'s', () => {
+    const u = unit([
+      commit('c1', [change('keep.ts', 'k\n', 'k1\n')]),
+      { ...commit('m2', [change('keep.ts', 'k\nm\n', 'k1\nm\nfix\n')]), merge: true },
+    ])
+    expect(blame(u, 'keep.ts', 1)).toEqual([0, -1, 1])
+  })
+
+  it('the merge adds no lines of its own to the commit list\'s counts', () => {
+    expect(commitStats(merged.commits[1])).toEqual({ files: 0, add: 0, del: 0 })
+    expect(commitStats(merged.commits[0])).toEqual({ files: 3, add: 3, del: 2 })
+  })
+
+  it('the single-file view agrees with the tree', () => {
+    for (const pick of [null, 't1', 't2', 't3']) {
+      const sel = selectionOf(merged, pick ? { kind: 'task', id: pick } : null)
+      for (const [path, r] of Object.entries(fileRows(merged, pick))) {
+        const d = shownDelta(merged, sel, path)!
         expect([d.status, d.add, d.del]).toEqual([r.status, r.add, r.del])
       }
     }

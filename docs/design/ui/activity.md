@@ -201,8 +201,9 @@ the scope so far carry nothing, so the marks show where the scope grew, step by 
 is information, not a call to act: no colour, no motion, not counted in Needs you.
 
 - Only commits count, by their files' folders: not plans (nothing changed yet), not
-  uncommitted work, not merge commits (the base merged into the branch brings the base's
-  work, not the task's; the service marks a commit with more than one parent `merge`).
+  uncommitted work, not a merge that brings the base into the branch (it brings the base's
+  work, not the task's; the service marks such a merge `merge`, and a merge of any other
+  branch counts: what it brings is the branch's).
 - Reviews and gates change no files: never compared, never marked. Tests tasks are compared
   like the rest. A task with nothing changed before it on its line (the first) is not marked.
 - Where lines join, "before" is everything before any of them.

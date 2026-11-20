@@ -94,7 +94,7 @@ pub(in crate::server) fn refresh_remote(state: &core::State, cache: &mut Cache) 
             let known = cache.stored.memo.get(&u.id).map(|m| m.hashes.clone()).unwrap_or_else(|| u.merged_commits.clone());
             let mut shared = cache.shared.lock().unwrap();
             if !shared.units.contains_key(&u.id) && !known.is_empty() {
-                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, files: vec![] })).collect();
+                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, from_base: false, files: vec![] })).collect();
                 let patch = cache.stored.patch.iter().filter(|(h, _)| known.contains(h)).map(|(h, p)| (h.clone(), p.clone())).collect();
                 shared.units.insert(u.id.clone(), (commits, vec![], patch));
                 changed = true;
@@ -144,10 +144,10 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
         }
     };
     // Light: what each commit says is enough. Else their texts, those not read yet at once.
-    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, files: vec![] });
+    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, from_base: false, files: vec![] });
     let missing: Vec<String> = hashes.iter().filter(|h| !cache.commits.contains_key(*h) && (!cache.light || !cache.stored.meta.contains_key(*h))).cloned().collect();
     if !missing.is_empty() {
-        match scan::commits(at, repo, &missing) {
+        match scan::commits(at, repo, &missing, Some(&u.base)) {
             Ok(read) => {
                 for c in read {
                     cache.stored.meta.entry(c.hash.clone()).or_insert_with(|| scan::Named { hash: c.hash.clone(), subject: c.subject.clone(), author: c.author.clone(), date: c.date.clone(), task: c.task.clone() });
@@ -230,7 +230,7 @@ fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
 }
 
 pub(super) fn bare_commit(c: &scan::Commit) -> scan::Commit {
-    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), merge: c.merge, files: c.files.iter().map(scan::FileChange::bare).collect() }
+    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), merge: c.merge, from_base: c.from_base, files: c.files.iter().map(scan::FileChange::bare).collect() }
 }
 
 /// Which texts a unit's commits and uncommitted files have: its commits' hashes (a commit

@@ -62,7 +62,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
   let head: ReactNode, input: ReactNode, output: ReactNode
   if (n.kind === 'review') {
     const of = byId(n.inputs.find(i => i.primary)?.from)
-    const files = [...new Set(commitsOf(of).flatMap(c => c.files.map(f => f.path)))]
+    const files = [...new Set(commitsOf(of).filter(c => !c.merge).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
     input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}</>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>

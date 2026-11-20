@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primit
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { Switch } from '@/ui/primitives/switch'
 import type { Selection } from '@/work/select'
-import { changeOf, fileTree, filterTree, ROOT, shownDelta } from './files'
+import { changeOf, fileTree, filterTree, ROOT, shownDelta, shownFrom } from './files'
 import type { Pick } from '@/work/types'
 import type { Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus } from './types'
 import { contentLang, useT } from '@/i18n'
@@ -274,6 +274,7 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
   const { t } = useT()
   const delta = shownDelta(unit, sel, path)
   const touched = delta?.touched ?? []
+  const by = useMemo(() => shownFrom(unit, sel, path), [unit, sel, path])
   const before = delta?.before ?? null, after = delta?.after ?? null, status = delta?.status ?? 'M'
   // Every line of the file, or only the changes with a few lines around each (remembered).
   const [folded, setFolded] = useState(() => recall(FOLDED) === '1')
@@ -283,7 +284,7 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
     [path, status, before, after, folded],
   )
   // Which pieces of work the shown change comes from; a commit that names none, by its hash.
-  const from = [...new Map(touched.map(k => {
+  const from = [...new Map(by.map(k => {
     const c = unit.commits[k], n = unit.tasks.find(x => x.output.commits?.includes(c.id))
     return [n?.id ?? c.id, { node: n, label: n?.taskId ? `#${n.taskId}` : c.live ? t('io.uncommitted') : c.id }] as const
   })).values()]
@@ -356,8 +357,9 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
   const ft = useMemo(() => filterTree(fileTree(root, unit, sel, onlyChanged, narrow), q), [root, unit, sel, onlyChanged, narrow, q])
   // ponytail: 30 files per commit in the list; the tree still reaches the rest, one file at a time.
   const limit = 30
-  const blocks = unit.commits.flatMap((c, k) => (sel.commits.length && !sel.commits.includes(k) ? [] : c.files.length ? [{ c, k, files: c.files }] : []))
-  const waiting = sel.node && !sel.commits.length
+  // A merge that brought the base in is listed with no change: none of its files is its own.
+  const blocks = sel.onlyMerges ? [] : unit.commits.flatMap((c, k) => (c.merge || (sel.commits.length && !sel.commits.includes(k)) ? [] : c.files.length ? [{ c, k, files: c.files }] : []))
+  const waiting = sel.node && !sel.commits.length && !sel.onlyMerges
 
   // A commit asked for from the panel: back to the list, and that commit in view.
   useEffect(() => {

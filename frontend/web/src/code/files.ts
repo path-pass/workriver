@@ -16,28 +16,60 @@ export const baseName = (p: string) => p.split('/').pop() ?? p
 
 export const ROOT = '/'
 
+// Each line of `after`: the owner it had in `before` where a line diff keeps it, undefined
+// where it is new.
+function carry(before: string, after: string, owner: number[]): (number | undefined)[] {
+  const next: (number | undefined)[] = []
+  let at = 0
+  for (const part of diffLines(before, after)) {
+    const n = part.count ?? 0
+    if (part.removed) at += n
+    else if (part.added) for (let i = 0; i < n; i++) next.push(undefined)
+    else { next.push(...owner.slice(at, at + n)); at += n }
+  }
+  return next
+}
+
 /**
  * Which commit last changed each line of a file, as of commit `upTo`: one index into the
- * unit's commits per line, -1 for a line from before the unit.
+ * unit's commits per line, -1 for a line from before the unit. A merge that brought the base
+ * in is read against the base's side, not the branch's text before it: a line the branch had
+ * keeps its commit, one the base brought is from before the unit, and only a line neither
+ * had (a conflict resolved by hand) is the merge's.
  */
 export function blame(unit: Unit, path: string, upTo: number): number[] {
   let owner: number[] = []
-  let started = false
+  let text: string | null = null
   unit.commits.slice(0, upTo + 1).forEach((c, k) => {
     const f = c.files.find(x => x.path === path)
     if (!f) return
-    if (!started) { owner = (f.before ?? '').split('\n').slice(0, -1).map(() => -1); started = true }
-    const next: number[] = []
-    let at = 0
-    for (const part of diffLines(f.before ?? '', f.after ?? '')) {
-      const n = part.count ?? 0
-      if (part.removed) at += n
-      else if (part.added) for (let i = 0; i < n; i++) next.push(k)
-      else { next.push(...owner.slice(at, at + n)); at += n }
+    const before = f.before ?? '', after = f.after ?? ''
+    if (c.merge) {
+      const kept = text === null ? [] : carry(text, after, owner)
+      owner = carry(before, after, before.split('\n').slice(0, -1).map(() => -1)).map((b, i) => kept[i] ?? b ?? k)
+    } else {
+      if (text === null) owner = before.split('\n').slice(0, -1).map(() => -1)
+      owner = carry(before, after, owner).map(o => o ?? k)
     }
-    owner = next
+    text = after
   })
   return owner
+}
+
+const wholes = new WeakMap<Unit['commits'], number[]>()
+/**
+ * The unit's whole change, as indexes into its commits: from the last merge that brought the
+ * base in, else all of them. scan reads such a merge against the base's side, so it holds the
+ * branch's whole change as of it and the commits before it are in it already; over these,
+ * `fileDelta` is `git diff base...head`, and nothing the base did is the unit's.
+ */
+export function wholeScope(unit: Unit): number[] {
+  let scope = wholes.get(unit.commits)
+  if (!scope) {
+    const from = Math.max(unit.commits.findLastIndex(c => c.merge), 0)
+    wholes.set(unit.commits, (scope = unit.commits.flatMap((_, k) => (k >= from ? [k] : []))))
+  }
+  return scope
 }
 
 /**
@@ -46,9 +78,10 @@ export function blame(unit: Unit, path: string, upTo: number): number[] {
  * only the line counts. Null when none touches it, and when the entries are the same: a file
  * added and then moved or deleted, or changed and changed back (its mode, a submodule's
  * pointer too). A mode or type changed alone stays, M +0 -0. Uncommitted work's side has
- * no object id, so its text stands for one. Over the whole unit this is the branch's net
- * change against its base, as `git diff base...head` names it: a moved file is only where it
- * is now. The tree's counts and the single-file view both come from here, so they agree.
+ * no object id, so its text stands for one. Over the whole unit (`wholeScope`) this is the
+ * branch's net change against its base, as `git diff base...head` names it: a moved file is
+ * only where it is now. The tree's counts and the single-file view both come from here, so
+ * they agree.
  */
 export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
   const touched = scope.filter(k => unit.commits[k].files.some(f => f.path === path))
@@ -83,7 +116,18 @@ function counted(first: FileChange, last: FileChange) {
  * picked work's commits when they touch it, otherwise over the whole unit.
  */
 export function shownDelta(unit: Unit, sel: Selection, path: string): FileDelta | null {
-  return fileDelta(unit, path, sel.commits) ?? fileDelta(unit, path, unit.commits.map((_, k) => k))
+  return fileDelta(unit, path, sel.commits) ?? fileDelta(unit, path, wholeScope(unit))
+}
+
+/**
+ * The commits a file's shown change comes from, as indexes: those of its scope that touch
+ * it; through a merge that brought the base in, which is no work of its own, every commit of
+ * the unit's own that touched the file.
+ */
+export function shownFrom(unit: Unit, sel: Selection, path: string): number[] {
+  const touched = shownDelta(unit, sel, path)?.touched ?? []
+  if (!touched.some(k => unit.commits[k].merge)) return touched
+  return unit.commits.flatMap((c, k) => (!c.merge && c.files.some(f => f.path === path) ? [k] : []))
 }
 
 export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChanged: boolean, narrow = false): FileTree {

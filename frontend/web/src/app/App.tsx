@@ -249,7 +249,7 @@ export default function App() {
     const unit = coded, sel = codeSel
     if (!unit || !sel) return
     const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.touched.at(-1)
-    const owners = upTo === undefined ? [] : [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0))].sort((a, b) => b - a)
+    const owners = upTo === undefined ? [] : [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0 && !unit.commits[k].merge))].sort((a, b) => b - a)
     const tasks = [...new Set(owners.map(k => unit.tasks.find(n => n.output.commits?.includes(unit.commits[k].id))).filter((n): n is Task => !!n))]
     // No task wrote these lines: the unit's chip, with the lines.
     setTalkTo(undefined)

@@ -73,6 +73,8 @@ export interface Selection {
   node: Task | null
   /** Indexes into unit.commits that the pick covers; empty for "the unit as a whole". */
   commits: number[]
+  /** The pick's only commits merged the base in: it changed nothing of its own. */
+  onlyMerges?: boolean
   /** Planned places of the picked node; null when no node is picked. */
   plans: string[] | null
 }
@@ -90,11 +92,14 @@ export function selectionOf(unit: Unit, pick: Pick): Selection {
           .map(id => unit.tasks.find(n => n.id === id))
           .filter((n): n is Task => !!n)
       : [node]
+  // A merge that brought the base in is no task's change, whoever made it.
   const ids = new Set(group.flatMap(n => n.output.commits ?? []))
-  const commits = unit.commits.flatMap((c, k) => (ids.has(c.id) ? [k] : []))
+  const all = unit.commits.flatMap((c, k) => (ids.has(c.id) ? [k] : []))
+  const commits = all.filter(k => !unit.commits[k].merge)
   return {
     node,
     commits,
+    onlyMerges: all.length > commits.length && !commits.length,
     plans: group.filter(n => n.state !== 'done').flatMap(n => n.plans),
   }
 }

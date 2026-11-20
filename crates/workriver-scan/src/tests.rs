@@ -46,7 +46,7 @@ fn reads_a_units_branch() {
 
     let list: Vec<String> = names(&Runner::Local, repo, "main", "feature").unwrap().into_iter().map(|c| c.hash).collect();
     assert_eq!(list.len(), 2);
-    let first = commit(&Runner::Local, repo, &list[0]).unwrap();
+    let first = commit(&Runner::Local, repo, &list[0], None).unwrap();
     assert_eq!(first.task.as_deref(), Some("u1#1"));
     assert_eq!(first.subject, "feat: two");
     assert_eq!(first.author, "agent-a");
@@ -55,7 +55,7 @@ fn reads_a_units_branch() {
     let b = first.files.iter().find(|f| f.path == "app/b.ts").unwrap();
     assert_eq!((b.status.as_str(), b.before.as_deref()), ("A", None));
 
-    let second = commit(&Runner::Local, repo, &list[1]).unwrap();
+    let second = commit(&Runner::Local, repo, &list[1], None).unwrap();
     assert_eq!(second.task, None, "no trailer: unregistered");
     assert_eq!(second.files[0].status, "D");
     assert_eq!(second.files[0].after, None);
@@ -116,7 +116,7 @@ fn reads_a_repository_over_ssh() {
     assert_eq!(std::fs::canonicalize(toplevel(&at, repo).unwrap()).unwrap(), std::fs::canonicalize(repo).unwrap());
     let list: Vec<String> = names(&at, repo, "main", "f").unwrap().into_iter().map(|c| c.hash).collect();
     assert_eq!(list.len(), 1);
-    let c = commit(&at, repo, &list[0]).unwrap();
+    let c = commit(&at, repo, &list[0], None).unwrap();
     assert_eq!((c.task.as_deref(), c.subject.as_str(), c.files[0].path.as_str(), c.files[0].after.as_deref()), (Some("u1#2"), "add \"b c\"", "b c.txt", Some("new\n")));
     let now = live(&at, repo, "f").unwrap();
     assert_eq!((now.len(), now[0].after.as_deref()), (1, Some("one\ntwo\n")), "the uncommitted file is read over ssh too");
@@ -340,8 +340,8 @@ fn commits_read_at_once_as_one_by_one() {
     let at = Runner::Local;
     let all: Vec<String> = String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["rev-list", "--reverse", "f"]).output().unwrap().stdout).unwrap().lines().map(str::to_string).collect();
     assert_eq!(all.len(), 4);
-    let one_by_one: Vec<Commit> = all.iter().map(|h| commit(&at, repo, h).unwrap()).collect();
-    let at_once = commits(&at, repo, &all).unwrap();
+    let one_by_one: Vec<Commit> = all.iter().map(|h| commit(&at, repo, h, None).unwrap()).collect();
+    let at_once = commits(&at, repo, &all, None).unwrap();
     for (a, b) in one_by_one.iter().zip(&at_once) {
         assert_eq!((&a.hash, &a.subject, &a.author, &a.date, &a.task, a.merge), (&b.hash, &b.subject, &b.author, &b.date, &b.task, b.merge));
         assert_eq!(b.merge, b.subject == "Merge main", "{}", b.subject);
@@ -416,8 +416,8 @@ fn file_changes_carry_their_git_entries() {
         (s("run.sh"), s("100644"), run.clone(), s("100755"), run.clone()),
         (s("sub"), s("160000"), s(pointer_a), s("160000"), s(pointer_b)),
     ];
-    assert_eq!(entries(&commits(&Runner::Local, repo, std::slice::from_ref(&head)).unwrap()[0]), want, "at once");
-    assert_eq!(entries(&commit(&Runner::Local, repo, &head).unwrap()), want, "one by one");
+    assert_eq!(entries(&commits(&Runner::Local, repo, std::slice::from_ref(&head), None).unwrap()[0]), want, "at once");
+    assert_eq!(entries(&commit(&Runner::Local, repo, &head, None).unwrap()), want, "one by one");
 
     // The work tree as committed (executable, the submodule unpopulated), then changed.
     use std::os::unix::fs::PermissionsExt;
@@ -447,4 +447,80 @@ fn an_uncommitted_symlink_is_its_target() {
     let now: Vec<_> = live_in(&Runner::Local, repo).unwrap().into_iter().map(|f| (f.path, f.before, f.after, f.after_mode)).collect();
     let s = |x: &str| x.to_string();
     assert_eq!(now, vec![(s("link.txt"), Some(s("old-target")), Some(s("new-target")), s("120000"))]);
+}
+
+/// A merge that brings the base in (or the base's upstream) is read against the parent that
+/// came from there: the branch's whole change as of it, as `git diff base...merge` names it,
+/// and none of the base's own work. A merge of anything else stays against its first parent:
+/// what it brings is the branch's. Read at once and one by one alike.
+#[test]
+fn a_base_merged_in_is_read_against_the_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let id = |rev: &str| String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["rev-parse", rev]).output().unwrap().stdout).unwrap().trim().to_string();
+    let git_raw = |args: &[&str]| {
+        let out = Command::new("git").arg("-C").arg(repo).args(args).output().unwrap().stdout;
+        let mut e: Vec<_> = raw(&String::from_utf8(out).unwrap()).into_iter().map(|r| (r.path, r.status, r.modes, r.ids)).collect();
+        e.sort();
+        e
+    };
+    let entries = |c: &Commit| {
+        let mut e: Vec<_> = c.files.iter().map(|f| (f.path.clone(), f.status.clone(), [f.before_mode.clone(), f.after_mode.clone()], [f.before_id.clone(), f.after_id.clone()])).collect();
+        e.sort();
+        e
+    };
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "a.txt", "a\n");
+    write(repo, "both.txt", "1\n2\n3\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    sh(repo, &["switch", "-q", "-c", "f"]);
+    write(repo, "a.txt", "a\nf\n");
+    write(repo, "both.txt", "1f\n2\n3\n");
+    sh(repo, &["commit", "-q", "-am", "Work\n\nTask: u1#1"]);
+    sh(repo, &["switch", "-q", "main"]);
+    write(repo, "m.txt", "main\n");
+    write(repo, "both.txt", "1\n2\n3m\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "On main"]);
+    sh(repo, &["switch", "-q", "f"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Merge main\n\nTask: u1#2", "main"]);
+    let base_merge = id("HEAD");
+    // As git names the branch's change against the base now (main has not moved since).
+    let want = git_raw(&["diff", "--no-renames", "--raw", "-z", "--no-abbrev", "main...f"]);
+    assert_eq!(want.iter().map(|w| w.0.as_str()).collect::<Vec<_>>(), ["a.txt", "both.txt"], "m.txt is main's own");
+    // Another branch merged into the unit's: its work is the unit's, against the first parent.
+    sh(repo, &["switch", "-q", "-c", "g"]);
+    write(repo, "g.txt", "g\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "On g"]);
+    sh(repo, &["switch", "-q", "f"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Merge g", "g"]);
+    let other_merge = id("HEAD");
+    // The base's upstream merged in, the local base behind it.
+    sh(repo, &["switch", "-q", "-c", "up", "main"]);
+    write(repo, "u.txt", "up\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "On up"]);
+    sh(repo, &["branch", "-q", "--set-upstream-to=up", "main"]);
+    sh(repo, &["switch", "-q", "f"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Merge up", "up"]);
+    let upstream_merge = id("HEAD");
+    let at = Runner::Local;
+    let hashes = [base_merge.clone(), other_merge.clone(), upstream_merge.clone()];
+    let once = commits(&at, repo, &hashes, Some("main")).unwrap();
+    let one_by_one: Vec<Commit> = hashes.iter().map(|h| commit(&at, repo, h, Some("main")).unwrap()).collect();
+    for c in [&once, &one_by_one] {
+        assert_eq!(c.iter().map(|c| (c.merge, c.from_base)).collect::<Vec<_>>(), [(true, true), (true, false), (true, true)]);
+        assert_eq!(entries(&c[0]), want, "the base merge: the branch's change against main");
+        assert_eq!(entries(&c[1]), git_raw(&["diff-tree", "-r", "--no-renames", "--raw", "-z", "--no-abbrev", &format!("{other_merge}^1"), &other_merge]), "the other merge: against its first parent");
+        assert_eq!(entries(&c[1]).iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), ["g.txt"]);
+        assert_eq!(entries(&c[2]), git_raw(&["diff-tree", "-r", "--no-renames", "--raw", "-z", "--no-abbrev", &format!("{upstream_merge}^2"), &upstream_merge]), "the upstream merge: against the upstream's side");
+        let both = c[0].files.iter().find(|f| f.path == "both.txt").unwrap();
+        assert_eq!((both.before.as_deref(), both.after.as_deref(), both.add, both.del), (Some("1\n2\n3m\n"), Some("1f\n2\n3m\n"), 1, 1));
+    }
+    // Without a base, every merge is against its first parent, as before.
+    let plain = commits(&at, repo, &hashes, None).unwrap();
+    assert!(plain.iter().all(|c| c.merge && !c.from_base));
+    assert_eq!(entries(&plain[0]).iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), ["both.txt", "m.txt"]);
 }

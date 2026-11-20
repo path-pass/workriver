@@ -12,7 +12,7 @@ fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut views:
         views::unit_commits(at, u, cache).map(|(l, _)| l.into_iter().map(|c| c.hash).collect()).unwrap_or_default()
     };
     let want = format!("{}#{task}", u.id);
-    hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
+    hashes.iter().filter_map(|h| scan::commit(at, repo, h, None).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()
 }
 
 impl App {

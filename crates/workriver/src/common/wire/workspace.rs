@@ -525,7 +525,9 @@ pub(crate) struct Commit {
     /// The same change as this commit of a branch the unit left (a rebase): its old hash.
     #[serde(rename = "rebasedFrom", skip_serializing_if = "Option::is_none")]
     pub(crate) rebased_from: Option<String>,
-    /// A merge commit (the base merged into the branch): its files are not work of its own.
+    /// A merge that brings the base into the branch: its files are against the base's side,
+    /// the branch's whole change as of it (as `git diff base...merge`), and none of them work
+    /// of its own. A merge of anything else is not one: what it brings is the branch's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) merge: bool,
 }

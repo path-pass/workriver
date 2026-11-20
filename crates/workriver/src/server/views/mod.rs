@@ -569,7 +569,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         .zip(linked)
         .map(|(c, linked)| {
             let rebased_from = again.get(&c.hash).cloned();
-            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.merge, files: c.files, linked, rebased_from }
+            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.from_base, files: c.files, linked, rebased_from }
         })
         .collect();
     // Uncommitted work belongs to the running implement task started last.
