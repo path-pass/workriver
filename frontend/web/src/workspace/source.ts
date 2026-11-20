@@ -31,6 +31,9 @@ async function loadWorkspace(): Promise<Workspace> {
   }
   const [{ default: demo }, { default: lockscreen }] = await Promise.all([import('@/mock/demo.json'), import('@/mock/lockscreen.svg')])
   const ws = demo as unknown as Workspace
+  // The sample names no git entries: each file is a regular one, its text standing for its id.
+  const entry = (text?: string | null) => (text == null ? ['000000', '0'.repeat(40)] : ['100644', text])
+  for (const c of unitsOf(ws).flatMap(u => u.commits)) for (const f of c.files) if (f.beforeMode === undefined) [[f.beforeMode, f.beforeId], [f.afterMode, f.afterId]] = [entry(f.before), entry(f.after)]
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
   for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const a of [...(n.output.attachments ?? []), ...(n.output.findings ?? []).flatMap(f => f.attachments ?? [])]) a.url = pictures[a.url] ?? a.url

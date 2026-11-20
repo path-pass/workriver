@@ -25,7 +25,18 @@ its sections went.
      folders with one child each is one row. A changed file shows how it changed (A, M or
      D in the diff's green and red), its +/− lines and, while an agent writes it, the
      agent's mark with its amber ring; a folder sums its files and shows one mark (with a
-     count if several write inside). A file a piece of work plans to change shows a dashed
+     count if several write inside). The unit's change is the branch's net change against
+     its base, as `git diff base...head` gives it: a file added and later moved or deleted
+     on the branch, or changed and changed back, is not there, and a moved file shows only
+     where it is now (and as deleted where it was, if the base has it). Whether a file
+     changed is whether its git entry (existence, mode and object id) differs at the two
+     ends, never its text, which gives only the +/− counts (uncommitted work, which git
+     has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
+     alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
+     text changed and changed back on the way; a mode or a submodule pointer changed and
+     changed back is not. A picked piece of
+     work's files show its own change, even one the branch later moved; a file it added
+     and deleted itself is not there either. A file a piece of work plans to change shows a dashed
      circle; one it will add, and that does not exist yet, also has a dashed underline.
      With a piece of work picked, the files it touched are open and normal and the unit's
      other changes are folded and faded; with nothing picked, all of the unit's changes

@@ -234,7 +234,7 @@ pub(super) fn bare_commit(c: &scan::Commit) -> scan::Commit {
 }
 
 /// Which texts a unit's commits and uncommitted files have: its commits' hashes (a commit
-/// never changes) and its uncommitted texts.
+/// never changes) and its uncommitted texts and git entries (a mode changed alone changes it).
 pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange]) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -242,7 +242,7 @@ pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange]) -> S
         c.hash.hash(&mut h);
     }
     for f in files {
-        (&f.path, &f.status, &f.before, &f.after).hash(&mut h);
+        (&f.path, &f.status, &f.before, &f.after, &f.before_mode, &f.before_id, &f.after_mode, &f.after_id).hash(&mut h);
     }
     format!("{:016x}", h.finish())
 }
