@@ -37,7 +37,10 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
             impact: f.impact, evidence: f.evidence, state: 'open', leadsTo: [], attachments: f.attachments,
           }))
         : []
-      out = { ...n, state: 'done', since: g.at, output: { ...n.output, note: g.note, attachments: g.attachments, findings } }
+      // The form's pictures go after what the gate has, as the service adds them; once the
+      // service has the result, its list holds both already.
+      const attachments = n.state === 'waiting' ? [...(n.output.attachments ?? []), ...g.attachments] : n.output.attachments
+      out = { ...n, state: 'done', since: g.at, output: { ...n.output, note: g.note, attachments, findings } }
     }
     const found = out.output.findings
     if (found?.some(f => edits.decisions[`${unit.id}:${n.id}:${f.id}`]))
