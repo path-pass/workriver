@@ -155,7 +155,7 @@ pub(super) struct Gate {
 
 pub(super) async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
-    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments };
+    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments, selected: vec![] };
     blocking(move || app.record(&who, body).map(Json)).await
 }
 

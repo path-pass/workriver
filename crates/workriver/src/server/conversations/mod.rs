@@ -65,7 +65,7 @@ pub(super) struct Say {
 /// typed into the manager's terminal.
 pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
-    let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context };
+    let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context, answer: None };
     blocking(move || app.record(&who, body).map(Json)).await
 }
 
