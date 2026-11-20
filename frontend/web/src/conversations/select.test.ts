@@ -50,9 +50,19 @@ describe('the message', () => {
     const one = leaveOut(chips, ['finding:P2-1'])
     expect(one.map(keyOf)).not.toContain('finding:P2-1')
     expect(one).toHaveLength(chips.length - 1)
+    // The finding and the attachment the task shows go with the task; the code and the
+    // other tasks that wrote it stay with the unit.
     const noTask = leaveOut(chips, ['task:#3'])
-    expect(noTask.map(keyOf)).toEqual(['unit:Search'])
-    expect(messageOf(noTask, mine)).toEqual({ unit: 'u1', task: 0, context: [{ kind: 'attachment', label: 'log.txt', id: 'f9' }] })
+    expect(noTask.map(keyOf)).toEqual(['unit:Search', 'lines:api.ts L10–24', 'task:#5'])
+    expect(messageOf(noTask, mine)).toEqual({
+      unit: 'u1',
+      task: 0,
+      context: [
+        { kind: 'lines', label: 'api.ts L10–24', path: 'src/api.ts', from: 10, to: 24 },
+        { kind: 'task', label: '#5', task: 5 },
+        { kind: 'attachment', label: 'log.txt', id: 'f9' },
+      ],
+    })
     const noUnit = leaveOut(chips, ['unit:Search'])
     expect(noUnit).toEqual([])
     expect(messageOf(noUnit, mine)).toEqual({ unit: '', task: 0, context: [{ kind: 'attachment', label: 'log.txt', id: 'f9' }] })

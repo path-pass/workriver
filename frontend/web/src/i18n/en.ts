@@ -304,7 +304,7 @@ export const en = {
     unit: '{{intent}} · {{unit}}'
   },
   side: {
-    title: 'Needs you, agents, commits, backlog and ask why',
+    title: 'Needs you, agents, commits, backlog and the manager',
     close: 'Fold the panel',
     resize: 'Panel width (drag, or arrow keys; double-click for the default)'
   },
@@ -515,7 +515,7 @@ export const en = {
     counter: '{{n}} / {{count}}',
     now: '{{n}} of {{count}}: {{name}}',
     download: 'Download',
-    ask: 'Ask why about this attachment: it goes with the question',
+    ask: 'Ask the manager about this attachment: it goes with the message',
     loading: 'Loading…',
     failed: 'Could not load this file. Download it instead.',
     cut: 'Shows the first {{shown}} of {{size}}; download it for the rest.',

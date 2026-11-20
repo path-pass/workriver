@@ -24,15 +24,18 @@ the restructure).
   waiting, in the manager's terminal, or not delivered and why); the manager's replies
   (only that manager may reply) follow it on the left with its crown. With no manager
   running in the workspace the box is disabled and says so. A manager on a blind task in
-  progress is not written to: the service refuses the message until it delivers.
+  progress is not written to: the service refuses a new message until it delivers, and a
+  message already waiting for it (held while it waited for a person) waits for that task
+  too, saying so quietly under it ("Waiting: … is on a blind task"; the service's words on
+  hover), and goes once the task is delivered.
 - **What is picked goes with it, as chips** above the box: the unit (its title), the picked
   task (its number, a gate's title, a review's label), the picked finding, the picked file –
   or, when lines are picked, the lines instead of their file – the other tasks that changed
   those lines, and the attachment open in the viewer (`attachments.md`). Only to the open
   unit's intent's workspace: with another workspace picked in the select, no chips show and
   none are sent. Every chip has a ×. Taking out the task's chip takes with it what needs the
-  task (the finding, the file or lines, the other tasks, the open attachment); taking out
-  the unit's leaves no chip; the user's own files stay. A chip left out stays out until the
+  task (the finding, the open attachment); the file or lines and the other tasks that wrote
+  them stay with the unit. Taking out the unit's leaves no chip; the user's own files stay. A chip left out stays out until the
   selection changes. A gate is a chip like any task: the manager relays to whoever wrote its
   steps.
 - **How the box is reached.** The picked task's detail keeps only a small "Ask the

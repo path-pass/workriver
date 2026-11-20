@@ -29,7 +29,7 @@ records do not say), do not wait for it:
 
 A task that is blind and not delivered cannot be asked: reply that it waits for its
 delivery. (Nothing is typed into you while you are on a blind task yourself: the user's
-message is refused until you deliver.)
+new message is refused, and one already waiting for you is held, until you deliver.)
 
 Then answer where the user reads it, in the page, not in your terminal:
 

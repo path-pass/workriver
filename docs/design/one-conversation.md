@@ -30,10 +30,12 @@ another workspace picked in the select, those chips do not show and are not sent
 files the user drops or pastes go to any workspace's manager.
 
 Every chip has a × (the task's and the unit's too: a message, unlike a question, needs no
-subject). Taking out the task's chip clears `task`; taking out the unit's clears `unit` and
-`task`. What needs them goes with them: the finding, file, lines, extra task chips and the
-attachments chipped because the task shows them. The user's own files stay. A chip left
-out stays out until the selection changes, as today.
+subject). Taking out the task's chip clears `task`, and what needs the task goes with it:
+the finding and the attachments chipped because the task shows them; the file or lines and
+the extra task chips stay, with the unit (the rules of section 2 let them go with the unit
+alone, as lines no task wrote do). Taking out the unit's clears `unit` and `task` and every
+chip. The user's own files stay. A chip left out stays out until the selection changes, as
+today. (Settled in u14#10, for u14#9 P3-4.)
 
 ## 2. The message's shape
 

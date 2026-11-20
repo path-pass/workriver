@@ -293,7 +293,7 @@ export const zhCN: OneForm<typeof en> = {
     unit: '{{intent}} · {{unit}}'
   },
   side: {
-    title: '需要你、Agent、提交、待办和问为什么',
+    title: '需要你、Agent、提交、待办和管理者',
     close: '收起面板',
     resize: '面板宽度（拖动，或用方向键；双击恢复默认）'
   },
@@ -498,7 +498,7 @@ export const zhCN: OneForm<typeof en> = {
     counter: '{{n}} / {{count}}',
     now: '第 {{n}} 个，共 {{count}} 个：{{name}}',
     download: '下载',
-    ask: '就这个附件提问：它会随问题一起发出',
+    ask: '就这个附件问管理者：它会随消息一起发出',
     loading: '正在读取…',
     failed: '读不到这个文件，请下载查看。',
     cut: '只显示前 {{shown}}（共 {{size}}），其余请下载。',

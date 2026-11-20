@@ -32,11 +32,6 @@ export function reviewLabel(t: T, n: Task): string {
   if (n.result === 'found') return t('review.found', { by, count: findingsOf(n).length })
   return t('review.passed', { by })
 }
-/** Whom a question about a task goes to: its agent; for a gate, the agent that asked for it
- *  (a blocker's: the agent of the task it blocks). */
-export const askeeOf = (unit: Unit, n: Task): string | null =>
-  n.kind === 'gate' ? unit.tasks.find(x => x.id === (n.blocks ?? n.inputs.find(i => i.primary)?.from))?.agent ?? null : n.agent
-
 /** Finished work handed in with no check run: shown on the graph, not counted anywhere. */
 export const untested = (n: Task) => n.kind === 'implement' && !n.design && !n.research && n.state === 'done' && !n.output.evidence?.length
 

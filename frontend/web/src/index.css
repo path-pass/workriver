@@ -522,7 +522,7 @@
   .askbox textarea { flex: 1; min-width: 0; max-height: 160px; resize: none; border: 0; outline: none; background: transparent; font: inherit; line-height: 1.5; }
   .pending { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 3px; background: var(--ink-2); vertical-align: middle; animation: pulse 1s ease-in-out infinite alternate; }
 
-  /* ---- picking lines in a diff, and the "Ask why" that floats next to them ---- */
+  /* ---- picking lines in a diff, and the "Ask the manager" that floats next to them ---- */
   .pickable { position: relative; }
   .pickable .diff .d2h-code-linenumber { cursor: pointer; }
   .pickable .diff .d2h-code-linenumber:hover { color: var(--you-ink); }

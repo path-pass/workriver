@@ -55,13 +55,15 @@ export function chipsOf(p: Picked, here: boolean): Chip[] {
 
 export const chipKey = (c: AskContext) => `${c.kind}:${c.label}`
 
-/** The chips left after those taken out (by key). The task's × takes what needs the task with
- *  it; the unit's, everything (the user's own files are not chips: they stay). */
+/** The chips left after those taken out (by key). The task's × takes with it what needs the
+ *  task: its finding and the attachment chipped because it shows it; the file or lines and
+ *  the other tasks that wrote them stay with the unit. The unit's × takes everything (the
+ *  user's own files are not chips: they stay). */
 export function leaveOut(chips: Chip[], out: string[]): Chip[] {
   const gone = (own: Chip['own']) => chips.some(c => c.own === own && out.includes(chipKey(c)))
   if (gone('unit')) return []
-  if (gone('task')) return chips.filter(c => c.own === 'unit')
-  return chips.filter(c => !out.includes(chipKey(c)))
+  const needsTask = (c: Chip) => c.own === 'task' || c.kind === 'finding' || c.kind === 'attachment'
+  return chips.filter(c => !out.includes(chipKey(c)) && !(gone('task') && needsTask(c)))
 }
 
 /** `/api/message`'s unit, task and context: from the chips, then the user's stored files. */
