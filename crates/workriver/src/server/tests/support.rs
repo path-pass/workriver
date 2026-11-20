@@ -132,7 +132,7 @@ type Typed = (Option<String>, String, String, String);
 
 /// A runtime of our own: agents by place, every send kept, states set by the test.
 #[derive(Default)]
-pub(crate) struct Fake {
+pub(in crate::server) struct Fake {
     pub(super) agents: std::sync::Mutex<Vec<(String, workriver_core::runtime::RuntimeAgent)>>,
     pub(super) sent: std::sync::Mutex<Vec<(String, String)>>,
     /// Temporary agents started: (group, harness, name, cwd); and those closed.

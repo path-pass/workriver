@@ -32,15 +32,15 @@ mod alerts;
 mod history;
 mod probe;
 
-pub use alerts::*;
-pub use history::*;
-pub use probe::*;
+use alerts::*;
+use history::*;
+pub(in crate::server) use probe::*;
 
 /// The name of the machine workriver runs on (a followed machine may not take it).
-pub const HERE: &str = "local";
+const HERE: &str = "local";
 
 /// How often each machine is read.
-pub const STEP: Duration = Duration::from_secs(5);
+pub(in crate::server) const STEP: Duration = Duration::from_secs(5);
 
 /// How many samples are kept per machine: ten minutes at `STEP`, the longest window.
 const KEEP: usize = 120;
@@ -70,7 +70,7 @@ struct Raised {
 }
 
 /// Reads every machine on a thread of its own, keeps the samples, raises and clears alerts.
-pub struct Metrics {
+pub(in crate::server) struct Metrics {
     home: PathBuf,
     /// Where the probe runs for this machine: here (a stand-in in tests).
     local: scan::Runner,
@@ -87,13 +87,13 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    pub fn new(home: PathBuf, local: scan::Runner, machines: Option<Arc<Machines>>, runtime: Arc<dyn Runtime>, changed: broadcast::Sender<()>, step: Duration) -> Arc<Metrics> {
+    pub(in crate::server) fn new(home: PathBuf, local: scan::Runner, machines: Option<Arc<Machines>>, runtime: Arc<dyn Runtime>, changed: broadcast::Sender<()>, step: Duration) -> Arc<Metrics> {
         let thresholds = crate::runtime::Settings::thresholds(&home);
         Arc::new(Metrics { home, local, machines, runtime, tracks: Mutex::default(), running: Mutex::default(), thresholds: Mutex::new(thresholds), changed, step, stop: AtomicBool::new(false) })
     }
 
     /// Starts reading: this machine at once, a followed machine from when it is followed.
-    pub fn start(self: &Arc<Self>) {
+    pub(in crate::server) fn start(self: &Arc<Self>) {
         let me = self.clone();
         std::thread::spawn(move || {
             while !me.stop.load(Ordering::Relaxed) {
@@ -108,7 +108,7 @@ impl Metrics {
         });
     }
 
-    pub fn stop(&self) {
+    pub(in crate::server) fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
     }
 
@@ -134,7 +134,7 @@ impl Metrics {
     }
 
     /// Reads a machine once and looks at its alerts.
-    pub fn sample(&self, label: &str) {
+    fn sample(&self, label: &str) {
         let read = self.runner(label).map(|r| {
             let started = Instant::now();
             let out = crate::common::process::output_within(r.command(&["sh", "-c", PROBE]), TIMEOUT).map_err(|e| format!("cannot run the probe: {e}"));
@@ -219,7 +219,7 @@ impl Metrics {
     }
 
     /// A machine's minutes of the last `hours`, oldest first, read from its history file.
-    pub fn history(&self, label: &str, hours: u32) -> Result<Vec<Sample>, String> {
+    pub(in crate::server) fn history(&self, label: &str, hours: u32) -> Result<Vec<Sample>, String> {
         if !(1..=MAX_HOURS).contains(&hours) {
             return Err(format!("the history goes back 1 to {MAX_HOURS} hours, not {hours}"));
         }
@@ -251,12 +251,12 @@ impl Metrics {
         changed
     }
 
-    pub fn thresholds(&self) -> Thresholds {
+    fn thresholds(&self) -> Thresholds {
         *self.thresholds.lock().unwrap()
     }
 
     /// Saves new thresholds and looks at every machine's alerts again at once.
-    pub fn set_thresholds(&self, t: Thresholds) -> Result<(), String> {
+    pub(super) fn set_thresholds(&self, t: Thresholds) -> Result<(), String> {
         t.check()?;
         crate::runtime::Settings::set_thresholds(&self.home, t)?;
         *self.thresholds.lock().unwrap() = t;
@@ -268,7 +268,7 @@ impl Metrics {
     }
 
     /// Every machine with its samples, this machine first.
-    pub fn report(&self) -> Report {
+    pub(in crate::server) fn report(&self) -> Report {
         let tracks = self.tracks.lock().unwrap();
         let machines = self
             .wanted()
@@ -292,7 +292,7 @@ impl Metrics {
     /// The machines in alert now, for Needs you: only those still followed. A machine no
     /// longer followed keeps its track until its loop next wakes, up to a step later, and the
     /// page refetches at once when it is dropped.
-    pub fn alerts(&self) -> Vec<Alert> {
+    pub(in crate::server) fn alerts(&self) -> Vec<Alert> {
         let thresholds = self.thresholds();
         let wanted = self.wanted();
         let tracks = self.tracks.lock().unwrap();

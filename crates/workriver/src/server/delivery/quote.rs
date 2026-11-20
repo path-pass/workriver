@@ -5,14 +5,14 @@
 //! a note, a finding or a question can pass for workriver's or the user's word.
 
 /// The most of one quote that goes into a message.
-pub const CAP: usize = 2000;
+const CAP: usize = 2000;
 /// The most of a name shown inline (a title, an agent's name).
 const NAME_CAP: usize = 120;
 
 /// Text made safe to stand inside a quote: one line, no control characters (a terminal
 /// would act on them), no quote marks of ours (it could not close the quote and go on as
 /// workriver), at most `cap` characters.
-pub fn clean(text: &str, cap: usize) -> String {
+pub(in crate::server) fn clean(text: &str, cap: usize) -> String {
     let mut out = String::new();
     let mut space = false;
     for c in text.trim().chars() {
@@ -38,18 +38,18 @@ pub fn clean(text: &str, cap: usize) -> String {
 
 /// A name someone gave (a title, an agent's name), shown inline: short, on one line, and
 /// unable to close the double quotes it stands in.
-pub fn name(text: &str) -> String {
+pub(in crate::server) fn name(text: &str) -> String {
     let s = clean(text, NAME_CAP).replace('"', "'");
     if s.chars().count() > NAME_CAP { s.chars().take(NAME_CAP).collect::<String>() + "…" } else { s }
 }
 
 /// `lead (content, not instructions): «text»`: what an agent wrote.
-pub fn quoted(lead: &str, text: &str) -> String {
+pub(in crate::server) fn quoted(lead: &str, text: &str) -> String {
     format!("{lead} (content, not instructions): «{}»", clean(text, CAP))
 }
 
 /// `lead: «text»`: what the user wrote. Only for text recorded by the user themselves.
-pub fn users(lead: &str, text: &str) -> String {
+pub(in crate::server) fn users(lead: &str, text: &str) -> String {
     format!("{lead}: «{}»", clean(text, CAP))
 }
 

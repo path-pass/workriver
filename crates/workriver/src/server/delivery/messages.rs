@@ -148,7 +148,7 @@ pub(super) fn added_message(state: &State, actor: &str, unit: &str, n: u32, adde
 /// What a manager reads when the user writes to it from the page: workriver's words (what it
 /// is, how to reply), then the user's own, quoted as theirs (only the user records
 /// `message.sent`, see `Body::user_only`).
-pub fn user_message(state: &State, m: &workriver_core::Message) -> String {
+pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message) -> String {
     let about = state.intents.iter().find(|i| i.id == m.intent).map(|i| format!(", about intent {} \"{}\"", i.id, quote::name(&i.title))).unwrap_or_default();
     format!(
         "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. {}",
@@ -180,7 +180,7 @@ fn followed<'a>(state: &'a State, unit: &str, t: &Task) -> Option<&'a Task> {
 }
 
 /// How a task reads in a message: `u1#2 "title"`, or `u1#4 (code review of u1#2 "title")`.
-pub fn label(state: &State, unit: &str, t: &Task) -> String {
+pub(in crate::server) fn label(state: &State, unit: &str, t: &Task) -> String {
     let of = || followed(state, unit, t).map(|f| format!(" of {}", label(state, unit, f))).unwrap_or_default();
     match t.kind {
         TaskKind::Review => format!("{unit}#{} ({}{})", t.n, t.reviewer.map(|r| name(&r).replace('-', " ")).unwrap_or_default(), of()),

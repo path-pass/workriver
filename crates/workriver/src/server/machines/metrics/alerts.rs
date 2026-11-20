@@ -2,7 +2,7 @@
 use super::*;
 
 /// A threshold's window may be 1 to this many minutes (what the samples kept cover).
-pub const MAX_MINUTES: u8 = 10;
+const MAX_MINUTES: u8 = 10;
 
 /// An alert clears once every sample of this long is below its threshold.
 const CLEAR_MS: i64 = 60_000;
@@ -47,7 +47,7 @@ impl Sample {
     /// used share of the fullest filesystem for disk; 0 for pressure, which its level says)
     /// and the level this sample alone is at; none where the machine has no such value. OOM
     /// kills are judged across samples (`evaluate_oom`), so here they have no level.
-    pub fn reading(&self, metric: Metric, t: &Thresholds) -> Option<(f32, Option<Level>)> {
+    pub(super) fn reading(&self, metric: Metric, t: &Thresholds) -> Option<(f32, Option<Level>)> {
         let d = &self.detail;
         let at_least = |v: f32, l: &Limit| (v, (v >= l.percent as f32).then_some(Level::Warn));
         let mem_share = (self.mem_total > 0).then(|| self.mem_used.min(self.mem_total) as f32 * 100.0 / self.mem_total as f32);
@@ -71,7 +71,7 @@ impl Sample {
 pub(super) const METRICS: [Metric; 10] = [Metric::Cpu, Metric::Memory, Metric::Compressor, Metric::Swap, Metric::Pressure, Metric::SystemFree, Metric::Available, Metric::Psi, Metric::Oom, Metric::Disk];
 
 impl Thresholds {
-    pub fn on(&self, metric: Metric) -> bool {
+    pub(super) fn on(&self, metric: Metric) -> bool {
         match metric {
             Metric::Cpu => self.cpu.on,
             Metric::Memory => self.memory.on,
@@ -87,7 +87,7 @@ impl Thresholds {
     }
 
     /// How long a metric must hold before it rises; none: at once. OOM: how long it is held.
-    pub fn minutes(&self, metric: Metric) -> Option<u8> {
+    pub(super) fn minutes(&self, metric: Metric) -> Option<u8> {
         match metric {
             Metric::Cpu => Some(self.cpu.minutes),
             Metric::Memory => Some(self.memory.minutes),
@@ -122,7 +122,7 @@ impl Thresholds {
 
     /// Each value in its range, warn before crit, a window of 1 to `MAX_MINUTES` minutes
     /// (what the samples kept cover); the compressor alerts at once, so it has none.
-    pub fn check(&self) -> Result<(), String> {
+    pub(super) fn check(&self) -> Result<(), String> {
         let window = |name: &str, m: u8| if (1..=MAX_MINUTES).contains(&m) { Ok(()) } else { Err(format!("the {name} alert holds for 1 to {MAX_MINUTES} minutes, not {m}")) };
         for (name, l) in [("CPU", &self.cpu), ("memory", &self.memory)] {
             if !(1..=100).contains(&l.percent) {
@@ -166,7 +166,7 @@ impl Thresholds {
 /// decides), with no break: a gap in the samples (the machine was away) starts the window
 /// again. It steps down from critical, or clears, once every sample of a minute is below.
 /// While the machine cannot be reached, or the metric has no value, it stays as it was.
-pub fn evaluate(samples: &[Sample], level: &dyn Fn(&Sample) -> Option<Option<Level>>, minutes: Option<u8>, raised: Option<(i64, Level)>, reachable: bool, step_ms: i64) -> Option<(i64, Level)> {
+pub(super) fn evaluate(samples: &[Sample], level: &dyn Fn(&Sample) -> Option<Option<Level>>, minutes: Option<u8>, raised: Option<(i64, Level)>, reachable: bool, step_ms: i64) -> Option<(i64, Level)> {
     let Some(last) = samples.last().filter(|s| reachable && level(s).is_some()) else { return raised };
     // Whether a sample is at `l` or above (`up`), or below it.
     let is = |s: &Sample, l: Level, up: bool| level(s).map(|x| (x >= Some(l)) == up);
@@ -200,7 +200,7 @@ pub fn evaluate(samples: &[Sample], level: &dyn Fn(&Sample) -> Option<Option<Lev
 
 /// OOM kills: critical on the sample that sees the count grow, held until `hold` minutes
 /// have passed since the last kill. While the machine cannot be reached it stays as it was.
-pub fn evaluate_oom(samples: &[Sample], hold: u8, raised: Option<(i64, Level)>, reachable: bool) -> Option<(i64, Level)> {
+pub(super) fn evaluate_oom(samples: &[Sample], hold: u8, raised: Option<(i64, Level)>, reachable: bool) -> Option<(i64, Level)> {
     let Some(last) = samples.last().filter(|s| reachable && s.oom_kills_watched.is_some()) else { return raised };
     let kill = samples.windows(2).rev().find(|p| p[1].oom_kills_watched > p[0].oom_kills_watched && p[0].oom_kills_watched.is_some()).map(|p| p[1].at)?;
     (last.at - kill < hold as i64 * 60_000).then(|| (raised.map_or(kill, |r| r.0), Level::Crit))

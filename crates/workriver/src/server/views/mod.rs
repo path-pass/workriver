@@ -7,7 +7,7 @@ use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, parse_task_ref};
 use workriver_scan as scan;
 
-pub use crate::common::wire::workspace::*;
+pub(super) use crate::common::wire::workspace::*;
 use crate::server::delivery::quote;
 
 mod cache;
@@ -15,8 +15,8 @@ mod code;
 mod handlers;
 pub(super) mod task;
 
-pub use cache::*;
-pub use code::*;
+pub(super) use cache::*;
+pub(super) use code::*;
 pub(super) use handlers::*;
 
 fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<MessageOut> {
@@ -59,7 +59,7 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
 /// on a blind task is not to be told: other commits' subjects and authors (the range to
 /// review is the hashes; the code is read from git), tasks made up from unregistered
 /// commits, uncommitted work, and what other sessions are about.
-pub fn hide(ws: &mut Workspace) {
+fn hide(ws: &mut Workspace) {
     ws.reduced = true;
     for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
         hide_unit(u);
@@ -185,7 +185,7 @@ impl Names {
 /// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
 /// (or done) the same way; `stalls`: the
 /// running tasks whose agent stopped, by (unit or intent, task).
-pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
+pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();
@@ -321,7 +321,7 @@ pub fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent
 
 /// The project (its folder) a runtime group works on, and how that is known: what the user
 /// set; else where its manager runs; else its current intent's project. None: unknown.
-pub fn group_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef) -> Option<(String, Known)> {
+pub(super) fn group_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef) -> Option<(String, Known)> {
     let w = state.workspace_of(g);
     if let Some(p) = w.and_then(|w| w.project.clone()) {
         return Some((p, Known::User));
@@ -363,7 +363,7 @@ fn project_at(state: &core::State, machine: Option<&str>, cwd: &str) -> Option<S
 }
 
 /// A project's title: a registered one's, else its folder's name.
-pub(crate) fn project_title(state: &core::State, folder: &str) -> String {
+pub(super) fn project_title(state: &core::State, folder: &str) -> String {
     match state.projects.iter().find(|p| p.path == folder) {
         Some(p) => p.title.clone(),
         None => Path::new(folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.to_string()),
@@ -372,7 +372,7 @@ pub(crate) fn project_title(state: &core::State, folder: &str) -> String {
 
 /// When `intent` belongs to a known project and the group is known to work on another: the
 /// two, in a sentence. None when they agree or either is unknown.
-pub fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef, intent: &str) -> Option<String> {
+pub(super) fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef, intent: &str) -> Option<String> {
     let i = state.intents.iter().find(|i| i.id == intent)?;
     let mine = project_folder(state, i);
     let (theirs, known) = group_project(state, live, g)?;
@@ -393,7 +393,7 @@ pub fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core::Runti
 }
 
 /// An intent's project folder: as recorded, else where its first unit's repository is.
-pub(crate) fn project_folder(state: &core::State, i: &core::Intent) -> String {
+pub(super) fn project_folder(state: &core::State, i: &core::Intent) -> String {
     let path = if i.project.is_empty() { state.units.iter().find(|u| u.intent == i.id).map(|u| u.repo.clone()).unwrap_or_default() } else { i.project.clone() };
     if path.is_empty() {
         return path;

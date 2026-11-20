@@ -14,7 +14,7 @@ fn who(state: &State, s: &str) -> String {
 /// `unit`'s task `n` as `state` (already scoped to the reader) shows it. `ws`: the snapshot
 /// of the same state, for commits. `file`: what an attachment id is to the reader (a path
 /// on this machine, a link on another).
-pub fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dyn Fn(&str) -> Option<String>) -> Result<TaskShow, core::Rejected> {
+pub(in crate::server) fn task(state: &State, ws: &serde_json::Value, unit: &str, n: u32, file: &dyn Fn(&str) -> Option<String>) -> Result<TaskShow, core::Rejected> {
     let t = state.task(unit, n)?;
     let files = |ids: &[String]| ids.iter().filter_map(|id| file(id)).collect::<Vec<_>>();
     let finding = |f: &core::Finding, by: &str| FindingShow {

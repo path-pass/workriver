@@ -13,7 +13,7 @@ pub(super) const TIMEOUT: Duration = Duration::from_secs(15);
 /// and the probe ends with `true`: a missing piece is a field without a value, never a
 /// failed reading. On macOS one `sysctl` reads every name as `name: value` (one it does not
 /// know is skipped, the others still print). `df -Pk` reads the home folder's filesystem and `/`.
-pub const PROBE: &str = concat!(
+pub(super) const PROBE: &str = concat!(
     "export LC_ALL=C; ",
     "if [ -r /proc/stat ]; then ",
     "echo 'os linux'; head -n 1 /proc/stat; grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo; ",
@@ -30,7 +30,7 @@ pub const PROBE: &str = concat!(
 /// only when an alert is raised or rises, not every sample. Linux reads `/proc` itself, since
 /// a slim system may have no `ps` (procps); `cat` goes on past a process that ended meanwhile.
 /// Kernel threads have no `VmRSS` and are left out.
-pub const PS: &str = concat!(
+pub(super) const PS: &str = concat!(
     "export LC_ALL=C; ",
     "if [ -r /proc/self/status ]; then ",
     "cat /proc/[0-9]*/status 2>/dev/null | awk '/^Name:/{n=$0; sub(/^Name:[ \\t]*/, \"\", n)} /^Pid:/{p=$2} /^PPid:/{q=$2} /^VmRSS:/{print p, q, $2, n}'; ",
@@ -41,7 +41,7 @@ pub const PS: &str = concat!(
 
 /// The CPU as the probe gives it.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Cpu {
+pub(super) enum Cpu {
     /// Measured over the probe's own second (macOS).
     Percent(f32),
     /// Counters since boot (Linux): busy and total ticks.
@@ -50,15 +50,15 @@ pub enum Cpu {
 
 /// One probe's output, read.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Reading {
-    pub cpu: Cpu,
-    pub mem_used: u64,
-    pub mem_total: u64,
-    pub detail: Detail,
+pub(super) struct Reading {
+    pub(super) cpu: Cpu,
+    pub(super) mem_used: u64,
+    pub(super) mem_total: u64,
+    pub(super) detail: Detail,
 }
 
 /// Reads the probe's output, from Linux or macOS.
-pub fn parse(text: &str) -> Result<Reading, String> {
+pub(super) fn parse(text: &str) -> Result<Reading, String> {
     let os = text.lines().next().and_then(|l| l.strip_prefix("os ")).unwrap_or("").trim();
     match os {
         "linux" => parse_linux(text),
@@ -174,7 +174,7 @@ pub(super) fn disks(text: &str) -> Vec<Disk> {
 }
 
 /// The CPU share between two readings; none for the first reading of counters.
-pub fn cpu_share(before: Option<&Reading>, now: &Reading) -> Option<f32> {
+pub(super) fn cpu_share(before: Option<&Reading>, now: &Reading) -> Option<f32> {
     match (before.map(|r| r.cpu), now.cpu) {
         (_, Cpu::Percent(p)) => Some(p),
         (Some(Cpu::Ticks { busy: b0, total: t0 }), Cpu::Ticks { busy, total }) if total > t0 => Some(((busy.saturating_sub(b0)) as f32 * 100.0 / (total - t0) as f32).clamp(0.0, 100.0)),
@@ -191,7 +191,7 @@ const TOP: usize = 5;
 /// (for a shell: a command in front, or a background job). An error unless the list was
 /// read and holds `pid` itself: a list that could not be read (ssh failed and printed
 /// nothing) never says "nothing runs".
-pub fn has_children(runner: &scan::Runner, pid: u32) -> std::io::Result<bool> {
+pub(in crate::server) fn has_children(runner: &scan::Runner, pid: u32) -> std::io::Result<bool> {
     let out = crate::common::process::output_within(runner.command(&["sh", "-c", PS]), TIMEOUT)?;
     let ps = parse_ps(&String::from_utf8_lossy(&out.stdout));
     if !out.status.success() || !ps.iter().any(|p| p.0 == pid) {

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 /// A stored file's path, from its id and its original name (for the extension).
-pub fn path(home: &Path, id: &str, name: &str) -> PathBuf {
+pub(in crate::server) fn path(home: &Path, id: &str, name: &str) -> PathBuf {
     let ext = Path::new(name).extension().map(|e| e.to_string_lossy().to_lowercase()).filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()));
     crate::common::home::attachments_dir(home).join(match ext {
         Some(e) => format!("{id}.{e}"),
@@ -18,7 +18,7 @@ pub fn path(home: &Path, id: &str, name: &str) -> PathBuf {
 /// written by several at once (two uploads of one file): each write has a temporary file of
 /// its own (tempfile: private, a random name), renamed into place whole; whichever lands
 /// last replaces the same bytes.
-pub fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(String, PathBuf)> {
+pub(super) fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(String, PathBuf)> {
     let id: String = Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect();
     let target = path(home, &id, name);
     if !target.exists() {
@@ -32,7 +32,7 @@ pub fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(String, Pa
 }
 
 /// How many files the store holds and their size, for `workriver status`.
-pub fn usage(home: &Path) -> (u64, u64) {
+pub(in crate::server) fn usage(home: &Path) -> (u64, u64) {
     let files = std::fs::read_dir(crate::common::home::attachments_dir(home)).into_iter().flatten().flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file());
     files.fold((0, 0), |(n, b), m| (n + 1, b + m.len()))
 }

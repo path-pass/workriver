@@ -9,7 +9,7 @@ pub(super) const HISTORY_MS: i64 = 7 * 24 * 3_600_000;
 pub(super) const TRIM_EVERY: Duration = Duration::from_secs(3600);
 
 /// The longest look back into the history, in hours (what it keeps).
-pub const MAX_HOURS: u32 = 168;
+pub(super) const MAX_HOURS: u32 = 168;
 
 pub(super) fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)

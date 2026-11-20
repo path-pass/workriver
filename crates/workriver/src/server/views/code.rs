@@ -4,7 +4,7 @@ use super::*;
 
 /// The texts of unit `id` as `state` lets its reader see them (none of a blind view's),
 /// but for the commits in `have` (short hashes), which the reader has.
-pub fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, id: &str, have: &[&str]) -> Option<Code> {
+pub(super) fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, id: &str, have: &[&str]) -> Option<Code> {
     let u = state.units.iter().find(|u| u.id == id && u.has_code())?;
     cache.refs.clear();
     cache.worktrees.clear();
@@ -20,7 +20,7 @@ pub fn code(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]
 /// A unit's commits and its uncommitted files, read from git where its repository is.
 /// A unit's commits now (oldest first), by the rules of `scan::branch`, and whether git
 /// shows it merged. What the branch held is kept, for when it is merged or gone.
-pub fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<scan::Named>, bool)> {
+pub(in crate::server) fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<scan::Named>, bool)> {
     let place = format!("{}|{}|{}", u.repo, u.branch, u.base);
     let seen = cache.stored.seen.get(&u.id).filter(|s| s.place == place).cloned();
     let fork = seen.as_ref().and_then(|s| s.fork.clone());
@@ -82,7 +82,7 @@ fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Re
 /// The background read of repositories on other machines: each unit's commits and work,
 /// and each repository's tree, into `shared`. Whether anything changed, and whether a
 /// machine could not be read (then it is tried again soon).
-pub fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
+pub(in crate::server) fn refresh_remote(state: &core::State, cache: &mut Cache) -> (bool, bool) {
     cache.refs.clear();
     cache.worktrees.clear();
     (cache.recomputed, cache.reused) = (0, 0);

@@ -21,14 +21,14 @@ use super::quote;
 /// A task being watched: its stall once there is one to show, when the reminder went out (to
 /// measure the wait), and since when its agent is missing from the runtime's reads.
 #[derive(Clone, Default)]
-pub struct Watch {
-    pub stall: Option<Stall>,
-    pub at: Option<Instant>,
-    pub missing: Option<Instant>,
+pub(in crate::server) struct Watch {
+    pub(in crate::server) stall: Option<Stall>,
+    at: Option<Instant>,
+    missing: Option<Instant>,
 }
 
 /// What a poll calls for about a task.
-pub enum Act {
+pub(in crate::server) enum Act {
     /// Tell the agent itself, once, that its task is still running.
     Remind,
     /// Tell the manager (and show it in Needs you), once.
@@ -36,13 +36,13 @@ pub enum Act {
 }
 
 /// One task to act on: where, its agent (a session; gone: as recorded) and the agent's name.
-pub struct Found {
-    pub owner: String,
-    pub task: u32,
-    pub agent: String,
-    pub name: String,
-    pub stall: Stall,
-    pub act: Act,
+pub(in crate::server) struct Found {
+    pub(in crate::server) owner: String,
+    task: u32,
+    pub(in crate::server) agent: String,
+    name: String,
+    stall: Stall,
+    pub(in crate::server) act: Act,
 }
 
 type Key = (String, u32);
@@ -66,7 +66,7 @@ type Key = (String, u32);
 /// terminal (blocked: Needs you already shows it) or in no known state; gates, which are the
 /// user's; work of a closed unit or an intent that is not active.
 #[allow(clippy::too_many_arguments)]
-pub fn step(state: &State, live: &[RuntimeAgent], idle: &HashMap<String, (String, Instant)>, threshold: Duration, grace: Duration, read: &[Option<String>], before: &HashMap<Key, Watch>) -> (HashMap<Key, Watch>, Vec<Found>) {
+pub(in crate::server) fn step(state: &State, live: &[RuntimeAgent], idle: &HashMap<String, (String, Instant)>, threshold: Duration, grace: Duration, read: &[Option<String>], before: &HashMap<Key, Watch>) -> (HashMap<Key, Watch>, Vec<Found>) {
     let again = threshold / 2;
     let away = |m: Option<&str>| !read.iter().any(|d| d.as_deref() == m);
     let (mut next, mut acts) = (HashMap::new(), vec![]);
@@ -144,7 +144,7 @@ fn waits_on_user(state: &State, owner: &str, t: &Task, who: &[&str], manager: Op
 }
 
 /// The message a step calls for: to the agent itself (a reminder), or to the manager.
-pub fn message(state: &State, f: &Found) -> Option<String> {
+pub(in crate::server) fn message(state: &State, f: &Found) -> Option<String> {
     let t = state.task(&f.owner, f.task).ok()?;
     let what = super::label(state, &f.owner, t);
     let r = format!("{}#{}", f.owner, f.task);
@@ -198,27 +198,27 @@ fn busy(state: &State, x: &RuntimeAgent) -> bool {
 
 /// The agents of `owners`' tasks (units, or an intent for its own) still in the runtime with
 /// no other work: the ones to close once that work is merged or done.
-pub fn finished_workers<'a>(state: &State, live: &'a [RuntimeAgent], owners: &[&str]) -> Vec<&'a RuntimeAgent> {
+pub(super) fn finished_workers<'a>(state: &State, live: &'a [RuntimeAgent], owners: &[&str]) -> Vec<&'a RuntimeAgent> {
     live.iter().filter(|x| !not_a_worker(state, x) && !busy(state, x) && all_tasks(state).any(|(o, _, t)| owners.contains(&o) && of(t, x))).collect()
 }
 
 /// A worker idle with nothing to do, for its manager to close.
-pub struct IdleWorker {
-    pub session: String,
-    pub name: String,
+pub(in crate::server) struct IdleWorker {
+    pub(in crate::server) session: String,
+    name: String,
     /// The manager of the intent of its last task.
-    pub manager: String,
+    pub(in crate::server) manager: String,
     /// Idle since then: one reminder per idle period.
-    pub since: String,
+    pub(in crate::server) since: String,
     /// Its last task: owner and number.
-    pub last: (String, u32),
+    last: (String, u32),
 }
 
 /// Agents idle (or done) in the runtime for `threshold` with no task to do anywhere. Never
 /// one seen on no task (the user's own sessions), a manager, a temporary agent, or one with no
 /// manager to tell; never one where the runtime was not read just now (`read`, as in `step`):
 /// it is unknown.
-pub fn idle_workers(state: &State, live: &[RuntimeAgent], idle: &HashMap<String, (String, Instant)>, threshold: Duration, read: &[Option<String>]) -> Vec<IdleWorker> {
+pub(in crate::server) fn idle_workers(state: &State, live: &[RuntimeAgent], idle: &HashMap<String, (String, Instant)>, threshold: Duration, read: &[Option<String>]) -> Vec<IdleWorker> {
     let last = |t: &Task| t.done.clone().or_else(|| t.started.clone()).unwrap_or_else(|| t.at.clone());
     live.iter()
         .filter(|x| matches!(x.state, AgentState::Idle | AgentState::Done) && read.contains(&x.machine) && !not_a_worker(state, x) && !busy(state, x))
@@ -232,7 +232,7 @@ pub fn idle_workers(state: &State, live: &[RuntimeAgent], idle: &HashMap<String,
 }
 
 /// What the manager hears of an idle worker.
-pub fn idle_message(state: &State, w: &IdleWorker) -> Option<String> {
+pub(in crate::server) fn idle_message(state: &State, w: &IdleWorker) -> Option<String> {
     let t = state.task(&w.last.0, w.last.1).ok()?;
     let minutes = humantime::parse_rfc3339(&w.since).ok().and_then(|s| s.elapsed().ok()).map_or(0, |d| d.as_secs() / 60);
     Some(format!(

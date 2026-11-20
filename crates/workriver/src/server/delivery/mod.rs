@@ -13,24 +13,24 @@ mod messages;
 pub(super) mod quote;
 pub(super) mod reminders;
 
-pub use messages::*;
+pub(super) use messages::*;
 
 /// A message to deliver: about a user's decision (`finding` set) or gate result, about a
 /// delivered task or a gate asked for (to the manager), or about a chore (`chore` set).
 #[derive(Debug, PartialEq)]
-pub struct Plan {
-    pub unit: String,
-    pub task: u32,
-    pub finding: Option<String>,
-    pub chore: Option<String>,
+pub(super) struct Plan {
+    pub(super) unit: String,
+    pub(super) task: u32,
+    pub(super) finding: Option<String>,
+    pub(super) chore: Option<String>,
     /// The receiving session, or why there is none.
-    pub to: Result<String, (ReasonCode, String)>,
-    pub message: String,
+    pub(super) to: Result<String, (ReasonCode, String)>,
+    pub(super) message: String,
 }
 
 /// The delivery an event calls for, if any.
 /// `home`: the data directory, where stored attachments are listed from.
-pub fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Option<Plan> {
+pub(super) fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Option<Plan> {
     let files = |unit: &str, n: u32, finding: Option<&str>| files(state, home, unit, n, finding);
     let on = |unit: &str, task: u32, finding: Option<String>, to, message| Plan { unit: unit.into(), task, finding, chore: None, to, message };
     let intent_of = |unit: &str| state.intent_of(unit).map(str::to_string);
@@ -127,7 +127,7 @@ fn target(state: &State, live: Option<&[RuntimeAgent]>, intent: &str, first: Opt
 /// led to that is still open (they must meet the new requirement) and the intent's manager;
 /// while nobody decided it yet, the manager only when it is the manager's to decide (the
 /// user sees it on the page). Never the one who wrote it, never an agent on a blind task.
-pub fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Vec<(String, String)> {
+pub(super) fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Vec<(String, String)> {
     let Body::FindingNoted { unit, task, finding, text, attachments } = &e.body else { return vec![] };
     let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
     let Some(f) = t.findings.iter().find(|f| &f.found.id == finding) else { return vec![] };
@@ -164,7 +164,7 @@ pub fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Pat
 /// Who is told that a task was dropped: its agent (assigned or started), to stop it, and
 /// the intent's manager, who plans; never the one who dropped it, never an agent on a
 /// blind task, only live ones. The reason goes in as a quote.
-pub fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+pub(super) fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
     let Body::TaskDropped { unit, task, reason } = &e.body else { return vec![] };
     let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
     let user = e.actor == "user";
@@ -187,7 +187,7 @@ pub fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(
 
 /// What an agent told the manager of a task's intent (`workriver manager tell`): to that
 /// manager while it runs and is not on a blind task, the agent's words quoted.
-pub fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+pub(super) fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
     let Body::ManagerTold { unit, task, text } = &e.body else { return vec![] };
     let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
     let Some(m) = state.intent_of(unit).and_then(|i| state.manager_of(i)) else { return vec![] };
@@ -204,7 +204,7 @@ pub fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(Str
 /// Who is told that work is over (a unit merged or done, an intent done): its manager, of the
 /// agents that worked on it and are still running with no other task, to close them;
 /// workriver never closes them itself. Only a live manager not on a blind task.
-pub fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
     let (what, owners): (String, Vec<String>) = match &e.body {
         Body::UnitMerged { unit, .. } => (format!("{unit} is merged"), vec![unit.clone()]),
         Body::UnitDone { unit, .. } => (format!("{unit} is done"), vec![unit.clone()]),
@@ -236,7 +236,7 @@ pub fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<
 /// What the manager of the workspace hears when the user starts a planned intent there from
 /// the page, and to whom it goes (the intent's manager now, if it runs). The goal is quoted:
 /// whoever added the intent wrote it.
-pub fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str) -> Result<(String, String), (ReasonCode, String)> {
+pub(super) fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str) -> Result<(String, String), (ReasonCode, String)> {
     let i = state.intents.iter().find(|i| i.id == intent).ok_or_else(|| (ReasonCode::NoManager, format!("no intent {intent}")))?;
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };

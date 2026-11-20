@@ -8,6 +8,6 @@ mod files;
 mod guards;
 mod machines;
 mod planning;
-pub(crate) mod support;
+pub(super) mod support;
 mod views;
 mod work;
