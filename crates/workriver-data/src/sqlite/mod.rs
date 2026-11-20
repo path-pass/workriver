@@ -12,7 +12,7 @@ use workriver_core::{Body, Event, Principal, Rejected, State, now};
 mod events;
 mod migrations;
 
-use events::{insert, read, replay};
+use events::{insert, of_intent, read, replay};
 use migrations::MIGRATIONS;
 
 #[derive(Debug, thiserror::Error)]
@@ -117,6 +117,10 @@ impl WorkStore for Store {
 
     fn status(&self) -> Result<DataStatus, DataError> {
         Ok(DataStatus { location: self.path.clone(), events: self.count()? as u64, revision: self.revision() })
+    }
+
+    fn intent_events(&self, id: &str) -> Result<Vec<Event>, DataError> {
+        Ok(of_intent(&self.conn, id)?)
     }
 }
 

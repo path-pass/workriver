@@ -129,6 +129,13 @@ pub trait WorkStore: Send {
 
     fn status(&self) -> Result<DataStatus, DataError>;
 
+    /// The events that make intent `id`'s versions, oldest first: its `intent.created`,
+    /// `intent.updated` and `intent.merged` into it, and the same of every intent merged into
+    /// it, and into those (`intent_versions` and `intent_text` rebuild its history from them).
+    /// None for an intent that is not recorded. Not to be answered to a reader as they are:
+    /// whoever asks is checked first (`App::view`).
+    fn intent_events(&self, id: &str) -> Result<Vec<Event>, DataError>;
+
     // ---- one record, by its id ----
 
     fn unit(&self, id: &str) -> Result<Unit, DataError> {

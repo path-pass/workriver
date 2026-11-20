@@ -392,6 +392,12 @@ impl workriver_core::ports::WorkStore for Flaky {
     fn status(&self) -> Result<workriver_core::ports::DataStatus, workriver_core::ports::DataError> {
         self.inner.status()
     }
+    fn intent_events(&self, id: &str) -> Result<Vec<workriver_core::Event>, workriver_core::ports::DataError> {
+        if self.faults.down.load(std::sync::atomic::Ordering::SeqCst) {
+            return gone();
+        }
+        self.inner.intent_events(id)
+    }
     fn agent(&self, session: &str) -> Result<Option<workriver_core::Agent>, workriver_core::ports::DataError> {
         if self.faults.agents_down.load(std::sync::atomic::Ordering::SeqCst) {
             return gone();

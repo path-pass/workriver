@@ -45,6 +45,27 @@ pub(super) fn read(conn: &Connection, after: i64, limit: i64) -> Result<Vec<Even
     Ok(out)
 }
 
+/// The events that make intent `id`'s versions and those of every intent merged into it
+/// (found from the merges themselves), in order.
+pub(super) fn of_intent(conn: &Connection, id: &str) -> Result<Vec<Event>, Error> {
+    let mut stmt = conn.prepare("SELECT seq, at, actor, kind, body FROM events WHERE intent = ?1 AND kind IN ('intent.created', 'intent.updated', 'intent.merged') ORDER BY seq")?;
+    let mut ids = vec![id.to_string()];
+    let mut out = std::collections::BTreeMap::new();
+    let mut k = 0;
+    while let Some(i) = ids.get(k).cloned() {
+        let mut rows = stmt.query([&i])?;
+        while let Some(r) = rows.next()? {
+            let e = event(r)?;
+            if let Body::IntentMerged { from, .. } = &e.body {
+                ids.extend(from.iter().filter(|f| !ids.contains(f)).cloned().collect::<Vec<_>>());
+            }
+            out.insert(e.seq, e);
+        }
+        k += 1;
+    }
+    Ok(out.into_values().collect())
+}
+
 /// One row (seq, at, actor, kind, body) as the event it was written from.
 fn event(r: &rusqlite::Row) -> Result<Event, Error> {
     let seq: i64 = r.get(0)?;

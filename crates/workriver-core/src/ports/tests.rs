@@ -23,6 +23,9 @@ impl WorkStore for Down {
     fn status(&self) -> Result<DataStatus, DataError> {
         gone()
     }
+    fn intent_events(&self, _: &str) -> Result<Vec<crate::Event>, DataError> {
+        gone()
+    }
 }
 
 /// Every read of a store that cannot be read says so, in the storage's words: never "no
@@ -50,4 +53,5 @@ fn every_read_of_an_unavailable_store_says_so() {
     said("open_questions", s.open_questions().err());
     said("held_messages", s.held_messages().err());
     said("thread_agents", s.thread_agents().err());
+    said("intent_events", s.intent_events("i1").err());
 }
