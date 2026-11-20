@@ -4,9 +4,26 @@ import type { Attachment } from '@/attachments/types'
 import type { Lines } from '@/code/types'
 import type { Intent } from '@/planning/types'
 import type { Session } from '@/agents/types'
+import type { Choice } from '@/content/choice/surface'
+
+/** What the user's message answers: a manager's message (`m7`) or its `reply`-th reply, and the value picked. */
+export interface Answer {
+  message: string
+  reply?: number
+  selected: string[]
+}
+
+/** A manager's question with options (`say` or `reply` with `--option`): its options, the
+ *  user's answer (by which message), and whether the user can still answer it (not answered,
+ *  and asked by the workspace's manager now). */
+export interface Asked {
+  choice?: Choice
+  answered?: { by: string; selected: string[] }
+  open?: boolean
+}
 
 /** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). */
-export interface ManagerMessage {
+export interface ManagerMessage extends Asked {
   /** "m3"; a local one the service refused has none. */
   id?: string;
   /** The intent it is about, if any. */
@@ -30,7 +47,9 @@ export interface ManagerMessage {
   reason?: string;
   blocked?: { agent: string; session: string };
   /** Each reply is the manager's; unread: written after the user last read this workspace's conversation. */
-  replies: { by: string; text: string; at: string; unread?: boolean }[];
+  replies: ({ by: string; text: string; at: string; unread?: boolean } & Asked)[];
+  /** The user's message that answers a manager's question (then `text` is the user's note). */
+  answer?: Answer;
   /** Started by the manager (`workriver say`): `text` is the manager's, and nothing above it is the user's. */
   byManager?: boolean;
   /** The manager's message (byManager), not read yet. */
@@ -157,4 +176,6 @@ export interface Talk {
   onDiscuss: (unit: string, task: string, agent: string, text: string, conclude: boolean, files: Attachment[]) => Promise<void>
   /** The user has seen a task's discussion, up to its newest answer shown. */
   onDiscussRead: (unit: string, task: string, at: string) => void
+  /** The user answers a manager's question in a workspace's conversation: a message of theirs. */
+  onAnswer: (workspace: string, answer: Answer, note: string, manager: string) => void
 }

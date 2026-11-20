@@ -24,7 +24,7 @@ fn the_user_runs_a_command() {
     let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &db);
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
-    manage_here(&boss);
+    manage_here(&user, &boss);
     let repo_s = repo.to_string_lossy().to_string();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "deploy", "title": "Push it", "steps": [{ "text": "Push", "command": "git push origin feat/f" }] })).unwrap();
@@ -119,7 +119,7 @@ fn a_runs_shell_closes() {
     let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &db);
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
-    manage_here(&boss);
+    manage_here(&user, &boss);
     let repo_s = repo.to_string_lossy().to_string();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
     user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
@@ -196,7 +196,7 @@ fn only_an_idle_run_shell_closes() {
     let (port, kernel) = daemon_over(fake.clone(), None, &tmp.path().join("w.db"));
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
-    manage_here(&boss);
+    manage_here(&user, &boss);
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     let run = |command: &str| {
         let shown = user.call("/api/run/prepare", Some(json!({ "command": command, "unit": "u1" }))).unwrap();

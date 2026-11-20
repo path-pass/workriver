@@ -272,8 +272,13 @@ fn a_read_that_fails_after_the_commit_does_not_fail_the_request() {
     let boss = kernel.daemon(user.port, Some("p1".into()), None);
     let group = json!({ "id": "w1", "label": "chat" });
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    user.append("", "intent.created", json!({ "title": "Search", "state": "planned" })).unwrap();
+    // Of one project: the user's start makes the workspace that project's, so its manager starts the next.
+    let project = tmp.path().join("proj");
+    std::fs::create_dir(&project).unwrap();
+    let project = std::fs::canonicalize(&project).unwrap();
+    user.append("", "project.added", json!({ "path": project.to_string_lossy(), "title": "Proj" })).unwrap();
+    user.append("", "intent.created", json!({ "title": "Login", "project": project.to_string_lossy(), "state": "planned" })).unwrap();
+    user.append("", "intent.created", json!({ "title": "Search", "project": project.to_string_lossy(), "state": "planned" })).unwrap();
     let state_of = |intent: &str| stored(&db).iter().rev().map(|e| serde_json::to_value(e).unwrap()).find(|v| v["kind"] == "intent.state_changed" && v["body"]["intent"] == intent).map(|v| v["body"]["state"].clone());
 
     // The user starts an intent from the page; the store cannot be read once it is recorded.
@@ -473,7 +478,7 @@ fn findings_after_the_fact() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
@@ -546,7 +551,7 @@ fn what_follows_a_record_keeps_its_order() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
@@ -626,7 +631,7 @@ fn a_manager_is_told_of_an_update_once() {
     w.get("/api/state").unwrap();
     assert!(updates().is_empty(), "workers are not told: their instructions come with each task");
     boss.get("/api/state").unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
     boss.get("/api/workspace").unwrap();
     assert_eq!(updates(), ["s-boss"], "once per manager per build");
     let said = fake.sent.lock().unwrap().iter().find(|(_, m)| m.contains("workriver was updated")).unwrap().1.clone();
@@ -653,7 +658,7 @@ fn a_dropped_task_is_told_and_shown() {
     let group = json!({ "id": "w1", "label": "chat" });
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();

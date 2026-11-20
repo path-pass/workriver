@@ -21,17 +21,17 @@ import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
-import { selectionOf } from '@/work/select'
+import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { blame, shownDelta } from '@/code/files'
-import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
-import type { Pick, Task } from '@/work/types'
+import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
+import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
-import { choreDone, discuss, notify, decideFinding, detach, MANAGER, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
+import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { Intent, Unit } from '@/planning/types'
+import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
@@ -309,6 +309,18 @@ export default function App() {
       .catch(e => setTold(all => [...all, { ...m, attachments: undefined, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
       .finally(() => files.forEach(detach))
   }
+  // An answer to a manager's question: shown answered at once; a message of the user's.
+  const onAnswer: Talk['onAnswer'] = (workspace, answer, note, manager) => {
+    const m: ManagerMessage = { workspace, manager, text: note, answer, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
+    const key = `${answer.message}:${answer.reply ?? 0}`
+    if (MOCK) {
+      setEdits(e => ({ ...e, answers: { ...e.answers, [key]: answer.selected } }))
+      return setTold(all => [...all, m])
+    }
+    // Refused or lost: the question is open again, and the attempt shows as not delivered.
+    answerOptimistically(key, answer.selected, () => answerManager(workspace, answer, note), setEdits)
+      .catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
+  }
   // Read: the manager's words up to `at` are no longer new, here at once (the sample keeps it
   // only in memory), and in every browser of the user's once the service has it.
   const onRead = (workspace: string, at: string) => {
@@ -342,7 +354,7 @@ export default function App() {
     ? {
         sessions: ws.sessions, file, lines,
         intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
-        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead,
+        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead, onAnswer,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
@@ -376,9 +388,8 @@ export default function App() {
   // ---- what the user puts in, and where it is on its way ----
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
   const [message, setMessage] = useState<Record<string, string>>({})
+  const [retry, setRetry] = useState<Record<string, GateResult>>({})
   const cancels = useRef<Record<string, () => void>>({})
-  // Who waits for the answer: the agent of the work the gate or review follows.
-  const ownerOf = (u: Unit, n: Task) => u.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null
   const track = (key: string) => (d: Delivery) => setDelivery(all => ({ ...all, [key]: d }))
   const sent = (key: string, out: { message: string; cancel: () => void }) => {
     cancels.current[key] = out.cancel
@@ -389,7 +400,16 @@ export default function App() {
     submitGate: (u, g, r) => {
       const key = gateKey(u, g)
       setEdits(e => ({ ...e, gates: { ...e.gates, [key]: r } }))
-      sent(key, submitGate(u, g, r, ownerOf(u, g) ?? MANAGER, track(key)))
+      setRetry(all => drop(all, key))
+      // Not taken by the service: the gate is as it was, its form again with what was sent
+      // (while the service still has it waiting), the line saying so.
+      const step = track(key)
+      sent(key, submitGate(u, g, r, waitsOn(u, g) ?? MANAGER, d => {
+        step(d)
+        if (d.step !== 'failed') return
+        setEdits(e => ({ ...e, gates: drop(e.gates, key) }))
+        setRetry(all => ({ ...all, [key]: r }))
+      }))
     },
     decide: (u, n, f, d, note) => {
       const key = findingKey(u, n, f)
@@ -411,6 +431,7 @@ export default function App() {
     merge: (into, from, title) => mergeIntents(into, from, title).then(() => setEdits(e => ({ ...e, merges: [...e.merges, { into, from, title }] }))),
     delivery,
     message,
+    retry,
   }
 
   return (

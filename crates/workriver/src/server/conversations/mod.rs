@@ -54,6 +54,8 @@ pub(super) struct Say {
     intent: String,
     #[serde(default)]
     workspace: String,
+    /// An answer may come with no words of the user's.
+    #[serde(default)]
     text: String,
     /// What the user picked: a unit, one of its tasks, and the rest (files stored first).
     #[serde(default)]
@@ -62,13 +64,16 @@ pub(super) struct Say {
     task: u32,
     #[serde(default)]
     context: Vec<core::AskContext>,
+    /// The user's answer to a manager's options: which message (or reply), and the value.
+    #[serde(default)]
+    answer: Option<core::Answer>,
 }
 
 /// The user writes to a manager from the page, with what they picked and attached; it is
 /// typed into the manager's terminal.
 pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
-    let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context };
+    let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context, answer: m.answer };
     blocking(move || app.record(&who, body).map(Json)).await
 }
 

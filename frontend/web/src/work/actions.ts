@@ -16,6 +16,8 @@ export interface Act {
   /** By the same key as the input: `unit:task` for a gate, `unit:task:finding` for a decision. */
   delivery: Record<string, Delivery>
   message: Record<string, string>
+  /** A gate's result the service did not take, by gate key: its form starts from it again. */
+  retry: Record<string, GateResult>
 }
 
 export const ActContext = createContext<Act | null>(null)

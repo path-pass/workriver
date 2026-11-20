@@ -18,6 +18,7 @@ import { Questions } from '@/conversations/Turns'
 import { Discussion } from '@/conversations/Discussion'
 import type { Talk } from '@/conversations/types'
 import { GateForm, GateSent } from './GateForm'
+import { Chose } from '@/content/choice/Choice'
 import { Thumbs } from '@/attachments/Thumbs'
 import { gateKey } from './actions'
 import { TerminalButton, Who } from '@/agents/Mark'
@@ -85,9 +86,11 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
         </div>
       )}
     </>
+    // What was attached to the gate (by its agent) is there to look at before answering it.
     output = n.state === 'waiting'
-      ? <GateForm key={gateKey(unit, n)} unit={unit} gate={n} />
+      ? <div className="flex flex-col gap-2"><Thumbs list={n.output.attachments ?? []} /><GateForm key={gateKey(unit, n)} unit={unit} gate={n} /></div>
       : <>
+          {n.output.selected?.map(v => <Chose key={v} choice={n.input.choice} value={v} />)}
           {n.output.note && <Prose text={n.output.note} />}
           <Thumbs list={n.output.attachments ?? []} />
           <GateSent unit={unit} gate={n} />

@@ -133,15 +133,14 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 eprintln!("--goal is deprecated: add intents with `workriver backlog add` and start them with `workriver intent start <intent>`.");
                 let current = here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string));
                 match current {
-                    Some(i) => {
-                        d.append(actor, "intent.updated", json!({ "intent": i, "goal": goal }))?;
-                    }
+                    // An intent's goal is the user's: it is not changed from here.
+                    Some(i) => eprintln!("--goal is not set on {i}: an intent's goal is the user's (they edit it on its page); write what you know in its note"),
                     None => {
                         let title = group.as_ref().and_then(|g| g["label"].as_str()).unwrap_or("intent").to_string();
                         let made = d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": cwd_folder()?, "state": "planned" }))?;
                         let i = made["body"]["id"].as_str().unwrap_or_default().to_string();
-                        d.append(actor, "intent.state_changed", json!({ "intent": i, "state": "active", "workspace": group }))?;
-                        println!("started {i}");
+                        // A workspace's first intent is the user's to start.
+                        println!("added {i} to the roadmap; ask the user to start it in this workspace");
                     }
                 }
             }
@@ -221,7 +220,16 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
-        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings, add_note }) => d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings, "add_note": add_note }))?,
+        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings, add_note, note, base }) => {
+            if base.is_none() && (title.is_some() || goal.is_some() || note.is_some()) {
+                bail!("give --base N, the version you read (`workriver intent history {intent}` shows it): --title, --goal and --note replace what is there, and are refused when it changed since");
+            }
+            d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings, "add_note": add_note, "note": note, "base": base }))?
+        }
+        Cmd::Intent(IntentCmd::History { intent, version, diff }) => {
+            print!("{}", intent_history_text(d, &intent, version, diff)?);
+            return Ok(None);
+        }
         Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine }) if kind == "research" => {
             if repo.is_some() || branch.is_some() || base.is_some() || machine.is_some() {
                 bail!("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
@@ -274,8 +282,9 @@ pub(crate) enum IntentCmd {
         #[arg(long)]
         reason: String,
     },
-    /// Change an intent's title or goal, or add to its note (its manager or the user only), or
-    /// who decides its findings (the user only).
+    /// Change an intent's title or goal (the user only), its note (its manager too while it is
+    /// active; a manager of its project may add to a planned one), or who decides its
+    /// findings (the user only). A replace needs --base: the version it was made from.
     Set {
         /// The intent (i1…).
         intent: String,
@@ -284,6 +293,13 @@ pub(crate) enum IntentCmd {
         /// One sentence on what it is for.
         #[arg(long)]
         goal: Option<String>,
+        /// The whole note, in place of what it holds ("" empties it). Needs --base.
+        #[arg(long, value_name = "TEXT", conflicts_with = "add_note")]
+        note: Option<String>,
+        /// The version you read (`workriver intent history <intent>`): a --title, --goal or
+        /// --note is refused when what it replaces changed since.
+        #[arg(long, value_name = "N")]
+        base: Option<u32>,
         /// Who decides its open findings: its manager (the default), or only you. You can
         /// always decide any finding yourself. Only the user sets this.
         #[arg(long, value_parser = ["manager", "user"])]
@@ -292,6 +308,18 @@ pub(crate) enum IntentCmd {
         /// learnt or decided about the intent as a whole, links welcome.
         #[arg(long, value_name = "TEXT")]
         add_note: Option<String>,
+    },
+    /// An intent's versions: who changed its title, goal or note and when; one whole, or
+    /// what it changed.
+    History {
+        /// The intent (i1…).
+        intent: String,
+        /// Print version N whole.
+        #[arg(long, value_name = "N", conflicts_with = "diff")]
+        version: Option<u32>,
+        /// Print what version N changed, against the one before it.
+        #[arg(long, value_name = "N")]
+        diff: Option<u32>,
     },
 }
 
@@ -417,7 +445,8 @@ pub(crate) enum BacklogCmd {
         /// The planned intents merged into it, in the order their text is added.
         #[arg(required = true)]
         from: Vec<String>,
-        /// A new title for the intent that stays (the merged whole may need one).
+        /// A new title for the intent that stays (the merged whole may need one). The
+        /// user's alone: an agent's merge keeps the title.
         #[arg(long)]
         title: Option<String>,
     },

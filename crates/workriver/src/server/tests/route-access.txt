@@ -10,6 +10,7 @@ local GET /api/settings/stall  anonymous 401  agent 403  user 200
 local POST /api/settings/stall  anonymous 401  agent 403  user 200
 local GET /api/workspace  anonymous 401  agent 200  user 200
 local GET /api/unit/u1/code  anonymous 401  agent 200  user 200
+local GET /api/intent/i1/history  anonymous 401  agent 200  user 200
 local GET /api/state  anonymous 401  agent 200  user 200
 local GET /api/task?task=u1%231  anonymous 401  agent 200  user 200
 local GET /api/status  anonymous 200  agent 200  user 200
@@ -43,6 +44,7 @@ local HEAD /api/metrics/history?machine=local&hours=1  anonymous 401  agent 200 
 local HEAD /api/settings/stall  anonymous 401  agent 403  user 200
 local HEAD /api/workspace  anonymous 401  agent 200  user 200
 local HEAD /api/unit/u1/code  anonymous 401  agent 200  user 200
+local HEAD /api/intent/i1/history  anonymous 401  agent 200  user 200
 local HEAD /api/state  anonymous 401  agent 200  user 200
 local HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 200
 local HEAD /api/status  anonymous 200  agent 200  user 200
@@ -52,6 +54,7 @@ local HEAD /api/attachments/x1  anonymous 401  agent 404  user 404
 machine GET /api/metrics  anonymous 401  agent 200  user 401
 machine GET /api/metrics/history?machine=local&hours=1  anonymous 401  agent 403  user 401
 machine GET /api/workspace  anonymous 401  agent 200  user 401
+machine GET /api/intent/i1/history  anonymous 401  agent 200  user 401
 machine GET /api/state  anonymous 401  agent 200  user 401
 machine GET /api/task?task=u1%231  anonymous 401  agent 200  user 401
 machine GET /api/status  anonymous 200  agent 200  user 200
@@ -65,6 +68,7 @@ machine GET /api/attachments/x1  anonymous 401  agent 404  user 401
 machine HEAD /api/metrics  anonymous 401  agent 200  user 401
 machine HEAD /api/metrics/history?machine=local&hours=1  anonymous 401  agent 403  user 401
 machine HEAD /api/workspace  anonymous 401  agent 200  user 401
+machine HEAD /api/intent/i1/history  anonymous 401  agent 200  user 401
 machine HEAD /api/state  anonymous 401  agent 200  user 401
 machine HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 401
 machine HEAD /api/status  anonymous 200  agent 200  user 200

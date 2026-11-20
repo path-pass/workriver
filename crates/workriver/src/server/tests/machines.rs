@@ -63,6 +63,20 @@ fn machines_are_separate_until_linked() {
     assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str()), (Some("s-far"), Some("w1@box"), None), "same label, not the same workspace");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
 
+    // Not linked yet: the far agent manages its own "chat" over there and asks with options.
+    // The question is open in the page, and the user's answer, sent as the page sends it (the
+    // question's workspace by its label, which the local "chat" shares), goes to its asker.
+    via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
+    let choice = crate::cli::parse_choice(&["a=Here".into(), "b=There".into()], &[]).unwrap();
+    let said = via_box.append("s-far", "message.said", json!({ "text": "Which?", "choice": choice })).unwrap();
+    let id = said["body"]["id"].as_str().unwrap().to_string();
+    let asked = || d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().find(|m| m["id"] == id.as_str()).unwrap().clone();
+    assert_eq!(asked()["open"], true, "{}", asked());
+    let sent = d.call("/api/message", Some(json!({ "workspace": "chat", "text": "", "answer": { "message": id, "selected": ["b"] } }))).unwrap();
+    assert_eq!(sent["body"]["manager"], "s-far", "not the local manager of the same label");
+    wait_until("the answer reaches the far manager", || far.sent.lock().unwrap().iter().any(|(to, m)| to == "s-far" && m.contains(&format!("The user answered your question {id}"))));
+    assert!(asked().get("open").is_none() && asked()["answered"]["selected"] == json!(["b"]));
+
     d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     assert_eq!(at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
 
@@ -266,7 +280,7 @@ fn units_on_another_machine() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Sync", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
 
     // What happened on the work machine: recorded on the manager's side, with a ref that only exists there.
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "feat/hub", "base": "main" })).unwrap();

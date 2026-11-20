@@ -42,5 +42,8 @@ a decide gate that says what is still open and the choices (`ask-user`):
 
     workriver task add u1 --kind gate --gate decide --title "Architecture: 3 rounds, P2-1 still open" --after 8 --text "…"
 
+When what was reviewed is a design, that gate is the design's: the choices stay in `--text`
+(`design-gate`). After a review of code it may carry them as options (`--option`, `ask-user`).
+
 **You will see:** `review (architecture-review)` on the board; its findings are delivered
 and decided like any review's.

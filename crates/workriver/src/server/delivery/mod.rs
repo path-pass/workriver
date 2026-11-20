@@ -307,6 +307,34 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
     vec![(m.to_string(), message)]
 }
 
+/// What the manager of an active intent hears when the user changes its title, goal or
+/// note: the new version, the title and goal quoted as the user's, the note only pointed at
+/// (it may be long). Nothing for who decides findings, and nothing of an agent's edit (only
+/// the user edits what is not the manager's own).
+pub(super) fn edited(state: &State, e: &Event) -> Option<(String, String)> {
+    let Body::IntentUpdated { intent, title, goal, note, add_note, .. } = &e.body else { return None };
+    if e.actor != "user" {
+        return None;
+    }
+    let i = state.intents.iter().find(|i| &i.id == intent).filter(|i| i.state == workriver_core::IntentState::Active)?;
+    let m = state.manager_of(intent)?;
+    let n = i.edits.version;
+    let mut what = vec![];
+    if let Some(t) = title {
+        what.push(users("title", t));
+    }
+    if let Some(g) = goal {
+        what.push(users("goal", g));
+    }
+    if note.is_some() || add_note.is_some() {
+        what.push(format!("its note changed (`workriver intent history {intent} --diff {n}`)"));
+    }
+    if what.is_empty() {
+        return None;
+    }
+    Some((m.to_string(), format!("[workriver] The user changed {intent} (now v{n}): {}.", what.join("; "))))
+}
+
 /// What an intent came to, for the manager to tell the user.
 const INTENT_CAME: &str = "what the intent came to";
 
@@ -329,7 +357,7 @@ pub(super) fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };
     // Its project, so that a manager working on another one stops before splitting it.
-    let folder = crate::server::views::project_folder(state, i);
+    let folder = state.project_folder(i);
     let project = if folder.is_empty() {
         String::new()
     } else {

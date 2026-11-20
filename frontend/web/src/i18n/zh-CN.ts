@@ -71,7 +71,46 @@ export const zhCN: OneForm<typeof en> = {
     moved: '{{time}}前有动静',
     neverMoved: '还没有动静',
     earlier: '早先的调研与设计',
-    earlierHint: '这些是在调研与设计成为独立单元之前，直接记在意图上的。'
+    earlierHint: '这些是在调研与设计成为独立单元之前，直接记在意图上的。',
+    edit: {
+      open: '编辑标题、目标和备注',
+      title: '编辑意图',
+      hint: '每次修改都会作为一个版本留在历史里。',
+      fieldTitle: '标题',
+      fieldGoal: '目标',
+      fieldNote: '备注',
+      write: '编辑',
+      preview: '预览',
+      nothing: '没有可预览的内容。',
+      save: '保存',
+      cancel: '取消',
+      saveAnyway: '仍然保存',
+      failed: '没有保存：{{error}}',
+      conflict: {
+        title: '标题在此期间被改过（现在是 v{{n}}）。它现在的内容，与你的对比：',
+        goal: '目标在此期间被改过（现在是 v{{n}}）。它现在的内容，与你的对比：',
+        note: '备注在此期间被改过（现在是 v{{n}}）。它现在的内容，与你的对比：'
+      },
+      anyway: '仍然保存时，它现在的内容会留在历史里。',
+      restoring: '恢复 v{{n}}：保存后成为一个新版本，不会删除任何版本。'
+    },
+    history: {
+      line: 'v{{n}} · {{who}} {{time}}前编辑',
+      you: '你',
+      open: '历史',
+      heading: '历史',
+      hint: '标题、目标和备注的每个版本，最新的在前。',
+      created: '创建',
+      title: '标题',
+      goal: '目标',
+      note: '备注',
+      added: '补充了备注',
+      merged: '并入了 {{from}}',
+      first: '第一个版本，完整内容。',
+      whole: '完整内容',
+      restore: '恢复这个版本',
+      failed: '读不到历史：{{error}}'
+    }
   },
   start: {
     title: '从这里开始',
@@ -80,7 +119,7 @@ export const zhCN: OneForm<typeof en> = {
     agent: '在一个 {{runtime}} 工作区里，启动一个 coding agent 当它的管理者。',
     skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
     register: '让它登记为这个工作区的管理者：',
-    begin: '然后它从左边的路线图里开始一个目标（或者先用 `workriver backlog add` 加一个）：',
+    begin: '它的第一个目标由你来开始：在左边路线图里的目标上点“开始”，选它的工作区。之后这个项目的其他目标由它自己开始；它这样看路线图：',
     import: '已经有一份待办文件？让一个 agent 用导入 skill 把它导进来：',
     work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
     trailer: '提交信息里写这样一行，这个提交就归到对应的任务：'
@@ -243,7 +282,7 @@ export const zhCN: OneForm<typeof en> = {
     workspace: '为它开一个 {{runtime}} 工作区，或者选一个管理者还能再管一个意图的工作区。',
     agent: '如果这个工作区还没有管理者，在里面启动一个 coding agent，并把管理者 skill 给它：',
     register: '在管理者的终端里登记：',
-    start: '然后在那里开始这个意图；这个工作区里新建的单元和任务都归它：',
+    start: '然后在这里选那个工作区并开始它：一个工作区的第一个意图由你来开始（它从此在做那个项目）。之后这个项目的其他意图由它的管理者自己开始。',
     pickLabel: '在哪里开始',
     option: '{{label}} · {{manager}}：{{state}}',
     optionNone: '{{label}} · 没有管理者',
@@ -489,6 +528,7 @@ export const zhCN: OneForm<typeof en> = {
     deploy: '手动部署',
     test: '手动试用',
     decide: '确认方案',
+    choice: '选择题',
     result: '结果',
     done: '做完了',
     problem: '有问题',
@@ -498,8 +538,19 @@ export const zhCN: OneForm<typeof en> = {
     where: '出处：文件路径，用逗号或换行分开',
     addFinding: '再加一个问题',
     removeFinding: '删掉这个问题',
+    answer: '回答',
     needFinding: '有问题时至少要写一个问题，说清哪里不对。',
     submit: '提交'
+  },
+  choice: {
+    pick: '选项',
+    answer: '回答',
+    withNote: '要写原因',
+    chose: '选了：{{label}}',
+    note: '备注（可不填）',
+    noteNeeded: '原因（选这一项要写）',
+    needNote: '选这一项要写明原因。',
+    closed: '这是本工作区之前的管理者问的，这里已经不能回答。请直接写给管理者。'
   },
   attach: {
     add: '添加图片',

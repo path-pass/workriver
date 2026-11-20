@@ -131,6 +131,9 @@ pub struct NewTask {
     /// blocker): the task follows it from then on, so the gate's result goes to its agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocks: Option<u32>,
+    /// A decide gate's options, which the user picks from (see `choices`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<Choice>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -155,6 +158,9 @@ pub struct Task {
     /// A blocker: the running task this gate was put before (see `NewTask::blocks`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocks: Option<u32>,
+    /// A choice gate: the options the user picks from (see `NewTask::choice`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<Choice>,
     pub state: TaskState,
     /// Who recorded it.
     pub by: String,
@@ -166,6 +172,9 @@ pub struct Task {
     pub evidence: Vec<Evidence>,
     pub findings: Vec<Finding>,
     pub result: Option<GateResult>,
+    /// A choice gate answered: the value picked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<String>,
     /// Gates: where the message with the user's result is; other tasks: the note to the
     /// manager that they were delivered (or, a gate, asked for).
     #[serde(default)]
