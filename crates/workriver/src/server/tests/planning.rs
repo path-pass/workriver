@@ -623,6 +623,16 @@ fn an_intent_is_edited_and_its_history_read() {
     assert!(d.get("/api/intent/i1/history?version=9").unwrap_err().to_string().contains("no version 9"));
     assert!(d.get("/api/intent/i9/history").unwrap_err().to_string().contains("no intent i9"));
 
+    // The CLI prints the same: the list, one version whole, what one changed.
+    let list = crate::cli::intent_history_text(&boss, "i1", None, None).unwrap();
+    assert!(list.contains("v1  ") && list.contains("  the user  created\n") && list.contains("  the user  changed the title, goal\n") && list.contains("  boss  added to the note\n") && list.contains("  the user  changed the note\n") && list.contains("(now v4: give it as --base"), "{list}");
+    let whole = crate::cli::intent_history_text(&boss, "i1", Some(3), None).unwrap();
+    assert_eq!(whole, "i1 v3\ntitle: Chat v2\ngoal: Talk «fast»\nnote:\nDecided: SQLite\n");
+    let diff = crate::cli::intent_history_text(&boss, "i1", None, Some(4)).unwrap();
+    assert!(diff.starts_with("i1 v4 against v3\nnote:\n") && diff.contains("-Decided: SQLite\n+Decided: Postgres\n") && !diff.contains("title:"), "{diff}");
+    let diff = crate::cli::intent_history_text(&boss, "i1", None, Some(2)).unwrap();
+    assert!(diff.contains("title: Chat -> Chat v2\ngoal:  -> Talk «fast»\n") && !diff.contains("note:"), "{diff}");
+
     // On a blind task, the history (it holds the note) is hidden until it delivers.
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Look" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Look", "agent": "s-rev", "blind": true })).unwrap();

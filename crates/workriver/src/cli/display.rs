@@ -1,5 +1,5 @@
-// What the CLI prints that is more than a line: the board, a task or finding in full, and a
-// machine's load and history.
+// What the CLI prints that is more than a line: the board, a task or finding in full, an
+// intent's history, and a machine's load and history.
 use std::fmt::Write as _;
 
 use crate::common::wire::{FindingShow, TaskShow};
@@ -504,4 +504,62 @@ pub(crate) fn text(s: &TaskShow) -> String {
         }
     }
     out
+}
+
+/// An intent's history as text: its versions (who, when, what each changed), or with
+/// `version` one whole, or with `diff` what it changed against the one before it.
+pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>, diff: Option<u32>) -> anyhow::Result<String> {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let field = |v: &Value, k: &str| v[k].as_str().unwrap_or_default().to_string();
+    if let Some(n) = version.or(diff) {
+        let got = d.get(&format!("/api/intent/{intent}/history?version={n}"))?;
+        let (now, before) = (&got["text"], &got["before"]);
+        if version.is_some() || before.is_null() {
+            let _ = writeln!(out, "{intent} v{n}\ntitle: {}\ngoal: {}\nnote:\n{}", field(now, "title"), field(now, "goal"), field(now, "note"));
+            return Ok(out);
+        }
+        let _ = writeln!(out, "{intent} v{n} against v{}", n - 1);
+        for k in ["title", "goal"] {
+            if field(before, k) != field(now, k) {
+                let _ = writeln!(out, "{k}: {} -> {}", field(before, k), field(now, k));
+            }
+        }
+        let (a, b) = (field(before, "note") + "\n", field(now, "note") + "\n");
+        if a != b {
+            let _ = writeln!(out, "note:\n{}", similar::TextDiff::from_lines(&a, &b).unified_diff().header(&format!("v{}", n - 1), &format!("v{n}")));
+        }
+        return Ok(out);
+    }
+    let got = d.get(&format!("/api/intent/{intent}/history"))?;
+    let versions = got["versions"].as_array().cloned().unwrap_or_default();
+    for v in &versions {
+        let who = match v["name"].as_str() {
+            Some(name) => name.to_string(),
+            None if v["by"] == "user" => "the user".to_string(),
+            None => field(v, "by"),
+        };
+        let mut changed: Vec<&str> = ["title", "goal", "note"].into_iter().filter(|k| !v[*k].is_null()).collect();
+        let what = match v["how"].as_str() {
+            Some("created") => "created".to_string(),
+            Some("merged") => {
+                let from: Vec<String> = v["merged"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
+                let title = if changed.contains(&"title") { ", with a new title" } else { "" };
+                format!("merged {} into it{title}", from.join(", "))
+            }
+            _ => {
+                let added = !v["added"].is_null();
+                changed.retain(|k| *k != "note" || !added);
+                match (changed.is_empty(), added) {
+                    (true, true) => "added to the note".to_string(),
+                    (false, true) => format!("changed the {}; added to the note", changed.join(", ")),
+                    _ => format!("changed the {}", changed.join(", ")),
+                }
+            }
+        };
+        let _ = writeln!(out, "v{}  {}  {who}  {what}", v["n"], field(v, "at"));
+    }
+    let n = versions.last().map(|v| v["n"].to_string()).unwrap_or_default();
+    let _ = writeln!(out, "(now v{n}: give it as --base to change the title, goal or note; one whole: `workriver intent history {intent} --version N`; what it changed: `--diff N`)");
+    Ok(out)
 }
