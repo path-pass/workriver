@@ -3,8 +3,9 @@
 // Button, whose words are the page's (its Text reads `/ui/submit`, which the page fills). As
 // A2UI's `required` check on it says, the Button does nothing until an option is picked.
 // Nothing else is drawn, whatever the record holds. Every carrier (a decide gate, a manager's
-// message) draws its options with this one component; A2UI's own renderer would replace only
-// this file's insides (docs/design/ui/activity.md, Choices).
+// message) draws its options with this one component. A2UI's own renderer would replace this
+// file's insides, and each carrier would then put its note after the surface and hold the
+// action until a required note is there (docs/design/ui/activity.md, Choices).
 import { useId, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { RadioGroup, RadioGroupItem } from '@/ui/primitives/radio-group'

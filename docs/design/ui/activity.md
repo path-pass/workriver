@@ -261,11 +261,11 @@ stored form, one renderer, the same rules.
 - **A2UI's own renderer later.** Turned down for now: `@a2ui/react` with `@a2ui/web_core`
   0.15.0, about 128,588 B gzip for these four components against 10,408 B for the Radix
   radio group, and it rejects the 1.0 spec's `@checks`. When a published package accepts the
-  spec, it replaces only `Choice.tsx`'s insides: loaded only when a choice is shown, as its
-  own chunk (as the mermaid frame's script is fetched only for a diagram); each surface
-  namespaced by its carrier (`u2#8`, `m7`, `m3/2`), since every stored one is `"choice"`; the
-  `answer` action's `context.selected` handed to the carrier. The carrier's note then goes
-  after the surface (the official Column draws picker and button together) and the carrier
-  holds the action until a required note is there. The stored form, core's checks and the
-  routes stay as they are.
-
+  spec, two things change. `Choice.tsx`'s insides: the official renderer, loaded only when a
+  choice is shown, as its own chunk (as the mermaid frame's script is fetched only for a
+  diagram); each surface namespaced by its carrier (`u2#8`, `m7`, `m3/2`), since every stored
+  one is `"choice"`; the `answer` action's `context.selected` handed to the carrier. And each
+  carrier (the gate's form, the conversation): the official Column draws the picker and the
+  button together, so nothing can go between them; the carrier's note moves after the
+  surface, and the carrier holds the `answer` action until a required note is there, showing
+  the error in place. The stored form, core's checks and the routes stay as they are.
