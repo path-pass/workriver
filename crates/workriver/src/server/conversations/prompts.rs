@@ -102,8 +102,9 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
         .attachments_of(&q.unit, q.task)
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| a.id == id))
+        // Raw, as in `delivery::pointed`: `App::send` turns them into fetch commands.
         .filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name))
-        .map(|p| quote::path(&p.display().to_string()))
+        .map(|p| p.display().to_string())
         .collect();
     if !stored.is_empty() {
         m.push(format!("Its attachments, to open: {}.", stored.join(", ")));

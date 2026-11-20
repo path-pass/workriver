@@ -203,7 +203,10 @@ pub(in crate::server) fn pointed(state: &State, unit: &str, context: &[AskContex
                 ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
                 ("attachment", _, _, _) => match stored(&c.id) {
                     Some(a) => match crate::server::files::store::path(home, &a.id, &a.name) {
-                        Some(p) => format!("the attachment \"{}\" at {}", quote::name(&a.name), quote::path(&p.display().to_string())),
+                        // Raw: made of the configured home, a hex id and an alphanumeric
+                        // extension, so `App::send` still finds the store's prefix in it and
+                        // turns it into a fetch command for an agent on another machine.
+                        Some(p) => format!("the attachment \"{}\" at {}", quote::name(&a.name), p.display()),
                         None => format!("the attachment \"{}\"", quote::name(&a.name)),
                     },
                     None => format!("the attachment \"{}\"", quote::name(&c.label)),

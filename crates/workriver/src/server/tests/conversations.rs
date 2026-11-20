@@ -744,3 +744,41 @@ fn a_delivery_notice_waits_for_a_blind_manager() {
     wait_until("given once its blind task is delivered", || told() == 1);
     wait_until("recorded as delivered", || d.get("/api/state").unwrap()["units"][0]["tasks"][1]["delivery"]["step"] == "delivered");
 }
+
+/// To a manager on another machine a stored file is the command that fetches it, whatever
+/// the data folder's name (review u14#11 P3-1: two spaces in it).
+#[test]
+fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
+    use workriver_core::runtime::{AgentState::*, Runtime};
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("data  home");
+    std::fs::create_dir(&home).unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far.clone())]);
+    all.agents().unwrap();
+    let store = workriver_data::Store::open(&home.join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let d = kernel.client(listener.local_addr().unwrap().port(), &home);
+    let options = crate::server::Options { machines: Some(all.clone()), allow_as: true, ..kernel.options() };
+    let runtime = all.clone();
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    wait_until("machine listener", || all.local_port("box").is_some());
+    let remote = at_place(&kernel.daemon(all.local_port("box").unwrap(), None, None), "p1");
+    let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
+    d.append("user", "intent.created", json!({ "title": "Remote chat", "state": "planned" })).unwrap();
+    remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    remote.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
+    let shot = tmp.path().join("shot.png");
+    std::fs::write(&shot, b"review remote attachment").unwrap();
+    let a = d.upload(&shot, "user", None).unwrap();
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": "Read this", "context": [{ "kind": "attachment", "id": a["id"], "label": "shot.png" }] }))).unwrap();
+    wait_until("the far manager gets it", || far.sent.lock().unwrap().iter().any(|(_, m)| m.contains("message m1")));
+    let text = far.sent.lock().unwrap().iter().find(|(_, m)| m.contains("message m1")).unwrap().1.clone();
+    assert!(text.contains(&format!("`workriver attach fetch {}.png`", a["id"].as_str().unwrap())), "{text:?}");
+    assert!(!text.contains("data home") && !text.contains("data  home"), "no path of this machine: {text:?}");
+}

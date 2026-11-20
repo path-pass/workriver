@@ -43,7 +43,8 @@ pub(in crate::server) fn name(text: &str) -> String {
     if s.chars().count() > NAME_CAP { s.chars().take(NAME_CAP).collect::<String>() + "…" } else { s }
 }
 
-/// A path from the records or git (a repository's folder, a work tree, a file in the store),
+/// A path from the records or git (a repository's folder, a work tree; not a file in the
+/// store, which is made only of the configured home, a hex id and an extension),
 /// named in workriver's own words: as `name`, on one line and unable to open or close a
 /// quote, but not cut at a name's length, which would point at a folder that is not there.
 pub(in crate::server) fn path(text: &str) -> String {
