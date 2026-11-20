@@ -169,6 +169,9 @@ pub(in crate::server) struct Fake {
     /// Called with the receiver as a message is taken, before `send` returns: what a test
     /// wants to look at at that very moment.
     pub(super) on_send: std::sync::Mutex<Option<Look>>,
+    /// Called as the agents are listed, before the list is read: a test pauses the service
+    /// there.
+    pub(super) on_agents: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// What a test does as a message is taken, given its receiver.
@@ -199,6 +202,8 @@ impl Fake {
 
 impl workriver_core::runtime::Runtime for Fake {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
+        let probe = self.on_agents.lock().unwrap().clone();
+        if let Some(probe) = probe { probe(); }
         if self.down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);
         }

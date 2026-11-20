@@ -60,6 +60,9 @@ pub(super) struct App {
     /// When each live agent was first seen blocked, by session.
     // ponytail: in memory; a restart makes a blocked agent's wait start again.
     pub(super) blocked: Mutex<std::collections::HashMap<String, String>>,
+    /// Orders a discussion's last check and send against a gate's record: whichever comes
+    /// first, the other sees it (`App::hand`, `App::record`).
+    pub(in crate::server) discussing: Mutex<()>,
     /// The machine each session was last listed on (none: this one), and the sessions gone:
     /// last listed on a machine whose read now is complete without them. What a discussion's
     /// author being gone is judged on.

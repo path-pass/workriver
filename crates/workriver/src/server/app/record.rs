@@ -35,6 +35,9 @@ impl App {
 
     /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
     pub(in crate::server) fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
+        // A gate and what follows it (its hook fails the discussions it ends) in order with a
+        // discussion's last check and send (`App::hand`): no question it ends is typed in after.
+        let _order = matches!(body, Body::GateSubmitted { .. }).then(|| self.discussing.lock().unwrap());
         let (actor, machine) = (who.actor(), who.machine());
         if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&body, who) {
             self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;

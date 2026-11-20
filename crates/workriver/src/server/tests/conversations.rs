@@ -1204,3 +1204,48 @@ fn a_conclusion_keeps_a_review_of_the_amended_text() {
     let m = sent(&fake, "s-boss")[before..].iter().find(|m| m.contains("concluded the discussion")).unwrap().clone();
     assert!(m.contains("was amended") && m.contains("the gate u1#4") && !m.contains("workriver task drop"), "{m}");
 }
+
+/// A gate submitted while a held question is on its way (its agent just freed, the runtime
+/// slow to list it): the question failed with the gate is never typed in. The send and the
+/// gate's record are ordered: the records are read again right before typing in.
+#[test]
+fn a_gate_submitted_during_the_send_stops_the_prompt() {
+    use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering::SeqCst}, mpsc};
+    use std::time::Duration;
+    use workriver_core::runtime::AgentState::{Idle, Working};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    d.call("/api/discuss", Some(json!({"unit":"u1","task":1,"text":"Wait for gate race"}))).unwrap();
+    assert!(sent(&fake, "s-r").is_empty());
+
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (continue_tx, continue_rx) = mpsc::channel();
+    let continue_rx = Mutex::new(continue_rx);
+    let calls = AtomicUsize::new(0);
+    let stand_in = Arc::downgrade(&fake);
+    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, SeqCst) {
+        // First list in poll: make the held question eligible for retry.
+        0 => stand_in.upgrade().unwrap().agents.lock().unwrap()[1].1.state = Idle,
+        // The second list is Runtime::groups. The third is inside hand, after its
+        // read of the gate and before its runtime send.
+        2 => {
+            paused_tx.send(()).unwrap();
+            continue_rx.lock().unwrap().recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        _ => {}
+    }));
+    paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let submitted = d.call("/api/gate", Some(json!({"unit":"u1","task":2,"result":"done"})));
+    let state = d.get("/api/state").unwrap();
+    let pre_resume = sent(&fake, "s-r");
+    continue_tx.send(()).unwrap();
+    assert_eq!(submitted.unwrap()["kind"], "gate.submitted");
+    assert_eq!(state["questions"][0]["failed"][0], "gate-submitted");
+    assert!(pre_resume.iter().all(|m| !m.contains("Wait for gate race")));
+    std::thread::sleep(Duration::from_millis(2300));
+    let prompts = sent(&fake, "s-r");
+    assert!(prompts.iter().all(|m| !m.contains("Wait for gate race")), "the committed gate already failed the question before the blocked poll was released, but it sent: {prompts:?}");
+}

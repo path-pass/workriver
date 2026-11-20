@@ -219,9 +219,12 @@ conversation, it replies with the task's link instead of relaying (`user-message
   answerer goes on), and gives the ones never given (`open_discussions`). First, given or
   not, one whose result's gate was submitted fails: a run that stopped between recording
   the gate and failing them left it open.
-- Right before each send, held retries too, a question is checked against the records: one
+- Right before typing in, held retries too, a question is checked against the records: one
   closed meanwhile goes nowhere, one whose gate was submitted fails then, and with records
-  that cannot be read it waits. Each poll also fails the open ones whose gate was submitted
+  that cannot be read it waits. That last check and the send are in order with a gate's
+  record and its hook (one lock, `App::discussing`): a gate recorded during a slow runtime
+  read is seen, and one recorded after the send finds the question asked before the user
+  decided. Each poll also fails the open ones whose gate was submitted
   (`discussions_over`): a read that failed right after the gate's commit left them open.
 - The gate submitted: the open discussion questions of the results it asks about fail
   (`gate-submitted`).
