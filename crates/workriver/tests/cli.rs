@@ -45,12 +45,21 @@ fn runtime(path: &Path) {
     });
 }
 
+/// How long this run's tunnel sleeps: a number no other run of this test has (its fraction
+/// is this process's id), so that `tunnels` counts this run's tunnel and no other's when
+/// several runs of the suite overlap.
+fn nap() -> String {
+    format!("6417.{}", std::process::id())
+}
+
 /// The tunnel's ssh: up at once on a port over there, until killed; anything else (writing
 /// the port file over there) succeeds.
-const SSH: &str = "#!/bin/sh\ncase \"$1\" in -N) echo 'Allocated port 45124 for remote forward to 127.0.0.1:1' >&2; exec sleep 6417;; esac\nexit 0\n";
+fn ssh() -> String {
+    format!("#!/bin/sh\ncase \"$1\" in -N) echo 'Allocated port 45124 for remote forward to 127.0.0.1:1' >&2; exec sleep {};; esac\nexit 0\n", nap())
+}
 
 fn tunnels() -> usize {
-    let out = Command::new("pgrep").args(["-f", "^sleep 6417$"]).output().unwrap();
+    let out = Command::new("pgrep").args(["-f", &format!("^sleep {}$", nap().replace('.', "\\."))]).output().unwrap();
     String::from_utf8_lossy(&out.stdout).lines().count()
 }
 
@@ -71,7 +80,7 @@ fn lists_findings_and_machines_from_the_cli() {
     runtime(&socket);
     let bin = tmp.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
-    std::fs::write(bin.join("ssh"), SSH).unwrap();
+    std::fs::write(bin.join("ssh"), ssh()).unwrap();
     std::fs::set_permissions(bin.join("ssh"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -135,7 +144,8 @@ fn lists_findings_and_machines_from_the_cli() {
     let refused = cli().args(["--as", "s-rev", "finding", "drop", "f1", "--reason", "mine"]).output().unwrap();
     assert!(!refused.status.success(), "an agent dropped a finding");
     run(&["finding", "drop", "f1", "--reason", "fixed upstream"]);
-    assert!(!run(&["backlog", "list"]).contains("f1"));
+    let left = run(&["backlog", "list"]);
+    assert!(!left.contains("f1"), "{left}");
 
     // The user adds a machine (not followed yet), follows it, stops, and removes it; the
     // settings file says so at every step, and the connection lives only while followed.
@@ -156,5 +166,5 @@ fn lists_findings_and_machines_from_the_cli() {
     assert_eq!(settings()["machines"], json!({}));
     assert_eq!(run(&["machine", "list"]), "");
     let again = cli().args(["machine", "remove", "box"]).output().unwrap();
-    assert!(!again.status.success() && String::from_utf8_lossy(&again.stderr).contains("no machine box"));
+    assert!(!again.status.success() && String::from_utf8_lossy(&again.stderr).contains("no machine box"), "{:?}: {}", again.status, String::from_utf8_lossy(&again.stderr));
 }

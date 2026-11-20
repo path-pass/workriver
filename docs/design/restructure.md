@@ -535,6 +535,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 cd frontend/web && npm run typecheck && npm run build && npm test
 ```
 
+Two runs of the suite may overlap (several agents test at once): a test counts and talks
+only to what it started. Since u13#55: `tests/cli.rs` gives its tunnel a sleep no other run
+has (`6417.<pid>`) and counts only that (before, it counted every `sleep 6417` on the
+machine); the tests' raw HTTP helper (`server/tests/support.rs`, `http`) sends a request in
+one write. The second only keeps the helper out of the way of a bug of the product, which
+stays as it is during the restructure (backlog intent i32): the service answers a request it
+refuses from the headers and closes before the body has arrived, and a client still sending
+gets a reset or a broken pipe instead of the refusal (measured with the real CLI client: a
+1 MB upload refused by the guard never saw its 401).
+
 The number of tests never drops; a split or renamed test is renamed in the behaviour list
 in the same commit (u12#3). Section 5.2's `cmp` is part of phases 1 and 2's done-when; run
 it after phases 5 and 8 as well.
