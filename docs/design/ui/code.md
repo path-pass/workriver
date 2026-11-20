@@ -69,6 +69,12 @@ its sections went.
      it go. On a narrow screen the tree stacks above the changes with a height of its own
      and opens on the pick's files only.
 
+     A known limit, kept for now: when the branch and its base each merged an older head of
+     the other (a criss-cross), git has two equally good merge bases (`git merge-base --all`
+     lists both), and the tree may start from another one than `git diff base...head` does.
+     The unit's change can then show the base's files instead of the branch's, and the merge
+     that brought the base in can show as that work's change.
+
 ## Commits
 
 - **Commits** is every unit's commits as a git graph, newest first, like `git log --graph`
