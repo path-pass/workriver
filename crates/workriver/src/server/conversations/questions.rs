@@ -37,11 +37,12 @@ impl App {
                 tracing::warn!("question {id}: {}", e.1);
             }
             self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
-            // Nothing is given in place of a text that could not be read: the question fails.
+            // Nothing is given in place of a text that could not be read: the question fails,
+            // and the thread's agent is closed as one that did not answer, by the name in hand.
             let read = got(self.store.lock().unwrap().recorded());
             let text = match read {
                 Ok(all) => all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default(),
-                Err(e) => return unread(e),
+                Err(Unread(why)) => return self.fail_started(id, name, &why),
             };
             self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None });
             return;
@@ -121,11 +122,12 @@ impl App {
         }
         self.deadlines.lock().unwrap().push((id.to_string(), std::time::Instant::now() + self.waits.answer));
         // Nothing is given in place of a prompt that could not be read: the question fails,
-        // and its agent is closed as one that did not answer.
+        // and the agent just started is closed as one that did not answer, by the name in
+        // hand (the store that cannot be read would not give it).
         let read = got(self.store.lock().unwrap().recorded());
         let prompt = match read {
             Ok(all) => all.and_then(|all| prompts::prompt(&all, &q, &dir, &commits, &self.home)).unwrap_or_default(),
-            Err(e) => return unread(e),
+            Err(Unread(why)) => return self.fail_started(id, agent.name, &why),
         };
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
@@ -170,6 +172,15 @@ impl App {
     fn thread_of(&self, question: &str) -> Result<Option<core::Thread>, Unread> {
         let Some(q) = got(self.store.lock().unwrap().question(question))? else { return Ok(None) };
         Ok(got(self.store.lock().unwrap().thread(&q.thread))?.flatten())
+    }
+
+    /// A question whose temporary agent runs (`name`) and whose records cannot be read: it
+    /// fails as one whose start failed, and that agent is closed. By the name the caller
+    /// holds, never by reading it back, and whether or not the failure could be recorded
+    /// (`drop_question` logs that): no agent is left running for a question nobody gave it.
+    fn fail_started(&self, id: &str, name: String, why: &str) {
+        self.drop_question(id, ReasonCode::RuntimeError, why);
+        self.close_later(name);
     }
 
     /// Records a question as failed (if still open) and closes its temporary agent, which

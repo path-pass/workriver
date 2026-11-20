@@ -367,6 +367,12 @@ fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
     wait_until("the question fails", || failed("q1").is_some());
     assert_eq!(failed("q1"), unread);
     assert_eq!(sent_to("why-q1"), [] as [String; 0], "nothing was given, least of all an empty text");
+    // Its agent was started: it is closed by the name the service held, while the records
+    // still cannot be read (reading the name back would not have found it).
+    let closed = |name: &str| fake.closed.lock().unwrap().iter().any(|n| n == name) && !fake.agents.lock().unwrap().iter().any(|(_, a)| a.name == name);
+    assert!(fake.started.lock().unwrap().iter().any(|s| s.2 == "why-q1"), "it had been started");
+    wait_until("the question's agent is closed", || closed("why-q1"));
+    assert!(faults.down.load(SeqCst), "closed without a read");
     faults.down.store(false, SeqCst);
 
     // A question that is read gets its text; its thread's agent then waits for a follow-up.
@@ -381,6 +387,7 @@ fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
     wait_until("the follow-up fails", || failed("q3").is_some());
     assert_eq!(failed("q3"), unread);
     assert_eq!(sent_to("why-q2").len(), 1, "the follow-up was not given: {:?}", sent_to("why-q2"));
+    wait_until("the thread's agent is closed", || closed("why-q2"));
     faults.down.store(false, SeqCst);
 
     // Unreadable before anything is known of the question: no agent is started for it.
@@ -390,6 +397,15 @@ fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
     wait_until("it fails", || failed("q4").is_some());
     assert_eq!(failed("q4"), unread);
     assert_eq!(fake.started.lock().unwrap().len(), started, "no agent started on a guess");
+    faults.down.store(false, SeqCst);
+
+    // The store can neither be read nor written once the agent is started: the failure
+    // cannot be recorded, and the agent is closed all the same.
+    faults.and_writes.store(true, SeqCst);
+    *faults.down_after.lock().unwrap() = Some("question.started".into());
+    user.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "A fourth thing" }))).unwrap();
+    wait_until("its agent is closed", || closed("why-q5"));
+    assert_eq!((failed("q5"), sent_to("why-q5").len()), (None, 0), "nothing recorded, nothing given");
 }
 
 /// A copy of a real database (WORKRIVER_REPLAY_DB) replays onto the current model. The

@@ -347,10 +347,14 @@ pub(super) struct Faults {
     pub(super) down_after: std::sync::Mutex<Option<String>>,
     /// Only the read of an agent by its session fails.
     pub(super) agents_down: std::sync::atomic::AtomicBool,
+    /// Nothing can be recorded while this is set.
+    pub(super) writes_down: std::sync::atomic::AtomicBool,
+    /// When `down_after` sets `down`, it sets `writes_down` too.
+    pub(super) and_writes: std::sync::atomic::AtomicBool,
 }
 
 /// The real store, with reads that fail when the test says so: a storage that cannot be
-/// read. Writing works throughout.
+/// read. Writing works unless the test stops it too.
 pub(super) struct Flaky {
     inner: workriver_data::Store,
     faults: std::sync::Arc<Faults>,
@@ -368,11 +372,17 @@ impl workriver_core::ports::WorkStore for Flaky {
         self.inner.recorded()
     }
     fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
+        if self.faults.writes_down.load(std::sync::atomic::Ordering::SeqCst) {
+            return gone();
+        }
         let done = self.inner.record(who, request)?;
         let mut after = self.faults.down_after.lock().unwrap();
         if after.as_deref() == serde_json::to_value(&done.event).unwrap()["kind"].as_str() {
             *after = None;
             self.faults.down.store(true, std::sync::atomic::Ordering::SeqCst);
+            if self.faults.and_writes.load(std::sync::atomic::Ordering::SeqCst) {
+                self.faults.writes_down.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
         }
         Ok(done)
     }
