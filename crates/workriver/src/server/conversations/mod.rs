@@ -59,14 +59,23 @@ pub(super) struct Say {
     task: u32,
     #[serde(default)]
     context: Vec<core::AskContext>,
+    /// To every manager running now, here and on followed machines (then no intent,
+    /// workspace or unit): one message, a copy for each.
+    #[serde(default)]
+    all: bool,
 }
 
 /// The user writes to a manager from the page, with what they picked and attached; it is
-/// typed into the manager's terminal.
+/// typed into the manager's terminal. Or to every manager running: recorded once, and each
+/// gets its copy.
 pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
-    let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context };
-    blocking(move || app.record(&who, body).map(Json)).await
+    blocking(move || {
+        let to = if m.all { app.running_managers()? } else { vec![] };
+        let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context, to };
+        app.record(&who, body).map(Json)
+    })
+    .await
 }
 
 #[derive(Deserialize)]

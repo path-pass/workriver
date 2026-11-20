@@ -28,42 +28,65 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
             // the workspace's conversation (times are the service's, so they compare as text).
             let read = state.read.get(&m.workspace);
             let unread = |at: &String| read.is_none_or(|r| at > r);
-            let stuck = live.iter().find(|a| a.session == m.manager && a.state == AgentState::Blocked).filter(|_| m.delivery.is_none());
-            // Its manager went on a blind task while the message waited: it waits for that task.
-            let blind = m.delivery.is_none() && !m.by_manager && !state.blind_tasks(&m.manager).is_empty();
+            let replies = |by: Option<&str>| m.replies.iter().filter(|r| by.is_none_or(|b| r.by == b)).map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect();
+            // To every manager: each copy where it is, with its manager's replies.
+            let to: Vec<CopyOut> = m
+                .to
+                .iter()
+                .map(|r| {
+                    let (step, reason_code, reason, blocked) = where_is(state, live, names, &r.manager, r.delivery.as_ref());
+                    CopyOut { workspace: r.workspace.label.clone(), machine: r.workspace.machine.clone(), manager: names.of(&r.manager), step, reason_code, reason, blocked, replies: replies(Some(&r.manager)) }
+                })
+                .collect();
+            let (step, reason_code, reason, blocked) = match (m.by_manager, to.is_empty()) {
+                // Nothing to deliver: it is the manager's.
+                (true, _) => ("delivered", None, None, None),
+                (false, true) => where_is(state, live, names, &m.manager, m.delivery.as_ref()),
+                // Each copy says where it is; the whole: on its way until each is given or not.
+                (false, false) if to.iter().any(|c| !matches!(c.step, "delivered" | "not-delivered")) => ("sending", None, None, None),
+                (false, false) if to.iter().all(|c| c.step == "not-delivered") => ("not-delivered", None, None, None),
+                (false, false) => ("delivered", None, None, None),
+            };
             MessageOut {
                 id: m.id.clone(),
                 intent: m.intent.clone(),
                 workspace: m.workspace.clone(),
-                manager: names.of(&m.manager),
+                manager: if to.is_empty() { names.of(&m.manager) } else { String::new() },
                 text: m.text.clone(),
                 unit: m.unit.clone(),
                 task: (m.task != 0).then_some(m.task),
                 context: m.context.clone(),
                 attachments: attachments_of(state, &m.context.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>()),
                 at: m.at.clone(),
-                step: match m.delivery.as_ref().map(|d| d.step) {
-                    // Nothing to deliver: it is the manager's.
-                    _ if m.by_manager => "delivered",
-                    None if blind => "held",
-                    None if stuck.is_some() => "blocked",
-                    None => "sending",
-                    Some(core::DeliveryStep::NotDelivered) => "not-delivered",
-                    Some(_) => "delivered",
-                },
-                reason_code: m.delivery.as_ref().and_then(|d| d.reason_code),
-                reason: if blind {
-                    Some(format!("the manager {} is on a blind task: the message goes once that task is delivered", names.of(&m.manager)))
-                } else {
-                    m.delivery.as_ref().and_then(|d| d.reason.clone())
-                },
-                blocked: stuck.filter(|_| !blind).map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
-                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect(),
+                step,
+                reason_code,
+                reason,
+                blocked,
+                replies: if to.is_empty() { replies(None) } else { vec![] },
+                to,
                 by_manager: m.by_manager,
                 unread: m.by_manager && unread(&m.at),
             }
         })
         .collect()
+}
+
+/// Where the user's message (or one copy of it) to `manager` is: sending, blocked (the
+/// manager waits for a person in its terminal), held (it is on a blind task), delivered or
+/// not; with why, and who blocks it.
+fn where_is(state: &core::State, live: &[RuntimeAgent], names: &Names, manager: &str, delivery: Option<&core::Delivery>) -> (&'static str, Option<core::ReasonCode>, Option<String>, Option<Blocked>) {
+    let stuck = live.iter().find(|a| a.session == manager && a.state == AgentState::Blocked).filter(|_| delivery.is_none());
+    // Its manager went on a blind task while the message waited: it waits for that task.
+    let blind = delivery.is_none() && !state.blind_tasks(manager).is_empty();
+    let step = match delivery.map(|d| d.step) {
+        None if blind => "held",
+        None if stuck.is_some() => "blocked",
+        None => "sending",
+        Some(core::DeliveryStep::NotDelivered) => "not-delivered",
+        Some(_) => "delivered",
+    };
+    let reason = if blind { Some(format!("the manager {} is on a blind task: the message goes once that task is delivered", names.of(manager))) } else { delivery.and_then(|d| d.reason.clone()) };
+    (step, delivery.and_then(|d| d.reason_code), reason, stuck.filter(|_| !blind).map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }))
 }
 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent

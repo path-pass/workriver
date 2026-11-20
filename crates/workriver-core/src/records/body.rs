@@ -467,12 +467,19 @@ pub enum Body {
         /// tasks of the unit.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context: Vec<AskContext>,
+        /// To every manager: the managers it goes to, one copy each (then no intent,
+        /// workspace or manager above). Filled in by the service: those running now.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        to: Vec<Recipient>,
     },
     /// Where the user's message to a manager is; workriver's alone to record.
     #[serde(rename = "message.delivery")]
     MessageDelivery {
         /// The message's id (its text as typed is the delivery's `message`).
         id: String,
+        /// A message to every manager: whose copy (that manager's session); else empty.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        manager: String,
         #[serde(flatten)]
         delivery: Delivery,
     },

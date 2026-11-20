@@ -258,9 +258,19 @@ pub trait WorkStore: Send {
         Ok(self.recorded()?.questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect())
     }
 
-    /// The ids of the user's messages to a manager that got no delivery yet.
-    fn held_messages(&self) -> Result<Vec<String>, DataError> {
-        Ok(self.recorded()?.messages.iter().filter(|m| m.delivery.is_none() && !m.by_manager).map(|m| m.id.clone()).collect())
+    /// The user's messages to a manager that got no delivery yet: each message's id and, for
+    /// one to every manager, the manager of each copy not given yet (else empty).
+    fn held_messages(&self) -> Result<Vec<(String, String)>, DataError> {
+        let all = self.recorded()?;
+        let mut out = vec![];
+        for m in all.messages.iter().filter(|m| !m.by_manager) {
+            match m.to.is_empty() {
+                true if m.delivery.is_none() => out.push((m.id.clone(), String::new())),
+                true => {}
+                false => out.extend(m.to.iter().filter(|r| r.delivery.is_none()).map(|r| (m.id.clone(), r.manager.clone()))),
+            }
+        }
+        Ok(out)
     }
 
     /// The names of the temporary agents threads were last answered by.

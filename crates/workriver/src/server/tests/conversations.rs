@@ -784,3 +784,104 @@ fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
     assert!(text.contains(&format!("`workriver attach fetch {}.png`", a["id"].as_str().unwrap())), "{text:?}");
     assert!(!text.contains("data home") && !text.contains("data  home"), "no path of this machine: {text:?}");
 }
+
+/// The user writes once to every manager running: one record; each manager here and on a
+/// followed machine gets its copy, saying it went to every manager and which workspace is
+/// its own, with the user's files; one on a blind task gets it once that task is delivered;
+/// one on record that no longer runs gets none. Each replies; the page shows the message
+/// once, each copy where it is with its own manager's replies, and they read it as one
+/// conversation.
+#[test]
+fn the_user_writes_to_every_manager() {
+    use workriver_core::runtime::{AgentState::*, Runtime};
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let mut web = live("s-web", "web", "w2", Idle);
+    web.group.as_mut().unwrap().label = "web".into();
+    let mut old = live("s-old", "old", "w3", Idle);
+    old.group.as_mut().unwrap().label = "old".into();
+    *local.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), web), ("p3".into(), old), ("p4".into(), live("s-w", "w", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    all.agents().unwrap();
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
+    let options = crate::server::Options { machines: Some(all.clone()), allow_as: true, ..kernel.options() };
+    let runtime = all.clone();
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    manage(&d, "p1", "s-boss");
+    manage(&d, "p2", "s-web");
+    manage(&d, "p3", "s-old");
+    let remote = at_place(&kernel.daemon(all.local_port("box").unwrap(), None, None), "p1");
+    let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
+    remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    // A manager on record that no longer runs is not written to.
+    local.agents.lock().unwrap().retain(|(p, _)| p != "p3");
+    wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
+    // The manager of web is on a blind task in progress.
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-w" })).unwrap();
+    d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Done" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-web", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    let shot = tmp.path().join("shot.png");
+    std::fs::write(&shot, b"\x89PNG broadcast").unwrap();
+    let shot = d.upload(&shot, "user", None).unwrap();
+    let got = |fake: &Fake, who: &str| fake.sent.lock().unwrap().iter().filter(|(to, m)| to == who && m.contains("message m1")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let message = || d.get("/api/workspace").unwrap()["messages"][0].clone();
+
+    // The user's alone, to every manager at once; nothing of an intent goes with it.
+    assert!(d.append("s-w", "message.sent", json!({ "text": "x", "to": [{ "workspace": { "id": "w1", "label": "chat" }, "manager": "s-boss" }] })).unwrap_err().to_string().contains("only the user does this"));
+    assert!(d.call("/api/message", Some(json!({ "all": true, "intent": "i1", "text": "x" }))).unwrap_err().to_string().contains("to every manager is about no intent"));
+    let sent = d.call("/api/message", Some(json!({ "all": true, "text": "I shut down at six: clean up worktrees you no longer use.", "context": [{ "kind": "attachment", "label": "shot.png", "id": shot["id"] }] }))).unwrap();
+    assert_eq!((sent["actor"].as_str(), sent["body"]["id"].as_str()), (Some("user"), Some("m1")));
+    let to: Vec<_> = sent["body"]["to"].as_array().unwrap().iter().map(|r| (r["manager"].as_str().unwrap(), r["workspace"]["label"].as_str().unwrap(), r["workspace"]["machine"].as_str())).collect();
+    assert_eq!(to, [("s-boss", "chat", None), ("s-web", "web", None), ("s-far", "chat", Some("box"))]);
+    assert_eq!(d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().len(), 1, "recorded once");
+
+    // Each running manager gets its copy, here and on the followed machine.
+    wait_until("boss gets it", || got(&local, "s-boss").len() == 1);
+    wait_until("far gets it", || got(&far, "s-far").len() == 1);
+    let text = got(&local, "s-boss")[0].clone();
+    assert!(text.starts_with("[workriver] The user writes to every manager from workriver's page (message m1, to the managers of 3 workspaces): answer for your own workspace, \"chat\", only. Reply with `workriver reply m1 --text \"...\"`"), "{text}");
+    assert!(text.contains(&format!("the attachment \"shot.png\" at {}", tmp.path().join("attachments").display())), "{text}");
+    assert!(text.ends_with("The user says, in workriver: «I shut down at six: clean up worktrees you no longer use.»"), "{text}");
+    let text = got(&far, "s-far")[0].clone();
+    assert!(text.contains("answer for your own workspace, \"chat\" on machine box, only."), "{text}");
+    assert!(text.contains(&format!("`workriver attach fetch {}.png`", shot["id"].as_str().unwrap())), "{text}");
+    // The blind one waits, and the page says why.
+    wait_until("each copy where it is", || {
+        let m = message();
+        m["to"].as_array().unwrap().iter().map(|c| c["step"].as_str().unwrap().to_string()).collect::<Vec<_>>() == ["delivered", "held", "delivered"]
+    });
+    let m = message();
+    assert_eq!((m["workspace"].as_str(), m["manager"].as_str(), m["step"].as_str()), (Some(""), Some(""), Some("sending")));
+    assert!(m["to"][1]["reason"].as_str().unwrap().contains("blind task"), "{m}");
+    assert_eq!((m["to"][2]["workspace"].as_str(), m["to"][2]["machine"].as_str(), m["to"][2]["manager"].as_str()), (Some("chat"), Some("box"), Some("far")));
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(got(&local, "s-web").is_empty(), "nothing is typed into a blind manager");
+    assert!(local.sent.lock().unwrap().iter().all(|(to, _)| to != "s-old"));
+    d.append("s-web", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    wait_until("web gets it once its blind task is delivered", || got(&local, "s-web").len() == 1);
+    assert!(got(&local, "s-web")[0].contains("answer for your own workspace, \"web\", only."));
+    wait_until("all delivered", || message()["step"] == "delivered");
+
+    // Each manager it went to replies, for its own workspace; the replies are kept apart.
+    assert!(d.append("s-w", "message.replied", json!({ "message": "m1", "text": "Not mine." })).unwrap_err().to_string().contains("only the managers it went to reply"));
+    d.append("s-boss", "message.replied", json!({ "message": "m1", "text": "chat: nothing running." })).unwrap();
+    remote.append("", "message.replied", json!({ "message": "m1", "text": "box: two worktrees removed." })).unwrap();
+    let m = message();
+    let replies = |k: usize| m["to"][k]["replies"].as_array().unwrap().iter().map(|r| (r["by"].as_str().unwrap().to_string(), r["text"].as_str().unwrap().to_string(), r["unread"] == true)).collect::<Vec<_>>();
+    assert_eq!(replies(0), [("boss".to_string(), "chat: nothing running.".to_string(), true)]);
+    assert!(replies(1).is_empty());
+    assert_eq!(replies(2), [("far".to_string(), "box: two worktrees removed.".to_string(), true)]);
+    assert!(m["replies"].as_array().unwrap().is_empty(), "under their copies only");
+    // Read as one conversation: the page names it by no workspace.
+    let at = m["to"][2]["replies"][0]["at"].clone();
+    d.call("/api/messages/read", Some(json!({ "workspace": "", "at": at }))).unwrap();
+    assert!(message()["to"].as_array().unwrap().iter().flat_map(|c| c["replies"].as_array().unwrap()).all(|r| r["unread"] != true));
+}

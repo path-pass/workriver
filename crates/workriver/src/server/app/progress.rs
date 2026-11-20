@@ -21,12 +21,21 @@ pub(in crate::server) struct Held {
     pub(in crate::server) about: Option<delivery::Plan>,
 }
 
+impl Held {
+    /// Which copy of a user's message it is: to every manager, its manager's; else none.
+    pub(in crate::server) fn copy(&self) -> &str {
+        if self.kind == For::Broadcast { &self.to } else { "" }
+    }
+}
+
 /// What a held message is for.
 #[derive(Clone, Copy, PartialEq)]
 pub(in crate::server) enum For {
     Question,
     /// The user's message to a manager.
     Message,
+    /// One manager's copy of the user's message to every manager (`to` is that manager).
+    Broadcast,
     /// A command for its review agent (`App::review_run`).
     Review,
     /// What workriver tells an agent (an answer, a delivery's message, an escalation), held

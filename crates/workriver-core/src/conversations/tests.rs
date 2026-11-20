@@ -322,3 +322,91 @@ fn an_attachment_id_is_the_stores_own_form() {
     let s = recorded_before(s, "agent-a", file("a1"));
     assert!(s.state().attachments.iter().any(|a| a.id == "a1"));
 }
+
+/// The user writes once to every manager: one record naming each manager it goes to (each
+/// the recorded manager of its workspace, here or on another machine), with nothing of an
+/// intent picked but the user's own files. Only the user writes it; workriver records each
+/// copy's delivery apart; each manager it went to replies for its own workspace, and nobody
+/// else. A manager on a blind task is not refused: its copy waits. It all replays, and the
+/// user reads its conversation like a workspace's.
+#[test]
+fn the_user_writes_to_every_manager() {
+    let mut s = Records::default();
+    let (w1, w2) = (json!({"id": "w1", "label": "chat"}), json!({"id": "w2", "label": "web"}));
+    let far = json!({"id": "w1@box", "label": "api", "machine": "box"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "web", json!({"kind": "manager.registered", "body": {"agent": "web", "workspace": w2}})).unwrap();
+    let remote = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
+    s.append(&remote, crate::records::tests::body(json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": far}}))).unwrap();
+    add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "00000000000000e1", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
+
+    // Every manager on record, one copy each.
+    let every = s.state().managers();
+    let named: Vec<(&str, &str, Option<&str>)> = every.iter().map(|r| (r.manager.as_str(), r.workspace.label.as_str(), r.workspace.machine.as_deref())).collect();
+    assert_eq!(named, [("boss", "chat", None), ("web", "web", None), ("far", "api", Some("box"))]);
+    let to = |list: &[&crate::Recipient]| serde_json::to_value(list).unwrap();
+    let all: Vec<&crate::Recipient> = every.iter().collect();
+    let say = |to: serde_json::Value, extra: serde_json::Value| {
+        let mut b = json!({"text": "I shut down at six.", "to": to, "workspace": "forged", "manager": "forged"});
+        b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        json!({"kind": "message.sent", "body": b})
+    };
+    // The user's alone.
+    assert!(add(&mut s, "boss", say(to(&all), json!({}))).unwrap_err().contains("only the user does this (message.sent)"));
+    // Only to managers on record, each once.
+    let mut wrong = every[0].clone();
+    wrong.manager = "worker".into();
+    assert!(add(&mut s, "user", say(to(&[&wrong]), json!({}))).unwrap_err().contains("worker is not the manager of workspace \"chat\""));
+    assert!(add(&mut s, "user", say(to(&[&every[0], &every[0]]), json!({}))).unwrap_err().contains("boss twice"));
+    // About no intent or unit: only the user's own files go with it.
+    assert!(add(&mut s, "user", say(to(&all), json!({"intent": "i1"}))).unwrap_err().contains("to every manager is about no intent"));
+    assert!(add(&mut s, "user", say(to(&all), json!({"unit": "u1"}))).unwrap_err().contains("to every manager is about no intent"));
+    assert!(add(&mut s, "user", say(to(&all), json!({"context": [{"kind": "finding", "label": "P2-1"}]}))).unwrap_err().contains("needs the unit it is about"));
+    assert!(add(&mut s, "user", say(to(&all), json!({"text": "  "}))).unwrap_err().contains("needs its text"));
+
+    // A manager on a blind task gets its copy once it delivers: not refused.
+    for b in seed().into_iter().skip(1) {
+        s.append(&"agent-a".into(), b).unwrap();
+    }
+    add(&mut s, "web", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "1"}], "agent": "web", "blind": true}})).unwrap();
+    let e = add(&mut s, "user", say(to(&all), json!({"context": [{"kind": "attachment", "label": "shot.png", "id": "00000000000000e1"}]}))).unwrap();
+    let Body::MessageSent { id, workspace, manager, intent, to: got, .. } = &e.body else { panic!() };
+    assert_eq!((id.as_str(), workspace.as_str(), manager.as_str(), intent.as_str(), got.len()), ("m1", "", "", "", 3));
+    assert_eq!(e.body.refs(), (None, None, None));
+    let m = s.state().message("m1").unwrap();
+    assert!(m.delivery.is_none() && m.to.iter().all(|r| r.delivery.is_none()));
+
+    // Where each copy is: workriver's word only, one manager's at a time, of those it went to.
+    let delivery = |manager: &str| json!({"kind": "message.delivery", "body": {"id": "m1", "manager": manager, "step": "delivered", "to": manager, "reason": null, "message": "[workriver] ..."}});
+    assert!(add(&mut s, "user", delivery("boss")).unwrap_err().contains("only workriver"));
+    assert!(add(&mut s, "workriver", delivery("worker")).unwrap_err().contains("message m1 did not go to worker"));
+    assert!(add(&mut s, "workriver", delivery("")).unwrap_err().contains("message m1 went to every manager: say whose copy"));
+    add(&mut s, "workriver", delivery("far")).unwrap();
+    let m = s.state().message("m1").unwrap();
+    assert_eq!(m.to.iter().map(|r| r.delivery.as_ref().map(|d| d.step)).collect::<Vec<_>>(), [None, None, Some(DeliveryStep::Delivered)]);
+    assert!(m.delivery.is_none());
+
+    // Each manager it went to replies, for its own workspace; nobody else.
+    let reply = |text: &str| json!({"kind": "message.replied", "body": {"message": "m1", "text": text}});
+    assert!(add(&mut s, "worker", reply("Ok")).unwrap_err().contains("only the managers it went to reply"));
+    assert!(add(&mut s, "user", reply("Ok")).unwrap_err().contains("only the managers it went to reply"));
+    add(&mut s, "boss", reply("chat: nothing running.")).unwrap();
+    s.append(&remote, crate::records::tests::body(reply("api: two worktrees removed."))).unwrap();
+    let m = s.state().message("m1").unwrap();
+    assert_eq!(m.replies.iter().map(|r| r.by.as_str()).collect::<Vec<_>>(), ["boss", "far"]);
+
+    // A message to one manager keeps its own rules: its delivery names no copy.
+    add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "Only you."}})).unwrap();
+    let one = |manager: &str| json!({"kind": "message.delivery", "body": {"id": "m2", "manager": manager, "step": "delivered", "to": "boss", "reason": null, "message": "..."}});
+    assert!(add(&mut s, "workriver", one("boss")).unwrap_err().contains("message m2 went to one manager"));
+    add(&mut s, "workriver", one("")).unwrap();
+    assert_eq!(s.state().message("m2").unwrap().delivery.as_ref().map(|d| d.step), Some(DeliveryStep::Delivered));
+
+    // Its conversation is read like a workspace's, under no workspace's label.
+    add(&mut s, "user", json!({"kind": "messages.read", "body": {"workspace": "", "at": "2026-11-21T10:00:00Z"}})).unwrap();
+    assert_eq!(s.state().read[""], "2026-11-21T10:00:00Z");
+    assert!(add(&mut s, "user", json!({"kind": "messages.read", "body": {"workspace": " ", "at": "2026-11-21T10:00:00Z"}})).unwrap_err().contains("which workspace's conversation"));
+    assert_eq!(replayed(&s), *s.state());
+}

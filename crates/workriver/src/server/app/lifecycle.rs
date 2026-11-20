@@ -134,7 +134,7 @@ impl App {
             for h in ready {
                 match state(&h) {
                     None => match h.kind {
-                        For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
+                        For::Message | For::Broadcast => self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
                         For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
                         For::Review => self.review_failed(&h.question, &format!("{} closed before it could be given the command", h.name)),
                         For::Notice => {
@@ -239,8 +239,8 @@ impl App {
         }
         // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
         let held = got(app.store.lock().unwrap().held_messages()).ok().flatten().unwrap_or_default();
-        for id in held {
-            app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
+        for (id, copy) in held {
+            app.message_not_delivered(&id, &copy, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
         }
         // So are deliveries a previous run held for a receiver on a blind task: recorded as not
         // delivered, so the page says so and the user can send it again.

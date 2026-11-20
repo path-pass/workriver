@@ -101,12 +101,37 @@ pub(crate) struct MessageOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) blocked: Option<Blocked>,
     pub(crate) replies: Vec<ReplyOut>,
+    /// To every manager (`workspace` and `manager` then empty): each copy, with where it is
+    /// and its manager's replies (`replies` above then empty).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) to: Vec<CopyOut>,
     /// Started by the manager (`workriver say`): `text` is the manager's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) by_manager: bool,
     /// The manager's message, not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+}
+
+/// One manager's copy of the user's message to every manager, as the page shows it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CopyOut {
+    /// The workspace it manages, by label, and its machine (none: this one).
+    pub(crate) workspace: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) machine: Option<String>,
+    /// The manager's name.
+    pub(crate) manager: String,
+    /// As a message's `step`, `reasonCode`, `reason` and `blocked`.
+    pub(crate) step: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason_code: Option<core::ReasonCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) blocked: Option<Blocked>,
+    pub(crate) replies: Vec<ReplyOut>,
 }
 
 #[derive(Serialize)]

@@ -11,13 +11,15 @@ pub struct Agent {
     pub harness: String,
 }
 
-/// The user's message to a workspace's manager, and what it answered.
+/// The user's message to a workspace's manager (or to every manager), and what it answered.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Message {
     pub id: String,
     pub intent: String,
+    /// The workspace whose conversation it is in, by label; empty: the conversation with
+    /// every manager.
     pub workspace: String,
-    /// The manager's session it went to: only that one replies.
+    /// The manager's session it went to: only that one replies. Empty for one to every manager.
     pub manager: String,
     pub text: String,
     /// What the user had picked: a unit (empty: none), one of its tasks (0: none), and the
@@ -28,6 +30,10 @@ pub struct Message {
     pub task: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context: Vec<AskContext>,
+    /// To every manager: each manager it went to, with where its copy is (then `delivery`
+    /// stays empty). Each of them replies for its own workspace.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub to: Vec<Recipient>,
     pub at: String,
     pub delivery: Option<Delivery>,
     #[serde(default)]
@@ -35,6 +41,16 @@ pub struct Message {
     /// Started by the manager (`workriver say`): its text is the manager's, and it went nowhere.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_manager: bool,
+}
+
+/// A manager a message to every manager goes to: the workspace it manages, as recorded, and
+/// where its copy is (`None`: not given yet; never in the event that sends it).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Recipient {
+    pub workspace: RuntimeRef,
+    pub manager: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Delivery>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -48,6 +64,20 @@ impl State {
     /// The name last seen for an agent session.
     pub fn name_of(&self, session: &str) -> Option<&str> {
         self.agents.iter().find(|a| a.session == session).map(|a| a.name.as_str())
+    }
+
+    /// Every workspace's manager on record, here and on other machines, once each: whom a
+    /// message to every manager may go to (the service takes those running).
+    pub fn managers(&self) -> Vec<Recipient> {
+        let mut out: Vec<Recipient> = vec![];
+        for w in &self.workspaces {
+            if let Some(m) = &w.manager
+                && !out.iter().any(|r| &r.manager == m)
+            {
+                out.push(Recipient { workspace: w.group.clone(), manager: m.clone(), delivery: None });
+            }
+        }
+        out
     }
 
     pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
@@ -120,6 +150,29 @@ impl State {
                 }
                 AgentSeen { session, name, harness }
             }
+            MessageSent { intent, text, unit, task, context, to, .. } if !to.is_empty() => {
+                if blank(&text) {
+                    return no("a message needs its text");
+                }
+                if !intent.is_empty() || !unit.is_empty() || task != 0 {
+                    return no("a message to every manager is about no intent or unit; only the user's own files go with it");
+                }
+                // Each the manager of its workspace on record, once; a blind one is not
+                // refused: its copy waits for that task (the service holds it).
+                let mut seen: Vec<&str> = vec![];
+                for r in &to {
+                    if self.workspace_of(&r.workspace).and_then(|w| w.manager.as_deref()) != Some(r.manager.as_str()) {
+                        return no(format!("{} is not the manager of workspace {:?}", self.name_of(&r.manager).unwrap_or(&r.manager), r.workspace.label));
+                    }
+                    if seen.contains(&r.manager.as_str()) {
+                        return no(format!("a message to every manager goes to {} twice", self.name_of(&r.manager).unwrap_or(&r.manager)));
+                    }
+                    seen.push(&r.manager);
+                }
+                self.picked("", None, "", 0, &context)?;
+                let to = to.into_iter().map(|r| Recipient { delivery: None, ..r }).collect();
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace: String::new(), manager: String::new(), text, unit, task, context, to }
+            }
             MessageSent { intent, workspace, text, unit, task, context, .. } => {
                 if blank(&text) {
                     return no("a message needs its text");
@@ -142,14 +195,21 @@ impl State {
                     return no(format!("the manager {} is on a blind task: write once it is delivered", self.name_of(&manager).unwrap_or(&manager)));
                 }
                 self.picked(&intent, target, &unit, task, &context)?;
-                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context }
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context, to: vec![] }
             }
-            MessageDelivery { id, delivery } => {
+            MessageDelivery { id, manager, delivery } => {
                 if *who != Principal::Service {
                     return no("only workriver records where a message is");
                 }
-                self.message(&id)?;
-                MessageDelivery { id, delivery }
+                let m = self.message(&id)?;
+                // A message to every manager: one copy's, of a manager it went to.
+                match (m.to.is_empty(), manager.is_empty()) {
+                    (true, false) => return no(format!("message {id} went to one manager: its delivery names no copy")),
+                    (false, true) => return no(format!("message {id} went to every manager: say whose copy")),
+                    (false, false) if !m.to.iter().any(|r| r.manager == manager) => return no(format!("message {id} did not go to {manager}")),
+                    _ => {}
+                }
+                MessageDelivery { id, manager, delivery }
             }
             ManagerTold { unit, task, text } => {
                 if user {
@@ -166,8 +226,12 @@ impl State {
             }
             MessageReplied { message, text } => {
                 let m = self.message(&message)?;
+                // To every manager: each it went to, for its own workspace.
+                if !m.to.is_empty() && !m.to.iter().any(|r| r.manager == actor) {
+                    return no(format!("message {message} went to every manager; only the managers it went to reply to it"));
+                }
                 // Only the manager it was typed to: nobody else answers for it, the user included.
-                if m.manager != actor {
+                if m.to.is_empty() && m.manager != actor {
                     return no(format!("message {message} went to {}; only that manager replies to it", self.name_of(&m.manager).unwrap_or(&m.manager)));
                 }
                 if blank(&text) {
@@ -188,7 +252,8 @@ impl State {
                 MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.group.label.clone(), text }
             }
             MessagesRead { workspace, at } => {
-                if blank(&workspace) {
+                // Empty: the conversation with every manager.
+                if !workspace.is_empty() && blank(&workspace) {
                     return no("which workspace's conversation was read");
                 }
                 // Stored as the service writes times, so that they compare as text.
@@ -211,7 +276,7 @@ impl State {
                     None => self.agents.push(seen),
                 }
             }
-            MessageSent { id, intent, workspace, manager, text, unit, task, context } => self.messages.push(Message {
+            MessageSent { id, intent, workspace, manager, text, unit, task, context, to } => self.messages.push(Message {
                 id: id.clone(),
                 intent: intent.clone(),
                 workspace: workspace.clone(),
@@ -220,6 +285,7 @@ impl State {
                 unit: unit.clone(),
                 task: *task,
                 context: context.clone(),
+                to: to.clone(),
                 at: at.clone(),
                 delivery: None,
                 replies: vec![],
@@ -234,6 +300,7 @@ impl State {
                 unit: String::new(),
                 task: 0,
                 context: vec![],
+                to: vec![],
                 at: at.clone(),
                 delivery: None,
                 replies: vec![],
@@ -245,9 +312,12 @@ impl State {
                     *r = upto.clone();
                 }
             }
-            MessageDelivery { id, delivery } => {
+            MessageDelivery { id, manager, delivery } => {
                 if let Some(m) = self.messages.iter_mut().find(|m| &m.id == id) {
-                    m.delivery = Some(delivery.clone());
+                    match m.to.iter_mut().find(|r| &r.manager == manager) {
+                        Some(r) => r.delivery = Some(delivery.clone()),
+                        None => m.delivery = Some(delivery.clone()),
+                    }
                 }
             }
             MessageReplied { message, text } => {

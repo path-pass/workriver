@@ -171,11 +171,30 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
         (n, Some(u)) => format!("{} ", details(&u.id, n)),
         _ => String::new(),
     };
+    format!("[workriver] The user writes to you from workriver's page (message {}{about}). {}{at}{code}{details}{}", m.id, replying(&m.id), users("The user says, in workriver", &m.text))
+}
+
+/// What one manager reads of the user's message to every manager: that it went to every
+/// manager, so it answers for its own workspace only (`r`'s, named from the record); how to
+/// reply, as for a message of its own; the user's files; then the user's words, quoted.
+pub(in crate::server) fn broadcast_message(state: &State, m: &workriver_core::Message, r: &workriver_core::Recipient, home: &Path) -> String {
+    let at = pointed(state, "", &m.context, home);
+    let at = if at.is_empty() { String::new() } else { format!("It points at: {}. ", at.join("; ")) };
+    let on = r.workspace.machine.as_deref().map(|x| format!(" on machine {}", quote::name(x))).unwrap_or_default();
     format!(
-        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. {at}{code}{details}{}",
+        "[workriver] The user writes to every manager from workriver's page (message {}, to the managers of {} workspaces): answer for your own workspace, \"{}\"{on}, only. {}{at}{}",
         m.id,
-        m.id,
+        m.to.len(),
+        quote::name(&r.workspace.label),
+        replying(&m.id),
         users("The user says, in workriver", &m.text)
+    )
+}
+
+/// How a manager answers the user's message `id`, in workriver's words.
+fn replying(id: &str) -> String {
+    format!(
+        "Reply with `workriver reply {id} --text \"...\"`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. "
     )
 }
 

@@ -413,6 +413,8 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let context = json!([{ "kind": "task", "label": "#1", "task": 1 }, { "kind": "lines", "label": "a.txt L1–2", "path": "a.txt", "from": 1, "to": 2 }, { "kind": "attachment", "label": "shot.png", "id": shot["id"] }]);
     d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?", "unit": "u1", "task": 2, "context": context }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Design confirmed." })).unwrap();
+    d.call("/api/message", Some(json!({ "all": true, "text": "Shutting down at six." }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m3", "text": "Nothing running here." })).unwrap();
     (d, fake)
 }
 
