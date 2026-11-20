@@ -1,0 +1,5 @@
+# Hard links into pnpm's one store, so every worktree's node_modules shares the same files
+# (`du` counts them once). pnpm's default on macOS clones instead, whose sharing cannot be
+# seen or measured. Do not edit files inside node_modules: the store and every other
+# worktree would change with them.
+packageImportMethod: hardlink
