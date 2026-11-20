@@ -308,6 +308,7 @@ impl State {
                         result: None,
                         delivery: None,
                         amended: None,
+                        read_before: vec![],
                         waiting_since: None,
                         attachments: vec![],
                         dropped: None,
@@ -371,7 +372,20 @@ impl State {
                 }
             }
             TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
+                // The reviews of it under way or done read the text this replaces.
+                let started: Vec<u32> = self
+                    .tasks_of(unit)
+                    .map(|ts| ts.iter().filter(|r| r.kind == TaskKind::Review && r.state != TaskState::Todo && r.dropped.is_none() && self.before(unit, r.n).contains(task)).map(|r| r.n).collect())
+                    .unwrap_or_default();
+                if let Some(th) = self.threads.iter_mut().find(|th| th.discuss && &th.unit == unit && th.task == *task) {
+                    th.amended = true;
+                }
                 if let Some(t) = self.task_mut(unit, *task) {
+                    for r in started {
+                        if !t.read_before.contains(&r) {
+                            t.read_before.push(r);
+                        }
+                    }
                     t.findings.extend(add.iter().cloned().map(open));
                     t.attachments.extend(attachments.iter().cloned());
                     if let Some(n) = note {

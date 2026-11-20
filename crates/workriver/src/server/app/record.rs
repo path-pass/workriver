@@ -173,17 +173,17 @@ impl App {
             let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
             let to = {
                 match e.body {
-                    Body::FindingNoted { .. } => delivery::notes(&all, live.as_deref(), &self.home, e),
+                    Body::FindingNoted { .. } => delivery::notes(&all, e, &self.home),
                     Body::TaskDropped { .. } => delivery::dropped(&all, live.as_deref(), e),
-                    Body::ManagerTold { .. } => delivery::told(&all, live.as_deref(), e),
+                    Body::ManagerTold { .. } => delivery::told(&all, e),
                     _ => delivery::finished(&all, live.as_deref(), e),
                 }
             };
-            for (agent, message) in to {
-                if let Err(err) = self.send(&agent, &message) {
-                    let (_, unit, task) = e.body.refs();
-                    tracing::warn!("cannot tell {agent} of {}: {err}", task.or(unit).unwrap_or_default());
-                }
+            drop(all);
+            // What the receiver must act on: held while it is on a blind task, waits for a
+            // person, is not listed or cannot be sent to; given once it can take it.
+            for (agent, text) in to {
+                self.hand(Held { question: String::new(), kind: For::Duty, to: agent.clone(), name: agent, text, not_ready: None, about: None });
             }
             return;
         }

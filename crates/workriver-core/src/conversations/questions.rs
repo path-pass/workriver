@@ -77,6 +77,10 @@ pub struct Thread {
     /// The user's discussion of its task (one per task): see `Question::discuss`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub discuss: bool,
+    /// A discussion: its task was amended after it began, in event order. Worked out as the
+    /// events are applied; never stored.
+    #[serde(skip)]
+    pub amended: bool,
 }
 
 impl State {
@@ -260,7 +264,7 @@ impl State {
         match &e.body {
             QuestionAsked { id, thread, unit, task, text, context, conclude, discuss } => {
                 if !self.threads.iter().any(|t| &t.id == thread) {
-                    self.threads.push(Thread { id: thread.clone(), unit: unit.clone(), task: *task, agent: None, name: None, ended: false, conclusion: None, discuss: *discuss });
+                    self.threads.push(Thread { id: thread.clone(), unit: unit.clone(), task: *task, agent: None, name: None, ended: false, conclusion: None, discuss: *discuss, amended: false });
                 }
                 self.questions.push(Question {
                 id: id.clone(),

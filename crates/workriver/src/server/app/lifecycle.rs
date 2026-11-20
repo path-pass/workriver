@@ -155,6 +155,7 @@ impl App {
             let gone = crate::server::conversations::gone_from(&mut self.seen_on.lock().unwrap(), agents, &self.readable(agents));
             *self.gone.lock().unwrap() = gone.clone();
             self.discussions_gone(&gone);
+            self.discussions_over();
         }
         // Questions whose temporary agent has not answered in time.
         let now = std::time::Instant::now();

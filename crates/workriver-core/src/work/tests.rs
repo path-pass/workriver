@@ -451,3 +451,35 @@ fn a_results_gate_is_found_through_its_reviews() {
     put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 9
     assert_eq!(s.state().result_gate("u1", 4).map(|g| g.n), Some(9));
 }
+
+/// Which reviews of a design or research read an earlier delivery: those that had started
+/// when it was amended, in event order (not by time), and only reviews that follow it.
+#[test]
+fn reviews_that_read_an_earlier_delivery() {
+    let mut s = Records::default();
+    let put = |s: &mut Records, actor: &str, v: serde_json::Value| {
+        s.append(&actor.into(), body(v)).unwrap();
+    };
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    put(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
+    put(&mut s, "boss", task("research", &["start"], json!({"agent": "r"}))); // 1
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "security-review"}))); // 3
+    put(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
+    put(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "v1"}}));
+    // Amended before any review started: none read an earlier text.
+    put(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "v2"}}));
+    assert!(s.state().task("u1", 1).unwrap().read_before.is_empty());
+    // Review 2 starts and reads v2; amended again: review 2 read an earlier text, 3 did not.
+    put(&mut s, "a", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}}));
+    put(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "v3"}}));
+    assert_eq!(s.state().task("u1", 1).unwrap().read_before, [2]);
+    // The same when the records are read again; never written out with the state.
+    assert_eq!(replayed(&s).task("u1", 1).unwrap().read_before, [2]);
+    assert!(serde_json::to_value(s.state()).unwrap()["units"][0]["tasks"][0].get("read_before").is_none());
+}

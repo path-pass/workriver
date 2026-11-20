@@ -90,17 +90,46 @@ impl App {
 
     /// At start: an open discussion question is still its agent's (nothing was lost); one a
     /// previous run never gave is given now. But first, given or not, it fails if its gate was
-    /// submitted: a run that stopped between recording the gate and failing them left it open.
+    /// submitted (`discussions_over`).
     pub(in crate::server) fn discussions_again(&self) {
-        let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
+        let left = self.discussions_over();
+        for id in left {
+            self.discuss(&id);
+        }
+    }
+
+    /// Open discussion questions whose result's gate was submitted fail, given or held: a run
+    /// that stopped, or a read that failed, between recording the gate and failing them left
+    /// them open. At start and at every poll. The open ones never given yet, the rest.
+    pub(in crate::server) fn discussions_over(&self) -> Vec<String> {
+        let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return vec![] };
         let open: Vec<(String, bool, Option<String>)> = all.questions.iter().filter(|q| q.discuss && q.open()).map(|q| (q.id.clone(), q.agent.is_some(), over(&all, q))).collect();
         drop(all);
+        let mut left = vec![];
         for (id, given, ended) in open {
             match ended {
                 Some(why) => self.drop_question(&id, ReasonCode::GateSubmitted, &why),
-                None if !given => self.discuss(&id),
+                None if !given => left.push(id),
                 None => {}
             }
+        }
+        left
+    }
+
+    /// Whether a discussion's question may still be given, checked right before each send:
+    /// open, its gate not submitted (then it fails now). None: the records cannot be read, so
+    /// it waits.
+    pub(in crate::server) fn still_asked(&self, id: &str) -> Option<bool> {
+        let all = got(self.store.lock().unwrap().recorded()).ok().flatten()?;
+        let q = all.question(id).ok().filter(|q| q.open())?.clone();
+        let ended = over(&all, &q);
+        drop(all);
+        match ended {
+            Some(why) => {
+                self.drop_question(id, ReasonCode::GateSubmitted, &why);
+                Some(false)
+            }
+            None => Some(true),
         }
     }
 

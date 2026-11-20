@@ -154,6 +154,20 @@ impl App {
             self.held.lock().unwrap().push(h);
             return;
         }
+        // A discussion's question is checked against the records right before every send,
+        // held retries too: one closed meanwhile goes nowhere; one whose gate was submitted
+        // fails now; with records that cannot be read, it waits.
+        if h.kind == For::Discussion {
+            match self.still_asked(&h.question) {
+                Some(true) => {}
+                Some(false) => return,
+                None => {
+                    h.not_ready = None;
+                    self.held.lock().unwrap().push(h);
+                    return;
+                }
+            }
+        }
         let found = self.runtime.agents().ok().and_then(|l| l.into_iter().find(is));
         // A discussion's agent is named as the runtime lists it when it is given the question.
         if let (For::Discussion, Some(a)) = (h.kind, &found) {

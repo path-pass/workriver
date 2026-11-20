@@ -406,3 +406,21 @@ fn only_workriver_fails_a_question() {
     }
     add(&mut s, "workriver", failed).unwrap();
 }
+
+/// Whether a result was amended while it was discussed, in event order: an amendment before
+/// the first question does not count, one after it does; never written out with the state.
+#[test]
+fn a_discussion_knows_its_result_was_amended() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "Survey", "inputs": [{"from": "start"}]}})).unwrap(); // 3
+    add(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "u1", "task": 3}})).unwrap();
+    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "v1"}})).unwrap();
+    add(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 3, "note": "v2"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "Why?", "discuss": true}})).unwrap();
+    assert!(!s.state().discussion("u1", 3).unwrap().amended);
+    add(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 3, "note": "v3"}})).unwrap();
+    assert!(s.state().discussion("u1", 3).unwrap().amended);
+    assert!(replayed(&s).discussion("u1", 3).unwrap().amended);
+    assert!(serde_json::to_value(s.state()).unwrap()["threads"][0].get("amended").is_none());
+}
