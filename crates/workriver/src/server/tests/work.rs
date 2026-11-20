@@ -801,6 +801,82 @@ fn a_task_note_is_told_and_shown() {
     assert!(refused.contains("u1#4 is already delivered"), "{refused}");
 }
 
+/// A requirement added to a task goes to the agent the task is with, and to nobody else. One
+/// that waits for its agent's blind task is given to that session only (an agent that came
+/// since and goes by its session as a name hears nothing), and not at all once the task it
+/// is about was dropped. A task given by a name recorded before sessions were is blind for
+/// the one live agent going by it, whether or not that name was ever recorded of its
+/// session: it hears of that task as its blind view shows it, and of its other work only
+/// once it delivers.
+#[test]
+fn a_task_note_goes_to_its_agent_only() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    // As Herdr: a message goes to whoever has that session, else to whoever goes by that name.
+    fake.strict.store(true, std::sync::atomic::Ordering::Relaxed);
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Working)), ("p3".into(), live("s-aud", "aud", "w1", Working))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let at = |place: &str| Daemon { place: Some(place.into()), home: None, ..d.clone() };
+    let (boss, rev, aud) = (at("p1"), at("p2"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "text": "Check the tokens" })).unwrap();
+    // Each of the three has a blind review (2, 4, 6) and other work (3, 5, 7), all started.
+    // The third is given by a name nobody live goes by yet: it stays a name.
+    for (n, agent) in [(2, "s-rev"), (4, "s-aud"), (6, "old")] {
+        boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": agent, "blind": true })).unwrap();
+        boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": format!("Part {n}"), "inputs": [{ "from": "start" }], "agent": agent })).unwrap();
+    }
+    for (who, n) in [(&rev, 2), (&rev, 3), (&aud, 4), (&aud, 5)] {
+        who.append("", "task.started", json!({ "unit": "u1", "task": n })).unwrap();
+    }
+    for n in [6, 7] {
+        boss.append("", "task.started", json!({ "unit": "u1", "task": n, "agent": "old" })).unwrap();
+    }
+    let note = |n: u32, text: &str| json!({ "unit": "u1", "task": n, "text": text });
+    let added = |about: &str| fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("added requirement") && m.contains(about)).cloned().collect::<Vec<_>>();
+
+    // The one live agent going by the old name, never recorded by it: its review is blind
+    // for it all the same, and its other task waits.
+    fake.agents.lock().unwrap().push(("p4".into(), live("s-old", "old", "w1", Working)));
+    let out = boss.append("", "task.noted", note(6, "Look at the error paths")).unwrap();
+    assert_eq!(crate::cli::made(&out), "added to u1#6; old was told in its terminal");
+    let m = added("u1#6");
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert!(m[0].0 == "s-old" && m[0].1.starts_with("[workriver] Your task u1#6 (code review) has an added requirement") && !m[0].1.contains("Check tokens"), "{m:?}");
+    let out = boss.append("", "task.noted", note(7, "Mention the flag")).unwrap();
+    assert!(crate::cli::made(&out).starts_with("added to u1#7; not told yet: old is on a blind task"), "{out}");
+
+    // Held for the auditor's blind task; the task it is about is dropped meanwhile.
+    let out = boss.append("", "task.noted", note(5, "Add the table")).unwrap();
+    assert!(crate::cli::made(&out).starts_with("added to u1#5; not told yet: aud is on a blind task"), "{out}");
+    boss.append("", "task.dropped", json!({ "unit": "u1", "task": 5, "reason": "not needed" })).unwrap();
+    aud.append("", "task.delivered", json!({ "unit": "u1", "task": 4, "findings": [] })).unwrap();
+    // Held for the reviewer's blind task; the reviewer closes, and an agent that goes by its
+    // session as a name comes.
+    let out = boss.append("", "task.noted", note(3, "Keep the old flag")).unwrap();
+    assert!(crate::cli::made(&out).starts_with("added to u1#3; not told yet: rev is on a blind task"), "{out}");
+    fake.agents.lock().unwrap().retain(|(p, _)| p != "p2");
+    fake.agents.lock().unwrap().push(("p5".into(), live("s-decoy", "s-rev", "w1", Idle)));
+    boss.append("", "task.dropped", json!({ "unit": "u1", "task": 2, "reason": "its reviewer closed" })).unwrap();
+    // The old-named one delivers its review: what waited for that is given, to it.
+    at("p4").append("", "task.delivered", json!({ "unit": "u1", "task": 6, "findings": [] })).unwrap();
+    wait_until("the held note is given", || !added("u1#7").is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll, in which whatever is held is looked at
+    let m = added("u1#7");
+    assert!(m.len() == 1 && m[0].0 == "s-old", "{m:?}");
+    assert!(added("u1#5").is_empty(), "a dropped task asks nothing more: {:?}", added("u1#5"));
+    assert!(added("u1#3").is_empty(), "its agent is gone, and nobody else is it: {:?}", added("u1#3"));
+}
+
 /// A worker that stops without delivering: reminded once at the threshold (set by the user
 /// only); still idle after the second wait, it is escalated (the task shows it, the manager is
 /// told once); working again after the reminder clears it; gone, it is escalated at once;
@@ -1007,6 +1083,36 @@ fn an_escalation_waits_for_a_blind_manager() {
     assert_eq!(to("s-boss", "ja-impl stopped"), 0, "not typed into a blind manager");
     d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
     wait_until("given once its blind task is delivered", || to("s-boss", "ja-impl stopped") == 1);
+}
+
+/// What is held for an agent on a blind task is for that session alone: when it closes
+/// meanwhile, an agent that came since and goes by its session as a name is given nothing,
+/// and the delivery is recorded as not delivered.
+#[test]
+fn a_held_notice_is_for_its_session_alone() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    // As Herdr: a message goes to whoever has that session, else to whoever goes by that name.
+    fake.strict.store(true, std::sync::atomic::Ordering::Relaxed);
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-boss" })).unwrap();
+    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "done" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "code-review", "agent": "s-w", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    at_place(&d, "p2").append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    let step = || d.get("/api/state").unwrap()["units"][0]["tasks"][1]["delivery"]["step"].clone();
+    assert_eq!(step(), "held");
+    fake.agents.lock().unwrap().retain(|(p, _)| p != "p1");
+    fake.agents.lock().unwrap().push(("p3".into(), live("s-decoy", "s-boss", "w1", Idle)));
+    d.append("user", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "its reviewer closed" })).unwrap();
+    wait_until("recorded as not delivered", || step() == "not-delivered");
+    let heard: Vec<_> = fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("delivered by worker")).cloned().collect();
+    assert!(heard.is_empty(), "{heard:?}");
 }
 
 /// What workriver holds for a manager on a blind task (a worker's delivery, the user's

@@ -114,7 +114,8 @@ impl App {
         }
         // Held questions whose agent is free now are given to it; one whose agent is gone fails.
         if let Some(agents) = &now {
-            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || a.name == h.to).map(|a| a.state);
+            // A notice is for a session: an agent that only goes by it as a name is not it.
+            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (h.kind != For::Notice && a.name == h.to)).map(|a| a.state);
             let ready: Vec<Held> = {
                 let mut held = self.held.lock().unwrap();
                 let at = std::time::Instant::now();
@@ -146,6 +147,7 @@ impl App {
                 }
             }
         }
+        self.give_notes();
         // Questions whose temporary agent has not answered in time.
         let now = std::time::Instant::now();
         let late: Vec<String> = self.deadlines.lock().unwrap().iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();

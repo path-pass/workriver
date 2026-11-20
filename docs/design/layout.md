@@ -140,10 +140,17 @@ the service answers 422 for a broken rule and 500 otherwise.
 
 `App::record` keeps, outside the adapter, what surrounds a write: `may_manage` and
 `complete` before it, and after the commit, in this order, delivery, the kind's follow-up,
-the branch watch and the page's signal. A requirement added to a task (`task.noted`) is
+the branch watch and the page's signal. `may_manage` also gives the caller's workspace as
+the runtime has it, and `record` puts that in place of the one a registration names: the
+label a request gives is never recorded. A requirement added to a task (`task.noted`) is
 told apart: the append handler calls `App::noted` after the commit, which tells the task's
-agent (found in the runtime now, not the last poll) and gives how far that got, answered
-beside the recorded event. How a failed read is handled before and after the commit is in
+agent (found in the runtime now, not the last poll; a miss reads the followed machines
+again) and gives how far that got, answered beside the recorded event. One whose agent is
+on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
+each poll works it out again (`give_notes`), so it is given only while the task is still
+started and with that agent. It goes out by `App::send_to` (the runtime's `send_to`): to
+that session on that machine and no other, files as that machine can get them. A held
+notice (`For::Notice`) is matched and sent the same way, by session only. How a failed read is handled before and after the commit is in
 AGENTS.md (Layout).
 
 ## The outer crate
@@ -192,7 +199,7 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/complete/may_manage/noted, post-commit order.
+│   │   │   ├── record.rs             # App::record/complete/may_manage/noted/give_notes, post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
 │   │   │   ├── mod.rs                # App::who/user/view/here, the Caller and the Reader.

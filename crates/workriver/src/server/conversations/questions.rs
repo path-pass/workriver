@@ -142,7 +142,8 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        let is = |a: &RuntimeAgent| a.session == h.to || a.name == h.to;
+        // A notice is for a session: an agent that only goes by it as a name is not it.
+        let is = |a: &RuntimeAgent| a.session == h.to || (h.kind != For::Notice && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
         };
@@ -154,11 +155,23 @@ impl App {
             self.held.lock().unwrap().push(h);
             return;
         }
-        match self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).map(|a| a.state) {
+        let live = self.runtime.agents();
+        let at = live.as_ref().ok().and_then(|l| l.iter().find(|a| is(a)));
+        // Its session gone, a notice is given to nobody: the runtime would look for an agent
+        // of that name next. (A runtime that does not answer says so itself, below.)
+        if h.kind == For::Notice && live.is_ok() && at.is_none() {
+            let gone = RuntimeError::NoAgent(h.name.clone());
+            return self.told(h, Err(gone));
+        }
+        let sent = |h: &Held| match at.filter(|_| h.kind == For::Notice) {
+            Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
+            None => self.send(&h.to, &h.text),
+        };
+        match at.map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
-            _ => match self.send(&h.to, &h.text) {
+            _ => match sent(&h) {
                 Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
                 Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
                 Ok(()) => return,
@@ -187,9 +200,14 @@ impl App {
     /// is on a blind task in progress, or the records that would say cannot be read.
     pub(in crate::server) fn held_because(&self, session: &str) -> Option<String> {
         let read = got(self.store.lock().unwrap().recorded());
+        // By who it is in the runtime too (the last poll): a task may be its by a name only.
+        let live = self.live().unwrap_or_default();
         match read {
-            Ok(Some(s)) if s.blind_tasks(session).is_empty() => None,
-            Ok(Some(s)) => Some(format!("{} is on a blind task: it is told once that task is delivered", s.name_of(session).unwrap_or(session))),
+            Ok(Some(s)) if !delivery::blind(&s, &live, session) => None,
+            Ok(Some(s)) => {
+                let name = s.name_of(session).or_else(|| live.iter().find(|a| a.session == session).map(|a| a.name.as_str())).unwrap_or(session);
+                Some(format!("{name} is on a blind task: it is told once that task is delivered"))
+            }
             Ok(None) | Err(_) => Some("the records cannot be read now: it is told once they can".into()),
         }
     }

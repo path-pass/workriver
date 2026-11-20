@@ -313,6 +313,15 @@ impl Machines {
         entries[k] = Arc::new(Entry { label: old.label.clone(), setting: old.setting.clone(), runtime: old.runtime.clone(), runner, seen: Mutex::new(std::mem::take(&mut *old.seen.lock().unwrap())), tunnel, stop: AtomicBool::new(false) });
     }
 
+    /// Reads again, now, the agents of every machine whose connection is up: for whoever
+    /// looks for an agent the last read did not have, which may have started since.
+    pub fn refresh(&self) {
+        let entries = self.entries.lock().unwrap().clone();
+        for e in entries.iter().filter(|e| e.tunnel.lock().unwrap().up) {
+            poll_once(e, false);
+        }
+    }
+
     #[cfg(test)]
     pub fn poll_all(&self) {
         for e in self.entries.lock().unwrap().iter() {
@@ -440,6 +449,11 @@ impl Runtime for Machines {
 
     fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError> {
         self.route(agent, |r| r.send(agent, text))
+    }
+
+    /// Asked of the machine named, whether or not the agent was seen there yet.
+    fn send_to(&self, machine: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.send_to(None, session, text))
     }
 
     /// A group of a machine is `<id>@<machine>`: the agent starts there.

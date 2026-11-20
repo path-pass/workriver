@@ -4,6 +4,15 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **`task note` reaches the task's agent, or nobody** (managers): a worker on another
+  machine that started a moment ago is told at once, files as the command that fetches
+  them there. An addition that waits for the worker's blind task is given only if, by
+  then, the task is still started and with that same worker: dropped, or the worker
+  closed, it is not given (it stays on the task; whoever takes the task reads it at
+  `task show`).
+- **`manager here` records your workspace as the runtime names it** (managers): the label
+  is no longer taken from the request, so a workspace is never taken for another one by
+  what a command calls it.
 - **`manager here --intent` is for that intent's own workspace** (managers): naming an
   intent registers you for the workspace it runs in, and only from there. An intent that
   runs in no workspace, or in another one than yours, is refused: run `workriver manager

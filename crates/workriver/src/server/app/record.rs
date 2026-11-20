@@ -13,16 +13,20 @@ impl App {
     }
 
     /// One workspace, one manager: an agent manages the workspace it runs in (not the one its
-    /// CLI names), and takes it over only from a manager no longer running.
-    fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<(), ApiError> {
+    /// CLI names), and takes it over only from a manager no longer running. Gives that
+    /// workspace as the runtime has it, for a registration that names one: what it is called
+    /// is the runtime's to say, since a label is what finds a workspace's record (and a
+    /// link), so the one a request gives is never recorded nor checked against.
+    fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<Option<core::RuntimeRef>, ApiError> {
         let state = self.store.lock().unwrap().recorded()?;
         // Before 0.2 a manager named its intent; it manages that intent's workspace.
-        let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(()) };
+        let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(None) };
         let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         let me = live.iter().find(|a| a.session == session && a.machine.as_deref() == machine);
-        if !me.and_then(|a| a.group.as_ref()).is_some_and(|m| m.id == g.id && m.machine == g.machine) {
+        let Some(mine) = me.and_then(|a| a.group.as_ref()).filter(|m| m.id == g.id && m.machine == g.machine) else {
             return Err(ApiError(StatusCode::FORBIDDEN, words::MANAGE_YOUR_OWN.into()));
-        }
+        };
+        let g = if workspace.is_some() { mine.clone() } else { g };
         let current = state.workspace_of(&g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
         if let Some(other) = current.and_then(|m| live.iter().find(|a| a.session == m)) {
             return Err(ApiError(
@@ -30,14 +34,16 @@ impl App {
                 format!("workspace {} has a manager running: {}. A workspace has one manager; tell the user, who closes that agent first if you are to take over", g.label, other.name),
             ));
         }
-        Ok(())
+        Ok(workspace.map(|_| g))
     }
 
     /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
-    pub(in crate::server) fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
+    pub(in crate::server) fn record(&self, who: &Principal, mut body: Body) -> Result<core::Event, ApiError> {
         let (actor, machine) = (who.actor(), who.machine());
-        if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&body, who) {
-            self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
+        if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&mut body, who)
+            && let Some(mine) = self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?
+        {
+            *workspace = Some(mine);
         }
         let body = self.complete(actor, body, machine)?;
         let e = self.store.lock().unwrap().record(who, body)?.event;
@@ -197,29 +203,84 @@ impl App {
     }
 
     /// Tells a task's agent of a requirement added to it (`task.noted`, recorded), and says how
-    /// far that got, in the service's words: the note stands either way. The agent is looked
-    /// for in the runtime now, not in the last poll: it may have started since. Its own blind
-    /// task it hears of at once; anything else as `tell` has it (held while it is blind).
+    /// far that got, in the service's words: the note stands either way. One that waits (its
+    /// agent is on a blind task) is kept, and looked at again at each poll (`give_notes`).
     pub(in crate::server) fn noted(&self, e: &core::Event) -> String {
-        let read = got(self.store.lock().unwrap().recorded());
-        let Ok(Some(all)) = read else { return "its agent was not told: the records cannot be read now".into() };
-        let live = match self.runtime.agents() {
-            Ok(live) => live,
-            Err(err) => return format!("its agent was not told: {err}"),
-        };
-        let n = match delivery::task_noted(&all, &live, &self.home, e) {
-            Ok(n) => n,
-            Err(why) => return format!("its agent was not told: {why}"),
-        };
-        let name = n.name.clone();
-        let sent = if n.own_blind { Ok(self.send(&n.to, &n.message)) } else { self.tell(&n.to, &n.message, None) };
-        match sent {
-            Ok(Ok(())) => format!("{name} was told in its terminal"),
-            Ok(Err(err)) => {
-                tracing::warn!("cannot tell {name} of a requirement added: {err}");
-                format!("its agent was not told: cannot reach {name}: {err}")
+        match self.give_note(e, None) {
+            Note::Told(name) => format!("{name} was told in its terminal"),
+            Note::Not(why) => format!("its agent was not told: {why}"),
+            Note::Waits(to, why) => {
+                // Unreadable records, or a runtime that does not answer: nobody to keep it for.
+                match to {
+                    Some(to) => self.notes.lock().unwrap().push((e.clone(), to)),
+                    None => return format!("its agent was not told: {why}"),
+                }
+                format!("not told yet: {why}")
             }
-            Err(why) => format!("not told yet: {why}"),
+        }
+    }
+
+    /// The requirements whose agent was not told yet, looked at again (the poll): given,
+    /// kept, or given up for good, which is only logged (it is on the task either way).
+    pub(in crate::server) fn give_notes(&self) {
+        let waiting = std::mem::take(&mut *self.notes.lock().unwrap());
+        for (e, to) in waiting {
+            match self.give_note(&e, Some(&to)) {
+                Note::Told(_) => {}
+                Note::Waits(..) => self.notes.lock().unwrap().push((e, to)),
+                Note::Not(why) => {
+                    let (_, unit, task) = e.body.refs();
+                    tracing::info!("a requirement added to {} is not told to its agent after all: {why}", task.or(unit).unwrap_or_default());
+                }
+            }
+        }
+    }
+
+    /// One try at telling a task's agent of a requirement added to it, worked out from what
+    /// is recorded and who runs now, each time: the task must still be started and with its
+    /// agent, which is found by its session in the runtime now, not in the last poll (it may
+    /// have started since; on another machine, since that machine was last read, so a miss
+    /// reads the machines again). `held`: the agent it was kept for; a task that is with
+    /// another one by now is that one's to read, not told here. Its own blind task an agent
+    /// hears of at once; of anything else once it is on no blind task. The message goes to
+    /// that session on that machine alone, with files as its machine can get them.
+    fn give_note(&self, e: &core::Event, held: Option<&delivery::Receiver>) -> Note {
+        // What cannot be looked at now: a note already kept stays so; a new one is not told.
+        let unknown = |why: String| Note::Waits(held.cloned(), why);
+        let read = got(self.store.lock().unwrap().recorded());
+        let Ok(Some(all)) = read else { return unknown("the records cannot be read now".into()) };
+        let mut live = match self.runtime.agents() {
+            Ok(live) => live,
+            Err(err) => return unknown(err.to_string()),
+        };
+        let mut plan = delivery::task_noted(&all, &live, &self.home, e);
+        if let (Err(delivery::Untold { gone: true, .. }), Some(machines)) = (&plan, &self.machines) {
+            machines.refresh();
+            live = match self.runtime.agents() {
+                Ok(live) => live,
+                Err(err) => return unknown(err.to_string()),
+            };
+            plan = delivery::task_noted(&all, &live, &self.home, e);
+        }
+        let n = match plan {
+            Ok(n) => n,
+            Err(no) => return Note::Not(no.why),
+        };
+        if held.is_some_and(|to| to != &n.to) {
+            return Note::Not(format!("the task is with {} now", n.name));
+        }
+        if !n.own_blind && delivery::blind(&all, &live, &n.to.session) {
+            return Note::Waits(Some(n.to), format!("{} is on a blind task: it is told once that task is delivered", n.name));
+        }
+        drop(all);
+        match self.send_to(&n.to.session, n.to.machine.as_deref(), &n.message) {
+            Ok(()) => Note::Told(n.name),
+            // Waiting for a person in its terminal: one that is kept is tried again.
+            Err(RuntimeError::Blocked(why) | RuntimeError::NotReady(why)) if held.is_some() => Note::Waits(Some(n.to), why),
+            Err(err) => {
+                tracing::warn!("cannot tell {} of a requirement added: {err}", n.name);
+                Note::Not(format!("cannot reach {}: {err}", n.name))
+            }
         }
     }
 
@@ -301,6 +362,15 @@ impl App {
             tracing::warn!("cannot record a delivery: {e}");
         }
     }
+}
+
+/// How far telling a task's agent of an added requirement got: told (the name it goes by);
+/// not yet, with why, and the agent it is kept for (none: nobody could be found to keep it
+/// for); or not, with why, for good.
+enum Note {
+    Told(String),
+    Waits(Option<delivery::Receiver>, String),
+    Not(String),
 }
 
 /// The machine a unit is put on: the one named ("local": the one workriver runs on), else

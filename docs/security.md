@@ -202,6 +202,14 @@ Blindness guards against bias, not against an agent that sets out to look. What 
   notice name the task only as the blind agent's view shows it; an addition to another task
   of the same agent waits, like any other notice, until it delivers.
 
+Who is blind and who is told are one question, answered once: the agent a task is with is
+found by its session among the agents running now (a task given by a name, as before
+sessions were recorded, belongs to the one running agent that goes by it), and that same
+agent is the one checked for blind work and the one typed to. What waits for a blind agent
+is for that session on its machine alone: if it closes meanwhile, nothing is given to an
+agent that came since, whatever it is called; and an addition whose task was dropped or
+handed to someone else meanwhile is not given at all.
+
 ## What this does not protect against
 
 Agents run under your account, and the check above does not change that. It stops the

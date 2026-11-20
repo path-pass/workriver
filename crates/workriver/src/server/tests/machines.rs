@@ -106,6 +106,57 @@ fn machines_are_separate_until_linked() {
     assert_eq!(ws["machines"].as_array().unwrap().len(), 2);
 }
 
+/// A worker on another machine that started since that machine's agents were last read is
+/// told of a requirement added to its task all the same, once, and a file that came with it
+/// is the command that fetches it there, never a path on this machine.
+#[test]
+fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let local = std::sync::Arc::new(Fake::default());
+    local.strict.store(true, std::sync::atomic::Ordering::Relaxed);
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    far.strict.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Read once here, with nobody there; no thread reads it again (the test does, below).
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
+    let (runtime, machines) = (all.clone(), all.clone());
+    let options = crate::server::Options { machines: Some(machines), allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let via_box = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    manage(&d, "w1:p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Drain" })).unwrap();
+
+    // The worker comes up over there and starts its task through that machine's listener.
+    far.agents.lock().unwrap().push(("w1:p2".into(), live("s-far", "far", "w1", Working)));
+    at_place(&via_box, "w1:p2").append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let shot = tmp.path().join("shot.png");
+    std::fs::write(&shot, b"\x89PNG far").unwrap();
+    let up = d.upload(&shot, "s-boss", None).unwrap();
+    let out = d.append("s-boss", "task.noted", json!({ "unit": "u1", "task": 1, "text": "Also the queue", "attachments": [up["id"]] })).unwrap();
+    assert_eq!(crate::cli::made(&out), "added to u1#1; far was told in its terminal");
+    let added = || far.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("added requirement")).cloned().collect::<Vec<_>>();
+    let m = added();
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert!(m[0].0 == "s-far" && m[0].1.contains("Attachments: `workriver attach fetch ") && !m[0].1.contains(&tmp.path().display().to_string()), "{m:?}");
+    // Once per note, whatever is read of the machine later.
+    all.poll_all();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert_eq!(added().len(), 1, "{:?}", added());
+    assert!(local.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("added requirement")));
+}
+
 /// The connection to a machine: what ssh is asked for; a port of its own for every
 /// connection, written over there once it is up, so a reconnect never waits on the port of
 /// a connection that died without closing (here: held for good); down the moment ssh ends;
