@@ -237,6 +237,8 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             manager: state.manager_of(&i.id).map(|m| names.of(m)),
             manager_state: state.manager_of(&i.id).map(|m| live.iter().find(|a| a.session == m).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into())),
             complete: i.state == core::IntentState::Active && state.finished(&i.id),
+            version: i.edits.version,
+            edited: Edited { at: i.edits.at.clone(), by: (i.edits.by != "user").then(|| names.of(&i.edits.by)) },
         })
         .collect::<Vec<Intent>>();
     for u in intents.iter_mut().flat_map(|i| i.units.iter_mut()) {

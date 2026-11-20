@@ -169,3 +169,41 @@ impl App {
         ws
     }
 }
+
+#[derive(Deserialize)]
+pub(in crate::server) struct HistoryAt {
+    /// One version whole, with the one before it (for a diff); none: the list of versions.
+    #[serde(default)]
+    version: Option<u32>,
+}
+
+/// An intent's history, read by whoever may read the records (`App::view`) and is not on a
+/// blind task: its versions, each with what its event set and who made it (`by`, and the
+/// name an agent goes by), or with `?version=N` that version's whole text and the one
+/// before it. Built from the intent's events (`intent_events`), not kept in the state.
+pub(in crate::server) async fn intent_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>, Query(at): Query<HistoryAt>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || {
+        let state = app.view(&caller, &r)?;
+        if state.reduced {
+            return Err(ApiError(StatusCode::FORBIDDEN, "you are on a blind task: an intent's history, which holds its note, is hidden from you until you deliver it".into()));
+        }
+        state.intent(&id)?;
+        let events = app.store.lock().unwrap().intent_events(&id)?;
+        if let Some(n) = at.version {
+            let text = core::intent_text(&events, &id, n).ok_or_else(|| bad(format!("{id} has no version {n}")))?;
+            let before = n.checked_sub(1).and_then(|b| core::intent_text(&events, &id, b));
+            return Ok(Json(json!({ "intent": id, "n": n, "text": text, "before": before })));
+        }
+        let name = |by: &str| state.agents.iter().find(|a| a.session == by).map(|a| a.name.clone());
+        let versions: Vec<serde_json::Value> = core::intent_versions(&events, &id)
+            .into_iter()
+            .map(|v| {
+                let mut out = serde_json::to_value(&v).unwrap_or_default();
+                out["name"] = json!(name(&v.by));
+                out
+            })
+            .collect();
+        Ok(Json(json!({ "intent": id, "versions": versions })))
+    })
+    .await
+}

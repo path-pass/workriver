@@ -157,6 +157,18 @@ impl App {
 
     /// Sends the message a user's input calls for, and records how far it got.
     fn deliver(&self, e: &core::Event) {
+        // The user changed an active intent: its manager hears of it, or once its blind task is
+        // delivered (`tell`).
+        if matches!(e.body, Body::IntentUpdated { .. }) {
+            let read = got(self.store.lock().unwrap().recorded());
+            let Ok(Some(all)) = read else { return };
+            if let Some((to, message)) = delivery::edited(&all, e)
+                && let Ok(Err(err)) = self.tell(&to, &message, None)
+            {
+                tracing::warn!("cannot tell {to} of the edit of {}: {err}", e.body.refs().0.unwrap_or_default());
+            }
+            return;
+        }
         let live = self.live();
         // An addition to a finding goes to several at once; it is on the page either way, so
         // what does not arrive is only logged.

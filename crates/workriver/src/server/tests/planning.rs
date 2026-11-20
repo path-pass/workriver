@@ -579,3 +579,53 @@ fn an_intent_start_waits_for_a_blind_manager() {
     d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
     wait_until("told once its blind task is delivered", || told() == 1);
 }
+
+/// The user edits an active intent: its manager is told what changed (title and goal quoted
+/// as the user's, the note pointed at), never of its own edits. Its history is read through
+/// `App::view`: the user and an agent see the versions, with names, and any version whole
+/// with the one before it; an agent on a blind task is refused; an intent not recorded is
+/// said so.
+#[test]
+fn an_intent_is_edited_and_its_history_read() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    let told = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("changed i1")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+
+    d.append("user", "intent.updated", json!({ "intent": "i1", "title": "Chat v2", "goal": "Talk «fast»", "base": 1 })).unwrap();
+    wait_until("the manager is told of the user's edit", || told().len() == 1);
+    let said = told()[0].clone();
+    assert!(said.starts_with("[workriver] The user changed i1 (now v2): ") && said.contains("title: «Chat v2»") && said.contains("goal: «Talk ‹fast›»") && !said.contains("note"), "{said}");
+    d.append("s-boss", "intent.updated", json!({ "intent": "i1", "add_note": "Decided: SQLite" })).unwrap();
+    d.append("user", "intent.updated", json!({ "intent": "i1", "note": "Decided: Postgres", "base": 3 })).unwrap();
+    d.append("user", "intent.updated", json!({ "intent": "i1", "findings": "user" })).unwrap();
+    wait_until("told of the note", || told().len() == 2);
+    let said = told()[1].clone();
+    assert!(said.contains("(now v4)") && said.contains("its note changed (`workriver intent history i1 --diff 4`)") && !said.contains("Postgres"), "{said}");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(told().len(), 2, "not of its own addition, nor of who decides findings");
+
+    let boss = at_place(&d, "p1");
+    for reader in [&d, &boss] {
+        let h = reader.get("/api/intent/i1/history").unwrap();
+        let v = h["versions"].as_array().unwrap();
+        let seen: Vec<_> = v.iter().map(|x| (x["n"].as_u64().unwrap(), x["how"].as_str().unwrap(), x["by"].as_str().unwrap(), x["name"].as_str())).collect();
+        assert_eq!(seen, [(1, "created", "user", None), (2, "edited", "user", None), (3, "edited", "s-boss", Some("boss")), (4, "edited", "user", None)]);
+        assert_eq!(v[2]["added"].as_str(), Some("Decided: SQLite"));
+    }
+    let one = d.get("/api/intent/i1/history?version=4").unwrap();
+    assert_eq!((one["text"]["note"].as_str(), one["before"]["note"].as_str(), one["text"]["title"].as_str()), (Some("Decided: Postgres"), Some("Decided: SQLite"), Some("Chat v2")));
+    assert!(d.get("/api/intent/i1/history?version=9").unwrap_err().to_string().contains("no version 9"));
+    assert!(d.get("/api/intent/i9/history").unwrap_err().to_string().contains("no intent i9"));
+
+    // On a blind task, the history (it holds the note) is hidden until it delivers.
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Look" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Look", "agent": "s-rev", "blind": true })).unwrap();
+    let e = at_place(&d, "p2").get("/api/intent/i1/history").unwrap_err().to_string();
+    assert!(e.contains("blind task"), "{e}");
+}
