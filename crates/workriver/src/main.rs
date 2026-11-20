@@ -1,5 +1,4 @@
 // workriver: the daemon (`serve`) and the short-lived CLI that records work through it.
-mod ask;
 mod cli;
 mod common;
 mod runtime;

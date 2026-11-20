@@ -19,15 +19,15 @@ use crate::server::access::auth::Auth;
 use crate::server::access::caller::{self, Callers};
 use crate::server::access::pins::Pins;
 use crate::common::process::Procs;
-use crate::ask;
+use crate::server::conversations::prompts;
 use crate::server::views::Cache;
 
 mod access;
 mod app;
 mod commands;
+mod conversations;
 pub(super) mod delivery;
 pub(super) mod files;
-mod handlers;
 mod http;
 mod work;
 mod planning;
@@ -71,7 +71,7 @@ pub(super) struct Waits {
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: ask::TIMEOUT, idle: ask::IDLE, ready: ask::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600) }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600) }
     }
 }
 

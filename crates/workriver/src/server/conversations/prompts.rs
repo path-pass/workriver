@@ -7,17 +7,17 @@ use std::path::Path;
 
 use workriver_core::{Question, State, TaskKind, name};
 
-use crate::server::delivery::quote::{self, quoted, users};
 use crate::runtime::words;
+use crate::server::delivery::quote::{self, quoted, users};
 
 /// How long a new agent's first prompt is retried while it is not ready; after that it is
 /// taken to wait for the user (a first-run prompt) and the question waits with it.
-pub const READY: std::time::Duration = std::time::Duration::from_secs(60);
+pub(in crate::server) const READY: std::time::Duration = std::time::Duration::from_secs(60);
 /// How long a temporary agent has to answer.
-pub const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+pub(in crate::server) const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// ponytail: a thread's temporary agent is closed after this long without a new question;
 /// a later question starts a new one with the thread so far. Tune when it bites.
-pub const IDLE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+pub(in crate::server) const IDLE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// What a temporary agent is asked to do with a question, and how to record it.
 fn how_to_answer(q: &Question) -> String {
@@ -49,7 +49,7 @@ fn named(state: &State, s: &str) -> String {
 }
 
 /// A follow-up in a thread, to the agent that answered the earlier questions.
-pub fn follow_up(state: &State, q: &Question, home: &Path) -> String {
+pub(super) fn follow_up(state: &State, q: &Question, home: &Path) -> String {
     let about: Vec<String> = pointed(state, q, home);
     let at = if about.is_empty() { String::new() } else { format!("It points at: {}. ", about.join("; ")) };
     let ask = if q.conclude { String::new() } else { format!("A follow-up question ({}). ", q.id) };
@@ -79,7 +79,7 @@ fn pointed(state: &State, q: &Question, home: &Path) -> Vec<String> {
 }
 
 /// The temporary agent's name for a question.
-pub fn agent_name(q: &str) -> String {
+pub(super) fn agent_name(q: &str) -> String {
     format!("why-{q}")
 }
 
@@ -89,7 +89,7 @@ const RECORDS_CAP: usize = 8000;
 /// One paragraph: a newline would submit early in a terminal without bracketed paste.
 /// `dir` is where the unit's branch is checked out (or the repository); `commits` are the
 /// task's commits as (short id, subject).
-pub fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String)], home: &Path) -> Option<String> {
+pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String, String)], home: &Path) -> Option<String> {
     if q.task == 0 {
         return unit_prompt(state, q, dir, home);
     }
@@ -246,7 +246,7 @@ fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<St
 }
 
 /// The answer, back to the agent that asked.
-pub fn answer_back(state: &State, q: &Question) -> String {
+pub(super) fn answer_back(state: &State, q: &Question) -> String {
     let who = q.answered_by.as_deref().map(|a| named(state, a)).unwrap_or_default();
     // The user answers in their own words; an agent's answer is content like any other.
     let answer = q.answer.as_deref().unwrap_or_default();

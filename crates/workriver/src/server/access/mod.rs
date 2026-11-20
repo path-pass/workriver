@@ -2,14 +2,16 @@
 // calling process runs at, or the user), App::user, App::view (what a caller may read), and
 // the checks under them. Beside it: the user's token and sessions (auth.rs), the process
 // behind a request (caller.rs), where each session was first seen (pins.rs).
+use axum::extract::State;
 use axum::http::StatusCode;
+use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
 use workriver_core::runtime::{Root, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Principal};
 
-use crate::runtime::words;
 use crate::common::process::{self, Chain};
+use crate::runtime::words;
 use crate::server::app::*;
 use crate::server::http::*;
 
@@ -269,3 +271,10 @@ impl App {
         Ok(json!({ "actor": at.agent.as_ref().map(|a| &a.session), "name": at.agent.as_ref().map(|a| &a.name), "group": at.group, "intent": intent }))
     }
 }
+
+/// The CLI asks who and where it is: see `App::here`. Nothing it sends is read for that.
+pub(super) async fn here(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || app.here(&caller).map(Json)).await
+}
+
+// ---- the web UI, built into the binary (read from disk in debug builds) ----

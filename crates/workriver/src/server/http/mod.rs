@@ -14,7 +14,6 @@ use workriver_core as core;
 use crate::server::access::auth;
 use crate::server::access::*;
 use crate::server::app::*;
-use crate::server::handlers::*;
 use crate::server::views::{events, metrics, metrics_history, stall_get, state, status, unit_code, workspace};
 
 mod assets;
@@ -31,6 +30,7 @@ use crate::server::files::*;
 use crate::server::planning::*;
 use crate::server::work::*;
 use crate::server::commands::*;
+use crate::server::conversations::*;
 
 /// Every route, on this machine's listener. Nothing answers a caller that is nobody: what
 /// acts as the user or changes where workriver reaches asks for the user in its handler
