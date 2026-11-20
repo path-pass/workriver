@@ -42,7 +42,10 @@ export function blame(unit: Unit, path: string, upTo: number): number[] {
 
 /**
  * A file's change over some commits taken together: its text before the first of them that
- * touches it against its text after the last. Null when none touches it. The tree's counts
+ * touches it against its text after the last. Null when none touches it, and when that is
+ * no change: a file added and then moved or deleted (no text either side), or changed and
+ * changed back. Over the whole unit this is the branch's net change against its base, as
+ * `git diff base...head` names it: a moved file is only where it is now. The tree's counts
  * and the single-file view both come from here, so they agree.
  */
 export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
@@ -51,6 +54,7 @@ export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta 
   const at = (k: number) => unit.commits[k].files.find(f => f.path === path)!
   const first = at(touched[0]), last = at(touched.at(-1)!)
   const before = first.before, after = last.after
+  if (before === after) return null
   const { add, del } = counted(first, last)
   return { touched, before, after, status: before === null ? 'A' : after === null ? 'D' : 'M', add, del }
 }
@@ -83,8 +87,11 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   // What the unit did, file by file, as one change over a scope: the pick's commits for the
   // files it touched, the whole unit's for the others. The single-file view shows the same.
   const did = new Map<string, FileDelta & { inPick: boolean }>()
-  for (const path of new Set(unit.commits.flatMap(c => c.files.map(f => f.path))))
-    did.set(path, { ...shownDelta(unit, sel, path)!, inPick: sel.commits.some(k => unit.commits[k].files.some(f => f.path === path)) })
+  // A path with no change in either scope (gone from the branch) is not drawn.
+  for (const path of new Set(unit.commits.flatMap(c => c.files.map(f => f.path)))) {
+    const d = shownDelta(unit, sel, path)
+    if (d) did.set(path, { ...d, inPick: !!fileDelta(unit, path, sel.commits) })
+  }
   const open = unit.tasks.filter(n => n.state !== 'done')
   const plans = open.flatMap(n => n.plans)
   const writers = new Map<string, string[]>()

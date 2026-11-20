@@ -100,9 +100,15 @@
        {
         "name": "search",
         "path": "app/search",
-        "loc": 8,
-        "files": 2,
+        "loc": 13,
+        "files": 3,
         "children": [
+         {
+          "name": "box.tsx",
+          "path": "app/search/box.tsx",
+          "loc": 5,
+          "files": 1
+         },
          {
           "name": "index.ts",
           "path": "app/search/index.ts",
@@ -154,18 +160,12 @@
        {
         "name": "ui",
         "path": "app/ui",
-        "loc": 10,
-        "files": 2,
+        "loc": 5,
+        "files": 1,
         "children": [
          {
           "name": "composer.tsx",
           "path": "app/ui/composer.tsx",
-          "loc": 5,
-          "files": 1
-         },
-         {
-          "name": "search-box.tsx",
-          "path": "app/ui/search-box.tsx",
           "loc": 5,
           "files": 1
          }
@@ -2807,6 +2807,27 @@
          "after": "// Finding messages that contain a word.\nimport { indexMessage } from './index'\n\nexport function search(messages, word) {\n  return messages.filter(m => indexMessage(m).includes(word.trim().toLowerCase()))\n}\n\nexport function highlight(text, word) {\n  if (!word) return text\n  const at = text.toLowerCase().indexOf(word.toLowerCase())\n  if (at < 0) return text\n  return text.slice(0, at) + '<mark>' + text.slice(at, at + word.length) + '</mark>' + text.slice(at + word.length)\n}\n"
         }
        ]
+      },
+      {
+       "id": "a7c3e5d1f",
+       "subject": "refactor(search): the search box sits with the search code",
+       "date": "2026-10-29 10:35",
+       "author": "agent-A",
+       "live": false,
+       "files": [
+        {
+         "path": "app/ui/search-box.tsx",
+         "status": "D",
+         "before": "// The search box above the message list.\nimport { useState } from 'react'\nimport { search } from '../search/query'\n\nexport function SearchBox({ messages, onResults }) {\n  const [word, setWord] = useState('')\n  return (\n    <input\n      type=\"search\"\n      value={word}\n      placeholder=\"Search messages\"\n      onChange={e => {\n        setWord(e.target.value)\n        onResults(search(messages, e.target.value))\n      }}\n    />\n  )\n}\n",
+         "after": null
+        },
+        {
+         "path": "app/search/box.tsx",
+         "status": "A",
+         "before": null,
+         "after": "// The search box above the message list.\nimport { useState } from 'react'\nimport { search } from './query'\n\nexport function SearchBox({ messages, onResults }) {\n  const [word, setWord] = useState('')\n  return (\n    <input\n      type=\"search\"\n      value={word}\n      placeholder=\"Search messages\"\n      onChange={e => {\n        setWord(e.target.value)\n        onResults(search(messages, e.target.value))\n      }}\n    />\n  )\n}\n"
+        }
+       ]
       }
      ],
      "tasks": [
@@ -3022,6 +3043,31 @@
        "output": {
         "commits": [
          "b51c0e9a3"
+        ]
+       },
+       "plans": []
+      },
+      {
+       "id": "u|a7c3e5d1f",
+       "kind": "implement",
+       "state": "unregistered",
+       "taskId": null,
+       "title": "refactor(search): the search box sits with the search code",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "start",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "",
+        "causes": []
+       },
+       "output": {
+        "commits": [
+         "a7c3e5d1f"
         ]
        },
        "plans": []
