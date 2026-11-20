@@ -1,8 +1,8 @@
-//! The CLI's guards for the restructure (docs/design/restructure.md, section 5): the
+//! The CLI's guards (docs/design/guards.md): the
 //! guide's topics with their recipes, and every command with its options. Agents run these
 //! exact command lines (the recipes and workriver's own messages name them), so a lost
 //! option or a misrouted topic breaks other agents' work. A move keeps these green
-//! unchanged; they go with the CLI (`cli/`) in phase 3.
+//! unchanged.
 use std::collections::BTreeMap;
 
 use clap::CommandFactory;
@@ -149,7 +149,7 @@ fn tree(cmd: &clap::Command, path: &str, out: &mut String) {
 }
 
 /// Every command and option the CLI takes, as clap knows them, pinned in `cli-tree.txt`:
-/// splitting `main.rs` into `cli/` (phase 3) keeps every name, alias, default, requirement
+/// a move of the CLI's code keeps every name, alias, default, requirement
 /// and value. `WORKRIVER_BLESS=1` writes the file again after a deliberate change.
 #[test]
 fn every_command_keeps_its_options() {

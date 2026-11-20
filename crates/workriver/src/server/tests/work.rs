@@ -438,7 +438,7 @@ fn replays_a_copied_database() {
     println!("projects: {}", snap["projects"]);
     println!("events: {}", store.status().unwrap().events);
     // The whole replayed state, for comparing a copy before and after a change byte for byte
-    // (docs/design/restructure.md, "Replaying a copy of the real database").
+    // (docs/design/guards.md, "Replaying a copy of the real database").
     if let Ok(out) = std::env::var("WORKRIVER_REPLAY_OUT") {
         let runs: Vec<String> = s.runs.iter().map(|r| format!("{r:?}")).collect();
         let all = json!({ "events": store.status().unwrap().events, "state": s, "runs": runs });

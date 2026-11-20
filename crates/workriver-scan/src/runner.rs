@@ -60,6 +60,18 @@ impl Runner {
             Runner::Ssh { .. } => self.command(&["cat", "--", &path.to_string_lossy()]).output().ok().filter(|o| o.status.success()).map(|o| o.stdout),
         }
     }
+
+    /// Where a symlink there points; None if it is not one.
+    pub(crate) fn read_link(&self, path: &Path) -> Option<Vec<u8>> {
+        match self {
+            Runner::Local => std::fs::read_link(path).ok().map(|t| t.into_os_string().into_encoded_bytes()),
+            Runner::Ssh { .. } => {
+                let mut out = self.command(&["readlink", "--", &path.to_string_lossy()]).output().ok().filter(|o| o.status.success())?.stdout;
+                out.pop_if(|b| *b == b'\n');
+                Some(out)
+            }
+        }
+    }
 }
 
 /// How many git processes were run, here and over ssh: for the timing log.

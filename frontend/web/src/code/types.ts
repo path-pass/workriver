@@ -54,6 +54,15 @@ export interface FileChange {
   del: number;
   /** Unified-diff lines including `@@ -a,b +c,d @@ context` hunk headers; from the texts. */
   lines: string[];
+  /**
+   * Each side's git entry: its mode ('100644'; '000000' where the side does not exist) and
+   * object id (zeros where it does not exist, and for uncommitted work's side, which git has
+   * not hashed). Whether a file changed over several commits is whether these differ.
+   */
+  beforeMode: string;
+  beforeId: string;
+  afterMode: string;
+  afterId: string;
 }
 
 /** A unit's file texts, by commit id and path, as of its `code`. */

@@ -99,6 +99,16 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
                 out["warning"] = json!(format!("{why}. If you do not work on that project, do not split it: ask the user with a decide gate first (`workriver guide how ask-user`)."));
             }
         }
+        // A manager that closes its intent is told, in place of a message, to tell the user.
+        if let Body::IntentStateChanged { intent, state: core::IntentState::Done, .. } = &e.body {
+            // Recorded: a store that cannot be read now only leaves the reminder out.
+            let read = got(app.store.lock().unwrap().recorded());
+            if let Ok(Some(all)) = read
+                && all.manager_of(intent) == Some(e.actor.as_str())
+            {
+                out["next"] = json!(delivery::said_done());
+            }
+        }
         Ok(Json(out))
     })
     .await

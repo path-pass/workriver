@@ -348,7 +348,7 @@ fn a_machine_is_connecting_until_it_is_not() {
 }
 
 /// Adding a machine takes its runtime socket as a path or nothing: anything else is refused
-/// (422, as before phase 4) and nothing is written; a path is kept under its
+/// (422, as before the runtime's facade) and nothing is written; a path is kept under its
 /// key in settings.json, null and no key at all write none.
 #[test]
 fn a_machines_socket_is_a_path_or_nothing() {
@@ -372,7 +372,7 @@ fn a_machines_socket_is_a_path_or_nothing() {
     for (case, value, says) in [("number", "42", "integer `42`"), ("bool", "false", "boolean `false`"), ("array", r#"["/specific.sock"]"#, "sequence"), ("object", r#"{"path":"/specific.sock"}"#, "map")] {
         let (status, text) = add(&format!(r#"{{"label":"{case}","action":"add","ssh":"fixture.invalid","herdrSocket":{value}}}"#));
         assert_eq!(status, 422, "{case}: {text}");
-        // Before phase 4 the text also named the key (`…target type: herdrSocket: invalid type…`)
+        // Before the runtime's facade (84e6583) the text also named the key (`…target type: herdrSocket: invalid type…`)
         // and gave the value's column; the adapter's options are read as a group now, so the
         // key is not named and the column is the request's end.
         assert!(text.starts_with(&format!("Failed to deserialize the JSON body into the target type: invalid type: {says}, expected a string at line 1 column ")), "{case}: {text}");

@@ -24,7 +24,9 @@ Then close its pane:
 
 **You will see:** `[workriver] u2 is merged: ja-impl, ja-test worked on it and are still
 running with no other task; close them if not needed …` when a unit is merged or done or the
-intent is done; and `[workriver] ja-test has been idle for 31 min with no task (its last:
-u2#4 …)` once per idle period, for a worker idle 30 minutes (the user's `idleMinutes`) with no
+intent is done, followed by "Tell the user with `workriver say` …" (`closing-units`); with no
+worker to close, the message is only `[workriver] u2 is merged.` and that sentence; and
+`[workriver] ja-test has been idle for 31 min with no task (its last: u2#4 …)` once per
+idle period, for a worker idle 30 minutes (the user's `idleMinutes`) with no
 task to do or being done. Each is a reminder, not an order: keep a worker you are about to
 give work.

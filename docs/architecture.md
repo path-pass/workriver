@@ -3,7 +3,7 @@
 [中文](architecture.zh-CN.md)
 
 A short map for people who want to find their way around workriver's source. The full
-target tree, with a line for each file, is in `design/restructure.md` (section 2).
+tree, with a line for each file, is in `design/layout.md` (for agents, in English).
 
 workriver is one Rust program (the service and the CLI in one binary) and one web page
 built to static files that the service serves. Each part is cut by domain: the same thing

@@ -509,8 +509,8 @@ pub(super) fn http(port: u16, method: &str, path: &str, headers: &[(&str, &str)]
     // In one write. Sent in pieces, a request the service refuses from its head alone is
     // answered and closed before the body arrives; the late body is then answered with a reset,
     // which discards the refusal (seen when several runs of the suite overlap). That the
-    // service does so is a bug of the product, kept as it is during the restructure (backlog
-    // intent i32); this only keeps the helper out of its way.
+    // service does so is a bug of the product, to be fixed on its own (docs/design/guards.md,
+    // "Checks for every commit"); this only keeps the helper out of its way.
     s.write_all(format!("{req}\r\n{}", body.unwrap_or_default()).as_bytes()).unwrap();
     let mut answer = vec![];
     s.read_to_end(&mut answer).unwrap();

@@ -18,3 +18,31 @@ fn a_cache_of_other_rules_is_dropped() {
     c.save();
     assert_eq!(Cache::default().remembering(file).stored.memo.len(), 1, "and saved under them");
 }
+
+/// The code token changes when only an uncommitted file's git entry does (its text the
+/// same): a mode changed in the work tree reaches the page, not its cached entry.
+#[test]
+fn the_code_token_follows_uncommitted_entries() {
+    let file = scan::FileChange {
+        path: "run.sh".into(),
+        status: "M".into(),
+        add: 1,
+        del: 1,
+        before: Some("new\n".into()),
+        after: Some("old\n".into()),
+        before_mode: "100644".into(),
+        before_id: "3e757656cf36eca53338e520d134963a44f793f8".into(),
+        after_mode: "100644".into(),
+        after_id: "0".repeat(40),
+    };
+    let token = |f: scan::FileChange| code_of(&[], &[f]);
+    let was = token(file.clone());
+    for changed in [
+        scan::FileChange { after_mode: "100755".into(), ..file.clone() },
+        scan::FileChange { before_mode: "100755".into(), ..file.clone() },
+        scan::FileChange { after_id: "1".repeat(40), ..file.clone() },
+        scan::FileChange { before_id: "1".repeat(40), ..file.clone() },
+    ] {
+        assert_ne!(token(changed.clone()), was, "{changed:?}");
+    }
+}

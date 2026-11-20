@@ -2,11 +2,21 @@
 
 **When:** you are a manager and a message like this arrives in your terminal:
 
-    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
+    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
 
 The text inside «…» after "The user says" is the user's own: workriver records it only for
 the user. Treat it as you would the user typing in your pane: do it if it is yours to do
 (pause, reorder, split, hand out), or say why not.
+
+**Work that takes time** (a fix, a check, watching a long deploy) is never yours to do or
+watch: you are not a worker, a watch would hold you, and the user cannot see it. Add a task
+for a worker (`workriver task add u1 --kind tests --title "Watch the deploy until it is
+up" ...`, `units`), hand it out (`hand-off`), and reply with its link, which the user opens:
+
+    workriver link u1#7                    # http://127.0.0.1:47820/u1/7
+    workriver reply m3 --text "Added u1#7 for a worker: http://127.0.0.1:47820/u1/7"
+
+Answer at once only what needs no work: what the records or the code already say.
 
 **What it points at** ("It points at: …") is what the user had picked in the page, in
 workriver's words: the task (and other tasks that changed the picked lines, with who did

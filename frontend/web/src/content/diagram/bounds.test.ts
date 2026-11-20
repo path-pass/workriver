@@ -41,7 +41,7 @@ describe("a block's weight", () => {
   })
 })
 
-describe('what mermaid is given (u15#10 P2-1)', () => {
+describe('what mermaid is given: none of the settings a block writes', () => {
   it('no front matter: its config could set any size, at any depth', () => {
     const graph = 'graph TD\n  A --> B'
     expect(withoutSettings(`---\nconfig:\n  rankSpacing: 1000000\n---\n${graph}`)).toBe(graph)
@@ -75,14 +75,14 @@ describe('the kinds drawn', () => {
     expect(kind('%%{\n  init: {"theme": "dark"}\n}%%\nsequenceDiagram')).toBe('sequence')
   })
 
-  it('no other kind, measured or not (u15#8 P2-1): their numbers make work the weight does not see', () => {
+  it('no other kind, measured or not: their numbers make work the weight does not see', () => {
     for (const code of ['gantt\n  excludes weekends\n  t0 :2024-01-01, 12000d', 'block-beta\n  a space:20000 b', 'packet-beta\n  0-3999999: "x"',
       'flowchart-elk TD\n A-->B', 'pie\n "a": 1', 'mindmap\n root', 'xychart-beta', 'gitGraph\n commit', 'graphTD', '', '%% only a comment',
       '---\ntitle: x\n---\ngantt'])
       expect([code, kind(code)]).toEqual([code, undefined])
   })
 
-  it("the reviewer's three inputs of u15#8 are not drawn", () => {
+  it("a review's block, packet and gantt inputs are not drawn", () => {
     expect(drawable('block-beta\n  columns 3\n  a space:20000 b\n')).toBe(false)
     expect(drawable('packet-beta\n  0-3999999: "x"\n')).toBe(false)
     expect(drawable('gantt\n  dateFormat YYYY-MM-DD\n  excludes weekends\n  section s\n' + '  t0 :2024-01-01, 12000d\n'.repeat(70))).toBe(false)
@@ -90,12 +90,12 @@ describe('the kinds drawn', () => {
 })
 
 describe('too heavy to draw', () => {
-  it("the reviewer's 250 nodes and 499 edges (u15#6 P2-1)", () => {
+  it("a review's 250 nodes and 499 edges", () => {
     expect(weight(reviewed)).toBeGreaterThanOrEqual(499)
     expect(tooHeavy(reviewed)).toBe(true)
   })
 
-  it('more characters than the bound, as a label of 50 001 (u15#6 P3-1)', () => {
+  it('more characters than the bound, as a label of 50 001', () => {
     expect(tooHeavy(`graph TD\n  A["${'x'.repeat(50_001)}"]`)).toBe(true)
     const words = (n: number) => `graph TD\n  A["${'word '.repeat(n)}"]`
     expect(tooHeavy(words(1_990))).toBe(false)

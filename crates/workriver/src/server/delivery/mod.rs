@@ -203,15 +203,17 @@ pub(super) fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> V
     )]
 }
 
-/// Who is told that work is over (a unit merged or done, an intent done): its manager, of the
-/// agents that worked on it and are still running with no other task, to close them;
-/// workriver never closes them itself. Only a live manager not on a blind task.
+/// Who is told that work is over (a unit merged or done, an intent done): its manager, to
+/// tell the user with `workriver say` what came of it, and of the agents that worked on it
+/// and are still running with no other task, to close them; workriver never closes them
+/// itself. An intent the manager closed itself: its command's output says the first
+/// (`said_done`), the message only the second. Only a live manager not on a blind task.
 pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
-    let (what, owners): (String, Vec<String>) = match &e.body {
-        Body::UnitMerged { unit, .. } => (format!("{unit} is merged"), vec![unit.clone()]),
-        Body::UnitDone { unit, .. } => (format!("{unit} is done"), vec![unit.clone()]),
+    let (what, owners, came): (String, Vec<String>, &str) = match &e.body {
+        Body::UnitMerged { unit, .. } => (format!("{unit} is merged"), vec![unit.clone()], "what was merged"),
+        Body::UnitDone { unit, .. } => (format!("{unit} is done"), vec![unit.clone()], "what it came to"),
         Body::IntentStateChanged { intent, state: workriver_core::IntentState::Done, .. } => {
-            (format!("Intent {intent} is done"), state.units.iter().filter(|u| &u.intent == intent).map(|u| u.id.clone()).chain([intent.clone()]).collect())
+            (format!("Intent {intent} is done"), state.units.iter().filter(|u| &u.intent == intent).map(|u| u.id.clone()).chain([intent.clone()]).collect(), INTENT_CAME)
         }
         _ => return vec![],
     };
@@ -220,19 +222,38 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
     if !live.iter().any(|a| a.session == m) || !state.blind_tasks(m).is_empty() {
         return vec![];
     }
+    let said = matches!(e.body, Body::IntentStateChanged { .. }) && e.actor == m;
     let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
     let names: Vec<String> = reminders::finished_workers(state, live, &owners).iter().map(|x| quote::name(&x.name)).collect();
-    if names.is_empty() {
-        return vec![];
-    }
-    let (are, them) = if names.len() == 1 { ("is", "it") } else { ("are", "them") };
-    vec![(
-        m.to_string(),
+    let say = (!said).then(|| say(came));
+    let close = (!names.is_empty()).then(|| {
+        let (are, them) = if names.len() == 1 { ("is", "it") } else { ("are", "them") };
         format!(
-            "[workriver] {what}: {} worked on it and {are} still running with no other task; close {them} if not needed (first check for uncommitted work in the work tree). How: `workriver guide how closing-workers`.",
+            "{} worked on it and {are} still running with no other task; close {them} if not needed (first check for uncommitted work in the work tree). How: `workriver guide how closing-workers`.",
             names.join(", ")
-        ),
-    )]
+        )
+    });
+    let message = match (close, say) {
+        (None, None) => return vec![],
+        (Some(c), None) => format!("[workriver] {what}: {c}"),
+        (None, Some(s)) => format!("[workriver] {what}. {s}"),
+        (Some(c), Some(s)) => format!("[workriver] {what}: {c} {s}"),
+    };
+    vec![(m.to_string(), message)]
+}
+
+/// What an intent came to, for the manager to tell the user.
+const INTENT_CAME: &str = "what the intent came to";
+
+/// The reminder to tell the user what came of finished work (`what`), in one sentence.
+fn say(what: &str) -> String {
+    format!("Tell the user with `workriver say --text \"...\"` {what} and what they should do now, if anything (restart a service, re-open the page, update other machines).")
+}
+
+/// What the output of `workriver intent done` says when the intent's manager ran it, in place
+/// of the message: tell the user what the intent came to.
+pub(super) fn said_done() -> String {
+    say(INTENT_CAME)
 }
 
 /// What the manager of the workspace hears when the user starts a planned intent there from

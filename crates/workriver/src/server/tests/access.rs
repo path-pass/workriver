@@ -444,7 +444,8 @@ fn blind_reviews() {
     assert!(ask(&sec, 1).is_ok());
 }
 
-/// Every line of the design's prototype (3.1) and every row of its table of callers (3.2):
+/// Every case of the design (caller-identity.md, "The cases") and every row of its table of
+/// callers ("Every caller"):
 /// who a request is comes from where its process runs, never from the pane it names.
 #[test]
 fn a_caller_is_who_its_process_is() {
@@ -657,7 +658,7 @@ fn allow_as_names_agents_and_drops_the_terminal() {
     assert!(named("user", Some(bare())).1.contains("nobody records as \"user\" by saying so"));
 }
 
-/// Another machine (3.3): no socket of the kernel's vouches there, so the CLI sends its
+/// Another machine (caller-identity.md, section 4): no socket of the kernel's vouches there, so the CLI sends its
 /// process id and the service reads its chain on that machine. Never the user.
 #[test]
 fn a_caller_on_another_machine_is_checked_there() {

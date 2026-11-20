@@ -3,7 +3,7 @@
 The main area's first layer (the flow of work) and everything a node carries: its detail,
 findings and their decisions, gates and chores, evidence and where the scope grew.
 
-Moved from `DESIGN.md` in phase 7b of the restructure, word for word but for paths
+Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
 its sections went.
 

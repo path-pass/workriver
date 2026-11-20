@@ -233,7 +233,7 @@ fn refusals_name_no_harness() {
 }
 
 /// A machine's setting keeps Herdr's socket as it always did in settings.json. The fixture
-/// holds eight files and what the build before phase 4 (84e6583) wrote back for each after
+/// holds eight files and what the build before the runtime's facade (84e6583) wrote back for each after
 /// one change of the stall threshold: a socket that is a path stays under its key; none, or
 /// null, writes no key; another key of a machine's entry is dropped; a socket that is no
 /// path (a number, a boolean, a list, an object) makes the whole file unreadable, so the
@@ -279,7 +279,7 @@ fn machine_add_sends_the_socket_or_null() {
         body["action"] = json!("add");
         body.to_string()
     };
-    // The request of the build before phase 4, as it was written there.
+    // The request of the build before the runtime's facade (84e6583), as it was written there.
     let before = |socket: Option<&str>| {
         let mut body = json!({ "ssh": "fixture.invalid", "herdrSocket": socket });
         body["label"] = json!("box");
