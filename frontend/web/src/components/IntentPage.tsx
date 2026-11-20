@@ -20,7 +20,7 @@ import { CopyButton } from '@/ui/CopyButton'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Choice } from '@/ui/Choice'
-import { Activity } from './Flow'
+import { Activity } from '@/work/Activity'
 import { ManagerState, Marks, needs, Quiet } from './Rail'
 
 /** A label and its value, one row of the "where it runs" list. */

@@ -1,24 +1,21 @@
-// What the user puts in: a waiting gate's result (with screenshots), a decision on a finding,
-// and the line that follows each on its way to the agents. Nothing is sent from here: it all
-// goes through the shell's actions to one place in runtime.ts.
+// What the user puts in at a waiting gate: its result (with screenshots and findings), and
+// the result on its way to the agents. Nothing is sent from here: it all goes through the
+// shell's actions to one place in api/actions.ts.
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Input } from '@/ui/primitives/input'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
-import { findingKey, gateKey, useAct } from '@/work/actions'
-import { SEVERITIES } from '@/work/select'
-import type { Decision, NewFinding } from '@/work/types'
-import { contentLang, useT } from '@/i18n'
-import { attach, detach, MANAGER, type DeliveryStep } from '@/api/actions'
+import { gateKey, useAct } from './actions'
+import { SEVERITIES } from './select'
+import type { NewFinding } from './types'
+import { useT } from '@/i18n'
+import { attach, detach } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { Finding, Severity, Task } from '@/work/types'
+import type { Severity, Task } from './types'
 import type { Unit } from '@/planning/types'
-import type { Sent } from '@/conversations/types'
-import { Who } from '@/agents/Mark'
-import { CopyButton } from '@/ui/CopyButton'
 import { Icon } from '@/ui/Icon'
-import { Tip } from '@/ui/Tip'
 import { Thumbs } from '@/attachments/Thumbs'
+import { DeliveryLine } from './Findings'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
@@ -33,104 +30,6 @@ function AttachButton({ onAdd }: { onAdd: (a: Attachment[]) => void }) {
         <Icon name="attach" className="size-3.5" />{t('attach.add')}
       </Button>
       <input ref={input} type="file" accept="image/*" multiple hidden onChange={e => { onAdd(images(e.target.files)); e.target.value = '' }} />
-    </>
-  )
-}
-
-/**
- * Where a message is: not gone yet (and can be taken back), delivered, picked up. Once the
- * service has it (`sent`), its record is shown, and its text is what gets copied.
- */
-export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; message?: boolean }) {
-  const { t } = useT()
-  const act = useAct()
-  const local = act.delivery[id]
-  const text = sent?.message ?? act.message[id]
-  if (sent && (!local || local.step === 'recorded')) {
-    const to = sent.to ?? ''
-    const steps: [Sent['step'], string][] = sent.step === 'not-delivered'
-      ? [['not-delivered', t('deliver.notDelivered', { reason: sent.reasonCode ? t(`deliver.reason.${sent.reasonCode}`) : t('deliver.reason.unknown') })]]
-      : [
-          ['delivered', sent.toManager ? t('deliver.toManager') : t('deliver.delivered', { agent: to })],
-          ['picked', t('deliver.picked', { agent: to })],
-        ]
-    const at = steps.findIndex(([s]) => s === sent.step)
-    return (
-      <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs" aria-live="polite">
-        {steps.map(([s, label], k) => {
-          const line = (
-            <span key={s} className={k <= at ? (k === at ? 'font-semibold text-ink' : 'text-ink-2') : 'text-ink-2 opacity-50'}>
-              {k > 0 && <span aria-hidden className="mr-1.5">→</span>}
-              {s === 'picked' && k <= at && <Who name={to} />} {label}
-            </span>
-          )
-          // The service's own words, for whoever needs the detail.
-          return s === 'not-delivered' && sent.reason ? <Tip key={s} text={sent.reason}>{line}</Tip> : line
-        })}
-        {message && text && <CopyButton text={text} label={t('deliver.copy')} />}
-      </div>
-    )
-  }
-  const d = local
-  if (!d) return null
-  const manager = d.to === MANAGER
-  const steps: [DeliveryStep, string][] = d.step === 'recorded' || d.step === 'failed'
-    ? [['pending', t('deliver.pending')], [d.step, d.step === 'recorded' ? t('deliver.recorded') : t('deliver.failed')]]
-    : [
-        ['pending', t('deliver.pending')],
-        ['delivered', manager ? t('deliver.toManager') : t('deliver.delivered', { agent: d.to })],
-        ...(manager ? [] : [['picked', t('deliver.picked', { agent: d.to })] as [DeliveryStep, string]]),
-      ]
-  const at = steps.findIndex(([s]) => s === d.step)
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs" aria-live="polite">
-      {steps.map(([s, label], k) => (
-        <span key={s} className={k <= at ? (k === at ? 'font-semibold text-ink' : 'text-ink-2') : 'text-ink-2 opacity-50'}>
-          {k > 0 && <span aria-hidden className="mr-1.5">→</span>}
-          {s === 'picked' && k <= at && <Who name={d.to} />} {label}
-        </span>
-      ))}
-      {d.step === 'pending' && <Button variant="ghost" size="xs" className="rounded-sm" onClick={() => act.undo(id)}>{t('deliver.undo')}</Button>}
-      {message && text && <CopyButton text={text} label={t('deliver.copy')} />}
-    </div>
-  )
-}
-
-/** The four decisions on an open finding; the agent's suggestion, if any, stands out. */
-export function Decide({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
-  const { t } = useT()
-  const act = useAct()
-  const [note, setNote] = useState('')
-  const decide = (d: Decision) => act.decide(unit, task, f, d, note.trim())
-  return (
-    <div className="mt-2 flex flex-col gap-1.5">
-      <Input value={note} onChange={e => setNote(e.target.value)} placeholder={t('decide.note')} aria-label={t('decide.note')} className="h-7 text-xs md:text-xs" />
-      <div role="group" aria-label={t('decide.label', { id: f.id })} className="flex flex-wrap gap-1.5">
-        {(['accept', 'revise', 'reject', 'defer'] as const).map(d => {
-          const suggested = f.recommendation?.decision === d
-          // Revise is fixing it the user's way: the note says how, so it needs one.
-          const needsNote = d === 'revise' && !note.trim()
-          return (
-            <Button key={d} type="button" size="xs" variant={suggested ? 'default' : 'outline'} className="rounded-sm" disabled={needsNote} aria-describedby={needsNote ? `revise-${f.id}` : undefined} onClick={() => decide(d)}>
-              {suggested && <Icon name="agent" className="size-3" />}
-              {t(`decide.${d}`)}
-              {suggested && <span className="sr-only">{t('decide.suggested')}</span>}
-            </Button>
-          )
-        })}
-      </div>
-      {!note.trim() && <p id={`revise-${f.id}`} className="text-xs text-ink-2">{t('decide.reviseNeedsNote')}</p>}
-    </div>
-  )
-}
-
-/** The decision taken in this sitting, on its way, with its note. */
-export function Decided({ unit, task, f }: { unit: Unit; task: Task; f: Finding }) {
-  const { t } = useT()
-  return (
-    <>
-      {f.note && <div className="whitespace-pre-line"><span className="text-ink-2">{t('io.field', { name: t('decide.noteShort') })}</span><span lang={contentLang(f.note)}>{f.note}</span></div>}
-      <DeliveryLine id={findingKey(unit, task, f)} sent={f.delivery} message />
     </>
   )
 }

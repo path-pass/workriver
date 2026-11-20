@@ -2,7 +2,7 @@
 // the user has put in. Everything else is derived.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
-import { Activity } from '@/components/Flow'
+import { Activity } from '@/work/Activity'
 import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from '@/components/Side'
 import type { CommitFocus } from '@/code/types'
 import { Notes, Progress, Squashed } from '@/components/bits'

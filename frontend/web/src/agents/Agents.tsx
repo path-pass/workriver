@@ -2,7 +2,7 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
 import { agentTree, type TreeAgent } from './select'
 import { contentLang, useT } from '@/i18n'
-import { NodeName } from '@/components/Flow'
+import { NodeName } from '@/work/Nodes'
 import { TerminalButton, Who } from './Mark'
 import { MachineChip } from '@/machines/format'
 import { Icon, Mark } from '@/ui/Icon'
