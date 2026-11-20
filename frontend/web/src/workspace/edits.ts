@@ -29,7 +29,9 @@ const STATE = { accept: 'accepted', revise: 'revised', reject: 'rejected', defer
 /** The workspace as the user's inputs leave it. Nothing in `ws` is changed. */
 export function withEdits(ws: Workspace, edits: Edits): Workspace {
   const task = (unit: Unit, n: Task): Task => {
-    const g = edits.gates[`${unit.id}:${n.id}`]
+    // Only while the service still has it waiting: once it recorded a result (this one, or
+    // another tab's first), the record shows, never this sitting's guess.
+    const g = n.state === 'waiting' ? edits.gates[`${unit.id}:${n.id}`] : undefined
     let out = n
     if (g) {
       // Ids per severity, as a reviewer numbers them.
@@ -80,5 +82,20 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),
       chores: i.chores.map(c => (edits.chores.includes(c.id) ? { ...c, state: 'done' as const } : c)),
     })),
+  }
+}
+
+/**
+ * The user answers a manager's question (`key`: `message:reply`): shown answered at once, and
+ * taken back if the service does not take it, so a question still open can be answered again.
+ * `send` records it; its failure is passed on.
+ */
+export async function answerOptimistically(key: string, selected: string[], send: () => Promise<void>, set: (change: (e: Edits) => Edits) => void) {
+  set(e => ({ ...e, answers: { ...e.answers, [key]: selected } }))
+  try {
+    await send()
+  } catch (err) {
+    set(e => { const { [key]: _gone, ...rest } = e.answers; return { ...e, answers: rest } })
+    throw err
   }
 }

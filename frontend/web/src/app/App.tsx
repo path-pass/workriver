@@ -21,17 +21,17 @@ import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
-import { selectionOf } from '@/work/select'
+import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { blame, shownDelta } from '@/code/files'
-import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
+import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
 import { answerManager, choreDone, notify, decideFinding, detach, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { Intent, Unit } from '@/planning/types'
+import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
@@ -311,10 +311,15 @@ export default function App() {
   }
   // An answer to a manager's question: shown answered at once; a message of the user's.
   const onAnswer: Talk['onAnswer'] = (workspace, answer, note, manager) => {
-    setEdits(e => ({ ...e, answers: { ...e.answers, [`${answer.message}:${answer.reply ?? 0}`]: answer.selected } }))
     const m: ManagerMessage = { workspace, manager, text: note, answer, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
-    if (MOCK) return setTold(all => [...all, m])
-    answerManager(workspace, answer, note).catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
+    const key = `${answer.message}:${answer.reply ?? 0}`
+    if (MOCK) {
+      setEdits(e => ({ ...e, answers: { ...e.answers, [key]: answer.selected } }))
+      return setTold(all => [...all, m])
+    }
+    // Refused or lost: the question is open again, and the attempt shows as not delivered.
+    answerOptimistically(key, answer.selected, () => answerManager(workspace, answer, note), setEdits)
+      .catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
   }
   // Read: the manager's words up to `at` are no longer new, here at once (the sample keeps it
   // only in memory), and in every browser of the user's once the service has it.
@@ -362,8 +367,6 @@ export default function App() {
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
   const [message, setMessage] = useState<Record<string, string>>({})
   const cancels = useRef<Record<string, () => void>>({})
-  // Who waits for the answer: the agent of the work the gate or review follows.
-  const ownerOf = (u: Unit, n: Task) => u.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null
   const track = (key: string) => (d: Delivery) => setDelivery(all => ({ ...all, [key]: d }))
   const sent = (key: string, out: { message: string; cancel: () => void }) => {
     cancels.current[key] = out.cancel
@@ -374,7 +377,12 @@ export default function App() {
     submitGate: (u, g, r) => {
       const key = gateKey(u, g)
       setEdits(e => ({ ...e, gates: { ...e.gates, [key]: r } }))
-      sent(key, submitGate(u, g, r, ownerOf(u, g) ?? MANAGER, track(key)))
+      // Not taken by the service: the gate is as it was, its form again, the line saying so.
+      const step = track(key)
+      sent(key, submitGate(u, g, r, waitsOn(u, g) ?? MANAGER, d => {
+        step(d)
+        if (d.step === 'failed') setEdits(e => ({ ...e, gates: drop(e.gates, key) }))
+      }))
     },
     decide: (u, n, f, d, note) => {
       const key = findingKey(u, n, f)

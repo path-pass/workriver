@@ -107,6 +107,8 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       onDragOver={e => e.preventDefault()}
       onDrop={dropped(addNote)}
     >
+      {/* A result sent from here that the service did not take: said, and the form is back. */}
+      <DeliveryLine id={gateKey(unit, gate)} />
       <ToggleGroup
         type="single" variant="outline" size="sm" value={result} aria-label={t('gate.result')}
         onValueChange={v => { if (v) { setResult(v as GateResult['result']); setError(false); setNoteMissing(false); if (v === 'problem' && !drafts.length) setDrafts([blank()]) } }}
