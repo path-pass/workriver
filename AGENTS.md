@@ -170,5 +170,6 @@ phases are all done.
   read route that skips it breaks blind reviews.
 - Read `DESIGN.md`, and the file of `docs/design/ui/` for the part you change, before
   changing anything in `frontend/`.
+- Test data files live in a `__fixtures__/` folder beside the tests that read them.
 - Runtimes come from mise (node, rust). Do not install tools globally; keep dependencies
   inside the project.

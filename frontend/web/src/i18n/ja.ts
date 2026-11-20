@@ -502,7 +502,9 @@ export const ja: OneForm<typeof en> = {
     loading: '読み込み中…',
     failed: 'このファイルを読み込めませんでした。ダウンロードして見てください。',
     cut: '{{size}} のうち先頭の {{shown}} を表示しています。残りはダウンロードしてください。',
-    mdImage: '画像：{{name}}'
+    mdImage: '画像：{{name}}',
+    mdDiagram: '図',
+    mdDiagramFailed: 'この図は描けませんでした。元のテキストを下に表示しています。'
   },
   deliver: {
     pending: '未送信',
