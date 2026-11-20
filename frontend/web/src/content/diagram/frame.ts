@@ -1,9 +1,10 @@
-// Runs in the frame the diagrams are drawn in (drawDiagram.ts): takes a block's text from the
+// Runs in the frame the diagrams are drawn in (draw.ts): takes a block's text from the
 // page, draws it with mermaid and sends back the SVG text, or that it could not. The page
 // shows that only as an image (Diagram.tsx).
+// Its own file: a separate build entry that acts on import, and the only one to import mermaid.
 import mermaid from 'mermaid'
-import { drawable, withoutSettings } from './diagramBounds'
-import { mermaidConfig } from './mermaidConfig'
+import { drawable, withoutSettings } from './bounds'
+import { mermaidConfig } from './config'
 
 /** Mermaid's SVG is HTML text (an `xlink:href` with its prefix undeclared, say); an image
  * needs well-formed XML. A template's content is inert: nothing in it loads or runs. */
@@ -15,7 +16,7 @@ function asXml(svg: string): string {
   return new XMLSerializer().serializeToString(root)
 }
 
-/** Mermaid's names for the kinds drawn (diagramBounds.ts). */
+/** Mermaid's names for the kinds drawn (bounds.ts). */
 const KINDS = new Set(['flowchart-v2', 'sequence', 'classDiagram', 'stateDiagram', 'er'])
 
 let n = 0

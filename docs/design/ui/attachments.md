@@ -67,8 +67,8 @@ its sections went.
     URL): an SVG image runs no script, loads nothing, and its links cannot be clicked.
   - The frame shares the page's thread, and mermaid cannot be stopped once it started (a
     timer on that thread does not fire until it is done). So a block is drawn only when its
-    text, read without mermaid (`diagramBounds.ts`), shows it cheap enough; any other is
-    never handed to mermaid:
+    text, read without mermaid (`content/diagram/bounds.ts`), shows it cheap enough; any
+    other is never handed to mermaid:
     - **Its kind is one drawn**: flowchart (`graph`, `flowchart`), sequence, class, state and
       ER diagrams, by the first word after front matter, directives and comments; the frame
       checks again with mermaid's own `detectType`. Every other kind shows its code: gantt,

@@ -4,16 +4,16 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Picture } from './drawDiagram'
+import type { Picture } from './draw'
 
 const draw = vi.hoisted(() => ({
   calls: [] as { code: string; dark: boolean }[],
   answer: (_code: string): Promise<Picture> => new Promise(() => {}),
 }))
-vi.mock('./drawDiagram', () => ({
+vi.mock('./draw', () => ({
   drawDiagram: (code: string, dark: boolean) => { draw.calls.push({ code, dark }); return draw.answer(code) },
 }))
-const { default: MarkdownView } = await import('./Markdown')
+const { default: MarkdownView } = await import('../Markdown')
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true

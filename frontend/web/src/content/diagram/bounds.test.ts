@@ -1,8 +1,8 @@
 // A mermaid block is weighed from its text, without mermaid, so one too heavy to draw is
 // never handed to it: mermaid shares the page's thread and cannot be stopped once started.
 import { describe, expect, it } from 'vitest'
-import reviewed from './diagramBounds.fixture.mmd?raw'
-import { BOUNDS, drawable, kind, weight, withoutSettings } from './diagramBounds'
+import reviewed from './__fixtures__/reviewed.mmd?raw'
+import { BOUNDS, drawable, kind, weight, withoutSettings } from './bounds'
 
 const tooHeavy = (code: string) => !drawable(code)
 

@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
 // Mermaid registers its ELK layout (1.5 MB) as a chunk it loads by name; the frame never asks
-// for it (layout 'dagre', which a block cannot change: src/content/mermaidConfig.ts), so the
+// for it (layout 'dagre', which a block cannot change: src/content/diagram/config.ts), so the
 // build puts an empty module in its place. Were it asked for anyway, that diagram fails to
 // draw and shows its code.
 const noElk = (): Plugin => ({
@@ -25,7 +25,7 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:47820', changeOrigin: true, headers: { origin: 'http://127.0.0.1:47820' } },
     },
   },
-  // The script of the frame mermaid draws in (src/content/drawDiagram.ts) is built on its own,
+  // The script of the frame mermaid draws in (src/content/diagram/draw.ts) is built on its own,
   // as a worker's is; as modules, so each kind of diagram stays a chunk loaded when needed.
   worker: { format: 'es', plugins: () => [noElk()] },
   // `npm test`: the page's logic and its safety-relevant views, in a DOM of happy-dom.

@@ -1,12 +1,13 @@
-// A ```mermaid block of Markdown an agent wrote, drawn as a diagram (drawDiagram.ts). What
+// A ```mermaid block of Markdown an agent wrote, drawn as a diagram (draw.ts). What
 // mermaid drew is shown only as an image: an SVG image runs no script, fetches nothing and
 // has no links. Until it is drawn, and when mermaid cannot draw it or it is not drawn here (a
-// kind not drawn, or too heavy: diagramBounds.ts; then mermaid is never asked), the block
+// kind not drawn, or too heavy: bounds.ts; then mermaid is never asked), the block
 // shows its code as any code block does; then under a short note. The diagram follows the page's theme.
+// Its own file apart from draw.ts: its tests fake the drawing by replacing that module.
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useT } from '@/i18n'
-import { drawable } from './diagramBounds'
-import { drawDiagram, type Picture } from './drawDiagram'
+import { drawable } from './bounds'
+import { drawDiagram, type Picture } from './draw'
 
 const darkSystem = () => matchMedia('(prefers-color-scheme: dark)')
 /** As index.css decides it: data-theme on <html>, else the system. */

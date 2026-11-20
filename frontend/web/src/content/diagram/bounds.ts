@@ -4,6 +4,7 @@
 // shows, under a note). Kinds and bounds are chosen by measurement
 // (docs/design/ui/attachments.md): at the bounds, the worst shapes found of each kind drawn
 // held the page for about 0.4 s at most, under half the budget of 1 s written there.
+// Its own file: shared by the page and the frame, without mermaid.
 
 /**
  * The kinds drawn, by the word a block starts with: those whose cost the weight below bounds,

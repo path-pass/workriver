@@ -1,11 +1,12 @@
 // Draws a mermaid block of Markdown an agent wrote. Mermaid runs in a frame of its own, made
 // the first time a block is shown, whose page (FRAME) may run only its own script and fetch
 // nothing: what a block makes mermaid do while drawing stays there. Its script
-// (diagramFrame.ts, with mermaid) is built on its own, as a worker's is, so the app's bundle
+// (frame.ts, with mermaid) is built on its own, as a worker's is, so the app's bundle
 // shares nothing with it. The page gets back the SVG text and shows it only as an image
 // (Diagram.tsx). One diagram is drawn at a time, with a pause between, so many or large ones
 // do not hold the page; one no longer shown is skipped when its turn comes.
-import script from './diagramFrame.ts?worker&url'
+// Its own file: the seam the component's tests (Diagram.test.tsx) fake.
+import script from './frame.ts?worker&url'
 
 /** What mermaid drew, and its size in CSS pixels. */
 export type Picture = { svg: string; width: number; height: number }

@@ -1,9 +1,9 @@
 // Mermaid draws in a frame of its own, one diagram at a time, under rules a block cannot
 // change: strict security, no HTML labels, and a page that may fetch nothing.
 import { describe, expect, it } from 'vitest'
-import { FRAME, inTurn, size } from './drawDiagram'
-import { BOUNDS } from './diagramBounds'
-import { mermaidConfig } from './mermaidConfig'
+import { FRAME, inTurn, size } from './draw'
+import { BOUNDS } from './bounds'
+import { mermaidConfig } from './config'
 
 const later = () => new Promise(r => setTimeout(r))
 
@@ -54,7 +54,7 @@ describe("mermaid's settings", () => {
       expect(c.theme).toBe(dark ? 'dark' : 'neutral')
       // ELK, mermaid 12's default, is left out of the build (vite.config.ts).
       expect(c.layout).toBe('dagre')
-      // Its own limits no looser than ours (diagramBounds.ts), checked before it draws.
+      // Its own limits no looser than ours (bounds.ts), checked before it draws.
       expect([c.maxTextSize, c.maxEdges]).toEqual([BOUNDS.chars, BOUNDS.weight])
       // And every other key the frame names (all of mermaid's): nothing in a block changes them.
       expect(mermaidConfig(dark, ['flowchart', 'dompurifyConfig', 'look']).secure).toEqual(expect.arrayContaining(['flowchart', 'dompurifyConfig', 'look', 'theme']))

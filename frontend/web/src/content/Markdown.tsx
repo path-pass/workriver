@@ -9,7 +9,7 @@ import type { ComponentProps } from 'react'
 import Markdown, { type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { contentLang, useT } from '@/i18n'
-import { Diagram } from './Diagram'
+import { Diagram } from './diagram/Diagram'
 
 /** File paths in the text: the same pattern answers used before they were Markdown. */
 const PATH = /[\w-]+(?:\/[\w.-]+)+\.\w+/g
