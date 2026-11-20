@@ -52,9 +52,9 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
   the agent runtime, not from per-harness hooks. The core defines a small runtime
   interface in workriver's own terms (agent, session, state, working directory, send a
   message, wait for a state); Herdr (through its socket API) is the first and only
-  implementation, kept in one place so it can be replaced. No Herdr names (pane, tab,
-  workspace) outside that implementation. Agents not running under Herdr are out of
-  scope for now.
+  implementation, kept in one place so it can be replaced. No Herdr names (pane, tab)
+  outside that implementation; workspace is also workriver's own word (an intent runs in
+  one), so it may appear. Agents not running under Herdr are out of scope for now.
 - Later: a desktop app and an iOS app (Tauri is the candidate for both; not decided).
 
 ## Layout

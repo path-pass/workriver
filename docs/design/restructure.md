@@ -492,8 +492,9 @@ What does not count:
   its texts and comments no longer name the runtime.
 - **Words in workriver's own sense** (`OWN_SENSE`): in `CodeLayer.tsx`, "pane" is the file
   tree beside the diff, a layout term with a frozen selector (`data-tree="pane"`).
-- **`tab` and `workspace` are not checked.** AGENTS.md names them with `pane` as Herdr's
-  words, but workriver has workspaces of its own (an intent runs in one; `/api/workspace`,
+- **`tab` and `workspace` are not checked.** AGENTS.md names `tab` with `pane` as Herdr's
+  words and says `workspace` is workriver's own word too (u13#69 P3-1, the user's choice of
+  2026-11-20): workriver has workspaces of its own (an intent runs in one; `/api/workspace`,
   `workriver workspace`), so the word cannot tell the two apart, and `tab` names nothing of
   the runtime's outside the adapter today.
 
