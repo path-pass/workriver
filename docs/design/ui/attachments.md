@@ -52,9 +52,14 @@ its sections went.
     style-src 'unsafe-inline'`): an image shape's URL, a stylesheet or a font a block asks
     for is refused there, and that block falls back as one mermaid cannot draw.
   - Security level `strict` (labels sanitized, a click directive calls nothing) and no HTML
-    labels (every label is SVG text); a block's `%%{init}%%` or front matter changes none of
-    mermaid's settings (all are in its `secure` list: these, the layout, theme, fonts, look,
-    each kind's spacing, DOMPurify's settings). Mermaid's own `sandbox` level is not used: its iframe allows top
+    labels (every label is SVG text). A block changes none of mermaid's settings: before
+    mermaid is given it, its front matter and its `%%{…}%%` directives are taken away (one not
+    closed to the end of the text, as mermaid reads it; a front matter's title goes too).
+    `secure` alone does not hold: it names keys at the top level only, and mermaid also reads
+    a nested name written there (a top-level `rankSpacing` of 1 000 000 drew an image
+    2 000 142 px tall, u15#10 P2-1); it stays as a second line. With every size and spacing
+    each drawn kind reads written at the top level, in a directive or in front matter, each
+    image keeps the size it has without them. Mermaid's own `sandbox` level is not used: its iframe allows top
     navigation by a click and popups, so a `click … href` link would still open, and it does
     not stop what mermaid fetches while drawing (an image shape loads its URL with
     `new Image()` in the page).

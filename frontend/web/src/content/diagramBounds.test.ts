@@ -2,7 +2,7 @@
 // never handed to it: mermaid shares the page's thread and cannot be stopped once started.
 import { describe, expect, it } from 'vitest'
 import reviewed from './diagramBounds.fixture.mmd?raw'
-import { BOUNDS, drawable, kind, weight } from './diagramBounds'
+import { BOUNDS, drawable, kind, weight, withoutSettings } from './diagramBounds'
 
 const tooHeavy = (code: string) => !drawable(code)
 
@@ -38,6 +38,27 @@ describe("a block's weight", () => {
   it('skips comments and blank lines; any other statement weighs one at least', () => {
     expect(body('%% a -- b -- c\n\n   \nA')).toBe(1)
     expect(body('graph TD\nA\nB')).toBe(4)
+  })
+})
+
+describe('what mermaid is given (u15#10 P2-1)', () => {
+  it('no front matter: its config could set any size, at any depth', () => {
+    const graph = 'graph TD\n  A --> B'
+    expect(withoutSettings(`---\nconfig:\n  rankSpacing: 1000000\n---\n${graph}`)).toBe(graph)
+    expect(withoutSettings(`\n  ---\ntitle: t\nconfig:\n  flowchart:\n    nodeSpacing: 9\n---\n\n${graph}`)).toBe(`\n${graph}`)
+  })
+
+  it('no directive, wherever it stands, on one line or many, closed or not', () => {
+    expect(withoutSettings('%%{init: {"rankSpacing": 1000000}}%%\ngraph TD\n  A --> B')).toBe('\ngraph TD\n  A --> B')
+    expect(withoutSettings('graph TD\n%%{\n  init: {"nodeSpacing": 1e6}\n}%%\n  A --> B')).toBe('graph TD\n\n  A --> B')
+    expect(withoutSettings('sequenceDiagram\n%%{wrap}%%\n  A->>B: hi')).toBe('sequenceDiagram\n\n  A->>B: hi')
+    // Mermaid takes one not closed to the end of the text: so does this.
+    expect(withoutSettings('graph TD\n  A --> B\n%%{init: {"rankSpacing": 1e6}}\n  B --> C')).toBe('graph TD\n  A --> B\n')
+  })
+
+  it('the rest as it is: comments, and text that only looks like settings', () => {
+    const graph = 'graph TD\n  %% a comment\n  A["--- not front matter ---"] --> B'
+    expect(withoutSettings(graph)).toBe(graph)
   })
 })
 

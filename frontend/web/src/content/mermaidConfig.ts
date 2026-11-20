@@ -3,10 +3,11 @@
 // iframe allows top navigation by a click and popups, and it does not stop what mermaid
 // fetches while drawing (an image shape loads its URL); the frame and the image the page shows
 // do both. No HTML labels: every label is SVG text. Flowcharts laid out with dagre, not
-// mermaid 12's default ELK (1.5 MB), which the build leaves out (vite.config.ts). `secure`
-// keeps a block's %%{init}%% directive or front matter from changing any of this, the theme
-// or the fonts, nor DOMPurify's settings; the frame adds every other key of mermaid's default
-// settings (a kind's spacing, the look), so a block changes none.
+// mermaid 12's default ELK (1.5 MB), which the build leaves out (vite.config.ts). A block's
+// own settings never reach mermaid: the frame takes its front matter and %%{…}%% directives
+// away first (diagramBounds.ts `withoutSettings`). `secure`, which would refuse such settings
+// by their top-level names only, stays as a second line: these, DOMPurify's, and the
+// top-level keys of mermaid's defaults the frame adds.
 import type { MermaidConfig } from 'mermaid'
 import { BOUNDS } from './diagramBounds'
 
