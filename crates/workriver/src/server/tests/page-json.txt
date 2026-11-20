@@ -95,6 +95,17 @@ workspace.intents[].units[].tasks[].design: bool
 workspace.intents[].units[].tasks[].gate: string
 workspace.intents[].units[].tasks[].id: string
 workspace.intents[].units[].tasks[].input.causes: array
+workspace.intents[].units[].tasks[].input.notes: array
+workspace.intents[].units[].tasks[].input.notes[].at: string
+workspace.intents[].units[].tasks[].input.notes[].attachments: array
+workspace.intents[].units[].tasks[].input.notes[].attachments[].id: string
+workspace.intents[].units[].tasks[].input.notes[].attachments[].name: string
+workspace.intents[].units[].tasks[].input.notes[].attachments[].type: string
+workspace.intents[].units[].tasks[].input.notes[].attachments[].url: string
+workspace.intents[].units[].tasks[].input.notes[].attachments[]: object
+workspace.intents[].units[].tasks[].input.notes[].by: string
+workspace.intents[].units[].tasks[].input.notes[].text: string
+workspace.intents[].units[].tasks[].input.notes[]: object
 workspace.intents[].units[].tasks[].input.steps: array
 workspace.intents[].units[].tasks[].input.text: string
 workspace.intents[].units[].tasks[].input: object

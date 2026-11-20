@@ -182,6 +182,9 @@ pub struct Task {
     /// Dropped as no longer needed: when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dropped: Option<Closed>,
+    /// Requirements added to what it asks after it was recorded (`task.noted`), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<FindingNote>,
 }
 
 /// `u1#3` -> ("u1", 3).

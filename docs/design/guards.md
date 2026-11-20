@@ -32,7 +32,7 @@ its lines as they are. Review a move with rename and move detection:
 | Every command and option | Same file: `every_command_keeps_its_options`, with `cli-tree.txt` | Every command of `Cli::command()` with its aliases, and every argument: long and short forms, aliases, positional index, value names, number of values, possible values, defaults, environment variable, action, required, global, hidden, conflicts. |
 | Runtime names (a ratchet) | `tests/boundaries.rs` (an integration test: it reads the whole repository) | `herdr` (any case) and `pane(s)` appear outside the adapter only in the files listed; a new file naming them fails, and a listed file that stops naming them must leave the list (below). |
 | The CLI's text and machines | `tests/cli.rs` (real binary) | `project list`, `workspace list`, `backlog list`/`export`, `finding show`/`drop` (an agent refused), and the user adding, enabling, disabling and removing a machine down to `settings.json` and the tunnel's process. |
-| The page's logic | `frontend/web/src/**/*.test.ts(x)`, `pnpm test` | Markdown safety (no raw HTML, no unsafe link protocols, `noopener noreferrer`, no image fetched), the signed-out screen and the ten-minute deep link, the destructive-command flag, addresses, scope growth, quiet, the content-language guess. |
+| The page's logic | `frontend/web/src/**/*.test.ts(x)`, `pnpm test` | Markdown safety (no raw HTML, no unsafe link protocols, `noopener noreferrer`, no image fetched), the signed-out screen and the ten-minute deep link, the destructive-command flag, addresses, scope growth, quiet, the content-language guess, what was added to a task. |
 
 Run the guards on their own (`guards` matches both guard modules):
 

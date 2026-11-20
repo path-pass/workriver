@@ -94,7 +94,15 @@ export interface Finding {
   /** While open: it would be the manager's, but none is registered or running: it falls to the user. */
   noManager?: boolean;
   /** What was added to it since it was reported, oldest first. */
-  notes?: { by: string; at: string; text: string; attachments?: Attachment[] }[];
+  notes?: Note[];
+}
+
+/** Something added later, to a finding or to what a task asks: by whom, when, what. */
+export interface Note {
+  by: string;
+  at: string;
+  text: string;
+  attachments?: Attachment[];
 }
 
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */
@@ -177,6 +185,8 @@ export interface Task {
     causes: { review: string; findings: string[] }[];
     /** Gate nodes only: what the agent prepared for the user to do. */
     steps?: Step[];
+    /** Requirements added to what it asks since it was recorded (by the manager or the user), oldest first. */
+    notes?: Note[];
   };
   output: {
     /** Implement nodes: ids of the commits that carry the work out. */

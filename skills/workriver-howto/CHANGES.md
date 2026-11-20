@@ -4,6 +4,14 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **More for a task already handed out is `workriver task note`** (managers): `workriver task
+  note u1#3 --text "..." [--attach FILE]` adds a requirement to a task not delivered or
+  dropped, by you or the user only. It shows under what the task asks, with who and when, in
+  `task show` (and `--json`) and on the page; the worker on a started task is told at once,
+  your text quoted (a blind task's worker too: it is its own task); one not started reads it
+  at `task show`. Use it instead of typing into a worker's terminal (`hand-off`, `stalled`,
+  `user-message`). Workers: a message "Your task u1#3 … has an added requirement" means
+  `workriver task show u1#3` and meet it too.
 - **Tell the user once, on the page** (managers): after `workriver reply` or `workriver
   say`, do not repeat the same text in your terminal; leave one line there at most (e.g.
   which message you answered), unless it holds something the page does not (an error, a

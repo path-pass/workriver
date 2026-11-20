@@ -18,6 +18,14 @@ up" ...`, `units`), hand it out (`hand-off`), and reply with its link, which the
 
 Answer at once only what needs no work: what the records or the code already say.
 
+**More for a task already handed out** (the user wants it to also do something): add it to
+that task, which tells its worker, and reply with the task's link:
+
+    workriver task note u1#3 --text "Also page the search results"
+    workriver reply m3 --text "Added to u1#3; its worker is told: http://127.0.0.1:47820/u1/3"
+
+A task already delivered takes no more: add new work instead (`hand-off`).
+
 **What it points at** ("It points at: …") is what the user had picked in the page, in
 workriver's words: the task (and other tasks that changed the picked lines, with who did
 them), a finding, a file or lines (and where they are: the work tree and branch named after

@@ -580,6 +580,9 @@ export const ja: OneForm<typeof en> = {
   task: {
     blind: 'ブラインド',
     blindHint: 'ブラインド：他の作業を見ずに行ったため、指摘はこのレビュー独自の見方です',
+    added: '{{by}} が要件を追加',
+    addedByYou: 'あなたが要件を追加',
+    addedList: '追加された要件',
     unregistered: '未登録：{{title}}',
     dropped: '不要',
     droppedBy: '{{by}} が不要にしました（{{when}}）',

@@ -161,13 +161,15 @@ impl App {
         // An addition to a finding goes to several at once; it is on the page either way, so
         // what does not arrive is only logged.
         // ponytail: these are not followed up as "delivered / picked up" like decisions are.
-        // A dropped task likewise: its agent (to stop) and the manager.
+        // A dropped task likewise: its agent (to stop) and the manager; a requirement added
+        // to a task, its agent.
         // Work over: the manager hears which of its workers it may close.
-        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
+        if matches!(e.body, Body::FindingNoted { .. } | Body::TaskNoted { .. } | Body::TaskDropped { .. } | Body::UnitMerged { .. } | Body::UnitDone { .. } | Body::IntentStateChanged { .. } | Body::ManagerTold { .. }) {
             let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
             let to = {
                 match e.body {
                     Body::FindingNoted { .. } => delivery::notes(&all, live.as_deref(), &self.home, e),
+                    Body::TaskNoted { .. } => delivery::task_noted(&all, live.as_deref(), &self.home, e),
                     Body::TaskDropped { .. } => delivery::dropped(&all, live.as_deref(), e),
                     Body::ManagerTold { .. } => delivery::told(&all, live.as_deref(), e),
                     _ => delivery::finished(&all, live.as_deref(), e),

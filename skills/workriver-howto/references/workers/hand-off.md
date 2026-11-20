@@ -22,6 +22,21 @@ message's last paragraph, with any other trailers and no blank line between them
 
 For a blind task leave out everyone else's account: see `blind-review`.
 
+## More for a task already handed out
+
+A requirement that comes up after the task was recorded (the user asks for more, you
+thought of something) is added to the task, never typed into the worker's terminal:
+
+    workriver task note u1#3 --text "Also cover the Codex adapter" [--attach spec.md]
+
+It is kept under what the task asks, with who and when, in `task show` and on the page. A
+worker on the started task is told at once ("Your task u1#3 … has an added requirement",
+your text quoted; a blind task's worker too: it is its own task) and reads it with `task
+show`; one not started yet reads it when it starts. Only you and the user add one, while
+the task is not delivered or dropped; for a delivered task record the rest as new work
+(`workriver task add u1 --after 3 ...`). An addition to a finding is `workriver finding
+note` (`finding-additions`).
+
 ## A worker's commands must run in its own pane
 
 workriver takes the agent from the pane a command's **process** really runs in (the kernel

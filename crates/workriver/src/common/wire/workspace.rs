@@ -403,6 +403,9 @@ pub(crate) struct TaskIn {
     pub(crate) causes: Vec<Cause>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) steps: Option<Vec<core::Step>>,
+    /// Requirements added to what it asks since it was recorded, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) notes: Vec<NoteOut>,
 }
 
 #[derive(Serialize)]

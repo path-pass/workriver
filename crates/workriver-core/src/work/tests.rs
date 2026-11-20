@@ -314,6 +314,60 @@ fn a_blocker_is_put_before_a_running_task() {
     add(&mut s, "user", blocker()).unwrap();
 }
 
+/// A requirement added to a task already recorded: by the intent's manager or the user
+/// only, while the task is not delivered or dropped; never empty; kept in order with who and
+/// when, apart from what the task asked first; replayed the same. On a blind task it is part
+/// of what that task's agent sees, files included.
+#[test]
+fn a_task_gets_added_requirements() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build", "text": "Build the adapter", "agent": "w"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}], "agent": "rev", "blind": true}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Later", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{"from": "1"}]}})).unwrap();
+    let note = |n: u32, text: &str| json!({"kind": "task.noted", "body": {"unit": "u1", "task": n, "text": text}});
+
+    // Who: the manager or the user; not the task's own agent, not another agent.
+    assert!(add(&mut s, "w", note(1, "I will skip the tests")).unwrap_err().contains("by the manager of its intent or the user; to tell the manager: workriver manager tell u1#1"));
+    assert!(add(&mut s, "x", note(1, "Mine")).unwrap_err().contains("by the manager of its intent or the user"));
+    assert!(add(&mut s, "boss", note(1, " ")).unwrap_err().contains("a requirement needs its text"));
+    assert!(add(&mut s, "boss", note(9, "x")).unwrap_err().contains("no task u1#9"));
+    assert!(add(&mut s, "boss", json!({"kind": "task.noted", "body": {"unit": "u1", "task": 1, "attachments": ["0123456789abcdef"]}})).is_err(), "a file must be stored first");
+    // Which states: to do (nobody told yet), running, a waiting gate.
+    let first = add(&mut s, "boss", note(1, "Also cover the Codex adapter")).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    let second = add(&mut s, "user", note(1, "And keep the old flag working")).unwrap();
+    add(&mut s, "boss", json!({"kind": "attachment.added", "body": {"id": "aaaaaaaaaaaaaaaa", "name": "spec.md", "type": "text/markdown", "size": 3}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.noted", "body": {"unit": "u1", "task": 2, "text": "Check the error paths too", "attachments": ["aaaaaaaaaaaaaaaa"]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "attachment.added", "body": {"id": "bbbbbbbbbbbbbbbb", "name": "other.md", "type": "text/markdown", "size": 3}})).unwrap();
+    let t = s.state().task("u1", 1).unwrap();
+    assert_eq!(t.text, "Build the adapter", "what it asked first is not rewritten");
+    assert_eq!(
+        t.notes.iter().map(|n| (n.by.as_str(), n.at.as_str(), n.text.as_str())).collect::<Vec<_>>(),
+        [("boss", first.at.as_str(), "Also cover the Codex adapter"), ("user", second.at.as_str(), "And keep the old flag working")]
+    );
+    // The blind reviewer sees what was added to its own task, with its file; nothing else's.
+    let v = s.state().blind_view("rev").unwrap();
+    assert_eq!(v.units[0].tasks.iter().map(|t| (t.n, t.notes.len())).collect::<Vec<_>>(), [(2, 1)]);
+    assert_eq!(v.attachments.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["aaaaaaaaaaaaaaaa"]);
+    assert!(!serde_json::to_string(&v).unwrap().contains("Codex adapter"));
+
+    // Delivered, submitted or dropped: refused, saying why and what to do instead.
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    assert!(add(&mut s, "boss", note(1, "One more")).unwrap_err().contains("u1#1 is already delivered; what it asked is not changed after that: record the rest as new work (workriver task add u1 --after 1"));
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 4, "result": "done"}})).unwrap();
+    assert!(add(&mut s, "boss", note(4, "x")).unwrap_err().contains("u1#4 is already submitted"));
+    add(&mut s, "boss", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 3, "reason": "not needed"}})).unwrap();
+    assert!(add(&mut s, "boss", note(3, "x")).unwrap_err().contains("was dropped as no longer needed (not needed)"));
+    let replayed = replayed(&s);
+    assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
+    // A task with nothing added is written as before.
+    assert!(serde_json::to_value(replayed.task("u1", 3).unwrap()).unwrap().get("notes").is_none());
+}
+
 /// A task no longer needed is dropped, never deleted: by the intent's manager, the user, or
 /// the agent that recorded it, with a reason, while it is not done. It then holds nothing
 /// up (a gate after it opens, its blind agent sees again), leaves what waits for the user,

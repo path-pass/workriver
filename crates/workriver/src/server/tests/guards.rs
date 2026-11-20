@@ -404,6 +404,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let shot = tmp.join("shot.png");
     std::fs::write(&shot, b"\x89PNG shape").unwrap();
     let shot = d.upload(&shot, "s-impl", Some(("u1", 2, None))).unwrap();
+    d.append("s-boss", "task.noted", json!({ "unit": "u2", "task": 1, "text": "Include the cost", "attachments": [shot["id"]] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
     wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));

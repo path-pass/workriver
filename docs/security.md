@@ -173,7 +173,8 @@ only your own text is quoted as yours.
 A review, tests, research or design task can be handed out blind
 (`workriver task add … --blind`), so that its agent is not anchored by the implementer's
 account or by other reviews. Until that agent delivers, the service shows it only its own
-task, the unit and the intent, and its own attachments: not other tasks' notes, evidence,
+task (with what the manager or you added to it, and that addition's files), the unit and
+the intent, and its own attachments: not other tasks' notes, evidence,
 findings or decisions, no questions, no backlog. It cannot ask other agents and they cannot
 ask it; nothing is typed into its terminal about other work. Afterwards it sees everything
 again, and the task keeps a "blind" mark so you can weigh its findings as an independent
@@ -195,8 +196,9 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Other terminals.** Where the runtime lets any agent read another's terminal (Herdr does:
   [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr)), what another
   agent's terminal shows is not workriver's to hide.
-- **The manager's message.** What the manager writes into the hand-off is up to it; its
-  instructions say what to leave out.
+- **The manager's message.** What the manager writes into the hand-off, or adds to the task
+  later (`workriver task note`, which the blind agent is told and shown: it is its own
+  task), is up to it; its instructions say what to leave out.
 
 ## What this does not protect against
 

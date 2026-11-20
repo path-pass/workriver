@@ -267,6 +267,17 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         add: Vec<NewFinding>,
     },
+    /// A requirement added to a task not delivered yet, by the intent's manager or the user:
+    /// part of what the task asks from then on. What it asked first is never rewritten.
+    #[serde(rename = "task.noted")]
+    TaskNoted {
+        unit: String,
+        task: u32,
+        #[serde(default)]
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
+    },
     /// Something added to a finding after it was reported: a requirement for its fix, a
     /// detail. The finding itself is never rewritten.
     #[serde(rename = "finding.noted")]
@@ -523,6 +534,7 @@ impl Body {
             | TaskDelivered { unit, task: n, .. }
             | TaskDropped { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }
+            | TaskNoted { unit, task: n, .. }
             | FindingNoted { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
             | GateSubmitted { unit, task: n, .. }

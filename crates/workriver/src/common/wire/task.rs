@@ -28,6 +28,9 @@ pub struct TaskShow {
     /// What it asks, in full; and who wrote it ("the user", or an agent's name).
     pub text: String,
     pub written_by: String,
+    /// Requirements added to it since (`workriver task note`), oldest first: part of what it asks.
+    #[serde(default)]
+    pub notes: Vec<NoteShow>,
     /// The tasks it comes after (`start`: it can begin at once).
     pub after: Vec<String>,
     pub causes: Vec<CauseShow>,

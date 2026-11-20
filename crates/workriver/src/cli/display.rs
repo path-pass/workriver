@@ -414,6 +414,11 @@ pub(crate) fn text(s: &TaskShow) -> String {
     if !s.text.is_empty() && s.text != s.title {
         block(&mut out, &format!("What it asks (written by {})", s.written_by), &s.text);
     }
+    // Added since: part of what it asks, each with whose it is and when.
+    for x in &s.notes {
+        let files = if x.files.is_empty() { String::new() } else { format!("\nFiles: {}", x.files.join(", ")) };
+        block(&mut out, &format!("Added to what it asks by {} at {}", x.by, x.at), &format!("{}{files}", x.text));
+    }
     let _ = writeln!(out, "After: {}", s.after.join(", "));
     if !s.causes.is_empty() {
         let _ = writeln!(out, "Causes (it must answer these findings):");

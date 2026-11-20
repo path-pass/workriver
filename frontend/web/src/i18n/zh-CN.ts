@@ -580,6 +580,9 @@ export const zhCN: OneForm<typeof en> = {
   task: {
     blind: '盲审',
     blindHint: '盲审：没有看到其他工作就做的，所以它的发现是独立的看法',
+    added: '{{by}} 补充了要求',
+    addedByYou: '你补充了要求',
+    addedList: '补充的要求',
     unregistered: '未登记：{{title}}',
     dropped: '不再需要',
     droppedBy: '{{by}} 标记为不再需要，{{when}}',

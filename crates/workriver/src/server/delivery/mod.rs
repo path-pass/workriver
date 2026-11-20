@@ -163,6 +163,35 @@ pub(super) fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::pa
     out
 }
 
+/// Who is told that a requirement was added to a task: its agent, while the task is started
+/// and not delivered, live and not the one who added it. Not started yet: nobody, it reads
+/// it at `task show`. A blind task's agent is told too: the addition is about its own task,
+/// which its blind view shows anyway. What was added goes in as a quote.
+pub(super) fn task_noted(state: &State, live: Option<&[RuntimeAgent]>, home: &Path, e: &Event) -> Vec<(String, String)> {
+    let Body::TaskNoted { unit, task, text, attachments } = &e.body else { return vec![] };
+    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+    if t.state != workriver_core::TaskState::Running {
+        return vec![];
+    }
+    // Assigned by session, or by the name the agent goes by.
+    let Some(to) = t.agent.as_deref().and_then(|a| live.iter().find(|x| x.session == a || x.name == a)).map(|x| x.session.clone()) else { return vec![] };
+    if to == e.actor {
+        return vec![];
+    }
+    let user = e.actor == "user";
+    let from = if user { "the user".to_string() } else { format!("your manager ({})", who(state, &e.actor)) };
+    let said = if user { users("The user wrote", text) } else { quoted(&format!("What was added, quoted from {}", who(state, &e.actor)), text) };
+    let files: Vec<String> = attachments.iter().filter_map(|id| state.attachments.iter().find(|a| &a.id == id)).filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name)).map(|p| p.display().to_string()).collect();
+    let files = if files.is_empty() { String::new() } else { format!(" Attachments: {}.", files.join(", ")) };
+    vec![(
+        to,
+        format!(
+            "[workriver] Your task {} has an added requirement from {from}: it is part of what the task asks now. Read it with `workriver task show {unit}#{task}`.{files} {said}",
+            label(state, unit, t)
+        ),
+    )]
+}
+
 /// Who is told that a task was dropped: its agent (assigned or started), to stop it, and
 /// the intent's manager, who plans; never the one who dropped it, never an agent on a
 /// blind task, only live ones. The reason goes in as a quote.

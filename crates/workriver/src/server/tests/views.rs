@@ -171,7 +171,7 @@ fn a_task_shown_in_full() {
     assert_eq!(s.commits.iter().map(|c| (c.subject.as_str(), c.linked)).collect::<Vec<_>>(), [("Expire tokens", false)]);
     // The JSON's fields, as agents and scripts read them.
     let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>().join(",");
-    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,link,lostCommits,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
+    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,link,lostCommits,notes,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
     assert_eq!(keys(&shown["causes"][0]["finding"]), "decisions,files,id,impact,notes,problem,reason,reportedBy,severity,state,suggestion,where");
     let text = crate::cli::text(&s);
     for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\" (working): Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {

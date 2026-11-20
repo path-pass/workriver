@@ -122,8 +122,9 @@ fn attachments_of(state: &core::State, ids: &[String]) -> Vec<AttachmentOut> {
         .collect()
 }
 
-fn notes_of(state: &core::State, names: &Names, f: &core::Finding) -> Vec<NoteOut> {
-    f.notes.iter().map(|n| NoteOut { by: names.of(&n.by), at: n.at.clone(), text: n.text.clone(), attachments: attachments_of(state, &n.attachments) }).collect()
+/// What was added to a finding or to what a task asks, as the page shows it.
+fn notes_of(state: &core::State, names: &Names, notes: &[core::FindingNote]) -> Vec<NoteOut> {
+    notes.iter().map(|n| NoteOut { by: names.of(&n.by), at: n.at.clone(), text: n.text.clone(), attachments: attachments_of(state, &n.attachments) }).collect()
 }
 
 /// A task's conversations, from the records, with the runtime's word on their agents.
@@ -682,7 +683,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             reason: f.reason.clone(),
             decider: (f.state == FindingState::Open && policy.managers() && manager_runs).then_some("manager"),
             no_manager: f.state == FindingState::Open && policy.managers() && !manager_runs,
-            notes: notes_of(state, names, f),
+            notes: notes_of(state, names, &f.notes),
         })
         .collect();
     let kind = match t.kind {
@@ -715,6 +716,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             text: if t.text.is_empty() { t.title.clone() } else { t.text.clone() },
             causes: t.causes.iter().map(|c| Cause { review: c.task.to_string(), findings: c.findings.clone() }).collect(),
             steps: (t.kind == TaskKind::Gate).then(|| t.steps.clone()),
+            notes: notes_of(state, names, &t.notes),
         },
         output: TaskOut {
             commits: Some(commits),
@@ -772,7 +774,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         reviewer: None,
         result: None,
         inputs: vec![core::Input { from: "start".into(), primary: true }],
-        input: TaskIn { text: String::new(), causes: vec![], steps: None },
+        input: TaskIn { text: String::new(), causes: vec![], steps: None, notes: vec![] },
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
         delivery: None,

@@ -93,6 +93,13 @@
               "kind": "tests",
               "n": 1,
               "note": "",
+              "notes": [
+                {
+                  "at": "2025-12-03T13:03:00Z",
+                  "by": "s-boss2",
+                  "text": "Also try it offline"
+                }
+              ],
               "plans": [],
               "result": null,
               "reviewer": null,
@@ -1301,6 +1308,14 @@
         "title": "Later"
       },
       "kind": "intent.created"
+    },
+    {
+      "body": {
+        "task": 1,
+        "text": "Also try it offline",
+        "unit": "u4"
+      },
+      "kind": "task.noted"
     }
   ],
   "managers": {
@@ -2362,6 +2377,13 @@
             "kind": "tests",
             "n": 1,
             "note": "",
+            "notes": [
+              {
+                "at": "2025-12-03T13:03:00Z",
+                "by": "s-boss2",
+                "text": "Also try it offline"
+              }
+            ],
             "plans": [],
             "result": null,
             "reviewer": null,

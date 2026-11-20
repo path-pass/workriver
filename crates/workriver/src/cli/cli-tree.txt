@@ -207,6 +207,7 @@ workriver help task
 workriver help task add
 workriver help task deliver
 workriver help task drop
+workriver help task note
 workriver help task show
 workriver help task start
 workriver help unit
@@ -378,8 +379,14 @@ workriver task help add
 workriver task help deliver
 workriver task help drop
 workriver task help help
+workriver task help note
 workriver task help show
 workriver task help start
+workriver task note
+workriver task note  arg attach --attach value=["FILE"] num=1 action=Append
+workriver task note  arg help --help -h num=0 action=Help
+workriver task note  arg task index=1 value=["TASK"] num=1 action=Set required
+workriver task note  arg text --text value=["TEXT"] num=1 default=[""] action=Set
 workriver task show
 workriver task show  arg help --help -h num=0 action=Help
 workriver task show  arg json --json value=["JSON"] num=0 default=["false"] action=SetTrue
