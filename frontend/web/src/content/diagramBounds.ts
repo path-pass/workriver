@@ -1,8 +1,27 @@
-// How heavy a mermaid block is, counted from its text without mermaid. Mermaid draws in a
-// frame that shares the page's thread, and nothing can stop it once it started: a block over
-// these bounds is not drawn at all (its code shows, under a note). The bounds are chosen by
-// measurement (docs/design/ui/attachments.md): at them, the worst shapes found held the page
-// for about 0.4 s, half the budget of 1 s written there (room for a slower machine).
+// Whether a mermaid block is drawn, from its text, without mermaid: its kind, and how heavy
+// it is. Mermaid draws in a frame that shares the page's thread, and nothing can stop it once
+// it started: a block of another kind or over these bounds is not drawn at all (its code
+// shows, under a note). Kinds and bounds are chosen by measurement
+// (docs/design/ui/attachments.md): at the bounds, the worst shapes found of each kind drawn
+// held the page for about 0.4 s at most, under half the budget of 1 s written there.
+
+/**
+ * The kinds drawn, by the word a block starts with: those whose cost the weight below bounds,
+ * measured. Others take numbers that make work the weight does not see (a gantt chart's
+ * durations, a block diagram's `space:20000`, a packet's bit ranges), or were not measured.
+ */
+const KINDS: Record<string, string> = {
+  graph: 'flowchart', flowchart: 'flowchart', sequenceDiagram: 'sequence', classDiagram: 'class',
+  'classDiagram-v2': 'class', stateDiagram: 'state', 'stateDiagram-v2': 'state', erDiagram: 'er',
+}
+
+/** The kind of a block, when it is one drawn: the first word after front matter, directives and comments. */
+export function kind(code: string): string | undefined {
+  const text = code.replace(/^\s*---\r?\n[\s\S]*?\r?\n---\s*(\r?\n|$)/, '').replace(/%%\{[\s\S]*?\}%%/g, '')
+  const first = text.split(/\r?\n/).map(l => l.trim()).find(l => l && !l.startsWith('%%'))
+  const word = first?.split(/[\s;]/)[0]
+  return word && Object.hasOwn(KINDS, word) ? KINDS[word] : undefined
+}
 
 /**
  * The most a block may weigh (see `weight`), its most characters, and its longest word (a run
@@ -35,9 +54,9 @@ export function weight(code: string): number {
   return total
 }
 
-/** Whether a block is too heavy to draw here. */
-export function tooHeavy(code: string): boolean {
-  if (code.length > BOUNDS.chars) return true
-  for (const word of code.matchAll(/\S+/g)) if (word[0].length > BOUNDS.word) return true
-  return weight(code) > BOUNDS.weight
+/** Whether a block is drawn here: a kind drawn, within the bounds. */
+export function drawable(code: string): boolean {
+  if (code.length > BOUNDS.chars || !kind(code)) return false
+  for (const word of code.matchAll(/\S+/g)) if (word[0].length > BOUNDS.word) return false
+  return weight(code) <= BOUNDS.weight
 }

@@ -56,7 +56,9 @@ describe("mermaid's settings", () => {
       expect(c.layout).toBe('dagre')
       // Its own limits no looser than ours (diagramBounds.ts), checked before it draws.
       expect([c.maxTextSize, c.maxEdges]).toEqual([BOUNDS.chars, BOUNDS.weight])
-      for (const key of ['securityLevel', 'htmlLabels', 'layout', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode'])
+      // And every other key the frame names (all of mermaid's): nothing in a block changes them.
+      expect(mermaidConfig(dark, ['flowchart', 'dompurifyConfig', 'look']).secure).toEqual(expect.arrayContaining(['flowchart', 'dompurifyConfig', 'look', 'theme']))
+      for (const key of ['securityLevel', 'htmlLabels', 'layout', 'dompurifyConfig', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode'])
         expect(c.secure).toContain(key)
     }
   })

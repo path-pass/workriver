@@ -52,42 +52,60 @@ its sections went.
     style-src 'unsafe-inline'`): an image shape's URL, a stylesheet or a font a block asks
     for is refused there, and that block falls back as one mermaid cannot draw.
   - Security level `strict` (labels sanitized, a click directive calls nothing) and no HTML
-    labels (every label is SVG text); a block's `%%{init}%%` or front matter cannot change
-    these, the layout, the theme or the fonts. Mermaid's own `sandbox` level is not used: its iframe allows top
+    labels (every label is SVG text); a block's `%%{init}%%` or front matter changes none of
+    mermaid's settings (all are in its `secure` list: these, the layout, theme, fonts, look,
+    each kind's spacing, DOMPurify's settings). Mermaid's own `sandbox` level is not used: its iframe allows top
     navigation by a click and popups, so a `click … href` link would still open, and it does
     not stop what mermaid fetches while drawing (an image shape loads its URL with
     `new Image()` in the page).
   - The page gets the SVG text back and shows it only as an image (an `<img>` of a `data:`
     URL): an SVG image runs no script, loads nothing, and its links cannot be clicked.
   - The frame shares the page's thread, and mermaid cannot be stopped once it started (a
-    timer on that thread does not fire until it is done). So a block too heavy to draw is
-    never handed to it: weighed from its text, without mermaid (`diagramBounds.ts`), it may
-    have at most 10 000 characters, no run without white space over 1 000 (mermaid breaks
-    one in time growing with its square: 732 ms for 10 000), and a weight of at most 80.
-    The weight counts, statement by statement (lines, or parts between `;`), the links
-    (`a & b --> c & d` as every edge it makes), or the things named besides a link's ends (a
-    block diagram's row), at least one; labels, strings and text after a spaced `:` are left
-    out. Mermaid's own limits (`maxTextSize`, `maxEdges`) are set to the same, and what it
-    draws in place of a diagram it refuses (its error diagram, "Maximum text size in diagram
-    exceeded") counts as not drawn.
-  - The bound and its budget are measured (Chrome for Testing 1217, headless, on the Mac
-    workriver runs on; each input in a fresh page, mermaid warmed by a two-node graph): the
-    budget is that the page's 5 ms heartbeat never stops longer than 1 s. At the bound, the
-    heaviest shapes found held it for 0.2–0.4 s: a class diagram of 78 relations half of them
-    spanning the whole chain (357–412 ms), state and ER diagrams of that shape (286–390),
-    78 such flowchart edges with labels up to 10 000 characters (306–357), `;`-joined and
-    one-line chains, block rows, kanban, nested subgraphs (125–295); sequence diagrams,
-    gantt, pie and the other kinds stay far under (at 200 statements: 75 ms and less). The
-    cost grows with the square of edges that span many ranks: 100 of them 0.3–0.7 s, 200
-    of them 1.6–2.9 s, the reviewed 499 (u15#6) 24 s, so the bound sits where the worst is
-    half the budget, room for a slower machine. In the page itself (the app, then the
-    first diagram, mermaid loaded then) the heaviest allowed held it for 404 ms on the
-    production build; the reviewed block and one of 50 001 characters are refused and held
-    it for under 10 ms.
+    timer on that thread does not fire until it is done). So a block is drawn only when its
+    text, read without mermaid (`diagramBounds.ts`), shows it cheap enough; any other is
+    never handed to mermaid:
+    - **Its kind is one drawn**: flowchart (`graph`, `flowchart`), sequence, class, state and
+      ER diagrams, by the first word after front matter, directives and comments; the frame
+      checks again with mermaid's own `detectType`. Every other kind shows its code: gantt,
+      block, packet and some others take numbers that make work no count of statements sees
+      (u15#8 P2-1: a block diagram's `space:20000` held the page 19–26 s, a gantt chart of 70
+      tasks of 12 000 days with `excludes weekends` 4.7–6.8 s, a packet's `0-3999999` 0.5–1.8
+      s), and the rest were not measured to the bound.
+    - **Its size is within the bounds**: at most 10 000 characters, no run without white space
+      over 1 000 (mermaid breaks one in time growing with its square: 732 ms for 10 000), and a
+      weight of at most 80. The weight counts, statement by statement (lines, or parts between
+      `;`), the links (`a & b --> c & d` as every edge it makes), or the things named besides
+      a link's ends, at least one; labels, strings and text after a spaced `:` are left out.
+      A link's length (`A ------> B`) costs nothing measurable (10 000 characters of them: 144
+      ms at most). Mermaid's own limits (`maxTextSize`, `maxEdges`) are set to the same, and
+      what it draws in place of a diagram it refuses (its error diagram, "Maximum text size in
+      diagram exceeded") counts as not drawn.
+  - The kinds and bounds are measured (Chrome for Testing 1217, headless, on the Mac
+    workriver runs on; each input in a fresh page, mermaid warmed by a two-node graph, three
+    runs): the budget is that the page's 5 ms heartbeat never stops longer than 1 s. At the
+    bounds, the worst shape found of each kind drawn, longest stop of the runs (u15#9; the
+    same shapes in u15#7, on a busier machine, in brackets):
+    - flowchart: 320 ms, 78 edges half of them spanning the whole chain, labels up to
+      10 000 characters (306–357); the same without labels, as lines, one-line chains or
+      `;`-joined: 205–216 (210–264); random and complete graphs, nested subgraphs, long
+      links, labels filling 10 000 characters on 80 nodes: 74–203;
+    - ER: 254 ms, 78 relations of that shape (300–350); entities of 8 attributes: 35;
+    - class: 244 ms, 78 relations of that shape (357–412); namespaces, classes of 8
+      members: 30–55;
+    - state: 221 ms, 78 transitions of that shape (286–390); composite states nested 14
+      deep: 67;
+    - sequence: 70 ms, 78 activations; messages, notes, blocks nested 18 deep, messages
+      filling 10 000 characters: 33–46.
+    The cost of the graph kinds grows with the square of edges that span many ranks: 100 of
+    them 0.3–0.7 s, 200 of them 1.6–2.9 s, the reviewed 499 (u15#6) 24 s, so the weight bound
+    sits where the worst is under half the budget, room for a slower machine. In the page
+    itself (the app, then the first diagram, mermaid loaded then; production build) the
+    heaviest allowed held it for 364 ms (404 in u15#7); every refused block, the reviewed
+    inputs of u15#6 and u15#8 among them, for under 15 ms.
   - One diagram is drawn at a time, with a pause between, so many do not hold the page; one
     no longer shown is skipped.
   - Until it is drawn the block shows its code as any code block does; one mermaid cannot
-    draw, or too heavy to draw, keeps its code, under a short note ("This diagram could not be drawn; its text is
+    draw, or one not drawn here, keeps its code, under a short note ("This diagram could not be drawn; its text is
     below."), never a broken picture or an error. The diagram is drawn in the page's theme
     (mermaid's `neutral` in light, `dark` in dark) and again when the theme changes; it keeps
     its own size, on the code block's ground, scrolled sideways when wider than the text, as

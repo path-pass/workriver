@@ -1,11 +1,11 @@
 // A ```mermaid block of Markdown an agent wrote, drawn as a diagram (drawDiagram.ts). What
 // mermaid drew is shown only as an image: an SVG image runs no script, fetches nothing and
-// has no links. Until it is drawn, and when mermaid cannot draw it or it is too heavy to draw
-// (diagramBounds.ts: then mermaid is never asked), the block shows its code as any code block
-// does; then under a short note. The diagram follows the page's theme.
+// has no links. Until it is drawn, and when mermaid cannot draw it or it is not drawn here (a
+// kind not drawn, or too heavy: diagramBounds.ts; then mermaid is never asked), the block
+// shows its code as any code block does; then under a short note. The diagram follows the page's theme.
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useT } from '@/i18n'
-import { tooHeavy } from './diagramBounds'
+import { drawable } from './diagramBounds'
 import { drawDiagram, type Picture } from './drawDiagram'
 
 const darkSystem = () => matchMedia('(prefers-color-scheme: dark)')
@@ -27,16 +27,16 @@ export function Diagram({ code }: { code: string }) {
   const dark = useSyncExternalStore(watchTheme, isDark, () => false)
   // For this code: what was drawn last (kept while it is drawn again in the other theme), or failed.
   const [got, setGot] = useState<{ code: string; picture?: Picture; failed?: boolean }>()
-  const heavy = useMemo(() => tooHeavy(code), [code])
+  const refused = useMemo(() => !drawable(code), [code])
   useEffect(() => {
-    if (heavy) return
+    if (refused) return
     const shown = new AbortController()
     drawDiagram(code, dark, shown.signal).then(
       picture => { if (!shown.signal.aborted) setGot({ code, picture }) },
       () => { if (!shown.signal.aborted) setGot({ code, failed: true }) },
     )
     return () => shown.abort()
-  }, [code, dark, heavy])
+  }, [code, dark, refused])
   const now = got?.code === code ? got : undefined
   if (now?.picture) {
     const { svg, width, height } = now.picture
@@ -48,7 +48,7 @@ export function Diagram({ code }: { code: string }) {
   }
   return (
     <>
-      {(heavy || now?.failed) && <p className="md-note">{t('attach.mdDiagramFailed')}</p>}
+      {(refused || now?.failed) && <p className="md-note">{t('attach.mdDiagramFailed')}</p>}
       <pre><code className="language-mermaid">{`${code}\n`}</code></pre>
     </>
   )

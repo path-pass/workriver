@@ -5,11 +5,12 @@
 // do both. No HTML labels: every label is SVG text. Flowcharts laid out with dagre, not
 // mermaid 12's default ELK (1.5 MB), which the build leaves out (vite.config.ts). `secure`
 // keeps a block's %%{init}%% directive or front matter from changing any of this, the theme
-// or the fonts.
+// or the fonts, nor DOMPurify's settings; the frame adds every other key of mermaid's default
+// settings (a kind's spacing, the look), so a block changes none.
 import type { MermaidConfig } from 'mermaid'
 import { BOUNDS } from './diagramBounds'
 
-export function mermaidConfig(dark: boolean): MermaidConfig {
+export function mermaidConfig(dark: boolean, keys: string[] = []): MermaidConfig {
   return {
     startOnLoad: false,
     securityLevel: 'strict',
@@ -23,6 +24,6 @@ export function mermaidConfig(dark: boolean): MermaidConfig {
     // System fonts only (nothing to fetch), the same that the image is shown with.
     fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif',
     secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'suppressErrorRendering', 'maxEdges',
-      'htmlLabels', 'layout', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode'],
+      'htmlLabels', 'layout', 'theme', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'darkMode', 'dompurifyConfig', ...keys],
   }
 }

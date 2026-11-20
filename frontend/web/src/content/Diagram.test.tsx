@@ -77,6 +77,14 @@ describe('a mermaid block in Markdown', () => {
     expect(host.textContent).toContain('This diagram could not be drawn; its text is below.')
   })
 
+  it('of a kind not drawn here (a gantt chart) is never handed to mermaid: its code shows, under a note', async () => {
+    const gantt = 'gantt\n  excludes weekends\n  t0 :2024-01-01, 12000d'
+    await show('```mermaid\n' + gantt + '\n```')
+    expect(draw.calls).toEqual([])
+    expect(host.querySelector('pre code')?.textContent).toBe(gantt + '\n')
+    expect(host.textContent).toContain('This diagram could not be drawn; its text is below.')
+  })
+
   it('that mermaid cannot draw shows its code with a note, and nothing throws', async () => {
     draw.answer = () => Promise.reject(new Error('Parse error on line 1'))
     await show('```mermaid\ngraph TD\n  A--\n```')

@@ -2,7 +2,9 @@
 // never handed to it: mermaid shares the page's thread and cannot be stopped once started.
 import { describe, expect, it } from 'vitest'
 import reviewed from './diagramBounds.fixture.mmd?raw'
-import { BOUNDS, tooHeavy, weight } from './diagramBounds'
+import { BOUNDS, drawable, kind, weight } from './diagramBounds'
+
+const tooHeavy = (code: string) => !drawable(code)
 
 const body = (s: string) => weight(s)
 
@@ -36,6 +38,33 @@ describe("a block's weight", () => {
   it('skips comments and blank lines; any other statement weighs one at least', () => {
     expect(body('%% a -- b -- c\n\n   \nA')).toBe(1)
     expect(body('graph TD\nA\nB')).toBe(4)
+  })
+})
+
+describe('the kinds drawn', () => {
+  it('flowcharts, sequence, class, state and ER diagrams, after front matter, directives and comments', () => {
+    expect(kind('graph TD\n A-->B')).toBe('flowchart')
+    expect(kind('flowchart LR')).toBe('flowchart')
+    expect(kind('\n\n  sequenceDiagram\n  A->>B: hi')).toBe('sequence')
+    expect(kind('classDiagram-v2\n A <|-- B')).toBe('class')
+    expect(kind('stateDiagram-v2\n [*] --> A')).toBe('state')
+    expect(kind('erDiagram\n A ||--o{ B : r')).toBe('er')
+    expect(kind('---\ntitle: x\nconfig:\n  theme: dark\n---\nflowchart TD\n A-->B')).toBe('flowchart')
+    expect(kind('%%{init: {"theme": "dark"}}%%\n%% a comment\ngraph LR')).toBe('flowchart')
+    expect(kind('%%{\n  init: {"theme": "dark"}\n}%%\nsequenceDiagram')).toBe('sequence')
+  })
+
+  it('no other kind, measured or not (u15#8 P2-1): their numbers make work the weight does not see', () => {
+    for (const code of ['gantt\n  excludes weekends\n  t0 :2024-01-01, 12000d', 'block-beta\n  a space:20000 b', 'packet-beta\n  0-3999999: "x"',
+      'flowchart-elk TD\n A-->B', 'pie\n "a": 1', 'mindmap\n root', 'xychart-beta', 'gitGraph\n commit', 'graphTD', '', '%% only a comment',
+      '---\ntitle: x\n---\ngantt'])
+      expect([code, kind(code)]).toEqual([code, undefined])
+  })
+
+  it("the reviewer's three inputs of u15#8 are not drawn", () => {
+    expect(drawable('block-beta\n  columns 3\n  a space:20000 b\n')).toBe(false)
+    expect(drawable('packet-beta\n  0-3999999: "x"\n')).toBe(false)
+    expect(drawable('gantt\n  dateFormat YYYY-MM-DD\n  excludes weekends\n  section s\n' + '  t0 :2024-01-01, 12000d\n'.repeat(70))).toBe(false)
   })
 })
 

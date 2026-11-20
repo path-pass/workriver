@@ -2,7 +2,7 @@
 // page, draws it with mermaid and sends back the SVG text, or that it could not. The page
 // shows that only as an image (Diagram.tsx).
 import mermaid from 'mermaid'
-import { tooHeavy } from './diagramBounds'
+import { drawable } from './diagramBounds'
 import { mermaidConfig } from './mermaidConfig'
 
 /** Mermaid's SVG is HTML text (an `xlink:href` with its prefix undeclared, say); an image
@@ -15,14 +15,19 @@ function asXml(svg: string): string {
   return new XMLSerializer().serializeToString(root)
 }
 
+/** Mermaid's names for the kinds drawn (diagramBounds.ts). */
+const KINDS = new Set(['flowchart-v2', 'sequence', 'classDiagram', 'stateDiagram', 'er'])
+
 let n = 0
 addEventListener('message', async (e: MessageEvent<{ id: number; code: string; dark: boolean }>) => {
   if (e.source !== parent || e.origin !== origin) return
   const { id, code, dark } = e.data
   try {
-    // The page refuses these already; nothing too heavy reaches mermaid in any case.
-    if (tooHeavy(code)) throw new Error('too heavy')
-    mermaid.initialize(mermaidConfig(dark))
+    // The page refuses these already; nothing of another kind or too heavy reaches mermaid
+    // in any case, and the kind is the one mermaid itself finds.
+    if (!drawable(code)) throw new Error('not drawn here')
+    mermaid.initialize(mermaidConfig(dark, Object.keys(mermaid.mermaidAPI.defaultConfig)))
+    if (!KINDS.has(mermaid.detectType(code))) throw new Error('not drawn here')
     const { svg } = await mermaid.render(`d${n++}`, code)
     // What mermaid draws in place of a diagram it refuses is not one.
     if (/aria-roledescription="error"|Maximum text size in diagram exceeded/.test(svg)) throw new Error('refused')
