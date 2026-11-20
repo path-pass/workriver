@@ -43,7 +43,7 @@ anything in `frontend/`.
 
 | File | What it holds |
 |---|---|
-| [`navigation.md`](docs/design/ui/navigation.md) | The rail, an intent's page, merging planned intents, the side panel and its Needs you, Agents and Backlog sections, signing in, addresses |
+| [`navigation.md`](docs/design/ui/navigation.md) | The rail, an intent's page, editing an intent and its history, merging planned intents, the side panel and its Needs you, Agents and Backlog sections, signing in, addresses |
 | [`activity.md`](docs/design/ui/activity.md) | The main area and its first layer (the graph), a node's detail, findings, gates and chores, what the user puts in, evidence, where the scope grew |
 | [`code.md`](docs/design/ui/code.md) | The code layer, the Commits section, the view by function (postponed) |
 | [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, agents asking each other |
@@ -104,5 +104,5 @@ paths made whole and "see …" naming the file):
   rail group, open, with a quiet "No units yet".
 - No syntax highlighting in the diff.
 - Trackers: intents and findings carry an optional external id (`system`, `key`, `url`),
-  shown as a link chip. Later a tracker adapter (a trait like the runtime one) imports items
+  shown as a link chip, not edited on the page (it is the tracker's to keep in step). Later a tracker adapter (a trait like the runtime one) imports items
   into the backlog and pushes status and links back; agents never talk to trackers directly.

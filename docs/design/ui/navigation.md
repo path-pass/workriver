@@ -84,7 +84,9 @@ its sections went.
 ## An intent's page
 
 - **An intent's page** (`/i3`, `workriver link i3`; its title in the rail opens it): its id
-  and title with "copy link", its state, "Ready to close", its link chip; its goal under it. Then a
+  and title with "copy link" and a quiet pencil (edit), its state, "Ready to close", its link
+  chip; its goal under it, and under that, once it has more than one version, a quiet line
+  "v5 · edited 2d ago by claude 1 · History" ("by you" for the user; the date on hover). Then a
   block with its note (short Markdown with links, as an agent's longer text; folded past six
   lines; `workriver intent set i3 --add-note` adds a paragraph) and where it runs: the
   workspace (and quietly "works on <project>", when known), the manager (name, state, the terminal button, and "Write to the manager",
@@ -95,6 +97,32 @@ its sections went.
   when it last moved ("moved 2d ago", the date on hover). Last, when it has any, "Earlier
   research and design": its own tasks from before research units, as a graph with the same
   detail under it as a unit's, so `/i3/1` opens there with the task picked.
+
+## Editing an intent, and its history
+
+- **Editing** is a dialog opened by the pencil, on every state (the page is the user's, who
+  edits every field of every intent; who else may is in `docs/security.md`): Title (one line,
+  required), Goal (two rows), Note (a textarea, Markdown, with a Write / Preview switch; the
+  preview renders as the note does). Save records only the fields that changed, with the
+  version they were edited from (`base`); it is disabled when nothing changed or the title is
+  blank. Cancel and Escape close it. Not inline: three fields, a conflict and a preview need
+  one place.
+- **A conflict**: when a field it saves was changed meanwhile, the service refuses it; the
+  dialog stays open with the user's text, says which field and the version it is at, shows
+  what that field says now against the user's text, word by word, and offers "Save anyway"
+  (saved from the newest version). Nothing is lost: what it said stays in the history. No
+  three-way merge, and no live sign while the dialog is open.
+- **The history** is a dialog opened by "History": the versions, the newest first, each with
+  its number, who (an agent with its robot mark, as the manager's decisions are shown; "you"
+  for the user), how long ago (the date on hover) and what it changed in words ("title, goal
+  and note", "added to the note", "created", "i7 merged in"); beside them (above them on a
+  narrow screen) the one picked, the newest at first: title, goal and note against the
+  version before it, word by word (removed struck through in the removed colour, added in the
+  added colour; words as the language has them, so Chinese and Japanese are not split mid
+  word), only what changed; "Whole text" shows it whole, the note rendered. The first version
+  is shown whole. "Restore this version" (not on the newest) opens the edit dialog filled with
+  it, saying which version it restores; saving makes it a new version, nothing is removed.
+  Its versions are read when it opens (`/api/intent/{id}/history`), not with the page.
 
 ## Merging planned intents
 

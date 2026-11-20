@@ -133,9 +133,8 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 eprintln!("--goal is deprecated: add intents with `workriver backlog add` and start them with `workriver intent start <intent>`.");
                 let current = here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string));
                 match current {
-                    Some(i) => {
-                        d.append(actor, "intent.updated", json!({ "intent": i, "goal": goal }))?;
-                    }
+                    // An intent's goal is the user's: it is not changed from here.
+                    Some(i) => eprintln!("--goal is not set on {i}: an intent's goal is the user's (they edit it on its page); write what you know in its note"),
                     None => {
                         let title = group.as_ref().and_then(|g| g["label"].as_str()).unwrap_or("intent").to_string();
                         let made = d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": cwd_folder()?, "state": "planned" }))?;
@@ -446,7 +445,8 @@ pub(crate) enum BacklogCmd {
         /// The planned intents merged into it, in the order their text is added.
         #[arg(required = true)]
         from: Vec<String>,
-        /// A new title for the intent that stays (the merged whole may need one).
+        /// A new title for the intent that stays (the merged whole may need one). The
+        /// user's alone: an agent's merge keeps the title.
         #[arg(long)]
         title: Option<String>,
     },

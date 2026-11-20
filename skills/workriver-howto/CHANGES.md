@@ -4,6 +4,17 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **An intent's title and goal are the user's; its note keeps every version** (managers):
+  `workriver intent set i3 --title/--goal` from an agent is refused (ask the user; they edit
+  them on the intent's page). The note of your active intent you add to (`--add-note`) or
+  replace whole (`--note "…" --base N`); `--title`, `--goal` and `--note` need `--base`, the
+  version you read (`workriver intent history i3`: who changed what, `--version N` one whole,
+  `--diff N` what it changed), and are refused when what they replace changed since. A
+  planned intent of your workspace's project takes your `--add-note` (nothing more): write
+  there what the user tells you about it. Dropping a planned intent is the user's, also one
+  you once ran; done and dropped intents are the user's alone. `backlog merge --title` is the
+  user's: merge without it. When the user edits your active intent you are told: `[workriver]
+  The user changed i3 (now v5): …`. (`start-intent`)
 - **The `Task:` line sits in the commit message's last paragraph** (everyone): with any
   other trailers such as `Co-Authored-By:`, no blank line between them. git reads trailers
   only from the last paragraph, so a `Task:` line followed by a blank line and another

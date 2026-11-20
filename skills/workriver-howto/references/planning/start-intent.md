@@ -14,11 +14,11 @@ text (`units`).
 Finished: `workriver intent done i3`; its output then asks you to tell the user with
 `workriver say` what the intent came to (`closing-units`). Given up: `workriver intent drop
 i3 --reason "..."` (an intent you started; one still in the roadmap is the user's to drop).
-Planned intents that are one goal merge into one (`workriver backlog merge <into> <from>...
-[--title "<new title>"]`): you may merge intents agents added (an import); ones the user
-added are the user's to merge (ask them; "Merge…" in the roadmap). The merged ones are
-dropped, "merged into i3", their text in i3's note; `--title` renames i3. `workriver board
-i3` prints the note.
+Planned intents that are one goal merge into one (`workriver backlog merge <into>
+<from>...`): you may merge intents agents added (an import); ones the user added are the
+user's to merge (ask them; "Merge…" in the roadmap). The merged ones are dropped, "merged
+into i3", their text in i3's note; i3 keeps its title (`--title` is the user's: they rename
+it on its page). `workriver board i3` prints the note.
 
 **Started by the user:** the user may start a planned intent in your workspace from the page;
 then you get `[workriver] The user started i3 «title» of project «workriver» (folder
@@ -38,6 +38,25 @@ name one. Research or design for the intent as a whole is a research unit (`unit
 task on the intent. Its page is `workriver link i3` (goal, note, units); add what the user
 should read there with `workriver intent set i3 --add-note "…"`.
 
+**The intent's text:** its title and goal are the user's (they edit them on its page); if
+you think they should read otherwise, say so to the user. Its note is yours too while it is
+active: add a paragraph with `--add-note "…"`, or correct it whole with `workriver intent set
+i3 --note "$(cat note.md)" --base N`, where N is the version you read: `workriver intent
+history i3` lists who changed what and when, and ends with the version now; `--version N`
+prints one whole, `--diff N` what it changed. A replace from an older version is refused
+when the note changed since ("i3's note changed since v4 (in v5; it is at v5, …)"): read it
+and run again with the newer base. Every change is kept and can be restored (the user does
+that on the page; you, by `--note` with an older version's text). When the user changes
+your active intent you get `[workriver] The user changed i3 (now v5): title: «…»; goal:
+«…»; its note changed (workriver intent history i3 --diff 5).`: plan with what it says now.
+
+**A planned intent's note:** what the user tells you about an intent still in the roadmap
+(an example, a constraint) goes into its note with `workriver intent set i7 --add-note "…"`,
+if a workspace you manage works on its project (as the user set it, `workriver workspace
+list`, else the project of its current intent). Only additions: its title, goal and the rest
+of its note are the user's until it is started, and so is dropping it. Done and dropped
+intents are the user's alone.
+
 **Changing managers** (one handing over to another pane): a workspace has one manager, so
 the new one registers only after the old one is closed. The old manager writes down what
 workriver does not hold (why things were decided, what it was about to do) in your shared
@@ -48,6 +67,10 @@ delivered on the page: ask the user to paste it to you.
 
 **Refusals:** "only the manager of workspace … starts intents there" - run
 `workriver manager here` first, in your own pane. "intent i3 is done; it cannot become
-active" - add a new one. "workspace … has a manager running: X" - a workspace has one
+active" - add a new one. "the title and goal of i3 are the user's" - ask the user; write
+what you know in its note. "give --base N" - read `workriver intent history i3` first.
+"i7 belongs to project …; your workspace's project is not known" - ask the user to set it
+(Settings, or `workriver workspace project`). "only the user drops planned intent i7" - it is
+in the roadmap: ask the user. "workspace … has a manager running: X" - a workspace has one
 manager; you are a worker there, not its manager: tell the user, who closes X first if you
 are to take over. "an agent manages the workspace it runs in" - run it in your own pane.

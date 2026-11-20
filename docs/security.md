@@ -35,7 +35,7 @@ terminal" below is the one the runtime runs that agent in.
   always that agent's, even if it can read the token. There is no `--as user`.
 - **Another machine** you follow can report and ask, never act as you. Its agents reach the
   service through a listener of their own that serves an allow-list: who am I, record my
-  work, ask and answer, attach and fetch files, read the board. No session, no token, no
+  work, ask and answer, attach and fetch files, read the board and an intent's history. No session, no token, no
   machine settings, no decisions there, whatever the request carries.
 
 ## Which terminal a command comes from
@@ -103,6 +103,21 @@ Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metri
 machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
+
+An intent's text is yours, with one owner beside you: its title and goal only you change; its
+note its manager also changes while the intent is active; while it is planned, a manager of
+any workspace whose project is the intent's (the project you set for that workspace, else
+the project of its current intent: what is recorded, never the folder its terminal is in)
+may only add to its note; no other agent changes any of it, and a done or dropped intent, or
+dropping a planned one, is yours alone. These are the rules of the event store
+(`intent.updated`, recorded through the same route as other records, `App::who`), not of a
+route. Every change is kept as a version, recorded as whoever the service found the caller
+to be, and you can restore any of them on the intent's page; when you change an active
+intent, its manager is told, your words quoted. Its history is read like the rest
+(`App::view`); an agent on a blind task cannot read it, since it holds the note. Not closed
+yet: any agent may record an active intent done or back in the roadmap (those two moves check
+no actor, unlike dropping), and since the rules above go by the intent's state, that also
+takes its note from its manager; they are to become yours or its manager's.
 
 Findings are the exception by design: by default the intent's **manager decides them**, so
 that work does not wait for you. The trade-off, plainly: a manager that is compromised or
