@@ -633,7 +633,7 @@ service tells the agent on it to stop, and the manager.
 
 ## What the user puts in
 
-Everything the user decides goes to the service through one place (`runtime.ts`), which
+Everything the user decides goes to the service through one place (`api/actions.ts`), which
 records it and delivers it to the agents through Herdr.
 
 - **A waiting gate's output is a form**: Done or Problem; a note; with a problem, findings
@@ -744,7 +744,7 @@ is information, not a call to act: no colour, no motion, not counted in Needs yo
   like the rest. A task with nothing changed before it on its line (the first) is not marked.
 - Where lines join, "before" is everything before any of them.
 - Worked out once per unit per change of its graph's shape or its tasks' commits, in one
-  pass over the graph in order, never per render or per node (`src/scope.ts`).
+  pass over the graph in order, never per render or per node (`src/work/growth.ts`).
 - The legend shows the mark with "+" and no number, as it shows the findings count without
   one: a sample, not a count.
 - The legend sits below the canvas, folded to one line ("Legend" behind a chevron) until

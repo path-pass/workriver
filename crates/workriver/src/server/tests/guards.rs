@@ -415,7 +415,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
 }
 
 /// The JSON the page reads (`/api/workspace`, a unit's `/api/unit/{id}/code`) keeps its
-/// names and kinds of value: the page's types (frontend/web/src/types.ts) are the contract,
+/// names and kinds of value: the page's types (frontend/web/src/*/types.ts) are the contract,
 /// and the code that builds it moves. Pinned on the workspace above: a key this workspace
 /// leaves out is not pinned. `WORKRIVER_BLESS=1` writes the file again after a deliberate
 /// change of what the page reads (with the page changed in the same commit).

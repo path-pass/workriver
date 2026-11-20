@@ -1,4 +1,4 @@
-// The workspace in the exact shape the web UI reads (frontend/web/src/types.ts): the
+// The workspace in the exact shape the web UI reads (frontend/web/src/*/types.ts): the
 // recorded state, the units' commits from git, and the agents the runtime knows.
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;

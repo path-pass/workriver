@@ -1,4 +1,4 @@
-// The workspace in the exact shape the web UI reads (frontend/web/src/types.ts): what the
+// The workspace in the exact shape the web UI reads (frontend/web/src/*/types.ts): what the
 // service builds for `/api/workspace` and `/api/unit/{id}/code`. Shapes only; the service's
 // views fill them.
 use serde::Serialize;
