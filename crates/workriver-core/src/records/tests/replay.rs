@@ -6,7 +6,7 @@
 //! encodings first (no intent state, a task with no intent, an intent-level task, a
 //! decision with no `by`, a branch named before the rule), then every event kind of today.
 //! `records/fixtures/expected-state.json` is what it adds up to: the state, the command
-//! runs (never serialized with it), the blind view, how each event is written again, and
+//! runs and the intents' versions (never serialized with it), the blind view, how each event is written again, and
 //! the ids the rules hand out next. To write it again after a deliberate change of
 //! meaning (never during a move): `WORKRIVER_BLESS=1 cargo test -p workriver-core replay`.
 //! The same history stored as rows of an old database is workriver-data's test.
@@ -53,6 +53,7 @@ fn seen(state: &State, events: &[Event]) -> Value {
     json!({
         "state": state,
         "runs": runs,
+        "edits": state.intents.iter().map(|i| (i.id.clone(), serde_json::to_value(&i.edits).unwrap())).collect::<serde_json::Map<_, _>>(),
         "blind": { "s-blind": state.blind_view("s-blind"), "s-i": state.blind_view("s-i") },
         "managers": { "i1": state.manager_of("i1"), "i2": state.manager_of("i2") },
         "encoded": events.iter().map(|e| serde_json::to_value(&e.body).unwrap()).collect::<Vec<_>>(),
@@ -81,7 +82,7 @@ fn a_synthetic_history_replays_to_the_same_state() {
         std::fs::write(&path, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap();
     }
     let want: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    for key in ["state", "runs", "blind", "managers", "encoded", "next"] {
+    for key in ["state", "runs", "edits", "blind", "managers", "encoded", "next"] {
         assert_eq!(serde_json::to_string_pretty(&got[key]).unwrap(), serde_json::to_string_pretty(&want[key]).unwrap(), "{key} differs from {}", path.display());
     }
 }

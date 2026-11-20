@@ -115,9 +115,9 @@ fn corrections_after_delivery() {
     s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
     let late = s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
     assert!(late.contains("already decided") && late.contains("--amend --add-findings"), "{late}");
-    // The goal: the user or the intent's manager only.
+    // The goal: the user's only.
     let other = s.append(&"agent-b".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
-    assert!(other.contains("only the user or the manager"), "{other}");
+    assert!(other.contains("are the user's"), "{other}");
     s.append(&"user".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
     assert_eq!(s.state().intents[0].goal, "Let people mention each other");
 }

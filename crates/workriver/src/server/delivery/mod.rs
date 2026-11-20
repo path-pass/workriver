@@ -264,7 +264,7 @@ pub(super) fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };
     // Its project, so that a manager working on another one stops before splitting it.
-    let folder = crate::server::views::project_folder(state, i);
+    let folder = state.project_folder(i);
     let project = if folder.is_empty() {
         String::new()
     } else {

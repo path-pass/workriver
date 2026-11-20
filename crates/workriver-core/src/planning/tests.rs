@@ -370,3 +370,166 @@ fn the_user_renames_a_project() {
     }
     assert_eq!(replayed(&s).projects[0].title, "R", "replayed");
 }
+
+/// Who edits what of an intent, by its state: title and goal are the user's; the note is
+/// also its manager's while it is active; a planned one takes additions from a manager of a
+/// workspace of its project; a done or dropped one is the user's. Dropping a planned intent
+/// is the user's too, and an agent's merge keeps the title.
+#[test]
+fn who_edits_an_intent() {
+    let mut s = Records::default();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    let w2 = json!({"id": "w2", "label": "idle"});
+    let w3 = json!({"id": "w3", "label": "docs"});
+    add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "Chat"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Docs", "project": "/q", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "idle", json!({"kind": "manager.registered", "body": {"agent": "idle", "workspace": w2}})).unwrap();
+    let set = |i: &str, f: serde_json::Value| {
+        let mut b = json!({"intent": i});
+        b.as_object_mut().unwrap().extend(f.as_object().unwrap().clone());
+        json!({"kind": "intent.updated", "body": b})
+    };
+
+    // Planned: a manager whose workspace works on its project (here: by its current intent) adds; nothing more.
+    add(&mut s, "boss", set("i1", json!({"add_note": "The user's example: @ann"}))).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "The user's example: @ann");
+    let e = add(&mut s, "boss", set("i1", json!({"note": "x", "base": 2}))).unwrap_err();
+    assert!(e.contains("--add-note"), "{e}");
+    for f in [json!({"title": "X", "base": 2}), json!({"goal": "X", "base": 2})] {
+        let e = add(&mut s, "boss", set("i1", f)).unwrap_err();
+        assert!(e.contains("are the user's"), "{e}");
+    }
+    let e = add(&mut s, "agent-x", set("i1", json!({"add_note": "x"}))).unwrap_err();
+    assert!(e.contains("a manager of a workspace of its project"), "{e}");
+    // Another project's planned intent: refused, naming it; a workspace whose project is unknown: refused.
+    let e = add(&mut s, "boss", set("i2", json!({"add_note": "x"}))).unwrap_err();
+    assert!(e.contains("i2 belongs to project /q"), "{e}");
+    let e = add(&mut s, "idle", set("i1", json!({"add_note": "x"}))).unwrap_err();
+    assert!(e.contains("i1 belongs to project Chat") && e.contains("not known") && e.contains("workriver workspace project"), "{e}");
+    // What the user set wins over the current intent's; any workspace it manages counts.
+    add(&mut s, "user", json!({"kind": "workspace.project_set", "body": {"workspace": w2, "project": "/p"}})).unwrap();
+    add(&mut s, "idle", set("i1", json!({"add_note": "From idle"}))).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w3}})).unwrap();
+    add(&mut s, "user", json!({"kind": "workspace.project_set", "body": {"workspace": w3, "project": "/q"}})).unwrap();
+    add(&mut s, "boss", set("i2", json!({"add_note": "From docs"}))).unwrap();
+
+    // Active: its manager adds and replaces the note; title and goal stay the user's; another manager does nothing.
+    add(&mut s, "boss", set("i3", json!({"add_note": "Decided: SQLite"}))).unwrap();
+    add(&mut s, "boss", set("i3", json!({"note": "Decided: Postgres", "base": 2}))).unwrap();
+    assert_eq!(s.state().intent("i3").unwrap().note, "Decided: Postgres");
+    let e = add(&mut s, "boss", set("i3", json!({"title": "Find", "base": 3}))).unwrap_err();
+    assert!(e.contains("are the user's"), "{e}");
+    let e = add(&mut s, "idle", set("i3", json!({"add_note": "x"}))).unwrap_err();
+    assert!(e.contains("only the user or the manager of intent i3"), "{e}");
+    let e = add(&mut s, "boss", set("i3", json!({"note": "a", "add_note": "b", "base": 3}))).unwrap_err();
+    assert!(e.contains("--note or --add-note"), "{e}");
+    // The user: everything, an empty note included; never an empty title.
+    add(&mut s, "user", set("i3", json!({"title": "Find", "goal": "Fast", "note": "", "base": 3}))).unwrap();
+    assert_eq!(s.state().intent("i3").unwrap().note, "");
+    assert!(add(&mut s, "user", set("i3", json!({"title": " ", "base": 4}))).unwrap_err().contains("needs a title"));
+
+    // Done: the user's alone.
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "done"}})).unwrap();
+    let e = add(&mut s, "boss", set("i3", json!({"add_note": "x"}))).unwrap_err();
+    assert!(e.contains("i3 is done") && e.contains("only the user"), "{e}");
+    add(&mut s, "user", set("i3", json!({"add_note": "Shipped: https://x/1"}))).unwrap();
+
+    // Back in the roadmap, an intent is the user's to drop, even for the manager it ran under.
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "planned"}})).unwrap();
+    let e = add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "dropped", "reason": "dup"}})).unwrap_err();
+    assert!(e.contains("only the user drops planned intent i1"), "{e}");
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "dropped", "reason": "dup"}})).unwrap();
+
+    // An agent merges what agents added, but keeps the title: that is the user's.
+    add(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Emoji", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Emoji names", "project": "/p", "state": "planned"}})).unwrap();
+    let merge = |title: Option<&str>| json!({"kind": "intent.merged", "body": {"intent": "i4", "from": ["i5"], "title": title}});
+    let e = add(&mut s, "boss", merge(Some("Emoji everywhere"))).unwrap_err();
+    assert!(e.contains("the title is the user's"), "{e}");
+    add(&mut s, "boss", merge(None)).unwrap();
+    assert_eq!(s.state().intent("i4").unwrap().title, "Emoji");
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// Every change of an intent's title, goal or note is a version; a replace based on an
+/// older version is refused only when what it replaces changed since.
+#[test]
+fn intent_versions_and_conflicts() {
+    let mut s = Records::default();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "goal": "Tag", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "agent.seen", "body": {"session": "boss", "name": "claude 1", "harness": "claude"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    let edits = |s: &Records| s.state().intent("i1").unwrap().edits.clone();
+    assert_eq!((edits(&s).version, edits(&s).title, edits(&s).goal, edits(&s).note, edits(&s).by.as_str()), (1, 1, 1, 1, "user"), "created is v1");
+    let set = |f: serde_json::Value| {
+        let mut b = json!({"intent": "i1"});
+        b.as_object_mut().unwrap().extend(f.as_object().unwrap().clone());
+        json!({"kind": "intent.updated", "body": b})
+    };
+    add(&mut s, "user", set(json!({"title": "@mentions", "base": 1}))).unwrap();
+    add(&mut s, "boss", set(json!({"add_note": "First"}))).unwrap();
+    let e = edits(&s);
+    assert_eq!((e.version, e.title, e.goal, e.note, e.by.as_str()), (3, 2, 1, 3, "boss"));
+    // Who decides findings, or a state change: no version.
+    add(&mut s, "user", set(json!({"findings": "user"}))).unwrap();
+    assert_eq!(edits(&s).version, 3);
+    // The note changed at v3: a replace from v2 is refused, saying by whom; one of the goal goes through.
+    let e = add(&mut s, "user", set(json!({"note": "Mine", "base": 2}))).unwrap_err();
+    assert!(e.contains("i1's note changed since v2") && e.contains("(in v3;") && e.contains("last by claude 1") && e.contains("intent history i1 --version 3") && e.contains("--base 3"), "{e}");
+    let e = add(&mut s, "user", set(json!({"title": "x", "goal": "y", "base": 1}))).unwrap_err();
+    assert!(e.contains("title changed since v1"), "{e}");
+    add(&mut s, "user", set(json!({"goal": "Tag people", "base": 2}))).unwrap();
+    assert!(add(&mut s, "user", set(json!({"goal": "z", "base": 9}))).unwrap_err().contains("no version 9"));
+    // An addition needs no base and overwrites nothing.
+    add(&mut s, "boss", set(json!({"add_note": "Second", "base": 1}))).unwrap();
+    add(&mut s, "boss", set(json!({"note": "First\n\nSecond, corrected", "base": 5}))).unwrap();
+    let e = edits(&s);
+    assert_eq!((e.version, e.title, e.goal, e.note), (6, 2, 4, 6));
+    // Rebuilt the same from the records; old records (no base) replay as versions too.
+    assert_eq!(replayed(&s), *s.state());
+    let old = recorded_before(s, "boss", json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Old"}}));
+    assert_eq!((old.state().intent("i1").unwrap().edits.version, old.state().intent("i1").unwrap().edits.goal), (7, 7));
+}
+
+/// An intent's history is rebuilt from its events and those of the intents merged into it:
+/// each version holds what its event set, and the whole text of any version is the replay.
+#[test]
+fn intent_history_rebuilds_from_events() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "goal": "Find", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Emoji", "note": "By name", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Elsewhere", "project": "/p", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i2", "add_note": "And by code"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i3", "add_note": "Not ours"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2"], "title": "Search and emoji"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "add_note": "After"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "findings": "user"}})).unwrap();
+
+    let all = s.events();
+    let versions = intent_versions(all, "i1");
+    let summary: Vec<_> = versions.iter().map(|v| (v.n, v.how, v.title.as_deref(), v.added.as_deref(), v.merged.clone())).collect();
+    assert_eq!(summary, [
+        (1, How::Created, Some("Search"), None, vec![]),
+        (2, How::Merged, Some("Search and emoji"), None, vec!["i2".to_string()]),
+        (3, How::Edited, None, Some("After"), vec![]),
+    ]);
+    assert_eq!(versions[0].goal.as_deref(), Some("Find"));
+    // The merge's text comes from i2's own events, as it stood then.
+    let v2 = intent_text(all, "i1", 2).unwrap();
+    assert_eq!((v2.title.as_str(), v2.goal.as_str()), ("Search and emoji", "Find"));
+    assert_eq!(v2.note, "Merged from i2: Emoji\nBy name\n\nAnd by code");
+    let now = intent_text(all, "i1", 3).unwrap();
+    assert_eq!(now.note, s.state().intent("i1").unwrap().note);
+    assert!(intent_text(all, "i1", 4).is_none());
+    // Only the events that make it, and its sources', are needed.
+    let own: Vec<_> = all.iter().filter(|e| matches!(e.body.refs().0.as_deref(), Some("i1" | "i2"))).cloned().collect();
+    assert_eq!(intent_versions(&own, "i1"), versions);
+    assert_eq!(intent_text(&own, "i1", 3), Some(now));
+}

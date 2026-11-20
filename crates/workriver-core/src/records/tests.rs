@@ -27,6 +27,11 @@ impl Records {
     pub(crate) fn state(&self) -> &State {
         &self.state
     }
+
+    /// Every event recorded so far, in order.
+    pub(crate) fn events(&self) -> &[Event] {
+        &self.events
+    }
 }
 
 /// An intent, a unit, an implement task delivered with evidence and a review with two findings.
