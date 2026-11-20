@@ -119,7 +119,7 @@ export const zhCN: OneForm<typeof en> = {
     agent: '在一个 {{runtime}} 工作区里，启动一个 coding agent 当它的管理者。',
     skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
     register: '让它登记为这个工作区的管理者：',
-    begin: '然后它从左边的路线图里开始一个目标（或者先用 `workriver backlog add` 加一个）：',
+    begin: '它的第一个目标由你来开始：在左边路线图里的目标上点“开始”，选它的工作区。之后这个项目的其他目标由它自己开始；它这样看路线图：',
     import: '已经有一份待办文件？让一个 agent 用导入 skill 把它导进来：',
     work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
     trailer: '提交信息里写这样一行，这个提交就归到对应的任务：'
@@ -282,7 +282,7 @@ export const zhCN: OneForm<typeof en> = {
     workspace: '为它开一个 {{runtime}} 工作区，或者选一个管理者还能再管一个意图的工作区。',
     agent: '如果这个工作区还没有管理者，在里面启动一个 coding agent，并把管理者 skill 给它：',
     register: '在管理者的终端里登记：',
-    start: '然后在那里开始这个意图；这个工作区里新建的单元和任务都归它：',
+    start: '然后在这里选那个工作区并开始它：一个工作区的第一个意图由你来开始（它从此在做那个项目）。之后这个项目的其他意图由它的管理者自己开始。',
     pickLabel: '在哪里开始',
     option: '{{label}} · {{manager}}：{{state}}',
     optionNone: '{{label}} · 没有管理者',

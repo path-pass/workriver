@@ -54,4 +54,3 @@ export function mockEdit(i: Intent, body: Record<string, unknown>): Partial<Inte
   const now = textAt(list, list.length)!
   return { ...now, version: list.length, edited: { at, by: null } }
 }
-

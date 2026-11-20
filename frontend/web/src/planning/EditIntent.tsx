@@ -1,8 +1,9 @@
 // Editing an intent's title, goal and note, in a dialog opened from its page (the pencil in
 // its header, or "Restore this version" in its history). Save records the fields that
-// changed with the version they were edited from; when one of them was changed meanwhile, the
-// service refuses it, and the dialog shows what it says now against the user's text, with
-// "Save anyway". The page is the user's, so every field can be edited here.
+// changed against the intent as the dialog opened it, with that version as the base, however
+// the page refreshes meanwhile; when one of them was changed since, the service refuses it,
+// and the dialog shows every field it sends that changed since, each against the user's text,
+// with "Save anyway". The page is the user's, so every field can be edited here.
 import { useState } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/ui/primitives/dialog'
@@ -11,15 +12,15 @@ import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { contentLang, useT } from '@/i18n'
 import { Prose } from '@/content/Prose'
 import { editIntent, intentVersion } from '@/api/actions'
-import { conflictOf, editBody, wordDiff, type Draft } from './edit'
+import { conflictOf, conflictsOf, draftOf, editBody, wordDiff, type Draft, type Field } from './edit'
 import { Runs } from './IntentHistory'
 import type { Intent } from './types'
 
-/** What the service said changed meanwhile: the field, the version it is at, its text now. */
+/** What changed since the dialog opened: the version the intent is at, and each field the
+ *  edit sends that changed since, with its text now. */
 interface Conflict {
-  field: 'title' | 'goal' | 'note';
   now: number;
-  theirs: string;
+  fields: { field: Field; theirs: string }[];
 }
 
 export function EditIntentDialog({ intent, draft, restoring, onClose }: {
@@ -36,7 +37,10 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [conflict, setConflict] = useState<Conflict | null>(null)
-  const body = editBody(intent, d)
+  // The intent as the dialog opened it: what the edit changes, and the version it is made
+  // from, whatever the page shows meanwhile.
+  const [opened] = useState(intent)
+  const body = editBody(opened, d)
   const ready = !!body && !busy
   const set = (k: keyof Draft) => (e: { target: { value: string } }) => setD(x => ({ ...x, [k]: e.target.value }))
 
@@ -50,10 +54,13 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
         const said = String(e instanceof Error ? e.message : e)
         const c = conflictOf(said)
         if (c) {
-          // What the field says now, to set against the user's text.
+          // What it says now: every field this edit sends that changed since it opened (the
+          // service names only the first), to set against the user's text.
           const now = await intentVersion(intent, c.now).catch(() => null)
           if (now) {
-            setConflict({ ...c, theirs: now.text[c.field] })
+            const changed = conflictsOf(draftOf(opened), now.text, body)
+            const fields = (changed.length ? changed : [c.field]).map(field => ({ field, theirs: now.text[field] }))
+            setConflict({ now: c.now, fields })
             setBusy(false)
             return
           }
@@ -95,10 +102,14 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
           </div>
           {conflict && (
             <div role="alert" className="flex flex-col gap-1.5 rounded-lg border border-line-2 bg-sunken p-2.5 text-xs">
-              <p>{t(`intent.edit.conflict.${conflict.field}`, { n: conflict.now })}</p>
-              <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm wrap-anywhere" lang={contentLang(conflict.theirs)}>
-                <Runs runs={wordDiff(conflict.theirs, d[conflict.field])} />
-              </p>
+              {conflict.fields.map(({ field, theirs }) => (
+                <div key={field} className="flex flex-col gap-1">
+                  <p>{t(`intent.edit.conflict.${field}`, { n: conflict.now })}</p>
+                  <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm wrap-anywhere" lang={contentLang(theirs)}>
+                    <Runs runs={wordDiff(theirs, field === 'note' ? d.note : d[field].trim())} />
+                  </p>
+                </div>
+              ))}
               <p className="text-ink-2">{t('intent.edit.anyway')}</p>
             </div>
           )}

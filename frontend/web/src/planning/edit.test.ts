@@ -1,7 +1,7 @@
 // Editing an intent on its page: what Save sends, what a version changed, a word diff, and
 // what the service's refusal of an edit from an older version says.
 import { describe, expect, it } from 'vitest'
-import { changesOf, conflictOf, editBody, wordDiff } from './edit'
+import { changesOf, conflictOf, conflictsOf, editBody, wordDiff } from './edit'
 import type { Intent } from './types'
 
 const intent = (more: Partial<Intent> = {}): Intent => ({ id: 'i3', title: 'Search', goal: 'Find fast', note: 'First\n\nSecond', units: [], chores: [], version: 4, ...more }) as Intent
@@ -12,8 +12,8 @@ describe('what Save sends', () => {
     expect(editBody(intent(), { title: ' Find ', goal: 'Find fast', note: '' })).toEqual({ intent: 'i3', title: 'Find', note: '', base: 4 })
   })
 
-  it('nothing when nothing changed (spaces at the ends are not a change) or the title is blank', () => {
-    expect(editBody(intent(), { title: 'Search ', goal: 'Find fast', note: 'First\n\nSecond\n' })).toBeNull()
+  it('nothing when nothing changed (spaces at the ends of the title and goal are not a change) or the title is blank', () => {
+    expect(editBody(intent(), { title: 'Search ', goal: ' Find fast', note: 'First\n\nSecond' })).toBeNull()
     expect(editBody(intent(), { title: '  ', goal: 'Other', note: '' })).toBeNull()
   })
 
@@ -23,6 +23,23 @@ describe('what Save sends', () => {
 
   it('a version picked to restore is sent from the newest, as a new edit', () => {
     expect(editBody(intent(), { title: 'Old', goal: 'Find fast', note: 'First' })).toEqual({ intent: 'i3', title: 'Old', note: 'First', base: 4 })
+  })
+})
+
+describe('a whole note is sent as written', () => {
+  it('its indentation and blank lines are Markdown: a code block stays one', () => {
+    const code = '    let x = 1;\n    x + 1\n'
+    expect(editBody(intent(), { title: 'Search', goal: 'Find fast', note: code })).toEqual({ intent: 'i3', note: code, base: 4 })
+    expect(editBody(intent({ note: code }), { title: 'Search', goal: 'Find fast', note: code })).toBeNull()
+    expect(editBody(intent(), { title: 'Search', goal: 'Find fast', note: 'First\n\nSecond\n' })).toEqual({ intent: 'i3', note: 'First\n\nSecond\n', base: 4 })
+  })
+})
+
+describe('what changed since an edit was opened', () => {
+  it('every field it sends whose text is not what it opened with', () => {
+    const opened = { title: 'Chat', goal: 'Talk', note: 'First' }
+    expect(conflictsOf(opened, { title: 'Chat 2', goal: 'Talk more', note: 'Theirs' }, { intent: 'i1', title: 'Mine', note: 'Mine', base: 1 })).toEqual(['title', 'note'])
+    expect(conflictsOf(opened, { title: 'Chat', goal: 'Talk more', note: 'First' }, { intent: 'i1', title: 'Mine', base: 1 })).toEqual([])
   })
 })
 

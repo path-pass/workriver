@@ -2,7 +2,7 @@
 // changed, the word diff the history shows, and the service's refusal of an edit made from
 // an older version (`intent.updated` with `base`; the rules are core's).
 import { diffArrays } from 'diff'
-import type { Intent, IntentVersion } from './types'
+import type { Intent, IntentText, IntentVersion } from './types'
 
 /** What the edit dialog holds. */
 export interface Draft {
@@ -15,9 +15,10 @@ export interface Draft {
 export const draftOf = (i: Intent): Draft => ({ title: i.title, goal: i.goal ?? '', note: i.note ?? '' })
 
 /**
- * The body of the `intent.updated` that Save records: the fields that changed (spaces at
- * the ends are not a change) and the version the draft was made from. Null when nothing
- * changed or the title is blank.
+ * The body of the `intent.updated` that Save records: the fields that changed against the
+ * intent as the edit opened it, and that version as its base. Spaces at the ends of the
+ * title and goal are not a change; the note goes as written (its indentation and blank lines
+ * are Markdown). Null when nothing changed or the title is blank.
  */
 export function editBody(i: Intent, d: Draft): Record<string, unknown> | null {
   const title = d.title.trim()
@@ -25,9 +26,19 @@ export function editBody(i: Intent, d: Draft): Record<string, unknown> | null {
   const changed: Record<string, string> = {}
   if (title !== i.title.trim()) changed.title = title
   if (d.goal.trim() !== (i.goal ?? '').trim()) changed.goal = d.goal.trim()
-  if (d.note.trim() !== (i.note ?? '').trim()) changed.note = d.note.trim()
+  if (d.note !== (i.note ?? '')) changed.note = d.note
   if (!Object.keys(changed).length) return null
   return { intent: i.id, ...changed, base: i.version ?? 1 }
+}
+
+export type Field = 'title' | 'goal' | 'note'
+
+/**
+ * Which of the fields an edit sends changed since it was opened: those whose text now is
+ * not what it opened with. Each is shown before the user saves anyway.
+ */
+export function conflictsOf(opened: Draft, now: IntentText, body: Record<string, unknown>): Field[] {
+  return (['title', 'goal', 'note'] as const).filter(f => body[f] !== undefined && now[f] !== opened[f])
 }
 
 export type Change = 'created' | 'merged' | 'title' | 'goal' | 'note' | 'added'

@@ -81,7 +81,8 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
   const units = intent.units.filter(u => !u.intentLevel)
   const session = intent.manager ? ws.sessions.find(s => s.manager && !s.ended && s.agent === intent.manager) : undefined
   const worksOn = ws.workspaces?.find(w => w.id === intent.workspace?.id)?.projectTitle
-  const note = intent.note?.trim()
+  // The note as written (its indentation is Markdown); only a blank one is none.
+  const note = intent.note?.trim() ? intent.note : ''
   // The edit dialog (with what it starts from: its text, or a version to restore) and the history.
   const [editing, setEditing] = useState<{ draft: Draft; restoring?: number } | null>(null)
   const [history, setHistory] = useState(false)

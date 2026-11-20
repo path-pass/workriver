@@ -122,7 +122,7 @@ export const en = {
     agent: 'In a {{runtime}} workspace, start a coding agent to be its manager.',
     skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
     register: 'Have it register as the manager of the workspace:',
-    begin: 'Then it starts a goal from the roadmap on the left (or adds one first with `workriver backlog add`):',
+    begin: 'Start its first goal yourself: “Start” on a goal in the roadmap on the left, in its workspace. Then it starts that project’s next goals itself; it reads the roadmap with:',
     import: 'Have an existing backlog file? Ask an agent to import it with the import skill:',
     work: 'It splits the goal into units and tasks and hands them to worker agents; their work shows up here.',
     trailer: 'A commit belongs to a task through a line in its message:'
@@ -290,7 +290,7 @@ export const en = {
     workspace: 'Open a {{runtime}} workspace for it, or pick one whose manager has room for another intent.',
     agent: 'If the workspace has no manager yet, start a coding agent there and give it the manager skill:',
     register: 'In the manager’s terminal, register it:',
-    start: 'Then start this intent there; new units and tasks in that workspace go to it:',
+    start: 'Then pick that workspace here and start it: a workspace’s first intent is yours to start (it then works on that project). Its manager starts that project’s next intents itself.',
     pickLabel: 'Start it in',
     option: '{{label}} · {{manager}}: {{state}}',
     optionNone: '{{label}} · no manager',
