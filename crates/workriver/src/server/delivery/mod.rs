@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use workriver_core::runtime::RuntimeAgent;
-use workriver_core::{AskContext, Body, Decision, Event, Finding, GateKind, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
+use workriver_core::{AskContext, Body, Decision, Event, Finding, GateKind, GateResult, ReasonCode, State, Task, TaskKind, TaskState, Who, name};
 
 use quote::{quoted, users};
 
@@ -201,6 +201,66 @@ pub(super) fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> V
         m.to_string(),
         format!("[workriver] {by} tells you about {}. {} {}", label(state, unit, t), details(unit, *task), quoted(&format!("Quoted from {by}"), text)),
     )]
+}
+
+/// What the intent's manager hears of the user's discussion of a delivered design or
+/// research: not each round, only what it must act on. An amendment of the result while the
+/// gate that asks about it is not submitted (after a review, the gate would confirm a text the
+/// review did not see: drop it, review again, a new gate), and the conclusion, quoted as the
+/// agent's. Only a live manager not on a blind task, never the one who did it.
+pub(super) fn discussed(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+    let Some(live) = live else { return vec![] };
+    // As the runtime lists it, else as last recorded.
+    let named = |s: &str| live.iter().find(|a| a.session == s).map(|a| quote::name(&a.name)).unwrap_or_else(|| who(state, s));
+    let found = || -> Option<(String, String)> {
+        let (unit, n) = match &e.body {
+            Body::TaskAmended { unit, task, .. } => (unit.clone(), *task),
+            Body::QuestionAnswered { question, conclusion: true, .. } => {
+                let q = state.question(question).ok().filter(|q| q.discuss)?;
+                (q.unit.clone(), q.task)
+            }
+            _ => return None,
+        };
+        let t = state.task(&unit, n).ok()?;
+        let thread = state.discussion(&unit, n)?;
+        let began = state.questions.iter().find(|q| q.id == thread.id).map(|q| q.at.clone()).unwrap_or_default();
+        let gate = state.result_gate(&unit, n).filter(|g| g.state != TaskState::Done);
+        let what = label(state, &unit, t);
+        let agent = t.agent.as_deref().map(named).unwrap_or_default();
+        // A review between the result and its gate saw the text before the amendment.
+        let reviewed = gate.and_then(|g| {
+            let before = state.before(&unit, g.n);
+            state.tasks_of(&unit)?.iter().find(|r| r.kind == TaskKind::Review && before.contains(&r.n) && state.before(&unit, r.n).contains(&n))
+        });
+        let again = |g: &Task, r: &Task| format!("{} reviewed the text before it: drop the gate (`workriver task drop {unit}#{} --reason \"...\"`), then add the review again and a new decide gate after it (`workriver guide how design-gate`).", label(state, &unit, r), g.n);
+        let m = state.intent_of(&unit).and_then(|i| state.manager_of(i))?.to_string();
+        let text = match &e.body {
+            Body::TaskAmended { .. } => {
+                let g = gate?;
+                let next = match reviewed {
+                    Some(r) => again(g, r),
+                    None => "The gate now asks about the amended result; nothing to do unless the change needs a review.".into(),
+                };
+                format!("[workriver] {} amended {what} while the user discusses it; its gate {} is not submitted yet. {next} {}", named(&e.actor), label(state, &unit, g), details(&unit, n))
+            }
+            Body::QuestionAnswered { text, .. } => {
+                let amended = t.amended.as_ref().filter(|at| **at > began);
+                let result = match amended {
+                    Some(at) => format!("Its result was amended at {at}."),
+                    None => "Its result is as delivered.".into(),
+                };
+                let next = match (gate, reviewed, amended) {
+                    (Some(g), Some(r), Some(_)) => again(g, r),
+                    (Some(g), _, _) => format!("the gate {} waits for the user.", label(state, &unit, g)),
+                    (None, _, _) => format!("if work must start on this, add a decide gate after {unit}#{n} (`workriver guide how ask-user`); otherwise nothing."),
+                };
+                format!("[workriver] The user concluded the discussion of {what} with {agent} (thread {}). {result} Next: {next} {}", thread.id, quoted(&format!("Concluded, quoted from {agent}"), text))
+            }
+            _ => return None,
+        };
+        Some((m, text))
+    };
+    found().into_iter().filter(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty()).collect()
 }
 
 /// Who is told that work is over (a unit merged or done, an intent done): its manager, to

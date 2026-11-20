@@ -782,3 +782,146 @@ fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
     assert!(text.contains(&format!("`workriver attach fetch {}.png`", a["id"].as_str().unwrap())), "{text:?}");
     assert!(!text.contains("data home") && !text.contains("data  home"), "no path of this machine: {text:?}");
 }
+
+/// The user discusses a delivered design with the agent that did it: each question goes to
+/// that agent (held while it works), never to a temporary one; its answer shows unread until
+/// read; the manager hears of an amendment while the gate waits and of the conclusion, not of
+/// each round.
+#[test]
+fn discussing_a_delivered_design_with_its_agent() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-d", "designer", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the index", "agent": "s-d" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "2" }] })).unwrap();
+    d.append("s-d", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-d", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "A trie." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    let to = |who: &str| fake.sent.lock().unwrap().iter().filter(|(t, _)| t == who).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let tasks = || d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"].clone();
+    let set = |s: workriver_core::runtime::AgentState| fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.session == "s-d").for_each(|(_, a)| a.state = s);
+
+    // A question goes to the task's own agent, recorded as started by it, not temporary.
+    let asked = d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why a trie?" }))).unwrap();
+    assert_eq!((asked["body"]["thread"].as_str(), asked["body"]["discuss"].as_bool()), (Some("q1"), Some(true)));
+    wait_until("the designer is asked", || to("s-d").len() == 1);
+    let m = to("s-d")[0].clone();
+    assert!(m.starts_with("[workriver] The user discusses your delivered task u1#1 \"Design the index\"") && m.contains("workriver answer q1 --text") && m.contains("Do not amend your delivery now") && m.ends_with("«Why a trie?»"), "{m}");
+    assert!(fake.started.lock().unwrap().is_empty(), "no temporary agent");
+    wait_until("it is recorded as given", || d.get("/api/state").unwrap()["questions"][0]["agent"] == "s-d");
+    assert_eq!(d.get("/api/state").unwrap()["questions"][0]["temporary"], false);
+    let t = tasks();
+    assert_eq!((t[0]["discuss"].as_str(), t[0]["output"]["gate"].as_str()), (Some("open"), t[2]["id"].as_str()), "discussed until its gate (after the review)");
+    assert_eq!(t[0]["threads"][0]["discuss"], true);
+
+    // While it works, the next one waits, saying so; once idle it is given.
+    set(Working);
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "And memory?" }))).unwrap();
+    wait_until("it is held", || tasks()[0]["threads"][0]["turns"][1]["step"] == "held");
+    assert!(tasks()[0]["threads"][0]["turns"][1]["reason"].as_str().unwrap().contains("designer is working"));
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(to("s-d").len(), 1, "not typed into a working agent");
+    set(Idle);
+    wait_until("given once idle", || to("s-d").len() == 2);
+    assert_eq!(d.get("/api/state").unwrap()["questions"][1]["thread"], "q1");
+
+    // Only the designer answers; the answer is unread until the user reads the discussion.
+    assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
+    d.append("s-d", "question.answered", json!({ "question": "q1", "text": "Prefix lookups." })).unwrap();
+    let turn = tasks()[0]["threads"][0]["turns"][0].clone();
+    assert_eq!((turn["answer"].as_str(), turn["unread"].as_bool()), (Some("Prefix lookups."), Some(true)));
+    d.call("/api/discuss/read", Some(json!({ "unit": "u1", "task": 1, "at": turn["answeredAt"] }))).unwrap();
+    assert!(tasks()[0]["threads"][0]["turns"][0].get("unread").is_none());
+    let boss_before = to("s-boss").len();
+
+    // An amendment while the gate waits (after a review): the manager hears it, with what to do.
+    d.append("s-d", "task.amended", json!({ "unit": "u1", "task": 1, "note": "A trie, compressed." })).unwrap();
+    wait_until("the manager hears of the amendment", || to("s-boss").len() == boss_before + 1);
+    let m = to("s-boss").last().unwrap().clone();
+    assert!(m.contains("amended u1#1 \"Design the index\" while the user discusses it") && m.contains("workriver task drop u1#3") && m.contains("review again"), "{m}");
+
+    // The conclusion: the agent is asked to amend first; the manager hears the conclusion, quoted.
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
+    wait_until("the conclusion is asked for", || to("s-d").len() == 3);
+    let m = to("s-d")[2].clone();
+    assert!(m.contains("workriver answer q3 --conclusion") && m.contains("amend your delivery first"), "{m}");
+    d.append("s-d", "question.answered", json!({ "question": "q2", "text": "Small." })).unwrap();
+    assert_eq!(to("s-boss").len(), boss_before + 1, "not told of each round");
+    d.append("s-d", "question.answered", json!({ "question": "q3", "text": "A compressed trie; memory is small.", "conclusion": true })).unwrap();
+    wait_until("the manager hears the conclusion", || to("s-boss").len() == boss_before + 2);
+    let m = to("s-boss").last().unwrap().clone();
+    assert!(m.starts_with("[workriver] The user concluded the discussion of u1#1 \"Design the index\" with designer") && m.contains("was amended") && m.ends_with("«A compressed trie; memory is small.»"), "{m}");
+
+    // The gate submitted: an open question fails, and the discussion is over.
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "One more?" }))).unwrap();
+    wait_until("given", || to("s-d").len() == 4);
+    d.append("s-arch", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+    d.append("s-arch", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    d.call("/api/gate", Some(json!({ "unit": "u1", "task": 3, "result": "done" }))).unwrap();
+    wait_until("the open question fails", || tasks()[0]["threads"][0]["turns"][3]["failed"]["reason"].as_str().is_some_and(|r| r.contains("u1#3 was submitted")));
+    assert_eq!(tasks()[0]["discuss"], "over");
+    assert!(d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "?" }))).unwrap_err().to_string().contains("was submitted"));
+}
+
+/// A discussion question whose agent is gone fails, whether it waited or was given; one
+/// whose agent's machine was not read stays; one open at a restart is kept, and one not yet
+/// given is given then.
+#[test]
+fn a_discussion_follows_its_agent_not_the_service() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &db, crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Compare stores", "agent": "s-r" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-r", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-r", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SQLite." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let to = |who: &str| fake.sent.lock().unwrap().iter().filter(|(t, _)| t == who).count();
+    let state = |d: &Daemon| d.get("/api/state").unwrap();
+
+    // Given, then the service restarts: still open, still the agent's, not asked again.
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why not Postgres?" }))).unwrap();
+    wait_until("given", || to("s-r") == 1);
+    wait_until("recorded as given", || state(&d)["questions"][0]["agent"] == "s-r");
+    // One more, held while the agent works.
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "And backups?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(to("s-r"), 1);
+    drop(d);
+    let next = std::sync::Arc::new(Fake::default());
+    *next.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Idle))];
+    let d = daemon_with(next.clone(), &db, crate::server::Waits::default());
+    let to = |who: &str| next.sent.lock().unwrap().iter().filter(|(t, _)| t == who).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    wait_until("the one not given is given now", || to("s-r").len() == 1);
+    assert!(to("s-r")[0].ends_with("«And backups?»"), "only the one never given");
+    let qs = state(&d)["questions"].clone();
+    assert!(qs[0]["failed"].is_null() && qs[1]["failed"].is_null(), "nothing failed by the restart: {qs}");
+    d.append("s-r", "question.answered", json!({ "question": "q1", "text": "No server." })).unwrap();
+
+    // Its agent gone from a read that is not complete (no agent of this machine listed): kept.
+    let keep = next.agents.lock().unwrap().clone();
+    next.agents.lock().unwrap().clear();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(state(&d)["questions"][1]["failed"].is_null(), "an empty read says nothing");
+    // Gone from a complete read: the open question fails, and the page says so.
+    *next.agents.lock().unwrap() = vec![keep[0].clone()];
+    wait_until("the question fails", || !state(&d)["questions"][1]["failed"].is_null());
+    let failed = state(&d)["questions"][1]["failed"].clone();
+    assert_eq!((failed[0].as_str(), failed[1].as_str()), (Some("agent-gone"), Some("researcher is no longer running")));
+    assert_eq!(d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["discuss"], "gone");
+}

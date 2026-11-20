@@ -44,6 +44,8 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/ask", &["POST"]),
     ("/api/message", &["POST"]),
     ("/api/messages/read", &["POST"]),
+    ("/api/discuss", &["POST"]),
+    ("/api/discuss/read", &["POST"]),
     ("/api/attachments", &["POST"]),
     ("/api/attachments/inbox", &["POST"]),
     ("/api/attachments/{id}", &["GET"]),
@@ -200,6 +202,8 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
     ("POST", "/api/messages/read", r#"{"workspace":"chat","at":"2026-01-01T00:00:00Z"}"#),
+    ("POST", "/api/discuss", r#"{"unit":"u1","task":1,"text":"Why?"}"#),
+    ("POST", "/api/discuss/read", r#"{"unit":"u1","task":1,"at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/attachments?name=probe.txt", "BYTES"),
     ("POST", "/api/attachments/inbox", r#"{"unit":"u1","task":1}"#),
     ("GET", "/api/attachments/x1", ""),
@@ -344,8 +348,8 @@ fn shape(v: &Value, at: &str, out: &mut BTreeSet<String>) {
 /// A workspace with most of what the page shows: projects and a roadmap, a backlog, an
 /// intent with its manager, a code unit with committed, unregistered and uncommitted work,
 /// a research unit, a design, its review with decided findings, a waiting gate, a chore, an
-/// attachment, a question with its temporary agent, a conversation with the manager, and a
-/// second machine.
+/// attachment, a question with its temporary agent, a discussion of a delivered research, a
+/// conversation with the manager, and a second machine.
 fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     use workriver_core::runtime::AgentState::*;
     let repo = tmp.join("repo");
@@ -407,6 +411,14 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
     wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    // A delivered research discussed with its agent, which is at work: one answer unread, one
+    // question held; the gate that asks about it.
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "research", "title": "Compare stores", "agent": "impl", "inputs": [{ "from": "start" }] })).unwrap();
+    d.append("s-impl", "task.delivered", json!({ "unit": "u2", "task": 2, "note": "SQLite" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "2" }] })).unwrap();
+    d.call("/api/discuss", Some(json!({ "unit": "u2", "task": 2, "text": "Why not Postgres?" }))).unwrap();
+    d.append("s-impl", "question.answered", json!({ "question": "q2", "text": "No server." })).unwrap();
+    d.call("/api/discuss", Some(json!({ "unit": "u2", "task": 2, "text": "And backups?" }))).unwrap();
     let context = json!([{ "kind": "task", "label": "#1", "task": 1 }, { "kind": "lines", "label": "a.txt L1–2", "path": "a.txt", "from": 1, "to": 2 }, { "kind": "attachment", "label": "shot.png", "id": shot["id"] }]);
     d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?", "unit": "u1", "task": 2, "context": context }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Design confirmed." })).unwrap();

@@ -124,6 +124,9 @@ impl App {
                     h.not_ready.is_some_and(|end| end > at)
                         || match h.kind {
                             For::Notice => !matches!(state(h), Some(AgentState::Blocked | AgentState::Unknown)),
+                            // Only to an agent listed and free: whether it is gone is
+                            // `discussions_gone`'s to say, from a complete read.
+                            For::Discussion => matches!(state(h), Some(AgentState::Idle | AgentState::Done)),
                             _ => !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown)),
                         }
                 };
@@ -141,10 +144,12 @@ impl App {
                             let gone = RuntimeError::NoAgent(h.name.clone());
                             self.told(h, Err(gone))
                         }
+                        For::Discussion => self.drop_question(&h.question, ReasonCode::AgentGone, &format!("{} is no longer running", h.name)),
                     },
                     Some(_) => self.hand(h),
                 }
             }
+            self.discussions_gone(agents, &self.readable(agents));
         }
         // Questions whose temporary agent has not answered in time.
         let now = std::time::Instant::now();
@@ -232,11 +237,14 @@ impl App {
         let now = std::time::Instant::now();
         let pending: Vec<Pending> = got(app.store.lock().unwrap().delivered()).ok().flatten().unwrap_or_default().into_iter().map(|d| Pending { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery: d.delivery, armed: false, sent: now }).collect();
         app.pending.lock().unwrap().extend(pending);
-        // Questions left open by a previous run have lost their wait; close them.
+        // Questions left open by a previous run have lost their wait; close them. Not those of
+        // a discussion: their answerer is the task's own agent, which goes on; one never given
+        // is given now.
         let open = got(app.store.lock().unwrap().open_questions()).ok().flatten().unwrap_or_default();
         for id in open {
             app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
         }
+        app.discussions_again();
         // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
         let held = got(app.store.lock().unwrap().held_messages()).ok().flatten().unwrap_or_default();
         for id in held {

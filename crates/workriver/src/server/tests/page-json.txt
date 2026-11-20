@@ -92,6 +92,7 @@ workspace.intents[].units[].tasks[].agentSession: string
 workspace.intents[].units[].tasks[].blind: bool
 workspace.intents[].units[].tasks[].delivered: string
 workspace.intents[].units[].tasks[].design: bool
+workspace.intents[].units[].tasks[].discuss: string
 workspace.intents[].units[].tasks[].gate: string
 workspace.intents[].units[].tasks[].id: string
 workspace.intents[].units[].tasks[].input.causes: array
@@ -140,6 +141,7 @@ workspace.intents[].units[].tasks[].output.findings[].severity: string
 workspace.intents[].units[].tasks[].output.findings[].since: string
 workspace.intents[].units[].tasks[].output.findings[].state: string
 workspace.intents[].units[].tasks[].output.findings[]: object
+workspace.intents[].units[].tasks[].output.gate: string
 workspace.intents[].units[].tasks[].output.note: string
 workspace.intents[].units[].tasks[].output: object
 workspace.intents[].units[].tasks[].plans: array
@@ -153,11 +155,15 @@ workspace.intents[].units[].tasks[].state: string
 workspace.intents[].units[].tasks[].taskId: null
 workspace.intents[].units[].tasks[].taskId: string
 workspace.intents[].units[].tasks[].threads: array
+workspace.intents[].units[].tasks[].threads[].discuss: bool
 workspace.intents[].units[].tasks[].threads[].ended: bool
 workspace.intents[].units[].tasks[].threads[].id: string
 workspace.intents[].units[].tasks[].threads[].live: bool
 workspace.intents[].units[].tasks[].threads[].turns: array
 workspace.intents[].units[].tasks[].threads[].turns[].answer: null
+workspace.intents[].units[].tasks[].threads[].turns[].answer: string
+workspace.intents[].units[].tasks[].threads[].turns[].answerBy: string
+workspace.intents[].units[].tasks[].threads[].turns[].answeredAt: string
 workspace.intents[].units[].tasks[].threads[].turns[].at: string
 workspace.intents[].units[].tasks[].threads[].turns[].context: array
 workspace.intents[].units[].tasks[].threads[].turns[].context[].kind: string
@@ -166,7 +172,9 @@ workspace.intents[].units[].tasks[].threads[].turns[].context[].path: string
 workspace.intents[].units[].tasks[].threads[].turns[].context[]: object
 workspace.intents[].units[].tasks[].threads[].turns[].id: string
 workspace.intents[].units[].tasks[].threads[].turns[].question: string
+workspace.intents[].units[].tasks[].threads[].turns[].reason: string
 workspace.intents[].units[].tasks[].threads[].turns[].step: string
+workspace.intents[].units[].tasks[].threads[].turns[].unread: bool
 workspace.intents[].units[].tasks[].threads[].turns[]: object
 workspace.intents[].units[].tasks[].threads[]: object
 workspace.intents[].units[].tasks[].title: string

@@ -1,6 +1,6 @@
-// Questions and talk through the service: asking about a task, the user's
-// message to a manager and what was read; and closing a temporary agent a moment after its
-// work is done.
+// Questions and talk through the service: asking about a task, the user's discussion of a
+// delivered result with its agent, the user's message to a manager and what was read; and
+// closing a temporary agent a moment after its work is done.
 use std::path::Path;
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
 
+mod discussions;
 mod messages;
 pub(super) mod prompts;
 mod questions;
@@ -79,6 +80,41 @@ pub(super) struct Read {
 pub(super) async fn messages_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<Read>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || app.record(&who, Body::MessagesRead { workspace: r.workspace, at: r.at }).map(Json)).await
+}
+
+/// The user's question in the discussion of a delivered design or research.
+#[derive(Deserialize)]
+pub(super) struct Discuss {
+    unit: String,
+    task: u32,
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    context: Vec<core::AskContext>,
+    /// Ask the task's agent for the conclusion instead.
+    #[serde(default)]
+    conclude: bool,
+}
+
+/// The user discusses a delivered design or research with its own agent: recorded, then
+/// given to that agent (`App::discuss`, from the record).
+pub(super) async fn discuss(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Discuss>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    let body = Body::QuestionAsked { id: String::new(), thread: String::new(), unit: a.unit, task: a.task, text: a.text, context: a.context, conclude: a.conclude, discuss: true };
+    blocking(move || app.record(&who, body).map(Json)).await
+}
+
+#[derive(Deserialize)]
+pub(super) struct DiscussionRead {
+    unit: String,
+    task: u32,
+    at: String,
+}
+
+/// The page shows the user a task's discussion: read up to `at`.
+pub(super) async fn discussion_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<DiscussionRead>) -> Result<Json<core::Event>, ApiError> {
+    let who = app.user(&caller)?;
+    blocking(move || app.record(&who, Body::QuestionsRead { unit: r.unit, task: r.task, at: r.at }).map(Json)).await
 }
 
 /// The user asks why: recorded at once; the temporary agent starts in the background.

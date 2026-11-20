@@ -395,6 +395,10 @@ pub(crate) struct Task {
     /// Running, and its agent stopped without delivering (idle too long, or gone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stalled: Option<super::Stall>,
+    /// A delivered design or research with its agent: whether the user may discuss it now
+    /// ("open"), its agent is gone ("gone"), or its gate was submitted ("over").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) discuss: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -424,6 +428,10 @@ pub(crate) struct TaskOut {
     /// Gates: pictures with the note; other tasks: files with the output.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) attachments: Vec<AttachmentOut>,
+    /// A design or research: the gate that asks the user about it (`State::result_gate`), by
+    /// its id as in `inputs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) gate: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -539,6 +547,9 @@ pub(crate) struct ThreadOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) conclusion: Option<String>,
     pub(crate) turns: Vec<Turn>,
+    /// The user's discussion of the task with its own agent.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) discuss: bool,
 }
 
 #[derive(Serialize)]
@@ -573,6 +584,12 @@ pub(crate) struct Turn {
     /// A request for the thread's conclusion.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) conclude: bool,
+    /// While held (step "held"): why, in the service's words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+    /// A discussion's answer the user has not read yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unread: bool,
 }
 
 #[derive(Serialize)]

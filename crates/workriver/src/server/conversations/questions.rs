@@ -149,17 +149,26 @@ impl App {
         // A manager on a blind task is told nothing of other work: the user's message waits
         // (`poll` tries again) until that task is delivered. Checked at every try, since it may
         // have become blind while the message was held. Unread, it is not given either.
-        if matches!(h.kind, For::Message | For::Notice) && !self.blind_free(&h.to) {
+        if matches!(h.kind, For::Message | For::Notice | For::Discussion) && !self.blind_free(&h.to) {
             h.not_ready = None;
             self.held.lock().unwrap().push(h);
             return;
         }
-        match self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).map(|a| a.state) {
+        let found = self.runtime.agents().ok().and_then(|l| l.into_iter().find(is));
+        // A discussion's agent is named as the runtime lists it when it is given the question.
+        if let (For::Discussion, Some(a)) = (h.kind, &found) {
+            h.name = a.name.clone();
+        }
+        match found.map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
+            // A discussion never interrupts its agent's work; one not listed (the runtime not
+            // read, or gone) waits for `poll`, which alone says it is gone.
+            Some(AgentState::Working) | None if h.kind == For::Discussion => h.not_ready = None,
             _ => match self.send(&h.to, &h.text) {
                 Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
+                Ok(()) if h.kind == For::Discussion => return self.discussion_given(&h),
                 Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
@@ -170,6 +179,7 @@ impl App {
                         For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
                         For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
                         For::Notice => self.told(h, Err(e)),
+                        For::Discussion => self.drop_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
                     };
                 }
             },

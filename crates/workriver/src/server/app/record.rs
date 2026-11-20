@@ -44,7 +44,13 @@ impl App {
         self.deliver(&e);
         match &e.body {
             Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
-            Body::QuestionAnswered { question, .. } => self.answered(question),
+            Body::QuestionAnswered { question, .. } => {
+                self.answered(question);
+                self.tell_of_discussion(&e);
+            }
+            Body::QuestionAsked { id, discuss: true, .. } => self.discuss(id),
+            Body::GateSubmitted { unit, task, .. } => self.gate_submitted(unit, *task),
+            Body::TaskAmended { .. } => self.tell_of_discussion(&e),
             Body::ThreadEnded { thread } => self.end_thread(thread),
             Body::MessageSent { id, .. } => self.tell_manager(id),
             _ => {}

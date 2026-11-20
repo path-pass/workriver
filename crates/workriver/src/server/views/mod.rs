@@ -134,10 +134,12 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
         .filter(|t| t.unit == unit && t.task == n)
         .map(|t| {
             let agent = t.name.as_ref().and_then(|name| live.iter().find(|a| &a.name == name));
+            let read = state.questions_read.get(&format!("{unit}#{n}"));
             ThreadOut {
                 id: t.id.clone(),
                 ended: t.ended,
                 live: agent.is_some(),
+                discuss: t.discuss,
                 conclusion: t.conclusion.clone(),
                 turns: state
                     .questions
@@ -146,6 +148,10 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                     .map(|q| {
                         // The agent answering it, when the runtime says it waits for a person.
                         let stuck = q.agent.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).filter(|a| q.open() && a.state == AgentState::Blocked);
+                        // A discussion's question not given yet: to the task's own agent, which
+                        // may be at work, waiting for a person, or on a blind task.
+                        let waiting = (q.discuss && q.open() && q.agent.is_none()).then(|| discussion_wait(state, live, names, unit, n)).flatten();
+                        let stuck = stuck.or(waiting.as_ref().and_then(|w| w.1));
                         Turn {
                         id: q.id.clone(),
                         by: (q.by != "user").then(|| names.of(&q.by)),
@@ -156,7 +162,9 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                         // The agent started for it is known by the name it was given.
                         answer_by: q.answered_by.as_ref().map(|a| q.name.clone().filter(|_| q.agent.as_ref() == Some(a)).unwrap_or_else(|| names.of(a))),
                         answered_at: q.answered_at.clone(),
-                        step: q.open().then_some(if stuck.is_some() { "blocked" } else if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        step: q.open().then_some(if stuck.is_some() { "blocked" } else if waiting.as_ref().is_some_and(|w| w.0.is_some()) { "held" } else if q.agent.is_some() && (agent.is_some() || q.discuss) { "reading" } else { "starting" }),
+                        reason: waiting.as_ref().and_then(|w| w.0.clone()).filter(|_| stuck.is_none()),
+                        unread: q.discuss && q.answered_at.as_ref().is_some_and(|at| read.is_none_or(|r| at > r)),
                         blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
                         consulted: q.asked.as_ref().map(|a| Consulted { agent: names.of(a), outcome: "asked" }),
                         at: q.at.clone(),
@@ -168,6 +176,40 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
             }
         })
         .collect()
+}
+
+/// Why a discussion's question waits for the task's own agent (None: it is about to be
+/// given), and that agent when it waits for a person in its terminal.
+fn discussion_wait<'a>(state: &core::State, live: &'a [RuntimeAgent], names: &Names, unit: &str, n: u32) -> Option<(Option<String>, Option<&'a RuntimeAgent>)> {
+    let a = state.task(unit, n).ok()?.agent.clone()?;
+    let name = names.of(&a);
+    if !state.blind_tasks(&a).is_empty() {
+        return Some((Some(format!("{name} is on a blind task: the question goes once that task is delivered")), None));
+    }
+    let x = live.iter().find(|x| x.session == a);
+    Some(match x.map(|x| x.state) {
+        Some(AgentState::Blocked) => (None, x),
+        Some(AgentState::Working) => {
+            let on = state.units.iter().flat_map(|u| u.tasks.iter().map(move |t| (&u.id, t))).find(|(_, t)| t.state == TaskState::Running && t.agent.as_deref() == Some(a.as_str()));
+            let on = on.map(|(o, t)| format!(" on {o}#{}", t.n)).unwrap_or_default();
+            (Some(format!("{name} is working{on}: the question goes once it is idle")), None)
+        }
+        _ => (None, None),
+    })
+}
+
+/// Whether the user may discuss delivered design or research `t` with its agent now: "open";
+/// its agent gone from a read that listed agents ("gone"); its gate submitted ("over"). None:
+/// not such a task.
+fn discussable(state: &core::State, live: &[RuntimeAgent], owner: &str, t: &core::Task) -> Option<&'static str> {
+    if !matches!(t.kind, TaskKind::Design | TaskKind::Research) || t.state != TaskState::Done {
+        return None;
+    }
+    let a = t.agent.as_deref()?;
+    if state.result_gate(owner, t.n).is_some_and(|g| g.state == TaskState::Done) {
+        return Some("over");
+    }
+    Some(if !live.is_empty() && !live.iter().any(|x| x.session == a || x.name == a) { "gone" } else { "open" })
 }
 
 /// The id of the live commit, as in the UI's data.
@@ -732,6 +774,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
                     .collect()
             }),
             attachments: attachments_of(state, &t.attachments),
+            gate: state.result_gate(&u.id, t.n).map(|g| g.n.to_string()),
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
         // Only a gate's own message is shown on the page; the others went to the manager.
@@ -750,6 +793,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         amended: t.amended.clone(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
         stalled: None,
+        discuss: discussable(state, live, &u.id, t),
     }
 }
 
@@ -786,6 +830,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         amended: None,
         dropped: None,
         stalled: None,
+        discuss: None,
     }
 }
 

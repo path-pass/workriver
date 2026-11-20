@@ -1301,6 +1301,63 @@
         "title": "Later"
       },
       "kind": "intent.created"
+    },
+    {
+      "body": {
+        "context": [],
+        "discuss": true,
+        "id": "q5",
+        "task": 1,
+        "text": "Why three?",
+        "thread": "q5",
+        "unit": "u3"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "agent": "s-s",
+        "name": "surveyor",
+        "question": "q5",
+        "temporary": false
+      },
+      "kind": "question.started"
+    },
+    {
+      "body": {
+        "question": "q5",
+        "text": "Each fits a case."
+      },
+      "kind": "question.answered"
+    },
+    {
+      "body": {
+        "at": "2025-12-03T14:01:00Z",
+        "task": 1,
+        "unit": "u3"
+      },
+      "kind": "questions.read"
+    },
+    {
+      "body": {
+        "conclude": true,
+        "context": [],
+        "discuss": true,
+        "id": "q6",
+        "task": 1,
+        "text": "",
+        "thread": "q5",
+        "unit": "u3"
+      },
+      "kind": "question.asked"
+    },
+    {
+      "body": {
+        "question": "q6",
+        "reason": "surveyor is no longer running",
+        "reason_code": "agent-gone"
+      },
+      "kind": "question.failed"
     }
   ],
   "managers": {
@@ -1392,10 +1449,10 @@
     {
       "body": {
         "context": [],
-        "id": "q5",
+        "id": "q7",
         "task": 4,
         "text": "And?",
-        "thread": "q5",
+        "thread": "q7",
         "unit": "u2"
       },
       "kind": "question.asked"
@@ -1409,6 +1466,18 @@
         "workspace": "search"
       },
       "kind": "message.sent"
+    },
+    {
+      "body": {
+        "context": [],
+        "discuss": true,
+        "id": "q7",
+        "task": 1,
+        "text": "And a fourth?",
+        "thread": "q5",
+        "unit": "u3"
+      },
+      "kind": "question.asked"
     },
     {
       "rejected": "u2#2 is already delivered; to correct it, run `workriver task deliver u2#2 --amend` with what replaces it"
@@ -1816,8 +1885,54 @@
         "text": "Conclude",
         "thread": "q3",
         "unit": "u2"
+      },
+      {
+        "agent": "s-s",
+        "answer": "Each fits a case.",
+        "answered_at": "2025-12-03T14:01:00Z",
+        "answered_by": "s-s",
+        "asked": null,
+        "at": "2025-12-03T14:00:00Z",
+        "by": "user",
+        "conclude": false,
+        "context": [],
+        "discuss": true,
+        "failed": null,
+        "id": "q5",
+        "name": "surveyor",
+        "task": 1,
+        "temporary": false,
+        "text": "Why three?",
+        "thread": "q5",
+        "unit": "u3"
+      },
+      {
+        "agent": null,
+        "answer": null,
+        "answered_at": null,
+        "answered_by": null,
+        "asked": null,
+        "at": "2025-12-03T14:03:00Z",
+        "by": "user",
+        "conclude": true,
+        "context": [],
+        "discuss": true,
+        "failed": [
+          "agent-gone",
+          "surveyor is no longer running"
+        ],
+        "id": "q6",
+        "name": null,
+        "task": 1,
+        "temporary": true,
+        "text": "",
+        "thread": "q5",
+        "unit": "u3"
       }
     ],
+    "questions_read": {
+      "u3#1": "2025-12-03T14:01:00Z"
+    },
     "read": {
       "search": "2025-12-03T10:00:00Z"
     },
@@ -1851,6 +1966,16 @@
         "name": null,
         "task": 4,
         "unit": "u2"
+      },
+      {
+        "agent": null,
+        "conclusion": null,
+        "discuss": true,
+        "ended": false,
+        "id": "q5",
+        "name": null,
+        "task": 1,
+        "unit": "u3"
       }
     ],
     "units": [

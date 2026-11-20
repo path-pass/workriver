@@ -32,6 +32,9 @@ pub(in crate::server) enum For {
     /// What workriver tells an agent (an answer, a delivery's message, an escalation), held
     /// while the agent is on a blind task in progress (`App::tell`).
     Notice,
+    /// The user's question in a discussion, to the task's own agent: held while it works too,
+    /// and while it is on a blind task in progress or not listed; never timed out.
+    Discussion,
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -101,7 +104,7 @@ impl App {
     /// Where the runtime was read just now and listed agents (None: this machine): elsewhere
     /// (a failed or empty read, a machine that cannot be reached, listed as last seen) agents
     /// are unknown.
-    fn readable(&self, live: &[RuntimeAgent]) -> Vec<Option<String>> {
+    pub(super) fn readable(&self, live: &[RuntimeAgent]) -> Vec<Option<String>> {
         let down: Vec<String> = self.machines.iter().flat_map(|m| m.states()).filter(|m| !m.reachable).map(|m| m.label).collect();
         let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m))).collect();
         read.dedup();
