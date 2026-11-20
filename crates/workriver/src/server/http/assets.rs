@@ -18,6 +18,6 @@ pub(super) async fn ui(uri: Uri) -> Response {
     let cache = if asset.is_some() && path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
     match asset.or_else(|| Ui::get("index.html")) {
         Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string()), (header::CACHE_CONTROL, cache.to_string())], f.data).into_response(),
-        None => (StatusCode::NOT_FOUND, "The web UI is not built: run `npm run build` in frontend/web, then build workriver again.").into_response(),
+        None => (StatusCode::NOT_FOUND, "The web UI is not built: run `pnpm build` in frontend/web, then build workriver again.").into_response(),
     }
 }

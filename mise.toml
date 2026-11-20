@@ -1,3 +1,6 @@
 [tools]
 rust = "1.100.0"
+# pnpm before node: the first on PATH wins, and a pnpm installed into node's own bin must
+# not shadow this one.
+pnpm = "12.18.0"
 node = "24"

@@ -171,11 +171,11 @@ over ssh; that part is new and has only been tested against stand-ins.
 Step by step, from a fresh Mac to a manager agent in each workspace:
 [Getting started](docs/getting-started.md).
 
-Runtimes come from [mise](https://mise.jdx.dev) (`mise.toml`: Rust and Node). The web UI is
-built into the binary, so build it first:
+Runtimes come from [mise](https://mise.jdx.dev) (`mise.toml`: Rust, Node and pnpm). The web
+UI is built into the binary, so build it first:
 
 ```
-cd frontend/web && npm install && npm run build && cd ../..
+cd frontend/web && pnpm install && pnpm build && cd ../..
 cargo build --release
 ./target/release/workriver serve          # http://127.0.0.1:47820
 ./target/release/workriver open           # the page, signed in as you (a one-time link)
@@ -191,8 +191,8 @@ manager` / `workriver guide worker` print the instructions for agents. Where the
 finds the runtime: [docs/runtimes/herdr.md](docs/runtimes/herdr.md); without it the service
 still records and shows, it just sees no agents.
 
-Working on the UI: `npm run dev` in `frontend/web` uses a running `workriver serve`;
-`npm run dev:mock` uses the sample data instead. Where each part of the code lives:
+Working on the UI: `pnpm dev` in `frontend/web` uses a running `workriver serve`;
+`pnpm dev:mock` uses the sample data instead. Where each part of the code lives:
 [docs/architecture.md](docs/architecture.md).
 
 ## License

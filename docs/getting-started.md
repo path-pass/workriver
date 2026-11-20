@@ -11,8 +11,8 @@ running workriver with a manager agent in each workspace.
 ```sh
 git clone https://github.com/path-pass/workriver.git
 cd workriver
-mise install                 # Rust and Node as pinned in mise.toml, for this folder only
-cd frontend/web && npm install && npm run build && cd ../..
+mise install                 # Rust, Node and pnpm as pinned in mise.toml, for this folder only
+cd frontend/web && pnpm install && pnpm build && cd ../..
 cargo build --release
 ```
 
@@ -237,7 +237,7 @@ to you).
 
 ```sh
 git pull
-cd frontend/web && npm install && npm run build && cd ../..
+cd frontend/web && pnpm install && pnpm build && cd ../..
 cargo build --release
 ```
 

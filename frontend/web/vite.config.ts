@@ -28,6 +28,6 @@ export default defineConfig({
   // The script of the frame mermaid draws in (src/content/diagram/draw.ts) is built on its own,
   // as a worker's is; as modules, so each kind of diagram stays a chunk loaded when needed.
   worker: { format: 'es', plugins: () => [noElk()] },
-  // `npm test`: the page's logic and its safety-relevant views, in a DOM of happy-dom.
+  // `pnpm test`: the page's logic and its safety-relevant views, in a DOM of happy-dom.
   test: { environment: 'happy-dom', include: ['src/**/*.test.{ts,tsx}'] },
 })

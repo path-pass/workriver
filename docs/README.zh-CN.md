@@ -69,10 +69,10 @@ workriver 就是放这些答案的地方。它作为一个服务跑在你自己�
 
 从一台新 Mac 到每个工作区都有管理者 agent，一步一步：[上手](getting-started.zh-CN.md)。
 
-运行时由 [mise](https://mise.jdx.dev) 管理（`mise.toml`：Rust 和 Node）。网页界面会打进二进制文件里，所以先构建界面：
+运行时由 [mise](https://mise.jdx.dev) 管理（`mise.toml`：Rust、Node 和 pnpm）。网页界面会打进二进制文件里，所以先构建界面：
 
 ```
-cd frontend/web && npm install && npm run build && cd ../..
+cd frontend/web && pnpm install && pnpm build && cd ../..
 cargo build --release
 ./target/release/workriver serve          # http://127.0.0.1:47820
 ./target/release/workriver open           # 打开页面，以你的身份登录（一次性链接）
@@ -82,7 +82,7 @@ cargo build --release
 
 数据在 `~/workriver-data/workriver.db`（用 `WORKRIVER_HOME` 换位置）。`workriver --help` 说明各个命令。一个工作区的管理者在自己的终端里用 `workriver manager here` 登记，每个工作区一个，`workriver guide manager` / `workriver guide worker` 打印给 agent 的说明。服务在哪里找运行时：[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)；没有运行时，服务照常记录和显示，只是看不到 agent。
 
-改界面时：在 `frontend/web` 里 `npm run dev` 连正在运行的 `workriver serve`；`npm run dev:mock` 改用示例数据。代码的各部分在哪里：[architecture.zh-CN.md](architecture.zh-CN.md)。
+改界面时：在 `frontend/web` 里 `pnpm dev` 连正在运行的 `workriver serve`；`pnpm dev:mock` 改用示例数据。代码的各部分在哪里：[architecture.zh-CN.md](architecture.zh-CN.md)。
 
 ## 许可
 

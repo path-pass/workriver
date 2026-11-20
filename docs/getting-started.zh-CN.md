@@ -11,8 +11,8 @@
 ```sh
 git clone https://github.com/path-pass/workriver.git
 cd workriver
-mise install                 # 按 mise.toml 装好 Rust 和 Node，只对这个目录生效
-cd frontend/web && npm install && npm run build && cd ../..
+mise install                 # 按 mise.toml 装好 Rust、Node 和 pnpm，只对这个目录生效
+cd frontend/web && pnpm install && pnpm build && cd ../..
 cargo build --release
 ```
 
@@ -207,7 +207,7 @@ workriver workspace link box:chat chat
 
 ```sh
 git pull
-cd frontend/web && npm install && npm run build && cd ../..
+cd frontend/web && pnpm install && pnpm build && cd ../..
 cargo build --release
 ```
 

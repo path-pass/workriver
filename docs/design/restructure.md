@@ -325,7 +325,7 @@ protocol versions and security invariants stay with their owner.
 
 ```text
 frontend/web/
-├── package.json / package-lock.json  # Today's dependencies; Vitest/happy-dom dev-only (phase 0).
+├── package.json / pnpm-lock.yaml     # Today's dependencies; Vitest/happy-dom dev-only (phase 0).
 ├── vite.config.ts                    # Build, proxy, the `test` block; aliases only if paths move.
 ├── tsconfig*.json / components.json  # Type and shadcn setup; ui/utils aliases follow the moves.
 └── src/
@@ -459,7 +459,7 @@ behaviour, made only on purpose and named in the commit.
 | Runtime names (a ratchet) | `tests/boundaries.rs` (an integration test: it reads the whole repository, so it never moves) | `herdr` (any case) and `pane(s)` appear outside the adapter only in the files listed; a new file naming them fails, and a listed file that stops naming them must leave the list (section 5.1). |
 | The page's JSON | `guards.rs`: `the_json_the_page_reads_keeps_its_shape`, with `server/tests/page-json.txt` | Every key path and kind of value of `/api/workspace` and `/api/unit/{id}/code` on a workspace with most of what the page shows (projects, roadmap, backlog, a manager, committed/unregistered/uncommitted work, a research unit, a design, a blind review with decided findings, a waiting gate, a chore, an attachment, a question, a manager conversation, a second machine). A key that workspace leaves out is not pinned. |
 | The CLI's text and machines | `tests/cli.rs` (real binary) | `project list`, `workspace list`, `backlog list`/`export`, `finding show`/`drop` (an agent refused), and the user adding, enabling, disabling and removing a machine down to `settings.json` and the tunnel's process. |
-| The page's logic | `frontend/web/src/**/*.test.ts(x)`, `npm test` | Markdown safety (no raw HTML, no unsafe link protocols, `noopener noreferrer`, no image fetched), the signed-out screen and the ten-minute deep link, the destructive-command flag, addresses, scope growth, quiet, the content-language guess. |
+| The page's logic | `frontend/web/src/**/*.test.ts(x)`, `pnpm test` | Markdown safety (no raw HTML, no unsafe link protocols, `noopener noreferrer`, no image fetched), the signed-out screen and the ten-minute deep link, the destructive-command flag, addresses, scope growth, quiet, the content-language guess. |
 
 `WORKRIVER_BLESS=1` rewrites the blessed files (the replay's expected state,
 `route-access.txt`, `page-json.txt`, `cli-tree.txt`); it is for a deliberate change, never
@@ -470,7 +470,7 @@ cargo test -p workriver-core replay
 cargo test -p workriver --bin workriver guards
 cargo test -p workriver --test boundaries
 cargo test -p workriver --test cli
-(cd frontend/web && npm test)
+(cd frontend/web && pnpm test)
 ```
 
 ### 5.1 The ratchet's lists
@@ -541,7 +541,7 @@ With the runtime's variables unset (tests start their own stand-ins) and nothing
 env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
   cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cd frontend/web && npm run typecheck && npm run build && npm test
+cd frontend/web && pnpm typecheck && pnpm build && pnpm test
 ```
 
 Two runs of the suite may overlap (several agents test at once): a test counts and talks
@@ -560,7 +560,7 @@ it after phases 5 and 8 as well.
 
 ### 5.4 The mock-page checklist (frontend phases)
 
-`npm run dev:mock` (sample data, no service). Before and after, the same sample, in English,
+`pnpm dev:mock` (sample data, no service). Before and after, the same sample, in English,
 Chinese and Japanese, light and dark, wide and at 390 px:
 
 1. `/u1`, `/u1/3`, `/i1`, `/i1/1`, `?finding=P2-1` open what they name; back and forward
