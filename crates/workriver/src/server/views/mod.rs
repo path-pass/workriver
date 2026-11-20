@@ -58,9 +58,26 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                     m.delivery.as_ref().and_then(|d| d.reason.clone())
                 },
                 blocked: stuck.filter(|_| !blind).map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
-                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect(),
+                replies: m
+                    .replies
+                    .iter()
+                    .enumerate()
+                    .map(|(k, r)| ReplyOut {
+                        by: names.of(&r.by),
+                        text: r.text.clone(),
+                        at: r.at.clone(),
+                        unread: unread(&r.at),
+                        choice: r.choice.clone(),
+                        answered: r.answered.clone(),
+                        open: r.choice.is_some() && state.choice_open(&m.id, k as u32 + 1),
+                    })
+                    .collect(),
                 by_manager: m.by_manager,
                 unread: m.by_manager && unread(&m.at),
+                choice: m.choice.clone(),
+                answered: m.answered.clone(),
+                open: m.choice.is_some() && state.choice_open(&m.id, 0),
+                answer: m.answer.clone(),
             }
         })
         .collect()
@@ -715,6 +732,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             text: if t.text.is_empty() { t.title.clone() } else { t.text.clone() },
             causes: t.causes.iter().map(|c| Cause { review: c.task.to_string(), findings: c.findings.clone() }).collect(),
             steps: (t.kind == TaskKind::Gate).then(|| t.steps.clone()),
+            choice: t.choice.clone(),
         },
         output: TaskOut {
             commits: Some(commits),
@@ -732,6 +750,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
                     .collect()
             }),
             attachments: attachments_of(state, &t.attachments),
+            selected: t.selected.clone(),
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
         // Only a gate's own message is shown on the page; the others went to the manager.
@@ -772,7 +791,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         reviewer: None,
         result: None,
         inputs: vec![core::Input { from: "start".into(), primary: true }],
-        input: TaskIn { text: String::new(), causes: vec![], steps: None },
+        input: TaskIn { text: String::new(), causes: vec![], steps: None, choice: None },
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
         delivery: None,

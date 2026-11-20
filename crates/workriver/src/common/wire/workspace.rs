@@ -107,6 +107,17 @@ pub(crate) struct MessageOut {
     /// The manager's message, not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+    /// The manager's message with options (`say`), the user's answer to it, and whether the
+    /// user can still answer it (not answered, and asked by the workspace's manager now).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answered: Option<core::Answered>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open: bool,
+    /// The user's message that answers a manager's options: which, and the value picked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answer: Option<core::Answer>,
 }
 
 #[derive(Serialize)]
@@ -117,6 +128,13 @@ pub(crate) struct ReplyOut {
     /// Not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+    /// As on `MessageOut`: the reply's options, their answer, and whether it is still open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answered: Option<core::Answered>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open: bool,
 }
 
 /// A unit's file texts, which the page's snapshot leaves out (`Cache::bare`): read when its
@@ -403,6 +421,9 @@ pub(crate) struct TaskIn {
     pub(crate) causes: Vec<Cause>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) steps: Option<Vec<core::Step>>,
+    /// A decide gate's options, as stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
 }
 
 #[derive(Serialize)]
@@ -424,6 +445,9 @@ pub(crate) struct TaskOut {
     /// Gates: pictures with the note; other tasks: files with the output.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) attachments: Vec<AttachmentOut>,
+    /// An answered gate: the option picked.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) selected: Vec<String>,
 }
 
 #[derive(Serialize)]

@@ -410,6 +410,17 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let context = json!([{ "kind": "task", "label": "#1", "task": 1 }, { "kind": "lines", "label": "a.txt L1–2", "path": "a.txt", "from": 1, "to": 2 }, { "kind": "attachment", "label": "shot.png", "id": shot["id"] }]);
     d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?", "unit": "u1", "task": 2, "context": context }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Design confirmed." })).unwrap();
+    // Options: a decide gate answered; a manager's message answered, and replies to the
+    // answer, one answered and one still open.
+    let choice = crate::cli::parse_choice(&["merge=Merge".into(), "hold=Not now".into()], &["hold".into()]).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "gate", "gate": "decide", "title": "Which tool?", "inputs": [{ "from": "start" }], "choice": choice })).unwrap();
+    d.call("/api/gate", Some(json!({ "unit": "u2", "task": 2, "result": "answered", "selected": ["hold"], "note": "Later" }))).unwrap();
+    d.append("s-boss", "message.said", json!({ "text": "Which first?", "choice": choice })).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m3", "selected": ["merge"] } }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Squash?", "choice": choice })).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m4", "reply": 1, "selected": ["merge"] } }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Tag it?", "choice": choice })).unwrap();
+    d.append("s-boss", "message.said", json!({ "text": "Then which?", "choice": choice })).unwrap();
     (d, fake)
 }
 
