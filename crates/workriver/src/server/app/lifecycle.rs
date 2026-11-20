@@ -141,8 +141,8 @@ impl App {
             let held = self.held.lock().unwrap().iter().find(|h| &h.question == id).map(|h| (h.name.clone(), h.not_ready.is_some()));
             let secs = self.waits.answer.as_secs();
             match held {
-                // Its tab stays: the user may be about to answer what it waits on.
-                Some((name, true)) => self.drop_question(id, ReasonCode::NotReady, &format!("{name} never became ready for a prompt in {secs} seconds; the question never reached it, and its tab was left open for you")),
+                // Its terminal stays: the user may be about to answer what it waits on.
+                Some((name, true)) => self.drop_question(id, ReasonCode::NotReady, &format!("{name} never became ready for a prompt in {secs} seconds; the question never reached it, and its terminal was left open for you")),
                 Some((name, false)) => self.fail_question(id, ReasonCode::Blocked, &format!("{name} waited for an answer in its terminal for {secs} seconds; the question never reached it")),
                 None => self.fail_question(id, ReasonCode::Timeout, &format!("no answer within {secs} seconds")),
             }

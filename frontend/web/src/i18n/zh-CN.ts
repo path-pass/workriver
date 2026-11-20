@@ -534,7 +534,7 @@ export const zhCN: OneForm<typeof en> = {
       timeout: '没有及时回答',
       restarted: '服务重启了',
       blocked: '它的 agent 一直在终端里等人回答',
-      'not-ready': '新启动的 agent 一直没准备好接收提问；它的标签页还在 {{runtime}} 里留着',
+      'not-ready': '新启动的 agent 一直没准备好接收提问；它的终端还在 {{runtime}} 里留着',
       unknown: '没有说明原因'
     },
     failed: '没记下：服务没有收下'

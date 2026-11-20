@@ -551,7 +551,7 @@ export const en = {
       timeout: 'no answer in time',
       restarted: 'the service restarted',
       blocked: 'its agent waited for an answer in its terminal the whole time',
-      'not-ready': 'its new agent never got ready for a prompt; its tab is left open in {{runtime}}',
+      'not-ready': 'its new agent never got ready for a prompt; its terminal is left open in {{runtime}}',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'

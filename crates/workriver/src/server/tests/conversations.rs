@@ -159,7 +159,7 @@ fn a_blocked_agent_gets_the_question_once_free() {
 /// A new agent Herdr does not take prompts for yet is tried again at each poll. One still
 /// not ready past the window may sit on a prompt Herdr does not report: it waits for the user
 /// like a blocked one and gets the question once idle; never ready, it fails at the deadline
-/// saying so, its tab left open.
+/// saying so, its terminal left open.
 #[test]
 fn a_new_agent_not_ready_yet_is_asked_again() {
     use workriver_core::runtime::AgentState::*;
@@ -197,23 +197,23 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     assert_eq!(turn(1)["blocked"], json!({ "agent": "why-q2", "session": "s-why-q2" }));
     assert!(d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["agent"] == "why-q2" && s["blockedSince"].is_string()), "in Needs you");
     assert_eq!(sent_to("why-q2"), 0);
-    assert!(!closed("why-q2"), "its tab stays");
+    assert!(!closed("why-q2"), "its terminal stays");
     fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.name == "why-q2").for_each(|(_, a)| a.state = Idle);
     wait_until("given once idle", || sent_to("why-q2") == 1);
     std::thread::sleep(std::time::Duration::from_millis(2500));
     assert_eq!(sent_to("why-q2"), 1, "once");
     d.append("s-why-q2", "question.answered", json!({ "question": "q2", "text": "By date." })).unwrap();
 
-    // Never ready: it fails at the question's deadline, saying so; its tab is left open.
+    // Never ready: it fails at the question's deadline, saying so; its terminal is left open.
     *fake.start_as.lock().unwrap() = None;
     fake.not_ready.store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Another topic" }))).unwrap();
     wait_until("it fails as not ready", || turn(2)["failed"]["code"] == "not-ready");
     let why = turn(2)["failed"]["reason"].as_str().unwrap().to_string();
-    assert!(why.contains("why-q3 never became ready for a prompt in 8 seconds") && why.contains("its tab was left open for you"), "{why}");
+    assert!(why.contains("why-q3 never became ready for a prompt in 8 seconds") && why.contains("its terminal was left open for you"), "{why}");
     assert_eq!(sent_to("why-q3"), 0);
     std::thread::sleep(std::time::Duration::from_millis(4000));
-    assert!(!closed("why-q3"), "its tab stays");
+    assert!(!closed("why-q3"), "its terminal stays");
 }
 
 /// With no runtime the question fails at once, saying why.
