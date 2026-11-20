@@ -79,6 +79,8 @@ what you know in its note. "give --base N" - read `workriver intent history i3` 
 "i7 belongs to project …; your workspace's project is not known" - ask the user to set it
 (Settings, or `workriver workspace project`), or to start i7 in your workspace on the page.
 "i3 belongs to project Q; your workspace works on P" - not yours to start: ask the user.
+"i3 has no project: ask the user to start it" - an intent from before projects: the user
+starts it.
 "only the user or the manager of intent i3 marks it done" - not your intent. "only the user drops planned intent i7" - it is
 in the roadmap: ask the user. "workspace … has a manager running: X" - a workspace has one
 manager; you are a worker there, not its manager: tell the user, who closes X first if you

@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **Where an intent runs is set only by a checked start or by the user** (managers): an
+  intent with no project (from before projects) is the user's to start ("i3 has no project:
+  ask the user to start it"); an agent's `intent.created` is planned and names no workspace
+  (`workriver backlog add` already sends that), and `intent.linked` is the user's alone. No
+  command of yours sends the last two; `manager here --goal` with no current intent now adds
+  the intent to the roadmap and asks you to have the user start it. (`start-intent`)
 - **You start only your workspace's project's intents** (managers): `workriver intent start`
   of an intent of another project than your workspace's (as the user set it, else its
   current intent's, else that of the intents that ran in it) is refused, no longer only

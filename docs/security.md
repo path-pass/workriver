@@ -124,7 +124,11 @@ current intent's, else the one project of the intents that ran in it); while not
 recorded says, it starts none of a known project: you start a workspace's first intent (or
 set its project), so no agent makes its workspace another project's, or becomes the manager
 of another project's intent, by starting it. You may start any intent anywhere (the page
-asks you to confirm another project's).
+asks you to confirm another project's). An intent of no project (from before projects) only
+you start. And where an intent runs is set by nothing else: an agent adds intents to the
+roadmap only (planned, in no workspace), and linking an intent to a workspace is yours alone,
+so no agent becomes another intent's manager, or gives its workspace a project, by writing
+where an intent runs.
 
 Findings are the exception by design: by default the intent's **manager decides them**, so
 that work does not wait for you. The trade-off, plainly: a manager that is compromised or

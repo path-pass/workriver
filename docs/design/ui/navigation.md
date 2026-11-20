@@ -113,10 +113,11 @@ its sections went.
   blank. Cancel and Escape close it. Not inline: three fields, a conflict and a preview need
   one place.
 - **A conflict**: when a field it saves was changed meanwhile, the service refuses it; the
-  dialog stays open with the user's text and, for every field it saves that changed since it
-  opened (not only the one the service names), says so with the version the intent is at and
-  shows what that field says now against the user's text, word by word; then it offers "Save
-  anyway" (saved from that version). Nothing is lost: what it said stays in the history. No
+  dialog stays open with the user's text and, for every field it would save that changed
+  since it opened (not only the one the service names, and also one the user edits after the
+  refusal), says so with the version the intent is at and shows what that field says now
+  against the user's text, word by word; then it offers "Save anyway" (saved from that
+  version). Nothing is lost: what it said stays in the history. No
   three-way merge, and no live sign while the dialog is open.
 - **The history** is a dialog opened by "History": the versions, the newest first, each with
   its number, who (an agent with its robot mark, as the manager's decisions are shown; "you"
