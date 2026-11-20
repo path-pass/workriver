@@ -3,7 +3,7 @@
 // the drag ends, which is when anything that depends on it (a graph that refits) hears of it.
 //
 // Hand-written instead of react-resizable-panels: that library cost +15.3 kB gzip for this
-// one handle (see DESIGN.md).
+// one handle (see docs/design/ui/navigation.md, the rail).
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 interface Options {

@@ -12,7 +12,7 @@
   &:where([data-theme="dark"] *) { @slot; }
 }
 
-/* Roles, not swatches (see DESIGN.md). Colour in the work area means one thing only: the
+/* Roles, not swatches (see docs/design/ui/presentation.md). Colour in the work area means one thing only: the
    state of a piece of work. Water = it has flowed. Amber = flowing now. Violet = waiting
    for you, and what you picked. Each token is light-dark(light, dark); the theme follows
    the system and data-theme on <html> overrides it. */
