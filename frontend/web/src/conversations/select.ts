@@ -1,7 +1,6 @@
 // A task's conversations, with what was asked in this sitting, and how far one has got.
 import type { Task } from '@/work/types'
-import type { Thread, Turn } from './types'
-import type { Talk } from './types'
+import type { Thread, Turn, Talk } from './types'
 
 /** Recorded conversations, with questions asked in this sitting that the data does not have yet going with the last. */
 export function withAsked(list: Thread[], extra: Turn[]): Thread[] {

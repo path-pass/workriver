@@ -1,8 +1,7 @@
 // A unit's file texts: read when its code is shown, kept for the last few units, and their
 // diff lines worked out when first read.
-import type { FileChange } from './types'
+import type { FileChange, UnitCode } from './types'
 import type { Unit } from '@/planning/types'
-import type { UnitCode } from './types'
 import { KEEP_CODES } from '@/config/defaults'
 import { changeOf } from './files'
 

@@ -11,7 +11,7 @@ import { record } from '@/api/actions'
 import type { Intent, Unit } from './types'
 import type { Workspace } from '@/workspace/types'
 import type { Talk } from '@/conversations/types'
-import { Progress } from './Rail'
+import { Progress, ManagerState, Marks, needs, Quiet } from './Rail'
 import { TerminalButton } from '@/agents/Mark'
 import { MachineChip } from '@/machines/format'
 import { Prose } from '@/content/Prose'
@@ -21,7 +21,6 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Choice } from '@/ui/Choice'
 import { Activity } from '@/work/Activity'
-import { ManagerState, Marks, needs, Quiet } from './Rail'
 
 /** A label and its value, one row of the "where it runs" list. */
 function Row({ label, children }: { label: string; children: ReactNode }) {

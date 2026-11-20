@@ -1,11 +1,10 @@
 // What asks something of the user, across all units: what a unit wants a look at, and the
 // rows of Needs you.
-import type { Chore, Task } from '@/work/types'
+import type { Chore, Task, Pick } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { ManagerMessage } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
-import type { Pick } from '@/work/types'
 import { ms } from '@/planning/select'
 import { type Working, working, openCount, openFindings, SEVERITIES } from '@/work/select'
 

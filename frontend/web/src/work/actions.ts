@@ -1,9 +1,8 @@
 // What the user can do to the data (submit a gate, decide a finding, finish a chore), handed
 // down from the shell to wherever it is done.
 import { createContext, useContext } from 'react'
-import type { Decision, GateResult } from './types'
+import type { Decision, GateResult, Finding, Task } from './types'
 import type { Delivery } from '@/api/actions'
-import type { Finding, Task } from './types'
 import type { Unit } from '@/planning/types'
 
 export interface Act {

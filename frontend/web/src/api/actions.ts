@@ -3,9 +3,8 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK } from '@/workspace/source'
-import type { Decision, GateResult } from '@/work/types'
+import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
-import type { Finding, Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import type { AskContext, AskStep, Sent, Turn } from '@/conversations/types'

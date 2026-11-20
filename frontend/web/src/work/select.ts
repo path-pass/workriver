@@ -1,9 +1,8 @@
 // A unit's work as the views read it: labels, findings, what is related to what is picked,
 // and which commits and plans the pick covers.
 import type { T } from '@/i18n'
-import type { Finding, Severity, Task } from './types'
+import type { Finding, Severity, Task, Pick } from './types'
 import type { Unit } from '@/planning/types'
-import type { Pick } from './types'
 
 // ---- findings ----
 

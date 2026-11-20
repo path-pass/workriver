@@ -10,8 +10,7 @@ import { ms } from '@/planning/select'
 import { useT } from '@/i18n'
 import { metrics as loadMetrics, metricsHistory } from '@/api/actions'
 import type { Disk, DiskLimit, Level, Limit, MachineMetrics, Metric, MetricSample, MetricsReport, Thresholds } from './types'
-import { MachineChip } from './format'
-import { GB, alertValue } from './format'
+import { MachineChip, GB, alertValue } from './format'
 
 /** What the lines show: the last ten minutes, as the service keeps them. */
 const WINDOW = 10 * 60 * 1000

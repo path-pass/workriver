@@ -1,8 +1,7 @@
 // What the user put in during this sitting, laid over the workspace the service sent.
-import type { Finding, Task } from '@/work/types'
+import type { Finding, Task, GateResult, Decision } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { Workspace } from './types'
-import type { GateResult, Decision } from '@/work/types'
 import { ms } from '@/planning/select'
 
 /** Everything the user has put in during this sitting; the data shown is the data with these on top. */

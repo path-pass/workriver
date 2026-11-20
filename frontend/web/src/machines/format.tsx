@@ -1,8 +1,7 @@
 // A machine in words: an alert's value, what it is past and the processes it names, and the
 // chip that says which machine something is on.
-import { type T } from '@/i18n'
+import { type T, contentLang, useT } from '@/i18n'
 import type { MachineAlert } from './types'
-import { contentLang, useT } from '@/i18n'
 import { Tip } from '@/ui/Tip'
 import { Icon } from '@/ui/Icon'
 

@@ -1,9 +1,8 @@
 // A unit's files: their changes over some commits, which commit last changed each line, and
 // the file tree the code layer shows.
 import { diffLines, structuredPatch } from 'diff'
-import type { FileChange, ModuleNode } from './types'
+import type { FileChange, ModuleNode, FileDelta, FileTree, TreeRow } from './types'
 import type { Unit } from '@/planning/types'
-import type { FileDelta, FileTree, TreeRow } from './types'
 import { type Selection, working } from '@/work/select'
 
 /** The change from one text to another as unified-diff lines, with `context` lines around each change. */
