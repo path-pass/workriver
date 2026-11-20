@@ -43,8 +43,9 @@ its sections went.
   "amended" and the time next to the Output heading.
   After Output, a **Questions** block holds the past questions about the task (the user's
   from when the page had its own Ask, agents' to each other), read-only, folded to rows (`conversations.md`,
-  Past questions); at the bottom a small "Ask the manager" opens the Manager box with the
-  task as its chip. With no node picked, the unit's own past questions show under the graph
+  Past questions); a delivered design or research also has its discussion there, open, with
+  a box under it (`conversations.md`, Discussing a delivered result); at the bottom a small
+  "Ask the manager" opens the Manager box with the task as its chip. With no node picked, the unit's own past questions show under the graph
   the same way, when it has any.
   Longer text written by agents or the user – a task's input, a delivery or gate note, an
   answer to a question, a manager's reply – is short Markdown, rendered compact by the same safe renderer as
@@ -128,7 +129,9 @@ it follows is done; before that it is drawn like any task not started and counts
 you counts from the moment it opened. The work behind it stays not
 started, and the lines around a waiting gate do not flow, so a stuck branch is visible on
 the graph. Its input is the steps the agent prepared, each command with a copy button and
-"Run" (see Running a command as the user, `operations.md`);
+"Run" (see Running a command as the user, `operations.md`), and, while it waits, a "Discuss
+#1 with agent-R" button for each design or research it asks about that may still be
+discussed, which picks that task (`conversations.md`, Discussing a delivered result);
 its output is a short note and, for a try-out that went wrong, findings like a review's.
 A **chore** blocks nobody (clean the disk, rotate a key) and is never on the graph or
 attached to a task. It belongs to an intent (sometimes to one of its units): it is the

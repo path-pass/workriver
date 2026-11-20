@@ -53,7 +53,7 @@ workriver/
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
 │   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
 │   │       │   ├── graph.rs          # Inputs, ancestors, follow-ups, progress, readiness, and design
-│   │       │   │                     # ancestry (decide gates, superseding designs).
+│   │       │   │                     # ancestry (decide gates, superseding designs); result_gate.
 │   │       │   ├── findings.rs       # Findings, suggestions, decisions, additions, deferred batches.
 │   │       │   ├── gates.rs          # Gate submission/opening and results.
 │   │       │   ├── chores.rs         # Non-blocking chores and their completion.
@@ -61,7 +61,8 @@ workriver/
 │   │       │   └── tests.rs
 │   │       ├── conversations/        # Durable communication records.
 │   │       │   ├── mod.rs            # Question/thread/message/delivery types and transitions.
-│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks.
+│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks; the
+│   │       │   │                     # user's discussion of a delivered result, its read mark.
 │   │       │   ├── messages.rs       # Manager messages, replies, read position, agents seen.
 │   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
 │   │       │   └── tests.rs
@@ -126,7 +127,8 @@ Core defines `WorkStore` in `ports/data.rs`; it is all the service knows of stor
 - `status()`: where the store is, how many events, the revision.
 
 Named reads of one record (`unit`, `task`, `question`, `agent`, `thread`, `run`, …, and what
-a previous run left: `delivered`, `open_questions`, `held_messages`, `thread_agents`) are
+a previous run left: `delivered`, `open_questions`, `open_discussions`, `held_messages`,
+`thread_agents`) are
 provided methods over `recorded()` that a store may answer without the whole state; add one
 when it is missing. `recorded()` is used only where a function of the whole state is called
 or several records of one revision are needed. Every read returns a `Result`.
@@ -207,10 +209,12 @@ crates/workriver/
 │   │   ├── planning/mod.rs           # Intent/project/workspace/start/merge handlers.
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── conversations/
-│   │   │   ├── mod.rs                # Ask/end/reply/message/read handlers, shared state.
+│   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
 │   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
+│   │   │   ├── discussions.rs        # A discussion's question to its task's agent: hand, gone,
+│   │   │   │                         # gate submitted, restart; what the manager hears of it.
 │   │   │   ├── messages.rs           # Manager conversation send/hold/delivery/failure.
-│   │   │   └── prompts.rs            # Ask, follow-up and answer-back prompts.
+│   │   │   └── prompts.rs            # Ask, follow-up, answer-back and discussion prompts.
 │   │   ├── commands/
 │   │   │   ├── mod.rs                # Prepare/run/read/focus handlers; the user check in each.
 │   │   │   ├── shell.rs              # Command checks, marker parsing, polling, safe close.
@@ -348,7 +352,7 @@ frontend/web/
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
-    ├── conversations/                # types.ts select.ts Ask.tsx Turns.tsx; never imports app/
+    ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
     ├── attachments/                  # types.ts Viewer.tsx Thumbs.tsx preview.ts; Viewer calls onAsk, never Ask
     ├── commands/                     # types.ts Run.tsx context.tsx

@@ -95,7 +95,8 @@ in none of the runtime's terminals needs no tty to be yours. Everything else sta
 ## What only you can do
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
-drop them, end a conversation, focus a terminal from the page, start a planned intent in a
+drop them, end a conversation, discuss a delivered research or design result with the agent
+that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, start a planned intent in a
 workspace from the page (`/api/intent/start`), run a command (below), add projects, add or
 enable machines, link workspaces, say which project a workspace works on, set when the machines alert (`/api/metrics/thresholds`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,

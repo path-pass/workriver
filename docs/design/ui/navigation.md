@@ -153,8 +153,15 @@ its sections went.
      Machines section and leaves by itself once the alert clears.
   3. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
-  4. **Gaps** – commits that name no node.
-  5. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
+  4. **Messages** – what was said to the user and not read yet, the newest first: one row
+     per workspace whose manager wrote (its newest words, how many new in violet, the
+     manager), which opens that workspace's Manager conversation; and one row per task whose
+     agent answered in its discussion (`conversations.md`, Discussing a delivered result):
+     its newest answer's first line, how many new in plain ink (nothing waits on it), the
+     agent and the task, which opens the task at its discussion. They count in no mark and
+     not in the tab's title, and leave once read.
+  5. **Gaps** – commits that name no node.
+  6. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
      its project where others name their intent, or nothing when it has none. Then, for an
      intent with no manager, ready units that look squash-merged or have been ready for
      long ("u2 looks squash-merged into main"); the row opens the unit.
