@@ -5,13 +5,18 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// A stored file's path, from its id and its original name (for the extension).
-pub(in crate::server) fn path(home: &Path, id: &str, name: &str) -> PathBuf {
+/// A stored file's path, from its id and its original name (for the extension); none for an
+/// id that is not the store's own form (16 lowercase hex), which could name a file elsewhere
+/// (the rules record no other, but a path is never built from one).
+pub(in crate::server) fn path(home: &Path, id: &str, name: &str) -> Option<PathBuf> {
+    if !workriver_core::attachment_id(id) {
+        return None;
+    }
     let ext = Path::new(name).extension().map(|e| e.to_string_lossy().to_lowercase()).filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()));
-    crate::common::home::attachments_dir(home).join(match ext {
+    Some(crate::common::home::attachments_dir(home).join(match ext {
         Some(e) => format!("{id}.{e}"),
         None => id.to_string(),
-    })
+    }))
 }
 
 /// Stores `bytes` (once per content) and returns its id and path. Safe for the same content
@@ -20,7 +25,7 @@ pub(in crate::server) fn path(home: &Path, id: &str, name: &str) -> PathBuf {
 /// last replaces the same bytes.
 pub(super) fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(String, PathBuf)> {
     let id: String = Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let target = path(home, &id, name);
+    let target = path(home, &id, name).expect("an id made here is of the store's form");
     if !target.exists() {
         crate::common::home::mkdir(&crate::common::home::attachments_dir(home))?;
         let mut f = tempfile::NamedTempFile::new_in(crate::common::home::attachments_dir(home))?;

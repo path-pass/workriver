@@ -18,6 +18,13 @@ pub struct Attachment {
     pub user: bool,
 }
 
+/// Whether `id` is the store's own form of an attachment id: 16 lowercase hex characters, a
+/// short hash of the content (the service makes it). Its file's path is built from it, so
+/// nothing else is ever recorded as one.
+pub fn attachment_id(id: &str) -> bool {
+    id.len() == 16 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 impl State {
     /// The stored attachments shown with a task: its output's, its checks', its findings' and
     /// those added to them later, then those of the findings it answers, unless it is blind
@@ -72,6 +79,9 @@ impl State {
             AttachmentAdded { id, name, mime, size, unit, task, finding } => {
                 if blank(&id) || blank(&name) {
                     return no("an attachment needs its id and name");
+                }
+                if !attachment_id(&id) {
+                    return no(format!("{id:?} is not an attachment id: the store names a file by 16 lowercase hex characters; store it with `workriver attach <file>` and record the id it gives"));
                 }
                 match (&unit, task, &finding) {
                     (None, None, None) => {}

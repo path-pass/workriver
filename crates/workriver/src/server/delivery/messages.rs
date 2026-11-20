@@ -79,7 +79,8 @@ pub(super) fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, f
     let paths: Vec<String> = ids
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
-        .map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string())
+        .filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name))
+        .map(|p| p.display().to_string())
         .collect();
     if paths.is_empty() { String::new() } else { format!(" Attachments: {}.", paths.join(", ")) }
 }
@@ -201,7 +202,10 @@ pub(in crate::server) fn pointed(state: &State, unit: &str, context: &[AskContex
                 ("file", Some(p), _, _) => format!("the file {}", quote::name(p)),
                 ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
                 ("attachment", _, _, _) => match stored(&c.id) {
-                    Some(a) => format!("the attachment \"{}\" at {}", quote::name(&a.name), quote::path(&crate::server::files::store::path(home, &a.id, &a.name).display().to_string())),
+                    Some(a) => match crate::server::files::store::path(home, &a.id, &a.name) {
+                        Some(p) => format!("the attachment \"{}\" at {}", quote::name(&a.name), quote::path(&p.display().to_string())),
+                        None => format!("the attachment \"{}\"", quote::name(&a.name)),
+                    },
                     None => format!("the attachment \"{}\"", quote::name(&c.label)),
                 },
                 _ => quote::name(&c.label),

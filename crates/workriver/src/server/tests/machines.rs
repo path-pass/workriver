@@ -379,3 +379,32 @@ fn a_machines_socket_is_a_path_or_nothing() {
         assert_eq!(saved(), kept, "{case}: nothing is written");
     }
 }
+
+/// An attachment's id is the store's own form: an agent over there cannot record one that
+/// names a file outside the store, nor read such a file through the store's route
+/// (review u14#11 P1-1).
+#[test]
+fn an_attachment_id_cannot_name_a_file_outside_the_store() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let secret = tmp.path().join("outside").join("secret");
+    std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
+    std::fs::write(&secret, b"TOP_SECRET_OUTSIDE_THE_STORE").unwrap();
+    let secret_s = secret.to_string_lossy().to_string();
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let far = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
+    let e = far.append("", "attachment.added", json!({ "id": secret_s, "name": "x", "type": "text/plain", "size": 1 })).unwrap_err().to_string();
+    assert!(e.contains("16 lowercase hex"), "{e}");
+    // Nor is a path read through the route, recorded or not.
+    for id in [secret_s.replace('/', "%2F"), "..%2F..%2Fw.db".into()] {
+        let got = far.fetch(&id).map(|b| String::from_utf8_lossy(&b).to_string());
+        assert!(got.is_err() || !got.as_deref().unwrap().contains("TOP_SECRET"), "{id}: {got:?}");
+    }
+}

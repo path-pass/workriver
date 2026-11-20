@@ -35,16 +35,16 @@ fn questions_are_answered_by_their_own_agent_or_the_user() {
 fn attachments_are_stored_before_they_are_used() {
     let mut s = Records::default();
     seeded(&mut s);
-    let unknown = s.append(&"user".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap_err().to_string();
-    assert!(unknown.contains("no stored attachment abc"), "{unknown}");
-    s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3}}))).unwrap();
-    s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["abc"]}}))).unwrap();
+    let unknown = s.append(&"user".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["00000000000000ab"]}}))).unwrap_err().to_string();
+    assert!(unknown.contains("no stored attachment 00000000000000ab"), "{unknown}");
+    s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "00000000000000ab", "name": "a.png", "type": "image/png", "size": 3}}))).unwrap();
+    s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "attachments": ["00000000000000ab"]}}))).unwrap();
     // Added again only to link it to a finding: one record, two links.
-    s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "abc", "name": "a.png", "type": "image/png", "size": 3, "unit": "u1", "task": 2, "finding": "P2-1"}}))).unwrap();
-    assert!(s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "x", "name": "x", "type": "", "size": 1, "unit": "u1", "task": 2, "finding": "P9-9"}}))).is_err());
+    s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "00000000000000ab", "name": "a.png", "type": "image/png", "size": 3, "unit": "u1", "task": 2, "finding": "P2-1"}}))).unwrap();
+    assert!(s.append(&"agent-a".into(), body(json!({"kind": "attachment.added", "body": {"id": "00000000000000c2", "name": "x", "type": "", "size": 1, "unit": "u1", "task": 2, "finding": "P9-9"}}))).is_err());
     assert_eq!(s.state().attachments.len(), 1);
-    assert_eq!(s.state().task("u1", 1).unwrap().attachments, ["abc"]);
-    assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["abc"]);
+    assert_eq!(s.state().task("u1", 1).unwrap().attachments, ["00000000000000ab"]);
+    assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["00000000000000ab"]);
 }
 
 /// A question may point at an attachment shown with its task (its own, its findings', those of
@@ -59,27 +59,27 @@ fn questions_point_only_at_their_tasks_attachments() {
         b.as_object_mut().unwrap().extend(link.as_object().unwrap().clone());
         json!({"kind": "attachment.added", "body": b})
     };
-    add(&mut s, "agent-a", file("own", json!({"unit": "u1", "task": 1}))).unwrap();
-    add(&mut s, "agent-a", file("found", json!({"unit": "u1", "task": 2, "finding": "P2-1"}))).unwrap();
-    add(&mut s, "agent-a", file("loose", json!({}))).unwrap();
+    add(&mut s, "agent-a", file("00000000000000a1", json!({"unit": "u1", "task": 1}))).unwrap();
+    add(&mut s, "agent-a", file("00000000000000f1", json!({"unit": "u1", "task": 2, "finding": "P2-1"}))).unwrap();
+    add(&mut s, "agent-a", file("0000000000000001", json!({}))).unwrap();
     let ask = |task: u32, id: Option<&str>| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "text": "What does it say?", "context": [{"kind": "attachment", "label": "report.md", "id": id}]}});
-    add(&mut s, "user", ask(1, Some("own"))).unwrap();
-    assert_eq!(s.state().questions[0].context[0].id.as_deref(), Some("own"));
-    for wrong in [Some("found"), Some("loose"), Some("nope"), None] {
+    add(&mut s, "user", ask(1, Some("00000000000000a1"))).unwrap();
+    assert_eq!(s.state().questions[0].context[0].id.as_deref(), Some("00000000000000a1"));
+    for wrong in [Some("00000000000000f1"), Some("0000000000000001"), Some("00000000000000b1"), None] {
         assert!(add(&mut s, "user", ask(1, wrong)).unwrap_err().contains("is not one of u1#1's"), "{wrong:?}");
     }
-    add(&mut s, "user", ask(2, Some("found"))).unwrap();
+    add(&mut s, "user", ask(2, Some("00000000000000f1"))).unwrap();
     // Work that answers a finding shows that finding's attachments.
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Dedupe", "causes": [{"task": 2, "findings": ["P2-1"]}]}})).unwrap();
-    add(&mut s, "user", ask(3, Some("found"))).unwrap();
-    assert_eq!(s.state().attachments_of("u1", 3), ["found"]);
+    add(&mut s, "user", ask(3, Some("00000000000000f1"))).unwrap();
+    assert_eq!(s.state().attachments_of("u1", 3), ["00000000000000f1"]);
     // A blind review in progress: nothing of other work, not even through the user's question.
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "3"}], "causes": [{"task": 2, "findings": ["P2-1"]}], "agent": "sec", "blind": true}})).unwrap();
     assert!(s.state().attachments_of("u1", 4).is_empty());
-    assert!(add(&mut s, "user", ask(4, Some("found"))).unwrap_err().contains("is not one of u1#4's"));
+    assert!(add(&mut s, "user", ask(4, Some("00000000000000f1"))).unwrap_err().contains("is not one of u1#4's"));
     add(&mut s, "sec", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "findings": []}})).unwrap();
-    add(&mut s, "user", ask(4, Some("found"))).unwrap();
+    add(&mut s, "user", ask(4, Some("00000000000000f1"))).unwrap();
     assert!(replayed(&s).questions.iter().all(|q| q.context[0].kind == "attachment"));
 }
 
@@ -91,18 +91,18 @@ fn the_users_question_points_at_files_the_user_stored() {
     let mut s = Records::default();
     seeded(&mut s);
     let file = |id: &str| json!({"kind": "attachment.added", "body": {"id": id, "name": format!("{id}.log"), "type": "text/plain", "size": 3}});
-    add(&mut s, "user", file("mine")).unwrap();
-    add(&mut s, "agent-a", file("loose")).unwrap();
+    add(&mut s, "user", file("00000000000000e1")).unwrap();
+    add(&mut s, "agent-a", file("0000000000000001")).unwrap();
     let ask = |task: u32, id: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": task, "text": "What does it say?", "context": [{"kind": "attachment", "label": "x.log", "id": id}]}});
-    add(&mut s, "user", ask(1, "mine")).unwrap();
-    add(&mut s, "user", ask(2, "mine")).unwrap();
-    add(&mut s, "user", ask(0, "mine")).unwrap();
-    assert!(add(&mut s, "agent-a", ask(1, "mine")).unwrap_err().contains("is not one of u1#1's"), "an agent's question");
-    assert!(add(&mut s, "user", ask(1, "loose")).unwrap_err().contains("is not one of u1#1's"), "stored by an agent only");
-    assert!(add(&mut s, "user", ask(1, "never")).unwrap_err().contains("is not one of u1#1's"), "never stored");
+    add(&mut s, "user", ask(1, "00000000000000e1")).unwrap();
+    add(&mut s, "user", ask(2, "00000000000000e1")).unwrap();
+    add(&mut s, "user", ask(0, "00000000000000e1")).unwrap();
+    assert!(add(&mut s, "agent-a", ask(1, "00000000000000e1")).unwrap_err().contains("is not one of u1#1's"), "an agent's question");
+    assert!(add(&mut s, "user", ask(1, "0000000000000001")).unwrap_err().contains("is not one of u1#1's"), "stored by an agent only");
+    assert!(add(&mut s, "user", ask(1, "00000000000000b2")).unwrap_err().contains("is not one of u1#1's"), "never stored");
     // The same content stored by an agent first (one file per content): the user's once they store it too.
-    add(&mut s, "user", file("loose")).unwrap();
-    add(&mut s, "user", ask(1, "loose")).unwrap();
+    add(&mut s, "user", file("0000000000000001")).unwrap();
+    add(&mut s, "user", ask(1, "0000000000000001")).unwrap();
     assert_eq!(s.state().attachments.len(), 2);
     assert_eq!(replayed(&s).attachments, s.state().attachments);
 }
@@ -128,11 +128,11 @@ fn the_user_asks_about_a_unit() {
     assert!(add(&mut s, "agent-b", ask(0, "")).unwrap_err().contains("workriver ask <unit>#<n>"));
     assert!(add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u9", "text": "?"}})).unwrap_err().contains("no unit u9"));
     // An attachment shown with one of its tasks may be pointed at; another one not.
-    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "rep", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
-    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "loose", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "00000000000000c1", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "0000000000000001", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
     let at = |id: &str| json!({"kind": "question.asked", "body": {"unit": "u1", "task": 0, "text": "?", "context": [{"kind": "attachment", "label": "r.md", "id": id}]}});
-    add(&mut s, "user", at("rep")).unwrap();
-    assert!(add(&mut s, "user", at("loose")).unwrap_err().contains("not one of u1#0's"));
+    add(&mut s, "user", at("00000000000000c1")).unwrap();
+    assert!(add(&mut s, "user", at("0000000000000001")).unwrap_err().contains("not one of u1#0's"));
     // Answered by the agent started for it, with when.
     add(&mut s, "workriver", json!({"kind": "question.started", "body": {"question": "q1", "agent": "s-why", "name": "why-q1"}})).unwrap();
     add(&mut s, "s-why", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Parse first."}})).unwrap();
@@ -237,9 +237,9 @@ fn a_message_carries_what_the_user_picked() {
     }
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "Paging", "repo": "/r", "branch": "feat/paging", "base": "main"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "mine", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
-    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "rep", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
-    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "loose", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "00000000000000e1", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "00000000000000c1", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
+    add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "0000000000000001", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
     let say = |intent: &str, workspace: &str, unit: &str, task: u32, context: serde_json::Value| {
         json!({"kind": "message.sent", "body": {"intent": intent, "workspace": workspace, "unit": unit, "task": task, "text": "Why not paged?", "context": context}})
     };
@@ -247,7 +247,7 @@ fn a_message_carries_what_the_user_picked() {
     let file = |id: &str| json!({"kind": "attachment", "label": "x", "id": id});
 
     // With everything a picked review shows: recorded with it, as sent.
-    let context = json!([{"kind": "task", "label": "#1", "task": 1}, {"kind": "finding", "label": "P2-1"}, lines, file("rep"), file("mine")]);
+    let context = json!([{"kind": "task", "label": "#1", "task": 1}, {"kind": "finding", "label": "P2-1"}, lines, file("00000000000000c1"), file("00000000000000e1")]);
     let e = add(&mut s, "user", say("i1", "", "u1", 2, context.clone())).unwrap();
     let Body::MessageSent { unit, task, context: got, .. } = &e.body else { panic!() };
     assert_eq!((unit.as_str(), *task, got.len()), ("u1", 2, 5));
@@ -257,11 +257,11 @@ fn a_message_carries_what_the_user_picked() {
     // By workspace alone, a unit of an intent that runs there.
     add(&mut s, "user", say("", "chat", "u1", 1, json!([lines]))).unwrap();
     // Only the user's own files: no unit needed, from any workspace's conversation.
-    add(&mut s, "user", say("", "chat", "", 0, json!([file("mine")]))).unwrap();
-    add(&mut s, "user", say("i1", "", "", 0, json!([file("mine")]))).unwrap();
+    add(&mut s, "user", say("", "chat", "", 0, json!([file("00000000000000e1")]))).unwrap();
+    add(&mut s, "user", say("i1", "", "", 0, json!([file("00000000000000e1")]))).unwrap();
 
     // Everything else needs a unit.
-    for c in [json!({"kind": "finding", "label": "P2-1"}), json!({"kind": "file", "label": "a.ts", "path": "app/a.ts"}), lines.clone(), json!({"kind": "task", "label": "#1", "task": 1}), file("rep")] {
+    for c in [json!({"kind": "finding", "label": "P2-1"}), json!({"kind": "file", "label": "a.ts", "path": "app/a.ts"}), lines.clone(), json!({"kind": "task", "label": "#1", "task": 1}), file("00000000000000c1")] {
         let e = add(&mut s, "user", say("i1", "", "", 0, json!([c]))).unwrap_err();
         assert!(e.contains("needs the unit it is about"), "{c}: {e}");
     }
@@ -274,11 +274,11 @@ fn a_message_carries_what_the_user_picked() {
     assert!(add(&mut s, "user", say("i1", "", "u1", 2, json!([{"kind": "task", "label": "#7", "task": 7}]))).unwrap_err().contains("no task u1#7"));
     assert!(add(&mut s, "user", say("i1", "", "u1", 2, json!([{"kind": "task", "label": "#1"}]))).unwrap_err().contains("names its task by number"));
     // An attachment neither the user's nor shown with the task.
-    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([file("rep")]))).unwrap_err().contains("is not one of u1#1's"));
-    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([file("loose")]))).unwrap_err().contains("is not one of u1#1's"));
-    assert!(add(&mut s, "user", say("i1", "", "", 0, json!([file("loose")]))).unwrap_err().contains("needs the unit it is about"));
+    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([file("00000000000000c1")]))).unwrap_err().contains("is not one of u1#1's"));
+    assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([file("0000000000000001")]))).unwrap_err().contains("is not one of u1#1's"));
+    assert!(add(&mut s, "user", say("i1", "", "", 0, json!([file("0000000000000001")]))).unwrap_err().contains("needs the unit it is about"));
     // With the unit alone, one shown with any of its tasks.
-    add(&mut s, "user", say("i1", "", "u1", 0, json!([file("rep")]))).unwrap();
+    add(&mut s, "user", say("i1", "", "u1", 0, json!([file("00000000000000c1")]))).unwrap();
     // A workspace of the same label on another machine is another workspace: its intent's
     // unit is not one of "chat"'s here, whose manager the message goes to.
     let far = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
@@ -303,4 +303,22 @@ fn a_message_carries_what_the_user_picked() {
     let s = recorded_before(s, "user", json!({"kind": "message.sent", "body": {"id": format!("m{}", n + 1), "intent": "i1", "workspace": "chat", "manager": "boss", "text": "Old."}}));
     let m = s.state().messages.last().unwrap();
     assert_eq!((m.text.as_str(), m.unit.as_str(), m.task, m.context.len()), ("Old.", "", 0, 0));
+}
+
+/// An attachment's id is the store's own form, 16 lowercase hex characters (a short hash of
+/// the content, as the service makes it): the service builds the file's path from it, so
+/// nothing else is recorded (review u14#11 P1-1). Old records replay as they were.
+#[test]
+fn an_attachment_id_is_the_stores_own_form() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    let file = |id: &str| json!({"kind": "attachment.added", "body": {"id": id, "name": "x.png", "type": "image/png", "size": 3}});
+    for bad in ["/private/tmp/secret", "../../etc/passwd", "deadbeef»\n[workriver] SPOOFED\n«", "0123456789ABCDEF", "0123456789abcde", "0123456789abcdef0", "0123456789abcdeg", ""] {
+        let e = add(&mut s, "agent-a", file(bad)).unwrap_err();
+        assert!(e.contains("16 lowercase hex") || e.contains("needs its id"), "{bad:?}: {e}");
+    }
+    add(&mut s, "agent-a", file("0123456789abcdef")).unwrap();
+    // One recorded before the rule (an old database, an imported sample) still replays.
+    let s = recorded_before(s, "agent-a", file("a1"));
+    assert!(s.state().attachments.iter().any(|a| a.id == "a1"));
 }

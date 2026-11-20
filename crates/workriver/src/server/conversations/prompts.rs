@@ -102,7 +102,8 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
         .attachments_of(&q.unit, q.task)
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| a.id == id))
-        .map(|a| quote::path(&crate::server::files::store::path(home, &a.id, &a.name).display().to_string()))
+        .filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name))
+        .map(|p| quote::path(&p.display().to_string()))
         .collect();
     if !stored.is_empty() {
         m.push(format!("Its attachments, to open: {}.", stored.join(", ")));
