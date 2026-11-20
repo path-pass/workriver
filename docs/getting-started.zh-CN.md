@@ -2,8 +2,9 @@
 
 [English](getting-started.md)
 
-在一台装好 [mise](https://mise.jdx.dev)、git 和 [Herdr](https://herdr.dev)（0.9，协议 22）的
-Mac 上，把 workriver 跑起来，并让每个 Herdr 工作区都有一个管理者 agent。
+在一台装好 [mise](https://mise.jdx.dev)、git 和 agent 运行时（[Herdr](https://herdr.dev)；它需要什么：
+[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)）的 Mac 上，把 workriver 跑起来，并让每个工作区
+都有一个管理者 agent。
 
 ## 1. 构建
 
@@ -29,14 +30,15 @@ agent 会在自己的 shell 里调用 `workriver`，所以它们看到的 PATH �
 
 ## 2. 运行服务
 
-在一个单独的 Herdr 窗格里启动它，这样它能找到 Herdr 的 socket，也会一直运行：
+在运行时里一个单独的终端中启动它，这样它能找到运行时，也会一直运行（Herdr 在哪里找：
+[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#安装和运行)）：
 
 ```sh
 workriver serve              # http://127.0.0.1:47820
 ```
 
-然后在一个不是 agent 窗格的终端里运行 `workriver open`：它用一个一次性的链接在浏览器里打开页面，
-让这个浏览器以你的身份登录。这个链接不会被打印出来，因为 agent 读得到 Herdr 窗格；在没有浏览器的
+然后在一个不属于任何 agent 的终端里运行 `workriver open`：它用一个一次性的链接在浏览器里打开页面，
+让这个浏览器以你的身份登录。这个链接不会被打印出来，因为 agent 读得到运行时里的终端；在没有浏览器的
 机器上，`workriver open --print` 会打印一个只有一分钟有效的链接：请在 agent 读不到的终端里用。直接打开地址只会看到"怎么打开"
 的说明；原因见[安全模型](security.zh-CN.md)。
 
@@ -45,7 +47,7 @@ workriver serve              # http://127.0.0.1:47820
 - 数据：`~/workriver-data/workriver.db`（设 `WORKRIVER_HOME` 换位置）。只有一个 SQLite
   文件；备份时先停掉服务再复制它。附件（截图、报告）放在旁边的 `attachments/` 里，同样的
   内容只存一份，和记录一样永不删除；`workriver status` 会显示它们占了多少空间。
-- 页面上的终端按钮会在 Herdr 里把 agent 的窗格切到前面，再把终端应用切到前台（默认
+- 页面上的终端按钮会在运行时里把 agent 的终端切到前面，再把终端应用切到前台（默认
   Ghostty；用 `workriver serve --terminal-app iTerm` 改，传 `''` 表示不切）。
 
 ## 3. 项目和待办
@@ -75,7 +77,7 @@ skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide i
 
 ## 4. 给每个工作区一个管理者
 
-一个 Herdr 工作区跑一个或多个意图，由它的管理者 agent 规划和派活。在每个工作区里启动一个
+运行时的一个工作区跑一个或多个意图，由它的管理者 agent 规划和派活。在每个工作区里启动一个
 coding agent 当管理者，并把 skill 给它。
 
 装**存根**，只装一次：存根是很小的 skill 文件，只让 agent 去运行 `workriver guide …`，而后者永远和
@@ -113,7 +115,7 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 
 ## 5. 接下来会发生什么
 
-管理者在自己的窗格里：
+管理者在自己的终端里：
 
 ```sh
 workriver manager here                 # 登记为这个工作区的管理者
@@ -121,9 +123,11 @@ workriver backlog list                 # 路线图：i1 "Mentions" ……
 workriver intent start i1              # 在这里开始；成为这个工作区的当前意图
 workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
-herdr agent start finder --kind claude --pane <窗格 id>   # 见 `herdr --skill`
-herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运行 workriver task show u1#1\"，以及 workriver guide worker 的全文>"
 ```
+
+然后它在运行时里启动干活的 agent `finder`，把任务交给它：任务 id、一句话目标、在哪里干、
+"运行 workriver task show u1#1"，以及 `workriver guide worker` 的全文（Herdr 下的命令：
+[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#工作区和管理者)）。
 
 worker 自己记录工作：
 
@@ -148,16 +152,16 @@ workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 也可以按意图把决定权留给自己：左栏的"发现：自动 / 手动"（选手动），或者 `workriver intent set i1 --findings user`）。
 归你决定的问题在页面的 **需要你** 里等着：在那里对每一个接受、按我的方式改、驳回或延后。延后的会留在**待办**面板里；勾选几条，
 "一起做"会把它们作为一条消息发给这个意图的管理者，由它合成一个清理单元。你的决定和
-手工步骤的结果会通过 Herdr 送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行
+手工步骤的结果会通过运行时送到该送的 agent（接受的问题送给管理者，由它派活）；下面那一行
 显示有没有送到、有没有被接手，"复制消息"能拿到同样的文字，用来手动粘贴。
 
 ## 6. 其他机器
 
-一个 workriver 也能跟踪其他机器上的 agent。每台机器跑自己的 Herdr；workriver 和每台机器之间保持
-一条 ssh 连接，把那台机器的 Herdr socket 带到这边，同时给那边的 `workriver` 命令行一条回到这个
+一个 workriver 也能跟踪其他机器上的 agent。每台机器跑自己的运行时；workriver 和每台机器之间保持
+一条 ssh 连接，把那台机器的运行时带到这边，同时给那边的 `workriver` 命令行一条回到这个
 服务的路。
 
-要求：两边的 Herdr 都是 0.9.1 或更新（同一套 socket 协议），那台机器上的 Herdr 正在运行；
+要求：那台机器上的运行时正在运行（Herdr 要什么版本：[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#其他机器)）；
 在这边 `ssh -o BatchMode=yes <目标> true` 不用任何输入就能成功（密钥在 ssh-agent 里，或者你自己
 在 `~/.ssh/config` 里配了 ControlMaster）；那台机器的 sshd 允许转发（默认允许）；那边有 `git`。
 
@@ -177,8 +181,8 @@ workriver status                              # 回答来自你这台机器上�
 
 那边通往这个服务的端口每次连接都换一个：由 ssh 挑一个空闲的，workriver 把它写到那边的
 `~/.config/workriver/port`，那边的 `workriver` 命令会读它（除非设了 `WORKRIVER_PORT`）。不用配置。
-如果那边 Herdr 的 socket 不在 `~/.config/herdr/herdr.sock`
-（用了命名 session），用 `--herdr-socket <路径>` 指明。
+如果那边的运行时不在 workriver 找它的地方，`machine add` 可以指明它在哪里
+（[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#其他机器)）。
 
 那边的 agent 会带着机器名显示。workriver 不假定任何 id 跨机器唯一；那边的工作区是独立的，即使和
 这边的同名。要把两个工作区合成一个（一个管理者，同一批意图），就关联它们：
@@ -196,8 +200,8 @@ workriver workspace link box:chat chat
 没写 `Task:` 尾注的提交可以事后关联到任务，由做这个任务的 agent、管理者或你来做：
 `workriver commit link <hash> u1#3`，或者在未登记节点上的"它属于任务"里选；变基之后关联仍然有效。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
 每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
-（`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`）。终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；
-在 Herdr 侧栏里切到那台机器要你自己来。
+（`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`）。终端按钮会在那台机器的运行时里聚焦到 agent 的终端；
+还要你自己做什么，见 [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#其他机器)。
 
 ## 7. 更新
 
@@ -221,8 +225,8 @@ cargo build --release
 - **某台机器显示 "not connected"**：`workriver machine list` 会原样打印 ssh 的报错。
   *Permission denied* 或 *Host key verification failed*：先让 `ssh -o BatchMode=yes <目标> true`
   能成功。*remote port forwarding failed*：你的 ssh 配置里给这台主机设的端口转发让 workriver 的
-  连接失败了；给 workriver 一个不带这些转发的 Host 别名。*connected, but its Herdr does not
-  answer*：那边没有运行 Herdr，或者 socket 在别处（`--herdr-socket`）。
+  连接失败了；给 workriver 一个不带这些转发的 Host 别名。*connected, but its … does not
+  answer*：运行时在那边没有运行，或者它在别处（[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#排错)）。
 - **有东西很慢**：服务在 `~/workriver-data/logs/` 里记一份计时日志（`perf.jsonl`，最多 5 个文件、
   每个 5 MB）。`workriver perf [--since 1h]` 给出汇总：最慢的请求、每次快照和每个单元花了多久、
   其他机器断开了多久。要连每一次 git 和 ssh 调用也记下来，用 `workriver serve --perf-detail`
@@ -242,17 +246,15 @@ cargo build --release
   `ss -tnp | grep sshd`（每个连接一个会话，有的还有数据等着发给已经不在的对端）；它们会自己
   结束，也可以 `kill` 掉对应的 sshd 进程。
 - **页面说连不上服务**：`workriver serve` 没在运行，或者跑在别的端口上。
-- **`agent runtime: not connected`**，或者启动时有关于 Herdr 的警告（`workriver status`
-  会显示）：Herdr 没在运行，或者服务看的是另一个 socket。在 Herdr 窗格里启动服务，或者设
-  `HERDR_SOCKET_PATH`。协议警告表示 Herdr 不是 0.9；可能还能用，但没测过。
-- 在窗格里用命令行时报 **"cannot tell which agent this is"**：服务连不上 Herdr（见上一条）。
-  这期间要以你自己的身份运行命令，请用 Herdr 之外的终端。
-- **"workriver answers the user, and agents from their own Herdr pane…"（401）**：服务不确定这个命令或页面是你。页面：运行
-  `workriver open`。命令行：在 workriver 所在的机器上，用一个不是 agent 窗格的终端运行。决定、
+- **`agent runtime: not connected`**，或者启动时有关于运行时的警告（`workriver status`
+  会显示）：运行时没在运行，或者服务在别处找它；见 [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#排错)。
+- 在 agent 的终端里用命令行时报 **"cannot tell which agent this is"**：服务连不上运行时（见上一条）。
+  这期间要以你自己的身份运行命令，请用运行时之外的终端。
+- **"workriver answers the user, and agents from their own …"（401）**：服务不确定这个命令或页面是你。页面：运行
+  `workriver open`。命令行：在 workriver 所在的机器上，用一个不属于任何 agent 的终端运行。决定、
   手工步骤、杂事、项目、机器和工作区关联只有你能做；见[安全模型](security.zh-CN.md)。
 - 页面上显示 **"没送出：…"**（鼠标停上去能看到细节）：
-  - *这个意图还没有管理者*：在这个意图开始时所在工作区的管理者窗格里运行 `workriver manager here`；
+  - *这个意图还没有管理者*：在这个意图开始时所在工作区的管理者终端里运行 `workriver manager here`；
   - *管理者没在运行*：重新启动它，再登记一次；
-  - *连不上 Herdr*：见上面；
-  - *Herdr 没有接收*：通常是 `agent_not_ready`（agent 还在启动，或者不是窗格的前台程序）或
-    `agent_blocked`（它停在一个提问或确认框上）。先在终端里处理好，再用"复制消息"手动粘贴。
+  - *连不上 …* 或 *… 没有接收*（页面上写的是运行时的名字）：见
+    [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#排错)；先在终端里处理好，再用"复制消息"手动粘贴。

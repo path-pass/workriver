@@ -10,17 +10,17 @@ Keep track of many coding agents working in parallel.
 
 You split a goal into pieces and start an agent on each. One writes the parser, one wires
 up notifications, two review what the others wrote, another adds tests. By the afternoon
-twenty sessions are running across your Herdr workspaces, and the questions that matter
+twenty sessions are running across your workspaces, and the questions that matter
 have no easy answer:
 
 - **What is each agent doing right now?** The answer is spread over twenty terminals. You
-  tab through panes and read the last screen of each.
+  tab through terminals and read the last screen of each.
 - **How did this piece of work come to be the way it is?** A review asked for a change,
   you agreed in one terminal, an agent fixed it in another. A week later the code is all
   that is left; the reasons scrolled away.
 - **Which parts of the code did it reach?** Branches and commits say what changed, not
   which task asked for it or which review it answered.
-- **What is waiting on you?** An agent sits on an approval in a pane you are not looking
+- **What is waiting on you?** An agent sits on an approval in a terminal you are not looking
   at, a manual try-out nobody did holds up a whole branch, and findings pile up with no one
   deciding them.
 
@@ -37,9 +37,10 @@ Three things feed it:
   commit message, and `workriver task deliver u1#3 --evidence 'cargo test => passed: 12 passed'`
   when they hand the work in. The service tells who is calling from where the command
   runs, so no harness is configured and nobody is anyone by saying so.
-- **[Herdr](https://herdr.dev) says who is running**, where, and in what state, and carries
-  messages to agents.
-- **One manager agent per Herdr workspace plans.** It splits an intent into units and
+- **The agent runtime says who is running**, where, and in what state, and carries
+  messages to agents. Today that is [Herdr](https://herdr.dev): what is Herdr's own is in
+  [docs/runtimes/herdr.md](docs/runtimes/herdr.md).
+- **One manager agent per workspace plans.** It splits an intent into units and
   tasks and hands the tasks to worker agents it starts by name. When it needs you (before a
   merge, a deploy, anything destructive) it asks through Needs you, not in its terminal,
   and what it has to tell you arrives there too. A worker stuck on what only you can do
@@ -64,7 +65,7 @@ in Chinese.
 
 **The goal.** The chat app needs @-mentions, message recall and search. The intent "聊天 v2"
 waits in the project's roadmap with a one-sentence goal. You press "Start" next to it and
-pick the Herdr workspace "chat"; its manager, mgr-chat, is told and splits the intent into
+pick the workspace "chat"; its manager, mgr-chat, is told and splits the intent into
 units, one of them "加一个 @ 功能" (add @-mentions) on the branch `feat/mention`. The intent
 has a page of its own: the goal, a note that grows as decisions are made, where it runs,
 who decides its findings, and its units with where each stands. "Write to the manager"
@@ -127,7 +128,7 @@ block nobody. Each group folds by its heading; here Machines and Decisions are f
 
 <img src="docs/images/needs-you.en.png" width="340" alt="Needs you: four rows blocking (an agent waiting in its terminal, a worker that stopped, a try-out gate, a blocker asking for a push), Machines and Decisions folded, two managers' unread messages, two gaps and four chores">
 
-**Who is doing what.** Agents are a tree by Herdr workspace: the manager, the workers under
+**Who is doing what.** Agents are a tree by workspace: the manager, the workers under
 it with the task each is on, and the temporary agents answering questions under the worker
 they ask about. A blocked agent comes first with a violet hand, a gone one is greyed, and a
 worker idle with nothing to do says it can be closed. Machines shows CPU, memory, pressure,
@@ -156,16 +157,16 @@ workers it no longer needs.
 ## Status
 
 First version, usable. The service records intents, units, tasks, findings and chores,
-reads the units' commits from git, follows the agents running in Herdr, keeps each
+reads the units' commits from git, follows the agents running in the runtime, keeps each
 project's roadmap and backlog, delivers your decisions, gate results and messages to the
 right agent, runs the commands you confirm in your own shell after an agent has read what
 they do, watches the machines' load, and serves the web UI on real data in English,
-Chinese and Japanese. Agents on other machines (each with its own Herdr) can be followed
+Chinese and Japanese. Agents on other machines (each with its own runtime) can be followed
 over ssh; that part is new and has only been tested against stand-ins.
 
 ## Build and run
 
-Step by step, from a fresh Mac to a manager agent in each Herdr workspace:
+Step by step, from a fresh Mac to a manager agent in each workspace:
 [Getting started](docs/getting-started.md).
 
 Runtimes come from [mise](https://mise.jdx.dev) (`mise.toml`: Rust and Node). The web UI is
@@ -183,13 +184,14 @@ other machines cannot. What that does and does not protect: [Security model](doc
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
 `workriver --help` explains the commands. The manager of a workspace registers with
-`workriver manager here` from its own pane, one per workspace, and `workriver guide
-manager` / `workriver guide worker` print the instructions for agents. Herdr's socket is
-`~/.config/herdr/herdr.sock` (or `HERDR_SOCKET_PATH`); without Herdr the service still
-records and shows, it just sees no agents.
+`workriver manager here` from its own terminal, one per workspace, and `workriver guide
+manager` / `workriver guide worker` print the instructions for agents. Where the service
+finds the runtime: [docs/runtimes/herdr.md](docs/runtimes/herdr.md); without it the service
+still records and shows, it just sees no agents.
 
 Working on the UI: `npm run dev` in `frontend/web` uses a running `workriver serve`;
-`npm run dev:mock` uses the sample data instead.
+`npm run dev:mock` uses the sample data instead. Where each part of the code lives:
+[docs/architecture.md](docs/architecture.md).
 
 ## License
 
