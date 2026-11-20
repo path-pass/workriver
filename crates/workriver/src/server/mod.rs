@@ -20,7 +20,7 @@ use crate::server::access::caller::{self, Callers};
 use crate::server::access::pins::Pins;
 use crate::common::process::Procs;
 use crate::ask;
-use crate::server::views::{self as snapshot, Cache};
+use crate::server::views::Cache;
 
 mod access;
 mod app;
@@ -78,7 +78,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
     let port = listener.local_addr()?.port();
     let store_home = store.path().parent().map(Path::to_path_buf).unwrap_or_default();
     let (changed, _) = broadcast::channel(16);
-    let shared = Arc::new(Mutex::new(snapshot::Shared::default()));
+    let shared = Arc::new(Mutex::new(views::Shared::default()));
     let (kick, kicked) = std::sync::mpsc::channel::<()>();
     let auth = Auth::open(&store_home).with_context(|| format!("cannot make or read the user token in {}", store_home.display()))?;
     if allow_as {

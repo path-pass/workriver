@@ -105,7 +105,7 @@ impl App {
                 // told without reading the old branch again.
                 let previous = match self.runner(u.machine.as_deref()) {
                     Ok(at) if (&u.machine, &u.repo, &u.branch, &u.base) != (&machine, &top, &branch, &base) => {
-                        let list = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map(|(list, _)| list).unwrap_or_default();
+                        let list = views::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map(|(list, _)| list).unwrap_or_default();
                         let ids = scan::patch_ids(&at, Path::new(&u.repo), &list.iter().map(|c| c.hash.clone()).collect::<Vec<_>>()).unwrap_or_default();
                         list.into_iter()
                             .map(|c| {
@@ -126,7 +126,7 @@ impl App {
                 let at = self.runner(u.machine.as_deref())?;
                 let repo = Path::new(&u.repo);
                 let full = scan::resolve(&at, repo, &hash).map_err(|_| bad(format!("no commit {hash} in {}", u.repo)))?;
-                let named = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0;
+                let named = views::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0;
                 let Some(c) = named.into_iter().find(|c| c.hash == full) else {
                     return Err(bad(format!("commit {hash} is not one of unit {unit}'s: not on branch {} since {}", u.branch, u.base)));
                 };
@@ -142,7 +142,7 @@ impl App {
                 // The branch's commits now, or as last seen if they are already merged away.
                 let u = self.store.lock().unwrap().state().unit(&unit)?.clone();
                 let at = self.runner(u.machine.as_deref())?;
-                let commits = snapshot::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0.into_iter().map(|c| c.hash).collect();
+                let commits = views::unit_commits(&at, &u, &mut self.cache.lock().unwrap()).map_err(|e| bad(e.to_string()))?.0.into_iter().map(|c| c.hash).collect();
                 Body::UnitMerged { unit, commits }
             }
             // An agent given by its name is recorded by its session.

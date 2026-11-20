@@ -1,22 +1,18 @@
 // The daemon: one process on 127.0.0.1 that records events, reads git, and serves the
 // web UI with its data and a stream of "something changed".
-use std::convert::Infallible;
 use std::path::Path;
 use std::time::Duration;
 
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{StatusCode, header};
-use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
 use workriver_core::runtime::{AgentState, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Delivery, DeliveryStep, Principal, ReasonCode};
 use workriver_scan as scan;
 
-use crate::common::BUILD;
 use crate::runtime::words;
 use crate::server::access::auth;
 use crate::server::delivery;
@@ -25,7 +21,7 @@ use crate::{ask, run};
 use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
-use crate::server::views as snapshot;
+use crate::server::views;
 
 /// A run's shell to close: the run, its machine (none: this one), its place.
 type Shell = (String, Option<String>, String);
@@ -83,29 +79,6 @@ impl Review {
 const CLOSE_DELAY: Duration = Duration::from_secs(3);
 
 impl App {
-    /// What the page reads, of `state` as the reader may see it: files without their texts
-    /// (`unit_code` has them). `light`: not even uncommitted work or trees (board, `task show`).
-    fn snapshot(&self, state: &core::State, light: bool, trigger: &str) -> snapshot::Workspace {
-        let started = std::time::Instant::now();
-        let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
-        let blocked = self.blocked.lock().unwrap().clone();
-        let idle = self.idle_since.lock().unwrap().iter().map(|(s, (at, _))| (s.clone(), at.clone())).collect();
-        let stalls = self.stalls.lock().unwrap().iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect();
-        let groups = self.groups.lock().unwrap().clone();
-        let live = self.live();
-        let mut cache = self.cache.lock().unwrap();
-        (cache.light, cache.bare) = (light, true);
-        cache.ready_after = Some(self.waits.hour * self.ready_hours);
-        let mut ws = snapshot::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &groups);
-        cache.save();
-        if state.reduced {
-            snapshot::hide(&mut ws);
-        }
-        let ms = started.elapsed().as_millis() as u64;
-        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= crate::common::config::defaults::SLOW_MS);
-        ws
-    }
-
     /// Starts the temporary agent for a question and gives it the prompt; any failure is
     /// recorded on the question. Blocking: it waits for the agent to be ready.
     fn start_question(&self, id: &str) {
@@ -333,53 +306,13 @@ impl App {
         }
         let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
         let path = path.to_string_lossy().into_owned();
-        if let Some(p) = snapshot::project_of(&state, &path) {
+        if let Some(p) = views::project_of(&state, &path) {
             return Ok(p.path.clone());
         }
         scan::toplevel(&scan::Runner::Local, Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))
     }
 }
 
-
-pub(super) async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<snapshot::Workspace>, ApiError> {
-    blocking(move || {
-        let state = app.view(&caller, &r)?;
-        let mut ws = app.snapshot(&state, r.light, "workspace");
-        // Machines in alert are the user's to see (Needs you), like their CPU and memory.
-        // So are the commands they ran from the page.
-        if app.user(&caller).is_ok() {
-            ws.alerts = app.metrics.alerts();
-            ws.runs = app.recent_runs(&state);
-        }
-        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
-        app.record_merges(found);
-        Ok(Json(ws))
-    })
-    .await
-}
-
-/// One unit's file texts, which the snapshot leaves out: what the page's code layer shows.
-/// Scoped like `/api/workspace`. Not on a machine's listener: no CLI reads it.
-pub(super) async fn unit_code(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<snapshot::Code>, ApiError> {
-    blocking(move || {
-        let state = app.view(&caller, &r)?;
-        let started = std::time::Instant::now();
-        let live = app.live();
-        let code = {
-            let mut cache = app.cache.lock().unwrap();
-            (cache.light, cache.bare) = (false, false);
-            let have: Vec<&str> = r.have.split(',').filter(|h| !h.is_empty()).collect();
-            let code = snapshot::code(&state, &mut cache, live.as_deref(), &id, &have);
-            cache.save();
-            code
-        };
-        let found = std::mem::take(&mut app.cache.lock().unwrap().merged_now);
-        app.record_merges(found);
-        tracing::info!(target: "perf", kind = "code", unit = %id, ms = started.elapsed().as_millis() as u64);
-        code.map(Json).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no unit {id}")))
-    })
-    .await
-}
 
 #[derive(Deserialize)]
 pub(super) struct ShowQuery {
@@ -436,44 +369,6 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
     .await
 }
 
-pub(super) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<core::State>, ApiError> {
-    blocking(move || app.view(&caller, &r).map(Json)).await
-}
-
-pub(super) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
-    let store = app.store.lock().unwrap();
-    let s = store.state();
-    let (files, bytes) = store::usage(&app.home);
-    Ok(Json(json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "commit": env!("WORKRIVER_COMMIT"),
-        "build": BUILD,
-        "port": app.port,
-        // The page as the user opens it, on this machine: `workriver link` builds on it, also
-        // through a machine's tunnel.
-        "url": app.page(),
-        "db": store.path(),
-        "events": store.count()?,
-        "intents": s.intents.len(),
-        "units": s.units.len(),
-        "runtime": { "connected": app.live().is_some(), "warning": app.warning },
-        "machines": app.machines.as_ref().map(|m| m.states()).unwrap_or_default(),
-        "attachments": { "dir": crate::common::home::attachments_dir(&app.home), "files": files, "bytes": bytes },
-    })))
-}
-
-/// "Something changed", for the page: the user's.
-pub(super) async fn events(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
-    app.user(&caller)?;
-    // A lagging client missed some, which is still one change.
-    // It ends when the service stops, or it would hold the stopping up for good.
-    let stop = WatchStream::new(app.stopping.subscribe()).filter(|s| *s).map(|_| false);
-    let stream = BroadcastStream::new(app.changed.subscribe()).map(|_| true).merge(stop).take_while(|go| *go).map(|_| Ok(SseEvent::default().event("changed").data("changed")));
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
-// ---- the user's session in the page ----
-
 #[derive(Deserialize)]
 pub(super) struct Append {
     /// `--as`: taken only where the daemon was started to allow it.
@@ -494,7 +389,7 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
         // A manager that starts an intent of another project than its workspace's is told so.
         if let Body::IntentStateChanged { intent, state: core::IntentState::Active, workspace: Some(g), .. } = &e.body {
             let live = app.runtime.agents().unwrap_or_default();
-            if let Some(why) = snapshot::other_project(app.store.lock().unwrap().state(), &live, g, intent) {
+            if let Some(why) = views::other_project(app.store.lock().unwrap().state(), &live, g, intent) {
                 out["warning"] = json!(format!("{why}. If you do not work on that project, do not split it: ask the user with a decide gate first (`workriver guide how ask-user`)."));
             }
         }
@@ -554,45 +449,6 @@ pub(super) struct MachineSet {
     options: crate::runtime::MachineOptions,
 }
 
-/// CPU and memory of this machine and the followed ones, with the thresholds: read by the
-/// user (the page) and by an agent at its place here (to weigh where to put work); set by
-/// the user alone. Not on a machine's listener.
-pub(super) async fn metrics(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::Report>, ApiError> {
-    app.who(&caller, r.named.as_deref())?;
-    let mut report = app.metrics.report();
-    // An agent on another machine sees that machine alone: nothing of this one or the others.
-    if let Some(m) = caller.machine.as_deref() {
-        report.machines.retain(|x| !x.here && x.label == m);
-    }
-    Ok(Json(report))
-}
-
-#[derive(Deserialize)]
-pub(super) struct HistoryQuery {
-    machine: String,
-    #[serde(default = "a_day")]
-    hours: u32,
-    #[serde(default, rename = "as")]
-    named: Option<String>,
-}
-
-fn a_day() -> u32 {
-    24
-}
-
-/// One machine's minutes over the last `hours` (1 to 168), read as `GET /api/metrics` is:
-/// the user, or an agent at its place on this machine.
-pub(super) async fn metrics_history(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(q): Query<HistoryQuery>) -> Result<Json<serde_json::Value>, ApiError> {
-    app.who(&caller, q.named.as_deref())?;
-    if let Some(m) = caller.machine.as_deref().filter(|m| *m != q.machine) {
-        return Err(ApiError(StatusCode::FORBIDDEN, format!("a caller on machine {m} reads that machine's history only")));
-    }
-    let m = app.metrics.clone();
-    let (label, hours) = (q.machine.clone(), q.hours);
-    let points = tokio::task::spawn_blocking(move || m.history(&label, hours)).await.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
-    Ok(Json(json!({ "machine": q.machine, "hours": q.hours, "points": points })))
-}
-
 /// Sets when a machine alerts; the user's alone. Kept in settings.json, not an event: a
 /// preference like the list of machines, not a record of work.
 pub(super) async fn metrics_thresholds(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<crate::common::config::Thresholds>) -> Result<Json<crate::common::wire::Report>, ApiError> {
@@ -604,12 +460,6 @@ pub(super) async fn metrics_thresholds(State(app): State<Shared>, Extension(call
 #[derive(Deserialize)]
 pub(super) struct StallSetting {
     minutes: u32,
-}
-
-/// After how many idle minutes a running task's agent counts as stopped; the page's Settings.
-pub(super) async fn stall_get(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
-    app.user(&caller)?;
-    Ok(Json(json!({ "minutes": app.stall_minutes.load(std::sync::atomic::Ordering::Relaxed) })))
 }
 
 /// Sets it; the user's alone, kept in settings.json like the alert thresholds.
@@ -777,7 +627,7 @@ pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): E
         // Its manager would get work from a project it is not in: only once the user confirmed.
         if !s.confirm_other_project {
             let live = app.runtime.agents().unwrap_or_default();
-            if let Some(why) = snapshot::other_project(app.store.lock().unwrap().state(), &live, &group, &s.intent) {
+            if let Some(why) = views::other_project(app.store.lock().unwrap().state(), &live, &group, &s.intent) {
                 return Err(ApiError(StatusCode::CONFLICT, format!("{why}: its manager would get work from a project it is not in. Pick a workspace of that project, or confirm starting it there anyway (confirmOtherProject)")));
             }
         }
@@ -852,7 +702,7 @@ fn recorded_view(r: &core::CommandRun, state: &core::State) -> serde_json::Value
 impl App {
     /// The user's recent runs, newest first: the record's, with what this service still
     /// follows of them (whether a place is read, where it is).
-    fn recent_runs(&self, state: &core::State) -> Vec<snapshot::RunOut> {
+    pub(super) fn recent_runs(&self, state: &core::State) -> Vec<views::RunOut> {
         let live = self.runs.lock().unwrap();
         state
             .runs
@@ -862,7 +712,7 @@ impl App {
                 let here = live.get(&r.id);
                 let exit = r.exit.or(here.and_then(|x| x.exit));
                 let now = if exit.is_some() { "done" } else if here.is_some_and(|x| x.watching) { "running" } else { "unknown" };
-                snapshot::RunOut {
+                views::RunOut {
                     id: r.id.clone(),
                     command: r.command.clone(),
                     dir: r.dir.clone(),
@@ -1391,12 +1241,12 @@ pub(super) async fn ask_why(State(app): State<Shared>, Extension(caller): Extens
 }
 
 /// A task's commits on its unit's branch, as (short id, subject).
-fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut snapshot::Cache) -> Vec<(String, String)> {
+fn task_commits(at: &scan::Runner, u: &core::Unit, task: u32, cache: &mut views::Cache) -> Vec<(String, String)> {
     let repo = Path::new(&u.repo);
     let hashes = if u.merged.is_some() && !u.merged_commits.is_empty() {
         u.merged_commits.clone()
     } else {
-        snapshot::unit_commits(at, u, cache).map(|(l, _)| l.into_iter().map(|c| c.hash).collect()).unwrap_or_default()
+        views::unit_commits(at, u, cache).map(|(l, _)| l.into_iter().map(|c| c.hash).collect()).unwrap_or_default()
     };
     let want = format!("{}#{task}", u.id);
     hashes.iter().filter_map(|h| scan::commit(at, repo, h).ok()).filter(|c| c.task.as_deref() == Some(want.as_str())).map(|c| (c.id, c.subject)).collect()

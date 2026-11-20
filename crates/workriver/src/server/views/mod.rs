@@ -12,10 +12,12 @@ use crate::server::delivery::quote;
 
 mod cache;
 mod code;
+mod handlers;
 pub mod task;
 
 pub use cache::*;
 pub use code::*;
+pub(super) use handlers::*;
 
 fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<MessageOut> {
     state

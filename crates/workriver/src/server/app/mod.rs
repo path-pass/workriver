@@ -25,7 +25,7 @@ use crate::server::access::pins::Pins;
 use crate::common::process::Procs;
 use crate::server::delivery;
 use crate::server::files;
-use crate::server::views::{self as snapshot, Cache};
+use crate::server::views::{self, Cache};
 
 use crate::server::handlers::*;
 use crate::server::http::*;
@@ -78,7 +78,7 @@ pub(super) struct App {
     /// (settings.json, by hand; read at start).
     pub(super) ready_hours: u32,
     /// What the scans found that the reminders need: units that look squash-merged.
-    pub(super) shared: Arc<Mutex<snapshot::Shared>>,
+    pub(super) shared: Arc<Mutex<views::Shared>>,
     /// Which merge reminders went out (`merge_reminders`), kept in a file next to the database.
     pub(super) merge_told: Mutex<std::collections::BTreeSet<String>>,
     pub(super) changed: broadcast::Sender<()>,

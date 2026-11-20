@@ -1,5 +1,6 @@
-// While the service runs: the branches it watches, and its poll of the runtime, in the order
-// things have always happened in a tick.
+// The service's life, in today's order: what start-up recovers from a previous run, the
+// background read of other machines' repositories, the branches it watches, its poll of the
+// runtime (a tick's steps as they have always run), and the stop.
 use super::*;
 use crate::run;
 
@@ -171,7 +172,7 @@ impl App {
 
     /// Repositories on other machines, read in the background (start-up; `kicked`: whenever
     /// a record touches one of their units).
-    pub(in crate::server) fn read_remote(self: &Arc<Self>, shared: Arc<Mutex<snapshot::Shared>>, kicked: std::sync::mpsc::Receiver<()>) {
+    pub(in crate::server) fn read_remote(self: &Arc<Self>, shared: Arc<Mutex<views::Shared>>, kicked: std::sync::mpsc::Receiver<()>) {
         let app = self;
         // Repositories on other machines cannot be watched: they are read in the background,
         // every `REMOTE` and whenever a record touches one of their units, never while a request
@@ -180,7 +181,7 @@ impl App {
         let mut bg = Cache::following(app.machines.clone()).sharing(shared).remembering(app.home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_REMOTE));
         bg.remote_reads = true;
         std::thread::spawn(move || {
-            let mut wait = snapshot::REMOTE;
+            let mut wait = views::REMOTE;
             loop {
                 match kicked.recv_timeout(wait) {
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -194,9 +195,9 @@ impl App {
                     continue;
                 }
                 let started = std::time::Instant::now();
-                let (changed, skipped) = snapshot::refresh_remote(&state, &mut bg);
+                let (changed, skipped) = views::refresh_remote(&state, &mut bg);
                 // A machine not reachable yet (just started, reconnecting): looked at again soon.
-                wait = if skipped { Duration::from_secs(1) } else { snapshot::REMOTE };
+                wait = if skipped { Duration::from_secs(1) } else { views::REMOTE };
                 bg.save();
                 let found = std::mem::take(&mut bg.merged_now);
                 remote.record_merges(found);

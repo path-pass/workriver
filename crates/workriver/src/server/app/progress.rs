@@ -134,7 +134,7 @@ impl App {
     }
 
     /// Ready units that may have been merged where git cannot see it. One that looks
-    /// squash-merged (`snapshot::Shared::squash`): its manager is told once per branch tip.
+    /// squash-merged (`views::Shared::squash`): its manager is told once per branch tip.
     /// One ready for longer than `ready_hours`: its manager is asked, once per ready period,
     /// to check its pull request. Only a manager that is running and not on a blind task;
     /// until then nothing is marked told. With no manager the page shows it in Needs you.
