@@ -3,7 +3,7 @@
 Where the user goes and how: the rail, an intent's page, the side panel and its Needs you,
 Agents and Backlog sections, signing in and addresses.
 
-Moved from `DESIGN.md` in phase 7b of the restructure, word for word but for paths
+Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
 its sections went.
 

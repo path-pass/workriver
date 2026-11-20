@@ -1,7 +1,6 @@
-//! Where the runtime's names may appear (docs/design/restructure.md, section 5.1): a
+//! Where the runtime's names may appear (docs/design/guards.md, "The ratchet's lists"): a
 //! ratchet over the whole repository's sources. `herdr` (any case) and `pane(s)` may appear
-//! outside the runtime adapter only in the files listed here, as of the start of the
-//! restructure; a new file naming them fails, and a listed file that stops naming them must
+//! outside the runtime adapter only in the files listed here; a new file naming them fails, and a listed file that stops naming them must
 //! leave its list, so the lists only shrink. A moved file's line follows it in the same commit.
 //!
 //! Not counted: i18n key names (a dictionary's keys, and a quoted string that is one of

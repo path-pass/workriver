@@ -4,7 +4,7 @@ mod access;
 mod commands;
 mod conversations;
 mod files;
-// Guards that hold today's behaviour while the files move (docs/design/restructure.md).
+// Guards that hold behaviour while code moves (docs/design/guards.md).
 mod guards;
 mod machines;
 mod planning;

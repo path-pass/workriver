@@ -1,5 +1,5 @@
-//! What the CLI prints for the commands nothing else tested (docs/design/restructure.md,
-//! phase 0): `project list`, `workspace list`, `backlog list` and `export`, `finding show`
+//! What the CLI prints for the commands nothing else tested (docs/design/guards.md):
+//! `project list`, `workspace list`, `backlog list` and `export`, `finding show`
 //! and `finding drop`, and the user adding, enabling, disabling and removing a machine,
 //! down to the settings file. Runs the real binary against a stand-in for the runtime's
 //! socket and an ssh stand-in; a test run has no terminal, so the service is started as

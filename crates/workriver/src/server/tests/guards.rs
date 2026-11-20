@@ -1,4 +1,4 @@
-//! The service's guards for the restructure (docs/design/restructure.md, section 5): every
+//! The service's guards (docs/design/guards.md): every
 //! route with its methods on both listeners, who may use each route, and the JSON the page
 //! reads. A move keeps these green unchanged; a test or blessed file here changes only with
 //! a deliberate change of behaviour. (The CLI's guards are in `cli/guards.rs`; the runtime

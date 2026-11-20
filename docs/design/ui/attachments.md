@@ -4,7 +4,7 @@ Files from agents and how they show and open. Files the user sends with a questi
 `conversations.md` (Asking why); pictures in a gate's form are in `activity.md` (What the
 user puts in).
 
-Moved from `DESIGN.md` in phase 7b of the restructure, word for word but for paths
+Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
 its sections went.
 

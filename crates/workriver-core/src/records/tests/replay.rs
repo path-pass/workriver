@@ -1,5 +1,5 @@
 //! A synthetic history, as old and new databases hold it, replayed to the state it has
-//! always added up to. The guard for the restructure (docs/design/restructure.md): no
+//! always added up to. A guard (docs/design/guards.md): no
 //! event, default or serde attribute may change what a stored record means.
 //!
 //! `records/fixtures/events.jsonl` is the history, one stored event per line: old

@@ -63,8 +63,9 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
 docs/               documents for people, English and Chinese: getting-started, security,
                     architecture (the code map), runtimes/herdr (what is Herdr's own)
 docs/design/        specifications for agents, English only: ui/ (the page's rules, one
-                    file per part; DESIGN.md is their overview), caller-identity,
-                    agent-commands, restructure
+                    file per part; DESIGN.md is their overview), layout (the code's
+                    tree, file by file), guards (the tests that hold behaviour),
+                    caller-identity
 frontend/web/       the web UI; everything a user sees is built here
   src/              by domain: app/ (composition), api/ (the only way to the service),
                     workspace/, planning/, work/, attention/, agents/, conversations/,
@@ -113,10 +114,8 @@ the poll and at start-up, it goes through `got`: logged, and the step skipped or
 a failure of that step is ended (a question fails, a review fails, a delivery says not
 delivered); the request still answers as the committed one it is. A failed read is never
 replaced by a value: no default harness, no empty text, no "not there". `docs/architecture.md` is the map;
-`docs/design/restructure.md` (section 2) has the detail.
-
-The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`),
-whose phases are all done.
+`docs/design/layout.md` has the detail, file by file, and the data port. A change that only
+moves code keeps the guards of `docs/design/guards.md` green without editing them.
 
 ## Language rules
 

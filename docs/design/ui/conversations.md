@@ -3,7 +3,7 @@
 The side panel's Ask why section: questions about a task or a unit, the files that go with
 them, the conversation with a workspace's manager, and agents' questions to each other.
 
-Moved from `DESIGN.md` in phase 7b of the restructure, word for word but for paths
+Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
 its sections went.
 

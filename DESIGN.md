@@ -51,8 +51,8 @@ anything in `frontend/`.
 | [`attachments.md`](docs/design/ui/attachments.md) | Attachments and the viewer |
 | [`presentation.md`](docs/design/ui/presentation.md) | Colour, type, space and shape, the river lines, states, loading |
 
-Where each section of this file went in phase 7b of the restructure (moved whole, word for
-word but for paths made whole and "see …" naming the file):
+Where each section of this file went when it was split (moved whole, word for word but for
+paths made whole and "see …" naming the file):
 
 | Was here | Now in |
 |---|---|

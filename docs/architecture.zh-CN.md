@@ -2,8 +2,8 @@
 
 [English](architecture.md)
 
-给想在 workriver 源码里找路的人的一张简短地图。完整的目标目录树（每个文件一行）在
-`design/restructure.md`（第 2 节）。
+给想在 workriver 源码里找路的人的一张简短地图。完整的目录树（每个文件一行）在
+`design/layout.md`（写给 agent 的，英文）。
 
 workriver 是一个 Rust 程序（服务和 CLI 在同一个可执行文件里）加一个网页；网页构建成静态文件，
 由服务提供。每一部分都按领域切分：同一件事在每一层用同一个文件夹名（planning、work、
