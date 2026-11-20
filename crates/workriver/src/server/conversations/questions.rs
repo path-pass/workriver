@@ -180,8 +180,18 @@ impl App {
 
     /// Whether `session` is known, as recorded now, to be on no blind task in progress.
     pub(in crate::server) fn blind_free(&self, session: &str) -> bool {
+        self.held_because(session).is_none()
+    }
+
+    /// Why nothing of other work may be given to `session` now, in the service's words: it
+    /// is on a blind task in progress, or the records that would say cannot be read.
+    pub(in crate::server) fn held_because(&self, session: &str) -> Option<String> {
         let read = got(self.store.lock().unwrap().recorded());
-        matches!(read, Ok(Some(s)) if s.blind_tasks(session).is_empty())
+        match read {
+            Ok(Some(s)) if s.blind_tasks(session).is_empty() => None,
+            Ok(Some(s)) => Some(format!("{} is on a blind task: it is told once that task is delivered", s.name_of(session).unwrap_or(session))),
+            Ok(None) | Err(_) => Some("the records cannot be read now: it is told once they can".into()),
+        }
     }
 
     /// The thread a question belongs to, as recorded now.
@@ -231,7 +241,7 @@ impl App {
         };
         // Not while it is on a blind task it took since: held until that is delivered, never lost.
         if let Some((asker, text)) = back
-            && let Some(Err(e)) = self.tell(&asker, &text, None)
+            && let Ok(Err(e)) = self.tell(&asker, &text, None)
         {
             tracing::warn!("cannot give {asker} the answer to {id}: {e}");
         }

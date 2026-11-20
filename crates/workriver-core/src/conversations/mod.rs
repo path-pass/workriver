@@ -19,6 +19,9 @@ pub enum DeliveryStep {
     Delivered,
     /// The receiver started working after it arrived.
     Picked,
+    /// Held for a receiver on a blind task in progress, which is told nothing of other work:
+    /// given once that task is delivered (`reason` says so).
+    Held,
 }
 
 /// Why a message was not delivered.

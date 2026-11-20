@@ -71,10 +71,13 @@ pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): E
         };
         // An agent with no name on record goes by its session, as everywhere.
         let name = |to: &str| names.as_ref().and_then(|all| all.name_of(to)).unwrap_or(to).to_string();
+        // Like every notice to a manager: not while it is on a blind task (then held, and the
+        // answer says so in the service's words; it is given once that task is delivered).
         let delivery = match plan {
-            Ok((to, message)) => match app.send(&to, &message) {
-                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(name(&to)), reason_code: None, reason: None, message },
-                Err(err) => Delivery { step: DeliveryStep::NotDelivered, to: Some(name(&to)), reason_code: Some(if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }), reason: Some(err.to_string()), message },
+            Ok((to, message)) => match app.tell(&to, &message, None) {
+                Ok(Ok(())) => Delivery { step: DeliveryStep::Delivered, to: Some(name(&to)), reason_code: None, reason: None, message },
+                Ok(Err(err)) => Delivery { step: DeliveryStep::NotDelivered, to: Some(name(&to)), reason_code: Some(if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError }), reason: Some(err.to_string()), message },
+                Err(why) => Delivery { step: DeliveryStep::Held, to: Some(name(&to)), reason_code: None, reason: Some(why), message },
             },
             Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(code), reason: Some(reason), message: String::new() },
         };

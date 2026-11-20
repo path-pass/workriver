@@ -90,8 +90,8 @@ impl App {
         };
         for (to, text, escalate) in tell {
             // The worker hears of its own task; its manager, like every manager, not while blind.
-            let sent = if escalate { self.tell(&to, &text, None) } else { Some(self.send(&to, &text)) };
-            if let Some(Err(e)) = sent {
+            let sent = if escalate { self.tell(&to, &text, None) } else { Ok(self.send(&to, &text)) };
+            if let Ok(Err(e)) = sent {
                 tracing::warn!("cannot tell {to} of a stopped worker: {e}");
             }
         }

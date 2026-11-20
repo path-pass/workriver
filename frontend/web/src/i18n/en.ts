@@ -529,6 +529,7 @@ export const en = {
     undo: 'Undo',
     copy: 'Copy message',
     recorded: 'Recorded',
+    held: 'Waiting: {{agent}} is on a blind task; it goes once that task is delivered',
     notDelivered: 'Not delivered: {{reason}}',
     reason: {
       'no-manager': 'the intent has no manager',

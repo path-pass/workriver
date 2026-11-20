@@ -196,23 +196,29 @@ impl App {
     }
 
     /// Tells an agent something workriver has to say (an answer it waits for, a delivery's
-    /// message, an escalation): now, unless it is on a blind task in progress, which is told
-    /// nothing of other work; then it is held and given once that task is delivered (`poll`,
-    /// `hand`). An unreadable store holds it too. The one rule for every such send. `about`:
-    /// a planned delivery, recorded where it is once given (`told`); then, and while held,
-    /// this gives None; otherwise what the send came to.
-    pub(in crate::server) fn tell(&self, to: &str, text: &str, about: Option<delivery::Plan>) -> Option<Result<(), RuntimeError>> {
+    /// message, an intent started in its workspace, an escalation): now, unless it is on a
+    /// blind task in progress, which is told nothing of other work; then it is held and given
+    /// once that task is delivered (`poll`, `hand`), and this gives `Err` with why, in the
+    /// service's words. An unreadable store holds it too. The one rule for every such send.
+    /// `about`: a planned delivery, recorded where it is: held (with why) now, and delivered
+    /// or not once given (`told`), which is then what it came to (here `Ok(Ok(()))`).
+    pub(in crate::server) fn tell(&self, to: &str, text: &str, about: Option<delivery::Plan>) -> Result<Result<(), RuntimeError>, String> {
         let held = Held { question: String::new(), kind: For::Notice, to: to.into(), name: to.into(), text: text.into(), not_ready: None, about };
-        if !self.blind_free(to) {
+        if let Some(why) = self.held_because(to) {
+            // The page shows it held; a restart before it is given marks it not delivered (`recover`).
+            if let Some(plan) = &held.about {
+                let delivery = Delivery { step: DeliveryStep::Held, to: Some(to.into()), reason_code: None, reason: Some(why.clone()), message: plan.message.clone() };
+                self.record_delivery(plan, delivery);
+            }
             self.held.lock().unwrap().push(held);
-            return None;
+            return Err(why);
         }
         let sent = self.send(to, text);
         if held.about.is_none() {
-            return Some(sent);
+            return Ok(sent);
         }
         self.told(held, sent);
-        None
+        Ok(Ok(()))
     }
 
     /// A notice was given (or could not be): a planned delivery is recorded where it is;
@@ -257,7 +263,12 @@ impl App {
                 sent: std::time::Instant::now(),
             });
         }
-        let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, chore: plan.chore, delivery };
+        self.record_delivery(&plan, delivery);
+    }
+
+    /// Records where a planned delivery is.
+    pub(in crate::server) fn record_delivery(&self, plan: &delivery::Plan, delivery: Delivery) {
+        let body = Body::DeliveryUpdated { unit: plan.unit.clone(), task: plan.task, finding: plan.finding.clone(), chore: plan.chore.clone(), delivery };
         if let Err(e) = self.store.lock().unwrap().record(&Principal::Service, body) {
             tracing::warn!("cannot record a delivery: {e}");
         }

@@ -887,3 +887,58 @@ fn an_escalation_waits_for_a_blind_manager() {
     d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
     wait_until("given once its blind task is delivered", || to("s-boss", "ja-impl stopped") == 1);
 }
+
+/// What workriver holds for a manager on a blind task (a worker's delivery, the user's
+/// decision) is recorded as held, with why, so the page shows it; given once that task is
+/// delivered, it is recorded as delivered; a restart in between records it as not delivered
+/// (restarted), so the user sees it and can send it again (review u14#14 P3-1).
+#[test]
+fn a_held_notice_is_recorded_and_survives_a_restart() {
+    use workriver_core::runtime::AgentState::*;
+    for restart in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("w.db");
+        let first = std::sync::Arc::new(Fake::default());
+        *first.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
+        let a = daemon_with(first.clone(), &db, Default::default());
+        manage(&a, "p1", "s-boss");
+        a.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+        a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-boss" })).unwrap();
+        a.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "done" })).unwrap();
+        a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "code-review", "title": "Worker review", "agent": "s-w", "inputs": [{ "from": "1" }] })).unwrap();
+        a.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+        at_place(&a, "p2").append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [{ "severity": "P2", "problem": "WORKER_FINDING", "impact": "x", "where": ["a"] }] })).unwrap();
+        a.call("/api/decide", Some(json!({ "unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "note": "USERS_DECISION_NOTE" }))).unwrap();
+        let state = |d: &crate::cli::Daemon| d.get("/api/state").unwrap()["units"][0]["tasks"][1].clone();
+        // Held, with why: on the page, under the task and its finding.
+        let t = state(&a);
+        assert_eq!((t["delivery"]["step"].as_str(), t["findings"][0]["delivery"]["step"].as_str()), (Some("held"), Some("held")), "{t}");
+        assert!(t["findings"][0]["delivery"]["reason"].as_str().unwrap().contains("blind task"), "{t}");
+        assert!(!first.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.contains("USERS_DECISION_NOTE")));
+        let (d, fake) = if restart {
+            // The first service stops giving anything (its manager waits in a terminal for good);
+            // a second one starts on the same records.
+            first.agents.lock().unwrap()[0].1.state = Blocked;
+            let next = std::sync::Arc::new(Fake::default());
+            *next.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker", "w1", Idle))];
+            (daemon_with(next.clone(), &db, Default::default()), next)
+        } else {
+            (a, first)
+        };
+        if restart {
+            wait_until("marked not delivered at start-up", || state(&d)["findings"][0]["delivery"]["step"] == "not-delivered");
+            let t = state(&d);
+            assert_eq!((t["delivery"]["reason_code"].as_str(), t["findings"][0]["delivery"]["reason_code"].as_str()), (Some("restarted"), Some("restarted")), "{t}");
+        }
+        d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 3, "findings": [] })).unwrap();
+        let heard = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && (m.contains("USERS_DECISION_NOTE") || m.contains("delivered by worker"))).count();
+        if restart {
+            std::thread::sleep(std::time::Duration::from_millis(4500));
+            assert_eq!(heard(), 0, "what a previous run held is not sent again by itself: the page says it went nowhere");
+        } else {
+            wait_until("both given once the blind task is delivered", || heard() == 2);
+            wait_until("recorded as delivered", || state(&d)["findings"][0]["delivery"]["step"] == "delivered" && state(&d)["delivery"]["step"] == "delivered");
+        }
+    }
+}

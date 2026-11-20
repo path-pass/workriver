@@ -35,7 +35,9 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
     const to = sent.to ?? ''
     const steps: [Sent['step'], string][] = sent.step === 'not-delivered'
       ? [['not-delivered', t('deliver.notDelivered', { reason: sent.reasonCode ? t(`deliver.reason.${sent.reasonCode}`) : t('deliver.reason.unknown') })]]
-      : [
+      : sent.step === 'held'
+        ? [['held', t('deliver.held', { agent: to })]]
+        : [
           ['delivered', sent.toManager ? t('deliver.toManager') : t('deliver.delivered', { agent: to })],
           ['picked', t('deliver.picked', { agent: to })],
         ]
@@ -50,7 +52,7 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
             </span>
           )
           // The service's own words, for whoever needs the detail.
-          return s === 'not-delivered' && sent.reason ? <Tip key={s} text={sent.reason}>{line}</Tip> : line
+          return (s === 'not-delivered' || s === 'held') && sent.reason ? <Tip key={s} text={sent.reason}>{line}</Tip> : line
         })}
         {message && text && <CopyButton text={text} label={t('deliver.copy')} />}
       </div>

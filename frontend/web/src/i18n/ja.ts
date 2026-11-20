@@ -512,6 +512,7 @@ export const ja: OneForm<typeof en> = {
     undo: '取り消す',
     copy: 'メッセージをコピー',
     recorded: '記録しました',
+    held: '待機中：{{agent}} はブラインドのタスク中です。そのタスクの納品後に届きます',
     notDelivered: '送信できませんでした：{{reason}}',
     reason: {
       'no-manager': 'このインテントにマネージャーがいません',

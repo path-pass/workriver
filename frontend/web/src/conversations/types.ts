@@ -39,10 +39,11 @@ export interface ManagerMessage {
 
 /**
  * Where the service's message about a user's input (a decision, a gate result) is: not
- * delivered (with why), delivered, or picked up (the receiver started working on it).
+ * delivered (with why), delivered, or picked up (the receiver started working on it); or
+ * held while its receiver is on a blind task (with why), given once that task is delivered.
  */
 export interface Sent {
-  step: 'not-delivered' | 'delivered' | 'picked';
+  step: 'not-delivered' | 'delivered' | 'picked' | 'held';
   /** The receiving agent. */
   to: string | null;
   toManager: boolean;

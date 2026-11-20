@@ -211,6 +211,38 @@ pub trait WorkStore: Send {
         Ok(out)
     }
 
+    /// Deliveries held for a receiver on a blind task (`DeliveryStep::Held`): tasks' and their
+    /// findings', of units and of intents' own work, then chores', then backlog findings'.
+    fn held_deliveries(&self) -> Result<Vec<Delivered>, DataError> {
+        let all = self.recorded()?;
+        let held = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Held);
+        let mut out = vec![];
+        let owners = all.units.iter().map(|u| (&u.id, &u.tasks)).chain(all.intents.iter().map(|i| (&i.id, &i.tasks)));
+        for (owner, tasks) in owners {
+            for t in tasks {
+                if let Some(d) = held(&t.delivery) {
+                    out.push(Delivered { unit: owner.clone(), task: t.n, finding: None, chore: None, delivery: d });
+                }
+                for f in &t.findings {
+                    if let Some(d) = held(&f.delivery) {
+                        out.push(Delivered { unit: owner.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
+                    }
+                }
+            }
+        }
+        for c in &all.chores {
+            if let Some(d) = held(&c.delivery) {
+                out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
+            }
+        }
+        for b in &all.backlog {
+            if let Some(d) = held(&b.finding.delivery) {
+                out.push(Delivered { unit: String::new(), task: 0, finding: Some(b.finding.found.id.clone()), chore: None, delivery: d });
+            }
+        }
+        Ok(out)
+    }
+
     /// The ids of the questions neither answered nor failed.
     fn open_questions(&self) -> Result<Vec<String>, DataError> {
         Ok(self.recorded()?.questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect())

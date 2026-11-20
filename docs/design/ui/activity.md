@@ -166,7 +166,10 @@ records it and delivers it to the agents through Herdr.
   delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it (it
   started working after the message arrived), or not delivered with the reason in the
   user's language (no manager, manager not running, Herdr not reachable, Herdr refused;
-  the service's own words in a tooltip). Every decision goes to the intent's manager agent
+  the service's own words in a tooltip), or held while its receiver is on a blind task in
+  progress ("Waiting: … is on a blind task", why in a tooltip): it goes once that task is
+  delivered, and a restart in between marks it not delivered (the service restarted), so it
+  can be sent again. Starting an intent says the same in its dialog. Every decision goes to the intent's manager agent
   ("sent to the manager bot"), which turns accepted findings into tasks and tells the
   workers what they need; a gate's result goes to the agent waiting behind it, else the
   manager. The service writes and sends the message; the line shows its record, and the

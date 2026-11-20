@@ -512,6 +512,7 @@ export const zhCN: OneForm<typeof en> = {
     undo: '撤回',
     copy: '复制消息',
     recorded: '已记下',
+    held: '等待中：{{agent}} 正在做盲审任务，交付后才会发给它',
     notDelivered: '没送出：{{reason}}',
     reason: {
       'no-manager': '这个意图还没有管理者',

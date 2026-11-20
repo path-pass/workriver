@@ -242,6 +242,16 @@ impl App {
         for id in held {
             app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
         }
+        // So are deliveries a previous run held for a receiver on a blind task: recorded as not
+        // delivered, so the page says so and the user can send it again.
+        let held = got(app.store.lock().unwrap().held_deliveries()).ok().flatten().unwrap_or_default();
+        for d in held {
+            let delivery = Delivery { step: DeliveryStep::NotDelivered, reason_code: Some(ReasonCode::Restarted), reason: Some("the service restarted while it waited for its receiver's blind task".into()), ..d.delivery };
+            let body = Body::DeliveryUpdated { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery };
+            if let Err(e) = app.store.lock().unwrap().record(&Principal::Service, body) {
+                tracing::warn!("cannot record a delivery: {e}");
+            }
+        }
         // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
         // the next question starts a new one with the thread so far.
         let left = got(app.store.lock().unwrap().thread_agents()).ok().flatten().unwrap_or_default();
