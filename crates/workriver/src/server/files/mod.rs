@@ -9,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
+use workriver_core::ports::WorkStore;
 use workriver_core::Body;
 
 use crate::common::home::PORT_FILE;
@@ -114,7 +115,7 @@ pub(super) async fn inbox(State(app): State<Shared>, Extension(via): Extension<C
     blocking(move || {
         // Only someone (the user, or an agent from its own place) gets a folder made and named.
         app.who(&via, None)?;
-        app.store.lock().unwrap().state().task(&i.unit, i.task)?;
+        app.store.lock().unwrap().task(&i.unit, i.task)?;
         // A caller on another machine keeps the folder on its own disk; the CLI makes it there.
         if via.machine.is_some() {
             return Ok(Json(json!({ "elsewhere": true })));

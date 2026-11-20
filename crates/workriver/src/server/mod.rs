@@ -9,6 +9,7 @@ use std::time::Duration;
 use anyhow::Context;
 use notify_debouncer_mini::{DebounceEventResult, new_debouncer};
 use tokio::sync::{broadcast, watch};
+use workriver_core::ports::WorkStore;
 use workriver_core::runtime::Runtime;
 use workriver_data::Store;
 use workriver_scan as scan;
@@ -152,7 +153,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
         Ok(d) => *app.watcher.lock().unwrap() = Some(d),
         Err(e) => tracing::warn!("cannot watch repositories, git changes show on the next record: {e}"),
     }
-    let units: Vec<(String, String)> = app.store.lock().unwrap().state().units.iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
+    let units: Vec<(String, String)> = app.store.lock().unwrap().recorded().units.iter().filter(|u| u.machine.is_none() && u.has_code()).map(|u| (u.repo.clone(), u.branch.clone())).collect();
     for (repo, branch) in units {
         app.watch(Path::new(&repo), &branch);
     }

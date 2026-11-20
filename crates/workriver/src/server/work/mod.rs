@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
+use workriver_core::ports::WorkStore;
 use workriver_core::{self as core, Body, Principal};
 
 use crate::server::delivery;
@@ -91,7 +92,7 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
         // A manager that starts an intent of another project than its workspace's is told so.
         if let Body::IntentStateChanged { intent, state: core::IntentState::Active, workspace: Some(g), .. } = &e.body {
             let live = app.runtime.agents().unwrap_or_default();
-            if let Some(why) = views::other_project(app.store.lock().unwrap().state(), &live, g, intent) {
+            if let Some(why) = views::other_project(&app.store.lock().unwrap().recorded(), &live, g, intent) {
                 out["warning"] = json!(format!("{why}. If you do not work on that project, do not split it: ask the user with a decide gate first (`workriver guide how ask-user`)."));
             }
         }

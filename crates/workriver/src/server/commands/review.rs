@@ -105,8 +105,7 @@ impl App {
         let Some(r) = self.runs.lock().unwrap().get(id).cloned() else { return };
         // The author's harness, which that machine has; else claude.
         let (harness, by) = {
-            let store = self.store.lock().unwrap();
-            let s = store.state();
+            let s = &self.store.lock().unwrap().recorded();
             let harness = s.agents.iter().find(|a| a.session == r.by).map(|a| a.harness.clone()).filter(|h| !h.is_empty()).unwrap_or_else(|| "claude".into());
             (harness, if r.by == "user" { "user".to_string() } else { s.name_of(&r.by).unwrap_or(&r.by).to_string() })
         };

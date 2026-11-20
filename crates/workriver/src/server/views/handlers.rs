@@ -9,6 +9,7 @@ use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
 use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
+use workriver_core::ports::WorkStore;
 use workriver_core as core;
 use workriver_scan as scan;
 
@@ -66,7 +67,7 @@ pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller
 
 pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {
     let store = app.store.lock().unwrap();
-    let s = store.state();
+    let s = store.recorded();
     let (files, bytes) = store::usage(&app.home);
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),

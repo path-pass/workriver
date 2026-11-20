@@ -9,6 +9,7 @@ use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
+use workriver_core::ports::WorkStore;
 use workriver_core::runtime::{AgentState, RuntimeAgent};
 use workriver_core::{self as core, Body};
 use workriver_scan as scan;
@@ -133,7 +134,7 @@ pub(super) async fn run_prepare(State(app): State<Shared>, Extension(caller): Ex
     app.user(&caller)?;
     blocking(move || {
         shell::check(&p.command).map_err(bad)?;
-        let state = app.store.lock().unwrap().state().clone();
+        let state = app.store.lock().unwrap().recorded();
         let (dir, machine, unit) = match (&p.unit, &p.project) {
             (Some(u), _) => {
                 let u = state.unit(u)?;
@@ -256,8 +257,7 @@ pub(super) async fn run_command(State(app): State<Shared>, Extension(caller): Ex
 pub(super) async fn run_read(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>) -> Result<Json<serde_json::Value>, ApiError> {
     app.user(&caller)?;
     let live = app.runs.lock().unwrap().get(&id).cloned();
-    let store = app.store.lock().unwrap();
-    let state = store.state();
+    let state = &app.store.lock().unwrap().recorded();
     match (live, state.runs.iter().find(|r| r.id == id)) {
         (Some(r), _) => {
             // Its review agent as the runtime last saw it, when it waits for a person.
