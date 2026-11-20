@@ -139,8 +139,8 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                         let title = group.as_ref().and_then(|g| g["label"].as_str()).unwrap_or("intent").to_string();
                         let made = d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": cwd_folder()?, "state": "planned" }))?;
                         let i = made["body"]["id"].as_str().unwrap_or_default().to_string();
-                        d.append(actor, "intent.state_changed", json!({ "intent": i, "state": "active", "workspace": group }))?;
-                        println!("started {i}");
+                        // A workspace's first intent is the user's to start.
+                        println!("added {i} to the roadmap; ask the user to start it in this workspace");
                     }
                 }
             }

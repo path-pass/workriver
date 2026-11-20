@@ -771,7 +771,7 @@ fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
     let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
     d.append("user", "intent.created", json!({ "title": "Remote chat", "state": "planned" })).unwrap();
     remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    remote.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
     let shot = tmp.path().join("shot.png");
     std::fs::write(&shot, b"review remote attachment").unwrap();

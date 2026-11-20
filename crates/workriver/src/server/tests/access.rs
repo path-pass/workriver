@@ -40,7 +40,7 @@ fn only_the_user_is_the_user() {
     let group = json!({ "id": "w1", "label": "chat" });
     let reg = boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     assert_eq!((reg["actor"].as_str(), reg["body"]["agent"].as_str()), (Some("s-boss"), Some("s-boss")), "in an agent's pane the token changes nothing");
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{ "from": "1" }] })).unwrap();
@@ -361,7 +361,7 @@ fn blind_reviews() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
     imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();

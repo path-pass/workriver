@@ -317,7 +317,8 @@ pub(super) fn manage(d: &Daemon, place: &str, agent: &str) -> String {
     let made = d.append("user", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     let id = made["body"]["id"].as_str().unwrap().to_string();
     d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
-    d.append(agent, "intent.state_changed", json!({ "intent": id, "state": "active", "workspace": here["group"] })).unwrap();
+    // The user starts it: an intent of no project is not its manager's to start.
+    d.append("user", "intent.state_changed", json!({ "intent": id, "state": "active", "workspace": here["group"] })).unwrap();
     id
 }
 
@@ -544,12 +545,13 @@ pub(super) fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::R
     (port, kernel)
 }
 
-/// The agent at `boss` registers as its workspace's manager and starts a new intent there.
-pub(super) fn manage_here(boss: &Daemon) {
+/// The agent at `boss` registers as its workspace's manager and the user (`user`) starts a
+/// new intent there (an intent of no project is not its manager's to start).
+pub(super) fn manage_here(user: &Daemon, boss: &Daemon) {
     let w = json!({ "id": "w1", "label": "chat" });
     boss.append("", "manager.registered", json!({ "workspace": w })).unwrap();
     boss.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": w })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": w })).unwrap();
 }
 
 /// A plain request to `port` as the CLI of a command run at `place` sends it (`d`: a client of

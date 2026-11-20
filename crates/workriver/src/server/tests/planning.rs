@@ -203,7 +203,7 @@ fn units_finish() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "agent": "s-w" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
@@ -298,7 +298,7 @@ fn units_finish() {
     assert!(matches!(&done[..], [m] if m.starts_with("[workriver] Intent i1 is done: w, rev worked on it") && !m.contains("workriver say")), "{done:?}");
     // The user closes one: the manager is told, and the user's own output says nothing of it.
     user.append("", "intent.created", json!({ "title": "Logout", "state": "planned" })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).unwrap();
     let out = user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "done" })).unwrap();
     assert_eq!(crate::cli::made(&out), "i2 done");
     assert_eq!(to_boss("Intent i2 is done"), [format!("[workriver] Intent i2 is done. {say}what the intent came to{now}")]);
