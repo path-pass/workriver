@@ -203,7 +203,7 @@ fn no_runtime_names_outside_the_adapter_but_those_still_listed() {
 fn key_names_and_own_words_do_not_count() {
     let keys = keys();
     assert!(keys.contains("machines.noHerdr") && keys.iter().any(|k| k.ends_with(".reason.runtime-down")) && keys.contains("unit.blocking"), "{keys:?}");
-    let page = without_keys("frontend/web/src/components/Settings.tsx", "t('machines.noHerdr') + 'Herdr is down' + \"pane.close\" + // \"pane.close\"", &keys);
+    let page = without_keys("frontend/web/src/machines/Settings.tsx", "t('machines.noHerdr') + 'Herdr is down' + \"pane.close\" + // \"pane.close\"", &keys);
     assert_eq!(page, "t('') + 'Herdr is down' + \"pane.close\" + // \"pane.close\"\n");
     assert!(names(&page, "pane"), "a quoted runtime method that is not a key counts");
     assert_eq!(without_keys("frontend/web/src/i18n/en.ts", "    noHerdr: 'Herdr does not answer',", &keys), " 'Herdr does not answer',\n");

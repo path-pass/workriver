@@ -7,6 +7,7 @@ import { fileTree, shownDelta } from '@/code/files'
 import { repoOf } from '@/code/select'
 import { unitsOf, noCode } from '@/planning/select'
 import { selectionOf } from '@/work/select'
+import { changes, read } from '@/api/http'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
@@ -23,9 +24,7 @@ function prepare(ws: Workspace): Workspace {
 
 async function loadWorkspace(): Promise<Workspace> {
   if (!MOCK) {
-    const res = await fetch('/api/workspace')
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-    return prepare(await res.json())
+    return prepare(await read<Workspace>('/api/workspace'))
   }
   const [{ default: demo }, { default: lockscreen }] = await Promise.all([import('@/mock/demo.json'), import('@/mock/lockscreen.svg')])
   const ws = demo as unknown as Workspace
@@ -59,7 +58,7 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
   document.addEventListener('visibilitychange', shown)
   get()
   if (MOCK) return () => { stopped = true; document.removeEventListener('visibilitychange', shown) }
-  const events = new EventSource('/api/events')
+  const events = changes()
   events.addEventListener('changed', get)
   // The stream reconnects by itself; what changed while it was down is fetched then.
   let opened = false
@@ -83,4 +82,3 @@ function checkCounts(ws: Workspace) {
       }
     }
 }
-

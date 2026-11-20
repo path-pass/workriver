@@ -363,4 +363,3 @@ function ManagerTalk({ unit, talk }: { unit: Unit | null; talk: Talk }) {
     </>
   )
 }
-

@@ -4,6 +4,7 @@ import type { FileChange, UnitCode } from './types'
 import type { Unit } from '@/planning/types'
 import { KEEP_CODES } from '@/config/defaults'
 import { changeOf } from './files'
+import { read } from '@/api/http'
 
 /**
  * A file with its texts. Its diff lines are worked out when first read, which is when its diff
@@ -34,9 +35,7 @@ export async function loadCode(unit: Unit): Promise<UnitCode> {
   if (had) codes.set(unit.id, had)
   if (had && had.code === (unit.code ?? '')) return had
   const have = unit.commits.filter(c => !c.live && had?.files.has(fileKey(c.id, c.files[0]?.path ?? ''))).map(c => c.id)
-  const res = await fetch(`/api/unit/${encodeURIComponent(unit.id)}/code${have.length ? `?have=${have.join(',')}` : ''}`)
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-  const got: { code?: string; commits: { id: string; files: FileChange[] }[] } = await res.json()
+  const got = await read<{ code?: string; commits: { id: string; files: FileChange[] }[] }>(`/api/unit/${encodeURIComponent(unit.id)}/code${have.length ? `?have=${have.join(',')}` : ''}`)
   const kept = new Set(have)
   const files = new Map([...(had?.files ?? [])].filter(([k]) => kept.has(k.slice(0, k.indexOf('\0')))))
   for (const c of got.commits) for (const f of c.files) files.set(fileKey(c.id, f.path), withLines(f))
