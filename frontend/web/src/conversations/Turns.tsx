@@ -231,7 +231,8 @@ export function Questions({ id, threads, agent, onFile, onRead, children }: { id
   const talkKey = talk >= 0 ? keyOf(threads[talk], talk) : null
   const seenTalk = useRef(talkKey)
   useEffect(() => { if (talkKey && talkKey !== seenTalk.current) { seenTalk.current = talkKey; setOpen(talkKey) } }, [talkKey])
-  // The newest answer not read, while the discussion is open on screen (not in a hidden tab).
+  // The newest answer not read, while the discussion is open on screen (not in a hidden tab):
+  // measured on the discussion itself, not on the block around it.
   const shown = useRef<HTMLElement>(null)
   const newest = open !== null && open === talkKey ? threads[talk].turns.filter(x => x.unread && x.answeredAt).map(x => x.answeredAt!).sort((a, b) => ms(a) - ms(b)).at(-1) : undefined
   useEffect(() => {
@@ -247,9 +248,12 @@ export function Questions({ id, threads, agent, onFile, onRead, children }: { id
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newest])
   if (!threads.length && !children) return null
-  const earlier = all ? 0 : Math.max(0, threads.length - LATEST)
+  // Only past conversations fold behind "earlier": the discussion always shows.
+  const others = threads.filter(th => !th.discuss)
+  const earlier = all ? 0 : Math.max(0, others.length - LATEST)
+  const hidden = (th: Thread) => !th.discuss && others.indexOf(th) < earlier
   return (
-    <section ref={shown} aria-labelledby={`${id}-h`} className="flex flex-col text-sm">
+    <section aria-labelledby={`${id}-h`} className="flex flex-col text-sm">
       <h3 id={`${id}-h`} className="mb-1.5 flex items-baseline gap-2 text-xs font-semibold text-ink-2">
         {t('ask.questions')}{threads.length > 0 && <span className="font-normal">{t('ask.conversations', { count: threads.length })}</span>}
       </h3>
@@ -257,12 +261,12 @@ export function Questions({ id, threads, agent, onFile, onRead, children }: { id
         <button type="button" className="mb-1 self-start text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
       )}
       {threads.map((th, k) => {
-        if (k < earlier) return null
+        if (hidden(th)) return null
         const key = keyOf(th, k)
         const isOpen = open === key
         const body = `${id}-${key}`
         return (
-          <section key={key} className="thread" data-open={isOpen || undefined}>
+          <section key={key} ref={th.discuss ? shown : undefined} className="thread" data-open={isOpen || undefined}>
             <ThreadRow th={th} open={isOpen} body={body} onToggle={() => setOpen(isOpen ? null : key)} />
             {isOpen && <ThreadBody id={body} th={th} agent={agent} onFile={onFile} />}
           </section>

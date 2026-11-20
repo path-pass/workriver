@@ -43,6 +43,8 @@ export function Discussion({ unit, n, talk }: { unit: Unit; n: Task; talk: Talk 
     talk.onDiscuss(unit.id, n.id, agent, text, conclude, sent).catch((e: Error) => setError(e.message))
   }
   const closed = state !== 'open'
+  // A conclusion is of a discussion: offered once there is one (the service refuses it before).
+  const discussed = (n.threads ?? []).some(th => th.discuss)
   const why = state === 'gone' ? t('discuss.gone', { agent }) : state === 'over' ? t('discuss.over', { gate: gate ? `#${gate.taskId ?? gate.id}` : '' }) : t('discuss.how', { agent })
   return (
     <div
@@ -68,7 +70,7 @@ export function Discussion({ unit, n, talk }: { unit: Unit; n: Task; talk: Talk 
           <span className="flex flex-wrap items-center gap-2">
             <span className="min-w-0 flex-1">{why}</span>
             {/* Closed: the way on is the manager, whose button is under the detail already. */}
-            {!closed && <Button variant="outline" size="xs" className="rounded-sm" onClick={() => send('', true)}>{t('discuss.conclude')}</Button>}
+            {!closed && discussed && <Button variant="outline" size="xs" className="rounded-sm" onClick={() => send('', true)}>{t('discuss.conclude')}</Button>}
           </span>
         }
       />

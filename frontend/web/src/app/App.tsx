@@ -323,6 +323,9 @@ export default function App() {
       return
     }
     const key = `${unitId}:${task}`
+    // As the service: nothing to conclude before anything was discussed.
+    const n = ws?.intents.flatMap(i => i.units).find(u => u.id === unitId)?.tasks.find(x => x.id === task)
+    if (conclude && !n?.threads?.some(th => th.discuss)) throw new Error(`nothing to conclude: ${unitId}#${task} has not been discussed yet`)
     const turn: Turn = { question: text, context: [], attachments: files, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
     setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: [...(e.discussed[key] ?? []), turn] } }))
     setTimeout(() => {
