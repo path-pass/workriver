@@ -1,6 +1,7 @@
 // What the page and the CLI read: the workspace, a unit's code, the state, the status, the
 // event stream, the machines' load and its history, a setting. Each asks who reads first.
 use std::convert::Infallible;
+
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
@@ -10,13 +11,14 @@ use serde_json::json;
 use tokio_stream::{Stream, StreamExt, wrappers::{BroadcastStream, WatchStream}};
 use workriver_core as core;
 use workriver_scan as scan;
+
 use crate::common::BUILD;
+use crate::server::app::Shared;
 use crate::server::files::store;
+use crate::server::views;
 use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
-use crate::server::app::Shared;
-use crate::server::views;
 
 pub(in crate::server) async fn workspace(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<views::Workspace>, ApiError> {
     blocking(move || {
