@@ -144,8 +144,10 @@ fn lists_findings_and_machines_from_the_cli() {
     let refused = cli().args(["--as", "s-rev", "finding", "drop", "f1", "--reason", "mine"]).output().unwrap();
     assert!(!refused.status.success(), "an agent dropped a finding");
     run(&["finding", "drop", "f1", "--reason", "fixed upstream"]);
+    // Its id as a finding is listed (`P2 f1 from …`): a word of its own, so that the project's
+    // path in the same output cannot be taken for it.
     let left = run(&["backlog", "list"]);
-    assert!(!left.contains("f1"), "{left}");
+    assert!(!left.split_whitespace().any(|word| word == "f1"), "{left}");
 
     // The user adds a machine (not followed yet), follows it, stops, and removes it; the
     // settings file says so at every step, and the connection lives only while followed.
