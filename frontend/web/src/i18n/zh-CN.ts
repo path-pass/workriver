@@ -71,7 +71,46 @@ export const zhCN: OneForm<typeof en> = {
     moved: '{{time}}前有动静',
     neverMoved: '还没有动静',
     earlier: '早先的调研与设计',
-    earlierHint: '这些是在调研与设计成为独立单元之前，直接记在意图上的。'
+    earlierHint: '这些是在调研与设计成为独立单元之前，直接记在意图上的。',
+    edit: {
+      open: '编辑标题、目标和备注',
+      title: '编辑意图',
+      hint: '每次修改都会作为一个版本留在历史里。',
+      fieldTitle: '标题',
+      fieldGoal: '目标',
+      fieldNote: '备注',
+      write: '编辑',
+      preview: '预览',
+      nothing: '没有可预览的内容。',
+      save: '保存',
+      cancel: '取消',
+      saveAnyway: '仍然保存',
+      failed: '没有保存：{{error}}',
+      conflict: {
+        title: '标题在此期间被改过（现在是 v{{n}}）。它现在的内容，与你的对比：',
+        goal: '目标在此期间被改过（现在是 v{{n}}）。它现在的内容，与你的对比：',
+        note: '备注在此期间被改过（现在是 v{{n}}）。它现在的内容，与你的对比：'
+      },
+      anyway: '仍然保存时，它现在的内容会留在历史里。',
+      restoring: '恢复 v{{n}}：保存后成为一个新版本，不会删除任何版本。'
+    },
+    history: {
+      line: 'v{{n}} · {{who}} {{time}}前编辑',
+      you: '你',
+      open: '历史',
+      heading: '历史',
+      hint: '标题、目标和备注的每个版本，最新的在前。',
+      created: '创建',
+      title: '标题',
+      goal: '目标',
+      note: '备注',
+      added: '补充了备注',
+      merged: '并入了 {{from}}',
+      first: '第一个版本，完整内容。',
+      whole: '完整内容',
+      restore: '恢复这个版本',
+      failed: '读不到历史：{{error}}'
+    }
   },
   start: {
     title: '从这里开始',

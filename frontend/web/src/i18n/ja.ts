@@ -71,7 +71,46 @@ export const ja: OneForm<typeof en> = {
     moved: '{{time}}前に動きあり',
     neverMoved: 'まだ動きなし',
     earlier: '以前の調査と設計',
-    earlierHint: '調査と設計がそれぞれのユニットになる前に、インテント自体に記録されたものです。'
+    earlierHint: '調査と設計がそれぞれのユニットになる前に、インテント自体に記録されたものです。',
+    edit: {
+      open: 'タイトル・目標・メモを編集',
+      title: 'インテントを編集',
+      hint: '変更はすべてバージョンとして履歴に残ります。',
+      fieldTitle: 'タイトル',
+      fieldGoal: '目標',
+      fieldNote: 'メモ',
+      write: '編集',
+      preview: 'プレビュー',
+      nothing: 'プレビューする内容がありません。',
+      save: '保存',
+      cancel: 'キャンセル',
+      saveAnyway: 'それでも保存',
+      failed: '保存できませんでした：{{error}}',
+      conflict: {
+        title: 'その間にタイトルが変更されました（現在 v{{n}}）。今の内容とあなたの内容の差分：',
+        goal: 'その間に目標が変更されました（現在 v{{n}}）。今の内容とあなたの内容の差分：',
+        note: 'その間にメモが変更されました（現在 v{{n}}）。今の内容とあなたの内容の差分：'
+      },
+      anyway: 'それでも保存すると、今の内容は履歴に残ります。',
+      restoring: 'v{{n}} を復元：保存すると新しいバージョンになります。削除されるものはありません。'
+    },
+    history: {
+      line: 'v{{n}} · {{time}}前に{{who}}が編集',
+      you: 'あなた',
+      open: '履歴',
+      heading: '履歴',
+      hint: 'タイトル・目標・メモのすべてのバージョン（新しい順）。',
+      created: '作成',
+      title: 'タイトル',
+      goal: '目標',
+      note: 'メモ',
+      added: 'メモに追記',
+      merged: '{{from}} を統合',
+      first: '最初のバージョン（全文）。',
+      whole: '全文',
+      restore: 'このバージョンを復元',
+      failed: '履歴を読めません：{{error}}'
+    }
   },
   start: {
     title: 'はじめに',

@@ -3318,7 +3318,38 @@
    "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。",
    "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10",
    "manager": "mgr-hard",
-   "managerState": "idle"
+   "managerState": "idle",
+   "version": 3,
+   "edited": {
+    "at": "2026-11-14T10:05:00Z",
+    "by": null
+   },
+   "history": [
+    {
+     "n": 1,
+     "at": "2026-11-10T09:00:00Z",
+     "by": "user",
+     "how": "created",
+     "title": "上线前加固",
+     "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期。",
+     "note": "这一轮不做的：两步验证。"
+    },
+    {
+     "n": 2,
+     "at": "2026-11-12T15:20:00Z",
+     "by": "s-mgr-hard",
+     "name": "mgr-hard",
+     "how": "edited",
+     "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10"
+    },
+    {
+     "n": 3,
+     "at": "2026-11-14T10:05:00Z",
+     "by": "user",
+     "how": "edited",
+     "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。"
+    }
+   ]
   },
   {
    "id": "ops",
