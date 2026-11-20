@@ -39,7 +39,7 @@ export interface BacklogFinding {
 export type IntentState = 'planned' | 'active' | 'done' | 'dropped';
 
 /**
- * A goal in a project and the units that serve it. It runs in a runtime (Herdr) workspace
+ * A goal in a project and the units that serve it. It runs in a runtime workspace
  * once its manager starts it; a workspace may run several.
  */
 export type UnitProgress = 'working' | 'waiting' | 'ready' | 'merged' | 'done'

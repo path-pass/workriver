@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// The runtime's group an intent follows (under Herdr, a workspace): its id and label.
+/// The runtime's group an intent follows (a workspace): its id and label.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct RuntimeRef {
     /// Unique across machines: another machine's carries its name.
@@ -23,7 +23,7 @@ pub struct Project {
     pub title: String,
 }
 
-/// A runtime group (a Herdr workspace): its manager and the intent new work goes to.
+/// A runtime group (a workspace): its manager and the intent new work goes to.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Workspace {
     pub group: RuntimeRef,
@@ -149,13 +149,13 @@ impl State {
                     self.intent(i)?;
                 }
                 if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
-                    return no("a manager manages a runtime workspace: run `workriver manager here` in its pane");
+                    return no("a manager manages a runtime workspace: run `workriver manager here` in its terminal");
                 }
                 // An agent registers itself; nobody is made a manager by someone else.
                 let agent = match who {
                     Principal::Agent { session, .. } if blank(&agent) || &agent == session => session.clone(),
                     Principal::Agent { .. } => return no("an agent registers itself as manager, not another agent"),
-                    _ => return no("a manager is an agent: run `workriver manager here` in the manager agent's pane"),
+                    _ => return no("a manager is an agent: run `workriver manager here` in the manager agent's terminal"),
                 };
                 ManagerRegistered { intent, agent, workspace }
             }

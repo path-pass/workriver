@@ -8,15 +8,18 @@ import { repoOf } from '@/code/select'
 import { unitsOf, noCode } from '@/planning/select'
 import { selectionOf } from '@/work/select'
 import { changes, read } from '@/api/http'
+import { setRuntime } from '@/i18n'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
 
 /**
  * The service's snapshot names each file with its line counts and leaves its texts out (a
- * unit's come with `loadCode`); the sample carries them inline.
+ * unit's come with `loadCode`); the sample carries them inline. The runtime's name it gives
+ * goes to the texts that name the runtime.
  */
 function prepare(ws: Workspace): Workspace {
+  setRuntime(ws.runtime)
   for (const unit of unitsOf(ws)) for (const c of unit.commits) c.files = c.files.map(f => (f.before === undefined && f.after === undefined ? { ...f, before: null, after: null, lines: [] } : withLines(f)))
   if (import.meta.env.DEV && MOCK) checkCounts(ws)
   return ws

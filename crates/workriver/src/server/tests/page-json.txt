@@ -215,6 +215,7 @@ workspace.repos[].modules: object
 workspace.repos[].name: string
 workspace.repos[].path: string
 workspace.repos[]: object
+workspace.runtime: string
 workspace.sessions: array
 workspace.sessions[].agent: string
 workspace.sessions[].blockedSince: string

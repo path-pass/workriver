@@ -33,7 +33,9 @@ i18n
     resources: { en: { translation: en }, 'zh-CN': { translation: zhCN }, ja: { translation: ja } },
     supportedLngs: LANGS.map(l => l.id),
     fallbackLng: 'en',
-    interpolation: { escapeValue: false }, // React escapes
+    // React escapes. `runtime`: the agent runtime's name, for the texts that must name it
+    // (`{{runtime}}`); the service says it (setRuntime).
+    interpolation: { escapeValue: false, defaultVariables: { runtime: '' } },
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: STORE,
@@ -48,6 +50,12 @@ i18n
 const syncHtml = (lng: string) => { document.documentElement.lang = lng }
 i18n.on('languageChanged', syncHtml)
 syncHtml(i18n.resolvedLanguage ?? 'en')
+
+/** The agent runtime's name as the service says it (`Workspace.runtime`): the texts that name
+ *  the runtime take it from here. The page itself names none. */
+export function setRuntime(name: string) {
+  i18n.options.interpolation = { ...i18n.options.interpolation, defaultVariables: { runtime: name } }
+}
 
 function setLang(lang: Lang) {
   i18n.changeLanguage(lang)

@@ -17,7 +17,7 @@ export const NOTE = 'workriver:note'
 
 /** Where a terminal brought to the front is, when it is on another machine. */
 export interface Remote { machine: string; workspace?: string | null; agent?: string }
-// Herdr brings it to the front in that machine's Herdr; the user's own client cannot be
+// The runtime brings it to the front on that machine; the user's own client cannot be
 // switched there from outside, so the note says where it is.
 const remoteNote = (r: Remote | undefined) => r?.machine && window.dispatchEvent(new CustomEvent(NOTE, { detail: { remote: r } }))
 
@@ -340,7 +340,7 @@ export async function runCommand(id: string, command: string): Promise<void> {
   await call('/api/run', { id, command })
 }
 
-/** What a run's pane shows now, and its exit status once it ended. */
+/** What a run's terminal shows now, and its exit status once it ended. */
 export async function readRun(id: string): Promise<RunView> {
   if (MOCK) {
     const lines = ['Enumerating objects: 9, done.', 'Writing objects: 100% (5/5), 612 bytes | 612.00 KiB/s, done.', 'To example.com:demo.git', '   1a2b3c4..5d6e7f8  HEAD -> feat/branch']

@@ -1,6 +1,6 @@
 // Running a command as the user: a gate's or chore's step, or one typed in the side panel.
 // Nothing runs before the user has seen the exact text, where it runs and who wrote it, and
-// confirmed; then the service types it into a plain shell of the user's in Herdr and the
+// confirmed; then the service types it into a plain shell of the user's in the runtime and the
 // dialog follows what that shell shows until the command ends. Meanwhile a workriver agent
 // reviews what the command will do; it only warns, Run never waits for it.
 import { useContext, useEffect, useState } from 'react'

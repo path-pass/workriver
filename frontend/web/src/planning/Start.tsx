@@ -1,5 +1,5 @@
 // What to do first, shown in the main area while nothing is recorded yet; and starting one
-// planned intent in a Herdr workspace that has a manager (workriver never starts agents: a
+// planned intent in a runtime workspace that has a manager (workriver never starts agents: a
 // workspace without one gets the steps to start it).
 import { useEffect, useState } from 'react'
 import { Button } from '@/ui/primitives/button'
@@ -50,7 +50,7 @@ function placesOf(ws: Workspace, project: string): Place[] {
 }
 
 /**
- * Starting a planned intent: pick the Herdr workspace (those with a manager first, with its
+ * Starting a planned intent: pick the runtime workspace (those with a manager first, with its
  * state); workriver records the start as the user's and tells that manager to split it. A
  * workspace with no manager gets the steps to start one instead.
  */

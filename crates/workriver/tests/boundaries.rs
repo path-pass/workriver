@@ -25,9 +25,6 @@ const FACADE: (&str, &[&str]) = ("crates/workriver/src/runtime/mod.rs", &["mod h
 const OWN_SENSE: &[(&str, &str, &str)] = &[("frontend/web/src/code/CodeLayer.tsx", "pane", "the file tree beside the diff, a layout term (selector `data-tree=\"pane\"`)")];
 
 const STILL_HERDR: &[&str] = &[
-    "crates/workriver-core/src/lib.rs",
-    "crates/workriver-core/src/planning/projects.rs",
-    "crates/workriver-core/src/runtime.rs",
     "crates/workriver/src/server/tests/access.rs",
     "crates/workriver/src/server/tests/conversations.rs",
     "crates/workriver/src/server/tests/machines.rs",
@@ -36,19 +33,8 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
     "crates/workriver/tests/output.rs",
-    "frontend/web/src/agents/types.ts",
-    "frontend/web/src/api/actions.ts",
-    "frontend/web/src/commands/Run.tsx",
-    "frontend/web/src/i18n/en.ts",
-    "frontend/web/src/i18n/ja.ts",
-    "frontend/web/src/i18n/zh-CN.ts",
-    "frontend/web/src/planning/Start.tsx",
-    "frontend/web/src/planning/types.ts",
 ];
 const STILL_PANE: &[&str] = &[
-    "crates/workriver-core/src/planning/intents.rs",
-    "crates/workriver-core/src/planning/projects.rs",
-    "crates/workriver-core/src/work/findings.rs",
     "crates/workriver/src/server/tests/access.rs",
     "crates/workriver/src/server/tests/commands.rs",
     "crates/workriver/src/server/tests/conversations.rs",
@@ -59,9 +45,6 @@ const STILL_PANE: &[&str] = &[
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
     "crates/workriver/tests/output.rs",
-    "frontend/web/src/api/actions.ts",
-    "frontend/web/src/commands/types.ts",
-    "frontend/web/src/i18n/en.ts",
 ];
 
 fn root() -> PathBuf {

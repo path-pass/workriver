@@ -13,6 +13,9 @@ export interface Workspace {
   /** Every repository a unit works in. */
   repos: Repo[];
   builtAt: string;
+  /** The agent runtime's name, as its adapter in the service gives it: the texts that must name
+   *  the runtime show it (i18n's setRuntime). */
+  runtime: string;
   intents: Intent[];
   /** One per agent. What it is working on comes from the tasks; only this does not. */
   sessions: Session[];

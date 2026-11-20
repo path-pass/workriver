@@ -40,7 +40,7 @@ export interface RunAsk {
   machine?: string
 }
 
-/** A run as the service shows it: what the confirm dialog shows, then what its pane shows. */
+/** A run as the service shows it: what the confirm dialog shows, then what its terminal shows. */
 export interface RunView {
   id: string
   command: string
@@ -51,7 +51,7 @@ export interface RunView {
   started: boolean
   output: string
   exit: number | null
-  /** Its pane is still read. */
+  /** Its terminal is still read. */
   watching: boolean
   /** False: recorded before the service restarted; its output was not kept. */
   kept?: boolean

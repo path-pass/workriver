@@ -75,9 +75,9 @@ export const zhCN: OneForm<typeof en> = {
   },
   start: {
     title: '从这里开始',
-    lead: '还没有任何记录。agent 自己记录自己的工作；每个 Herdr 工作区有一个管理者 agent 负责规划。',
-    leadProject: '{{project}} 里还没有任何记录。agent 自己记录自己的工作；每个 Herdr 工作区有一个管理者 agent 负责规划。',
-    agent: '在一个 Herdr 工作区里，启动一个 coding agent 当它的管理者。',
+    lead: '还没有任何记录。agent 自己记录自己的工作；每个 {{runtime}} 工作区有一个管理者 agent 负责规划。',
+    leadProject: '{{project}} 里还没有任何记录。agent 自己记录自己的工作；每个 {{runtime}} 工作区有一个管理者 agent 负责规划。',
+    agent: '在一个 {{runtime}} 工作区里，启动一个 coding agent 当它的管理者。',
     skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
     register: '让它登记为这个工作区的管理者：',
     begin: '然后它从左边的路线图里开始一个目标（或者先用 `workriver backlog add` 加一个）：',
@@ -88,7 +88,7 @@ export const zhCN: OneForm<typeof en> = {
   session: {
     title: 'workriver',
     lead: '这个页面替你做决定、以你的身份操作，所以只能用你自己终端里给出的链接打开。',
-    open: '在 workriver 所在的机器上，找一个不是 agent 窗格的终端运行：',
+    open: '在 workriver 所在的机器上，找一个不属于任何 agent 的终端运行：',
     why: '这个链接只能用一次，五分钟内有效；之后这个浏览器会保持登录。agent 和其他机器不能以你的身份操作。'
   },
   service: {
@@ -177,13 +177,13 @@ export const zhCN: OneForm<typeof en> = {
   },
   machines: {
     title: '其他机器',
-    lead: '其他机器上的 agent，通过 ssh 跟踪（每台机器跑自己的 Herdr）。',
+    lead: '其他机器上的 agent，通过 ssh 跟踪（每台机器跑自己的 {{runtime}}）。',
     none: '还没有。加一台：一个名字，加上 `ssh` 能用的目标（必须不用输密码就能连上）。',
     on: '在 {{machine}} 上',
     unreachable: '连不上 {{machine}}；显示的是上次看到的状态',
     follow: '跟踪 {{machine}}',
     connected_other: '已连接，{{count, number}} 个 agent',
-    noHerdr: '已连接，但那边的 Herdr 没有应答',
+    noHerdr: '已连接，但那边的 {{runtime}} 没有应答',
     down: '没连上',
     connecting: '正在连接…',
     off: '未跟踪',
@@ -239,15 +239,15 @@ export const zhCN: OneForm<typeof en> = {
   },
   plan: {
     title: '开始「{{title}}」',
-    lead: 'workriver 不会启动 agent。在 Herdr 里按这几步做：',
-    workspace: '为它开一个 Herdr 工作区，或者选一个管理者还能再管一个意图的工作区。',
+    lead: 'workriver 不会启动 agent。在 {{runtime}} 里按这几步做：',
+    workspace: '为它开一个 {{runtime}} 工作区，或者选一个管理者还能再管一个意图的工作区。',
     agent: '如果这个工作区还没有管理者，在里面启动一个 coding agent，并把管理者 skill 给它：',
-    register: '在管理者的窗格里登记：',
+    register: '在管理者的终端里登记：',
     start: '然后在那里开始这个意图；这个工作区里新建的单元和任务都归它：',
     pickLabel: '在哪里开始',
     option: '{{label}} · {{manager}}：{{state}}',
     optionNone: '{{label}} · 没有管理者',
-    noWorkspace: 'Herdr 里还没有工作区。按这几步做：',
+    noWorkspace: '{{runtime}} 里还没有工作区。按这几步做：',
     go: '开始',
     goHint: '记为你的操作；会通知 {{manager}} 把它拆成单元和任务。',
     none: '{{label}} 没有管理者，没人会去拆分这份工作。先在那里启动一个：',
@@ -301,12 +301,12 @@ export const zhCN: OneForm<typeof en> = {
     open: '在终端里打开',
     openFor: '在终端里打开 {{agent}}',
     note: '将把 {{agent}} 的终端切到前台（还没有接上）',
-    remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于工作区 {{workspace}}。在 Herdr 左侧切到 {{machine}} 就能看到。',
+    remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于工作区 {{workspace}}。在 {{runtime}} 左侧切到 {{machine}} 就能看到。',
     command: '这条命令'
   },
   run: {
     title: '以你的身份运行',
-    lead: '在 Herdr 的「workriver-commands」工作区里你自己的 shell 中运行，用你的凭据和 hook，和你亲手在那里输入完全一样。',
+    lead: '在 {{runtime}} 的「workriver-commands」工作区里你自己的 shell 中运行，用你的凭据和 hook，和你亲手在那里输入完全一样。',
     command: '命令',
     dir: '目录',
     machine: '机器',
@@ -328,7 +328,7 @@ export const zhCN: OneForm<typeof en> = {
     running: '运行中…',
     ok: '完成（退出码 0）',
     exit: '失败（退出码 {{code}}）',
-    lost: '读不到它的终端了，去 Herdr 里看。',
+    lost: '读不到它的终端了，去 {{runtime}} 里看。',
     open: '在终端里打开',
     close: '关闭',
     failed: '没有运行：{{error}}',
@@ -347,7 +347,7 @@ export const zhCN: OneForm<typeof en> = {
     stateOk: '✓ 成功',
     stateExit: '退出码 {{code}}',
     stateUnknown: '未知',
-    notKept: '没有保留输出：服务在它运行之后重启过。它的终端在 Herdr 的「workriver-commands」工作区里。'
+    notKept: '没有保留输出：服务在它运行之后重启过。它的终端在 {{runtime}} 的「workriver-commands」工作区里。'
   },
   evidence: {
     label: '跑过的检查',
@@ -379,7 +379,7 @@ export const zhCN: OneForm<typeof en> = {
       starting: '正在启动 agent…',
       reading: '正在读记录和代码…',
       asking: '正在问 {{agent}}…',
-      blocked: '在 Herdr 里等你：{{agent}} 需要你在它的终端里回答。回答后问题会自动发给它。'
+      blocked: '在 {{runtime}} 里等你：{{agent}} 需要你在它的终端里回答。回答后问题会自动发给它。'
     },
     toTerminal: '去终端',
     asked: '问过 {{agent}}',
@@ -415,7 +415,7 @@ export const zhCN: OneForm<typeof en> = {
     empty: '写给 {{workspace}} 的管理者：它在终端里读到，在这里回复。',
     step: {
       sending: '正在发给 {{agent}}…',
-      blocked: '在 Herdr 里等你：{{agent}} 的终端里有问题要回答。它空下来后消息会自动发进去。',
+      blocked: '在 {{runtime}} 里等你：{{agent}} 的终端里有问题要回答。它空下来后消息会自动发进去。',
       delivered: '已发到 {{agent}} 的终端',
       'not-delivered': '没有送达：{{reason}}'
     }
@@ -528,13 +528,13 @@ export const zhCN: OneForm<typeof en> = {
     reason: {
       'no-manager': '这个意图还没有管理者',
       'manager-gone': '管理者没在运行',
-      'runtime-down': '连不上 Herdr',
-      'runtime-error': 'Herdr 没有接收',
-      'no-workspace': '它的意图没有对应的 Herdr 工作区',
+      'runtime-down': '连不上 {{runtime}}',
+      'runtime-error': '{{runtime}} 没有接收',
+      'no-workspace': '它的意图没有对应的 {{runtime}} 工作区',
       timeout: '没有及时回答',
       restarted: '服务重启了',
       blocked: '它的 agent 一直在终端里等人回答',
-      'not-ready': '新启动的 agent 一直没准备好接收提问；它的标签页还在 Herdr 里留着',
+      'not-ready': '新启动的 agent 一直没准备好接收提问；它的标签页还在 {{runtime}} 里留着',
       unknown: '没有说明原因'
     },
     failed: '没记下：服务没有收下'

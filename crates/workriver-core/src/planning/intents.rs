@@ -146,7 +146,7 @@ impl State {
                 use IntentState::*;
                 match (i.state, state) {
                     (Planned, Active) => {
-                        let Some(g) = &workspace else { return no(format!("start {intent} from its manager's pane: workriver intent start {intent}")) };
+                        let Some(g) = &workspace else { return no(format!("start {intent} from its manager's terminal: workriver intent start {intent}")) };
                         let manager = self.workspace_of(g).and_then(|w| w.manager.as_deref());
                         if !user && manager != Some(actor) {
                             return no(format!("only the manager of workspace {} starts intents there; register with `workriver manager here` first", g.label));

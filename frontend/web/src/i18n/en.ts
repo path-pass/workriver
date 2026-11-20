@@ -78,9 +78,9 @@ export const en = {
   },
   start: {
     title: 'Start here',
-    lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
-    leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; one manager agent per Herdr workspace plans it.',
-    agent: 'In a Herdr workspace, start a coding agent to be its manager.',
+    lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per {{runtime}} workspace plans it.',
+    leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; one manager agent per {{runtime}} workspace plans it.',
+    agent: 'In a {{runtime}} workspace, start a coding agent to be its manager.',
     skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
     register: 'Have it register as the manager of the workspace:',
     begin: 'Then it starts a goal from the roadmap on the left (or adds one first with `workriver backlog add`):',
@@ -91,7 +91,7 @@ export const en = {
   session: {
     title: 'workriver',
     lead: 'This page decides and acts as you, so it opens only with a link from your own terminal.',
-    open: 'In a terminal that is not an agent’s pane, on the machine workriver runs on:',
+    open: 'In a terminal that is not an agent’s, on the machine workriver runs on:',
     why: 'The link works once and for five minutes; after that this browser stays signed in. Agents and other machines cannot act as you.'
   },
   service: {
@@ -181,14 +181,14 @@ export const en = {
   },
   machines: {
     title: 'Other machines',
-    lead: 'Agents on other machines, followed over ssh (each machine runs its own Herdr).',
+    lead: 'Agents on other machines, followed over ssh (each machine runs its own {{runtime}}).',
     none: 'None yet. Add one: a name and what `ssh` takes (it must work without a password prompt).',
     on: 'On {{machine}}',
     unreachable: '{{machine}} cannot be reached; shown as last seen',
     follow: 'Follow {{machine}}',
     connected_one: 'connected, {{count, number}} agent',
     connected_other: 'connected, {{count, number}} agents',
-    noHerdr: 'connected, but its Herdr does not answer',
+    noHerdr: 'connected, but its {{runtime}} does not answer',
     down: 'not connected',
     connecting: 'connecting…',
     off: 'not followed',
@@ -247,15 +247,15 @@ export const en = {
   },
   plan: {
     title: 'Start “{{title}}”',
-    lead: 'workriver does not start agents. These are the steps, in Herdr:',
-    workspace: 'Open a Herdr workspace for it, or pick one whose manager has room for another intent.',
+    lead: 'workriver does not start agents. These are the steps, in {{runtime}}:',
+    workspace: 'Open a {{runtime}} workspace for it, or pick one whose manager has room for another intent.',
     agent: 'If the workspace has no manager yet, start a coding agent there and give it the manager skill:',
-    register: 'In the manager’s pane, register it:',
+    register: 'In the manager’s terminal, register it:',
     start: 'Then start this intent there; new units and tasks in that workspace go to it:',
     pickLabel: 'Start it in',
     option: '{{label}} · {{manager}}: {{state}}',
     optionNone: '{{label}} · no manager',
-    noWorkspace: 'Herdr has no workspace yet. These are the steps:',
+    noWorkspace: '{{runtime}} has no workspace yet. These are the steps:',
     go: 'Start',
     goHint: 'Recorded as yours; {{manager}} is told to split it into units and tasks.',
     none: '{{label}} has no manager, so nobody would split the work. Start one there first:',
@@ -312,12 +312,12 @@ export const en = {
     open: 'Open in terminal',
     openFor: 'Open {{agent}} in terminal',
     note: 'Would bring {{agent}}’s terminal to the front – not connected yet',
-    remote: '{{what}} is on {{machine}}: it is in front there, in workspace {{workspace}}. In Herdr, switch to {{machine}} to see it.',
+    remote: '{{what}} is on {{machine}}: it is in front there, in workspace {{workspace}}. In {{runtime}}, switch to {{machine}} to see it.',
     command: 'The command'
   },
   run: {
     title: 'Run as you',
-    lead: 'It runs in a shell of your own, in Herdr’s “workriver-commands” workspace, with your credentials and hooks, exactly as if you typed it there.',
+    lead: 'It runs in a shell of your own, in {{runtime}}’s “workriver-commands” workspace, with your credentials and hooks, exactly as if you typed it there.',
     command: 'Command',
     dir: 'Directory',
     machine: 'Machine',
@@ -339,7 +339,7 @@ export const en = {
     running: 'Running…',
     ok: 'Done (exit 0)',
     exit: 'Failed (exit {{code}})',
-    lost: 'Its terminal can no longer be read; look in Herdr.',
+    lost: 'Its terminal can no longer be read; look in {{runtime}}.',
     open: 'Open in terminal',
     close: 'Close',
     failed: 'Not run: {{error}}',
@@ -358,7 +358,7 @@ export const en = {
     stateOk: '✓ ok',
     stateExit: 'exit {{code}}',
     stateUnknown: 'unknown',
-    notKept: 'The output was not kept: the service restarted since it ran. Its terminal is in Herdr’s “workriver-commands” workspace.'
+    notKept: 'The output was not kept: the service restarted since it ran. Its terminal is in {{runtime}}’s “workriver-commands” workspace.'
   },
   evidence: {
     label: 'Checks run',
@@ -390,7 +390,7 @@ export const en = {
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
       asking: 'Asking {{agent}}…',
-      blocked: 'Waiting for you in Herdr: {{agent}} needs an answer in its terminal. The question goes in once it is free.'
+      blocked: 'Waiting for you in {{runtime}}: {{agent}} needs an answer in its terminal. The question goes in once it is free.'
     },
     toTerminal: 'Go to the terminal',
     asked: 'Asked {{agent}}',
@@ -430,7 +430,7 @@ export const en = {
     empty: 'Write to the manager of {{workspace}}: it reads it in its terminal and replies here.',
     step: {
       sending: 'Sending to {{agent}}…',
-      blocked: 'Waiting for you in Herdr: {{agent}} needs an answer in its terminal. The message goes in once it is free.',
+      blocked: 'Waiting for you in {{runtime}}: {{agent}} needs an answer in its terminal. The message goes in once it is free.',
       delivered: 'In {{agent}}’s terminal',
       'not-delivered': 'Not delivered: {{reason}}'
     }
@@ -545,13 +545,13 @@ export const en = {
     reason: {
       'no-manager': 'the intent has no manager',
       'manager-gone': 'the manager is not running',
-      'runtime-down': 'Herdr is not reachable',
-      'runtime-error': 'Herdr refused it',
-      'no-workspace': 'its intent has no Herdr workspace',
+      'runtime-down': '{{runtime}} is not reachable',
+      'runtime-error': '{{runtime}} refused it',
+      'no-workspace': 'its intent has no {{runtime}} workspace',
       timeout: 'no answer in time',
       restarted: 'the service restarted',
       blocked: 'its agent waited for an answer in its terminal the whole time',
-      'not-ready': 'its new agent never got ready for a prompt; its tab is left open in Herdr',
+      'not-ready': 'its new agent never got ready for a prompt; its tab is left open in {{runtime}}',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'

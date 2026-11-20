@@ -217,7 +217,7 @@ impl State {
             FindingsBatched { intent, findings } => {
                 let i = self.intent(&intent)?;
                 if i.state != IntentState::Active {
-                    return no(format!("intent {intent} is {}; start it first (workriver intent start {intent} in its manager's pane)", name(&i.state)));
+                    return no(format!("intent {intent} is {}; start it first (workriver intent start {intent} in its manager's terminal)", name(&i.state)));
                 }
                 if findings.is_empty() {
                     return no("a batch needs at least one finding");

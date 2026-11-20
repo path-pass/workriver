@@ -75,9 +75,9 @@ export const ja: OneForm<typeof en> = {
   },
   start: {
     title: 'はじめに',
-    lead: 'まだ何も記録されていません。エージェントは自分の作業を自分で記録し、Herdr ワークスペースごとに 1 つのマネージャーエージェントが計画します。',
-    leadProject: '{{project}} にはまだ何も記録されていません。エージェントは自分の作業を自分で記録し、Herdr ワークスペースごとに 1 つのマネージャーエージェントが計画します。',
-    agent: 'Herdr ワークスペースでコーディングエージェントを起動し、そのマネージャーにします。',
+    lead: 'まだ何も記録されていません。エージェントは自分の作業を自分で記録し、{{runtime}} ワークスペースごとに 1 つのマネージャーエージェントが計画します。',
+    leadProject: '{{project}} にはまだ何も記録されていません。エージェントは自分の作業を自分で記録し、{{runtime}} ワークスペースごとに 1 つのマネージャーエージェントが計画します。',
+    agent: '{{runtime}} ワークスペースでコーディングエージェントを起動し、そのマネージャーにします。',
     skill: 'マネージャースキルを渡します：skills/workriver-manager をそのスキルフォルダにリンクするか、このコマンドの出力を貼り付けます。',
     register: 'ワークスペースのマネージャーとして登録させます：',
     begin: '次に、左のロードマップから目標を開始させます（先に `workriver backlog add` で追加することもできます）：',
@@ -88,7 +88,7 @@ export const ja: OneForm<typeof en> = {
   session: {
     title: 'workriver',
     lead: 'このページはあなたとして判断し操作するため、あなた自身のターミナルから得たリンクでしか開けません。',
-    open: 'workriver が動いているマシンで、エージェントのペインではないターミナルから：',
+    open: 'workriver が動いているマシンで、どのエージェントのものでもないターミナルから：',
     why: 'リンクは 1 回だけ、5 分間有効です。その後このブラウザはログインしたままになります。エージェントや他のマシンがあなたとして操作することはできません。'
   },
   service: {
@@ -177,13 +177,13 @@ export const ja: OneForm<typeof en> = {
   },
   machines: {
     title: '他のマシン',
-    lead: '他のマシンのエージェントを ssh 経由で追跡します（各マシンでそれぞれの Herdr が動きます）。',
+    lead: '他のマシンのエージェントを ssh 経由で追跡します（各マシンでそれぞれの {{runtime}} が動きます）。',
     none: 'まだありません。名前と `ssh` に渡す接続先で追加します（パスワードを聞かれずに接続できる必要があります）。',
     on: '{{machine}} 上',
     unreachable: '{{machine}} に接続できません。最後に確認した状態を表示しています',
     follow: '{{machine}} を追跡',
     connected_other: '接続済み、エージェント {{count, number}} 件',
-    noHerdr: '接続済み、ただし Herdr が応答しません',
+    noHerdr: '接続済み、ただし {{runtime}} が応答しません',
     down: '未接続',
     connecting: '接続中…',
     off: '追跡していません',
@@ -239,15 +239,15 @@ export const ja: OneForm<typeof en> = {
   },
   plan: {
     title: '「{{title}}」を開始',
-    lead: 'workriver はエージェントを起動しません。Herdr で次の手順を行います：',
-    workspace: 'このための Herdr ワークスペースを開くか、マネージャーにまだインテントを任せられるワークスペースを選びます。',
+    lead: 'workriver はエージェントを起動しません。{{runtime}} で次の手順を行います：',
+    workspace: 'このための {{runtime}} ワークスペースを開くか、マネージャーにまだインテントを任せられるワークスペースを選びます。',
     agent: 'ワークスペースにまだマネージャーがいなければ、そこでコーディングエージェントを起動してマネージャースキルを渡します：',
-    register: 'マネージャーのペインで登録します：',
+    register: 'マネージャーのターミナルで登録します：',
     start: 'そこでこのインテントを開始します。そのワークスペースの新しいユニットとタスクはこのインテントに入ります：',
     pickLabel: '開始する場所',
     option: '{{label}} · {{manager}}：{{state}}',
     optionNone: '{{label}} · マネージャーなし',
-    noWorkspace: 'Herdr にまだワークスペースがありません。次の手順で進めます：',
+    noWorkspace: '{{runtime}} にまだワークスペースがありません。次の手順で進めます：',
     go: '開始',
     goHint: 'あなたの操作として記録され、{{manager}} にユニットとタスクへ分けるよう伝えます。',
     none: '{{label}} にはマネージャーがいないため、作業を分ける人がいません。先にそこで起動してください：',
@@ -301,12 +301,12 @@ export const ja: OneForm<typeof en> = {
     open: 'ターミナルで開く',
     openFor: '{{agent}} をターミナルで開く',
     note: '{{agent}} のターミナルを前面に表示します（未接続）',
-    remote: '{{what}} は {{machine}} にあります。そちらのワークスペース {{workspace}} で前面に表示しました。Herdr で {{machine}} に切り替えると見られます。',
+    remote: '{{what}} は {{machine}} にあります。そちらのワークスペース {{workspace}} で前面に表示しました。{{runtime}} で {{machine}} に切り替えると見られます。',
     command: 'このコマンド'
   },
   run: {
     title: 'あなたとして実行',
-    lead: 'Herdr の「workriver-commands」ワークスペースにあるあなた自身のシェルで、あなたの認証情報とフックを使って実行されます。そこで自分で入力したのとまったく同じです。',
+    lead: '{{runtime}} の「workriver-commands」ワークスペースにあるあなた自身のシェルで、あなたの認証情報とフックを使って実行されます。そこで自分で入力したのとまったく同じです。',
     command: 'コマンド',
     dir: 'ディレクトリ',
     machine: 'マシン',
@@ -328,7 +328,7 @@ export const ja: OneForm<typeof en> = {
     running: '実行中…',
     ok: '完了（終了コード 0）',
     exit: '失敗（終了コード {{code}}）',
-    lost: 'ターミナルを読み取れなくなりました。Herdr で確認してください。',
+    lost: 'ターミナルを読み取れなくなりました。{{runtime}} で確認してください。',
     open: 'ターミナルで開く',
     close: '閉じる',
     failed: '実行されませんでした：{{error}}',
@@ -347,7 +347,7 @@ export const ja: OneForm<typeof en> = {
     stateOk: '✓ 成功',
     stateExit: '終了コード {{code}}',
     stateUnknown: '不明',
-    notKept: '出力は残っていません。実行後にサービスが再起動しました。ターミナルは Herdr の「workriver-commands」ワークスペースにあります。'
+    notKept: '出力は残っていません。実行後にサービスが再起動しました。ターミナルは {{runtime}} の「workriver-commands」ワークスペースにあります。'
   },
   evidence: {
     label: '実行したチェック',
@@ -379,7 +379,7 @@ export const ja: OneForm<typeof en> = {
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
       asking: '{{agent}} に確認中…',
-      blocked: 'Herdr であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたら質問が入ります。'
+      blocked: '{{runtime}} であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたら質問が入ります。'
     },
     toTerminal: 'ターミナルへ',
     asked: '{{agent}} に確認済み',
@@ -415,7 +415,7 @@ export const ja: OneForm<typeof en> = {
     empty: '{{workspace}} のマネージャーに書きます。マネージャーはターミナルで読み、ここに返信します。',
     step: {
       sending: '{{agent}} に送信中…',
-      blocked: 'Herdr であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたらメッセージが入ります。',
+      blocked: '{{runtime}} であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたらメッセージが入ります。',
       delivered: '{{agent}} のターミナルに入りました',
       'not-delivered': '届きませんでした：{{reason}}'
     }
@@ -528,13 +528,13 @@ export const ja: OneForm<typeof en> = {
     reason: {
       'no-manager': 'このインテントにマネージャーがいません',
       'manager-gone': 'マネージャーが実行されていません',
-      'runtime-down': 'Herdr に接続できません',
-      'runtime-error': 'Herdr に拒否されました',
-      'no-workspace': 'インテントに Herdr ワークスペースがありません',
+      'runtime-down': '{{runtime}} に接続できません',
+      'runtime-error': '{{runtime}} に拒否されました',
+      'no-workspace': 'インテントに {{runtime}} ワークスペースがありません',
       timeout: '時間内に応答がありません',
       restarted: 'サービスが再起動しました',
       blocked: '担当のエージェントがその間ずっとターミナルで回答を待っていました',
-      'not-ready': '新しいエージェントがプロンプトを受け付ける状態になりませんでした。そのタブは Herdr に残してあります',
+      'not-ready': '新しいエージェントがプロンプトを受け付ける状態になりませんでした。そのタブは {{runtime}} に残してあります',
       unknown: '理由が不明です'
     },
     failed: '記録できませんでした：サービスが受け付けませんでした'

@@ -1,5 +1,5 @@
 // What workriver needs from the program that runs the agents, in workriver's own words.
-// The one implementation is Herdr's, in the outer crate; nothing here names it.
+// The one implementation is in the outer crate's runtime/; nothing here names it.
 use serde::Serialize;
 
 use crate::planning::RuntimeRef;

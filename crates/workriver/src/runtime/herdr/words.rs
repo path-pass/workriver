@@ -1,6 +1,9 @@
 // Herdr's own words: what a refused caller is told about panes, and how an agent uses
 // Herdr's CLI. Content only: nobody is anyone by what a sentence says.
 
+/// The runtime's name, where a text must show it: the page's say `{{runtime}}`.
+pub const NAME: &str = "Herdr";
+
 /// Why the CLI at `place` cannot tell which agent it is.
 pub fn no_agent_at(place: &str) -> String {
     format!("Herdr lists no agent in pane {place} (see `herdr agent list`); an agent runs this from its own pane; the user, from a terminal that is not an agent's, on the machine workriver runs on (where the user token is).")

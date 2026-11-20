@@ -1,6 +1,6 @@
 //! workriver's core: the events, the state they add up to, the write rules and the runtime
-//! interface. Knows nothing about the network, the UI, storage or Herdr (the SQLite store
-//! is workriver-data; the data directory is the outer crate's common/home.rs).
+//! interface. Knows nothing about the network, the UI, storage or the agent runtime (the
+//! SQLite store is workriver-data; the data directory is the outer crate's common/home.rs).
 pub mod access;
 pub mod conversations;
 pub mod planning;

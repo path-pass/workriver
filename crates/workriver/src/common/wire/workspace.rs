@@ -12,6 +12,9 @@ pub struct Workspace {
     pub(crate) projects: Vec<ProjectOut>,
     pub(crate) backlog: Vec<BacklogOut>,
     pub(crate) built_at: String,
+    /// The agent runtime's name, as its adapter gives it: the page's texts that must name the
+    /// runtime show it; the page itself names none.
+    pub(crate) runtime: &'static str,
     pub(crate) intents: Vec<Intent>,
     pub(crate) sessions: Vec<Session>,
     /// Every workspace the runtime has, per machine, with what it is linked to.

@@ -1,6 +1,6 @@
 // workriver's agents and the runtime workspaces they run in.
 
-/** A runtime (Herdr) workspace, of this machine or of another. */
+/** A workspace of the agent runtime, of this machine or of another. */
 export interface RuntimeWorkspace {
   id: string;
   label: string;
@@ -15,7 +15,7 @@ export interface RuntimeWorkspace {
   projectFrom?: 'manager' | 'intents' | 'user';
 }
 
-/** An agent's state as the runtime (Herdr) reports it. */
+/** An agent's state as the runtime reports it. */
 export type RuntimeState = 'working' | 'idle' | 'done' | 'blocked' | 'unknown';
 
 export interface Session {
@@ -27,7 +27,7 @@ export interface Session {
   topic?: string;
   /** Waiting for a person in its terminal (a question, an approval) since then. */
   blockedSince?: string;
-  /** The runtime workspace (in Herdr) it runs in; a remote one not linked names its machine. */
+  /** The runtime workspace it runs in; a remote one not linked names its machine. */
   group?: { id: string; label: string; machine?: string };
   /** The machine it runs on; absent: this one. */
   machine?: string;

@@ -316,7 +316,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|c| chore(c, &names, Some(project_of(state, &c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
         .collect();
     let messages = messages(state, live, &names);
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
 }
 
 /// The project (its folder) a runtime group works on, and how that is known: what the user
