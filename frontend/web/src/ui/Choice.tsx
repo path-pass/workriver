@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/ui/primitives/select'
 import { cn } from 'cn'
 
 /** One option of a Choice: Radix takes no empty value, so "none" is a word of its own. */

@@ -6,8 +6,8 @@
 // Manager: the user's messages to a workspace's manager, typed into its terminal, and what
 // it replied (`workriver reply`).
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
-import { Button } from '@/components/ui/button'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Button } from '@/ui/primitives/button'
+import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { askeeOf, finderLabel, findingsOf } from '@/work/select'
 import { ms } from '@/planning/select'
 import { baseName } from '@/code/files'
@@ -19,8 +19,10 @@ import type { Task } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { Session } from '@/agents/types'
 import type { AskContext, ManagerMessage, Thread, Turn } from '@/conversations/types'
-import { Choice } from './Choice'
-import { ChipName, Icon, Mark, Prose, Tip, Who } from './bits'
+import { Choice } from '@/ui/Choice'
+import { ChipName, Prose, Who } from './bits'
+import { Icon, Mark } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
 import { Thumbs } from './Inputs'
 
 /** What a conclusion request says to the agent; content, not UI text. */
@@ -60,9 +62,6 @@ export interface Talk {
   messages: ManagerMessage[]
   onTell: (to: { intent?: string; workspace: string }, text: string, manager: string) => void
 }
-
-export const isField = (el: EventTarget | null) =>
-  el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)
 
 /** An answer: short Markdown, its file paths links that pick the file. */
 const Answer = ({ text, onFile }: { text: string; onFile: (path: string) => void }) => <Prose text={text} fold={false} onFile={onFile} />

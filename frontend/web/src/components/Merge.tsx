@@ -2,15 +2,15 @@
 // heading: tick the intents of one project, pick the one that stays and its title. The others
 // are dropped and what they said goes into its note. The user's alone, like the roadmap.
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/ui/primitives/button'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/ui/primitives/dialog'
+import { Input } from '@/ui/primitives/input'
 import { useAct } from '@/work/actions'
 import { contentLang, useT } from '@/i18n'
 import type { Intent } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
 import { Content, NoteDisclosure, slot, Slot, SLOT } from './bits'
-import { Choice } from './Choice'
+import { Choice } from '@/ui/Choice'
 
 /** What an intent holds that a merge would lose; the service refuses those (`intent.merged`). */
 function heldBy(ws: Workspace, i: Intent): 'tasks' | 'units' | 'findings' | 'chores' | null {

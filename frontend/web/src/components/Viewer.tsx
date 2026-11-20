@@ -4,12 +4,13 @@
 // ask box offers that attachment as context.
 import { createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Download, ExternalLink, ZoomIn, ZoomOut } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/ui/primitives/button'
+import { Dialog, DialogContent, DialogTitle } from '@/ui/primitives/dialog'
 import { contentLang, useT } from '@/i18n'
 import type { Attachment } from '@/attachments/types'
-import { isField } from './Ask'
-import { Icon, Tip } from './bits'
+import { isField } from '@/lib/isField'
+import { Icon } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
 
 /** react-markdown and remark-gfm load only once a Markdown file is opened. */
 const MarkdownView = lazy(() => import('./Markdown'))

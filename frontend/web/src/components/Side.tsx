@@ -3,10 +3,10 @@
 // or asking why about the picked task – one at a time. Neither is looked at all the time, so the panel folds
 // to a thin strip; on a narrow screen the same content opens as a sheet over the page.
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { Button } from '@/ui/primitives/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
+import { ScrollArea } from '@/ui/primitives/scroll-area'
+import { Sheet, SheetContent, SheetTitle } from '@/ui/primitives/sheet'
 import { agentTree, type TreeAgent } from '@/agents/select'
 import { ms } from '@/planning/select'
 import { commitGraph, commitStats, laneTone, type GraphRow } from '@/code/select'
@@ -20,7 +20,9 @@ import { BacklogList } from './Backlog'
 import { InboxList } from './Inbox'
 import { MachinesList } from './Machines'
 import { RecentRuns, RunBox } from './Run'
-import { Icon, MachineChip, Mark, TerminalButton, Tip, Who } from './bits'
+import { MachineChip, TerminalButton, Who } from './bits'
+import { Icon, Mark } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
 
 export type Section = 'inbox' | 'agents' | 'commits' | 'backlog' | 'machines' | 'run' | 'ask'
 export const SECTIONS: Section[] = ['inbox', 'agents', 'commits', 'backlog', 'machines', 'run', 'ask']

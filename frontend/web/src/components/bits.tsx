@@ -1,73 +1,15 @@
 // Small parts used by every layer: the icon set, a tooltip, and an agent's mark.
-import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, X, type LucideIcon } from 'lucide-react'
-import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
+import { Button } from '@/ui/primitives/button'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE, type Remote } from '@/api/actions'
 import type { Step } from '@/work/types'
 import type { External, Unit } from '@/planning/types'
-
-// Who raised it is an icon; so is the state of a piece of work. All from lucide, one size, one stroke.
-const ICONS: Record<string, LucideIcon> = {
-  check: Check,
-  ring: Circle,
-  pen: Pencil,
-  later: Clock,
-  planned: CircleDashed,
-  agent: Bot,
-  manager: Crown,
-  'gate-deploy': Rocket,
-  'gate-test': Hand,
-  'gate-decide': Scale,
-  design: DraftingCompass,
-  research: Telescope,
-  backlog: Archive,
-  machine: Server,
-  blind: EyeOff,
-  grip: GripVertical,
-  play: Play,
-  link: ExternalLink,
-  blocked: Hand,
-  blocker: OctagonAlert,
-  chore: ListTodo,
-  inbox: Inbox,
-  agents: Users,
-  fold: PanelRightClose,
-  idle: Moon,
-  copy: Copy,
-  permalink: Link2,
-  terminal: SquareTerminal,
-  talk: MessageSquare,
-  send: ArrowUp,
-  attach: ImagePlus,
-  file: FileText,
-  plus: Plus,
-  untested: FlaskConicalOff,
-  dropped: Ban,
-  commits: GitCommitHorizontal,
-  rail: PanelLeftClose,
-  'rail-open': PanelLeftOpen,
-  no: X,
-  // Every review has the one icon; which kind it is, the node's text says.
-  'security-review': Eye,
-  'code-review': Eye,
-  'architecture-review': Eye,
-  test: FlaskConical,
-  grew: Expand,
-  chev: ChevronRight,
-  merge: GitMerge,
-  back: ArrowLeft,
-  foldLines: FoldVertical,
-  unfold: UnfoldVertical,
-}
-
-export function Icon({ name, className }: { name: string; className?: string }) {
-  const Glyph = ICONS[name] ?? Circle
-  return <Glyph aria-hidden size={16} strokeWidth={1.5} className={cn('ic', className)} />
-}
+import { Tip } from '@/ui/Tip'
+import { Icon } from '@/ui/Icon'
+import { CopyButton } from '@/ui/CopyButton'
 
 /** Content (a title, what someone typed) in its own element, marked with its guessed language. */
 export const Content = ({ text }: { text: string }) => <span lang={contentLang(text)}>{text}</span>
@@ -82,65 +24,6 @@ export const SLOT = slot(0)
 export function Slot({ text, children }: { text: string; children: ReactNode | ReactNode[] }) {
   const fill = Array.isArray(children) ? children : [children]
   return <>{text.split(/([\uE000-\uE0FF])/).map((part, k) => (k % 2 ? <Fragment key={k}>{fill[part.charCodeAt(0) - 0xe000]}</Fragment> : part))}</>
-}
-
-export function Tip({ text, children }: { text: ReactNode; children: ReactElement }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent className="wrap-anywhere">{text}</TooltipContent>
-    </Tooltip>
-  )
-}
-
-/** An icon that says something by itself: named for assistive tech, explained on hover. */
-export function Mark({ name, label }: { name: string; label: string }) {
-  return (
-    <Tip text={label}>
-      <span role="img" aria-label={label} className="inline-flex flex-none"><Icon name={name} className="size-3.5" /></span>
-    </Tip>
-  )
-}
-
-/** How many findings of a review wait for the user: the one violet count, wherever it shows. */
-export function Waiting({ count }: { count: number }) {
-  const { t, num } = useT()
-  return (
-    <span className="count">
-      <span aria-hidden>{num(count)}</span>
-      <span className="sr-only">{t('finding.waiting', { count })}</span>
-    </span>
-  )
-}
-
-/**
- * Copies `text`; with a `label` it is a small text button, without, an icon (for a command,
- * or what `aria` names, which its tooltip says too).
- */
-export function CopyButton({ text, label, aria, className }: { text: string; label?: string; aria?: string; className?: string }) {
-  const { t } = useT()
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* no clipboard here: the command can still be selected by hand */ }
-  }
-  if (label)
-    return (
-      <Button variant="ghost" size="xs" className="rounded-sm" onClick={copy}>
-        <Icon name={copied ? 'check' : 'copy'} className="size-3" />{copied ? t('steps.copied') : label}
-      </Button>
-    )
-  const icon = (
-    <Button variant="ghost" size="icon-xs" className={cn('flex-none', className)} aria-label={copied ? t('steps.copied') : aria ?? t('steps.copy')} onClick={copy}>
-      <Icon name={copied ? 'check' : aria ? 'permalink' : 'copy'} className="size-3.5" />
-    </Button>
-  )
-  if (!aria) return icon
-  // A changed name is not read out: the confirmation is said once, politely.
-  return <><Tip text={copied ? t('steps.copied') : aria}>{icon}</Tip><span role="status" className="sr-only">{copied ? t('steps.copied') : ''}</span></>
 }
 
 /**

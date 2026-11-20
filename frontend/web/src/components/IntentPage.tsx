@@ -2,7 +2,7 @@
 // and who manages it, its units with where each stands, and the research and design recorded
 // on the intent itself before those became units of their own.
 import type { ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/ui/primitives/button'
 import { lastMove, quietSince } from '@/planning/select'
 import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
@@ -11,8 +11,11 @@ import { record } from '@/api/actions'
 import type { Intent, Unit } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
 import type { Talk } from './Ask'
-import { Content, CopyButton, ExternalChip, Icon, MachineChip, Progress, Prose, Slot, SLOT, TerminalButton, Tip } from './bits'
-import { Choice } from './Choice'
+import { Content, ExternalChip, MachineChip, Progress, Prose, Slot, SLOT, TerminalButton } from './bits'
+import { CopyButton } from '@/ui/CopyButton'
+import { Icon } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
+import { Choice } from '@/ui/Choice'
 import { Activity } from './Flow'
 import { ManagerState, Marks, needs, Quiet } from './Rail'
 

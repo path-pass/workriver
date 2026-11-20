@@ -2,15 +2,16 @@
 // planned intent in a Herdr workspace that has a manager (workriver never starts agents: a
 // workspace without one gets the steps to start it).
 import { useEffect, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/ui/primitives/button'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/ui/primitives/dialog'
 import { useT } from '@/i18n'
 import { RUN_GROUP, startIntent, type StartDelivery } from '@/api/actions'
 import type { Intent } from '@/planning/types'
 import type { RuntimeWorkspace, Session } from '@/agents/types'
 import type { Workspace } from '@/workspace/types'
-import { Choice } from './Choice'
-import { Content, Icon, Slot, slot, SLOT, Steps } from './bits'
+import { Choice } from '@/ui/Choice'
+import { Content, Slot, slot, SLOT, Steps } from './bits'
+import { Icon } from '@/ui/Icon'
 
 /** `project`: the title of the project shown, when only it has nothing yet. */
 export function Start({ project }: { project?: string }) {

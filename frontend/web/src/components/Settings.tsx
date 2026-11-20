@@ -1,10 +1,10 @@
 // Settings: the few choices that belong to the person, not to the work on screen.
 import { useEffect, useState } from 'react'
 import { Settings as Gear } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Switch } from '@/components/ui/switch'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Button } from '@/ui/primitives/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/ui/primitives/dialog'
+import { Switch } from '@/ui/primitives/switch'
+import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { MOCK } from '@/workspace/source'
 import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, RUN_GROUP, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/api/actions'
 import type { RuntimeWorkspace } from '@/agents/types'
@@ -14,7 +14,7 @@ import { Trans } from 'react-i18next'
 import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
 import { Content, Slot, SLOT } from './bits'
-import { Choice } from './Choice'
+import { Choice } from '@/ui/Choice'
 
 /** Not linked, in the link picker (Radix takes no empty value). */
 const NONE = '-'

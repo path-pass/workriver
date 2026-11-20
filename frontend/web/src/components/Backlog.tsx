@@ -4,7 +4,7 @@
 // of the intent they go to – or dropped with a reason. Planned intents are in the rail's
 // roadmap, not here.
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/ui/primitives/button'
 import { ms } from '@/planning/select'
 import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
@@ -12,8 +12,9 @@ import { record } from '@/api/actions'
 import type { Finding } from '@/work/types'
 import type { Intent } from '@/planning/types'
 import type { Workspace } from '@/workspace/types'
-import { ExternalChip, Icon } from './bits'
-import { Choice } from './Choice'
+import { ExternalChip } from './bits'
+import { Icon } from '@/ui/Icon'
+import { Choice } from '@/ui/Choice'
 
 interface Item {
   key: string

@@ -2,9 +2,9 @@
 // and the line that follows each on its way to the agents. Nothing is sent from here: it all
 // goes through the shell's actions to one place in runtime.ts.
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Button } from '@/ui/primitives/button'
+import { Input } from '@/ui/primitives/input'
+import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { findingKey, gateKey, useAct } from '@/work/actions'
 import { SEVERITIES } from '@/work/select'
 import type { Decision, NewFinding } from '@/work/types'
@@ -14,7 +14,10 @@ import type { Attachment } from '@/attachments/types'
 import type { Finding, Severity, Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import type { Sent } from '@/conversations/types'
-import { CopyButton, Icon, Tip, Who, ChipName } from './bits'
+import { Who, ChipName } from './bits'
+import { CopyButton } from '@/ui/CopyButton'
+import { Icon } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
 import { kindOf, Viewer } from './Viewer'
 
 /** The images among pasted or dropped files. Only images for now. */

@@ -4,9 +4,9 @@
 // dialog follows what that shell shows until the command ends. Meanwhile a workriver agent
 // reviews what the command will do; it only warns, Run never waits for it.
 import { createContext, useContext, useEffect, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/ui/primitives/button'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/ui/primitives/dialog'
+import { Input } from '@/ui/primitives/input'
 import { ms, noCode, unitsOf } from '@/planning/select'
 import { contentLang, useT } from '@/i18n'
 import { focusAgent, focusRun, prepareRun, readRun, runCommand } from '@/api/actions'
@@ -14,8 +14,10 @@ import type { RunAsk, RunReview, RunView } from '@/commands/types'
 import type { Step } from '@/work/types'
 import type { RecentRun, Verdict } from '@/commands/types'
 import type { Workspace } from '@/workspace/types'
-import { Choice } from './Choice'
-import { Icon, Prose, Steps, Tip } from './bits'
+import { Choice } from '@/ui/Choice'
+import { Prose, Steps } from './bits'
+import { Icon } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
 
 /** Asks to run a command (opens the confirm dialog); App provides it. */
 export const RunContext = createContext<(a: RunAsk) => void>(() => {})
