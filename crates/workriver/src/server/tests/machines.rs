@@ -90,6 +90,12 @@ fn machines_are_separate_until_linked() {
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
     let got = far.sent.lock().unwrap().last().unwrap().clone();
     assert!(got.0 == "s-far" && got.1.contains("Attachments: `workriver attach fetch ") && got.1.contains(".png` (run it: the file is saved in the folder you are in)") && !got.1.contains("curl") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
+    // The user's message with a file attached: to that manager, the file is a fetch command too.
+    let mine = d.upload(&shot, "user", None).unwrap();
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": "See this.", "context": [{ "kind": "attachment", "label": "shot.png", "id": mine["id"] }] }))).unwrap();
+    wait_until("the message reaches the far manager", || far.sent.lock().unwrap().last().is_some_and(|(_, m)| m.contains("See this.")));
+    let got = far.sent.lock().unwrap().last().unwrap().clone();
+    assert!(got.1.contains("the attachment \"shot.png\" at `workriver attach fetch ") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
 
     let ws = d.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["machine"], "box");

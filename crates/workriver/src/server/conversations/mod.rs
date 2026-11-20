@@ -1,4 +1,4 @@
-// Questions and talk through the service: asking about a task, ending a thread, the user's
+// Questions and talk through the service: asking about a task, the user's
 // message to a manager and what was read; and closing a temporary agent a moment after its
 // work is done.
 use std::path::Path;
@@ -42,16 +42,6 @@ pub(super) struct Ask {
     /// Ask the thread's agent for the conclusion instead.
     #[serde(default)]
     conclude: bool,
-}
-
-#[derive(Deserialize)]
-pub(super) struct EndThread {
-    thread: String,
-}
-
-pub(super) async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
-    let who = app.user(&caller)?;
-    blocking(move || app.record(&who, Body::ThreadEnded { thread: t.thread }).map(Json)).await
 }
 
 #[derive(Deserialize)]

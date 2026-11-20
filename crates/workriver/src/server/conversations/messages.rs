@@ -8,7 +8,7 @@ impl App {
         // Without the message nothing is given to anyone: it stays as the page shows it, sent
         // and not delivered yet.
         let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
-        let Some((to, text)) = all.message(id).ok().map(|m| (m.manager.clone(), delivery::user_message(&all, m))) else { return };
+        let Some((to, text)) = all.message(id).ok().map(|m| (m.manager.clone(), self.user_message(&all, m))) else { return };
         // A manager with no name on record goes by its session, as everywhere.
         let name = all.name_of(&to).unwrap_or(&to).to_string();
         drop(all);
@@ -17,6 +17,21 @@ impl App {
             Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
             Ok(_) => self.hand(Held { question: id.into(), kind: For::Message, to, name, text, not_ready: None }),
         }
+    }
+
+    /// The user's message as the manager reads it: with files or lines picked, where the
+    /// unit's branch is checked out (found here, from git; `delivery` stays pure).
+    fn user_message(&self, all: &core::State, m: &core::Message) -> String {
+        let code = m.context.iter().any(|c| matches!(c.kind.as_str(), "file" | "lines"));
+        let dir = all.unit_or_intent(&m.unit).filter(|_| code).map(|u| self.work_tree(&u));
+        delivery::user_message(all, m, &self.home, dir.as_deref())
+    }
+
+    /// Where a unit's branch is checked out, else its repository (an intent's own work: its
+    /// project folder).
+    pub(super) fn work_tree(&self, unit: &core::Unit) -> String {
+        let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
+        at.and_then(|at| scan::worktree_of(&at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone())
     }
 
     /// Records where the user's message to a manager is.
@@ -31,7 +46,7 @@ impl App {
         // The delivery holds the message as it would have been given: without it, nothing is
         // recorded in its place.
         let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
-        let message = all.message(id).ok().map(|m| delivery::user_message(&all, m)).unwrap_or_default();
+        let message = all.message(id).ok().map(|m| self.user_message(&all, m)).unwrap_or_default();
         drop(all);
         self.message_delivery(id, Delivery { step: DeliveryStep::NotDelivered, to: to.map(str::to_string), reason_code: Some(code), reason: Some(why.into()), message });
     }

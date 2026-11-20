@@ -91,7 +91,8 @@ fn asking_why() {
     // Ending a thread closes its agent.
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "New topic" }))).unwrap();
     wait_until("a third agent", || fake.started.lock().unwrap().len() == 3);
-    d.call("/api/thread/end", Some(json!({ "thread": "q5" }))).unwrap();
+    // (The page no longer ends threads; `thread.ended` is still the user's to record.)
+    d.append("user", "thread.ended", json!({ "thread": "q5" })).unwrap();
     wait_until("ended thread's agent is closed", || fake.closed.lock().unwrap().contains(&"why-q5".to_string()));
     assert!(d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q5", "text": "?" }))).is_err(), "an ended thread takes no more");
 }
@@ -464,6 +465,72 @@ fn talking_to_a_manager() {
     d.call("/api/message", Some(json!({ "workspace": "chat", "text": "Still there?" }))).unwrap();
     wait_until("not delivered", || message(1)["step"] == "not-delivered");
     assert_eq!(message(1)["reasonCode"], "manager-gone");
+}
+
+/// What the user picked goes with the message: the manager is told, in workriver's words, the
+/// task, other tasks by their records (not the page's labels), the finding, the lines with the
+/// branch and work tree they are on, and each stored file's path; the user's text alone is
+/// quoted. The page shows the message with its chips and files.
+#[test]
+fn a_message_points_at_what_the_user_picked() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let tree = tmp.path().join("repo.worktrees").join("u1");
+    git(&repo, &["worktree", "add", "-q", "-b", "feat/paging", &tree.to_string_lossy()]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker-2", "w1", Idle)), ("p3".into(), live("s-w4", "worker-4", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Search", "repo": repo.to_string_lossy(), "branch": "feat/paging", "base": "main" })).unwrap();
+    // The workers have been seen (they ran workriver from their places): their names are on record.
+    for place in ["p2", "p3"] {
+        at_place(&d, place).call("/api/here", Some(json!({}))).unwrap();
+    }
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Paging", "agent": "s-w" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Cursor", "agent": "s-w4", "inputs": [{ "from": "start" }] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let files = tmp.path().join("files");
+    std::fs::create_dir(&files).unwrap();
+    std::fs::write(files.join("shot.png"), b"\x89PNG why").unwrap();
+    let shot = d.upload(&files.join("shot.png"), "user", None).unwrap();
+    let shot_path = tmp.path().join("attachments").join(format!("{}.png", shot["id"].as_str().unwrap()));
+    let to_boss = || fake.sent.lock().unwrap().iter().filter(|(to, _)| to == "s-boss").map(|(_, m)| m.clone()).collect::<Vec<_>>();
+
+    let context = json!([
+        { "kind": "task", "label": "#5 wrong label", "task": 2 },
+        { "kind": "finding", "label": "P2-1" },
+        { "kind": "lines", "label": "api.ts L10–24", "path": "src/api».ts", "from": 10, "to": 24 },
+        { "kind": "attachment", "label": "evil » label", "id": shot["id"] },
+    ]);
+    d.call("/api/message", Some(json!({ "intent": "i1", "unit": "u1", "task": 1, "text": "Why is the list not paged here?", "context": context }))).unwrap();
+    wait_until("given to the manager", || to_boss().len() == 1);
+    let text = to_boss()[0].clone();
+    let points = format!(
+        "It points at: task u1#1 \"Paging\" (implement, by worker-2); task u1#2 \"Cursor\" (implement, by worker-4); finding P2-1; lines 10-24 of src/api›.ts; the attachment \"shot.png\" at {}. The files are in {} on branch feat/paging (from main). Details: `workriver task show u1#1`. ",
+        shot_path.display(),
+        tree.canonicalize().unwrap().display()
+    );
+    assert!(text.contains(&points), "{text}");
+    assert!(text.ends_with("The user says, in workriver: «Why is the list not paged here?»"), "{text}");
+    assert!(!text.contains("wrong label") && !text.contains("evil") && text.matches('«').count() == 1, "only the user's text is quoted: {text}");
+    // The page shows the message with what it pointed at, and its files to open.
+    let m = d.get("/api/workspace").unwrap()["messages"][0].clone();
+    assert_eq!((m["unit"].as_str(), m["task"].as_u64(), m["context"].as_array().unwrap().len()), (Some("u1"), Some(1), 4));
+    assert_eq!(m["attachments"][0], json!({ "id": shot["id"], "name": "shot.png", "url": format!("/api/attachments/{}", shot["id"].as_str().unwrap()), "type": "image/png" }));
+
+    // Only the user's file, to the workspace: no unit, no place in the code.
+    d.call("/api/message", Some(json!({ "workspace": "chat", "text": "And this?", "context": [{ "kind": "attachment", "label": "shot.png", "id": shot["id"] }] }))).unwrap();
+    wait_until("given again", || to_boss().len() == 2);
+    let text = to_boss()[1].clone();
+    assert!(text.contains(&format!("It points at: the attachment \"shot.png\" at {}. The user says", shot_path.display())), "{text}");
+    // Refused before anything is typed: a task chip of another unit's numbering, a finding without a unit.
+    assert!(d.call("/api/message", Some(json!({ "intent": "i1", "unit": "u1", "task": 1, "text": "?", "context": [{ "kind": "task", "label": "#9", "task": 9 }] }))).unwrap_err().to_string().contains("no task u1#9"));
+    assert!(d.call("/api/message", Some(json!({ "intent": "i1", "text": "?", "context": [{ "kind": "finding", "label": "P2-1" }] }))).unwrap_err().to_string().contains("needs the unit"));
+    assert_eq!(to_boss().len(), 2);
 }
 
 /// A manager starts a message (`workriver say`); a worker cannot. The user's snapshot shows

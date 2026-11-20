@@ -29,7 +29,6 @@ local POST /api/run/r9/focus  anonymous 401  agent 403  user 404
 local POST /api/run/r9/review  anonymous 401  agent 404  user 404
 local POST /api/here  anonymous 401  agent 200  user 200
 local POST /api/ask  anonymous 401  agent 422  user 422
-local POST /api/thread/end  anonymous 401  agent 403  user 422
 local POST /api/message  anonymous 401  agent 403  user 422
 local POST /api/messages/read  anonymous 401  agent 403  user 200
 local POST /api/attachments?name=probe.txt  anonymous 401  agent 200  user 200

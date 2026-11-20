@@ -35,6 +35,10 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 workspace: m.workspace.clone(),
                 manager: names.of(&m.manager),
                 text: m.text.clone(),
+                unit: m.unit.clone(),
+                task: (m.task != 0).then_some(m.task),
+                context: m.context.clone(),
+                attachments: attachments_of(state, &m.context.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>()),
                 at: m.at.clone(),
                 step: match m.delivery.as_ref().map(|d| d.step) {
                     // Nothing to deliver: it is the manager's.

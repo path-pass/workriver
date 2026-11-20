@@ -69,7 +69,6 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/run/{id}/review", post(run_review))
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
-        .route("/api/thread/end", post(end_thread))
         .route("/api/message", post(message))
         .route("/api/messages/read", post(messages_read))
         .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(crate::common::wire::MAX_ATTACHMENT)))
