@@ -217,3 +217,21 @@ fn the_user_writes_to_a_manager() {
     at(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "Hi"}}));
     assert!(user_message(s.state(), s.state().message("m2").unwrap(), dir.path(), None).starts_with("[workriver] The user writes to you from workriver's page (message m2). "));
 }
+
+/// The manager hears of the user's edit as it was committed: its version and what it
+/// changed, even when another edit landed right after it.
+#[test]
+fn an_edit_is_told_as_it_was_committed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
+    at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}}));
+    at(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}}));
+    let note = at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "note": "New", "base": 1}}));
+    let committed = s.recorded().unwrap();
+    at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "title": "Chat v2", "base": 2}}));
+    let (to, said) = edited(&committed, &note).unwrap();
+    assert_eq!(to, "boss");
+    assert_eq!(said, "[workriver] The user changed i1 (now v2): its note changed (`workriver intent history i1 --diff 2`).");
+}

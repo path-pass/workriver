@@ -351,6 +351,9 @@ pub(super) struct Faults {
     pub(super) writes_down: std::sync::atomic::AtomicBool,
     /// When `down_after` sets `down`, it sets `writes_down` too.
     pub(super) and_writes: std::sync::atomic::AtomicBool,
+    /// Once an event of this kind is committed, this one is recorded as the user right
+    /// after it: another request that commits before anything is read again.
+    pub(super) then_record: std::sync::Mutex<Option<(String, workriver_core::Body)>>,
 }
 
 /// The real store, with reads that fail when the test says so: a storage that cannot be
@@ -376,6 +379,10 @@ impl workriver_core::ports::WorkStore for Flaky {
             return gone();
         }
         let done = self.inner.record(who, request)?;
+        let next = self.faults.then_record.lock().unwrap().take_if(|(kind, _)| serde_json::to_value(&done.event).unwrap()["kind"].as_str() == Some(kind.as_str()));
+        if let Some((_, body)) = next {
+            self.inner.record(&workriver_core::Principal::User, body)?;
+        }
         let mut after = self.faults.down_after.lock().unwrap();
         if after.as_deref() == serde_json::to_value(&done.event).unwrap()["kind"].as_str() {
             *after = None;

@@ -106,7 +106,7 @@ impl WorkStore for Store {
 
     fn record(&mut self, who: &Principal, request: Body) -> Result<Committed, DataError> {
         let event = self.append(who, request)?;
-        Ok(Committed { event, revision: self.revision() })
+        Ok(Committed { event, revision: self.revision(), recorded: Recorded::new(self.revision(), self.state.clone()) })
     }
 
     fn history(&self, after: Revision, limit: usize) -> Result<History, DataError> {

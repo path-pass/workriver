@@ -17,7 +17,10 @@ pub(super) fn board(d: &Daemon, target: Option<&str>) -> anyhow::Result<()> {
 pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<String> {
     use std::fmt::Write as _;
     let mut out = String::new();
-    let state: core::State = serde_json::from_value(d.get("/api/state")?)?;
+    let read = d.get("/api/state")?;
+    // Where each intent's text stands, which the state's own type does not carry.
+    let version = |id: &str| read["intents"].as_array().and_then(|l| l.iter().find(|i| i["id"] == id)).and_then(|i| i["edits"]["version"].as_u64()).filter(|n| *n > 0);
+    let state: core::State = serde_json::from_value(read.clone())?;
     let wanted = |intent: &str, unit: Option<&str>| match target {
         None => true,
         Some(t) => t == intent || unit == Some(t),
@@ -105,8 +108,16 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
         if i.state == core::IntentState::Dropped {
             let _ = writeln!(out, "  dropped: {}", i.reason.as_deref().unwrap_or(""));
         }
-        if !i.goal.is_empty() {
-            let _ = writeln!(out, "  goal: {}", i.goal);
+        // The version is the base an edit of its title, goal or note names.
+        let v = version(&i.id).map(|n| format!("  (v{n})")).unwrap_or_default();
+        match (i.goal.is_empty(), v.is_empty()) {
+            (false, _) => {
+                let _ = writeln!(out, "  goal: {}{v}", i.goal);
+            }
+            (true, false) => {
+                let _ = writeln!(out, "{v}");
+            }
+            (true, true) => {}
         }
         // More about it, line by line: what the user wrote, and what merged intents brought in.
         if !i.note.trim().is_empty() {

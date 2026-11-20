@@ -48,11 +48,14 @@ impl Deref for Recorded {
 }
 
 /// A request that was recorded: the event as it was committed (ids and numbers given by the
-/// rules, the time, who it was recorded as), and the revision it made.
+/// rules, the time, who it was recorded as), the revision it made, and everything recorded
+/// at that revision: what follows the record is worked out on the state it made, not on
+/// whatever was recorded after it by the time it is read again.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Committed {
     pub event: Event,
     pub revision: Revision,
+    pub recorded: Recorded,
 }
 
 /// A stretch of the history, oldest first, and where to read on from.

@@ -60,8 +60,21 @@ pub(in crate::server) async fn unit_code(State(app): State<Shared>, Extension(ca
     .await
 }
 
-pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<core::State>, ApiError> {
-    blocking(move || app.view(&caller, &r).map(Json)).await
+/// The records as the caller may see them (`App::view`), each intent with where its text
+/// stands (`edits`: its version, who made it and when, the version that last changed each
+/// field), which the state itself never serializes; its history is read on its own route.
+pub(in crate::server) async fn state(State(app): State<Shared>, Extension(caller): Extension<Caller>, Query(r): Query<Reader>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || {
+        let state = app.view(&caller, &r)?;
+        let mut out = serde_json::to_value(&state).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if let Some(intents) = out["intents"].as_array_mut() {
+            for (shown, i) in intents.iter_mut().zip(&state.intents) {
+                shown["edits"] = json!(i.edits);
+            }
+        }
+        Ok(Json(out))
+    })
+    .await
 }
 
 pub(in crate::server) async fn status(State(app): State<Shared>) -> Result<Json<serde_json::Value>, ApiError> {

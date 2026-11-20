@@ -133,7 +133,8 @@ fn projects_workspaces_and_batches() {
     let start = |place: &str, agent: &str, intent: &str| {
         let here = at_place(&d, place).call("/api/here", Some(json!({}))).unwrap();
         d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
-        d.append(agent, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": here["group"] })).unwrap();
+        // Started by the user: a workspace whose project nothing recorded says yet takes it from them.
+        d.append("user", "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": here["group"] })).unwrap();
     };
     start("p1", "s-b1", "i1");
     start("p1", "s-b1", "i2");
@@ -471,7 +472,7 @@ fn which_project_a_workspace_works_on() {
     store.record(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": b, "title": "Beta" } }))).unwrap();
     store.record(&boss, body(json!({ "kind": "manager.registered", "body": { "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
     store.record(&Principal::User, body(json!({ "kind": "intent.created", "body": { "title": "Login", "project": b, "state": "planned" } }))).unwrap();
-    store.record(&boss, body(json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
+    store.record(&Principal::User, body(json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
     let g = workriver_core::RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None };
     let at = |cwd: &str, machine: Option<&str>| {
         let mut m = live("s-boss", "boss", "w1", Idle);
@@ -542,10 +543,16 @@ fn starting_an_intent_in_another_projects_workspace() {
     assert!(told.starts_with(&format!("[workriver] The user started i1 «Login» of project «Beta 'β'» (folder «{b}») in your workspace;")), "{told}");
     assert!(told.contains("If your workspace works on another project, do not split it: ask the user first (`workriver guide how ask-user`)."), "{told}");
 
-    // The manager starts one itself: recorded, with a warning; none for its own project.
+    // The manager starts one itself: of the project its workspace works on by the records (its
+    // current intent's, Beta), recorded with a warning when its folder says another; one of
+    // another project by the records is refused, whatever its folder says.
     let out = boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
     let warning = out["warning"].as_str().unwrap_or_default();
     assert!(warning.contains("i2 belongs to project Beta 'β'") && warning.contains("ask the user with a decide gate"), "{out}");
+    let err = boss.append("", "intent.state_changed", json!({ "intent": "i3", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap_err().to_string();
+    assert!(err.contains("i3 belongs to project Alpha; your workspace works on Beta") && err.contains("ask the user to start it"), "{err}");
+    // Once the user says it works on Alpha, it starts Alpha's, and no warning is given.
+    user.append("", "workspace.project_set", json!({ "workspace": { "id": "w1", "label": "chat" }, "project": a })).unwrap();
     let out = boss.append("", "intent.state_changed", json!({ "intent": "i3", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
     assert!(out.get("warning").is_none(), "{out}");
 }
@@ -633,9 +640,36 @@ fn an_intent_is_edited_and_its_history_read() {
     let diff = crate::cli::intent_history_text(&boss, "i1", None, Some(2)).unwrap();
     assert!(diff.contains("title: Chat -> Chat v2\ngoal:  -> Talk «fast»\n") && !diff.contains("note:"), "{diff}");
 
+    // The state and the board say where its text stands (the base an edit names), never its history.
+    let state = boss.get("/api/state").unwrap();
+    let i = state["intents"].as_array().unwrap().iter().find(|i| i["id"] == "i1").unwrap().clone();
+    assert_eq!((i["edits"]["version"].as_u64(), i["edits"]["title"].as_u64(), i["edits"]["note"].as_u64(), i["edits"]["by"].as_str()), (Some(4), Some(2), Some(4), Some("user")), "{i}");
+    assert!(i.get("versions").is_none());
+    let board = crate::cli::board_text(&boss, Some("i1")).unwrap();
+    assert!(board.contains("  goal: Talk «fast»  (v4)\n"), "{board}");
+
     // On a blind task, the history (it holds the note) is hidden until it delivers.
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Look" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Look", "agent": "s-rev", "blind": true })).unwrap();
     let e = at_place(&d, "p2").get("/api/intent/i1/history").unwrap_err().to_string();
     assert!(e.contains("blind task"), "{e}");
+}
+
+/// The manager hears of the user's edit as it was committed (its version, what it changed),
+/// even when another edit commits right after it, before anything is read again.
+#[test]
+fn an_edit_is_told_as_committed_when_another_follows() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let (user, _kernel, faults) = flaky_service(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
+    manage(&user, "p1", "s-boss");
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    let title = serde_json::from_value(json!({ "kind": "intent.updated", "body": { "intent": "i1", "title": "Chat v2", "base": 2 } })).unwrap();
+    *faults.then_record.lock().unwrap() = Some(("intent.updated".into(), title));
+    user.append("user", "intent.updated", json!({ "intent": "i1", "note": "New", "base": 1 })).unwrap();
+    let told = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("changed i1")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    wait_until("the manager is told", || !told().is_empty());
+    assert_eq!(told()[0], "[workriver] The user changed i1 (now v2): its note changed (`workriver intent history i1 --diff 2`).");
 }

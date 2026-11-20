@@ -40,7 +40,15 @@ impl App {
             self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
         }
         let body = self.complete(actor, body, machine)?;
-        let e = self.store.lock().unwrap().record(who, body)?.event;
+        let committed = self.store.lock().unwrap().record(who, body)?;
+        let e = committed.event;
+        // The user changed an active intent: its manager hears of it as committed (its version
+        // then), now or once its blind task is delivered (`tell`).
+        if let Some((to, message)) = delivery::edited(&committed.recorded, &e)
+            && let Ok(Err(err)) = self.tell(&to, &message, None)
+        {
+            tracing::warn!("cannot tell {to} of the edit of {}: {err}", e.body.refs().0.unwrap_or_default());
+        }
         self.deliver(&e);
         match &e.body {
             Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
@@ -157,16 +165,8 @@ impl App {
 
     /// Sends the message a user's input calls for, and records how far it got.
     fn deliver(&self, e: &core::Event) {
-        // The user changed an active intent: its manager hears of it, or once its blind task is
-        // delivered (`tell`).
+        // An intent's edit is told by `record`, from the state it made.
         if matches!(e.body, Body::IntentUpdated { .. }) {
-            let read = got(self.store.lock().unwrap().recorded());
-            let Ok(Some(all)) = read else { return };
-            if let Some((to, message)) = delivery::edited(&all, e)
-                && let Ok(Err(err)) = self.tell(&to, &message, None)
-            {
-                tracing::warn!("cannot tell {to} of the edit of {}: {err}", e.body.refs().0.unwrap_or_default());
-            }
             return;
         }
         let live = self.live();
