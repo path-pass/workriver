@@ -58,9 +58,10 @@ impl State {
     }
 
     /// What the user picked for a message (`MessageSent`): a unit of the message's intent
-    /// (with none named, of an intent that runs in the workspace), a task of it, and context
-    /// that needs that unit, but for files the user stored, which may go to any manager.
-    fn picked(&self, intent: &str, workspace: &str, unit: &str, task: u32, context: &[AskContext]) -> Result<(), Rejected> {
+    /// (with none named, of an intent that runs in `target`, the workspace whose manager it
+    /// goes to), a task of it, and context that needs that unit, but for files the user
+    /// stored, which may go to any manager.
+    fn picked(&self, intent: &str, target: Option<&Workspace>, unit: &str, task: u32, context: &[AskContext]) -> Result<(), Rejected> {
         let needs = |what: &str| no(format!("{what} needs the unit it is about; pick it (or take {what} out)"));
         if unit.is_empty() {
             if task != 0 {
@@ -71,9 +72,11 @@ impl State {
             if !intent.is_empty() && of != intent {
                 return no(format!("{unit} is not of intent {intent}"));
             }
-            let here = |i: &Intent| i.workspace.as_ref().is_some_and(|g| self.workspace_of(g).map_or(&g.label, |w| &w.group.label) == workspace);
-            if intent.is_empty() && !self.intents.iter().any(|i| i.id == of && here(i)) {
-                return no(format!("{unit} is not of an intent of workspace {workspace:?}"));
+            // The same workspace's record, not one of the same label on another machine.
+            if let Some(w) = target.filter(|_| intent.is_empty())
+                && self.intent_workspace(of).is_none_or(|x| x.group != w.group)
+            {
+                return no(format!("{unit} is not of an intent of workspace {:?}", w.group.label));
             }
             if task != 0 {
                 self.task(unit, task)?;
@@ -122,13 +125,14 @@ impl State {
                     return no("a message needs its text");
                 }
                 // To the manager of the intent's workspace, or of the workspace named (here).
-                let (workspace, manager) = if intent.is_empty() {
+                // (Resolved once: the unit picked must be of an intent that runs in it.)
+                let (workspace, manager, target) = if intent.is_empty() {
                     let w = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == workspace);
-                    (workspace, w.and_then(|w| w.manager.clone()))
+                    (workspace, w.and_then(|w| w.manager.clone()), w)
                 } else {
                     let i = self.intent(&intent)?;
-                    let label = i.workspace.as_ref().map(|g| self.workspace_of(g).map_or(&g.label, |w| &w.group.label).clone()).unwrap_or_default();
-                    (label, self.manager_of(&intent).map(str::to_string))
+                    let label = self.intent_workspace(&intent).map(|w| &w.group.label).or(i.workspace.as_ref().map(|g| &g.label)).cloned().unwrap_or_default();
+                    (label, self.manager_of(&intent).map(str::to_string), None)
                 };
                 let Some(manager) = manager else {
                     return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
@@ -137,7 +141,7 @@ impl State {
                 if !self.blind_tasks(&manager).is_empty() {
                     return no(format!("the manager {} is on a blind task: write once it is delivered", self.name_of(&manager).unwrap_or(&manager)));
                 }
-                self.picked(&intent, &workspace, &unit, task, &context)?;
+                self.picked(&intent, target, &unit, task, &context)?;
                 MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context }
             }
             MessageDelivery { id, delivery } => {

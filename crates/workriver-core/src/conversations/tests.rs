@@ -279,6 +279,15 @@ fn a_message_carries_what_the_user_picked() {
     assert!(add(&mut s, "user", say("i1", "", "", 0, json!([file("loose")]))).unwrap_err().contains("needs the unit it is about"));
     // With the unit alone, one shown with any of its tasks.
     add(&mut s, "user", say("i1", "", "u1", 0, json!([file("rep")]))).unwrap();
+    // A workspace of the same label on another machine is another workspace: its intent's
+    // unit is not one of "chat"'s here, whose manager the message goes to.
+    let far = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
+    let remote = json!({"id": "w1@box", "label": "chat", "machine": "box"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Far", "state": "planned"}})).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": remote}}))).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "active", "workspace": remote}}))).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "unit.created", "body": {"intent": "i3", "title": "Over there", "repo": "/r", "branch": "feat/far", "base": "main", "machine": "box"}}))).unwrap();
+    assert!(add(&mut s, "user", say("", "chat", "u3", 0, json!([]))).unwrap_err().contains("u3 is not of an intent of workspace \"chat\""));
     // Nothing else is pointed at.
     assert!(add(&mut s, "user", say("i1", "", "u1", 1, json!([{"kind": "unit", "label": "Mentions"}]))).unwrap_err().contains("a message points at"));
     assert_eq!(replayed(&s), *s.state());
