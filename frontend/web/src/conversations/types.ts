@@ -1,6 +1,10 @@
 // Conversations: questions about work and their answers, the user's messages to managers,
 // and where a message is on its way.
 import type { Attachment } from '@/attachments/types'
+import type { Lines } from '@/code/types'
+import type { Task } from '@/work/types'
+import type { Intent } from '@/planning/types'
+import type { Session } from '@/agents/types'
 
 /** The user's message to a workspace's manager, typed into its terminal; the manager replies with `workriver reply`. Or one the manager started (`workriver say`). */
 export interface ManagerMessage {
@@ -103,3 +107,38 @@ export interface Turn {
 export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error' | 'no-workspace' | 'timeout' | 'restarted' | 'blocked' | 'not-ready';
 
 export type AskStep = 'starting' | 'reading' | 'asking' | 'blocked';
+
+export interface Talk {
+  sessions: Session[]
+  /** The file picked in the code layer, and lines picked in it. */
+  file: string | null
+  lines: Lines | null
+  /** Questions asked in this sitting, by node id ('' for the unit itself), after the recorded ones. */
+  asked: Record<string, Turn[]>
+  /** `node`: the task asked about, or null for the unit; `thread`: the conversation it continues, or null for a new one;
+   *  `files`: what the user attached in the box, still held by the page. */
+  onAsk: (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude?: boolean, files?: Attachment[]) => void
+  /** The intent on screen: its page, or the open unit's. */
+  intent?: string
+  /** Set to now to show the conversation with the manager. */
+  managerAt?: number
+  /** With `managerAt`: the workspace whose conversation to show; none: the one on screen. */
+  to?: string
+  /** The user has seen a workspace's conversation, up to the manager's newest words shown. */
+  onRead: (workspace: string, at: string) => void
+  /** Ends a conversation (with the service). */
+  onEnd: (thread: string) => void
+  /** Questions go to the service and real agents (not the sample). */
+  live: boolean
+  onFile: (path: string) => void
+  /** Changes when the box should take the cursor (`?`, or "Ask why" on picked lines). */
+  focusAt: number
+  /** Opens the side panel on Ask, the box taking the cursor (the node detail's "Ask why"). */
+  onOpen: () => void
+  /** More context to go with the next question: other tasks that changed the picked lines. */
+  extra: AskContext[]
+  /** For the manager conversation: the intents (whose workspace runs the picked unit), the messages so far. */
+  intents: Intent[]
+  messages: ManagerMessage[]
+  onTell: (to: { intent?: string; workspace: string }, text: string, manager: string) => void
+}
