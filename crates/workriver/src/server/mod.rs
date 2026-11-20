@@ -34,8 +34,8 @@ mod views;
 mod tests;
 
 use app::*;
-use handlers::*;
 use http::*;
+use machines::*;
 
 /// What else the daemon is started with.
 pub(super) struct Options {
