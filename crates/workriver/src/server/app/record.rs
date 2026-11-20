@@ -183,16 +183,68 @@ impl App {
         }
         let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
         let Some(plan) = delivery::plan(&all, live.as_deref(), &self.home, e) else { return };
-        let delivery = match &plan.to {
-            Err((code, reason)) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message: plan.message.clone() },
-            Ok(to) => match self.send(to, &plan.message) {
-                Ok(()) => Delivery { step: DeliveryStep::Delivered, to: Some(to.to_string()), reason_code: None, reason: None, message: plan.message.clone() },
-                Err(err) => {
-                    let code = if matches!(err, RuntimeError::None) { ReasonCode::RuntimeDown } else { ReasonCode::RuntimeError };
-                    Delivery { step: DeliveryStep::NotDelivered, to: Some(to.to_string()), reason_code: Some(code), reason: Some(err.to_string()), message: plan.message.clone() }
+        drop(all);
+        match plan.to.clone() {
+            Err(_) => self.planned(plan, Ok(())),
+            // Given now, or held while the receiver is on a blind task in progress: recorded
+            // where it is once given (`told`).
+            Ok(to) => {
+                let message = plan.message.clone();
+                let _ = self.tell(&to, &message, Some(plan));
+            }
+        }
+    }
+
+    /// Tells an agent something workriver has to say (an answer it waits for, a delivery's
+    /// message, an escalation): now, unless it is on a blind task in progress, which is told
+    /// nothing of other work; then it is held and given once that task is delivered (`poll`,
+    /// `hand`). An unreadable store holds it too. The one rule for every such send. `about`:
+    /// a planned delivery, recorded where it is once given (`told`); then, and while held,
+    /// this gives None; otherwise what the send came to.
+    pub(in crate::server) fn tell(&self, to: &str, text: &str, about: Option<delivery::Plan>) -> Option<Result<(), RuntimeError>> {
+        let held = Held { question: String::new(), kind: For::Notice, to: to.into(), name: to.into(), text: text.into(), not_ready: None, about };
+        if !self.blind_free(to) {
+            self.held.lock().unwrap().push(held);
+            return None;
+        }
+        let sent = self.send(to, text);
+        if held.about.is_none() {
+            return Some(sent);
+        }
+        self.told(held, sent);
+        None
+    }
+
+    /// A notice was given (or could not be): a planned delivery is recorded where it is;
+    /// anything else that failed is logged.
+    pub(in crate::server) fn told(&self, h: Held, sent: Result<(), RuntimeError>) {
+        match h.about {
+            Some(plan) => self.planned(plan, sent),
+            None => {
+                if let Err(e) = sent {
+                    tracing::warn!("cannot tell {}: {e}", h.to);
                 }
-            },
+            }
+        }
+    }
+
+    /// Records where a planned delivery is: not delivered when it had nowhere to go (`sent`
+    /// is then not looked at) or its send failed; else delivered, and watched for its pick-up.
+    fn planned(&self, plan: delivery::Plan, sent: Result<(), RuntimeError>) {
+        let message = plan.message.clone();
+        let delivery = match (&plan.to, sent) {
+            (Err((code, reason)), _) => Delivery { step: DeliveryStep::NotDelivered, to: None, reason_code: Some(*code), reason: Some(reason.clone()), message },
+            (Ok(to), Ok(())) => Delivery { step: DeliveryStep::Delivered, to: Some(to.clone()), reason_code: None, reason: None, message },
+            (Ok(to), Err(err)) => {
+                let code = match err {
+                    RuntimeError::None => ReasonCode::RuntimeDown,
+                    RuntimeError::NoAgent(_) => ReasonCode::ManagerGone,
+                    _ => ReasonCode::RuntimeError,
+                };
+                Delivery { step: DeliveryStep::NotDelivered, to: Some(to.clone()), reason_code: Some(code), reason: Some(err.to_string()), message }
+            }
         };
+        let live = self.live();
         if delivery.step == DeliveryStep::Delivered {
             let working = live.iter().flatten().any(|a| Some(&a.session) == delivery.to.as_ref() && a.state == AgentState::Working);
             self.pending.lock().unwrap().push(Pending {

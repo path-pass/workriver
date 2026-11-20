@@ -12,7 +12,9 @@ always names a task.
 
 **You will see:** the question id (`q7`); later, in your terminal, "Your question q7 … was
 answered" with the answer quoted. With `--wait` the command prints it, but blocks until then
-(up to 600 s): a manager, whom everyone reports to, asks without it (`user-message`).
+(up to 600 s): a manager, whom everyone reports to, asks without it (`user-message`). An
+answer that comes while you are on a blind task waits, with everything else workriver would
+tell you of other work, until you deliver it.
 
 If the answer means an agreed contract or plan must change, do not agree it between you:
 the manager decides (`contract`).

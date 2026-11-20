@@ -44,7 +44,7 @@ impl App {
                 Ok(all) => all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default(),
                 Err(Unread(why)) => return self.fail_started(id, name, &why),
             };
-            self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None });
+            self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None, about: None });
             return;
         }
         let read = got(self.store.lock().unwrap().recorded());
@@ -132,7 +132,7 @@ impl App {
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
-        self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
+        self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None, about: None });
     }
 
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
@@ -149,7 +149,7 @@ impl App {
         // A manager on a blind task is told nothing of other work: the user's message waits
         // (`poll` tries again) until that task is delivered. Checked at every try, since it may
         // have become blind while the message was held. Unread, it is not given either.
-        if h.kind == For::Message && !self.blind_free(&h.to) {
+        if matches!(h.kind, For::Message | For::Notice) && !self.blind_free(&h.to) {
             h.not_ready = None;
             self.held.lock().unwrap().push(h);
             return;
@@ -160,6 +160,7 @@ impl App {
             Some(AgentState::Unknown) => not_ready(&mut h),
             _ => match self.send(&h.to, &h.text) {
                 Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
+                Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
                 Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
@@ -168,6 +169,7 @@ impl App {
                         For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
                         For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
                         For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
+                        For::Notice => self.told(h, Err(e)),
                     };
                 }
             },
@@ -177,7 +179,7 @@ impl App {
     }
 
     /// Whether `session` is known, as recorded now, to be on no blind task in progress.
-    fn blind_free(&self, session: &str) -> bool {
+    pub(in crate::server) fn blind_free(&self, session: &str) -> bool {
         let read = got(self.store.lock().unwrap().recorded());
         matches!(read, Ok(Some(s)) if s.blind_tasks(session).is_empty())
     }
@@ -227,8 +229,9 @@ impl App {
             let s = got(self.store.lock().unwrap().recorded()).ok().flatten();
             s.as_ref().and_then(|s| s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), prompts::answer_back(s, q))))
         };
+        // Not while it is on a blind task it took since: held until that is delivered, never lost.
         if let Some((asker, text)) = back
-            && let Err(e) = self.send(&asker, &text)
+            && let Some(Err(e)) = self.tell(&asker, &text, None)
         {
             tracing::warn!("cannot give {asker} the answer to {id}: {e}");
         }

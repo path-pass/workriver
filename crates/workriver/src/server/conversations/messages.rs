@@ -15,7 +15,7 @@ impl App {
         match self.runtime.agents() {
             Err(_) => self.message_not_delivered(id, None, ReasonCode::RuntimeDown, words::NOT_CONNECTED),
             Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
-            Ok(_) => self.hand(Held { question: id.into(), kind: For::Message, to, name, text, not_ready: None }),
+            Ok(_) => self.hand(Held { question: id.into(), kind: For::Message, to, name, text, not_ready: None, about: None }),
         }
     }
 

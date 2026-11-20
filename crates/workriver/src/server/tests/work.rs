@@ -862,3 +862,28 @@ fn idle_workers_are_told_to_their_manager() {
     fake.agents.lock().unwrap()[1].1.state = Idle;
     wait_until("told again", || to_boss("ja-impl has been idle for") == 2);
 }
+
+/// A stopped worker's escalation to a manager on a blind task waits until that task is
+/// delivered, then goes (review u14#11 P2-1: the stall escalation).
+#[test]
+fn an_escalation_waits_for_a_blind_manager() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "ja-impl", "w1", Working))];
+    let waits = crate::server::Waits { minute: std::time::Duration::from_secs(1), ..Default::default() };
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
+    manage(&d, "p1", "s-boss");
+    d.call("/api/settings/stall", Some(json!({ "minutes": 2 }))).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "push it", "agent": "ja-impl" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "start" }] })).unwrap();
+    d.append("s-w", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let to = |who: &str, what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == who && m.contains(what)).count();
+    fake.agents.lock().unwrap()[1].1.state = Idle;
+    wait_until("escalated", || d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["stalled"]["escalated"] == true);
+    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
+    assert_eq!(to("s-boss", "ja-impl stopped"), 0, "not typed into a blind manager");
+    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    wait_until("given once its blind task is delivered", || to("s-boss", "ja-impl stopped") == 1);
+}
