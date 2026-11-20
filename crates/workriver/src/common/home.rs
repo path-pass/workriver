@@ -39,6 +39,8 @@ pub const SCAN_CACHE_LOCAL: &str = "local.json";
 pub const SCAN_CACHE_REMOTE: &str = "remote.json";
 /// Which managers were told of a guide's update.
 pub const GUIDE_TOLD: &str = "guide-told.json";
+/// The merge reminders that went out.
+pub const MERGE_TOLD: &str = "merge-told.json";
 // Not named here: the ssh control sockets of followed machines (`ssh-%C`, ssh expands the
 // `%C`), which workriver-scan's `Runner::ssh` makes in the data directory it is given; the
 // runner owns its ssh options, this file names only the folder (the data directory itself).

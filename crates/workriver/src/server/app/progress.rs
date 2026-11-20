@@ -45,9 +45,6 @@ pub(in crate::server) struct Pending {
 /// the runtime for a while (a restart, a moved place) and come back.
 pub(super) const WATCH: Duration = Duration::from_secs(30 * 60);
 
-/// The merge reminders that went out, in the data directory.
-pub(in crate::server) const MERGE_TOLD: &str = "merge-told.json";
-
 impl App {
     /// Works out which running tasks' agents stopped (see `reminders::step`): the agent itself is
     /// reminded once; if that does not help, its intent's manager is told, once, unless the
@@ -179,7 +176,7 @@ impl App {
             }
             let mut told = self.merge_told.lock().unwrap();
             told.insert(key);
-            let path = self.home.join(MERGE_TOLD);
+            let path = self.home.join(crate::common::home::MERGE_TOLD);
             if let Err(e) = serde_json::to_vec_pretty(&*told).map_err(std::io::Error::other).and_then(|b| std::fs::write(&path, b)) {
                 tracing::warn!("cannot write {}: {e}", path.display());
             }
