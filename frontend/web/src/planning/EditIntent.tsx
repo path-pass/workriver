@@ -14,13 +14,13 @@ import { Prose } from '@/content/Prose'
 import { editIntent, intentVersion } from '@/api/actions'
 import { conflictOf, conflictsOf, draftOf, editBody, wordDiff, type Draft, type Field } from './edit'
 import { Runs } from './IntentHistory'
-import type { Intent } from './types'
+import type { Intent, IntentText } from './types'
 
-/** What changed since the dialog opened: the version the intent is at, and each field the
- *  edit sends that changed since, with its text now. */
+/** The version the intent is at, as the service's refusal named it, and its text: what the
+ *  fields "Save anyway" would send are set against, as the user goes on editing. */
 interface Conflict {
   now: number;
-  fields: { field: Field; theirs: string }[];
+  text: IntentText;
 }
 
 export function EditIntentDialog({ intent, draft, restoring, onClose }: {
@@ -41,6 +41,9 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
   // from, whatever the page shows meanwhile.
   const [opened] = useState(intent)
   const body = editBody(opened, d)
+  // Every field the edit now sends that changed since it opened, against what it says at the
+  // version the service named: shown before "Save anyway", whatever is edited after the refusal.
+  const conflicts: Field[] = conflict && body ? conflictsOf(draftOf(opened), conflict.text, body) : []
   const ready = !!body && !busy
   const set = (k: keyof Draft) => (e: { target: { value: string } }) => setD(x => ({ ...x, [k]: e.target.value }))
 
@@ -58,9 +61,7 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
           // service names only the first), to set against the user's text.
           const now = await intentVersion(intent, c.now).catch(() => null)
           if (now) {
-            const changed = conflictsOf(draftOf(opened), now.text, body)
-            const fields = (changed.length ? changed : [c.field]).map(field => ({ field, theirs: now.text[field] }))
-            setConflict({ now: c.now, fields })
+            setConflict({ now: c.now, text: now.text })
             setBusy(false)
             return
           }
@@ -100,9 +101,9 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
               ? <div className="min-h-32 rounded-lg border border-line-2 px-2.5 py-1.5 text-sm" aria-labelledby="edit-note">{d.note.trim() ? <Prose text={d.note} fold={false} /> : <p className="text-ink-2">{t('intent.edit.nothing')}</p>}</div>
               : <textarea className="field text-sm" rows={8} value={d.note} lang={contentLang(d.note)} onChange={set('note')} aria-labelledby="edit-note" />}
           </div>
-          {conflict && (
+          {conflict && conflicts.length > 0 && (
             <div role="alert" className="flex flex-col gap-1.5 rounded-lg border border-line-2 bg-sunken p-2.5 text-xs">
-              {conflict.fields.map(({ field, theirs }) => (
+              {conflicts.map(field => [field, conflict.text[field]] as const).map(([field, theirs]) => (
                 <div key={field} className="flex flex-col gap-1">
                   <p>{t(`intent.edit.conflict.${field}`, { n: conflict.now })}</p>
                   <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm wrap-anywhere" lang={contentLang(theirs)}>

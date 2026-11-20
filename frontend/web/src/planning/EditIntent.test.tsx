@@ -66,4 +66,20 @@ describe('the edit dialog', () => {
     await click('Save anyway')
     expect(api.sent[1]).toEqual({ intent: 'i1', title: 'Chat v2', note: 'Mine', base: 3 })
   })
+
+  it('a field edited after the refusal is set against what it says now too, before saving anyway', async () => {
+    await show(v1)
+    type(fields()[0], 'Chat v2')
+    api.refuse.push("i1's title changed since v1 (in v2; it is at v3, last by the user at x)")
+    api.versions[3] = { title: 'Chat 2', goal: 'Talk', note: 'Theirs' }
+    await click('Save')
+    const said = () => document.querySelector('[role=dialog] [role=alert]')?.textContent ?? ''
+    expect(said()).toContain('The title was changed meanwhile')
+    expect(said()).not.toContain('The note was changed')
+    // The user goes on editing: the note, which changed meanwhile too.
+    type(fields()[2], 'Mine')
+    expect(said()).toContain('The note was changed meanwhile (it is at v3 now)')
+    await click('Save anyway')
+    expect(api.sent[1]).toEqual({ intent: 'i1', title: 'Chat v2', note: 'Mine', base: 3 })
+  })
 })
