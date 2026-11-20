@@ -459,12 +459,24 @@ pub(crate) fn text(s: &TaskShow) -> String {
             let _ = writeln!(out, "  {}. {}{}", i + 1, st.text, st.command.as_deref().map(|c| format!("\n     $ {c}")).unwrap_or_default());
         }
     }
+    if let Some(c) = &s.choice {
+        let _ = writeln!(out, "Choices (the user picks one):");
+        let options = c.options();
+        let wide = options.iter().map(|o| o.value.chars().count()).max().unwrap_or(0);
+        for o in &options {
+            let _ = writeln!(out, "  {:wide$}  {}{}", o.value, o.label, if c.needs_note(&o.value) { " (a note required)" } else { "" });
+        }
+    }
     match &s.output {
         None => {
             let _ = writeln!(out, "Output: not delivered yet");
         }
         Some(o) => {
             let _ = writeln!(out, "Output (delivered {} by {}){}:", o.at.as_deref().unwrap_or("?"), o.delivered_by, o.result.as_deref().map(|r| format!(", result: {r}")).unwrap_or_default());
+            for v in &o.selected {
+                let label = s.choice.as_ref().and_then(|c| c.label(v)).unwrap_or_default();
+                let _ = writeln!(out, "  Chose: {v} \"{label}\"");
+            }
             if !o.note.is_empty() {
                 let mut b = String::new();
                 block(&mut b, &format!("Note (written by {})", o.delivered_by), &o.note);

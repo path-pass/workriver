@@ -141,7 +141,8 @@ workriver gate submit
 workriver gate submit  arg findings --findings value=["FILE"] num=1 action=Set
 workriver gate submit  arg help --help -h num=0 action=Help
 workriver gate submit  arg note --note value=["NOTE"] num=1 default=[""] action=Set
-workriver gate submit  arg result index=2 value=["RESULT"] num=1 one-of=["done", "problem"] action=Set required
+workriver gate submit  arg result index=2 value=["RESULT"] num=1 one-of=["done", "problem", "answered"] action=Set required
+workriver gate submit  arg select --select value=["ID"] num=1 action=Set
 workriver gate submit  arg task index=1 value=["TASK"] num=1 action=Set required
 workriver guide
 workriver guide  arg help --help -h num=0 action=Help
@@ -324,6 +325,8 @@ workriver project rename  arg title index=2 value=["TITLE"] num=1 action=Set req
 workriver reply
 workriver reply  arg help --help -h num=0 action=Help
 workriver reply  arg message index=1 value=["MESSAGE"] num=1 action=Set required
+workriver reply  arg option --option value=["ID=LABEL"] num=1 action=Append
+workriver reply  arg require_note --require-note value=["ID"] num=1 action=Append
 workriver reply  arg text --text value=["TEXT"] num=1 action=Set required
 workriver run
 workriver run  arg help --help -h num=0 action=Help
@@ -337,6 +340,8 @@ workriver run review  arg text --text value=["TEXT"] num=1 action=Set required
 workriver run review  arg verdict --verdict value=["VERDICT"] num=1 one-of=["ok", "caution", "danger"] action=Set required
 workriver say
 workriver say  arg help --help -h num=0 action=Help
+workriver say  arg option --option value=["ID=LABEL"] num=1 action=Append
+workriver say  arg require_note --require-note value=["ID"] num=1 action=Append
 workriver say  arg text --text value=["TEXT"] num=1 action=Set required
 workriver serve
 workriver serve  arg help --help -h num=0 action=Help
@@ -355,7 +360,9 @@ workriver task add  arg cause --cause value=["N:IDS"] num=1 action=Append
 workriver task add  arg gate --gate value=["GATE"] num=1 one-of=["deploy", "test", "decide"] action=Set
 workriver task add  arg help --help -h num=0 action=Help
 workriver task add  arg kind --kind value=["KIND"] num=1 one-of=["implement", "design", "research", "review", "tests", "gate"] default=["implement"] action=Set
+workriver task add  arg option --option value=["ID=LABEL"] num=1 action=Append
 workriver task add  arg plan --plan value=["PLAN"] num=1 action=Append
+workriver task add  arg require_note --require-note value=["ID"] num=1 action=Append
 workriver task add  arg reviewer --reviewer value=["REVIEWER"] num=1 one-of=["code-review", "security-review", "architecture-review"] action=Set
 workriver task add  arg step --step value=["STEP"] num=1 action=Append
 workriver task add  arg text --text value=["TEXT"] num=1 default=[""] action=Set

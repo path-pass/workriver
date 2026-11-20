@@ -35,8 +35,24 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             return Ok(None);
         }
         Cmd::Answer { question, text, asked, conclusion } => d.append(actor, "question.answered", json!({ "question": question, "text": text, "asked": asked, "conclusion": conclusion }))?,
-        Cmd::Reply { message, text } => d.append(actor, "message.replied", json!({ "message": message, "text": text }))?,
-        Cmd::Say { text } => d.append(actor, "message.said", json!({ "text": text }))?,
+        Cmd::Reply { message, text, option, require_note } => {
+            let choice = parse_choice(&option, &require_note)?;
+            let out = d.append(actor, "message.replied", json!({ "message": message, "text": text, "choice": choice }))?;
+            if choice.is_none() && lists_options(&[&text]) {
+                println!("{}\n{OPTIONS_HINT}", made(&out));
+                return Ok(None);
+            }
+            out
+        }
+        Cmd::Say { text, option, require_note } => {
+            let choice = parse_choice(&option, &require_note)?;
+            let out = d.append(actor, "message.said", json!({ "text": text, "choice": choice }))?;
+            if choice.is_none() && lists_options(&[&text]) {
+                println!("{}\n{OPTIONS_HINT}", made(&out));
+                return Ok(None);
+            }
+            out
+        }
         _ => unreachable!("not one of questions, answers, replies, and what is said to and by a manager"),
     }))
 }
