@@ -19,8 +19,9 @@ impl App {
         }
     }
 
-    /// The user's message as the manager reads it: with files or lines picked, where the
-    /// unit's branch is checked out (found here, from git; `delivery` stays pure).
+    /// The user's message as the manager reads it: with files or lines picked (the one place
+    /// that rule is), where the unit's branch is checked out, found here from git and given
+    /// to `delivery`, which stays pure and names it whenever given.
     fn user_message(&self, all: &core::State, m: &core::Message) -> String {
         let code = m.context.iter().any(|c| matches!(c.kind.as_str(), "file" | "lines"));
         let dir = all.unit_or_intent(&m.unit).filter(|_| code).map(|u| self.work_tree(&u));

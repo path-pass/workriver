@@ -91,7 +91,8 @@ pub(crate) struct MessageOut {
     pub(crate) attachments: Vec<AttachmentOut>,
     pub(crate) at: String,
     /// sending, blocked (the manager waits for a person in its terminal; it goes in once
-    /// free), delivered or not-delivered.
+    /// free), held (the manager is on a blind task; it goes once that is delivered, `reason`
+    /// says so), delivered or not-delivered.
     pub(crate) step: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reason_code: Option<core::ReasonCode>,

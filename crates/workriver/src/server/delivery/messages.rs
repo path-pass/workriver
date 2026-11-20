@@ -148,7 +148,8 @@ pub(super) fn added_message(state: &State, actor: &str, unit: &str, n: u32, adde
 /// What a manager reads when the user writes to it from the page: workriver's words (what it
 /// is, how to reply, what the user picked and where the code is), then the user's own, quoted
 /// as theirs (only the user records `message.sent`, see `Body::user_only`). `dir`: where the
-/// unit's branch is checked out (or its repository), found by the caller, for files and lines.
+/// unit's branch is checked out (or its repository), found by the caller when the message
+/// points at files or lines; named whenever given.
 pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message, home: &Path, dir: Option<&str>) -> String {
     let about = state.intents.iter().find(|i| i.id == m.intent).map(|i| format!(", about intent {} \"{}\"", i.id, quote::name(&i.title))).unwrap_or_default();
     let unit = (!m.unit.is_empty()).then(|| state.unit_or_intent(&m.unit)).flatten();
@@ -158,10 +159,9 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
     };
     at.extend(pointed(state, &m.unit, &m.context, home));
     let at = if at.is_empty() { String::new() } else { format!("It points at: {}. ", at.join("; ")) };
-    let code = match (&unit, dir) {
-        (Some(u), Some(dir)) if m.context.iter().any(|c| matches!(c.kind.as_str(), "file" | "lines")) => {
-            if u.branch.is_empty() { format!("The files are in {dir}. ") } else { format!("The files are in {dir} on branch {} (from {}). ", quote::name(&u.branch), quote::name(&u.base)) }
-        }
+    let code = match (&unit, dir.map(quote::path)) {
+        (Some(u), Some(dir)) if u.branch.is_empty() => format!("The files are in {dir}. "),
+        (Some(u), Some(dir)) => format!("The files are in {dir} on branch {} (from {}). ", quote::name(&u.branch), quote::name(&u.base)),
         _ => String::new(),
     };
     let details = match (m.task, &unit) {
@@ -201,7 +201,7 @@ pub(in crate::server) fn pointed(state: &State, unit: &str, context: &[AskContex
                 ("file", Some(p), _, _) => format!("the file {}", quote::name(p)),
                 ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
                 ("attachment", _, _, _) => match stored(&c.id) {
-                    Some(a) => format!("the attachment \"{}\" at {}", quote::name(&a.name), crate::server::files::store::path(home, &a.id, &a.name).display()),
+                    Some(a) => format!("the attachment \"{}\" at {}", quote::name(&a.name), quote::path(&crate::server::files::store::path(home, &a.id, &a.name).display().to_string())),
                     None => format!("the attachment \"{}\"", quote::name(&c.label)),
                 },
                 _ => quote::name(&c.label),

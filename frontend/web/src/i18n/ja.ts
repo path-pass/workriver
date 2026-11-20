@@ -402,6 +402,7 @@ export const ja: OneForm<typeof en> = {
     empty: '{{workspace}} のマネージャーに書きます。マネージャーはターミナルで読み、ここに返信します。',
     step: {
       sending: '{{agent}} に送信中…',
+      held: '待機中：{{agent}} はブラインドのタスク中です。そのタスクの納品後に届きます',
       blocked: '{{runtime}} であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたらメッセージが入ります。',
       delivered: '{{agent}} のターミナルに入りました',
       'not-delivered': '届きませんでした：{{reason}}'

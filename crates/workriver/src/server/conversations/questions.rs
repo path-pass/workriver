@@ -146,6 +146,14 @@ impl App {
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
         };
+        // A manager on a blind task is told nothing of other work: the user's message waits
+        // (`poll` tries again) until that task is delivered. Checked at every try, since it may
+        // have become blind while the message was held. Unread, it is not given either.
+        if h.kind == For::Message && !self.blind_free(&h.to) {
+            h.not_ready = None;
+            self.held.lock().unwrap().push(h);
+            return;
+        }
         match self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
@@ -166,6 +174,12 @@ impl App {
         }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());
+    }
+
+    /// Whether `session` is known, as recorded now, to be on no blind task in progress.
+    fn blind_free(&self, session: &str) -> bool {
+        let read = got(self.store.lock().unwrap().recorded());
+        matches!(read, Ok(Some(s)) if s.blind_tasks(session).is_empty())
     }
 
     /// The thread a question belongs to, as recorded now.

@@ -250,6 +250,9 @@ function Step({ m }: { m: ManagerMessage }) {
         <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(m.blocked!.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
       </div>
     )
+  // Its manager is on a blind task: it goes once that task is delivered (the service's words on hover).
+  if (m.step === 'held')
+    return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-ink-2">{t('talk.step.held', { agent: m.manager })}</p></Tip>
   if (m.step === 'not-delivered')
     return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-del">{t('talk.step.not-delivered', { reason: t(`deliver.reason.${m.reasonCode ?? 'unknown'}`) })}</p></Tip>
   return <p className="mt-1 text-xs text-ink-2">{m.step === 'sending' && <span className="pending" aria-hidden />}{t(`talk.step.${m.step}`, { agent: m.manager })}</p>

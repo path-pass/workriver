@@ -23,8 +23,9 @@ export interface ManagerMessage {
   /** The stored files its context points at (the page's own copies with the sample), to open. */
   attachments?: Attachment[];
   at: string;
-  /** blocked: the manager waits for a person in its terminal; the message goes in once it is free. */
-  step: 'sending' | 'blocked' | 'delivered' | 'not-delivered';
+  /** blocked: the manager waits for a person in its terminal; the message goes in once it is free.
+   *  held: the manager is on a blind task; the message goes once that task is delivered (`reason` says so). */
+  step: 'sending' | 'blocked' | 'held' | 'delivered' | 'not-delivered';
   reasonCode?: ReasonCode;
   reason?: string;
   blocked?: { agent: string; session: string };

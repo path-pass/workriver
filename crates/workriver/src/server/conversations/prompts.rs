@@ -77,6 +77,8 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
     if q.task == 0 {
         return unit_prompt(state, q, dir, home);
     }
+    // A folder's name is from the records or git: named as workriver's words, on one line.
+    let dir = &quote::path(dir);
     let u = state.unit_or_intent(&q.unit)?;
     let t = state.task(&q.unit, q.task).ok()?;
     let code = if u.branch.is_empty() { format!("The code is in {dir}; read it there.") } else { format!("The code is in {dir} on branch {} (from {}); read it there.", quote::name(&u.branch), quote::name(&u.base)) };
@@ -100,7 +102,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
         .attachments_of(&q.unit, q.task)
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| a.id == id))
-        .map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string())
+        .map(|a| quote::path(&crate::server::files::store::path(home, &a.id, &a.name).display().to_string()))
         .collect();
     if !stored.is_empty() {
         m.push(format!("Its attachments, to open: {}.", stored.join(", ")));
@@ -190,6 +192,7 @@ const NOTE_CAP: usize = 300;
 /// purpose, where its code is, its tasks and findings in short. Nobody else is asked: a
 /// unit's agents may be at work, or on a blind task.
 fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<String> {
+    let dir = &quote::path(dir);
     let u = state.unit(&q.unit).ok()?;
     let place = if u.has_code() {
         format!(

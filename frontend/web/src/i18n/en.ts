@@ -417,6 +417,7 @@ export const en = {
     empty: 'Write to the manager of {{workspace}}: it reads it in its terminal and replies here.',
     step: {
       sending: 'Sending to {{agent}}…',
+      held: 'Waiting: {{agent}} is on a blind task; it goes in once that task is delivered',
       blocked: 'Waiting for you in {{runtime}}: {{agent}} needs an answer in its terminal. The message goes in once it is free.',
       delivered: 'In {{agent}}’s terminal',
       'not-delivered': 'Not delivered: {{reason}}'

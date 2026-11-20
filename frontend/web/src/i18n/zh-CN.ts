@@ -402,6 +402,7 @@ export const zhCN: OneForm<typeof en> = {
     empty: '写给 {{workspace}} 的管理者：它在终端里读到，在这里回复。',
     step: {
       sending: '正在发给 {{agent}}…',
+      held: '等待中：{{agent}} 正在做盲审任务，交付后才会发给它',
       blocked: '在 {{runtime}} 里等你：{{agent}} 的终端里有问题要回答。它空下来后消息会自动发进去。',
       delivered: '已发到 {{agent}} 的终端',
       'not-delivered': '没有送达：{{reason}}'
