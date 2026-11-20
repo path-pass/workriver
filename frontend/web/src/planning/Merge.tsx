@@ -7,7 +7,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 import { Input } from '@/ui/primitives/input'
 import { useAct } from '@/work/actions'
 import { contentLang, useT } from '@/i18n'
-import type { Intent } from '@/planning/types'
+import type { Intent } from './types'
 import type { Workspace } from '@/workspace/types'
 import { NoteDisclosure } from '@/content/Prose'
 import { Content, slot, Slot, SLOT } from '@/content/Chips'

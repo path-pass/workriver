@@ -9,15 +9,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primit
 import { Input } from '@/ui/primitives/input'
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { attention, blockedAgents } from '@/attention/select'
-import { intentQuietSince, noCode, quietSince, unitsOf } from '@/planning/select'
+import { intentQuietSince, noCode, quietSince, unitsOf } from './select'
 import { repoOf } from '@/code/select'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { useResize } from '@/lib/useResize'
 import { record } from '@/api/actions'
-import type { Intent, Unit } from '@/planning/types'
+import type { Intent, Unit } from './types'
 import type { Workspace } from '@/workspace/types'
-import { Progress } from './bits'
 import { MachineChip } from '@/machines/format'
 import { Content, ExternalChip, Slot, SLOT } from '@/content/Chips'
 import { CopyButton } from '@/ui/CopyButton'
@@ -462,5 +461,35 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         <Settings ws={ws} />
       </div>
     </aside>
+  )
+}
+
+/**
+ * Where a unit stands, as a small dot and a word: working, waiting, ready to merge (in the
+ * done tone, so what can be merged stands out), merged, or done (with why, on hover).
+ */
+export function Progress({ unit }: { unit: Unit }) {
+  const { t } = useT()
+  const p = unit.progress ?? (unit.status === 'merged' ? 'merged' : null)
+  if (!p) return null
+  // Research and spikes are never merged: ready, they are closed.
+  const tag = <span className="tag font-normal tracking-normal" data-progress={p}>{t(p === 'ready' && unit.kind ? 'unit.progress.readyClose' : `unit.progress.${p}`)}</span>
+  return unit.doneReason ? <Tip text={unit.doneReason}>{tag}</Tip> : tag
+}
+
+/**
+ * A ready unit whose every change is already in its base: merged by squash, most likely,
+ * which git cannot show. Said next to "Ready to merge", with the command that records it.
+ */
+export function Squashed({ unit }: { unit: Unit }) {
+  const { t } = useT()
+  const s = unit.squash!
+  const command = t('unit.mergedCommand', { unit: unit.id })
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-normal tracking-normal text-ink-2">
+      <Tip text={t('unit.squashedWhy', { into: s.into, commit: s.commit.slice(0, 9) })}><span className="tag font-normal tracking-normal">{t('unit.squashed')}</span></Tip>
+      <code className="font-mono">{command}</code>
+      <CopyButton text={command} />
+    </span>
   )
 }

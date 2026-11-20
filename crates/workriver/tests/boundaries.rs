@@ -39,10 +39,10 @@ const STILL_HERDR: &[&str] = &[
     "frontend/web/src/agents/types.ts",
     "frontend/web/src/api/actions.ts",
     "frontend/web/src/commands/Run.tsx",
-    "frontend/web/src/components/Start.tsx",
     "frontend/web/src/i18n/en.ts",
     "frontend/web/src/i18n/ja.ts",
     "frontend/web/src/i18n/zh-CN.ts",
+    "frontend/web/src/planning/Start.tsx",
     "frontend/web/src/planning/types.ts",
 ];
 const STILL_PANE: &[&str] = &[
