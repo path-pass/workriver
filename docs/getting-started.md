@@ -248,6 +248,14 @@ Do the same build on **every other machine** you follow (`git pull`, `cargo buil
 `workriver status`, here and on each of them, shows the version and the commit of the
 service and says so when the command it was run with is another build.
 
+Cargo never removes old builds from `target/`: after some weeks of updates `target/debug`
+can pass 20 GB. `cargo clean --profile dev` removes `target/debug` only; the
+`target/release/workriver` the service runs from stays. Each git worktree has its own
+`target/` (about 1.5 GB after a build and its tests), removed with the worktree. Worktrees
+do not share one build folder on purpose: cargo names this repository's own crates by their
+path inside the checkout and decides what to rebuild by file times, so a worktree whose
+files are older than another's last build would run that other worktree's code.
+
 ## Troubleshooting
 
 - **"cannot listen on 127.0.0.1:47820"**: another workriver (or something else) uses the

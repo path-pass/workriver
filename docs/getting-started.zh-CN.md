@@ -217,6 +217,13 @@ cargo build --release
 那边 agent 用的 `workriver` 命令要和服务是同一个版本。在这边和那边运行 `workriver status`，
 都会显示服务的版本和提交号；如果运行它的命令是另一个构建，会明说。
 
+Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` 可能超过 20 GB。
+`cargo clean --profile dev` 只删 `target/debug`，服务运行所用的 `target/release/workriver`
+不受影响。每个 git worktree 有自己的 `target/`（构建并编译测试后约 1.5 GB），随 worktree
+删除。worktree 有意不共用一个构建目录：cargo 按 checkout 内的路径给本仓库自己的 crate
+命名，按文件时间决定要不要重编，所以文件比别的 worktree 上次构建更旧的 worktree
+会跑到那个 worktree 的代码。
+
 ## 排错
 
 - **"cannot listen on 127.0.0.1:47820"**：端口被另一个 workriver（或别的程序）占了。停掉它，
