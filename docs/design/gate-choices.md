@@ -26,10 +26,10 @@ and `docs/design/ui/conversations.md` (the page), the recipes, and `docs/design/
       "options": [{"label": "核对通过后合并并推送", "value": "merge"},
                   {"label": "先再审一轮", "value": "review"},
                   {"label": "先不合并", "value": "hold"}],
-      "value": {"@path": "/selected"},
-      "@checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/selected"}}}}]},
+      "value": {"@path": "/selected"}},
      {"id": "submit", "component": "Button", "variant": "primary", "child": "submit-label",
-      "action": {"event": {"name": "answer", "context": {"selected": {"@path": "/selected"}}}}},
+      "action": {"event": {"name": "answer", "context": {"selected": {"@path": "/selected"}}}},
+      "@checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/selected"}}}}]},
      {"id": "submit-label", "component": "Text", "text": {"@path": "/ui/submit"}}
    ],
    "dataModel": {"selected": []}}},
@@ -42,8 +42,8 @@ allows exactly these four components and properties, in exactly this shape:
 | Component | Properties allowed (values as above) |
 |---|---|
 | `Column` | `id: "root"`, `children: ["options", "submit"]` |
-| `ChoicePicker` | `id: "options"`, `variant: "mutuallyExclusive"` (one pick), `options: [{label, value}]` (labels literal strings, no binding), `value: {"@path": "/selected"}`, `@checks` with the one `required` rule |
-| `Button` | `id: "submit"`, `variant: "primary"`, `child: "submit-label"`, `action.event` with `name: "answer"` and `context: {"selected": {"@path": "/selected"}}` |
+| `ChoicePicker` | `id: "options"`, `variant: "mutuallyExclusive"` (one pick), `options: [{label, value}]` (labels literal strings, no binding), `value: {"@path": "/selected"}` |
+| `Button` | `id: "submit"`, `variant: "primary"`, `child: "submit-label"`, `action.event` with `name: "answer"` and `context: {"selected": {"@path": "/selected"}}`, `@checks` with the one `required` rule (A2UI disables a Button while one of its own checks fails, so no answer leaves with nothing picked) |
 | `Text` | `id: "submit-label"`, `text: {"@path": "/ui/submit"}` |
 
 - A Column is needed because a surface has exactly one root, `id: "root"`, and the picker
@@ -60,18 +60,20 @@ allows exactly these four components and properties, in exactly this shape:
   on one line, not blank, at most 200 characters. Every `needs_note` entry is one of the
   values.
 
-**Building and checking it, in core.** One module, `workriver-core/src/choices/`, does both:
+**Building and checking it, in core.** The subset is a record format, and
+`workriver-core/src/choices/` holds its write rule (build it, check it, read the values back).
+Core neither draws it nor holds UI text; `/ui/submit` is only a path in the record's data model
+that the renderer fills. One module does both:
 
 - `surface(options, needs_note)` builds the stored form. The CLI calls it to turn
   `--option`/`--require-note` into the body it sends.
 - `options(&choice)` reads `(value, label)` and `needs_note` back out, for the CLI's
   `show`, the messages and the page.
-- **Closed schema.** On record (`prepare`), core parses the choice into typed structs with
-  `deny_unknown_fields`, where a component is an enum of the four kinds. It reads the
-  options out, rebuilds the canonical surface from them and refuses the choice unless the
-  two are equal: "a choice is stored as workriver's A2UI 1.0 subset; give it with
-  --option". So any other component, property, binding, function, catalog or version is
-  refused, whoever sends it (`/api/append` included).
+- **Closed schema.** On record (`prepare`), core reads the options out of the choice,
+  rebuilds the canonical surface from them and refuses the choice unless the two are equal:
+  "a choice is stored as workriver's A2UI 1.0 subset; give it with --option". So any other
+  component, property, binding, function, catalog or version is refused, whoever sends it
+  (`/api/append` included); no second, typed copy of the shape is needed.
 
 **The answer** is the chosen values, `selected: ["review"]`: one value now, and a list
 because turning a string into a list later would break replay. Core checks it against the
@@ -107,16 +109,14 @@ on replayed state alike. Old events carry none of them and replay as they were, 
 - [basic catalog guide](https://a2ui.org/specification/v1.0-basic-catalog-implementation-guide/#choicepicker):
   `mutuallyExclusive` is drawn as single choice.
 
-**Not verified:**
-
-- The spec pages were read partly from summaries past their first ~40k characters. The
-  `createSurface` keys and the action message come from verbatim text, but no full example
-  was copied whole.
-- The basic catalog file in the repository (`catalogs/basic/v1/catalog.json`) was not
-  read, only its a2ui.org copy.
-- No surface above was run through an A2UI validator. The research measured that the
-  published `@a2ui/web_core` 0.15.0 rejects the spec's `@checks`; the stored form follows
-  the spec, not that package.
+**Verified, and held by a test.** `choices/tests.rs` (`every_choice_is_valid_a2ui_v1_0`)
+validates every surface the builder makes (2 to 8 options, with and without notes) against
+the A2UI v1.0 JSON Schemas (`agent_to_renderer.json`, `common_types.json`, the basic catalog),
+and the Button's answer against `renderer_to_agent.json`, with the `jsonschema` crate as a
+dev-dependency; a shape outside the spec (a note requirement inside an option item) is refused
+by them. The schemas are vendored in `choices/__fixtures__/a2ui-v1_0/` from the repository at
+commit `496df0e7` (Apache-2.0, `LICENSE` beside them); its basic catalog is byte for byte the
+copy at a2ui.org. The review ran the same check by hand (VALID; the negative controls refused).
 
 ## 2. The carriers
 
@@ -201,9 +201,13 @@ Output (submitted … by the user), result: answered
 - **It triggers nothing.** No task, no gate, no state other than the message. A decision
   that work waits on (merge, deploy, the goal, anything destructive) is still a decide gate.
   The conversation's choice is for questions while talking ("which of these do you mean?").
-- **What the page reads.** The conversation's messages and replies gain `choice` and, once
-  answered, `answered: {"by": "m9", "selected": [...]}`, both left out when empty. The
-  page-JSON guard's manager conversation gains an answered `say` choice.
+- **What the page reads.** The conversation's messages and replies gain `choice`, once
+  answered `answered: {"by": "m9", "selected": [...]}`, and `open: true` while the user can
+  still answer it: not answered, and asked by the workspace's manager now
+  (`State::choice_open`, as the view computes `blind`). One asked by an earlier manager is
+  drawn read-only, saying why and that the user can write to the manager instead. The user's
+  answering message carries `answer`. All are left out when empty. The page-JSON guard's
+  conversation gains an answered `say` choice, a reply answered and one still open.
 
 ## 3. What an answer unlocks: nothing by itself
 
@@ -236,8 +240,8 @@ steps, still one task each (`push-pr-merge`).
 
 ## 4. The renderer
 
-- **One component**, `frontend/web/src/content/choice/` (`Choice.tsx`, and `surface.ts` for
-  the types and reading the subset). It sits beside Markdown and diagrams: it draws what an
+- **One component**, `frontend/web/src/content/choice/` (`Choice.tsx`: `ChoiceSurface` and
+  `Chose`; `surface.ts` for the types and reading the subset). It sits beside Markdown and diagrams: it draws what an
   agent wrote. It takes the stored choice and draws the subset over the installed Radix: the
   ChoicePicker as a radio group (shadcn's `radio-group` over `radix-ui`, added to
   `ui/primitives/`, no new npm package), the Button, the Text. Labels are plain text (no
@@ -250,6 +254,7 @@ steps, still one task each (`push-pr-merge`).
   A missing pick or note shows its error in place, from i18n.
 - **Each carrier:**
   - `GateForm`: the toggle reads **Answer | Problem** (Answer first). Problem is as today.
+    The gate is named a question ("Question"), not "Confirm design".
     The note's draft, the pictures, the undo window and the delivery line are kept.
   - The Manager conversation (`conversations/Turns.tsx`): the choice under the message or
     reply that carries it. After answering: "Chose: <label>" there. The user's message
@@ -261,9 +266,13 @@ steps, still one task each (`push-pr-merge`).
   ja. `mock/demo.json` gets one choice gate and one `say` choice.
 - **Swapping in the official renderer later**, once a published `@a2ui/react` /
   `@a2ui/web_core` accepts the 1.0 spec's `@checks` (0.15.0 does not):
-  - only `Choice.tsx`'s body changes: it hands the stored surface to the official
+  - `Choice.tsx`'s body changes: it hands the stored surface to the official
     `A2uiSurface` with a catalog of these four components, and maps the `answer` action's
     `context.selected` to the carrier's callback;
+  - the carrier's note then goes after the surface, not between the options and the button
+    (the official Column draws the two together): the carrier holds the `answer` action until
+    a required note is there and shows the error in place. That is the one change a carrier
+    takes; the Button's own `required` check already keeps an empty pick from leaving;
   - it is loaded only when a choice is shown, as its own chunk (`import()`), the way the
     mermaid frame's script is built apart from the app's bundle and fetched only when a
     diagram is drawn. It is not in a frame, because it draws controls the user uses in the
