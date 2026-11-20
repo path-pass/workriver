@@ -222,6 +222,28 @@ describe('a base merged into the branch is not the unit\'s change', () => {
     expect(shownDelta(u, selectionOf(u, { kind: 'task', id: 't1' }), 'x.ts')).toBeNull()
   })
 
+  it('a task\'s status is from the parts it kept: a file it added and deleted, then the base added, it only changed', () => {
+    // t1 adds path.txt and deletes it; the base adds it (t2 merges that in); t1 appends a line.
+    const u = unit(
+      [
+        commit('c1', [change('path.txt', null, 'temporary\n')]),
+        commit('c2', [change('path.txt', 'temporary\n', null)]),
+        { ...commit('m3', [change('path.txt', null, 'from base\n')]), merge: true },
+        commit('c4', [change('path.txt', 'from base\n', 'from base\nmy edit\n')]),
+      ],
+      [task('t1', ['c1', 'c2', 'c4']), task('t2', ['m3'])],
+    )
+    const d = shownDelta(u, selectionOf(u, { kind: 'task', id: 't1' }), 'path.txt')!
+    expect([d.status, d.add, d.del, d.parts.length]).toEqual(['M', 1, 0, 1])
+    expect(fileRows(u, 't1')['path.txt']).toEqual({ status: 'M', add: 1, del: 0, inPick: true })
+    // Added by the task and only changed after: still added.
+    const added = unit(
+      [commit('c1', [change('x.ts', null, 'x\n')]), commit('c2', [change('x.ts', 'x\n', 'x\ny\n')]), commit('c3', [change('x.ts', 'x\ny\n', 'x\ny\nz\n')])],
+      [task('t1', ['c1', 'c3']), task('t2', ['c2'])],
+    )
+    expect(shownDelta(added, selectionOf(added, { kind: 'task', id: 't1' }), 'x.ts')!.status).toBe('A')
+  })
+
   it('the work a file\'s whole change comes from is the unit\'s own commits, never the merge', () => {
     expect(shownDelta(across, selectionOf(across, null), 'shared.txt')!.touched).toEqual([0, 2])
   })

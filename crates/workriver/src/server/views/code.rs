@@ -32,11 +32,16 @@ pub(in crate::server) fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: 
         scan::Found::Fresh => (vec![], fork, false),
         scan::Found::Gone => return Ok((seen.map(|s| s.commits).unwrap_or_default(), false)),
     };
-    let was = seen.as_ref().and_then(|s| s.base_at.clone());
+    let repo = Path::new(&u.repo);
     let base_at = match commits.last() {
-        Some(tip) if !merged => scan::merge_base(at, Path::new(&u.repo), &u.base, &tip.hash)?,
-        Some(tip) if was.is_none() => scan::base_before(at, Path::new(&u.repo), &u.base, &tip.hash)?,
-        _ => was,
+        Some(tip) if !merged => scan::merge_base(at, repo, &u.base, &tip.hash)?,
+        // Merged: as the base stood before the merge that took it, from the history; only
+        // when that cannot tell (a fast-forward), as last seen at this same tip.
+        Some(tip) => match scan::base_before(at, repo, &u.base, &tip.hash)? {
+            Some(b) => Some(b),
+            None => seen.as_ref().and_then(|s| recorded_at(s, &tip.hash)),
+        },
+        None => seen.as_ref().and_then(|s| s.base_at.clone()),
     };
     let now = Seen { place, fork, commits: commits.clone(), base_at };
     if seen.as_ref() != Some(&now) {
@@ -60,6 +65,10 @@ fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Re
         let tip = scan::tip(&refs, &u.branch).unwrap_or("-").to_string();
         // The base's remote copies too: a fetch can merge the branch upstream (`scan::since`).
         let mut up: Vec<&str> = refs.iter().filter(|(r, _)| r.strip_prefix("refs/remotes/").and_then(|r| r.split_once('/')).is_some_and(|(_, b)| b == u.base)).map(|(_, h)| h.as_str()).collect();
+        // And the upstream the base has now, whatever its name, and where it points: unset or
+        // set to another, what the branch is measured against changes, no hash moved.
+        let tracked = scan::upstream(&refs, &u.base).map(|r| format!("{r}={}", refs.get(r).map_or("-", String::as_str)));
+        up.extend(tracked.as_deref());
         up.sort();
         Some(format!("{}|{}={tip}|{}={base}|{fork}|{}|{}|{}|{}", u.repo, u.branch, u.base, u.earlier.len(), u.links.len(), u.merged_commits.len(), up.join(",")))
     });
@@ -88,27 +97,31 @@ fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Re
     Ok((hashes, merged, base_at))
 }
 
-/// Where a unit recorded merged met its base before it merged: as last seen while it was
-/// not, else as the base stood before the merge that took its last commit (worked out once
-/// per run). None when neither tells (merged by a fast-forward, say).
+/// Where a unit recorded merged met its base before it merged: as the base (or its upstream)
+/// stood before the merge that took its last commit, from the history (worked out once per
+/// run); only when that cannot tell (a fast-forward), as last seen at that same tip. None
+/// when neither tells.
 fn met_before(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> Option<String> {
-    if let Some(b) = cache.stored.seen.get(&u.id).and_then(|s| s.base_at.clone()) {
-        return Some(b);
-    }
     let tip = u.merged_commits.last()?.clone();
     if let Some((_, b)) = cache.before.get(&u.id).filter(|(t, _)| *t == tip) {
         return b.clone();
     }
-    match scan::base_before(at, Path::new(&u.repo), &u.base, &tip) {
-        Ok(b) => {
-            cache.before.insert(u.id.clone(), (tip, b.clone()));
-            b
-        }
+    let found = match scan::base_before(at, Path::new(&u.repo), &u.base, &tip) {
+        Ok(b) => b,
         Err(e) => {
             tracing::warn!("unit {}: {e}", u.id);
-            None
+            return None;
         }
-    }
+    };
+    let b = found.or_else(|| cache.stored.seen.get(&u.id).and_then(|s| recorded_at(s, &tip)));
+    cache.before.insert(u.id.clone(), (tip, b.clone()));
+    b
+}
+
+/// Where the branch met its base as last seen, if it was seen at `tip`: a record of an
+/// earlier tip misses what came after (a last sync of the base, say).
+fn recorded_at(seen: &Seen, tip: &str) -> Option<String> {
+    seen.commits.last().filter(|c| c.hash == tip).and(seen.base_at.clone())
 }
 
 /// A unit's net change against its base, as `git diff from..tip` names it: from where it

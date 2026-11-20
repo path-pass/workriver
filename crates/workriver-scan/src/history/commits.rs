@@ -165,11 +165,25 @@ pub fn merge_base(at: &Runner, repo: &Path, base: &str, tip: &str) -> Result<Opt
 
 /// Where a branch merged into its base met it just before: the merge base of `tip` and the
 /// base as it stood before the merge that took `tip` in (the first parent of the oldest commit
-/// on the base's first-parent line that has `tip`). None when the base has not got `tip`, or
-/// got it by a fast-forward: its line is the branch's then, and where it stood before is not
-/// in the history.
+/// on its first-parent line that has `tip`), on the base or, when that has not got it (or by
+/// a fast-forward), on its upstream: the one that took it. None when neither has `tip`, or
+/// got it by a fast-forward: their line is the branch's then, and where they stood before is
+/// not in the history.
 pub fn base_before(at: &Runner, repo: &Path, base: &str, tip: &str) -> Result<Option<String>> {
-    let range = format!("{tip}..{base}");
+    let upstream = format!("{base}@{{upstream}}");
+    for into in [base, upstream.as_str()] {
+        if has_rev(at, repo, into)
+            && let Some(met) = before_on(at, repo, into, tip)?
+        {
+            return Ok(Some(met));
+        }
+    }
+    Ok(None)
+}
+
+/// `base_before` on one ref.
+fn before_on(at: &Runner, repo: &Path, into: &str, tip: &str) -> Result<Option<String>> {
+    let range = format!("{tip}..{into}");
     let line = git(at, repo, &["rev-list", "--first-parent", "--ancestry-path", "--reverse", &range, "--"])?;
     let Some(took) = line.lines().next() else { return Ok(None) };
     let before = format!("{took}^1");

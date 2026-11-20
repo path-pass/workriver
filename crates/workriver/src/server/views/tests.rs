@@ -140,3 +140,102 @@ fn a_merged_unit_keeps_its_history_read_cold() {
     let recorded = super::code::read_unit(&scan::Runner::Local, &u, &mut Cache::default(), false);
     assert_eq!(seen(&recorded), seen(&active), "recorded merged");
 }
+
+/// A file named `path` holding its name, committed with `trailer`.
+fn add_file(repo: &std::path::Path, path: &str, trailer: &str) {
+    std::fs::write(repo.join(path), format!("{path}\n")).unwrap();
+    git_in(repo, &["add", path]);
+    git_in(repo, &["commit", "-qm", path, "-m", trailer]);
+}
+
+/// `u` read again, as a new snapshot would (refs and work trees read anew).
+fn read_again(repo: &std::path::Path, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>, Option<NetRead>) {
+    cache.refs.clear();
+    cache.worktrees.clear();
+    assert_eq!(repo.to_str().unwrap(), &u.repo);
+    super::code::read_unit(&scan::Runner::Local, u, cache, false)
+}
+
+/// The base merged in and the unit merged into it with no read in between: the merged
+/// unit reads from where it met its base just before it merged, warm or cold, found merged
+/// in git or recorded so; the last sync is a base merge, never the unit's work.
+#[test]
+fn a_final_sync_unseen_before_the_merge_is_not_the_units() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    side_merged(repo);
+    let mut u = unit_in(repo);
+    let mut cache = Cache::default();
+    let old = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&old).1, ["feature.txt", "side.txt"]);
+
+    git_in(repo, &["switch", "-q", "main"]);
+    add_file(repo, "base-only.txt", "Base");
+    git_in(repo, &["switch", "-q", "feature"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Final sync", "-m", "Task: u1#3", "main"]);
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "main...feature"]), "feature.txt\nside.txt\n");
+    git_in(repo, &["switch", "-q", "main"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Integrate final tip", "feature"]);
+
+    let cold = read_again(repo, &u, &mut Cache::default());
+    let warm = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&cold).1, ["feature.txt", "side.txt"]);
+    assert!(cold.0.last().unwrap().base_merge);
+    assert_eq!(seen(&warm).0.last().unwrap().2, ["base-only.txt"]);
+    u.merged = Some("2026-11-21T00:00:00Z".into());
+    u.merged_commits = cold.0.iter().map(|c| c.hash.clone()).collect();
+    let recorded = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&recorded), seen(&cold));
+}
+
+/// The base's upstream changed (here: unset), no branch moved: a warm read follows, as a
+/// cold one and git do.
+#[test]
+fn a_change_of_the_bases_upstream_reads_the_code_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    side_merged(repo);
+    git_in(repo, &["branch", "-q", "--set-upstream-to=side", "main"]);
+    let u = unit_in(repo);
+    let mut cache = Cache::default();
+    let initial = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&initial).1, ["feature.txt"]);
+    assert!(initial.0.last().unwrap().base_merge);
+
+    git_in(repo, &["branch", "-q", "--unset-upstream", "main"]);
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "main...feature"]), "feature.txt\nside.txt\n");
+    let warm = read_again(repo, &u, &mut cache);
+    let cold = read_again(repo, &u, &mut Cache::default());
+    assert_eq!(seen(&cold).1, ["feature.txt", "side.txt"]);
+    assert!(!cold.0.last().unwrap().base_merge);
+    assert_eq!(seen(&warm), seen(&cold));
+}
+
+/// A unit merged only into the base's upstream (the local base behind): it reads as before
+/// the merge there, found merged in git or recorded so.
+#[test]
+fn a_unit_merged_into_the_upstream_only_reads_as_before() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    side_merged(repo);
+    let mut u = unit_in(repo);
+    git_in(repo, &["switch", "-qc", "up", "main"]);
+    git_in(repo, &["branch", "-q", "--set-upstream-to=up", "main"]);
+    add_file(repo, "base-only.txt", "Upstream work");
+    git_in(repo, &["switch", "-q", "feature"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Sync upstream", "-m", "Task: u1#3", "up"]);
+    let expected = read_again(repo, &u, &mut Cache::default());
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "up...feature"]), "feature.txt\nside.txt\n");
+    assert_eq!(seen(&expected).1, ["feature.txt", "side.txt"]);
+    assert!(expected.0.last().unwrap().base_merge);
+    git_in(repo, &["switch", "-q", "up"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Integrate feature only in upstream", "feature"]);
+    let mut cold = Cache::default();
+    let found = read_again(repo, &u, &mut cold);
+    assert_eq!(cold.merged_now.len(), 1);
+    u.merged = Some("2026-11-21T00:00:00Z".into());
+    u.merged_commits = expected.0.iter().map(|c| c.hash.clone()).collect();
+    let recorded = read_again(repo, &u, &mut Cache::default());
+    assert_eq!(seen(&found), seen(&expected), "found merged in git");
+    assert_eq!(seen(&recorded), seen(&expected), "recorded merged");
+}

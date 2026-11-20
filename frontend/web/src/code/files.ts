@@ -61,10 +61,11 @@ const statusOf = (first: FileChange, last: FileChange) => (first.beforeMode === 
  * entry before the first of them that touches it against its entry after the last, the texts
  * giving only the line counts. Where another commit touched the file between two of them (a
  * merge of the base, other work), their texts do not chain: each stretch is a part of its
- * own, compared alone, and the counts are the parts' sums. Null when none touches it, when
- * every part leaves it as it was (added and then moved or deleted, changed and changed back:
- * its mode, a submodule's pointer too), and when it is not there at either end (the work
- * added and deleted it itself). A mode or type changed alone stays, M +0 -0. The tree's
+ * own, compared alone, and the counts are the parts' sums; how it changed (A, M, D) is
+ * from the ends of the parts kept. Null when none touches it, when every part leaves it as
+ * it was (added and then moved or deleted, changed and changed back: its mode, a submodule's
+ * pointer too), and when it is not there at either end (the work added and deleted it
+ * itself). A mode or type changed alone stays, M +0 -0. The tree's
  * counts and the single-file view both come from here, so they agree.
  */
 export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
@@ -79,13 +80,16 @@ export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta 
   }
   const first = at(touched[0])!, last = at(touched.at(-1)!)!
   if (first.beforeMode === GONE && last.afterMode === GONE) return null
-  const parts = stretches.flatMap(ks => {
+  const kept = stretches.flatMap(ks => {
     const a = at(ks[0])!, b = at(ks.at(-1)!)!
-    return same(a, b) ? [] : [{ touched: ks, upTo: ks.at(-1)!, before: a.before, after: b.after, ...counted(a, b) }]
+    return same(a, b) ? [] : [{ a, b, part: { touched: ks, upTo: ks.at(-1)!, before: a.before, after: b.after, ...counted(a, b) } }]
   })
-  if (!parts.length) return null
-  const shown = parts.at(-1)!
-  return { touched, before: shown.before, after: shown.after, upTo: shown.upTo, status: statusOf(first, last), add: sum(parts, 'add'), del: sum(parts, 'del'), parts }
+  if (!kept.length) return null
+  // How it changed, from the parts kept: a part that undid itself says nothing (a file the
+  // work added and deleted, then the base added and the work changed, is changed, not added).
+  const parts = kept.map(k => k.part), shown = parts.at(-1)!
+  const status = statusOf(kept[0].a, kept.at(-1)!.b)
+  return { touched, before: shown.before, after: shown.after, upTo: shown.upTo, status, add: sum(parts, 'add'), del: sum(parts, 'del'), parts }
 }
 
 const sum = (parts: { add: number; del: number }[], k: 'add' | 'del') => parts.reduce((s, p) => s + p[k], 0)
