@@ -3,7 +3,13 @@
 // up either way for now, and the service records the user's inputs without delivering them
 // to agents yet.
 import { MOCK, type Decision, type GateResult } from './data'
-import type { AskContext, AskStep, Attachment, Finding, Machine, MetricSample, MetricsReport, Sent, Task, Thresholds, Turn, Unit, Verdict, Workspace } from './types'
+import type { Attachment } from '@/attachments/types'
+import type { Finding, Task } from '@/work/types'
+import type { Unit } from '@/planning/types'
+import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
+import type { AskContext, AskStep, Sent, Turn } from '@/conversations/types'
+import type { Verdict } from '@/commands/types'
+import type { Workspace } from '@/workspace/types'
 
 /** Sent on the window when the service says this page is not the user (any more). */
 export const SIGNED_OUT = 'workriver:signed-out'

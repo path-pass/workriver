@@ -2,7 +2,7 @@
 // nothing before it on its line reached. Commits only, never merges; reviews and gates never.
 import { describe, expect, it } from 'vitest'
 import { growth } from './scope'
-import type { Unit } from './types'
+import type { Unit } from '@/planning/types'
 
 type T = { id: string; kind?: string; after?: string[]; commits?: string[] }
 type C = { id: string; files: string[]; merge?: boolean; live?: boolean }

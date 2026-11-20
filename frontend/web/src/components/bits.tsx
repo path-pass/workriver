@@ -7,7 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { focusAgent, NOTE, type Remote } from '@/runtime'
-import type { External, Step, Unit } from '@/types'
+import type { Step } from '@/work/types'
+import type { External, Unit } from '@/planning/types'
 
 // Who raised it is an icon; so is the state of a piece of work. All from lucide, one size, one stroke.
 const ICONS: Record<string, LucideIcon> = {

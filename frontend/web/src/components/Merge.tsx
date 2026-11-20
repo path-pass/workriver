@@ -7,7 +7,8 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 import { Input } from '@/components/ui/input'
 import { useAct } from '@/act'
 import { contentLang, useT } from '@/i18n'
-import type { Intent, Workspace } from '@/types'
+import type { Intent } from '@/planning/types'
+import type { Workspace } from '@/workspace/types'
 import { Content, NoteDisclosure, slot, Slot, SLOT } from './bits'
 import { Choice } from './Choice'
 

@@ -18,7 +18,12 @@ import { agents, askeeOf, blame, blockedAgents, firstUnit, inbox, intentOf, load
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from '@/link'
 import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery } from '@/runtime'
-import type { AskContext, Attachment, Intent, MachineAlert, ManagerMessage, Task, Turn, Unit, Workspace } from '@/types'
+import type { Attachment } from '@/attachments/types'
+import type { Task } from '@/work/types'
+import type { Intent, Unit } from '@/planning/types'
+import type { MachineAlert } from '@/machines/types'
+import type { AskContext, ManagerMessage, Turn } from '@/conversations/types'
+import type { Workspace } from '@/workspace/types'
 
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'

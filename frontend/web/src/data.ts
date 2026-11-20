@@ -2,7 +2,14 @@
 // the views derive from it. Apart from the loading, pure functions only.
 import { diffLines, structuredPatch } from 'diff'
 import type { T } from './i18n'
-import type { Attachment, Chore, Commit, FileChange, Intent, Finding, MachineAlert, ManagerMessage, Unit, ModuleNode, Repo, Session, Severity, Task, Workspace } from './types'
+import type { Commit, FileChange, ModuleNode, Repo } from '@/code/types'
+import type { Attachment } from '@/attachments/types'
+import type { Chore, Finding, Severity, Task } from '@/work/types'
+import type { Intent, Unit } from '@/planning/types'
+import type { Session } from '@/agents/types'
+import type { MachineAlert } from '@/machines/types'
+import type { ManagerMessage } from '@/conversations/types'
+import type { Workspace } from '@/workspace/types'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'

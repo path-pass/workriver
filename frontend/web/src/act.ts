@@ -3,7 +3,8 @@
 import { createContext, useContext } from 'react'
 import type { Decision, GateResult } from './data'
 import type { Delivery } from './runtime'
-import type { Finding, Task, Unit } from './types'
+import type { Finding, Task } from '@/work/types'
+import type { Unit } from '@/planning/types'
 
 export interface Act {
   submitGate: (unit: Unit, gate: Task, r: GateResult) => void

@@ -2,7 +2,7 @@
 // open), `/i3` (the intent), `/i3/1` (a task of the intent's own work), and optionally
 // `?finding=P2-1`. The fragment is not used: it carries the sign-in code (`#k=`).
 import { unitsOf, type Pick } from './data'
-import type { Workspace } from './types'
+import type { Workspace } from '@/workspace/types'
 
 /** What an address names; null: the page's root. */
 export interface Place { id: string; task?: string; finding?: string }

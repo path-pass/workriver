@@ -36,13 +36,14 @@ const STILL_HERDR: &[&str] = &[
     "crates/workriver/tests/caller.rs",
     "crates/workriver/tests/cli.rs",
     "crates/workriver/tests/output.rs",
+    "frontend/web/src/agents/types.ts",
     "frontend/web/src/components/Run.tsx",
     "frontend/web/src/components/Start.tsx",
     "frontend/web/src/i18n/en.ts",
     "frontend/web/src/i18n/ja.ts",
     "frontend/web/src/i18n/zh-CN.ts",
+    "frontend/web/src/planning/types.ts",
     "frontend/web/src/runtime.ts",
-    "frontend/web/src/types.ts",
 ];
 const STILL_PANE: &[&str] = &[
     "crates/workriver-core/src/planning/intents.rs",

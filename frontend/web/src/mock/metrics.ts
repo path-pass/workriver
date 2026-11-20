@@ -3,7 +3,7 @@
 // nearly full and that just had an OOM kill (both critical), a Linux box without PSI (an
 // older kernel or a container), and a Mac that cannot be reached. Content, not UI text.
 // Built relative to now, so the ages read the same whenever the sample is opened.
-import type { MachineAlert, MetricDetail, MetricSample, MetricsReport, Proc, Thresholds } from '@/types'
+import type { MachineAlert, MetricDetail, MetricSample, MetricsReport, Proc, Thresholds } from '@/machines/types'
 
 const STEP = 5
 const GB = 1024 ** 3

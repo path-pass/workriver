@@ -9,7 +9,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { ms } from '@/data'
 import { type T, useT } from '@/i18n'
 import { metrics as loadMetrics, metricsHistory } from '@/runtime'
-import type { Disk, DiskLimit, Level, Limit, MachineAlert, MachineMetrics, Metric, MetricSample, MetricsReport, Thresholds } from '@/types'
+import type { Disk, DiskLimit, Level, Limit, MachineAlert, MachineMetrics, Metric, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
 import { MachineChip } from './bits'
 
 /** What the lines show: the last ten minutes, as the service keeps them. */

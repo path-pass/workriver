@@ -1,7 +1,7 @@
 // Every unit, intent and task has an address the page follows and sets.
 import { describe, expect, it } from 'vitest'
 import { pathOf, placeOf, resolve } from './link'
-import type { Workspace } from './types'
+import type { Workspace } from '@/workspace/types'
 
 const ws = {
   intents: [

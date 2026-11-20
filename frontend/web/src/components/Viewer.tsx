@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Download, ExternalLink, ZoomIn, ZoomOut } fr
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { contentLang, useT } from '@/i18n'
-import type { Attachment } from '@/types'
+import type { Attachment } from '@/attachments/types'
 import { isField } from './Ask'
 import { Icon, Tip } from './bits'
 
