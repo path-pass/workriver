@@ -2,6 +2,16 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-21
+
+- **workriver reminds you when to tell the user and when to hand work out** (managers): a
+  unit merged or done, and an intent done, now end their message with "Tell the user with
+  `workriver say` …" (also when no worker is left to close: then that is the whole
+  message); `workriver intent done` that you ran says it in its output. A message from the
+  user says that work that takes time goes into a task for a worker and your reply carries
+  its link; answer at once only what needs no work. (`closing-units`, `closing-workers`,
+  `user-message`)
+
 ## 2026-11-20
 
 - **Messages from the page carry what the user picked and attached** (managers): the page

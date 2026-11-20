@@ -281,6 +281,26 @@ fn units_finish() {
     assert_eq!((progress("u2"), unit("u2")["doneReason"].as_str().map(str::to_string)), ("done".into(), Some("superseded by u1".into())));
     assert!(boss.append("", "unit.done", json!({ "unit": "u2" })).unwrap_err().to_string().contains("already done"));
     assert_eq!(ws()["intents"][0]["complete"], true);
+
+    // Work over: the manager is told to tell the user, with the workers to close or without.
+    let to_boss = |what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == "s-boss" && m.contains(what)).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let say = "Tell the user with `workriver say --text \"...\"` ";
+    let now = " and what they should do now, if anything (restart a service, re-open the page, update other machines).";
+    let merged = to_boss("u1 is merged");
+    assert!(matches!(&merged[..], [m] if m.starts_with("[workriver] u1 is merged: w, rev worked on it") && m.ends_with(&format!("{say}what was merged{now}"))), "{merged:?}");
+    assert_eq!(to_boss("u2 is done"), [format!("[workriver] u2 is done. {say}what it came to{now}")]);
+
+    // The manager closes the intent: its output says it, the message only names the workers.
+    let out = boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "done" })).unwrap();
+    assert_eq!(crate::cli::made(&out), format!("i1 done\n{say}what the intent came to{now}"));
+    let done = to_boss("Intent i1 is done");
+    assert!(matches!(&done[..], [m] if m.starts_with("[workriver] Intent i1 is done: w, rev worked on it") && !m.contains("workriver say")), "{done:?}");
+    // The user closes one: the manager is told, and the user's own output says nothing of it.
+    user.append("", "intent.created", json!({ "title": "Logout", "state": "planned" })).unwrap();
+    boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).unwrap();
+    let out = user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "done" })).unwrap();
+    assert_eq!(crate::cli::made(&out), "i2 done");
+    assert_eq!(to_boss("Intent i2 is done"), [format!("[workriver] Intent i2 is done. {say}what the intent came to{now}")]);
 }
 
 /// A unit merged by squash, which git cannot show as merged: its manager is told once per

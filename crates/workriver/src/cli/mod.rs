@@ -372,9 +372,15 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             None => return Ok(()),
         },
     };
-    // What was recorded, by the id an agent uses next.
+    println!("{}", made(&out));
+    Ok(())
+}
+
+/// What a command prints of what it recorded: the id an agent uses next, and what the
+/// service asks it to do next.
+pub(crate) fn made(out: &serde_json::Value) -> String {
     let b = &out["body"];
-    let made = match out["kind"].as_str() {
+    match out["kind"].as_str() {
         Some("task.created") => format!("{}#{}", b["unit"].as_str().unwrap_or("?"), b["n"]),
         Some("intent.created" | "unit.created" | "chore.created") => b["id"].as_str().unwrap_or("?").to_string(),
         Some("finding.added") => b["finding"]["id"].as_str().unwrap_or("?").to_string(),
@@ -386,7 +392,8 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
         Some("workspace.project_set") => b["project"].as_str().map(|p| format!("works on {p}")).unwrap_or_else(|| "worked out by workriver".into()),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
         Some("intent.merged") => format!("merged {} into {}{}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?"), b["title"].as_str().map(|t| format!(", now \"{t}\"")).unwrap_or_default()),
-        Some("intent.state_changed") => format!("{} {}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?")),
+        // What the service asks of the one who ran it next (a manager closing its intent).
+        Some("intent.state_changed") => format!("{} {}{}", b["intent"].as_str().unwrap_or("?"), b["state"].as_str().unwrap_or("?"), out["next"].as_str().map(|n| format!("\n{n}")).unwrap_or_default()),
         Some("task.amended") if b["add"].as_array().is_some_and(|a| !a.is_empty()) => {
             let ids: Vec<&str> = b["add"].as_array().into_iter().flatten().filter_map(|f| f["id"].as_str()).collect();
             format!("added findings {}", ids.join(" "))
@@ -402,9 +409,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             if ids.is_empty() { "recorded".into() } else { format!("recorded findings {}", ids.join(" ")) }
         }
         _ => "recorded".into(),
-    };
-    println!("{made}");
-    Ok(())
+    }
 }
 
 #[cfg(test)]
