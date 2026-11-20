@@ -266,7 +266,7 @@ fn units_on_another_machine() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Sync", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
 
     // What happened on the work machine: recorded on the manager's side, with a ref that only exists there.
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "feat/hub", "base": "main" })).unwrap();

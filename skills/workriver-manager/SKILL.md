@@ -19,7 +19,9 @@ You are not a worker: no implementing, reviewing or testing.
 1. `workriver status` must say "agent runtime: connected".
 2. `workriver manager here` registers you. Always run `workriver` from your own pane.
 3. `workriver backlog list`, then `workriver intent start <id>` for the goal the user named
-   (else the first). `workriver board` shows it all.
+   (else the first) of your workspace's project. A new workspace's first intent the user
+   starts on the page (or sets your workspace's project); ask them. `workriver board` shows
+   it all.
 
 ## The loop
 

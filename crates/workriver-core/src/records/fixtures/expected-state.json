@@ -128,6 +128,48 @@
     },
     "s-i": null
   },
+  "edits": {
+    "i1": {
+      "at": "2025-12-01T00:00:00Z",
+      "by": "user",
+      "goal": 1,
+      "note": 1,
+      "title": 1,
+      "version": 1
+    },
+    "i2": {
+      "at": "2025-12-02T09:00:00Z",
+      "by": "user",
+      "goal": 3,
+      "note": 3,
+      "title": 2,
+      "version": 3
+    },
+    "i3": {
+      "at": "2025-12-02T03:00:00Z",
+      "by": "s-boss",
+      "goal": 1,
+      "note": 1,
+      "title": 1,
+      "version": 1
+    },
+    "i4": {
+      "at": "2025-12-02T04:00:00Z",
+      "by": "user",
+      "goal": 1,
+      "note": 1,
+      "title": 1,
+      "version": 1
+    },
+    "i5": {
+      "at": "2025-12-03T13:03:00Z",
+      "by": "user",
+      "goal": 1,
+      "note": 2,
+      "title": 2,
+      "version": 2
+    }
+  },
   "encoded": [
     {
       "body": {
@@ -1301,6 +1343,15 @@
         "title": "Later"
       },
       "kind": "intent.created"
+    },
+    {
+      "body": {
+        "base": 1,
+        "intent": "i5",
+        "note": "Whole note",
+        "title": "Later, maybe"
+      },
+      "kind": "intent.updated"
     }
   ],
   "managers": {
@@ -1666,13 +1717,13 @@
         "goal": "",
         "id": "i5",
         "manager": null,
-        "note": "",
+        "note": "Whole note",
         "project": "/r/chat",
         "reason": null,
         "runtime_ref": null,
         "state": "planned",
         "tasks": [],
-        "title": "Later",
+        "title": "Later, maybe",
         "workspace": null
       }
     ],

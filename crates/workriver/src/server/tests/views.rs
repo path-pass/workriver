@@ -45,7 +45,7 @@ fn linked_commits_and_rebased_branches() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, after) in [("First", "start"), ("Second", "1")] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w", "inputs": [{ "from": after }] })).unwrap();
@@ -130,7 +130,7 @@ fn a_task_shown_in_full() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login.", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();

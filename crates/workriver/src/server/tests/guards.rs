@@ -23,6 +23,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/settings/stall", &["GET", "POST"]),
     ("/api/workspace", &["GET"]),
     ("/api/unit/{id}/code", &["GET"]),
+    ("/api/intent/{id}/history", &["GET"]),
     ("/api/state", &["GET"]),
     ("/api/task", &["GET"]),
     ("/api/status", &["GET"]),
@@ -61,6 +62,7 @@ const MACHINE: &[(&str, &[&str])] = &[
     ("/api/workspace", &["GET"]),
     ("/api/state", &["GET"]),
     ("/api/task", &["GET"]),
+    ("/api/intent/{id}/history", &["GET"]),
     ("/api/status", &["GET"]),
     ("/api/metrics", &["GET"]),
     ("/api/metrics/history", &["GET"]),
@@ -179,6 +181,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/settings/stall", r#"{"minutes":30}"#),
     ("GET", "/api/workspace", ""),
     ("GET", "/api/unit/u1/code", ""),
+    ("GET", "/api/intent/i1/history", ""),
     ("GET", "/api/state", ""),
     ("GET", "/api/task?task=u1%231", ""),
     ("GET", "/api/status", ""),
@@ -235,7 +238,7 @@ fn who_may_use_each_route() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents

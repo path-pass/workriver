@@ -320,7 +320,7 @@ fn asking_about_a_unit() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
     at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
-    d.append("s-boss", "intent.updated", json!({ "intent": "i1", "goal": "People can be mentioned" })).unwrap();
+    d.append("", "intent.updated", json!({ "intent": "i1", "goal": "People can be mentioned" })).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "purpose": "Parse @names", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Parser", "agent": "s-w" })).unwrap();
     d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Regex based." })).unwrap();
@@ -773,7 +773,7 @@ fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
     let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
     d.append("user", "intent.created", json!({ "title": "Remote chat", "state": "planned" })).unwrap();
     remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    remote.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
     let shot = tmp.path().join("shot.png");
     std::fs::write(&shot, b"review remote attachment").unwrap();

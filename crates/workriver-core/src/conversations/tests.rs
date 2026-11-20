@@ -152,7 +152,7 @@ fn the_user_talks_to_a_manager() {
     // Nobody to tell yet.
     assert!(add(&mut s, "user", say("i1", "")).unwrap_err().contains("intent i1 has no manager"));
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
     // Only the user writes; the manager is the workspace's, whatever the request says.
     assert!(add(&mut s, "boss", say("i1", "")).unwrap_err().contains("only the user does this (message.sent)"));
     let e = add(&mut s, "user", say("i1", "")).unwrap();
@@ -193,7 +193,7 @@ fn a_manager_says_and_the_user_reads() {
     let say = |text: &str| json!({"kind": "message.said", "body": {"workspace": "forged", "text": text}});
     assert!(add(&mut s, "boss", say("Hi")).unwrap_err().contains("only a workspace's manager"), "not registered yet");
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
     // A worker is pointed to its manager; the user writes from the page; nothing blank.
     assert!(add(&mut s, "worker", say("Hi")).unwrap_err().contains("workriver manager tell"));
     assert!(add(&mut s, "user", say("Hi")).unwrap_err().contains("workriver's page"));
@@ -230,7 +230,7 @@ fn a_message_carries_what_the_user_picked() {
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat v2", "state": "planned"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
     // The seed's unit and tasks, in that intent.
     for b in seed().into_iter().skip(1) {
         s.append(&"agent-a".into(), b).unwrap();
@@ -285,7 +285,7 @@ fn a_message_carries_what_the_user_picked() {
     let remote = json!({"id": "w1@box", "label": "chat", "machine": "box"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Far", "state": "planned"}})).unwrap();
     s.append(&far, crate::records::tests::body(json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": remote}}))).unwrap();
-    s.append(&far, crate::records::tests::body(json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "active", "workspace": remote}}))).unwrap();
+    s.append(&Principal::User, crate::records::tests::body(json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "active", "workspace": remote}}))).unwrap();
     s.append(&far, crate::records::tests::body(json!({"kind": "unit.created", "body": {"intent": "i3", "title": "Over there", "repo": "/r", "branch": "feat/far", "base": "main", "machine": "box"}}))).unwrap();
     assert!(add(&mut s, "user", say("", "chat", "u3", 0, json!([]))).unwrap_err().contains("u3 is not of an intent of workspace \"chat\""));
     // Nothing else is pointed at.

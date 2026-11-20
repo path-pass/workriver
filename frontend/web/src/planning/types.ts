@@ -73,6 +73,36 @@ export interface Intent {
   manager?: string;
   /** The manager's state in the runtime, or 'gone' when it is not running. */
   managerState?: RuntimeState | 'gone';
+  /** Its last version (1 when never changed; absent in the sample: 1): an edit's base. */
+  version?: number;
+  /** Who made that version (an agent's name; null: the user) and when. */
+  edited?: { at: string; by: string | null };
+}
+
+/** One version of an intent's title, goal and note, and what its change set. */
+export interface IntentVersion {
+  n: number;
+  at: string;
+  /** "user", or the agent's session. */
+  by: string;
+  /** The name the agent goes by. */
+  name?: string | null;
+  how: 'created' | 'edited' | 'merged';
+  title?: string;
+  goal?: string;
+  /** The whole note, when the version set it. */
+  note?: string;
+  /** The paragraph it added to the note. */
+  added?: string;
+  /** The intents merged into it. */
+  merged?: string[];
+}
+
+/** An intent's text as one version left it. */
+export interface IntentText {
+  title: string;
+  goal: string;
+  note: string;
 }
 
 export type UnitStatus = 'active' | 'planned' | 'merged';

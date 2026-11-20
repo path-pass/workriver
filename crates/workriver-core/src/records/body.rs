@@ -130,7 +130,9 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         workspace: Option<RuntimeRef>,
     },
-    /// A new title or goal; only the intent's manager or the user may change them.
+    /// A new title, goal or note, or who decides its findings. Title, goal and findings are
+    /// the user's; the note is also its manager's while it is active, and takes additions from
+    /// a manager of its project while it is planned (`prepare_intents`).
     #[serde(rename = "intent.updated")]
     IntentUpdated {
         intent: String,
@@ -144,6 +146,13 @@ pub enum Body {
         /// A paragraph added at the end of its note (a blank line before it).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         add_note: Option<String>,
+        /// The whole note, in place of what it held (empty: none).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+        /// The version the change was made from: a replace is refused when what it replaces
+        /// changed after it. None: not checked (records from before versions, an addition).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<u32>,
     },
     /// A unit's repository is somewhere else than recorded: another machine, path or branch.
     #[serde(rename = "unit.relocated")]
