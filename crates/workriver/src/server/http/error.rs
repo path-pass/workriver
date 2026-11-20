@@ -17,6 +17,17 @@ impl From<workriver_data::Error> for ApiError {
     }
 }
 
+/// What the store refused or could not do: a broken rule is the caller's, as when the rules
+/// are asked directly; storage that fails is ours, in its own words.
+impl From<DataError> for ApiError {
+    fn from(e: DataError) -> Self {
+        match e {
+            DataError::Rejected(r) => bad(r.0),
+            e => ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        }
+    }
+}
+
 impl From<core::Rejected> for ApiError {
     fn from(r: core::Rejected) -> Self {
         bad(r.0)

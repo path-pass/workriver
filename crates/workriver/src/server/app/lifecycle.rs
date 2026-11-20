@@ -108,7 +108,7 @@ impl App {
         });
         let recorded = !picked.is_empty();
         for body in picked {
-            if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
+            if let Err(e) = self.store.lock().unwrap().record(&Principal::Service, body) {
                 tracing::warn!("cannot record a pick-up: {e}");
             }
         }

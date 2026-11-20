@@ -40,7 +40,7 @@ impl App {
             self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
         }
         let body = self.complete(actor, body, machine)?;
-        let e = self.store.lock().unwrap().append(who, body)?;
+        let e = self.store.lock().unwrap().record(who, body)?.event;
         self.deliver(&e);
         match &e.body {
             Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
@@ -206,7 +206,7 @@ impl App {
             });
         }
         let body = Body::DeliveryUpdated { unit: plan.unit, task: plan.task, finding: plan.finding, chore: plan.chore, delivery };
-        if let Err(e) = self.store.lock().unwrap().append(&Principal::Service, body) {
+        if let Err(e) = self.store.lock().unwrap().record(&Principal::Service, body) {
             tracing::warn!("cannot record a delivery: {e}");
         }
     }

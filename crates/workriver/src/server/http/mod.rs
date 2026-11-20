@@ -10,6 +10,7 @@ use axum::{Extension, Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 use workriver_core as core;
+use workriver_core::ports::DataError;
 
 use crate::server::access::auth;
 use crate::server::views::{events, metrics, metrics_history, stall_get, state, status, unit_code, workspace};
