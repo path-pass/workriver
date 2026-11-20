@@ -18,11 +18,13 @@ use crate::server::access::*;
 use crate::server::app::*;
 
 mod assets;
+mod drain;
 mod error;
 mod guard;
 mod session;
 
 use assets::*;
+use drain::*;
 pub(super) use error::*;
 pub(super) use guard::*;
 use session::*;
@@ -79,6 +81,7 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .fallback(ui)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .layer(Extension(via))
+        .layer(middleware::from_fn(drain))
         .with_state(app)
 }
 
@@ -126,5 +129,6 @@ pub(super) fn machine_router(app: Shared, via: Via) -> Router {
         .fallback(|| async { (StatusCode::FORBIDDEN, "not available to another machine: its agents record their own work, ask, attach and read the board; everything else is done on the machine workriver runs on") })
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .layer(Extension(via))
+        .layer(middleware::from_fn(drain))
         .with_state(app)
 }

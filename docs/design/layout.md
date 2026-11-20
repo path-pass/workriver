@@ -213,6 +213,8 @@ crates/workriver/
 │   │   │   ├── mod.rs                # router() and the machine_router() allow-list; no route discovery.
 │   │   │   ├── guard.rs              # Host/Origin/proof/header extraction: what fills the Caller.
 │   │   │   │                         # Part of the security spine (below).
+│   │   │   ├── drain.rs              # Reads what a handler leaves of a body (capped, timed), so
+│   │   │   │                         # a client still sending gets the answer, not a reset.
 │   │   │   ├── session.rs            # Session status/code/exchange routes.
 │   │   │   ├── error.rs              # ApiError, status mapping, blocking helper.
 │   │   │   └── assets.rs             # Embedded web dist, MIME/caching, SPA fallback.

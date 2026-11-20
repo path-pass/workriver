@@ -20,3 +20,8 @@ pub const STALL_MAX: u32 = 240;
 
 /// Anything slower than this is marked so in the timing log.
 pub const SLOW_MS: u64 = 500;
+
+/// How long the service goes on reading the body of a request it has answered without
+/// reading all of it (a refusal from the headers alone): as long as the CLI waits for an
+/// upload, the slowest request it sends. A client still sending after that has given up.
+pub const LEFT_BODY_SECS: u64 = 120;

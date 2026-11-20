@@ -774,3 +774,53 @@ fn a_long_command_outlives_its_proof() {
     assert!(started.elapsed() >= std::time::Duration::from_millis(2300));
     assert!(kernel.fetched.load(std::sync::atomic::Ordering::Relaxed) - before >= 3, "a new proof was fetched each time the old one had expired");
 }
+
+/// A request refused from its headers alone gets its refusal through the CLI's own client,
+/// however large its body, up to the most the service reads of a request it does not take;
+/// above that the CLI says the service closed the connection, and why, not that it is not
+/// running. An upload whose proof has expired is sent again with a new one.
+#[test]
+fn a_refused_large_request_gets_its_refusal() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
+    let mb = |n: usize| "x".repeat(n * 1024 * 1024);
+    // Every case is tried; what went wrong is said together at the end.
+    let mut wrong = vec![];
+    let mut check = |ok: bool, what: String| if !ok { wrong.push(what) };
+    // The machine's listener refuses what is not on its allow-list from the path alone.
+    for n in [1, 20] {
+        let e = there.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P1-1", "decision": "accept", "reason": mb(n) }))).unwrap_err().to_string();
+        check(e.contains("not available to another machine"), format!("{n} MB to the machine's listener: {e}"));
+    }
+    // A body larger than the service reads of a refused request: the connection is closed,
+    // and the CLI says so.
+    let over = crate::common::wire::MAX_ATTACHMENT / 1024 / 1024 + 10;
+    let e = there.call("/api/decide", Some(json!({ "reason": mb(over) }))).unwrap_err().to_string();
+    check(e.contains("closed the connection") && e.contains("larger than 50 MB") && !e.contains("Is `workriver serve` running?"), format!("{over} MB: {e}"));
+    // Refused after part of its body was read (more than a record takes): the refusal too.
+    let e = user.append("", "intent.created", json!({ "title": mb(20), "state": "planned" })).unwrap_err().to_string();
+    check(e.contains("length limit"), format!("20 MB record: {e}"));
+    // An upload whose proof has expired is refused from its headers, and sent again with a new one.
+    kernel.callers.set_ttl(std::time::Duration::from_millis(300));
+    user.process(true);
+    for n in [1, 20] {
+        let file = tmp.path().join(format!("big-{n}.bin"));
+        std::fs::write(&file, mb(n)).unwrap();
+        let before = kernel.fetched.load(std::sync::atomic::Ordering::Relaxed);
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        match user.upload(&file, "", None) {
+            Ok(stored) => check(stored["id"].is_string(), format!("{n} MB upload: {stored}")),
+            Err(e) => check(false, format!("{n} MB upload: {e}")),
+        }
+        check(kernel.fetched.load(std::sync::atomic::Ordering::Relaxed) - before == 1, format!("{n} MB upload: a new proof, once"));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
