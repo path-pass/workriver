@@ -74,8 +74,9 @@ frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
 crates/             Rust workspace, four crates:
   workriver-core/   records/ (Body, Event, State), planning/, work/, conversations/,
-                    access/ (authority, the blind view), runtime.rs (the runtime interface)
-  workriver-data/   the SQLite event store (sqlite/)
+                    access/ (authority, the blind view), runtime.rs (the runtime interface),
+                    ports/ (the data port: WorkStore, what the service asks of storage)
+  workriver-data/   the SQLite event store (sqlite/), which implements the data port
   workriver-scan/   git and the file tree: runner.rs, history/, files/
   workriver/        the binary: cli/ (the CLI process), server/ (the service: app/,
                     access/, http/, then a folder per domain), runtime/ (the facade;
@@ -97,12 +98,14 @@ the Herdr runtime implementation. Dependencies run one way: the outer crate on t
 three, data on core, core and scan on neither. Inside the outer crate `cli/` and `server/`
 never import each other (except the service's tests, which drive it through the CLI's
 client), `runtime/` imports neither, `common/` none of the three, and only `runtime/`
-imports `runtime/herdr/`. `docs/architecture.md` is the map;
+imports `runtime/herdr/`. The service holds storage only as core's `ports::WorkStore`
+(`App.store`): it reads what is recorded and records through that, and only `main.rs` and
+`server/mod.rs`, where the service is put together, name workriver-data; no SQL, table or
+connection outside that crate. `docs/architecture.md` is the map;
 `docs/design/restructure.md` (section 2) has the detail.
 
-The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`).
-Its phase 8, the data port, is still to come; until it is done that plan governs where it
-differs from this file.
+The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`),
+whose phases are all done.
 
 ## Language rules
 

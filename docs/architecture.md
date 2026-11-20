@@ -13,8 +13,8 @@ has the same folder name in every layer (planning, work, conversations, …).
 
 | Where | What it is |
 |---|---|
-| `crates/workriver-core/` | What workriver records and the rules for it, with no network, storage or UI: `records/` (the events and the state they add up to), `planning/` (projects, intents, units), `work/` (tasks, findings, gates, chores), `conversations/` (questions, messages, attachments' records), `access/` (who may do what, the blind view), `runtime.rs` (the runtime interface, in workriver's own words) |
-| `crates/workriver-data/` | The event store: one SQLite file, append-only (`sqlite/`) |
+| `crates/workriver-core/` | What workriver records and the rules for it, with no network, storage or UI: `records/` (the events and the state they add up to), `planning/` (projects, intents, units), `work/` (tasks, findings, gates, chores), `conversations/` (questions, messages, attachments' records), `access/` (who may do what, the blind view), `runtime.rs` (the runtime interface, in workriver's own words), `ports/` (the data port: what the service asks of whatever keeps the records) |
+| `crates/workriver-data/` | The event store: one SQLite file, append-only (`sqlite/`). It implements core's data port, which is all the service knows of it |
 | `crates/workriver-scan/` | Reads git and the file tree, here or over ssh: `runner.rs`, `history/`, `files/` |
 | `crates/workriver/src/cli/` | The `workriver` command: parses, proves who calls, asks the service, prints |
 | `crates/workriver/src/server/` | The service: `app/` (start-up, recording, the poll), `access/` (who calls and what they may do and see), `http/` (routes and the request guard), then a folder per domain (`planning/`, `work/`, `conversations/`, `commands/`, `machines/`, `files/`, `views/`, `delivery/`) |
