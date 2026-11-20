@@ -144,8 +144,11 @@ the branch watch and the page's signal. `may_manage` also gives the caller's wor
 the runtime has it, and `record` puts that in place of the one a registration names: the
 label a request gives is never recorded. A requirement added to a task (`task.noted`) is
 told apart: the append handler calls `App::noted` after the commit, which tells the task's
-agent (found in the runtime now, not the last poll; a miss reads the followed machines
-again) and gives how far that got, answered beside the recorded event. One whose agent is
+agent (found in the runtime now, not the last poll) and gives how far that got, answered
+beside the recorded event. An agent not found while machines are followed may have started
+on one since it was last read: the answer says it is not told yet, and a thread of its own
+(`find_noted`) reads the machines again (`Machines::refresh`, each on its own thread) and
+tells it after the first read that shows it, so no request ever waits for a machine. One whose agent is
 on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
 each poll works it out again (`give_notes`), so it is given only while the task is still
 started and with that agent. It goes out by `App::send_to` (the runtime's `send_to`): to

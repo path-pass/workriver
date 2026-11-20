@@ -187,8 +187,9 @@ pub(super) struct Noted {
 #[derive(Debug, PartialEq)]
 pub(super) struct Untold {
     pub(super) why: String,
-    /// Its agent is not among the live ones given: it may be one not read yet.
-    pub(super) gone: bool,
+    /// Its agent, by the name to say, when it is not among the live ones given: it may be
+    /// one not read yet.
+    pub(super) gone: Option<String>,
 }
 
 /// Who is told that a requirement was added to a task, and what; else why nobody is. Its
@@ -199,7 +200,7 @@ pub(super) struct Untold {
 /// its agent's own: it hears of it by what the blind view of whom the task was given to
 /// shows, whatever is recorded of the session found. What was added goes in as a quote.
 pub(super) fn task_noted(state: &State, live: &[RuntimeAgent], home: &Path, e: &Event) -> Result<Noted, Untold> {
-    let no = |why: String| Untold { why, gone: false };
+    let no = |why: String| Untold { why, gone: None };
     let Body::TaskNoted { unit, task, text, attachments } = &e.body else { return Err(no("it is not a requirement added to a task".into())) };
     let t = state.task(unit, *task).map_err(|e| no(e.to_string()))?;
     match t.state {
@@ -208,7 +209,7 @@ pub(super) fn task_noted(state: &State, live: &[RuntimeAgent], home: &Path, e: &
         over => return Err(no(format!("{unit}#{task} is {} by now", name(&over)))),
     }
     let Some(agent) = t.agent.as_deref() else { return Err(no(format!("{unit}#{task} has no agent"))) };
-    let Some(to) = running(state, live, agent) else { return Err(Untold { why: format!("{} is not running", who(state, agent)), gone: true }) };
+    let Some(to) = running(state, live, agent) else { return Err(Untold { why: format!("{} is not running", who(state, agent)), gone: Some(who(state, agent)) }) };
     if to.session == e.actor {
         return Err(no("you are its agent".into()));
     }

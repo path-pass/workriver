@@ -5,8 +5,12 @@ Newest first. A manager that was already running reads this once after an update
 ## 2026-11-21
 
 - **`task note` reaches the task's agent, or nobody** (managers): a worker on another
-  machine that started a moment ago is told at once, files as the command that fetches
-  them there. An addition that waits for the worker's blind task is given only if, by
+  machine that started a moment ago is found and told, files as the command that fetches
+  them there. The command does not wait for that search: while other machines are
+  followed and the worker is not seen running, it answers `added to u1#3; not told yet:
+  fix is not seen running: it is told once it is found on a machine workriver follows`.
+  The requirement is recorded: do not add it again. If the worker is found nowhere (it
+  closed), nothing more is said; it stays on the task. An addition that waits for the worker's blind task is given only if, by
   then, the task is still started and with that same worker: dropped, or the worker
   closed, it is not given (it stays on the task; whoever takes the task reads it at
   `task show`).

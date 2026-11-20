@@ -108,7 +108,10 @@ fn machines_are_separate_until_linked() {
 
 /// A worker on another machine that started since that machine's agents were last read is
 /// told of a requirement added to its task all the same, once, and a file that came with it
-/// is the command that fetches it there, never a path on this machine.
+/// is the command that fetches it there, never a path on this machine. Looking for it is
+/// not the request's to wait for: the command is answered at once (recorded, its agent not
+/// told yet), and the worker is told as soon as its own machine is read, however long other
+/// machines take to answer.
 #[test]
 fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     use workriver_core::runtime::AgentState::*;
@@ -122,8 +125,11 @@ fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
     let far = std::sync::Arc::new(Fake::default());
     far.strict.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Two more machines, nothing to do with the task, that take seconds to be read.
+    let slow = std::sync::Arc::new(Slow::default());
     // Read once here, with nobody there; no thread reads it again (the test does, below).
-    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("slow1", slow.clone()), ("box", far.clone()), ("slow2", slow.clone())]);
+    slow.wait.store(3000, std::sync::atomic::Ordering::Relaxed);
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
@@ -144,13 +150,18 @@ fn a_task_note_reaches_a_worker_on_another_machine_at_once() {
     let shot = tmp.path().join("shot.png");
     std::fs::write(&shot, b"\x89PNG far").unwrap();
     let up = d.upload(&shot, "s-boss", None).unwrap();
+    let asked = std::time::Instant::now();
     let out = d.append("s-boss", "task.noted", json!({ "unit": "u1", "task": 1, "text": "Also the queue", "attachments": [up["id"]] })).unwrap();
-    assert_eq!(crate::cli::made(&out), "added to u1#1; far was told in its terminal");
+    assert!(asked.elapsed() < std::time::Duration::from_secs(1), "answered after {:?}", asked.elapsed());
+    assert_eq!(crate::cli::made(&out), "added to u1#1; not told yet: far is not seen running: it is told once it is found on a machine workriver follows");
     let added = || far.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("added requirement")).cloned().collect::<Vec<_>>();
+    wait_until("the worker is told", || !added().is_empty());
+    assert!(asked.elapsed() < std::time::Duration::from_millis(2500), "told after {:?}: not held up by the slow machines", asked.elapsed());
     let m = added();
     assert_eq!(m.len(), 1, "{m:?}");
     assert!(m[0].0 == "s-far" && m[0].1.contains("Attachments: `workriver attach fetch ") && !m[0].1.contains(&tmp.path().display().to_string()), "{m:?}");
     // Once per note, whatever is read of the machine later.
+    slow.wait.store(0, std::sync::atomic::Ordering::Relaxed);
     all.poll_all();
     std::thread::sleep(std::time::Duration::from_millis(2500));
     assert_eq!(added().len(), 1, "{:?}", added());
