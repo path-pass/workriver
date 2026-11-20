@@ -3,7 +3,8 @@
 use super::*;
 
 /// A question's message (or the user's message to a manager) held for its agent, which
-/// waits for a person in its terminal.
+/// waits for a person in its terminal; or what workriver tells an agent on a blind task in
+/// progress (`App::tell`), held until that task is delivered.
 // ponytail: in memory; after a restart the question fails as `restarted`, like any open one.
 pub(in crate::server) struct Held {
     /// The question's id; the user's message's; or the run's whose command is to be reviewed.
@@ -16,6 +17,8 @@ pub(in crate::server) struct Held {
     /// A new agent not ready for a prompt: retried at each poll until then; after it, it may
     /// sit on a prompt the runtime does not report and waits for the user like a blocked one.
     pub(in crate::server) not_ready: Option<std::time::Instant>,
+    /// A notice that is a planned delivery: recorded where it is once given (`App::told`).
+    pub(in crate::server) about: Option<delivery::Plan>,
 }
 
 /// What a held message is for.
@@ -26,6 +29,9 @@ pub(in crate::server) enum For {
     Message,
     /// A command for its review agent (`App::review_run`).
     Review,
+    /// What workriver tells an agent (an answer, a delivery's message, an escalation), held
+    /// while the agent is on a blind task in progress (`App::tell`).
+    Notice,
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -71,7 +77,7 @@ impl App {
                 if let Some(to) = to
                     && let Some(text) = delivery::reminders::message(state, f)
                 {
-                    tell.push((to.to_string(), text));
+                    tell.push((to.to_string(), text, matches!(f.act, delivery::reminders::Act::Escalate)));
                 }
             }
             let seen = |m: &std::collections::HashMap<(String, u32), delivery::reminders::Watch>| m.iter().filter_map(|(k, w)| Some((k.clone(), w.stall.clone()?))).collect::<Vec<_>>();
@@ -82,8 +88,10 @@ impl App {
             *stalls = next;
             was != now
         };
-        for (to, text) in tell {
-            if let Err(e) = self.send(&to, &text) {
+        for (to, text, escalate) in tell {
+            // The worker hears of its own task; its manager, like every manager, not while blind.
+            let sent = if escalate { self.tell(&to, &text, None) } else { Ok(self.send(&to, &text)) };
+            if let Ok(Err(e)) = sent {
                 tracing::warn!("cannot tell {to} of a stopped worker: {e}");
             }
         }

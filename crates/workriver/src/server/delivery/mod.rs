@@ -4,8 +4,10 @@
 // Every message has the same shape: workriver's own words (what happened, what to do
 // next), then what others wrote, quoted (see quote.rs). "The user …" is said only of
 // events the user recorded, which the rules check (`Body::user_only`, `Who::User`).
+use std::path::Path;
+
 use workriver_core::runtime::RuntimeAgent;
-use workriver_core::{Body, Decision, Event, Finding, GateKind, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
+use workriver_core::{AskContext, Body, Decision, Event, Finding, GateKind, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
 
 use quote::{quoted, users};
 
@@ -135,7 +137,7 @@ pub(super) fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::pa
     let policy = state.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
     let by = who(state, &e.actor);
     let of = format!("finding {finding} of {}", label(state, unit, t));
-    let files: Vec<String> = attachments.iter().filter_map(|id| state.attachments.iter().find(|a| &a.id == id)).map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string()).collect();
+    let files: Vec<String> = attachments.iter().filter_map(|id| state.attachments.iter().find(|a| &a.id == id)).filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name)).map(|p| p.display().to_string()).collect();
     let files = if files.is_empty() { String::new() } else { format!(" Attachments: {}.", files.join(", ")) };
     let said = if e.actor == "user" { users("The user wrote", text) } else { quoted(&format!("What was added, quoted from {by}"), text) };
     let open: Vec<(String, &Task)> = state.follow_ups(unit, *task, finding).into_iter().filter(|(_, x)| !x.state.over()).collect();

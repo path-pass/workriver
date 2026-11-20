@@ -531,3 +531,31 @@ fn starting_an_intent_in_another_projects_workspace() {
 }
 
 // ---- which pane a call truly comes from (docs/design/caller-identity.md) ----
+
+/// Starting an intent in a workspace whose manager is on a blind task in progress tells it
+/// nothing of the new intent until that task is delivered: the answer says the delivery is
+/// held, in the service's words.
+#[test]
+fn an_intent_start_waits_for_a_blind_manager() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-boss" })).unwrap();
+    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "done" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("user", "intent.created", json!({ "title": "OTHER_INTENT_TITLE", "goal": "OTHER_INTENT_GOAL", "state": "planned" })).unwrap();
+    fake.sent.lock().unwrap().clear();
+    let started = d.call("/api/intent/start", Some(json!({ "intent": "i2", "workspace": "w1", "confirmOtherProject": true }))).unwrap();
+    let delivery = &started["delivery"];
+    assert_eq!((delivery["step"].as_str(), delivery["to"].as_str()), (Some("held"), Some("boss")), "{delivery}");
+    assert!(delivery["reason"].as_str().unwrap().contains("blind task"), "{delivery}");
+    let told = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("OTHER_INTENT_TITLE")).count();
+    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
+    assert_eq!(told(), 0, "nothing of another intent is typed into a blind manager");
+    d.append("s-boss", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    wait_until("told once its blind task is delivered", || told() == 1);
+}

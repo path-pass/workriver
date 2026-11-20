@@ -14,6 +14,7 @@ import { linkTo, pathOf } from '@/app/link'
 import { cn } from '@/lib/utils'
 import type { Unit } from '@/planning/types'
 import { threadsOf } from '@/conversations/select'
+import { Questions } from '@/conversations/Turns'
 import type { Talk } from '@/conversations/types'
 import { GateForm, GateSent } from './GateForm'
 import { Thumbs } from '@/attachments/Thumbs'
@@ -56,7 +57,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
   const commitsOf = (x?: Task) => unit.commits.filter(c => x?.output.commits?.includes(c.id))
   const quiet = (text: string) => <div className="text-xs text-ink-2">{text}</div>
   const paths = (list: string[]) => <div className="font-mono text-xs text-ink-2">{list.join(t('list.sep'))}</div>
-  const threads = threadsOf(n, talk).length
+  const threads = threadsOf(n)
   const found = findingsOf(n).length > 0 && <Findings unit={unit} n={n} finding={finding} onPick={onPick} />
   let head: ReactNode, input: ReactNode, output: ReactNode
   if (n.kind === 'review') {
@@ -175,10 +176,15 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
           {output}
         </div>
       </div>
-      {/* Asking why happens in the side panel; here only the way there, with how many conversations there are. */}
+      {/* Past questions about it (the user's, and agents' to each other), read-only. */}
+      {threads.length > 0 && (
+        <div className="border-t border-line p-3">
+          <Questions id={`questions-${unit.id}-${n.id}`} key={unit.id + n.id} threads={threads} agent={n.agent} onFile={talk.onFile} />
+        </div>
+      )}
+      {/* Talking happens in the side panel; here only the way there, the task as its chip. */}
       <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-2">
-        <Button variant="outline" size="xs" className="rounded-sm" onClick={talk.onOpen}><Icon name="talk" className="size-3" />{t('ask.why')}</Button>
-        {threads > 0 && <span>{t('ask.conversations', { count: threads })}</span>}
+        <Button variant="outline" size="xs" className="rounded-sm" onClick={talk.onOpen}><Icon name="talk" className="size-3" />{t('talk.ask')}</Button>
         {(n.state === 'todo' || n.state === 'running' || n.state === 'waiting') && <DropTask key={unit.id + n.id} unit={unit} n={n} />}
       </div>
     </div>

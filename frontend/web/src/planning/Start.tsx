@@ -95,6 +95,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
   }
   const said = (d: StartDelivery) => d.step === 'not-delivered'
     ? t('deliver.notDelivered', { reason: t(`deliver.reason.${d.reasonCode ?? 'unknown'}`) })
+    : d.step === 'held' ? t('deliver.held', { agent: d.to ?? '' })
     : t('deliver.delivered', { agent: d.to ?? '' })
   return (
     <Dialog open={!!intent} onOpenChange={o => { if (!o) onClose() }}>

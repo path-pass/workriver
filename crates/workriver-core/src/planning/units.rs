@@ -247,7 +247,7 @@ impl State {
             return no(format!("only the user or the manager of intent {intent} puts its units on another machine"));
         }
         let other = machine.or(own.as_deref()).unwrap_or_default();
-        let workspace = self.intents.iter().find(|i| i.id == intent).and_then(|i| i.workspace.as_ref()).and_then(|g| self.workspace_of(g)).map(|w| w.group.label.clone());
+        let workspace = self.intent_workspace(intent).map(|w| w.group.label.clone());
         let linked = workspace.as_ref().is_some_and(|label| self.links.iter().any(|l| l.machine == other && &l.local == label));
         if !linked {
             return no(format!(

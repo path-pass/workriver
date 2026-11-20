@@ -90,6 +90,12 @@ fn machines_are_separate_until_linked() {
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
     let got = far.sent.lock().unwrap().last().unwrap().clone();
     assert!(got.0 == "s-far" && got.1.contains("Attachments: `workriver attach fetch ") && got.1.contains(".png` (run it: the file is saved in the folder you are in)") && !got.1.contains("curl") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
+    // The user's message with a file attached: to that manager, the file is a fetch command too.
+    let mine = d.upload(&shot, "user", None).unwrap();
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": "See this.", "context": [{ "kind": "attachment", "label": "shot.png", "id": mine["id"] }] }))).unwrap();
+    wait_until("the message reaches the far manager", || far.sent.lock().unwrap().last().is_some_and(|(_, m)| m.contains("See this.")));
+    let got = far.sent.lock().unwrap().last().unwrap().clone();
+    assert!(got.1.contains("the attachment \"shot.png\" at `workriver attach fetch ") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
 
     let ws = d.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["machine"], "box");
@@ -371,5 +377,33 @@ fn a_machines_socket_is_a_path_or_nothing() {
         // key is not named and the column is the request's end.
         assert!(text.starts_with(&format!("Failed to deserialize the JSON body into the target type: invalid type: {says}, expected a string at line 1 column ")), "{case}: {text}");
         assert_eq!(saved(), kept, "{case}: nothing is written");
+    }
+}
+
+/// An attachment's id is the store's own form: an agent over there cannot record one that
+/// names a file outside the store, nor read such a file through the store's route.
+#[test]
+fn an_attachment_id_cannot_name_a_file_outside_the_store() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let secret = tmp.path().join("outside").join("secret");
+    std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
+    std::fs::write(&secret, b"TOP_SECRET_OUTSIDE_THE_STORE").unwrap();
+    let secret_s = secret.to_string_lossy().to_string();
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let far = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
+    let e = far.append("", "attachment.added", json!({ "id": secret_s, "name": "x", "type": "text/plain", "size": 1 })).unwrap_err().to_string();
+    assert!(e.contains("16 lowercase hex"), "{e}");
+    // Nor is a path read through the route, recorded or not.
+    for id in [secret_s.replace('/', "%2F"), "..%2F..%2Fw.db".into()] {
+        let got = far.fetch(&id).map(|b| String::from_utf8_lossy(&b).to_string());
+        assert!(got.is_err() || !got.as_deref().unwrap().contains("TOP_SECRET"), "{id}: {got:?}");
     }
 }

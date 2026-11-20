@@ -79,9 +79,20 @@ pub(crate) struct MessageOut {
     /// The manager's name.
     pub(crate) manager: String,
     pub(crate) text: String,
+    /// What the user picked with it: a unit, one of its tasks, and the rest, as chips.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub(crate) unit: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) task: Option<u32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) context: Vec<core::AskContext>,
+    /// The stored files its context points at, to open in the page.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) attachments: Vec<AttachmentOut>,
     pub(crate) at: String,
     /// sending, blocked (the manager waits for a person in its terminal; it goes in once
-    /// free), delivered or not-delivered.
+    /// free), held (the manager is on a blind task; it goes once that is delivered, `reason`
+    /// says so), delivered or not-delivered.
     pub(crate) step: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reason_code: Option<core::ReasonCode>,

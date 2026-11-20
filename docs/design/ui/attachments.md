@@ -1,7 +1,7 @@
 # Attachments and the viewer
 
-Files from agents and how they show and open. Files the user sends with a question are in
-`conversations.md` (Asking why); pictures in a gate's form are in `activity.md` (What the
+Files from agents and how they show and open. Files the user sends with a message to the
+manager are in `conversations.md` (The Manager section); pictures in a gate's form are in `activity.md` (What the
 user puts in).
 
 Moved from `DESIGN.md` when it was split into these files, word for word but for paths
@@ -18,7 +18,7 @@ its sections went.
   The viewer shows one place's previewable attachments one at a time, in their order: the
   name (mono) as its title, "2 / 5" with previous / next (← and → too, wrapping round; the
   position and name are read out), for a picture the zoom toggle and "open original",
-  "Ask why", and a download button for every file. Markdown is rendered (tables, code,
+  "Ask the manager", and a download button for every file. Markdown is rendered (tables, code,
   links) by react-markdown with remark-gfm, loaded only when one is shown (50 kB gzip,
   against 24 kB for marked + DOMPurify: chosen because it never puts an HTML string into
   the page, and the text is an agent's): raw HTML is dropped, links open in a new tab with
@@ -30,13 +30,14 @@ its sections went.
   panel (open or folded), so the side panel stays in use; a click outside leaves it open, and
   Escape closes it unless typed in a field outside it. Focus starts in the file (↑ ↓ scroll)
   and goes back to the thumbnail or chip on close. On a narrow screen it covers the page,
-  and its "Ask why" opens the Ask sheet over it; closing the sheet comes back to it.
-  While it shows a stored attachment, the ask box carries it as a chip (the attachment's
-  name) next to the task's; the question then points at it, and the temporary agent is given
-  its path in the store (a link through the tunnel on another machine). A question may point
-  only at an attachment shown with its task (its output, checks, findings and what was added
-  to them, and the findings it answers – but not those for a blind task not yet delivered);
-  the service refuses any other.
+  and its "Ask the manager" opens the Manager sheet over it; closing the sheet comes back to it.
+  While it shows a stored attachment, the Manager box carries it as a chip (the attachment's
+  name) next to the task's; the message then points at it, and the manager is given its
+  path in the store (a command that fetches it, on another machine). A message may point
+  only at an attachment shown with its task (with the unit alone, with one of its tasks: its
+  output, checks, findings and what was added to them, and the findings it answers – but
+  not those for a blind task not yet delivered), or at a file the user stored; the service
+  refuses any other. Agents' questions to each other follow the same rule.
 - **Diagrams in Markdown**: a ` ```mermaid ` block, wherever Markdown is rendered (an
   attachment, a task's input, a delivery note, an answer), is drawn as a diagram by mermaid
   (12; the format agents already write). Loaded only when a block is shown: the frame's
@@ -57,7 +58,7 @@ its sections went.
     closed to the end of the text, as mermaid reads it; a front matter's title goes too).
     `secure` alone does not hold: it names keys at the top level only, and mermaid also reads
     a nested name written there (a top-level `rankSpacing` of 1 000 000 drew an image
-    2 000 142 px tall, u15#10 P2-1); it stays as a second line. With every size and spacing
+    2 000 142 px tall, as a review found); it stays as a second line. With every size and spacing
     each drawn kind reads written at the top level, in a directive or in front matter, each
     image keeps the size it has without them. Mermaid's own `sandbox` level is not used: its iframe allows top
     navigation by a click and popups, so a `click … href` link would still open, and it does
@@ -73,7 +74,7 @@ its sections went.
       ER diagrams, by the first word after front matter, directives and comments; the frame
       checks again with mermaid's own `detectType`. Every other kind shows its code: gantt,
       block, packet and some others take numbers that make work no count of statements sees
-      (u15#8 P2-1: a block diagram's `space:20000` held the page 19–26 s, a gantt chart of 70
+      (as a review found: a block diagram's `space:20000` held the page 19–26 s, a gantt chart of 70
       tasks of 12 000 days with `excludes weekends` 4.7–6.8 s, a packet's `0-3999999` 0.5–1.8
       s), and the rest were not measured to the bound.
     - **Its size is within the bounds**: at most 10 000 characters, no run without white space
@@ -88,8 +89,8 @@ its sections went.
   - The kinds and bounds are measured (Chrome for Testing 1217, headless, on the Mac
     workriver runs on; each input in a fresh page, mermaid warmed by a two-node graph, three
     runs): the budget is that the page's 5 ms heartbeat never stops longer than 1 s. At the
-    bounds, the worst shape found of each kind drawn, longest stop of the runs (u15#9; the
-    same shapes in u15#7, on a busier machine, in brackets):
+    bounds, the worst shape found of each kind drawn, longest stop of the runs (the last measurement;
+    the same shapes in an earlier one, on a busier machine, in brackets):
     - flowchart: 320 ms, 78 edges half of them spanning the whole chain, labels up to
       10 000 characters (306–357); the same without labels, as lines, one-line chains or
       `;`-joined: 205–216 (210–264); random and complete graphs, nested subgraphs, long
@@ -102,11 +103,11 @@ its sections went.
     - sequence: 70 ms, 78 activations; messages, notes, blocks nested 18 deep, messages
       filling 10 000 characters: 33–46.
     The cost of the graph kinds grows with the square of edges that span many ranks: 100 of
-    them 0.3–0.7 s, 200 of them 1.6–2.9 s, the reviewed 499 (u15#6) 24 s, so the weight bound
+    them 0.3–0.7 s, 200 of them 1.6–2.9 s, the 499 of a review's input 24 s, so the weight bound
     sits where the worst is under half the budget, room for a slower machine. In the page
     itself (the app, then the first diagram, mermaid loaded then; production build) the
-    heaviest allowed held it for 364 ms (404 in u15#7); every refused block, the reviewed
-    inputs of u15#6 and u15#8 among them, for under 15 ms.
+    heaviest allowed held it for 364 ms (404 in the earlier measurement); every refused block, the
+    inputs reviews found too heavy among them, for under 15 ms.
   - One diagram is drawn at a time, with a pause between, so many do not hold the page; one
     no longer shown is skipped.
   - Until it is drawn the block shows its code as any code block does; one mermaid cannot

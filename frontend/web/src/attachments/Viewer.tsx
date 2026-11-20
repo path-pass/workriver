@@ -122,7 +122,7 @@ export function Viewer({ list, at, onAt, onClose, stored }: { list: Attachment[]
           {kind === 'image' && tool(wide ? t('attach.zoomOut') : t('attach.zoomIn'), wide ? <ZoomOut aria-hidden /> : <ZoomIn aria-hidden />, () => setWide(w => !w), wide)}
           {stored && shell && (
             <Tip text={t('attach.ask')}>
-              <Button variant="ghost" size="xs" className="rounded-sm" onClick={shell.onAsk}><Icon name="talk" className="size-3.5" />{t('ask.why')}</Button>
+              <Button variant="ghost" size="xs" className="rounded-sm" onClick={shell.onAsk}><Icon name="talk" className="size-3.5" />{t('talk.ask')}</Button>
             </Tip>
           )}
           <Tip text={t('attach.download')}>

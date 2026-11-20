@@ -41,8 +41,13 @@ its sections went.
   running or still to do, the header names its agent and, while the session lives, a
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
+  After Output, a **Questions** block holds the past questions about the task (the user's
+  from when the page had its own Ask, agents' to each other), read-only, folded to rows (`conversations.md`,
+  Past questions); at the bottom a small "Ask the manager" opens the Manager box with the
+  task as its chip. With no node picked, the unit's own past questions show under the graph
+  the same way, when it has any.
   Longer text written by agents or the user – a task's input, a delivery or gate note, an
-  answer in Ask why – is short Markdown, rendered compact by the same safe renderer as
+  answer to a question, a manager's reply – is short Markdown, rendered compact by the same safe renderer as
   Markdown attachments (see Attachments, `attachments.md`): the surrounding size, headings no bigger than the
   text, tight lists, and a single line break kept as one. In the detail a long one shows its
   first six lines fading out, with "Show more"; until the renderer has loaded, the plain
@@ -161,7 +166,10 @@ records it and delivers it to the agents through Herdr.
   delivered yet (and "Undo" until it goes out), delivered to the agent, picked up by it (it
   started working after the message arrived), or not delivered with the reason in the
   user's language (no manager, manager not running, Herdr not reachable, Herdr refused;
-  the service's own words in a tooltip). Every decision goes to the intent's manager agent
+  the service's own words in a tooltip), or held while its receiver is on a blind task in
+  progress ("Waiting: … is on a blind task", why in a tooltip): it goes once that task is
+  delivered, and a restart in between marks it not delivered (the service restarted), so it
+  can be sent again. Starting an intent says the same in its dialog. Every decision goes to the intent's manager agent
   ("sent to the manager bot"), which turns accepted findings into tasks and tells the
   workers what they need; a gate's result goes to the agent waiting behind it, else the
   manager. The service writes and sends the message; the line shows its record, and the

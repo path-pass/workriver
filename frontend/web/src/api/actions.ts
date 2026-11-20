@@ -1,13 +1,12 @@
 // The one place where the UI reaches out to agents, through the workriver service. With the
-// sample (VITE_MOCK=1) nothing is reached: focusing a terminal only says so. Asking is made
-// up either way for now, and the service records the user's inputs without delivering them
-// to agents yet.
+// sample (VITE_MOCK=1) nothing is reached: focusing a terminal only says so, and a
+// manager's reply is made up.
 import { MOCK } from '@/workspace/source'
 import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
 import type { Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
-import type { AskContext, AskStep, Sent, Turn } from '@/conversations/types'
+import type { AskContext, Sent } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
 import { call, post, SIGNED_OUT } from './http'
@@ -27,31 +26,6 @@ export function focusAgent(agent: string) {
   const note = () => window.dispatchEvent(new CustomEvent(NOTE, { detail: { agent } }))
   if (MOCK) note()
   else call<Remote | undefined>('/api/focus', { agent }).then(remoteNote, note)
-}
-
-/**
- * Ask about a piece of work. A temporary agent starts, reads workriver's records and the
- * code, and asks the agent that did the work only if that agent is idle; a working agent is
- * never interrupted. `onStep` follows its progress. For now every step is made up.
- */
-export async function ask(
-  question: string,
-  context: AskContext[],
-  /** The agent that did the work, and whether it can be asked now. */
-  owner: { agent: string; state: 'idle' | 'busy' | 'ended' } | null,
-  onStep: (step: AskStep) => void,
-): Promise<Pick<Turn, 'answer' | 'consulted'>> {
-  const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
-  onStep('starting'); await wait(500)
-  onStep('reading'); await wait(600)
-  if (owner?.state === 'idle') { onStep('asking'); await wait(600) }
-  const about = context.map(c => c.label).join('、')
-  const paths = [...new Set(context.flatMap(c => (c.path ? [c.path] : [])))]
-  return {
-    answer: `（示例回答，还没有接到真正的 agent）关于「${question}」：临时 agent 会读 ${about} 的记录和代码来回答。` +
-      (paths.length ? `相关的改动在 ${paths.join('、')}。` : ''),
-    consulted: owner ? { agent: owner.agent, outcome: owner.state === 'idle' ? 'asked' : owner.state } : undefined,
-  }
 }
 
 // ---- what the user puts in, on its way to the agents ----
@@ -164,20 +138,14 @@ export function notify(title: string, body: string | undefined, key: string, age
   n.onclick = () => { window.focus(); if (agent) focusAgent(key); n.close() }
 }
 
-/** Asks the service a question about a task, or with none about the unit as a whole (live
- * mode): it records it, and starts the thread's temporary agent or gives it to the one already there. */
-export async function askWhy(unit: Unit, task: Task | null, text: string, context: AskContext[], thread: string | null, conclude = false, files: Attachment[] = []) {
-  // Files attached in the box are stored now, and the question points at them by their ids
-  // (the same content twice is one file).
+/** Writes to a workspace's manager (by the intent it runs, or the workspace's label), with
+ * what the user picked: the service types it into the manager's terminal; the manager
+ * answers with `workriver reply`. The user's files are stored now and the message points at
+ * them by their ids (the same content twice is one file). */
+export async function tellManager(to: { intent?: string; workspace: string }, text: string, about: { unit: string; task: number; context: AskContext[] }, files: Attachment[] = []) {
   const stored = await Promise.all(files.map(async a => ({ kind: 'attachment' as const, label: a.name, id: await upload(a) })))
   const attached = stored.filter((c, k) => stored.findIndex(x => x.id === c.id) === k)
-  await post('/api/ask', { unit: unit.id, task: task ? Number(task.id) : 0, text, context: [...context, ...attached], thread, conclude })
-}
-
-/** Writes to a workspace's manager (by the intent it runs, or the workspace's label): the
- * service types it into the manager's terminal; the manager answers with `workriver reply`. */
-export async function tellManager(to: { intent?: string; workspace: string }, text: string) {
-  await post('/api/message', { ...to, text })
+  await post('/api/message', { ...to, text, ...about, context: [...about.context, ...attached] })
 }
 
 /** The user has read a workspace's conversation with its manager, up to `at`. */
@@ -187,11 +155,6 @@ export function readMessages(workspace: string, at: string) {
 
 /** The sample's made-up reply from a manager; content, not UI text. */
 export const mockReply = (text: string) => `（示例回复，还没有接到真正的 manager）收到：「${text}」，我会安排。`
-
-/** Ends a conversation; its temporary agent closes. */
-export async function endThread(thread: string) {
-  await post('/api/thread/end', { thread })
-}
 
 /** A chore is done; it goes to no one, so it is only recorded. */
 export function choreDone(id: string) {

@@ -10,6 +10,7 @@ import { useT } from '@/i18n'
 import { growth } from './growth'
 import type { Unit } from '@/planning/types'
 import { turnsOf } from '@/conversations/select'
+import { Questions } from '@/conversations/Turns'
 import type { Talk } from '@/conversations/types'
 import { Icon } from '@/ui/Icon'
 import { W, H, type Layout, isStart, R, layoutFlow, type Line } from './layout'
@@ -88,7 +89,7 @@ const miniClass = (n: Node) => {
   return task.state === 'dropped' ? '' : task.kind === 'gate' && task.state === 'waiting' ? 'mini-you' : task.kind !== 'review' && (task.state === 'done' || task.state === 'running') ? `mini-${task.state}` : ''
 }
 
-function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; picked: string | null; finding?: string; onPick: (id: string | null) => void; talk: Talk; fitKey: unknown }) {
+function Graph({ unit, picked, finding, onPick, fitKey }: { unit: Unit; picked: string | null; finding?: string; onPick: (id: string | null) => void; fitKey: unknown }) {
   const { t } = useT()
   const flow = useRef<ReactFlowInstance<Node, Edge<LineData>> | null>(null)
   const box = useRef<HTMLDivElement>(null)
@@ -150,7 +151,7 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
       // A node the layout has not placed yet (it just arrived) waits for the next layout.
       ...unit.tasks.filter(n => layout.pos.has(n.id)).map(n => ({
         id: n.id, type: n.kind, position: at(n.id), width: W, height: H, ...fixed,
-        data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n, talk).length, grew: grew.get(n.id), held: held.has(n.id) && n.state !== 'done' && n.state !== 'dropped' } satisfies CardData,
+        data: { node: n, dim: !isLit(n.id), picked: n.id === picked, onPick, talks: turnsOf(n).length, grew: grew.get(n.id), held: held.has(n.id) && n.state !== 'done' && n.state !== 'dropped' } satisfies CardData,
       })),
     ]
     // A line takes the state of the work it leads into.
@@ -167,7 +168,7 @@ function Graph({ unit, picked, finding, onPick, talk, fitKey }: { unit: Unit; pi
       }))
       .sort((a, b) => rank(a) - rank(b))
     return { nodes, edges }
-  }, [layout, unit, picked, finding, onPick, talk, t])
+  }, [layout, unit, picked, finding, onPick, t])
 
   // React Flow owns where nodes are once they are on screen, so that dragging works: its
   // changes are applied here, and a re-render for a new pick keeps what the user moved. A new
@@ -280,8 +281,12 @@ export function Activity({ unit, pick, onPick, talk, fitKey, title, hint }: { un
       {hint && <p className="-mt-1 mb-2 text-sm text-ink-2">{hint}</p>}
       {unit.tasks.length ? (
         <>
-          <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} talk={talk} fitKey={fitKey} />
+          <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} fitKey={fitKey} />
           {picked && <Detail unit={unit} n={picked} finding={pick?.finding} onPick={onPick} talk={talk} />}
+          {/* Past questions about the unit as a whole, with no task picked. */}
+          {!picked && (unit.threads?.length ?? 0) > 0 && (
+            <div className="mt-2"><Questions id={`questions-${unit.id}`} key={unit.id} threads={unit.threads!} agent={null} onFile={talk.onFile} /></div>
+          )}
         </>
       ) : <p className="text-sm text-ink-2">{t('flow.empty')}</p>}
     </section>

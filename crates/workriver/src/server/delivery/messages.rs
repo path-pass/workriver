@@ -79,7 +79,8 @@ pub(super) fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, f
     let paths: Vec<String> = ids
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
-        .map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string())
+        .filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name))
+        .map(|p| p.display().to_string())
         .collect();
     if paths.is_empty() { String::new() } else { format!(" Attachments: {}.", paths.join(", ")) }
 }
@@ -146,16 +147,74 @@ pub(super) fn added_message(state: &State, actor: &str, unit: &str, n: u32, adde
 }
 
 /// What a manager reads when the user writes to it from the page: workriver's words (what it
-/// is, how to reply), then the user's own, quoted as theirs (only the user records
-/// `message.sent`, see `Body::user_only`).
-pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message) -> String {
+/// is, how to reply, what the user picked and where the code is), then the user's own, quoted
+/// as theirs (only the user records `message.sent`, see `Body::user_only`). `dir`: where the
+/// unit's branch is checked out (or its repository), found by the caller when the message
+/// points at files or lines; named whenever given.
+pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message, home: &Path, dir: Option<&str>) -> String {
     let about = state.intents.iter().find(|i| i.id == m.intent).map(|i| format!(", about intent {} \"{}\"", i.id, quote::name(&i.title))).unwrap_or_default();
+    let unit = (!m.unit.is_empty()).then(|| state.unit_or_intent(&m.unit)).flatten();
+    let mut at: Vec<String> = match (m.task, &unit) {
+        (0, Some(u)) => vec![format!("{} {} \"{}\"", if state.unit(&u.id).is_ok() { "unit" } else { "intent" }, u.id, quote::name(&u.title))],
+        (n, _) => state.task(&m.unit, n).ok().map(|t| task_named(state, &m.unit, t)).into_iter().collect(),
+    };
+    at.extend(pointed(state, &m.unit, &m.context, home));
+    let at = if at.is_empty() { String::new() } else { format!("It points at: {}. ", at.join("; ")) };
+    let code = match (&unit, dir.map(quote::path)) {
+        (Some(u), Some(dir)) if u.branch.is_empty() => format!("The files are in {dir}. "),
+        (Some(u), Some(dir)) => format!("The files are in {dir} on branch {} (from {}). ", quote::name(&u.branch), quote::name(&u.base)),
+        _ => String::new(),
+    };
+    let details = match (m.task, &unit) {
+        (0, Some(u)) => format!("Details: `workriver board {}`. ", u.id),
+        (n, Some(u)) => format!("{} ", details(&u.id, n)),
+        _ => String::new(),
+    };
     format!(
-        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. {}",
+        "[workriver] The user writes to you from workriver's page (message {}{about}). Reply with `workriver reply {} --text \"...\"`; the user reads replies there, not in this terminal. {at}{code}{details}{}",
         m.id,
         m.id,
         users("The user says, in workriver", &m.text)
     )
+}
+
+/// A task named from its record, with its kind and agent: `task u1#3 "Paging" (implement, by w)`.
+fn task_named(state: &State, unit: &str, t: &Task) -> String {
+    let by = t.agent.as_deref().map(|a| format!(", by {}", who(state, a))).unwrap_or_default();
+    format!("task {} ({}{by})", label(state, unit, t), name(&t.kind))
+}
+
+/// What a question or a message points at besides its own task: other tasks of the unit,
+/// findings, files, lines and attachments. Tasks are named from their records by number, and
+/// an attachment by the store's record (the rules let only what may be pointed at through),
+/// given as its path in the store, which `App::send` turns into a command for another
+/// machine; never by the page's label. A task chip with no number (an old question's own
+/// task) and a unit's chip add nothing.
+pub(in crate::server) fn pointed(state: &State, unit: &str, context: &[AskContext], home: &Path) -> Vec<String> {
+    let stored = |id: &Option<String>| id.as_ref().and_then(|id| state.attachments.iter().find(|a| &a.id == id));
+    context
+        .iter()
+        .filter_map(|c| {
+            Some(match (c.kind.as_str(), &c.path, c.from, c.to) {
+                ("task", ..) => task_named(state, unit, state.task(unit, c.task?).ok()?),
+                ("unit", ..) => return None,
+                ("lines", Some(p), Some(a), Some(b)) => format!("lines {a}-{b} of {}", quote::name(p)),
+                ("file", Some(p), _, _) => format!("the file {}", quote::name(p)),
+                ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
+                ("attachment", _, _, _) => match stored(&c.id) {
+                    Some(a) => match crate::server::files::store::path(home, &a.id, &a.name) {
+                        // Raw: made of the configured home, a hex id and an alphanumeric
+                        // extension, so `App::send` still finds the store's prefix in it and
+                        // turns it into a fetch command for an agent on another machine.
+                        Some(p) => format!("the attachment \"{}\" at {}", quote::name(&a.name), p.display()),
+                        None => format!("the attachment \"{}\"", quote::name(&a.name)),
+                    },
+                    None => format!("the attachment \"{}\"", quote::name(&c.label)),
+                },
+                _ => quote::name(&c.label),
+            })
+        })
+        .collect()
 }
 
 /// The last of workriver's own words in a message about a task: where all of it is. Before

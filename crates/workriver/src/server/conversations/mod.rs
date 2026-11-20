@@ -1,4 +1,4 @@
-// Questions and talk through the service: asking about a task, ending a thread, the user's
+// Questions and talk through the service: asking about a task, the user's
 // message to a manager and what was read; and closing a temporary agent a moment after its
 // work is done.
 use std::path::Path;
@@ -45,16 +45,6 @@ pub(super) struct Ask {
 }
 
 #[derive(Deserialize)]
-pub(super) struct EndThread {
-    thread: String,
-}
-
-pub(super) async fn end_thread(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(t): Json<EndThread>) -> Result<Json<core::Event>, ApiError> {
-    let who = app.user(&caller)?;
-    blocking(move || app.record(&who, Body::ThreadEnded { thread: t.thread }).map(Json)).await
-}
-
-#[derive(Deserialize)]
 pub(super) struct Say {
     /// The intent whose workspace's manager it goes to; or, without one, the workspace's label.
     #[serde(default)]
@@ -62,12 +52,21 @@ pub(super) struct Say {
     #[serde(default)]
     workspace: String,
     text: String,
+    /// What the user picked: a unit, one of its tasks, and the rest (files stored first).
+    #[serde(default)]
+    unit: String,
+    #[serde(default)]
+    task: u32,
+    #[serde(default)]
+    context: Vec<core::AskContext>,
 }
 
-/// The user writes to a manager from the page; it is typed into the manager's terminal.
+/// The user writes to a manager from the page, with what they picked and attached; it is
+/// typed into the manager's terminal.
 pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(m): Json<Say>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
-    blocking(move || app.record(&who, Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text }).map(Json)).await
+    let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context };
+    blocking(move || app.record(&who, body).map(Json)).await
 }
 
 #[derive(Deserialize)]

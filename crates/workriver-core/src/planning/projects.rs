@@ -45,6 +45,13 @@ pub struct Link {
 }
 
 impl State {
+    /// The record of the workspace an intent runs in (a linked group of another machine: the
+    /// workspace here it is linked to); none for an intent that runs nowhere, or in a group
+    /// with no record.
+    pub fn intent_workspace(&self, intent: &str) -> Option<&Workspace> {
+        self.intents.iter().find(|i| i.id == intent)?.workspace.as_ref().and_then(|g| self.workspace_of(g))
+    }
+
     /// A runtime group's record: by its id, or else by its label, since a runtime may give
     /// its groups new ids when it restarts.
     pub fn workspace_of(&self, r: &RuntimeRef) -> Option<&Workspace> {

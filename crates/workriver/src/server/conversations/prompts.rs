@@ -56,26 +56,10 @@ pub(super) fn follow_up(state: &State, q: &Question, home: &Path) -> String {
     format!("[workriver] {ask}{at}{} Then wait; more may come. {}", how_to_answer(q), question(state, q)).trim_end().to_string()
 }
 
-/// The findings, files, lines and attachments a question points at. An attachment is named
-/// by the store's record (the rules let a question point only at one shown with its task, or
-/// one the user attached to the question in the page) and
-/// given as its path in the store, which `App::send` turns into a link for another machine.
+/// What a question points at besides its task (see `delivery::pointed`, shared with the
+/// user's messages to a manager).
 fn pointed(state: &State, q: &Question, home: &Path) -> Vec<String> {
-    let stored = |id: &Option<String>| id.as_ref().and_then(|id| state.attachments.iter().find(|a| &a.id == id));
-    q.context
-        .iter()
-        .filter(|c| !matches!(c.kind.as_str(), "task" | "unit"))
-        .map(|c| match (c.kind.as_str(), &c.path, c.from, c.to) {
-            ("lines", Some(p), Some(a), Some(b)) => format!("lines {a}-{b} of {}", quote::name(p)),
-            ("file", Some(p), _, _) => format!("the file {}", quote::name(p)),
-            ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
-            ("attachment", _, _, _) => match stored(&c.id) {
-                Some(a) => format!("the attachment \"{}\" at {}", quote::name(&a.name), crate::server::files::store::path(home, &a.id, &a.name).display()),
-                None => format!("the attachment \"{}\"", quote::name(&c.label)),
-            },
-            _ => quote::name(&c.label),
-        })
-        .collect()
+    crate::server::delivery::pointed(state, &q.unit, &q.context, home)
 }
 
 /// The temporary agent's name for a question.
@@ -93,6 +77,8 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
     if q.task == 0 {
         return unit_prompt(state, q, dir, home);
     }
+    // A folder's name is from the records or git: named as workriver's words, on one line.
+    let dir = &quote::path(dir);
     let u = state.unit_or_intent(&q.unit)?;
     let t = state.task(&q.unit, q.task).ok()?;
     let code = if u.branch.is_empty() { format!("The code is in {dir}; read it there.") } else { format!("The code is in {dir} on branch {} (from {}); read it there.", quote::name(&u.branch), quote::name(&u.base)) };
@@ -116,7 +102,9 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
         .attachments_of(&q.unit, q.task)
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| a.id == id))
-        .map(|a| crate::server::files::store::path(home, &a.id, &a.name).display().to_string())
+        // Raw, as in `delivery::pointed`: `App::send` turns them into fetch commands.
+        .filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name))
+        .map(|p| p.display().to_string())
         .collect();
     if !stored.is_empty() {
         m.push(format!("Its attachments, to open: {}.", stored.join(", ")));
@@ -194,7 +182,8 @@ fn so_far(state: &State, q: &Question) -> Vec<String> {
 /// Who the temporary agent is and what it may do.
 fn who_you_are(unit: &str) -> String {
     format!(
-        "[workriver] You are a temporary agent started by workriver to answer questions about recorded work (from the user, or from another agent); more questions may follow in this terminal, and workriver closes you when the user is done. Read-only: do not edit files, do not commit, and run no workriver command except `workriver board {unit}` and `workriver answer`."
+        "[workriver] You are a temporary agent started by workriver to answer questions about recorded work (from the user, or from another agent); more questions may follow in this terminal, and workriver closes you after {} minutes without a new question. Read-only: do not edit files, do not commit, and run no workriver command except `workriver board {unit}` and `workriver answer`.",
+        IDLE.as_secs() / 60
     )
 }
 
@@ -205,6 +194,7 @@ const NOTE_CAP: usize = 300;
 /// purpose, where its code is, its tasks and findings in short. Nobody else is asked: a
 /// unit's agents may be at work, or on a blind task.
 fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<String> {
+    let dir = &quote::path(dir);
     let u = state.unit(&q.unit).ok()?;
     let place = if u.has_code() {
         format!(

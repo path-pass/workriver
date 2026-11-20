@@ -42,7 +42,6 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/run/{id}/review", &["POST"]),
     ("/api/here", &["POST"]),
     ("/api/ask", &["POST"]),
-    ("/api/thread/end", &["POST"]),
     ("/api/message", &["POST"]),
     ("/api/messages/read", &["POST"]),
     ("/api/attachments", &["POST"]),
@@ -199,7 +198,6 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/run/r9/review", r#"{"verdict":"ok","text":"probe"}"#),
     ("POST", "/api/here", "{}"),
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
-    ("POST", "/api/thread/end", r#"{"thread":"q9"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
     ("POST", "/api/messages/read", r#"{"workspace":"chat","at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/attachments?name=probe.txt", "BYTES"),
@@ -405,11 +403,12 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "chore.created", json!({ "intent": "i1", "title": "Add a token", "steps": [{ "text": "Create it", "command": "gh auth token" }] })).unwrap();
     let shot = tmp.join("shot.png");
     std::fs::write(&shot, b"\x89PNG shape").unwrap();
-    d.upload(&shot, "s-impl", Some(("u1", 2, None))).unwrap();
+    let shot = d.upload(&shot, "s-impl", Some(("u1", 2, None))).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
     wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
-    d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?" }))).unwrap();
+    let context = json!([{ "kind": "task", "label": "#1", "task": 1 }, { "kind": "lines", "label": "a.txt L1–2", "path": "a.txt", "from": 1, "to": 2 }, { "kind": "attachment", "label": "shot.png", "id": shot["id"] }]);
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?", "unit": "u1", "task": 2, "context": context }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Design confirmed." })).unwrap();
     (d, fake)
 }

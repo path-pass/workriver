@@ -293,7 +293,7 @@ export const ja: OneForm<typeof en> = {
     unit: '{{intent}} · {{unit}}'
   },
   side: {
-    title: '要対応・エージェント・コミット・バックログ・理由を聞く',
+    title: '要対応・エージェント・コミット・バックログ・マネージャー',
     close: 'パネルを閉じる',
     resize: 'パネルの幅（ドラッグ、または矢印キー。ダブルクリックで既定の幅）'
   },
@@ -356,25 +356,10 @@ export const ja: OneForm<typeof en> = {
     none: 'テスト未実行'
   },
   ask: {
-    placeholderGate: '{{agent}}にこのステップを質問…',
-    placeholderManager: 'マネージャーボットに質問…',
-    why: '理由を聞く',
-    label: 'この作業についての質問',
-    placeholder: '{{who}}に理由を質問…',
-    send: '送信',
-    attach: 'ファイルを添付（貼り付け、またはこのパネルへのドロップも可）',
-    tooLarge: '添付できません（{{max}} MB 超）：{{names}}',
-    dismiss: '閉じる',
-    remove: '{{label}} を外す',
-    how: '一時的なエージェントが記録とコードから回答します。{{agent}} が待機中のときだけ {{agent}} に確認します。',
-    howAlone: '一時的なエージェントが記録とコードから回答します。',
-    howUnit: '一時的なエージェントがユニットの記録とコードから回答します。ユニットのエージェントには確認しません。',
-    placeholderUnit: '{{unit}}について理由を質問…',
-    unitHint: 'ユニット全体についての質問です。1 つのタスクについて聞くには、グラフでそのタスクを選んでください。',
     you: 'あなた',
     answerer: '一時的なエージェント',
     log: '会話',
-    mode: { label: '話す相手', why: '理由', manager: 'マネージャー' },
+    questions: '質問',
     step: {
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
@@ -386,13 +371,9 @@ export const ja: OneForm<typeof en> = {
     busy: '{{agent}} が作業中のため、記録から回答しました',
     ended: '{{agent}} のセッションは終了しているため、記録から回答しました',
     cannot: '回答するエージェントを起動できませんでした：{{reason}}',
-    end: '終了',
-    endHint: 'この会話を終えます。担当のエージェントも終了します',
     threadEnded: '終了',
-    conclude: '結論を起草',
     concludeAsked: '結論を依頼しました',
     conclusion: '結論',
-    fresh: '新しい質問',
     exchanges_other: 'やり取り {{n}} 回',
     earlier_other: '以前の会話 {{count, number}} 件',
     state: {
@@ -401,20 +382,27 @@ export const ja: OneForm<typeof en> = {
       failed: '失敗',
       ended: '終了'
     },
-    empty: 'グラフでタスクを、またはコードで行を選ぶと、その理由を聞けます。',
     conversations_other: '会話 {{count, number}} 件',
     count_other: '質問 {{count, number}} 件'
   },
   talk: {
+    title: 'マネージャー',
+    ask: 'マネージャーに聞く',
+    attach: 'ファイルを添付（貼り付け、またはこのパネルへのドロップも可）',
+    tooLarge: '添付できません（{{max}} MB 超）：{{names}}',
+    dismiss: '閉じる',
+    remove: '{{label}} を外す',
+    send: '送信',
+    how: '上のチップとファイルと一緒に {{agent}} のターミナルに入力され、返信はここに表示されます。',
     workspace: 'ワークスペース',
     label: 'マネージャーへのメッセージ',
     placeholder: '{{agent}}に書く…',
-    how: '{{agent}} のターミナルに入力され、返信はここに表示されます。',
     none: 'このワークスペースではマネージャーが動いていないため、誰も読みません。',
     noWorkspace: 'マネージャーのいるワークスペースはまだありません。',
     empty: '{{workspace}} のマネージャーに書きます。マネージャーはターミナルで読み、ここに返信します。',
     step: {
       sending: '{{agent}} に送信中…',
+      held: '待機中：{{agent}} はブラインドのタスク中です。そのタスクの納品後に届きます',
       blocked: '{{runtime}} であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたらメッセージが入ります。',
       delivered: '{{agent}} のターミナルに入りました',
       'not-delivered': '届きませんでした：{{reason}}'
@@ -510,7 +498,7 @@ export const ja: OneForm<typeof en> = {
     counter: '{{n}} / {{count}}',
     now: '{{count}} 件中 {{n}} 件目：{{name}}',
     download: 'ダウンロード',
-    ask: 'この添付について理由を聞く（質問に添えて送られます）',
+    ask: 'この添付についてマネージャーに聞く（メッセージに添えて送られます）',
     loading: '読み込み中…',
     failed: 'このファイルを読み込めませんでした。ダウンロードして見てください。',
     cut: '{{size}} のうち先頭の {{shown}} を表示しています。残りはダウンロードしてください。',
@@ -526,6 +514,7 @@ export const ja: OneForm<typeof en> = {
     undo: '取り消す',
     copy: 'メッセージをコピー',
     recorded: '記録しました',
+    held: '待機中：{{agent}} はブラインドのタスク中です。そのタスクの納品後に届きます',
     notDelivered: '送信できませんでした：{{reason}}',
     reason: {
       'no-manager': 'このインテントにマネージャーがいません',

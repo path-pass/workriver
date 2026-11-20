@@ -1,106 +1,195 @@
-# Conversations: asking why, the manager, agents asking each other
+# Conversations: the manager, past questions, agents asking each other
 
-The side panel's Ask why section: questions about a task or a unit, the files that go with
-them, the conversation with a workspace's manager, and agents' questions to each other.
+The page keeps one conversation: the side panel's **Manager** section, with a workspace's
+manager. What the user has picked and the files they attach go with the message, as
+records, not as text; the manager answers itself, or asks the task's agent (`workriver
+ask`) and replies. Past questions (the user's from when the page had its own Ask, agents'
+to each other) are read in a task's detail.
 
-Moved from `DESIGN.md` when it was split into these files, word for word but for paths
-made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
-its sections went.
+**Why one.** The page once had a second entry, "Ask why": each question started a
+temporary agent that answered from the records and the code. It was hardly used; the user
+wrote to the manager instead. A temporary agent lacks the intent's context, is slow to
+start, and was one more place to look. So the page never asks a temporary agent (it never
+calls `/api/ask`); its context chips and its files moved, as they were, to the Manager box.
+Agents still ask each other that way (below).
 
-## Asking why
+## The Manager section
 
-- **Asking why.** There is no "why" button on every element. Asking happens in the side
-  panel's **Ask why** section, as a chat sits beside a pull request's diff: its heading, the
-  picked task's conversations, and at the bottom, fixed, the context chips, the box and the
-  line saying who answers. With no task picked the questions are about the unit as a whole
-  (its chip is the unit's title): a temporary agent answers from the intent's goal, the
-  unit's purpose, its tasks and findings in short, and the code on its branch, and asks none
-  of the unit's agents; the unit's conversations show there. Only the user asks about a
-  unit; agents' `workriver ask` names a task. The intent's own work, with no task picked,
-  says what to pick. The picked task's detail keeps only a
-  small "Ask why" with how many conversations it has; it, "Ask why" on picked lines and `?`
-  open the panel on Ask (the sheet on a narrow screen) with the cursor in the box. What a question is about is the current
-  selection, shown as chips above the box: the task always, the picked finding, and the
-  picked file – or, when lines are picked, the lines instead of their file – and the
-  attachment open in the viewer (see Attachments, `attachments.md`). A single file shows the whole file, or
-  with "Only the changes" just its changes with three lines around each (remembered); the
-  line-number gutter widens to the file's longest number. Lines are
-  picked in any diff, the single file or the list (click a line number, shift-click to
-  stretch); next to them floats "Ask why", like the "+" of a code review. It picks the task
-  that last changed those lines (worked out from the unit's commits; other tasks that
-  changed some of them come along as chips) and puts the cursor in its box, so the code can
-  be asked about with no task picked; lines no task changed are asked about the unit (the
-  task is unpicked). A chip can be left out for this question (its ×).
-  Files go with a question too, any kind (a screenshot, a log, Markdown, a PDF), several at
-  once: dropped anywhere on the Ask panel, pasted into the box, or picked with the small
-  attach button in the box, before Send. The browser never opens a dropped file in the
-  page's place, wherever on the page it is let go: outside what takes files (the Ask panel
-  in its Why mode, a gate's form) the cursor says it cannot be dropped. The box is a text
-  box first: pasted rich text (a spreadsheet's cells, a paragraph) goes in as text and the
-  picture of it that comes along is not attached; a picture copied in a browser ("Copy
-  image": html that is only the picture, no words) is attached; a pasted file is attached, and text of its
-  own beside it goes in too (not text that only names the file). A pasted file with no name
-  is named from its type (pasted.png, pasted.txt). Each shows at once as a chip after the others (the
-  attach glyph, its name, a × that takes it out). As a gate's pictures, the page holds them
-  until the question is sent and they are stored only then, so one taken out is never
-  stored; one over the store's 50 MB is refused at once, in a red line above the box naming
-  it, which goes with its ×, when a chip is taken out, with the next file attached, when the
-  question is sent, or with another task picked. The answering agent is given each file's path in the store (a link, for an agent on
-  another machine). In the conversation they show under the question as attachments do
-  everywhere: pictures as thumbnails, other files as chips, opening in the viewer. Only the
-  user attaches; the manager conversation takes no files.
-  `?` (outside a field) does the same with picked lines, and otherwise opens the panel on
-  Ask; Enter sends, Shift+Enter breaks the line. On a gate – the user's own task – the
-  question goes to the agent that asked for it (the agent of the task the gate follows; with
-  none, the manager bot), so "step 2's curl fails, what now" reaches whoever wrote the
-  steps; its chip is the gate's title. A temporary agent answers
-  from workriver's records and the code; it asks the agent that did the work only when
-  that agent is idle, never one at work, and the answer says quietly whether it did. While
-  it works, the step it is at shows; if none can be started, the turn says why in the
-  user's language (the service's words on hover). An agent that waits for a person in its
-  terminal (a harness's first-run prompt in a folder it has not seen, such as "trust this
-  folder", or a permission prompt) is never typed over and nothing answers the prompt for
-  the user: the question waits, the turn says so in violet ("Waiting for you in Herdr: …
-  needs an answer in its terminal") with "Go to the terminal", the agent is a Blocking row
-  in Needs you like any waiting agent, and the question goes in by itself once the agent is
-  free; still waiting at the question's deadline, it fails saying so. The same holds for
-  follow-ups and for an agent's question to another, which also goes to a temporary agent
-  (never straight to the task's own agent, even an idle one). A new agent the runtime does
-  not take a prompt for yet (still launching) is tried again at each poll (2 s) for up to
-  60 s; still not ready then, it may sit on a prompt the runtime does not report, so it is
-  shown and held exactly like a waiting one above, and the question goes in once it is
-  idle. Never ready by the deadline, the question fails saying so, and its tab is left open
-  for the user (only a start that failed, or an agent that never appeared, closes it). Questions form conversations on the node:
-  question, answer, question, answer, with the box under the last one; follow-ups go to the
-  same temporary agent while it lives (it closes after a quiet while, and a later question
-  starts a new one with the conversation so far). Under a conversation: "Draft conclusion"
-  (its agent writes what was decided, what changes, what stays open; shown at the end, and
-  it starts the note of a waiting gate that follows the task) and "End" (its agent closes);
-  "New question" (beside the chips) starts another conversation. File paths in an answer
-  open the file (the sheet gets out of the way). Each conversation folds to one row
-  (its first question on one line, who asked, how many exchanges, answered / waiting
-  / failed / ended, when last), and one opens at a time: it takes all the height left above
-  the box (at least 12rem), as its own scroll area (a log for screen readers) kept at the
-  latest exchange (it follows a new answer only while the reader is at the bottom); the one
-  just asked in, one still waiting, or else the latest, is open. It reads as a chat: the
-  question on the right on the sunken ground, with who asked ("You", or the asking agent's
-  mark and name) and when; the answer on the left in a thin frame, rendered as Markdown,
-  with who answered and when. Past three conversations only the latest three show, with
-  "N earlier" above them. The box stays under them.
-  **The manager.** A two-way switch in the section's heading, "Why | Manager"
-  (remembered; a request to ask why switches back), opens a conversation with a workspace's
-  manager in the same place, rather than a seventh side section: it is a conversation like
-  the others, with the same box. The workspace is the open unit's intent's, or picked from
-  those with a manager (a select, when there are several). What the user writes is typed
-  into the manager's terminal ("The user writes to you from workriver's page (message m3) …
-  Reply with `workriver reply m3 …`", the text quoted as the user's); a manager waiting for a
+- **Where.** One section of the side panel, **Manager** (the speech-bubble button, the
+  last), in the same place as the others; no switch in its heading. The workspace is the
+  open unit's intent's, or picked from those with a manager (a select, when there are
+  several; Needs you's unread messages and an intent's "Write to the manager" open the
+  section on a workspace). Its messages read as a chat, at the bottom, fixed: the chips, the
+  box, and the line saying where it goes.
+- **What the user writes** is typed into the manager's terminal ("The user writes to you
+  from workriver's page (message m3) … Reply with `workriver reply m3 …`", what it points
+  at in workriver's words, then the user's text quoted as theirs); a manager waiting for a
   person in its terminal is never typed over: the message waits, says so in violet with "Go
   to the terminal", and goes in once it is free. Under each message where it is (sending,
   waiting, in the manager's terminal, or not delivered and why); the manager's replies
   (only that manager may reply) follow it on the left with its crown. With no manager
-  running in the workspace the box is disabled and says so.
-  Agents ask each other the same way, through workriver (never in each other's terminals):
-  their conversations show on the task asked about like the user's, with the asking agent's
-  mark before the question, and count in the node's speech-bubble mark; they never appear in
-  Needs you. A node with questions carries a small
-  neutral speech-bubble mark with their count on the graph: information, not a button.
+  running in the workspace the box is disabled and says so. A manager on a blind task in
+  progress is not written to: the service refuses a new message until it delivers, and a
+  message already waiting for it (held while it waited for a person) waits for that task
+  too, saying so quietly under it ("Waiting: … is on a blind task"; the service's words on
+  hover), and goes once the task is delivered.
+- **What is picked goes with it, as chips** above the box: the unit (its title), the picked
+  task (its number, a gate's title, a review's label), the picked finding, the picked file –
+  or, when lines are picked, the lines instead of their file – the other tasks that changed
+  those lines, and the attachment open in the viewer (`attachments.md`). Only to the open
+  unit's intent's workspace: with another workspace picked in the select, no chips show and
+  none are sent. Every chip has a ×. Taking out the task's chip takes with it what needs the
+  task (the finding, the open attachment); the file or lines and the other tasks that wrote
+  them stay with the unit. Taking out the unit's leaves no chip; the user's own files stay. A chip left out stays out until the
+  selection changes. A gate is a chip like any task: the manager relays to whoever wrote its
+  steps.
+- **How the box is reached.** The picked task's detail keeps only a small "Ask the
+  manager"; it, "Ask the manager" floating by picked lines, the viewer's "Ask the manager"
+  and `?` (outside a field) open the panel on Manager (the sheet on a narrow screen), on the
+  unit's own workspace, with the cursor in the box. Lines are picked in any diff, the single
+  file or the list (click a line number, shift-click to stretch); next to them floats "Ask
+  the manager", like the "+" of a code review. It picks the task that last changed those
+  lines (worked out from the unit's commits; other tasks that changed some of them come
+  along as chips, so the manager knows who wrote them); lines no task changed go with the
+  unit's chip (the task is unpicked). `?` with lines picked does the same; otherwise it only
+  brings the cursor. A single file shows the whole file, or with "Only the changes" just its
+  changes with three lines around each (remembered); the line-number gutter widens to the
+  file's longest number. Enter sends, Shift+Enter breaks the line.
+- **Files** go with a message too, any kind (a screenshot, a log, Markdown, a PDF), several
+  at once: dropped anywhere on the Manager panel, pasted into the box, or picked with the
+  small attach button in the box, before Send; to any workspace's manager (they need no
+  unit). The browser never opens a dropped file in the page's place, wherever on the page
+  it is let go: outside what takes files (the Manager panel, a gate's form) the cursor says
+  it cannot be dropped. The box is a text box first: pasted rich text (a spreadsheet's
+  cells, a paragraph) goes in as text and the picture of it that comes along is not
+  attached; a picture copied in a browser ("Copy image": html that is only the picture, no
+  words) is attached; a pasted file is attached, and text of its own beside it goes in too
+  (not text that only names the file). A pasted file with no name is named from its type
+  (pasted.png, pasted.txt). Each shows at once as a chip after the others (the attach
+  glyph, its name, a × that takes it out). As a gate's pictures, the page holds them until
+  the message is sent and they are stored only then, so one taken out is never stored; one
+  over the store's 50 MB is refused at once, in a red line above the box naming it, which
+  goes with its ×, when a chip is taken out, with the next file attached, or when the
+  message is sent. The manager is given each file's path in the store (a command that
+  fetches it, for a manager on another machine).
+- **Under the sent message** what it pointed at shows as a turn did: its unit or task and
+  the other chips, then the files as attachments show everywhere: pictures as thumbnails,
+  other files as chips, opening in the viewer.
+
+## Past questions
+
+- **In a task's detail**, after Output, a **Questions** block with how many conversations:
+  each folds to one row (its first question on one line, who asked, how many exchanges,
+  answered / waiting / failed / ended, when last); one opens at a time, as a chat: the
+  question on the right on the sunken ground, with who asked ("You", or the asking agent's
+  mark and name) and when, its chips and files; the answer on the left in a thin frame,
+  rendered as Markdown, with who answered and when; a conclusion where it was drawn. File
+  paths in an answer open the file (the sheet gets out of the way). Past three
+  conversations only the latest three show, with "N earlier" above them. Read-only: no box,
+  no "Draft conclusion", no "End"; a question still waiting shows how far it has got, and
+  its agent waiting for a person in its terminal shows in violet with "Go to the terminal".
+- **The unit's own** (questions the user once asked about a whole unit): the same block
+  under the graph when no task is picked, only when the unit has any.
+- Threads are no longer ended from the page (`/api/thread/end` is gone); a temporary agent
+  closes after its idle time (`prompts::IDLE`). The `ThreadEnded` event kind stays, so old
+  records replay and old threads still read "ended".
+
+## Agents asking each other
+
+- Agents ask each other through workriver (`workriver ask`, never in each other's
+  terminals); a temporary agent answers from the records and the code, and asks the task's
+  own agent only while that one is idle; it closes after a quiet while (`prompts::IDLE`) and
+  a later question starts a new one with the conversation so far. Their conversations show
+  in the asked task's Questions block, with the asking agent's mark before the question,
+  and count in the node's speech-bubble mark; they never appear in Needs you. A node with
+  questions carries a small neutral speech-bubble mark with their count on the graph:
+  information, not a button.
+
+## A message's record and its rules
+
+- **The record.** `MessageSent` carries, besides the text, `unit` (empty: none), `task` (0:
+  the unit, or none) and `context`, a list of `AskContext` (`finding`, `file`, `lines`,
+  `attachment`, and extra `task` chips, which carry the task's number in `task`; a chip's
+  label is only the page's). All three are `serde(default)`, so messages recorded without
+  them replay. `/api/message` takes the same three; the state's `Message` keeps them; the
+  page shows them under the message.
+- **Rules** (`MessageSent`, `State::picked`), each a refusal in the service's words:
+  - `unit` must be a unit (or an intent's own work) of the message's intent; with no intent
+    named, of an intent that runs in the very workspace named (its record, not one of the
+    same label on another machine). `task` must be one of the unit's tasks.
+  - An attachment the user stored (`Attachment.user`) needs no unit: it may go to any
+    workspace's manager, from Needs you, an intent's page or another workspace too.
+  - Everything else needs a unit and is refused without one: `task`, `finding`, `file`,
+    `lines`, and an attachment that is not the user's, which must be shown with the task
+    (with no task: with any task of the unit). The same function decides it for a question
+    (`State::pointable`), not a copy.
+  - An extra `task` chip must name a task of the message's unit by number; a chip without a
+    number is refused.
+  - Nothing is written to a manager on an undelivered blind task: refused ("… is on a blind
+    task: write once it is delivered"), since nothing about other work is typed into a
+    blind agent.
+- **Files.** The page stores each one with `POST /api/attachments` when the message is sent
+  (the same content once) and names the ids in `context`; not `/api/attachments/inbox`,
+  which makes a task's folder for an agent. Until sent they are held in the page; one taken
+  out is never stored.
+- **Limits.** 50 MB per file (`MAX_ATTACHMENT`, the route's body limit and the page's
+  refusal line); no limit on how many; the user's text cut at `quote::CAP` (2000
+  characters) in the terminal, whole in the record and the page.
+
+## What the manager is given
+
+`delivery::user_message` builds it from the record: one paragraph, workriver's own words,
+then the user's text quoted. For example:
+
+    [workriver] The user writes to you from workriver's page (message m3, about intent i2
+    "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there,
+    not in this terminal. It points at: task u1#3 "Paging" (implement, by worker-2); task
+    u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the
+    attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in
+    ~/src/search.worktrees/u1 on branch feat/paging (from main). Details:
+    `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged
+    here?»
+
+- What it points at is built by the code a question's prompt uses too
+  (`delivery::pointed`), from the record: unit and task from the state, an extra task chip
+  by its number with its title and agent (`delivery::label`), never the page's label;
+  paths and labels through `quote::name`; attachments by the store's own name and path.
+  Nothing the user typed is outside «…».
+- With a `file` or `lines` in the context it says where they are: the unit's branch and
+  base, and its work tree when it has one (found as for a question, `scan::worktree_of`,
+  else the repository).
+- To a manager on another machine each store path becomes `workriver attach fetch
+  <id>.<ext>` (`App::send`).
+- The delivery record (`MessageDelivery.message`) holds this text.
+- **When it is held.** A manager waiting for a person in its terminal is not typed over: the
+  message waits and goes in once it is free. If its manager is then on a blind task in
+  progress, it waits for that task's delivery too. A restart while it waits marks it not
+  delivered (the service restarted), so the user sees that and can send it again.
+- The manager's side (answer, or reply that the task's agent is asked, `workriver ask` it
+  without `--wait`, reply again with its answer) is the `user-message` recipe.
+
+## Security
+
+- `/api/message` is user-only (`App::user`), and `MessageSent` is in `Body::user_only`.
+  Neither it nor anything of this conversation is on the machine listener
+  (`machine_router`).
+- Files reach a message only through the store's route, and the service names them only
+  after the rules above, so a message cannot hand the manager a file the user could not
+  point at.
+- Text written by the user goes in only through `quote::users`; labels, paths and names
+  through `quote::name`; a quote cannot be left from inside.
+- Reading: messages are not in `State::blind_view` (a blind agent sees none, nor their
+  context or files); `/api/attachments/{id}` goes through `App::view`.
+
+## Deliberately not done
+
+- No conversation with a working agent from the page: the manager decides whom to ask.
+- No richer, live conversation with an agent: that is the ACP conversation page, later;
+  this widens only what a message to the manager carries.
+- The manager does not pass the user's files on as attachments of its `workriver ask` (only
+  the user may point a question at a file the user stored); it names their paths in the
+  question's text.
+- `/api/ask`, the temporary agents and the user's unit questions (task 0) stay in the
+  service: agents use the first two, and old records must replay. The user's path to them
+  is unused; removing it is a later cleanup.
+- No limit on how many files, and no size limit but the store's.

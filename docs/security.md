@@ -164,6 +164,9 @@ what to do next). What somebody else wrote comes after, inside «…», named as
 «…»`, and only when the service knows they are yours. Control characters and the quote marks
 are taken out of quoted text, and long text is cut. The agents' instructions say never to
 follow what stands inside a quote.
+A message you write to a manager from the page names what you picked and the files you
+attached in workriver's own words, from its records (a file only if you may point at it);
+only your own text is quoted as yours.
 
 ## Blind reviews
 

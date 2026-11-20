@@ -44,7 +44,7 @@ impl App {
                 Ok(all) => all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default(),
                 Err(Unread(why)) => return self.fail_started(id, name, &why),
             };
-            self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None });
+            self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None, about: None });
             return;
         }
         let read = got(self.store.lock().unwrap().recorded());
@@ -109,7 +109,7 @@ impl App {
         };
         // Intent-level work has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
-        let dir = at.as_ref().and_then(|at| scan::worktree_of(at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone());
+        let dir = self.work_tree(&unit);
         // A question about the whole unit reads its commits itself (its prompt says how).
         let commits = at.filter(|_| q.task != 0).map(|at| task_commits(&at, &unit, q.task, &mut self.cache.lock().unwrap())).unwrap_or_default();
         let name = prompts::agent_name(id);
@@ -132,7 +132,7 @@ impl App {
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
-        self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None });
+        self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None, about: None });
     }
 
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
@@ -146,12 +146,21 @@ impl App {
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
         };
+        // A manager on a blind task is told nothing of other work: the user's message waits
+        // (`poll` tries again) until that task is delivered. Checked at every try, since it may
+        // have become blind while the message was held. Unread, it is not given either.
+        if matches!(h.kind, For::Message | For::Notice) && !self.blind_free(&h.to) {
+            h.not_ready = None;
+            self.held.lock().unwrap().push(h);
+            return;
+        }
         match self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
             _ => match self.send(&h.to, &h.text) {
                 Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
+                Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
                 Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
@@ -160,12 +169,29 @@ impl App {
                         For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
                         For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
                         For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
+                        For::Notice => self.told(h, Err(e)),
                     };
                 }
             },
         }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());
+    }
+
+    /// Whether `session` is known, as recorded now, to be on no blind task in progress.
+    pub(in crate::server) fn blind_free(&self, session: &str) -> bool {
+        self.held_because(session).is_none()
+    }
+
+    /// Why nothing of other work may be given to `session` now, in the service's words: it
+    /// is on a blind task in progress, or the records that would say cannot be read.
+    pub(in crate::server) fn held_because(&self, session: &str) -> Option<String> {
+        let read = got(self.store.lock().unwrap().recorded());
+        match read {
+            Ok(Some(s)) if s.blind_tasks(session).is_empty() => None,
+            Ok(Some(s)) => Some(format!("{} is on a blind task: it is told once that task is delivered", s.name_of(session).unwrap_or(session))),
+            Ok(None) | Err(_) => Some("the records cannot be read now: it is told once they can".into()),
+        }
     }
 
     /// The thread a question belongs to, as recorded now.
@@ -213,8 +239,9 @@ impl App {
             let s = got(self.store.lock().unwrap().recorded()).ok().flatten();
             s.as_ref().and_then(|s| s.question(id).ok().filter(|q| q.by != "user").map(|q| (q.by.clone(), prompts::answer_back(s, q))))
         };
+        // Not while it is on a blind task it took since: held until that is delivered, never lost.
         if let Some((asker, text)) = back
-            && let Err(e) = self.send(&asker, &text)
+            && let Ok(Err(e)) = self.tell(&asker, &text, None)
         {
             tracing::warn!("cannot give {asker} the answer to {id}: {e}");
         }

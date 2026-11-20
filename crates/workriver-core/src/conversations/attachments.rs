@@ -18,6 +18,13 @@ pub struct Attachment {
     pub user: bool,
 }
 
+/// Whether `id` is the store's own form of an attachment id: 16 lowercase hex characters, a
+/// short hash of the content (the service makes it). Its file's path is built from it, so
+/// nothing else is ever recorded as one.
+pub fn attachment_id(id: &str) -> bool {
+    id.len() == 16 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 impl State {
     /// The stored attachments shown with a task: its output's, its checks', its findings' and
     /// those added to them later, then those of the findings it answers, unless it is blind
@@ -40,6 +47,21 @@ impl State {
         out.into_iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
     }
 
+    /// Whether a question or a message may point at stored attachment `id`: one shown with
+    /// task `n` of `unit` (n 0: with any of its tasks), or, for the user, one the user stored
+    /// (attached in the page), which needs no unit. Its path is given to an agent, so
+    /// nothing else gets out.
+    pub fn pointable(&self, unit: &str, n: u32, id: &str, user: bool) -> bool {
+        if user && self.attachments.iter().any(|a| a.id == id && a.user) {
+            return true;
+        }
+        match n {
+            _ if unit.is_empty() => false,
+            0 => self.tasks_of(unit).is_some_and(|ts| ts.iter().any(|t| self.attachments_of(unit, t.n).contains(&id))),
+            n => self.attachments_of(unit, n).contains(&id),
+        }
+    }
+
     /// Every id names a stored attachment.
     pub(crate) fn stored<'a>(&self, ids: impl Iterator<Item = &'a String>) -> Result<(), Rejected> {
         for id in ids {
@@ -57,6 +79,9 @@ impl State {
             AttachmentAdded { id, name, mime, size, unit, task, finding } => {
                 if blank(&id) || blank(&name) {
                     return no("an attachment needs its id and name");
+                }
+                if !attachment_id(&id) {
+                    return no(format!("{id:?} is not an attachment id: the store names a file by 16 lowercase hex characters; store it with `workriver attach <file>` and record the id it gives"));
                 }
                 match (&unit, task, &finding) {
                     (None, None, None) => {}

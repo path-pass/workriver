@@ -118,7 +118,15 @@ impl App {
             let ready: Vec<Held> = {
                 let mut held = self.held.lock().unwrap();
                 let at = std::time::Instant::now();
-                let free = |h: &Held| h.not_ready.is_some_and(|end| end > at) || !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown));
+                // A notice was never kept from an agent at work: only from a blind one, which
+                // `hand` checks again.
+                let free = |h: &Held| {
+                    h.not_ready.is_some_and(|end| end > at)
+                        || match h.kind {
+                            For::Notice => !matches!(state(h), Some(AgentState::Blocked | AgentState::Unknown)),
+                            _ => !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown)),
+                        }
+                };
                 let (ready, wait): (Vec<Held>, Vec<Held>) = held.drain(..).partition(free);
                 *held = wait;
                 ready
@@ -129,6 +137,10 @@ impl App {
                         For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::ManagerGone, &format!("{} closed before it could be given the message", h.name)),
                         For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("{} closed before it could be given the question", h.name)),
                         For::Review => self.review_failed(&h.question, &format!("{} closed before it could be given the command", h.name)),
+                        For::Notice => {
+                            let gone = RuntimeError::NoAgent(h.name.clone());
+                            self.told(h, Err(gone))
+                        }
                     },
                     Some(_) => self.hand(h),
                 }
@@ -229,6 +241,16 @@ impl App {
         let held = got(app.store.lock().unwrap().held_messages()).ok().flatten().unwrap_or_default();
         for id in held {
             app.message_not_delivered(&id, None, ReasonCode::Restarted, "the service restarted while the message waited for its manager");
+        }
+        // So are deliveries a previous run held for a receiver on a blind task: recorded as not
+        // delivered, so the page says so and the user can send it again.
+        let held = got(app.store.lock().unwrap().held_deliveries()).ok().flatten().unwrap_or_default();
+        for d in held {
+            let delivery = Delivery { step: DeliveryStep::NotDelivered, reason_code: Some(ReasonCode::Restarted), reason: Some("the service restarted while it waited for its receiver's blind task".into()), ..d.delivery };
+            let body = Body::DeliveryUpdated { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery };
+            if let Err(e) = app.store.lock().unwrap().record(&Principal::Service, body) {
+                tracing::warn!("cannot record a delivery: {e}");
+            }
         }
         // ponytail: a thread's temporary agent from a previous run is closed rather than adopted;
         // the next question starts a new one with the thread so far.

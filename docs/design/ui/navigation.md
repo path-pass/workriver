@@ -88,7 +88,7 @@ its sections went.
   block with its note (short Markdown with links, as an agent's longer text; folded past six
   lines; `workriver intent set i3 --add-note` adds a paragraph) and where it runs: the
   workspace (and quietly "works on <project>", when known), the manager (name, state, the terminal button, and "Write to the manager",
-  which opens the side panel's Ask section on the manager conversation for that workspace),
+  which opens the side panel's Manager section on that workspace's conversation),
   and who decides its findings (the select that was in the rail). A planned intent says it
   is not started yet and has "Start" in its header (the same dialog). Then its units as a
   list, each a row that opens it: id, title, where it stands, its violet marks, quiet, and
@@ -110,7 +110,7 @@ its sections went.
 ## The side panel
 
 - A **side panel** on the right holds what is not looked at all the time: **Needs you**,
-  **Agents**, **Commits**, **Backlog**, **Machines**, **Run a command** and **Ask why**, one at a time, never mixed. Its buttons work as a
+  **Agents**, **Commits**, **Backlog**, **Machines**, **Run a command** and **Manager**, one at a time, never mixed. Its buttons work as a
   switch: each shows its section, the one already shown folds the panel again; the shown
   one looks pressed. Folded, it is a thin strip with the buttons (no counts: the rail
   already has them); open, it is 340 px wide by default and its left edge drags it between 280 and 720 px (remembered; double-click for the default; arrow keys too). Which section is open, if any, is

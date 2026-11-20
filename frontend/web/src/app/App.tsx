@@ -13,16 +13,15 @@ import { Start, StartIntent } from '@/planning/Start'
 import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
-import { Ask } from '@/conversations/Ask'
-import type { Talk, AskContext, ManagerMessage, Turn } from '@/conversations/types'
+import { Manager } from '@/conversations/Manager'
+import type { Talk, AskContext, ManagerMessage } from '@/conversations/types'
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
-import { agents } from '@/agents/select'
-import { askeeOf, selectionOf } from '@/work/select'
+import { selectionOf } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { blame, shownDelta } from '@/code/files'
@@ -30,7 +29,7 @@ import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
-import { ask, askWhy, choreDone, notify, decideFinding, detach, endThread, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
+import { choreDone, notify, decideFinding, detach, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
@@ -72,7 +71,8 @@ export default function App() {
   const [sideWidth, setSideWidth] = useState(0)
   const toggleRail = useCallback(() => setRailOpen(o => { remember(RAIL, o ? 'closed' : 'open'); return !o }), [])
   // The side panel shows one section or is folded; which, is remembered.
-  const [side, setSide] = useState<Section | null>(() => { const v = recall(SIDE) as Section; return SECTIONS.includes(v) ? v : null })
+  // (A section remembered as 'ask', from when the page had its own Ask, opens as 'talk'.)
+  const [side, setSide] = useState<Section | null>(() => { const r = recall(SIDE); const v = (r === 'ask' ? 'talk' : r) as Section; return SECTIONS.includes(v) ? v : null })
   // The project the rail and the backlog show, or all; remembered.
   const [picked, setProject] = useState<string | null>(() => recall(PROJECT) || null)
   // The main area follows the switch: the unit on screen stays if it is the project's, else the
@@ -95,7 +95,7 @@ export default function App() {
   // How wide the side panel is now, open or folded to its strip: the attachment viewer stops there.
   useEffect(() => document.documentElement.style.setProperty('--side-now', side ? 'var(--side-w, 340px)' : '2.75rem'), [side])
   // A file dragged over the page is never opened by the browser in the page's place, wherever
-  // it is let go; only what takes files (`data-takes-files`: the Ask panel, a gate's form)
+  // it is let go; only what takes files (`data-takes-files`: the Manager panel, a gate's form)
   // offers to, and takes them in its own handler.
   useEffect(() => {
     const keep = (e: DragEvent) => {
@@ -152,22 +152,20 @@ export default function App() {
     return new Map(live.flatMap(s => (about(s) && once(s.agent) ? [[s.agent, about(s)] as const] : [])))
   }, [data])
 
-  // The file picked in the code layer and lines picked in a diff; a question takes them as context.
+  // The file picked in the code layer and lines picked in a diff; a message takes them as chips.
   const [file, setFile] = useState<string | null>(null)
   const [lines, setLines] = useState<Lines | null>(null)
   // Lines belong to the view they were picked in: the single file, or the list.
   useEffect(() => setLines(l => (l && l.commit === undefined && l.path === file ? l : null)), [file])
-  // Questions asked in this sitting, by unit and task, after the recorded ones.
-  const [asked, setAsked] = useState<Record<string, Record<string, Turn[]>>>({})
-  // A request for the ask box to take the cursor, with more context for one task.
+  // A request for the Manager box to take the cursor, with more chips for one task.
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
-  // A request for the Ask section to show the conversation with a manager (from an intent's page).
+  // A request for the Manager section to show a workspace's conversation (Needs you, an intent's page).
   const [managerAt, setManagerAt] = useState(0)
   // The workspace whose conversation it shows (from Needs you); none: the one on screen.
   const [talkTo, setTalkTo] = useState<string | undefined>()
   const showTalk = (workspace?: string) => { openAsk(false); setTalkTo(workspace); setManagerAt(Date.now()) }
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
-  // The stored attachment the viewer shows, if any: a question can be about it.
+  // The stored attachment the viewer shows, if any: a message can point at it.
   const [viewing, setViewing] = useState<Attachment | null>(null)
 
   const unit = useSame(unitsOf(ws).find(i => i.id === unitId) ?? null)
@@ -236,23 +234,25 @@ export default function App() {
     setPick(now => (next && now && next.id === now.id && next.finding === now.finding ? null : next))
   }, [])
 
-  // The side panel on Ask (the sheet on a narrow screen), its box taking the cursor when a
-  // task is picked; with none, the panel says what to pick and nothing waits to take it later.
+  // The side panel on Manager (the sheet on a narrow screen); asked about what is on screen,
+  // its box takes the cursor, on the unit's own workspace.
   const openAsk = (focus = true) => {
-    if (window.matchMedia('(width < 860px)').matches) setSheet('ask')
-    else showSide('ask')
-    if (focus) setAskReq(r => ({ ...r, at: Date.now() }))
+    if (window.matchMedia('(width < 860px)').matches) setSheet('talk')
+    else showSide('talk')
+    if (focus) { setTalkTo(undefined); setAskReq(r => ({ ...r, at: Date.now() })) }
   }
 
-  // Ask why about picked lines: the task that last changed them is picked, with the others
-  // that changed them as more context, and its box takes the cursor.
+  // Ask the manager about picked lines: the task that last changed them is picked, with the
+  // others that changed them as more chips (the manager gets who wrote them), and the box
+  // takes the cursor.
   const askAbout = (l: Lines) => {
     const unit = coded, sel = codeSel
     if (!unit || !sel) return
     const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.touched.at(-1)
     const owners = upTo === undefined ? [] : [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0))].sort((a, b) => b - a)
     const tasks = [...new Set(owners.map(k => unit.tasks.find(n => n.output.commits?.includes(unit.commits[k].id))).filter((n): n is Task => !!n))]
-    // No task wrote these lines: the question is about the unit, with the lines as its chip.
+    // No task wrote these lines: the unit's chip, with the lines.
+    setTalkTo(undefined)
     if (!tasks.length) {
       setPick(null)
       setAskReq({ at: Date.now(), task: null, extra: [] })
@@ -260,12 +260,12 @@ export default function App() {
       return
     }
     setPick({ kind: 'task', id: tasks[0].id })
-    setAskReq({ at: Date.now(), task: tasks[0].id, extra: tasks.slice(1).map(n => ({ kind: 'task', label: n.taskId ? `#${n.taskId}` : n.title })) })
+    setAskReq({ at: Date.now(), task: tasks[0].id, extra: tasks.slice(1).map(n => ({ kind: 'task', label: n.taskId ? `#${n.taskId}` : n.title, task: Number(n.id) })) })
     openAsk(false)
   }
 
-  // Keys: Escape clears what is picked; `?` asks about picked lines, or brings the cursor to
-  // the ask box; Cmd/Ctrl+B folds the rail.
+  // Keys: Escape clears what is picked; `?` asks the manager about picked lines, or brings
+  // the cursor to the Manager box; Cmd/Ctrl+B folds the rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b' && !isField(e.target)) {
@@ -279,8 +279,7 @@ export default function App() {
       if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault()
         if (lines) askAbout(lines)
-        // With nothing picked the question is about the unit (not the intent's own work).
-        else openAsk(!!pick || (!!unit && !unit.intentLevel))
+        else openAsk()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -294,43 +293,21 @@ export default function App() {
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
 
-  const onAsk = (node: Task | null, question: string, context: AskContext[], thread: string | null, conclude = false, files: Attachment[] = []) => {
-    if (!ws || !unit) return
-    // Questions about the unit itself are kept under ''.
-    const at = unit.id, id = node?.id ?? ''
-    // Files attached in the box are context too; the sample shows them from the page.
-    const all = [...context, ...files.map(a => ({ kind: 'attachment' as const, label: a.name, id: a.id }))]
-    const turn: Turn = { question, context: all, attachments: MOCK && files.length ? files : undefined, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
-    const put = (next: Turn) => setAsked(all => ({ ...all, [at]: { ...all[at], [id]: (all[at]?.[id] ?? []).map(x => (x === turn || x.at === turn.at ? next : x)) } }))
-    // With the service, the question and its answer come back with the data; only a refusal
-    // to take it stays here.
-    if (!MOCK) {
-      // Stored (or refused), the page lets its copies go.
-      askWhy(unit, node, question, context, thread, conclude, files).catch(e => {
-        setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), { ...turn, step: undefined, failed: { code: 'runtime-error', reason: String(e) } }] } }))
-      }).finally(() => files.forEach(detach))
-      return
-    }
-    setAsked(all => ({ ...all, [at]: { ...all[at], [id]: [...(all[at]?.[id] ?? []), turn] } }))
-    // The agent that did the work is asked only while it is idle; a gone session cannot be.
-    const who = node && askeeOf(unit, node)
-    const session = who ? ws.sessions.find(s => s.agent === who) : undefined
-    const busy = agents(ws).some(a => a.agent === who && a.state === 'working')
-    const owner = who ? { agent: who, state: !session || session.ended ? 'ended' as const : busy ? 'busy' as const : 'idle' as const } : null
-    let now = turn
-    ask(question, all, owner, step => { now = { ...now, step }; put(now) })
-      .then(r => put({ ...now, ...r, step: undefined }))
-  }
   // Messages to managers: the service's, then any it refused (or, with the sample, all of them).
   const [told, setTold] = useState<ManagerMessage[]>([])
-  const onTell = (to: { intent?: string; workspace: string }, text: string, manager: string) => {
-    const m: ManagerMessage = { workspace: to.workspace, intent: to.intent, manager, text, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
+  const onTell: Talk['onTell'] = (to, text, manager, about, files) => {
+    // The files go with it as attachments; the sample shows them from the page.
+    const context = [...about.context, ...files.map(a => ({ kind: 'attachment' as const, label: a.name, id: a.id }))]
+    const m: ManagerMessage = { workspace: to.workspace, intent: to.intent, manager, text, ...about, context, attachments: files, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
     if (MOCK) {
       setTold(all => [...all, m])
       setTimeout(() => setTold(all => all.map(x => (x === m ? { ...m, replies: [{ by: manager, text: mockReply(text), at: new Date().toISOString() }] } : x))), 1200)
       return
     }
-    tellManager(to, text).catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
+    // Stored (or refused), the page lets its copies go: the service's message shows the stored ones.
+    tellManager(to, text, about, files)
+      .catch(e => setTold(all => [...all, { ...m, attachments: undefined, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
+      .finally(() => files.forEach(detach))
   }
   // Read: the manager's words up to `at` are no longer new, here at once (the sample keeps it
   // only in memory), and in every browser of the user's once the service has it.
@@ -341,11 +318,9 @@ export default function App() {
   // The manager conversation needs no unit on screen (Needs you opens it from anywhere).
   const talk: Talk | null = ws
     ? {
-        sessions: ws.sessions, file, lines, asked: asked[unitId ?? ''] ?? {}, onAsk,
+        sessions: ws.sessions, file, lines,
         intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
         intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell,
-        onEnd: thread => { endThread(thread).catch(e => console.warn(e)) },
-        live: !MOCK,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
@@ -361,9 +336,9 @@ export default function App() {
   askNow.current = openAsk
   const viewer = useMemo(() => ({ onView: setViewing, onAsk: () => askNow.current() }), [])
 
-  // The Ask section asks about the picked task, in the unit on screen.
+  // The Manager section's chips: the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, ask: <Ask unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
 
   // A command the user asked to run: the confirm dialog shows it. A gate or chore of the
   // intent's own work has no work tree: it runs in the intent's project folder.

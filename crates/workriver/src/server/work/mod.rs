@@ -57,7 +57,7 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
         let remote = caller.machine.is_some();
         let file = |id: &str| {
             let a = state.attachments.iter().find(|a| a.id == id)?;
-            let path = store::path(&app.home, &a.id, &a.name);
+            let path = store::path(&app.home, &a.id, &a.name)?;
             Some(if remote {
                 files::fetch_command(&path.file_name()?.to_string_lossy())
             } else {

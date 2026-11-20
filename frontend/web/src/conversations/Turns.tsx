@@ -1,12 +1,12 @@
-// A conversation as a chat: each exchange, a conversation folded to one line or open, and
-// the user's messages to a manager with its replies.
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
+// A conversation as a chat: each exchange, a conversation folded to one line or open (past
+// questions, read-only), and the user's messages to a manager with its replies.
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { ms } from '@/planning/select'
 import { contentLang, useT } from '@/i18n'
 import { focusAgent } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { AskContext, ManagerMessage, Thread, Turn, Talk } from './types'
+import type { AskContext, ManagerMessage, Thread, Turn } from './types'
 import { Who } from '@/agents/Mark'
 import { Prose } from '@/content/Prose'
 import { ChipName } from '@/content/Chips'
@@ -18,7 +18,8 @@ import { stateOf } from './select'
 /** An answer: short Markdown, its file paths links that pick the file. */
 const Answer = ({ text, onFile }: { text: string; onFile: (path: string) => void }) => <Prose text={text} fold={false} onFile={onFile} />
 
-/** What a question is about, as chips; `files` are those attached in the box, each with a × that takes it out. */
+/** What a question or message is about, as chips (each with a × that leaves it out, given
+ *  `onDrop`); `files` are those attached in the box, each with a × that takes it out. */
 export function Chips({ chips, onDrop, files = [], onRemove }: { chips: AskContext[]; onDrop?: (c: AskContext) => void; files?: Attachment[]; onRemove?: (a: Attachment) => void }) {
   const { t } = useT()
   return (
@@ -26,8 +27,8 @@ export function Chips({ chips, onDrop, files = [], onRemove }: { chips: AskConte
       {chips.map(c => (
         <span key={c.kind + c.label} className="ctx">
           <ChipName name={c.label} />
-          {onDrop && c.kind !== 'task' && c.kind !== 'unit' && (
-            <button type="button" aria-label={t('ask.remove', { label: c.label })} onClick={() => onDrop(c)}><Icon name="no" className="size-3" /></button>
+          {onDrop && (
+            <button type="button" aria-label={t('talk.remove', { label: c.label })} onClick={() => onDrop(c)}><Icon name="no" className="size-3" /></button>
           )}
         </span>
       ))}
@@ -177,36 +178,65 @@ export function Log({ id, size, label, children }: { id?: string; size: string; 
   )
 }
 
-/** An open conversation: the exchanges as a chat, then what can be done with it. */
-export function ThreadBody({ id, th, agent, talk, onConclude }: { id: string; th: Thread; agent: string | null; talk: Talk; onConclude: () => void }) {
+/** An open conversation: the exchanges as a chat. Read-only: new questions go to the manager. */
+export function ThreadBody({ id, th, agent, onFile }: { id: string; th: Thread; agent: string | null; onFile: (path: string) => void }) {
   const { t } = useT()
   const size = th.turns.length + ':' + th.turns.map(x => `${x.answer?.length ?? 0}${x.step ?? ''}${x.failed ? 'f' : ''}`).join(',') + ':' + (th.conclusion?.length ?? 0)
   return (
     <>
       <Log id={id} size={size} label={t('ask.log')}>
         <ol className="chat">
-          {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={agent} onFile={talk.onFile} />)}
+          {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={agent} onFile={onFile} />)}
         </ol>
         {/* A conclusion with no request in the thread (the sample's): after it. */}
         {th.conclusion && !th.turns.some(x => x.conclude && x.answer !== null) && (
           <div className="mt-3 rounded-md bg-sunken p-2">
             <h4 className="text-xs font-semibold text-ink-2">{t('ask.conclusion')}</h4>
-            <Answer text={th.conclusion} onFile={talk.onFile} />
+            <Answer text={th.conclusion} onFile={onFile} />
           </div>
         )}
       </Log>
-      {/* With the service: ask for a conclusion, or end the conversation (its agent closes). */}
-      {talk.live && th.id && (
-        th.ended
-          ? <p className="mt-2 flex-none text-xs text-ink-2">{t('ask.threadEnded')}</p>
-          : (
-            <div className="mt-2 flex flex-none flex-wrap gap-1.5">
-              <Button variant="outline" size="xs" className="rounded-sm" onClick={onConclude}>{t('ask.conclude')}</Button>
-              <Tip text={t('ask.endHint')}><Button variant="ghost" size="xs" className="rounded-sm" onClick={() => talk.onEnd(th.id)}>{t('ask.end')}</Button></Tip>
-            </div>
-          )
-      )}
+      {th.ended && <p className="mt-2 flex-none text-xs text-ink-2">{t('ask.threadEnded')}</p>}
     </>
+  )
+}
+
+/** Conversations shown before "earlier" is opened. */
+const LATEST = 3
+
+/**
+ * Past questions about a task (or a unit), the user's and agents': each conversation folded to
+ * one row, one opened at a time as a chat. No box: the user asks the manager; agents keep
+ * asking each other through workriver.
+ */
+export function Questions({ id, threads, agent, onFile }: { id: string; threads: Thread[]; agent: string | null; onFile: (path: string) => void }) {
+  const { t } = useT()
+  const keyOf = (th: Thread, k: number) => th.id || `#${k}`
+  const [open, setOpen] = useState<string | null>(null)
+  const [all, setAll] = useState(false)
+  if (!threads.length) return null
+  const earlier = all ? 0 : Math.max(0, threads.length - LATEST)
+  return (
+    <section aria-labelledby={`${id}-h`} className="flex flex-col text-sm">
+      <h3 id={`${id}-h`} className="mb-1.5 flex items-baseline gap-2 text-xs font-semibold text-ink-2">
+        {t('ask.questions')}<span className="font-normal">{t('ask.conversations', { count: threads.length })}</span>
+      </h3>
+      {earlier > 0 && (
+        <button type="button" className="mb-1 self-start text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
+      )}
+      {threads.map((th, k) => {
+        if (k < earlier) return null
+        const key = keyOf(th, k)
+        const isOpen = open === key
+        const body = `${id}-${key}`
+        return (
+          <section key={key} className="thread" data-open={isOpen || undefined}>
+            <ThreadRow th={th} open={isOpen} body={body} onToggle={() => setOpen(isOpen ? null : key)} />
+            {isOpen && <ThreadBody id={body} th={th} agent={agent} onFile={onFile} />}
+          </section>
+        )
+      })}
+    </section>
   )
 }
 
@@ -220,9 +250,27 @@ function Step({ m }: { m: ManagerMessage }) {
         <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(m.blocked!.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
       </div>
     )
+  // Its manager is on a blind task: it goes once that task is delivered (the service's words on hover).
+  if (m.step === 'held')
+    return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-ink-2">{t('talk.step.held', { agent: m.manager })}</p></Tip>
   if (m.step === 'not-delivered')
     return <Tip text={m.reason ?? ''}><p className="mt-1 text-xs text-del">{t('talk.step.not-delivered', { reason: t(`deliver.reason.${m.reasonCode ?? 'unknown'}`) })}</p></Tip>
   return <p className="mt-1 text-xs text-ink-2">{m.step === 'sending' && <span className="pending" aria-hidden />}{t(`talk.step.${m.step}`, { agent: m.manager })}</p>
+}
+
+/** What the user picked with a message: its unit or task and the rest as chips, then the
+ *  stored files it points at, as attachments show everywhere (pictures as thumbnails). */
+function Picked({ m }: { m: ManagerMessage }) {
+  const stored = m.attachments ?? []
+  const own: AskContext[] = m.unit ? [{ kind: m.task ? 'task' : 'unit', label: m.task ? `${m.unit}#${m.task}` : m.unit }] : []
+  const chips = [...own, ...(m.context ?? []).filter(c => !(c.kind === 'attachment' && stored.some(a => a.id === c.id)))]
+  if (!chips.length && !stored.length) return null
+  return (
+    <>
+      {chips.length > 0 && <div className="mt-1.5"><Chips chips={chips} /></div>}
+      <Thumbs list={stored} />
+    </>
+  )
 }
 
 export function MessageView({ m }: { m: ManagerMessage }) {
@@ -235,6 +283,7 @@ export function MessageView({ m }: { m: ManagerMessage }) {
         : (
           <Mine who={t('ask.you')} at={m.at}>
             <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
+            <Picked m={m} />
             <Step m={m} />
           </Mine>
         )}

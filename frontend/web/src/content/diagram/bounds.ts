@@ -20,7 +20,7 @@ const KINDS: Record<string, string> = {
  * A block as mermaid is given it: without its front matter and its `%%{…}%%` directives, which
  * can set any of mermaid's settings, at any depth or at the top level (where mermaid also
  * reads names it keeps nested: a top-level `rankSpacing` of 1 000 000 drew an image 2 000 142
- * px tall, u15#10 P2-1). A directive not closed runs to the end of the text, as in mermaid.
+ * px tall). A directive not closed runs to the end of the text, as in mermaid.
  * A front matter's title goes with it.
  */
 export function withoutSettings(code: string): string {

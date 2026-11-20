@@ -95,7 +95,7 @@ pub(super) async fn attachment(State(app): State<Shared>, Extension(caller): Ext
     let state = blocking(move || viewer.view(&caller, &r)).await?;
     let found = state.attachments.iter().find(|a| a.id == id).cloned();
     let a = found.ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
-    let file = store::path(&app.home, &a.id, &a.name);
+    let file = store::path(&app.home, &a.id, &a.name).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no attachment {id}")))?;
     let bytes = blocking(move || std::fs::read(&file).map_err(|e| ApiError(StatusCode::NOT_FOUND, format!("attachment {id}: {e}")))).await?;
     let image = a.mime.starts_with("image/") && a.mime != "image/svg+xml";
     let disposition = if image { "inline".to_string() } else { format!("attachment; filename=\"{}\"", a.name.replace(['"', '\\', '\r', '\n'], "_")) };

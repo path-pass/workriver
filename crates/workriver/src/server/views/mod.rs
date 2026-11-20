@@ -29,24 +29,35 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
             let read = state.read.get(&m.workspace);
             let unread = |at: &String| read.is_none_or(|r| at > r);
             let stuck = live.iter().find(|a| a.session == m.manager && a.state == AgentState::Blocked).filter(|_| m.delivery.is_none());
+            // Its manager went on a blind task while the message waited: it waits for that task.
+            let blind = m.delivery.is_none() && !m.by_manager && !state.blind_tasks(&m.manager).is_empty();
             MessageOut {
                 id: m.id.clone(),
                 intent: m.intent.clone(),
                 workspace: m.workspace.clone(),
                 manager: names.of(&m.manager),
                 text: m.text.clone(),
+                unit: m.unit.clone(),
+                task: (m.task != 0).then_some(m.task),
+                context: m.context.clone(),
+                attachments: attachments_of(state, &m.context.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>()),
                 at: m.at.clone(),
                 step: match m.delivery.as_ref().map(|d| d.step) {
                     // Nothing to deliver: it is the manager's.
                     _ if m.by_manager => "delivered",
+                    None if blind => "held",
                     None if stuck.is_some() => "blocked",
                     None => "sending",
                     Some(core::DeliveryStep::NotDelivered) => "not-delivered",
                     Some(_) => "delivered",
                 },
                 reason_code: m.delivery.as_ref().and_then(|d| d.reason_code),
-                reason: m.delivery.as_ref().and_then(|d| d.reason.clone()),
-                blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
+                reason: if blind {
+                    Some(format!("the manager {} is on a blind task: the message goes once that task is delivered", names.of(&m.manager)))
+                } else {
+                    m.delivery.as_ref().and_then(|d| d.reason.clone())
+                },
+                blocked: stuck.filter(|_| !blind).map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
                 replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect(),
                 by_manager: m.by_manager,
                 unread: m.by_manager && unread(&m.at),

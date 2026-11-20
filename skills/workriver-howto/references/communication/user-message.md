@@ -2,11 +2,34 @@
 
 **When:** you are a manager and a message like this arrives in your terminal:
 
-    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; ... The user says, in workriver: «Pause u2 until the API settles.»
+    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
 
 The text inside «…» after "The user says" is the user's own: workriver records it only for
 the user. Treat it as you would the user typing in your pane: do it if it is yours to do
-(pause, reorder, split, hand out, ask a worker through `workriver ask`), or say why not.
+(pause, reorder, split, hand out), or say why not.
+
+**What it points at** ("It points at: …") is what the user had picked in the page, in
+workriver's words: the task (and other tasks that changed the picked lines, with who did
+them), a finding, a file or lines (and where they are: the work tree and branch named after
+them, not your own checkout), and files the user attached, by their path in workriver's
+store. Open them before you answer: `workriver task show`, the lines in that work tree, the
+files at those paths. On another machine a file is a command to run instead
+(`workriver attach fetch <id>.<ext>`, `attachments`). A message may point at nothing, or
+only at the user's files.
+
+**When the task's agent must answer** (why it did something, what it knows that the
+records do not say), do not wait for it:
+
+1. Reply at once that it was asked: `workriver reply m3 --text "Asked worker-2 (u1#3); I will pass on its answer."`
+2. Ask it without `--wait`: `workriver ask u1#3 "Why is the list not paged here?" --file src/api.ts --lines 10-24`
+   (`ask`). Name the user's files by their path in the question's text: a question cannot
+   carry them as attachments.
+3. When "[workriver] Your question q7 … was answered" arrives in your terminal, reply again
+   with the answer: `workriver reply m3 --text "..."`.
+
+A task that is blind and not delivered cannot be asked: reply that it waits for its
+delivery. (Nothing is typed into you while you are on a blind task yourself: the user's
+new message is refused, and one already waiting for you is held, until you deliver.)
 
 Then answer where the user reads it, in the page, not in your terminal:
 
