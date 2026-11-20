@@ -63,6 +63,24 @@ describe('the code tree shows the net change', () => {
     expect(shownDelta(u, selectionOf(u, null), 'keep.ts')).toBeNull()
   })
 
+  it('a mode-only change (100644 to 100755) stays, as M +0 -0, picked or not', () => {
+    // The reviewer's input: git reports run.sh modified, its text the same on both sides.
+    const u = unit([commit('c1', [change('run.sh', '#!/bin/sh\necho hello\n', '#!/bin/sh\necho hello\n')])])
+    for (const pick of [null, 't1']) {
+      expect(fileRows(u, pick)).toEqual({ 'run.sh': { status: 'M', add: 0, del: 0, inPick: true } })
+      expect(shownDelta(u, selectionOf(u, pick ? { kind: 'task', id: pick } : null), 'run.sh')?.status).toBe('M')
+    }
+  })
+
+  it('a mode change stays when the text is changed and changed back around it', () => {
+    const u = unit([
+      commit('c1', [change('keep.ts', 'k\n', 'k2\n')]),
+      commit('c2', [change('keep.ts', 'k2\n', 'k2\n')]),
+      commit('c3', [change('keep.ts', 'k2\n', 'k\n')]),
+    ])
+    expect(fileRows(u)).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+  })
+
   it('with a task picked: its files show its own change, the others the unit net change, faded, no vanished path', () => {
     // t2 touched a/x.ts (deleted it, as its own change) and b/x.ts; a/gone.ts is gone from the unit.
     expect(fileRows(moved, 't2')).toEqual({

@@ -28,7 +28,8 @@ its sections went.
      count if several write inside). The unit's change is the branch's net change against
      its base, as `git diff base...head` gives it: a file added and later moved or deleted
      on the branch, or changed and changed back, is not there, and a moved file shows only
-     where it is now (and as deleted where it was, if the base has it). A picked piece of
+     where it is now (and as deleted where it was, if the base has it); a file whose mode
+     alone changed (made executable) is there, M with +0 −0. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added
      and deleted itself is not there either. A file a piece of work plans to change shows a dashed
      circle; one it will add, and that does not exist yet, also has a dashed underline.

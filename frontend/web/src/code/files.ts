@@ -47,6 +47,11 @@ export function blame(unit: Unit, path: string, upTo: number): number[] {
  * changed back. Over the whole unit this is the branch's net change against its base, as
  * `git diff base...head` names it: a moved file is only where it is now. The tree's counts
  * and the single-file view both come from here, so they agree.
+ *
+ * Same text is not always no change: git also changes a file's mode (100644 to 100755).
+ * The page gets no modes, only each commit's status; a commit that has a file modified
+ * with the same text on both sides changed its mode, and then the file stays, M +0 -0.
+ * (A mode changed and changed back in the same scope therefore still shows.)
  */
 export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta | null {
   const touched = scope.filter(k => unit.commits[k].files.some(f => f.path === path))
@@ -54,7 +59,8 @@ export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta 
   const at = (k: number) => unit.commits[k].files.find(f => f.path === path)!
   const first = at(touched[0]), last = at(touched.at(-1)!)
   const before = first.before, after = last.after
-  if (before === after) return null
+  const modeOnly = (f: FileChange) => f.status === 'M' && f.before !== null && f.before === f.after
+  if (before === after && (before === null || !touched.some(k => modeOnly(at(k))))) return null
   const { add, del } = counted(first, last)
   return { touched, before, after, status: before === null ? 'A' : after === null ? 'D' : 'M', add, del }
 }
