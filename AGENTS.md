@@ -104,8 +104,12 @@ imports `runtime/herdr/`. The service holds storage only as core's `ports::WorkS
 SQL, table or connection outside that crate. One record, or what a previous run left, is
 read by the port's named reads (add one when it is missing); `recorded()`, the whole state,
 only where a function of the whole state is called or several records of one revision are
-needed. Every read may fail: a handler passes that on with `?` (500, never 422), and a
-read outside a request goes through `got`. `docs/architecture.md` is the map;
+needed. Every read may fail. Before a request's record is committed, a failed read fails
+the request: the handler passes it on with `?` (500, never 422). After the commit, and in
+the poll and at start-up, it goes through `got`: logged, and the step skipped or ended as
+a failure of that step is ended (a question fails, a review fails, a delivery says not
+delivered); the request still answers as the committed one it is. A failed read is never
+replaced by a value: no default harness, no empty text, no "not there". `docs/architecture.md` is the map;
 `docs/design/restructure.md` (section 2) has the detail.
 
 The layout above is the one of the restructure (intent i25, `docs/design/restructure.md`),
