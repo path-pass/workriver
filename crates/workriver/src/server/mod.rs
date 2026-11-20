@@ -28,6 +28,7 @@ pub(super) mod delivery;
 pub(super) mod files;
 mod handlers;
 mod http;
+mod work;
 mod planning;
 mod machines;
 mod views;
