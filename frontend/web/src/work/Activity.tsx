@@ -120,7 +120,7 @@ function Graph({ unit, picked, finding, onPick, fitKey }: { unit: Unit; picked: 
   useEffect(() => { flow.current = null; moved.current = false }, [unit.id])
   // The bottom edge drags the canvas's height, one for every unit; with none set (or after a
   // double-click) the canvas takes the graph's own height, as below.
-  const height = useResize({ key: 'workriver.flow.height', variable: '--flow-h', ...FLOW_HEIGHT, max: window.innerHeight, edge: 'bottom' })
+  const height = useResize({ key: 'workriver.flow.height', variable: '--flow-h', ...FLOW_HEIGHT, max: () => window.innerHeight, edge: 'bottom' })
   // When the room around the graph changes (the rail folds, a panel's drag ends, the window
   // is resized, the canvas's height is dragged), the view settles again; and once more when the overview comes or goes, since
   // the canvas then takes the zoomed graph's height and room for the overview below it.

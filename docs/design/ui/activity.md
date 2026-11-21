@@ -38,7 +38,9 @@ its sections went.
      same handle as the rail's and the side panel's edges turned on its side (a 6 px hit area
      with the row-resize cursor, a line in the selection colour when pointed at, focused or
      dragged; a separator for the keyboard, arrows ↑/↓ by 16 px, Home and End to the ends):
-     between 160 px and the window's height. The height set is one for every unit and is
+     between 160 px and the window's height as it is now. A drag or a key starts from the
+     height the canvas shows, which is less than the one set after the window shrinks; a
+     click that does not move changes nothing. The height set is one for every unit and is
      remembered (`workriver.flow.height`); a double-click forgets it, back to the graph's
      own height. The view settles again once when a drag ends, not during it.
 

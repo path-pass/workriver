@@ -8,9 +8,12 @@ import { useResize } from './useResize'
 
 const KEY = 'test.height', VAR = '--test-h'
 let seen = 0
+// The window's height, as the Activity graph bounds its canvas by it; it can change between
+// renders without one.
+let viewport = 800
 
 function Panel({ auto = 300 }: { auto?: number }) {
-  const size = useResize({ key: KEY, variable: VAR, min: 160, max: 800, edge: 'bottom' })
+  const size = useResize({ key: KEY, variable: VAR, min: 160, max: () => viewport, edge: 'bottom' })
   seen = size.size
   return (
     <div id="panel" ref={el => { if (el) Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => auto }) }}>
@@ -34,6 +37,7 @@ beforeEach(() => {
   HTMLElement.prototype.setPointerCapture = () => {}
 })
 afterEach(() => {
+  viewport = 800
   act(() => root.unmount())
   host.remove()
   localStorage.clear()
@@ -96,5 +100,58 @@ describe('a height the user drags', () => {
     expect(seen).toBe(0)
     expect(shown()).toBe('')
     expect(localStorage.getItem(KEY)).toBeNull()
+  })
+
+  it('keeps automatic after a click that does not move', () => {
+    show(630)
+    pointer('pointerdown', 500)
+    pointer('pointerup', 500)
+    expect(seen).toBe(0)
+    expect(shown()).toBe('')
+    expect(localStorage.getItem(KEY)).toBeNull()
+  })
+
+  it('keeps a height set after a click that does not move', () => {
+    localStorage.setItem(KEY, '400')
+    show(400)
+    pointer('pointerdown', 500)
+    pointer('pointermove', 500)
+    pointer('pointerup', 500)
+    expect(seen).toBe(400)
+    expect(localStorage.getItem(KEY)).toBe('400')
+  })
+
+  it('after the window shrinks, drags from the height shown and stays within the window as it is now', () => {
+    localStorage.setItem(KEY, '800')
+    show(800)
+    // The window shrinks to 600: CSS caps the panel there, with no new render.
+    viewport = 600
+    act(() => root.render(<Panel auto={600} />))
+    pointer('pointerdown', 500)
+    pointer('pointermove', 460)
+    expect(shown()).toBe('560px')
+    pointer('pointerup', 460)
+    expect(seen).toBe(560)
+    expect(localStorage.getItem(KEY)).toBe('560')
+  })
+
+  it('after the window shrinks, a drag down stops at the window as it is now', () => {
+    localStorage.setItem(KEY, '800')
+    show(600)
+    viewport = 600
+    pointer('pointerdown', 500)
+    pointer('pointermove', 700)
+    pointer('pointerup', 700)
+    expect(seen).toBe(600)
+  })
+
+  it('after the window shrinks, the keys step from the height shown and End is the window as it is now', () => {
+    localStorage.setItem(KEY, '800')
+    show(600)
+    viewport = 600
+    key('ArrowUp')
+    expect(seen).toBe(584)
+    key('End')
+    expect(seen).toBe(600)
   })
 })

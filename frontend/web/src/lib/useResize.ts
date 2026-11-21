@@ -16,7 +16,9 @@ interface Options {
    *  its own fallback applies) until the edge is moved, and double-click goes back to that. */
   def?: number
   min: number
-  max: number
+  /** The most; a function when it moves without a render (the window's height), read each
+   *  time the size is bounded. */
+  max: number | (() => number)
   /** Which edge of the panel the handle is on: dragging away from the panel enlarges it. */
   edge: 'right' | 'left' | 'bottom'
   /** One step with the arrow keys. */
@@ -27,11 +29,12 @@ const recall = (key: string) => { try { return Number(localStorage.getItem(key))
 const remember = (key: string, w: number) => { try { if (w) localStorage.setItem(key, String(w)); else localStorage.removeItem(key) } catch { /* not remembered, still applied */ } }
 
 export function useResize({ key, variable, def, min, max, edge, step = 16 }: Options) {
-  const clamp = useCallback((w: number) => Math.round(Math.min(max, Math.max(min, w))), [min, max])
+  const most = typeof max === 'function' ? max : () => max
+  const clamp = (w: number) => Math.round(Math.min(most(), Math.max(min, w)))
   // 0: none set, the panel sizes itself.
   const [size, setSize] = useState(() => { const w = recall(key); return w ? clamp(w) : def ?? 0 })
-  // Where a drag started: the pointer's position and the size then.
-  const drag = useRef<{ at: number; w: number; now: number } | null>(null)
+  // Where a drag started: the pointer's position and the size then; whether it has moved.
+  const drag = useRef<{ at: number; w: number; now: number; moved: boolean } | null>(null)
   const apply = useCallback((w: number) => {
     const s = document.documentElement.style
     if (w) s.setProperty(variable, `${w}px`); else s.removeProperty(variable)
@@ -41,8 +44,9 @@ export function useResize({ key, variable, def, min, max, edge, step = 16 }: Opt
   const down = edge === 'bottom'
   const sign = edge === 'left' ? -1 : 1
   const along = (e: { clientX: number; clientY: number }) => (down ? e.clientY : e.clientX)
-  // The size to start from: the one set, else what the panel (the handle's parent) has now.
-  const from = (handle: HTMLElement) => size || (down ? handle.parentElement?.offsetHeight : handle.parentElement?.offsetWidth) || min
+  // The size to start from: what the panel (the handle's parent) has now, which is the one set
+  // unless CSS caps it (a window grown smaller), else the one set.
+  const from = (handle: HTMLElement) => (down ? handle.parentElement?.offsetHeight : handle.parentElement?.offsetWidth) || size || min
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return
@@ -50,13 +54,14 @@ export function useResize({ key, variable, def, min, max, edge, step = 16 }: Opt
     e.currentTarget.setPointerCapture(e.pointerId)
     e.currentTarget.dataset.dragging = ''
     const w = from(e.currentTarget)
-    drag.current = { at: along(e), w, now: w }
+    drag.current = { at: along(e), w, now: w, moved: false }
     // Nothing gets selected while the edge is dragged across text.
     document.body.style.userSelect = 'none'
   }
   const onPointerMove = (e: PointerEvent<HTMLElement>) => {
     const d = drag.current
-    if (!d) return
+    if (!d || (along(e) === d.at && !d.moved)) return
+    d.moved = true
     d.now = clamp(d.w + sign * (along(e) - d.at))
     apply(d.now)
     e.currentTarget.setAttribute('aria-valuenow', String(d.now))
@@ -67,12 +72,13 @@ export function useResize({ key, variable, def, min, max, edge, step = 16 }: Opt
     drag.current = null
     delete e.currentTarget.dataset.dragging
     document.body.style.userSelect = ''
-    commit(d.now)
+    // A click that did not move changes nothing: an automatic size stays automatic.
+    if (d.moved) commit(d.now)
   }
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     const [more, less] = down ? ['ArrowDown', 'ArrowUp'] : ['ArrowRight', 'ArrowLeft']
     const w = from(e.currentTarget)
-    const to = e.key === more ? w + sign * step : e.key === less ? w - sign * step : e.key === 'Home' ? min : e.key === 'End' ? max : null
+    const to = e.key === more ? w + sign * step : e.key === less ? w - sign * step : e.key === 'Home' ? min : e.key === 'End' ? most() : null
     if (to === null) return
     e.preventDefault()
     commit(to)
@@ -88,7 +94,7 @@ export function useResize({ key, variable, def, min, max, edge, step = 16 }: Opt
       'aria-orientation': down ? 'horizontal' as const : 'vertical' as const,
       'aria-valuenow': size || undefined,
       'aria-valuemin': min,
-      'aria-valuemax': max,
+      'aria-valuemax': most(),
       onPointerDown,
       onPointerMove,
       onPointerUp: end,
