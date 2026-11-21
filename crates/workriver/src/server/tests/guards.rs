@@ -393,7 +393,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
 
     d.append("user", "project.added", json!({ "path": repo, "title": "Chat" })).unwrap();
     manage(&d, "p1", "s-boss");
-    d.append("user", "intent.created", json!({ "title": "Search", "goal": "Find messages", "project": repo, "state": "planned", "note": "See the spec.", "external": { "system": "jira", "key": "CH-1", "url": "https://example.invalid/CH-1" } })).unwrap();
+    d.append("user", "intent.created", json!({ "title": "Search", "goal": "Find messages", "project": repo, "state": "planned", "note": "See the spec.", "external": { "system": "jira", "key": "CH-1", "url": "https://example.invalid/CH-1" }, "kind": "feature", "size": "m", "tags": ["search"] })).unwrap();
     d.append("user", "finding.added", json!({ "project": repo, "finding": { "severity": "P2", "problem": "Old dependency", "impact": "A known hole", "where": ["Cargo.toml"] }, "source": "audit" })).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Index", "purpose": "Build the index", "repo": repo, "branch": "feat/index", "base": "main" })).unwrap();
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();

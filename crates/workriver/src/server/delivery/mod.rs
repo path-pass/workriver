@@ -404,12 +404,12 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
     vec![(m.to_string(), message)]
 }
 
-/// What the manager of an active intent hears when the user changes its title, goal or
-/// note: the new version, the title and goal quoted as the user's, the note only pointed at
-/// (it may be long). Nothing for who decides findings, and nothing of an agent's edit (only
+/// What the manager of an active intent hears when the user changes its title, goal, note,
+/// kind, size or tags: the new version, the title, goal and tags quoted as the user's, the
+/// note only pointed at (it may be long). Nothing for who decides findings, and nothing of an agent's edit (only
 /// the user edits what is not the manager's own).
 pub(super) fn edited(state: &State, e: &Event) -> Option<(String, String)> {
-    let Body::IntentUpdated { intent, title, goal, note, add_note, .. } = &e.body else { return None };
+    let Body::IntentUpdated { intent, title, goal, note, add_note, kind, size, tags, .. } = &e.body else { return None };
     if e.actor != "user" {
         return None;
     }
@@ -425,6 +425,16 @@ pub(super) fn edited(state: &State, e: &Event) -> Option<(String, String)> {
     }
     if note.is_some() || add_note.is_some() {
         what.push(format!("its note changed (`workriver intent history {intent} --diff {n}`)"));
+    }
+    // Closed values are workriver's own words; tags are the user's text.
+    if let Some(k) = kind {
+        what.push(k.map_or("kind not set".into(), |k| format!("kind {}", workriver_core::name(&k))));
+    }
+    if let Some(z) = size {
+        what.push(z.map_or("size not set".into(), |z| format!("size {}", workriver_core::name(&z).to_uppercase())));
+    }
+    if let Some(t) = tags {
+        what.push(if t.is_empty() { "no tags".into() } else { users("tags", &t.join(", ")) });
     }
     if what.is_empty() {
         return None;

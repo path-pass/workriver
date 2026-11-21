@@ -146,3 +146,37 @@ fn an_intents_history_is_read_with_what_was_merged_into_it() {
     assert_eq!(intent_text(&got, "i1", 3).unwrap().note, s.state().intent("i1").unwrap().note);
     assert!(s.intent_events("i9").unwrap().is_empty());
 }
+
+/// An intent's kind, size and tags through the stored rows: set, cleared (null, []) and left
+/// out each come back as they were written, after the store is opened again, in the state, its
+/// history and a version's text; an unrelated edit keeps them.
+#[test]
+fn kind_size_and_tags_survive_storing_and_reopening() {
+    use workriver_core::ports::WorkStore;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("w.db");
+    {
+        let mut s = Store::open(&path).unwrap();
+        for v in [
+            json!({"kind": "intent.created", "body": {"title": "Login", "project": "/p", "state": "planned", "kind": "fix", "size": "s", "tags": ["Security"]}}),
+            json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "No lockout", "base": 1}}),
+            json!({"kind": "intent.updated", "body": {"intent": "i1", "kind": null, "tags": [], "base": 2}}),
+            json!({"kind": "intent.updated", "body": {"intent": "i1", "kind": "feature", "base": 3}}),
+        ] {
+            s.append(&Principal::User, body(v)).unwrap();
+        }
+    }
+    let s = Store::open(&path).unwrap();
+    let i = s.state().intent("i1").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.len(), i.goal.as_str()), (Some(IntentKind::Feature), Some(IntentSize::S), 0, "No lockout"));
+    let all = s.history(workriver_core::ports::Revision(0), 100).unwrap().events;
+    let Body::IntentUpdated { kind, size, tags, .. } = &all[2].body else { panic!() };
+    assert_eq!((kind, size, tags), (&Some(None), &None, &Some(vec![])), "null and [] are read back as written, an absent size as absent");
+    let Body::IntentUpdated { kind, tags, .. } = &all[1].body else { panic!() };
+    assert_eq!((kind, tags), (&None, &None), "an unrelated edit carries none of them");
+    let got = s.intent_events("i1").unwrap();
+    let seen: Vec<_> = intent_versions(&got, "i1").iter().map(|v| (v.kind, v.tags.clone())).collect();
+    assert_eq!(seen, [(Some(Some(IntentKind::Fix)), Some(vec!["security".to_string()])), (None, None), (Some(None), Some(vec![])), (Some(Some(IntentKind::Feature)), None)]);
+    let v1 = intent_text(&got, "i1", 1).unwrap();
+    assert_eq!((v1.kind, v1.size, v1.tags), (Some(IntentKind::Fix), Some(IntentSize::S), vec!["security".to_string()]));
+}

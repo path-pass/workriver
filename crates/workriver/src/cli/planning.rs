@@ -25,6 +25,36 @@ fn folder(w: &Value, given: &str) -> Option<String> {
     w["projects"].as_array().into_iter().flatten().find(|p| s(&p["id"]) == given || s(&p["key"]) == given).map(|p| s(&p["id"]).to_string())
 }
 
+/// An intent's kind, size and tags as printed after its title: ` [fix S] security, cli`
+/// (`[-]` when it has tags only); empty when it has none.
+pub(super) fn labels(i: &Value) -> String {
+    let head = [i["kind"].as_str().map(str::to_string), i["size"].as_str().map(str::to_uppercase)].into_iter().flatten().collect::<Vec<_>>().join(" ");
+    let tags = i["tags"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", ");
+    match (head.is_empty(), tags.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!(" [{head}]"),
+        (true, false) => format!(" [-] {tags}"),
+        (false, false) => format!(" [{head}] {tags}"),
+    }
+}
+
+/// What `backlog list` narrows to: within each of kind, size and tag any one given, all three
+/// together; nothing given, every intent.
+#[derive(Default)]
+struct Filter {
+    kinds: Vec<String>,
+    sizes: Vec<String>,
+    tags: Vec<String>,
+}
+
+impl Filter {
+    fn keeps(&self, i: &Value) -> bool {
+        let has = |list: &[String], v: Option<&str>| list.is_empty() || v.is_some_and(|v| list.iter().any(|x| x == v));
+        let tags: Vec<&str> = i["tags"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        has(&self.kinds, i["kind"].as_str()) && has(&self.sizes, i["size"].as_str()) && (self.tags.is_empty() || self.tags.iter().any(|t| tags.contains(&t.as_str())))
+    }
+}
+
 fn roadmap<'a>(w: &'a Value, project: &str) -> Vec<&'a Value> {
     let mut list: Vec<&Value> = w["intents"].as_array().into_iter().flatten().filter(|i| s(&i["project"]) == project && s(&i["state"]) == "planned").collect();
     list.sort_by_key(|i| i["order"].as_u64().unwrap_or(u64::MAX));
@@ -50,7 +80,7 @@ fn deferred<'a>(w: &'a Value, project: &str) -> Vec<Deferred<'a>> {
     out
 }
 
-fn list(d: &Daemon, project: Option<&str>) -> anyhow::Result<()> {
+fn list(d: &Daemon, project: Option<&str>, only: &Filter) -> anyhow::Result<()> {
     let w = d.get("/api/workspace?light=true")?;
     let wanted = project.map(|p| folder(&w, p).unwrap_or_default());
     let projects: Vec<&Value> = w["projects"].as_array().into_iter().flatten().filter(|p| wanted.as_deref().is_none_or(|x| s(&p["id"]) == x)).collect();
@@ -60,16 +90,17 @@ fn list(d: &Daemon, project: Option<&str>) -> anyhow::Result<()> {
     for p in projects {
         let id = s(&p["id"]);
         println!("{}  {id}{}", s(&p["title"]), p["key"].as_str().map(|k| format!("  ({k})")).unwrap_or_default());
-        for i in w["intents"].as_array().into_iter().flatten().filter(|i| s(&i["project"]) == id && s(&i["state"]) == "active") {
+        for i in w["intents"].as_array().into_iter().flatten().filter(|i| s(&i["project"]) == id && s(&i["state"]) == "active" && only.keeps(i)) {
             let at = i["workspace"]["label"].as_str().map(|l| format!("  (in {l})")).unwrap_or_default();
-            println!("  active  {} {}{at}", s(&i["id"]), s(&i["title"]));
+            println!("  active  {} {}{}{at}", s(&i["id"]), s(&i["title"]), labels(i));
         }
-        let road = roadmap(&w, id);
+        // Numbered by their place in the whole roadmap, also when some are filtered out.
+        let road: Vec<(usize, &Value)> = roadmap(&w, id).into_iter().enumerate().filter(|(_, i)| only.keeps(i)).collect();
         if !road.is_empty() {
             println!("  roadmap:");
         }
-        for (k, i) in road.iter().enumerate() {
-            println!("    {}. {} {} — {}{}", k + 1, s(&i["id"]), s(&i["title"]), s(&i["goal"]), external(i));
+        for (k, i) in &road {
+            println!("    {}. {} {}{} — {}{}", k + 1, s(&i["id"]), s(&i["title"]), labels(i), s(&i["goal"]), external(i));
         }
         let open = deferred(&w, id);
         if !open.is_empty() {
@@ -99,7 +130,7 @@ fn export(d: &Daemon, project: &str) -> anyhow::Result<()> {
             },
             _ => String::new(),
         };
-        println!("{}. **{}** ({}){link}", k + 1, s(&i["title"]), s(&i["id"]));
+        println!("{}. **{}** ({}){}{link}", k + 1, s(&i["title"]), s(&i["id"]), labels(i));
         println!("   {}", s(&i["goal"]));
         for line in s(&i["note"]).lines() {
             println!("   {line}");
@@ -192,10 +223,10 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             }
             return Ok(None);
         }
-        Cmd::Backlog(BacklogCmd::Add { title, goal, project, note, external, url }) => d.append(
+        Cmd::Backlog(BacklogCmd::Add { title, goal, project, note, external, url, sort }) => d.append(
             actor,
             "intent.created",
-            json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned", "note": note, "external": parse_external(external, url)? }),
+            json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned", "note": note, "external": parse_external(external, url)?, "kind": sort.kind, "size": sort.size.map(|z| z.to_lowercase()), "tags": sort.tags }),
         )?,
         Cmd::Backlog(BacklogCmd::AddFinding { project, severity, problem, impact, r#where, source, note, intent, external, url }) => d.append(
             actor,
@@ -205,7 +236,10 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 "finding": { "severity": severity, "problem": problem, "impact": impact, "where": r#where, "external": parse_external(external, url)? },
             }),
         )?,
-        Cmd::Backlog(BacklogCmd::List { project }) => return list(d, project.as_deref().map(project_arg).transpose()?.as_deref()).map(|()| None),
+        Cmd::Backlog(BacklogCmd::List { project, kind, size, tag }) => {
+            let only = Filter { kinds: kind, sizes: size.iter().map(|z| z.to_lowercase()).collect(), tags: tag.iter().map(|t| t.trim().to_lowercase()).collect() };
+            return list(d, project.as_deref().map(project_arg).transpose()?.as_deref(), &only).map(|()| None);
+        }
         Cmd::Backlog(BacklogCmd::Export { project }) => return export(d, &project_arg(&project)?).map(|()| None),
         Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
         Cmd::Backlog(BacklogCmd::Merge { into, from, title }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from, "title": title })))?,
@@ -219,12 +253,28 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
         }
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
-        Cmd::Intent(IntentCmd::Add { title, goal, project }) => d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned" }))?,
-        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings, add_note, note, base }) => {
-            if base.is_none() && (title.is_some() || goal.is_some() || note.is_some()) {
-                bail!("give --base N, the version you read (`workriver intent history {intent}` shows it): --title, --goal and --note replace what is there, and are refused when it changed since");
+        Cmd::Intent(IntentCmd::Add { title, goal, project, sort }) => d.append(
+            actor,
+            "intent.created",
+            json!({ "title": title, "goal": goal, "project": project_arg(&project)?, "state": "planned", "kind": sort.kind, "size": sort.size.map(|z| z.to_lowercase()), "tags": sort.tags }),
+        )?,
+        Cmd::Intent(IntentCmd::Set { intent, title, goal, findings, add_note, note, base, kind, size, tags }) => {
+            if base.is_none() && (title.is_some() || goal.is_some() || note.is_some() || kind.is_some() || size.is_some() || tags.is_some()) {
+                bail!("give --base N, the version you read (`workriver intent history {intent}` shows it): --title, --goal, --note, --kind, --size and --tags replace what is there, and are refused when it changed since");
             }
-            d.append(actor, "intent.updated", json!({ "intent": intent, "title": title, "goal": goal, "findings": findings, "add_note": add_note, "note": note, "base": base }))?
+            let mut body = json!({ "intent": intent, "title": title, "goal": goal, "findings": findings, "add_note": add_note, "note": note, "base": base });
+            // Only what was given: a null kind or size clears it, an empty list the tags.
+            let none = |v: &str| v.eq_ignore_ascii_case("none");
+            if let Some(k) = kind {
+                body["kind"] = if none(&k) { Value::Null } else { json!(k) };
+            }
+            if let Some(z) = size {
+                body["size"] = if none(&z) { Value::Null } else { json!(z.to_lowercase()) };
+            }
+            if let Some(t) = tags {
+                body["tags"] = if none(&t) { json!([]) } else { json!(t.split(',').map(str::trim).filter(|t| !t.is_empty()).collect::<Vec<_>>()) };
+            }
+            d.append(actor, "intent.updated", body)?
         }
         Cmd::Intent(IntentCmd::History { intent, version, diff }) => {
             print!("{}", intent_history_text(d, &intent, version, diff)?);
@@ -260,6 +310,24 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
     }))
 }
 
+/// A new intent's kind, size and tags (`backlog add`, `intent add`).
+#[derive(clap::Args)]
+pub(crate) struct Sort {
+    /// What kind of work it is: feature (new behaviour), fix (wrong behaviour: a bug, a
+    /// hole, a flaky test), chore (no new behaviour: refactor, docs, build, release),
+    /// research (the outcome is a decision or a report).
+    #[arg(long, value_parser = ["feature", "fix", "chore", "research"])]
+    kind: Option<String>,
+    /// How big it is expected to be: s (one unit, hours), m (one or two units, a day or
+    /// two), l (three units or more, or a design first; days).
+    #[arg(long, value_parser = ["s", "m", "l"], ignore_case = true)]
+    size: Option<String>,
+    /// A word for its area or theme (security, cli); repeatable, at most 8. Kept lower-case;
+    /// no space or comma.
+    #[arg(long = "tag", value_name = "TAG")]
+    tags: Vec<String>,
+}
+
 #[derive(Subcommand)]
 pub(crate) enum IntentCmd {
     /// Record a new planned intent (as `backlog add`); prints its id.
@@ -271,6 +339,8 @@ pub(crate) enum IntentCmd {
         /// The project (p1, or a folder); default: the current directory's.
         #[arg(long, default_value = ".")]
         project: String,
+        #[command(flatten)]
+        sort: Sort,
     },
     #[command(about = runtime::words::HELP_INTENT_START)]
     Start { intent: String },
@@ -282,9 +352,10 @@ pub(crate) enum IntentCmd {
         #[arg(long)]
         reason: String,
     },
-    /// Change an intent's title or goal (the user only), its note (its manager too while it is
-    /// active; a manager of its project may add to a planned one), or who decides its
-    /// findings (the user only). A replace needs --base: the version it was made from.
+    /// Change an intent's title or goal (the user only), its note, kind, size or tags (its
+    /// manager too while it is active; a manager of its project may add to a planned one's
+    /// note), or who decides its findings (the user only). A replace needs --base: the
+    /// version it was made from.
     Set {
         /// The intent (i1…).
         intent: String,
@@ -308,6 +379,15 @@ pub(crate) enum IntentCmd {
         /// learnt or decided about the intent as a whole, links welcome.
         #[arg(long, value_name = "TEXT")]
         add_note: Option<String>,
+        /// What kind of work it is (feature, fix, chore, research); none clears it. Needs --base.
+        #[arg(long, value_parser = ["feature", "fix", "chore", "research", "none"])]
+        kind: Option<String>,
+        /// How big it is expected to be (s, m, l); none clears it. Needs --base.
+        #[arg(long, value_parser = ["s", "m", "l", "none"], ignore_case = true)]
+        size: Option<String>,
+        /// Its tags, the whole set, comma-separated (security,cli); none clears them. Needs --base.
+        #[arg(long, value_name = "TAGS")]
+        tags: Option<String>,
     },
     /// An intent's versions: who changed its title, goal or note and when; one whole, or
     /// what it changed.
@@ -393,6 +473,8 @@ pub(crate) enum BacklogCmd {
         /// The link to it there.
         #[arg(long, requires = "external")]
         url: Option<String>,
+        #[command(flatten)]
+        sort: Sort,
     },
     /// Add a deferred finding that came from outside workriver (an earlier review, a notes
     /// file); prints its id (f1…).
@@ -423,11 +505,21 @@ pub(crate) enum BacklogCmd {
         #[arg(long, requires = "external")]
         url: Option<String>,
     },
-    /// Print a project's roadmap and deferred findings.
+    /// Print a project's roadmap and deferred findings: each intent with its kind, size and
+    /// tags (`[fix S] security, cli`).
     List {
         /// Default: every project.
         #[arg(long)]
         project: Option<String>,
+        /// Only intents of this kind; repeatable (any of them).
+        #[arg(long, value_parser = ["feature", "fix", "chore", "research"])]
+        kind: Vec<String>,
+        /// Only intents of this size; repeatable (any of them).
+        #[arg(long, value_parser = ["s", "m", "l"], ignore_case = true)]
+        size: Vec<String>,
+        /// Only intents with this tag; repeatable (any of them).
+        #[arg(long, value_name = "TAG")]
+        tag: Vec<String>,
     },
     /// Move a planned intent before or after another in the roadmap.
     Move {

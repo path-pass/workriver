@@ -18,6 +18,68 @@ pub(crate) fn active() -> IntentState {
     IntentState::Active
 }
 
+/// What kind of work an intent is: the first three are the branch prefixes its units take
+/// (feat/, fix/, chore/), the fourth the research unit. Closed: a filter and a comparison need
+/// one meaning per value, and each is UI text, translated.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum IntentKind {
+    /// New behaviour.
+    Feature,
+    /// Behaviour that is wrong: a bug, a hole, a flaky test.
+    Fix,
+    /// No new behaviour: refactor, docs, build, dependencies, release.
+    Chore,
+    /// The outcome is a decision or a report, not code.
+    Research,
+}
+
+/// How big an intent is expected to be: an estimate made before the work exists.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum IntentSize {
+    /// One unit, one round of implement and review; hours.
+    S,
+    /// One or two units, a few review rounds; a day or two.
+    M,
+    /// Three units or more, or a design first; days.
+    L,
+}
+
+/// The most tags an intent carries.
+pub const MAX_TAGS: usize = 8;
+
+/// An intent's tags as they are kept: each trimmed and lower-case (other scripts as written),
+/// repeats dropped, in the order given; refused, naming it, when one breaks the limits (1–32
+/// characters, no space or comma) or there are more than `MAX_TAGS`.
+pub fn tags(given: &[String]) -> Result<Vec<String>, Rejected> {
+    let mut out: Vec<String> = vec![];
+    for t in given {
+        let t = t.trim().to_lowercase();
+        let n = t.chars().count();
+        if n == 0 || n > 32 {
+            return no(format!("a tag is 1–32 characters: «{t}» is not"));
+        }
+        if t.chars().any(|c| c.is_whitespace() || c == ',') {
+            return no(format!("a tag has no space or comma: «{t}»; give two tags, or join the words with -"));
+        }
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    if out.len() > MAX_TAGS {
+        return no(format!("an intent has at most {MAX_TAGS} tags; {} given", out.len()));
+    }
+    Ok(out)
+}
+
+/// A merged intent's kind, size and tags, as one line of its block (`fix · S · security, cli`);
+/// empty when it has none.
+fn meta_line(i: &Intent) -> String {
+    let size = i.size.map(|z| name(&z).to_uppercase());
+    [i.kind.map(|k| name(&k)), size, (!i.tags.is_empty()).then(|| i.tags.join(", "))].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+}
+
 /// The same item in an outside tracker (Jira, Linear, GitHub Issues); only kept and shown.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct External {
@@ -88,6 +150,15 @@ pub struct Intent {
     /// Intent-level work (research, design), numbered `i3#1`…
     #[serde(default)]
     pub tasks: Vec<Task>,
+    /// What kind of work it is; none: not said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<IntentKind>,
+    /// How big it is expected to be; none: not estimated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<IntentSize>,
+    /// Free words for its area or theme, as kept by `tags`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     /// Its versions, as far as the rules and the board need them; its history is read from
     /// its events (`intent_versions`). Never serialized: derived on replay, and the history
     /// is not what every read of the state should carry.
@@ -96,9 +167,9 @@ pub struct Intent {
 }
 
 /// Where an intent's text stands: its last version, who made it and when, and the version
-/// that last changed each of its title, goal and note. A version is `intent.created`, and
-/// each `intent.updated` that sets its title, goal or note (or adds to it), and each merge
-/// into it.
+/// that last changed each of its title, goal, note, kind, size and tags (0: never set). A
+/// version is `intent.created`, and each `intent.updated` that sets one of them (or adds to
+/// the note), and each merge into it.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 pub struct Edits {
     pub version: u32,
@@ -108,16 +179,37 @@ pub struct Edits {
     pub title: u32,
     pub goal: u32,
     pub note: u32,
+    #[serde(default, skip_serializing_if = "zero")]
+    pub kind: u32,
+    #[serde(default, skip_serializing_if = "zero")]
+    pub size: u32,
+    #[serde(default, skip_serializing_if = "zero")]
+    pub tags: u32,
+}
+
+fn zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// Which fields of an intent a version changed.
+#[derive(Clone, Copy, Default)]
+struct Changed {
+    title: bool,
+    goal: bool,
+    note: bool,
+    kind: bool,
+    size: bool,
+    tags: bool,
 }
 
 impl Edits {
     /// A new version, by `by` at `at`, changing what is flagged.
-    fn bump(&mut self, at: &str, by: &str, title: bool, goal: bool, note: bool) {
+    fn bump(&mut self, at: &str, by: &str, c: Changed) {
         self.version += 1;
         self.at = at.to_string();
         self.by = by.to_string();
         let n = self.version;
-        for (changed, field) in [(title, &mut self.title), (goal, &mut self.goal), (note, &mut self.note)] {
+        for (changed, field) in [(c.title, &mut self.title), (c.goal, &mut self.goal), (c.note, &mut self.note), (c.kind, &mut self.kind), (c.size, &mut self.size), (c.tags, &mut self.tags)] {
             if changed {
                 *field = n;
             }
@@ -125,11 +217,11 @@ impl Edits {
     }
 }
 
-/// What a merged intent said, as a block of its target's note: its title, goal, note and
-/// external id (with its link), one per line, empty ones left out.
+/// What a merged intent said, as a block of its target's note: its title, its kind, size and
+/// tags, its goal, note and external id (with its link), one per line, empty ones left out.
 fn merged_note(i: &Intent) -> String {
     let external = i.external.as_ref().map(|e| format!("{}:{}{}", e.system, e.key, e.url.as_deref().map(|u| format!(" {u}")).unwrap_or_default()));
-    [format!("Merged from {}: {}", i.id, i.title), i.goal.trim().to_string(), i.note.trim().to_string(), external.unwrap_or_default()].into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
+    [format!("Merged from {}: {}", i.id, i.title), meta_line(i), i.goal.trim().to_string(), i.note.trim().to_string(), external.unwrap_or_default()].into_iter().filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
 impl State {
@@ -164,7 +256,8 @@ impl State {
         let actor = who.actor();
         let user = *who == Principal::User;
         Ok(match body {
-            IntentCreated { title, goal, runtime_ref, project, state, note, external, .. } => {
+            IntentCreated { title, goal, runtime_ref, project, state, note, external, kind, size, tags: given, .. } => {
+                let tags = tags(&given)?;
                 if blank(&title) {
                     return no("an intent needs a title");
                 }
@@ -180,7 +273,7 @@ impl State {
                 if !user && (runtime_ref.is_some() || state == IntentState::Active) {
                     return no("an agent adds an intent to the roadmap, planned and in no workspace (`workriver backlog add`); it runs where it is started (`workriver intent start`)");
                 }
-                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external }
+                IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external, kind, size, tags }
             }
             IntentStateChanged { intent, state, reason, workspace } => {
                 let i = self.intent(&intent)?;
@@ -309,11 +402,12 @@ impl State {
                 }
                 IntentLinked { intent, runtime_ref }
             }
-            IntentUpdated { intent, title, goal, findings, add_note, note, base } => {
+            IntentUpdated { intent, title, goal, findings, add_note, note, base, kind, size, tags: given } => {
                 let i = self.intent(&intent)?;
-                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() && note.is_none() {
-                    return no("nothing to change: give a title, a goal, --note, --add-note or --findings");
+                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() && note.is_none() && kind.is_none() && size.is_none() && given.is_none() {
+                    return no("nothing to change: give a title, a goal, --note, --add-note, --findings, --kind, --size or --tags");
                 }
+                let tags = given.as_deref().map(tags).transpose()?;
                 if note.is_some() && add_note.is_some() {
                     return no("give --note or --add-note, not both: --note replaces the whole note");
                 }
@@ -323,12 +417,13 @@ impl State {
                 if add_note.as_deref().is_some_and(blank) {
                     return no("the note to add is empty: --add-note \"...\"");
                 }
+                let set = Changed { title: title.is_some(), goal: goal.is_some(), note: note.is_some(), kind: kind.is_some(), size: size.is_some(), tags: tags.is_some() };
                 if !user {
-                    self.may_edit(actor, i, title.is_some() || goal.is_some(), findings.is_some(), note.is_some())?;
+                    self.may_edit(actor, i, set, findings.is_some())?;
                 }
-                self.unchanged_since(i, base, title.is_some(), goal.is_some(), note.is_some())?;
+                self.unchanged_since(i, base, set)?;
                 // The whole note as written: its indentation and blank lines are Markdown.
-                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()), note, base }
+                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()), note, base, kind, size, tags }
             }
             other => unreachable!("{} is not one of an intent's kinds", name_of_kind(&other)),
         })
@@ -339,7 +434,7 @@ impl State {
         use Body::*;
         let at = &e.at;
         match &e.body {
-            IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
+            IntentCreated { id, title, goal, runtime_ref, project, state, note, external, kind, size, tags } => {
                 self.intents.push(Intent {
                     id: id.clone(),
                     title: title.clone(),
@@ -356,10 +451,14 @@ impl State {
                     findings: FindingsPolicy::default(),
                     tasks: vec![],
                     by: e.actor.clone(),
+                    kind: *kind,
+                    size: *size,
+                    tags: tags.clone(),
                     edits: Edits::default(),
                 });
                 if let Some(i) = self.intents.last_mut() {
-                    i.edits.bump(at, &e.actor, true, true, true);
+                    // Kind, size and tags only when given: an intent without them is as before.
+                    i.edits.bump(at, &e.actor, Changed { title: true, goal: true, note: true, kind: kind.is_some(), size: size.is_some(), tags: !tags.is_empty() });
                 }
                 if *state == IntentState::Planned {
                     self.roadmap.push(id.clone());
@@ -420,9 +519,11 @@ impl State {
             }
             IntentMerged { intent, from, title } => {
                 let mut blocks = vec![];
+                let mut tags = vec![];
                 for f in from {
                     if let Some(x) = self.intents.iter_mut().find(|i| &i.id == f) {
                         blocks.push(merged_note(x));
+                        tags.extend(x.tags.iter().cloned());
                         x.state = IntentState::Dropped;
                         x.reason = Some(format!("merged into {intent}"));
                     }
@@ -434,10 +535,22 @@ impl State {
                     if let Some(t) = title {
                         i.title = t.clone();
                     }
-                    i.edits.bump(at, &e.actor, title.is_some(), false, true);
+                    // The tags are the user's to widen: only the user's merge unions them (its
+                    // own first, cut to the most kept); an agent's leaves them in the note.
+                    let mut union = i.tags.clone();
+                    if e.actor == Principal::User.actor() {
+                        for t in tags {
+                            if !union.contains(&t) && union.len() < MAX_TAGS {
+                                union.push(t);
+                            }
+                        }
+                    }
+                    let widened = union != i.tags;
+                    i.tags = union;
+                    i.edits.bump(at, &e.actor, Changed { title: title.is_some(), note: true, tags: widened, ..Changed::default() });
                 }
             }
-            IntentUpdated { intent, title, goal, findings, add_note, note, .. } => {
+            IntentUpdated { intent, title, goal, findings, add_note, note, kind, size, tags, .. } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
                     if let Some(n) = note {
                         i.note = n.clone();
@@ -455,8 +568,18 @@ impl State {
                     if let Some(f) = findings {
                         i.findings = *f;
                     }
-                    if title.is_some() || goal.is_some() || note.is_some() || add_note.is_some() {
-                        i.edits.bump(at, &e.actor, title.is_some(), goal.is_some(), note.is_some() || add_note.is_some());
+                    if let Some(k) = kind {
+                        i.kind = *k;
+                    }
+                    if let Some(z) = size {
+                        i.size = *z;
+                    }
+                    if let Some(t) = tags {
+                        i.tags = t.clone();
+                    }
+                    let c = Changed { title: title.is_some(), goal: goal.is_some(), note: note.is_some() || add_note.is_some(), kind: kind.is_some(), size: size.is_some(), tags: tags.is_some() };
+                    if c.title || c.goal || c.note || c.kind || c.size || c.tags {
+                        i.edits.bump(at, &e.actor, c);
                     }
                 }
             }
@@ -478,10 +601,11 @@ impl State {
 
 impl State {
     /// Whether agent `actor` may make this change to intent `i` (the user may make any): title,
-    /// goal and findings are the user's; the note is its manager's while it is active; a
-    /// planned one takes additions from a manager of a workspace of its project; a done or
-    /// dropped one is the user's.
-    fn may_edit(&self, actor: &str, i: &Intent, title_or_goal: bool, findings: bool, replace: bool) -> Result<(), Rejected> {
+    /// goal and findings are the user's; the note, kind, size and tags are its manager's while
+    /// it is active; a planned one takes additions to its note from a manager of a workspace of
+    /// its project, and nothing more; a done or dropped one is the user's.
+    fn may_edit(&self, actor: &str, i: &Intent, set: Changed, findings: bool) -> Result<(), Rejected> {
+        let (title_or_goal, replace, meta) = (set.title || set.goal, set.note, set.kind || set.size || set.tags);
         let id = &i.id;
         // Who decides findings is the user's to say, never the one it is handed to.
         if findings {
@@ -492,7 +616,9 @@ impl State {
         }
         match i.state {
             IntentState::Active if self.manager_of(id) == Some(actor) => Ok(()),
+            IntentState::Active if meta => no(format!("only the user or the manager of intent {id} changes its kind, size and tags")),
             IntentState::Active => no(format!("only the user or the manager of intent {id} changes its note")),
+            IntentState::Planned if meta => no(format!("{id} is planned: its kind, size and tags are the user's (whoever adds an intent sets them; its manager, once it is started); ask the user, or write what you think in its note")),
             IntentState::Planned => {
                 let mine: Vec<&Workspace> = self.workspaces.iter().filter(|w| w.manager.as_deref() == Some(actor)).collect();
                 if mine.is_empty() {
@@ -517,14 +643,14 @@ impl State {
     }
 
     /// Refuses a replace made from version `base` when a field it sets changed after it.
-    fn unchanged_since(&self, i: &Intent, base: Option<u32>, title: bool, goal: bool, note: bool) -> Result<(), Rejected> {
+    fn unchanged_since(&self, i: &Intent, base: Option<u32>, set: Changed) -> Result<(), Rejected> {
         let Some(base) = base else { return Ok(()) };
         let id = &i.id;
         let e = &i.edits;
         if base > e.version || base == 0 {
             return no(format!("{id} has no version {base}; it is at v{}", e.version));
         }
-        for (set, changed, what) in [(title, e.title, "title"), (goal, e.goal, "goal"), (note, e.note, "note")] {
+        for (set, changed, what) in [(set.title, e.title, "title"), (set.goal, e.goal, "goal"), (set.note, e.note, "note"), (set.kind, e.kind, "kind"), (set.size, e.size, "size"), (set.tags, e.tags, "tags")] {
             if set && changed > base {
                 let by = self.agents.iter().find(|a| a.session == e.by).map_or(e.by.as_str(), |a| a.name.as_str());
                 let by = if by == "user" { "the user" } else { by };

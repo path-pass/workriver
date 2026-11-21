@@ -149,6 +149,29 @@ fn lists_findings_and_machines_from_the_cli() {
     let left = run(&["backlog", "list"]);
     assert!(!left.split_whitespace().any(|word| word == "f1"), "{left}");
 
+    // An intent's kind, size and tags: given when it is added, printed after its title,
+    // filtered by (numbered by its place in the whole roadmap), exported; `intent set`
+    // changes only what it is given (none clears), from --base like the other replaces.
+    run(&["backlog", "add", "Login bug", "--goal", "No lockout", "--project", &repo, "--kind", "fix", "--size", "S", "--tag", "Security", "--tag", "cli"]);
+    let only = format!("Chat  {repo}  (p1)\n  roadmap:\n    3. i3 Login bug [fix S] security, cli — No lockout\n");
+    assert_eq!(run(&["backlog", "list", "--kind", "fix"]), only);
+    assert_eq!(run(&["backlog", "list", "--tag", "cli", "--size", "s", "--kind", "feature", "--kind", "fix"]), only);
+    assert_eq!(run(&["backlog", "list", "--kind", "feature"]), format!("Chat  {repo}  (p1)\n"));
+    let export = run(&["backlog", "export", "--project", "p1"]);
+    assert!(export.contains("\n3. **Login bug** (i3) [fix S] security, cli\n   No lockout\n"), "{export}");
+    let refused = cli().args(["intent", "set", "i3", "--kind", "feature"]).output().unwrap();
+    assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains("give --base N"), "{}", String::from_utf8_lossy(&refused.stderr));
+    run(&["intent", "set", "i3", "--goal", "Never lock out", "--base", "1"]);
+    assert!(run(&["backlog", "list"]).contains("    3. i3 Login bug [fix S] security, cli — Never lock out\n"), "an unrelated edit keeps them");
+    run(&["intent", "set", "i3", "--kind", "none", "--tags", "none", "--base", "2"]);
+    assert!(run(&["backlog", "list"]).contains("    3. i3 Login bug [S] — Never lock out\n"));
+    run(&["intent", "set", "i3", "--kind", "feature", "--tags", "auth, ui", "--base", "3"]);
+    let history = run(&["intent", "history", "i3"]);
+    assert!(history.contains("  the user  changed the goal\n") && history.contains("  the user  changed the kind, tags\n") && history.contains("give it as --base to change the title, goal, note, kind, size or tags"), "{history}");
+    assert_eq!(run(&["intent", "history", "i3", "--version", "1"]), "i3 v1\ntitle: Login bug\ngoal: No lockout\nkind: fix\nsize: S\ntags: security, cli\nnote:\n\n");
+    assert_eq!(run(&["intent", "history", "i3", "--diff", "3"]), "i3 v3 against v2\nkind: fix -> (not set)\ntags: security, cli -> (not set)\n");
+    assert!(run(&["board", "i3"]).starts_with("i3 Login bug [feature S] auth, ui\n"));
+
     // The user adds a machine (not followed yet), follows it, stops, and removes it; the
     // settings file says so at every step, and the connection lives only while followed.
     let settings = || -> Value { serde_json::from_str(&std::fs::read_to_string(home.join("settings.json")).unwrap_or_else(|_| "{}".into())).unwrap() };

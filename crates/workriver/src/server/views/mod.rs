@@ -319,6 +319,9 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
                 state.roadmap.iter().filter_map(|id| state.intents.iter().find(|x| &x.id == id)).filter(|x| state.project_folder(x) == mine).position(|x| x.id == i.id)
             }).flatten(),
             reason: i.reason.clone(),
+            kind: i.kind,
+            size: i.size,
+            tags: i.tags.clone(),
             units: intent_unit(state, live, i, &names)
                 .into_iter()
                 .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names, false) }))

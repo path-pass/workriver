@@ -667,6 +667,51 @@ fn an_intent_is_edited_and_its_history_read() {
     assert!(e.contains("blind task"), "{e}");
 }
 
+/// An intent's kind, size and tags through the service: recorded as given (a cleared one as
+/// null or [], an unrelated edit carrying none), told to its manager, shown on the page's
+/// snapshot, in its history and a version's text; a restore of an older version (what the
+/// page sends: its values, from the current base) brings them back.
+#[test]
+fn an_intents_kind_size_and_tags_through_the_service() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    let told = || fake.sent.lock().unwrap().iter().filter(|(to, m)| to == "s-boss" && m.contains("changed i1")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+
+    let set = d.append("user", "intent.updated", json!({ "intent": "i1", "kind": "fix", "size": "s", "tags": ["Security", "cli"], "base": 1 })).unwrap();
+    assert_eq!(set["body"]["tags"], json!(["security", "cli"]), "{set}");
+    wait_until("the manager is told", || told().len() == 1);
+    assert_eq!(told()[0], "[workriver] The user changed i1 (now v2): kind fix; size S; tags: «security, cli».");
+    let goal = d.append("user", "intent.updated", json!({ "intent": "i1", "goal": "Talk", "base": 2 })).unwrap();
+    assert!(goal["body"].get("kind").is_none() && goal["body"].get("tags").is_none(), "{goal}");
+    let cleared = d.append("s-boss", "intent.updated", json!({ "intent": "i1", "kind": null, "tags": [], "base": 3 })).unwrap();
+    assert_eq!((cleared["body"].get("kind"), cleared["body"].get("tags"), cleared["body"].get("size")), (Some(&json!(null)), Some(&json!([])), None), "{cleared}");
+
+    let ws = d.get("/api/workspace?light=true").unwrap();
+    let i = ws["intents"].as_array().unwrap().iter().find(|i| i["id"] == "i1").unwrap();
+    assert_eq!((i.get("kind"), i["size"].as_str(), i.get("tags")), (None, Some("s"), None), "{i}");
+    let h = d.get("/api/intent/i1/history").unwrap();
+    let v = h["versions"].as_array().unwrap();
+    assert_eq!((v[1]["kind"].as_str(), v[1]["size"].as_str(), &v[1]["tags"]), (Some("fix"), Some("s"), &json!(["security", "cli"])));
+    assert!(v[2].get("kind").is_none() && v[3]["kind"].is_null() && v[3].get("kind").is_some() && v[3]["tags"] == json!([]) && v[3].get("size").is_none(), "{h}");
+    let two = d.get("/api/intent/i1/history?version=2").unwrap();
+    assert_eq!((&two["text"]["kind"], &two["text"]["tags"], &two["before"]["kind"], &two["before"]["tags"]), (&json!("fix"), &json!(["security", "cli"]), &json!(null), &json!([])));
+
+    // Restore v2: its values, from the base read now.
+    let text = &two["text"];
+    d.append("user", "intent.updated", json!({ "intent": "i1", "kind": text["kind"], "tags": text["tags"], "base": 4 })).unwrap();
+    let state = d.get("/api/state").unwrap();
+    let i = state["intents"].as_array().unwrap().iter().find(|i| i["id"] == "i1").unwrap();
+    assert_eq!((i["kind"].as_str(), i["size"].as_str(), &i["tags"], i["edits"]["tags"].as_u64()), (Some("fix"), Some("s"), &json!(["security", "cli"]), Some(5)), "{i}");
+    // A stale one is refused.
+    let e = d.append("user", "intent.updated", json!({ "intent": "i1", "size": "l", "tags": ["x"], "base": 4 })).unwrap_err().to_string();
+    assert!(e.contains("i1's tags changed since v4"), "{e}");
+}
+
 /// The manager hears of the user's edit as it was committed (its version, what it changed),
 /// even when another edit commits right after it, before anything is read again.
 #[test]
