@@ -34,7 +34,8 @@ fn the_code_token_follows_uncommitted_entries() {
         before_id: "3e757656cf36eca53338e520d134963a44f793f8".into(),
         after_mode: "100644".into(),
         after_id: "0".repeat(40),
-        binary: false,
+        before_binary: false,
+        after_binary: false,
     };
     let token = |f: scan::FileChange| code_of(&[], &[f], None);
     let was = token(file.clone());

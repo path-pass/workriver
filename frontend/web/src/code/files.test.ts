@@ -139,7 +139,8 @@ describe('the code tree shows the net change', () => {
 
   // A binary file: scan gives it no texts and no counts, as git says "Binary files differ".
   const binary = (path: string, ids: [string | null, string | null]): FileChange => ({
-    path, status: ids[0] === null ? 'A' : ids[1] === null ? 'D' : 'M', before: null, after: null, add: 0, del: 0, lines: [], binary: true,
+    path, status: ids[0] === null ? 'A' : ids[1] === null ? 'D' : 'M', before: null, after: null, add: 0, del: 0, lines: [],
+    beforeBinary: ids[0] !== null, afterBinary: ids[1] !== null,
     beforeMode: ids[0] === null ? GONE : '100644', afterMode: ids[1] === null ? GONE : '100644', beforeId: ids[0] ?? NULL, afterId: ids[1] ?? NULL,
   })
 
@@ -157,7 +158,7 @@ describe('the code tree shows the net change', () => {
   })
 
   it('a text file made binary: binary, its old lines not counted as removed', () => {
-    const u = unit([commit('c1', [change('keep.ts', 'k\n', 'k2\n')]), commit('c2', [binary('keep.ts', ['k2\n', A])])])
+    const u = unit([commit('c1', [change('keep.ts', 'k\n', 'k2\n')]), commit('c2', [{ ...binary('keep.ts', ['k2\n', A]), before: 'k2\n', beforeBinary: false }])])
     expect(fileRows(u)).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
     expect(shownDelta(u, selectionOf(u, null), 'keep.ts')?.parts.map(p => p.binary)).toEqual([true])
   })
@@ -173,6 +174,45 @@ describe('the code tree shows the net change', () => {
     const live = (id: string) => ({ ...commit('live', [binary('keep.ts', [A, id])]), live: true })
     expect(fileRows(unit([commit('c1', [binary('keep.ts', ['k', A])]), live('k')]))).toEqual({})
     expect(fileRows(unit([commit('c1', [binary('keep.ts', ['k', A])]), live(B)]))).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+  })
+
+  // A binary version between two texts: scan keeps the text of each side that is text.
+  const toBinary: FileChange = { ...binary('keep.ts', ['k\n', A]), before: 'k\n', beforeBinary: false }
+  const toText = (afterId: string): FileChange => ({ ...binary('keep.ts', [A, afterId]), after: 'k2\n', afterBinary: false })
+
+  it('a binary version between two texts is the text change git shows, picked or not', () => {
+    const u = unit([commit('c1', [toBinary]), commit('c2', [toText('k2\n')])])
+    for (const pick of [null, 't1']) {
+      expect(fileRows(u, pick)).toEqual({ 'keep.ts': { status: 'M', add: 1, del: 1, inPick: true } })
+      expect(shownDelta(u, selectionOf(u, pick ? { kind: 'task', id: pick } : null), 'keep.ts')?.parts.map(p => [p.binary, p.before, p.after])).toEqual([[undefined, 'k\n', 'k2\n']])
+    }
+  })
+
+  it('a binary version between two texts, the last edit uncommitted: the text change too', () => {
+    const u = unit([commit('c1', [toBinary]), { ...commit('live', [toText(NULL)]), live: true }])
+    for (const pick of [null, 't1']) expect(fileRows(u, pick)).toEqual({ 'keep.ts': { status: 'M', add: 1, del: 1, inPick: true } })
+    const net = { ...u, net: { id: 'b..t', files: [toBinary] } } as Unit
+    for (const pick of [null, 't1']) expect(fileRows(net, pick)).toEqual({ 'keep.ts': { status: 'M', add: 1, del: 1, inPick: true } })
+  })
+
+  it('uncommitted work scan could not read (git lists it, cannot hash it) is a change', () => {
+    const unread = { ...binary('keep.ts', [A, NULL]), afterBinary: false }
+    expect(fileRows(unit([{ ...commit('live', [unread]), live: true }]))).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+  })
+
+  it('a SHA-256 repository: 64 zeros are git\'s placeholder too, so the text stands for the id', () => {
+    const live = (after: string) => ({ ...commit('live', [{ ...change('keep.ts', 'k2\n', after), afterId: '0'.repeat(64) }]), live: true })
+    expect(fileRows(unit([commit('c1', [change('keep.ts', 'k\n', 'k2\n')]), live('k\n')]))).toEqual({})
+  })
+
+  it('a file made a submodule: the pointer, no lines, though scan keeps the file\'s text', () => {
+    const made: FileChange = { ...change('keep.ts', 'k\n', null), status: 'M', add: 0, del: 0, afterMode: '160000', afterId: B }
+    const u = unit([commit('c1', [made])])
+    expect(fileRows(u)).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+    expect(shownDelta(u, selectionOf(u, null), 'keep.ts')?.parts.map(p => [p.pointer, p.binary])).toEqual([[{ from: null, to: B }, undefined]])
+    // A binary file made one: the pointer, not "Binary files differ".
+    const fromBinary = unit([commit('c1', [{ ...binary('keep.ts', [A, B]), afterBinary: false, afterMode: '160000' }])])
+    expect(shownDelta(fromBinary, selectionOf(fromBinary, null), 'keep.ts')?.parts.map(p => [p.pointer, p.binary])).toEqual([[{ from: null, to: B }, undefined]])
   })
 
   it('uncommitted work that undoes a commit is no change; git has not hashed it, so its text stands for its id', () => {

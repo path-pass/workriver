@@ -87,7 +87,7 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
     // Every text needed, in one call.
     let specs: Vec<String> = raws.iter().flat_map(|(_, files)| files.iter().flat_map(texted)).collect();
     let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
-    let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
+    let text = |b: &str| if is_null(b) { None } else { texts.get(b).cloned().flatten() };
     Ok(raws
         .into_iter()
         .map(|(head, files)| {
@@ -136,7 +136,7 @@ pub fn diff(at: &Runner, repo: &Path, from: &str, to: &str) -> Result<Vec<FileCh
     let raws = raw(&String::from_utf8_lossy(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--raw", "--no-abbrev", from, to], &[])?));
     let specs: Vec<String> = raws.iter().flat_map(texted).collect();
     let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
-    let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
+    let text = |b: &str| if is_null(b) { None } else { texts.get(b).cloned().flatten() };
     Ok(raws
         .into_iter()
         .filter_map(|f| {

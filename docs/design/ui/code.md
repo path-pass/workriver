@@ -47,17 +47,26 @@ its sections went.
      from before the unit. A merge of any other branch is the branch's work. Whether a file
      changed is whether its git entry (existence, mode and object id) differs at the two
      ends, never its text, which gives only the +/− counts (uncommitted work, which git
-     has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
+     has not hashed, is compared by its text; a symlink's text is where it points; git's
+     placeholder id is all zeros, 40 of them or, in a SHA-256 repository, 64; uncommitted
+     work git lists but that cannot be read or hashed, not allowed or gone meanwhile, is a
+     change, and the rest of the work is read as ever): a file whose mode or type
      alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
      text changed and changed back on the way; a mode or a submodule pointer changed and
      changed back is not. An untracked file is taken as `git add` would take it: a symlink
      with mode 120000, its text where it points (never the file there), any other as a
      regular file. A binary file (as git takes one by default: a NUL in the first 8000 bytes
-     of either side) is there like any file, A, M or D, with no texts and no line counts in
+     of either side) is there like any file, A, M or D, with no line counts in
      the tree or the diff, which says "Binary files differ" as git does; uncommitted, it is
-     compared by the object id git would give it. A submodule's pointer has no text either:
+     compared by the object id git would give it. Only a change's ends say whether it is
+     binary: a text side keeps its text next to a binary one (a binary side's bytes are
+     never sent), so a binary version between two texts, over a pick's commits or ending in
+     uncommitted work, leaves the text change git shows, with its lines. A submodule's
+     pointer has no text either:
      its change shows as the pointer, the commit it moved from and the one it moved to (only
-     one when it is added or removed), with no line counts, never as lines; uncommitted, the
+     one when it is added or removed), with no line counts, never as lines, also where a
+     file or a binary file became one or one became a file (git: a type change), in the
+     tree, the list of commits and the single-file view alike; uncommitted, the
      pointer is the commit the submodule's checkout is at, and work inside the submodule that
      leaves it there is no change. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added

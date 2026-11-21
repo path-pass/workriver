@@ -52,9 +52,10 @@ export interface FileChange {
    */
   before: string | null;
   /**
-   * The whole file after this commit; null when the commit deletes it. Null on both sides of
-   * a binary change and on a side that is a submodule's pointer (no text): see `binary` and
-   * the modes.
+   * The whole file after this commit; null when the commit deletes it. Null on a binary side
+   * (its other side keeps its text, so a change over several commits is from its ends), on a
+   * side that is a submodule's pointer (no text) and on uncommitted work scan could not read:
+   * see `beforeBinary`, `afterBinary` and the modes.
    */
   after: string | null;
   /** Lines added and removed: from the service, or worked out from the texts. */
@@ -65,14 +66,19 @@ export interface FileChange {
   /**
    * Each side's git entry: its mode ('100644'; '000000' where the side does not exist) and
    * object id (zeros where it does not exist, and for uncommitted work's side, which git has
-   * not hashed). Whether a file changed over several commits is whether these differ.
+   * not hashed: 40, or 64 in a SHA-256 repository). Whether a file changed over several
+   * commits is whether these differ.
    */
   beforeMode: string;
   beforeId: string;
   afterMode: string;
   afterId: string;
-  /** Either side is binary (git: "Binary files differ"): no texts, no line counts. */
-  binary?: boolean;
+  /**
+   * Each side is binary: that side has no text; where either is, git says "Binary files
+   * differ" and there are no line counts.
+   */
+  beforeBinary?: boolean;
+  afterBinary?: boolean;
 }
 
 /** A submodule's pointer at the ends of a change: its commits, null where an end is not one. */

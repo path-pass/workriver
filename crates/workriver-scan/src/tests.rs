@@ -120,7 +120,7 @@ fn reads_a_repository_over_ssh() {
     assert_eq!(list.len(), 1);
     let c = commit(&at, repo, &list[0]).unwrap();
     assert_eq!((c.task.as_deref(), c.subject.as_str(), c.files[0].path.as_str(), c.files[0].after.as_deref()), (Some("u1#2"), "add \"b c\"", "b c.txt", Some("new\n")));
-    let mut now: Vec<_> = live(&at, repo, "f").unwrap().into_iter().map(|f| (f.path, f.after, f.after_mode, f.binary)).collect();
+    let mut now: Vec<_> = live(&at, repo, "f").unwrap().into_iter().map(|f| (f.path, f.after, f.after_mode, f.after_binary)).collect();
     now.sort();
     let s = |x: &str| x.to_string();
     let want = vec![(s("a.txt"), Some(s("one\ntwo\n")), s("100644"), false), (s("d.bin"), None, s("100644"), true), (s("to a"), Some(s("a.txt")), s("120000"), false)];
@@ -495,16 +495,16 @@ fn a_binary_change_is_there_without_lines() {
     sh(repo, &["commit", "-q", "-m", "binary"]);
     let head = rev(repo, "HEAD");
     let shape = |files: Vec<FileChange>| {
-        let mut f: Vec<_> = files.into_iter().map(|f| (f.path, f.status, f.binary, f.add, f.del, f.before.is_some(), f.after.is_some())).collect();
+        let mut f: Vec<_> = files.into_iter().map(|f| (f.path, f.status, (f.before_binary, f.after_binary), f.add, f.del, f.before.is_some(), f.after.is_some())).collect();
         f.sort();
         f
     };
     let s = |x: &str| x.to_string();
     let want = vec![
-        (s("changed.bin"), s("M"), true, 0, 0, false, false),
-        (s("gone.bin"), s("D"), true, 0, 0, false, false),
-        (s("late.txt"), s("M"), false, 4001, 1, true, true),
-        (s("new.bin"), s("A"), true, 0, 0, false, false),
+        (s("changed.bin"), s("M"), (true, true), 0, 0, false, false),
+        (s("gone.bin"), s("D"), (true, false), 0, 0, false, false),
+        (s("late.txt"), s("M"), (false, false), 4001, 1, true, true),
+        (s("new.bin"), s("A"), (false, true), 0, 0, false, false),
     ];
     assert_eq!(shape(commits(&at, repo, std::slice::from_ref(&head)).unwrap().remove(0).files), want, "at once");
     assert_eq!(shape(commit(&at, repo, &head).unwrap().files), want, "one by one");
@@ -513,7 +513,7 @@ fn a_binary_change_is_there_without_lines() {
     std::fs::write(repo.join("changed.bin"), [0u8, 5]).unwrap();
     std::fs::write(repo.join("draft.bin"), [0u8, 6]).unwrap();
     let hashed = |p: &str| String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["hash-object", p]).output().unwrap().stdout).unwrap().trim().to_string();
-    let mut now: Vec<_> = live_in(&at, repo).unwrap().into_iter().map(|f| (f.path, f.status, f.binary, f.add, f.del, f.after.is_some(), f.after_id)).collect();
+    let mut now: Vec<_> = live_in(&at, repo).unwrap().into_iter().map(|f| (f.path, f.status, f.after_binary, f.add, f.del, f.after.is_some(), f.after_id)).collect();
     now.sort();
     assert_eq!(now, vec![(s("changed.bin"), s("M"), true, 0, 0, false, hashed("changed.bin")), (s("draft.bin"), s("A"), true, 0, 0, false, hashed("draft.bin"))]);
 }
@@ -568,6 +568,136 @@ fn a_submodule_pointer_is_no_text() {
     sh(&inner, &["checkout", "-q", &i2]);
     write(&inner, "a", "dirty\n");
     assert_eq!(shape(live_in(&at, repo).unwrap()), vec![]);
+}
+
+/// What `git diff --numstat` gives for a path (`-` for a binary file), as git counts it.
+fn git_numstat(repo: &Path, args: &[&str]) -> String {
+    let out = Command::new("git").arg("-C").arg(repo).args(["diff", "--no-renames", "--numstat"]).args(args).output().unwrap().stdout;
+    String::from_utf8(out).unwrap().trim().to_string()
+}
+
+/// A binary version between two texts: each change keeps the text of its side that is text
+/// (never the binary one's bytes) and says which side is binary, so a change over both
+/// commits, or one ending in uncommitted work, is the text change git shows (+1 -1).
+#[test]
+fn a_binary_version_between_texts_keeps_each_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "f", "one\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    let base = rev(repo, "HEAD");
+    std::fs::write(repo.join("f"), [0u8, 1]).unwrap();
+    sh(repo, &["commit", "-q", "-am", "binary"]);
+    let mid = rev(repo, "HEAD");
+    write(repo, "f", "two\n");
+    sh(repo, &["commit", "-q", "-am", "text again"]);
+    let end = rev(repo, "HEAD");
+    assert_eq!(git_numstat(repo, &[&base, &end]), "1\t1\tf", "git: a text change over both");
+    let shape = |f: &FileChange| (f.before.clone(), f.after.clone(), f.before_binary, f.after_binary, f.add, f.del);
+    let s = |x: &str| Some(x.to_string());
+    let (to_binary, to_text) = ((s("one\n"), None, false, true, 0, 0), (None, s("two\n"), true, false, 0, 0));
+    let read = commits(&at, repo, &[mid.clone(), end.clone()]).unwrap();
+    assert_eq!([shape(&read[0].files[0]), shape(&read[1].files[0])], [to_binary.clone(), to_text.clone()], "at once");
+    assert_eq!([shape(&commit(&at, repo, &mid).unwrap().files[0]), shape(&commit(&at, repo, &end).unwrap().files[0])], [to_binary.clone(), to_text.clone()], "one by one");
+    assert_eq!(shape(&diff(&at, repo, &base, &mid).unwrap()[0]), to_binary, "a diff");
+    assert_eq!(shape(&diff(&at, repo, &base, &end).unwrap()[0]), (s("one\n"), s("two\n"), false, false, 1, 1), "a diff over both: text");
+    // The last text edit not committed: its text is there, its id is git's to give.
+    sh(repo, &["reset", "-q", &mid]);
+    let now = live_in(&at, repo).unwrap();
+    assert_eq!(now.iter().map(shape).collect::<Vec<_>>(), [to_text]);
+    assert!(is_null(&now[0].after_id), "text: its text stands for its id");
+}
+
+/// One file git cannot read (not allowed, gone) leaves the others: git lists it as changed,
+/// so it is there, unhashed; every other change keeps what was read of it.
+#[test]
+fn one_unreadable_file_leaves_the_others() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    sh(repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("b.bin"), [0u8, 1]).unwrap();
+    std::fs::write(repo.join("c.bin"), [0u8, 1]).unwrap();
+    write(repo, "t", "b\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    std::fs::write(repo.join("b.bin"), [0u8, 2]).unwrap();
+    std::fs::write(repo.join("c.bin"), [0u8, 3]).unwrap();
+    write(repo, "t", "c\n");
+    let hashed = String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["hash-object", "c.bin"]).output().unwrap().stdout).unwrap().trim().to_string();
+    std::fs::set_permissions(repo.join("b.bin"), std::fs::Permissions::from_mode(0o000)).unwrap();
+    let unreadable = std::fs::read(repo.join("b.bin")).is_err();
+    let now = live_in(&at, repo);
+    std::fs::set_permissions(repo.join("b.bin"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(unreadable, "the test needs a file it cannot read (not run as root)");
+    let mut now: Vec<_> = now.unwrap().into_iter().map(|f| (f.path, f.status, f.after, if is_null(&f.after_id) { String::new() } else { f.after_id })).collect();
+    now.sort();
+    let s = |x: &str| x.to_string();
+    assert_eq!(now, vec![(s("b.bin"), s("M"), None, s("")), (s("c.bin"), s("M"), None, hashed), (s("t"), s("M"), Some(s("c\n")), s(""))]);
+}
+
+/// A file or a binary file made a submodule (git: a type change) is the pointer: no line
+/// counts, as every pointer's change, never a binary one; the regular side keeps its text,
+/// so it chains with the commits around it.
+#[test]
+fn a_file_made_a_submodule_is_the_pointer() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "f", "one\n");
+    std::fs::write(repo.join("b.bin"), [0u8, 1]).unwrap();
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    let base = rev(repo, "HEAD");
+    sh(repo, &["rm", "-q", "--cached", "f", "b.bin"]);
+    sh(repo, &["update-index", "--add", "--cacheinfo", &format!("160000,{base},f"), "--cacheinfo", &format!("160000,{base},b.bin")]);
+    sh(repo, &["commit", "-q", "-m", "submodules"]);
+    let head = rev(repo, "HEAD");
+    let shape = |files: Vec<FileChange>| {
+        let mut f: Vec<_> = files.into_iter().map(|f| (f.path, f.status, f.add, f.del, f.before, f.after, f.before_binary, f.after_mode, f.after_id)).collect();
+        f.sort();
+        f
+    };
+    let s = |x: &str| x.to_string();
+    let want = vec![(s("b.bin"), s("M"), 0, 0, None, None, true, s("160000"), base.clone()), (s("f"), s("M"), 0, 0, Some(s("one\n")), None, false, s("160000"), base.clone())];
+    assert_eq!(shape(commits(&at, repo, std::slice::from_ref(&head)).unwrap().remove(0).files), want, "at once");
+    assert_eq!(shape(commit(&at, repo, &head).unwrap().files), want, "one by one");
+    assert_eq!(shape(diff(&at, repo, &base, &head).unwrap()), want, "a diff");
+}
+
+/// In a SHA-256 repository git's placeholder for what it has not hashed is 64 zeros: the
+/// uncommitted binary file still gets the id git would give it, the moved submodule the
+/// commit its checkout is at.
+#[test]
+fn sha256_placeholders_are_resolved_too() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    sh(repo, &["init", "-q", "-b", "main", "--object-format=sha256"]);
+    let inner = repo.join("inner");
+    std::fs::create_dir(&inner).unwrap();
+    sh(&inner, &["init", "-q", "-b", "main", "--object-format=sha256"]);
+    write(&inner, "a", "1\n");
+    sh(&inner, &["add", "."]);
+    sh(&inner, &["commit", "-q", "-m", "i1"]);
+    let i1 = rev(&inner, "HEAD");
+    write(&inner, "a", "2\n");
+    sh(&inner, &["commit", "-q", "-am", "i2"]);
+    std::fs::write(repo.join("b.bin"), [0u8, 1]).unwrap();
+    sh(repo, &["add", "b.bin", "inner"]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    std::fs::write(repo.join("b.bin"), [0u8, 2]).unwrap();
+    sh(&inner, &["checkout", "-q", &i1]);
+    let hashed = String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["hash-object", "b.bin"]).output().unwrap().stdout).unwrap().trim().to_string();
+    assert_eq!(hashed.len(), 64);
+    let mut now: Vec<_> = live_in(&at, repo).unwrap().into_iter().map(|f| (f.path, f.after_id)).collect();
+    now.sort();
+    assert_eq!(now, vec![("b.bin".to_string(), hashed), ("inner".to_string(), i1)]);
 }
 
 /// What `git diff --no-renames --name-only` gives, sorted.

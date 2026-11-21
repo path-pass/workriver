@@ -22,7 +22,7 @@ const show = (f: FileChange, whole = false) => { act(() => root.render(<FileDiff
 describe('a change with no lines', () => {
   for (const whole of [false, true]) {
     it(`a binary file: "Binary files differ", no counts (${whole ? 'single file' : 'list'})`, () => {
-      const text = show(file({ path: 'logo.png', binary: true }), whole)
+      const text = show(file({ path: 'logo.png', beforeBinary: true, afterBinary: true }), whole)
       expect(text).toContain('logo.png')
       expect(text).toContain(en.change.binary)
       expect(text).not.toMatch(/\+0|−0/)
@@ -39,6 +39,15 @@ describe('a change with no lines', () => {
   it('a submodule added or removed names the commit on its one side', () => {
     expect(show(file({ status: 'A', beforeMode: GONE, beforeId: NULL, afterMode: '160000' }))).toContain(B.slice(0, 9))
     expect(show(file({ status: 'D', beforeMode: '160000', afterMode: GONE, afterId: NULL }))).toContain(A.slice(0, 9))
+  })
+
+  it('a file or a binary file made a submodule: the pointer, never "Binary files differ" nor lines', () => {
+    for (const was of [{ before: 'one\n', del: 0 }, { beforeBinary: true }]) {
+      const text = show(file({ path: 'vendor/lib', ...was, afterMode: '160000' }))
+      expect(text).toContain(B.slice(0, 9))
+      expect(text).not.toContain(en.change.binary)
+      expect(text).not.toMatch(/\+0|−0|−1/)
+    }
   })
 
   it('a mode change alone keeps its +0 −0', () => {

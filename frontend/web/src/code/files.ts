@@ -42,31 +42,39 @@ export function blame(unit: Unit, path: string, upTo: number): number[] {
   return owner
 }
 
-/** git's mode and object id for a side that does not exist; the id also of one not hashed. */
-const GONE = '000000', NULL = '0'.repeat(40)
+/** git's mode for a side that does not exist. */
+const GONE = '000000'
+/**
+ * Whether an object id is git's placeholder, for a side that does not exist or one git has
+ * not hashed: all zeros, 40 or, in a SHA-256 repository, 64 of them.
+ */
+const isNull = (id: string) => /^0+$/.test(id)
 /** A submodule pointer's mode (a gitlink): its object id is a commit, it has no text. */
 const GITLINK = '160000'
 
-type Entries = Pick<FileChange, 'beforeMode' | 'beforeId' | 'afterMode' | 'afterId' | 'binary'>
+type Entries = Pick<FileChange, 'beforeMode' | 'beforeId' | 'afterMode' | 'afterId' | 'beforeBinary' | 'afterBinary'>
 
 /**
  * What the change from `first`'s before to `last`'s after is when it has no lines: a submodule's
  * pointer (either end one: its commits), else a binary file's (either end binary, as git says
- * "Binary files differ"). Empty for a text change.
+ * "Binary files differ"). Empty for a text change. Only the ends count: a binary version
+ * between two texts leaves a text change.
  */
 export function kindOf(first: Entries, last: Entries): Kind {
   if (first.beforeMode === GITLINK || last.afterMode === GITLINK)
     return { pointer: { from: first.beforeMode === GITLINK ? first.beforeId : null, to: last.afterMode === GITLINK ? last.afterId : null } }
-  return first.binary || last.binary ? { binary: true } : {}
+  return first.beforeBinary || last.afterBinary ? { binary: true } : {}
 }
 
 /**
  * Whether a file is the same at two ends: the same git entry (existence, mode, object id).
- * Uncommitted work's side has no object id (git has not hashed it): its text stands for one.
+ * Uncommitted work's side has no object id (git has not hashed it): its text stands for one;
+ * one with no text (scan could not read or hash it) is not known to be the same, and git
+ * lists it as changed.
  */
 function same(first: FileChange, last: FileChange) {
-  const unhashed = last.afterId === NULL && last.afterMode !== GONE
-  return first.beforeMode === last.afterMode && (unhashed ? first.before === last.after : first.beforeId === last.afterId)
+  const unhashed = isNull(last.afterId) && last.afterMode !== GONE
+  return first.beforeMode === last.afterMode && (unhashed ? last.after !== null && first.before === last.after : first.beforeId === last.afterId)
 }
 
 const statusOf = (first: FileChange, last: FileChange): 'A' | 'M' | 'D' => (first.beforeMode === GONE ? 'A' : last.afterMode === GONE ? 'D' : 'M')
