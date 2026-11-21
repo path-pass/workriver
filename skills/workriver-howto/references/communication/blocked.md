@@ -12,7 +12,7 @@ A blocker is a gate put before a task still to do or running: it waits for the u
 `--blocks` takes the task number (`5` or `u2#5`); without `--after` the gate follows what
 your task follows. Say in `--text` exactly what was refused and why, and give the user steps
 they can run (`TEXT => COMMAND`, see `gates-chores`). Use `--gate test` for "try / allow
-something", `deploy` for a deploy, `decide` when the user must choose. A blocker carries no
+something", `deploy` for a deploy, `decide --go` when the user must say may I. A blocker carries no
 options (`--option` is refused): for a choice between options, tell your manager with them
 (`workriver manager tell`); it asks the user and tells you the answer.
 

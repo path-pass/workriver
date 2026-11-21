@@ -123,8 +123,9 @@ pub(crate) fn parse_choice(options: &[String], require_note: &[String]) -> anyho
     Ok(Some(serde_json::to_value(core::Choice::new(&options, &notes))?))
 }
 
-/// Whether a question asked without options lists some in its words (then the command says
-/// how to give them; a hint, never a refusal).
+/// Whether a message (`say`, `reply`) asked without options lists some in its words (then the
+/// command says how to give them; a hint, never a refusal). A decide gate needs no guess: it
+/// says what it asks, --go or --option.
 pub(crate) fn lists_options(texts: &[&str]) -> bool {
     const WORDS: [&str; 7] = ["选一个", "选项", "还是", "choose", "pick", "one of", "option"];
     texts.iter().any(|t| {
@@ -134,4 +135,4 @@ pub(crate) fn lists_options(texts: &[&str]) -> bool {
 }
 
 /// What `lists_options` makes a command print after it recorded.
-pub(crate) const OPTIONS_HINT: &str = "hint: this lists options; give them with --option ID=LABEL each so the user picks one, unless it confirms a design (workriver guide how ask-user)";
+pub(crate) const OPTIONS_HINT: &str = "hint: this lists options; give them with --option ID=LABEL each so the user picks one (workriver guide how user-message)";

@@ -11,7 +11,7 @@ review like those (findings, decisions, blind or not).
 A design's decide gate comes **after** its architecture review (in a later round: after the
 review of the revised design), never beside it: the user confirms what the review has been through.
 
-    workriver task add u1 --kind gate --gate decide --title "Confirm the design" --after 2   # 2: the review of design 1
+    workriver task add u1 --kind gate --gate decide --go --title "Confirm the design" --after 2   # 2: the review of design 1
 
 **What it checks**
 
@@ -40,10 +40,11 @@ rejected or deferred does not count):
 At most **3 rounds**. A third round that still has an accepted P1 or P2: stop, and ask the user with
 a decide gate that says what is still open and the choices (`ask-user`):
 
-    workriver task add u1 --kind gate --gate decide --title "Architecture: 3 rounds, P2-1 still open" --after 8 --text "…"
+    workriver task add u1 --kind gate --gate decide --go --title "Architecture: 3 rounds, P2-1 still open" --after 8 --text "…"
 
-When what was reviewed is a design, that gate is the design's: the choices stay in `--text`
-(`design-gate`). After a review of code it may carry them as options (`--option`, `ask-user`).
+When what was reviewed is a design, that gate is the design's: `--go`, the choices stay in
+`--text` (`design-gate`). After a review of code it may ask which instead, one `--option`
+each in place of `--go` (`ask-user`).
 
 **You will see:** `review (architecture-review)` on the board; its findings are delivered
 and decided like any review's.

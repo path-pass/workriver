@@ -5,11 +5,11 @@
 Three steps, three tasks, in this order, each after the user's go. Never one task doing two
 of them: an agent told to push does not also open the pull request or merge.
 
-    workriver task add u2 --kind gate --gate decide --title "Push u2 (feat/readme)?" --after 4 --text "<what is ready, what was checked>"
+    workriver task add u2 --kind gate --gate decide --go --title "Push u2 (feat/readme)?" --after 4 --text "<what is ready, what was checked>"
     workriver task add u2 --title "Push feat/readme" --after 5 --agent <agent> --text "Push the branch only. No pull request, no merge."
-    workriver task add u2 --kind gate --gate decide --title "Open the pull request for u2?" --after 6
+    workriver task add u2 --kind gate --gate decide --go --title "Open the pull request for u2?" --after 6
     workriver task add u2 --title "Open the pull request for feat/readme" --after 7 --agent <agent> --text "Open it (title, description, link it delivers as --note). No merge."
-    workriver task add u2 --kind gate --gate decide --title "Merge u2's pull request?" --after 8 --text "<the PR link, its checks, reviews>"
+    workriver task add u2 --kind gate --gate decide --go --title "Merge u2's pull request?" --after 8 --text "<the PR link, its checks, reviews>"
     workriver task add u2 --title "Merge the pull request of u2" --after 9 --agent <agent> --text "Merge it as the user said in the gate. Nothing else."
 
 When the next step itself is the open question (merge now, review once more, not yet), ask it
