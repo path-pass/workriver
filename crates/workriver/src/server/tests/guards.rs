@@ -361,7 +361,11 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     std::fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "base"]);
-    git(&repo, &["switch", "-q", "-c", "feat/index"]);
+    // Another unit's branch, changing a file u1 changes too.
+    git(&repo, &["switch", "-q", "-c", "feat/other"]);
+    std::fs::write(repo.join("a.txt"), "one\nother\n").unwrap();
+    git(&repo, &["commit", "-q", "-am", "Other"]);
+    git(&repo, &["switch", "-q", "-c", "feat/index", "main"]);
     std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "Build\n\nTask: u1#2"]);
     std::fs::write(repo.join("b.txt"), "b\n").unwrap();
@@ -437,6 +441,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m4", "reply": 1, "selected": ["merge"] } }))).unwrap();
     d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Tag it?", "choice": choice })).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Then which?", "choice": choice })).unwrap();
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "purpose": "", "repo": repo, "branch": "feat/other", "base": "main" })).unwrap();
     (d, fake)
 }
 

@@ -320,3 +320,147 @@ fn a_waiting_gate_carries_its_attachments() {
     assert_eq!(done["state"], "done");
     assert_eq!(names(&done).into_iter().map(|(n, _)| n).collect::<Vec<_>>(), ["plan.md", "shot.png"]);
 }
+
+/// A file another open unit of the same project and repository also changes is named on
+/// each unit: by its net change, uncommitted work included; a merged or closed unit, and a
+/// unit of another project, are not.
+#[test]
+fn files_two_open_units_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = |name: &str| {
+        let r = tmp.path().join(name);
+        std::fs::create_dir(&r).unwrap();
+        git(&r, &["init", "-q", "-b", "main"]);
+        for f in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+            std::fs::write(r.join(f), format!("{f}\n")).unwrap();
+        }
+        git(&r, &["add", "."]);
+        git(&r, &["commit", "-q", "-m", "base"]);
+        r
+    };
+    let branch = |r: &std::path::Path, name: &str, files: &[&str]| {
+        git(r, &["switch", "-q", "-c", name, "main"]);
+        for f in files {
+            std::fs::write(r.join(f), format!("{f} on {name}\n")).unwrap();
+        }
+        git(r, &["commit", "-q", "-am", name]);
+        git(r, &["switch", "-q", "main"]);
+    };
+    let (one, other) = (repo("one"), repo("other"));
+    branch(&one, "feat/one", &["a.txt", "b.txt"]);
+    branch(&one, "feat/two", &["a.txt", "d.txt"]);
+    branch(&one, "feat/three", &["c.txt"]);
+    branch(&one, "feat/four", &["a.txt"]);
+    branch(&one, "feat/five", &["b.txt"]);
+    branch(&other, "feat/six", &["a.txt"]);
+    // feat/one in a work tree of its own, writing d.txt.
+    let work = tmp.path().join("one-work");
+    git(&one, &["worktree", "add", "-q", &work.to_string_lossy(), "feat/one"]);
+    std::fs::write(work.join("d.txt"), "d.txt, being written\n").unwrap();
+
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let port = listener.local_addr().unwrap().port();
+    let options = crate::server::Options { allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
+    let d = kernel.client(port, tmp.path());
+    let (one, other) = (one.to_string_lossy().to_string(), other.to_string_lossy().to_string());
+    for (title, project) in [("Search", &one), ("Login", &one), ("Elsewhere", &other)] {
+        d.append("user", "intent.created", json!({ "title": title, "project": project })).unwrap();
+    }
+    for (intent, r, b) in [("i1", &one, "feat/one"), ("i2", &one, "feat/two"), ("i1", &one, "feat/three"), ("i2", &one, "feat/four"), ("i2", &one, "feat/five"), ("i3", &other, "feat/six")] {
+        d.append("user", "unit.created", json!({ "intent": intent, "title": b, "repo": r, "branch": b, "base": "main" })).unwrap();
+    }
+    d.append("user", "unit.merged", json!({ "unit": "u4" })).unwrap();
+    d.append("user", "unit.done", json!({ "unit": "u5", "reason": "superseded" })).unwrap();
+
+    let ws = d.get("/api/workspace").unwrap();
+    let overlaps = |id: &str| {
+        let u = ws["intents"].as_array().unwrap().iter().flat_map(|i| i["units"].as_array().unwrap()).find(|u| u["id"] == id).unwrap();
+        u.get("overlaps").cloned().unwrap_or(json!([]))
+    };
+    assert_eq!(overlaps("u1"), json!([{ "path": "a.txt", "units": ["u2"] }, { "path": "d.txt", "units": ["u2"] }]), "b.txt: u5 is closed, u4 merged");
+    assert_eq!(overlaps("u2"), json!([{ "path": "a.txt", "units": ["u1"] }, { "path": "d.txt", "units": ["u1"] }]));
+    for id in ["u3", "u4", "u5", "u6"] {
+        assert_eq!(overlaps(id), json!([]), "{id}");
+    }
+
+    // Its intent dropped, u2 is no work to coordinate with any more; its units unchanged.
+    d.append("user", "intent.state_changed", json!({ "intent": "i2", "state": "dropped", "reason": "later" })).unwrap();
+    let ws = d.get("/api/workspace").unwrap();
+    for id in ["u1", "u2"] {
+        let u = ws["intents"].as_array().unwrap().iter().flat_map(|i| i["units"].as_array().unwrap()).find(|u| u["id"] == id).unwrap();
+        assert_eq!(u.get("overlaps").cloned().unwrap_or(json!([])), json!([]), "{id}");
+    }
+}
+
+/// Two units compare their net changes, as their code trees show them: a file the base
+/// brought into both (each merged it in) is neither's; a file one changed and then put back
+/// in its work tree, byte for byte (not UTF-8 either), is not that unit's; and so it stays
+/// when the base moves on with the branches where they were.
+#[test]
+fn overlaps_are_of_the_net_change() {
+    let tmp = tempfile::tempdir().unwrap();
+    let r = tmp.path().join("repo");
+    std::fs::create_dir(&r).unwrap();
+    git(&r, &["init", "-q", "-b", "main"]);
+    let latin = |s: &str| [b"caf\xe9 ".as_slice(), s.as_bytes(), b"\n"].concat();
+    std::fs::write(r.join("a.txt"), "a\n").unwrap();
+    std::fs::write(r.join("r.txt"), "r\n").unwrap();
+    std::fs::write(r.join("e9.txt"), latin("base")).unwrap();
+    git(&r, &["add", "."]);
+    git(&r, &["commit", "-q", "-m", "base"]);
+    for name in ["one", "two"] {
+        git(&r, &["switch", "-q", "-c", &format!("feat/{name}"), "main"]);
+        std::fs::write(r.join("a.txt"), format!("a {name}\n")).unwrap();
+        std::fs::write(r.join("r.txt"), format!("r {name}\n")).unwrap();
+        std::fs::write(r.join("e9.txt"), latin(name)).unwrap();
+        std::fs::write(r.join(format!("{name}.txt")), "mine\n").unwrap();
+        git(&r, &["add", "."]);
+        git(&r, &["commit", "-q", "-m", name]);
+    }
+    // The base moves on, and both branches take it in.
+    git(&r, &["switch", "-q", "main"]);
+    std::fs::write(r.join("main-only.txt"), "base\n").unwrap();
+    git(&r, &["add", "."]);
+    git(&r, &["commit", "-q", "-m", "base moves"]);
+    for name in ["one", "two"] {
+        git(&r, &["switch", "-q", &format!("feat/{name}")]);
+        git(&r, &["merge", "-q", "--no-ff", "-m", "take main", "main"]);
+    }
+    git(&r, &["switch", "-q", "main"]);
+    // one, in a work tree of its own, puts r.txt and e9.txt back as they were.
+    let work = tmp.path().join("one-work");
+    git(&r, &["worktree", "add", "-q", &work.to_string_lossy(), "feat/one"]);
+    std::fs::write(work.join("r.txt"), "r\n").unwrap();
+    std::fs::write(work.join("e9.txt"), latin("base")).unwrap();
+
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let port = listener.local_addr().unwrap().port();
+    let options = crate::server::Options { allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
+    let d = kernel.client(port, tmp.path());
+    let repo = r.to_string_lossy().to_string();
+    for title in ["Search", "Login"] {
+        d.append("user", "intent.created", json!({ "title": title, "project": repo })).unwrap();
+    }
+    for (intent, b) in [("i1", "feat/one"), ("i2", "feat/two")] {
+        d.append("user", "unit.created", json!({ "intent": intent, "title": b, "repo": repo, "branch": b, "base": "main" })).unwrap();
+    }
+    let overlaps = || {
+        let ws = d.get("/api/workspace").unwrap();
+        ["u1", "u2"].map(|id| ws["intents"].as_array().unwrap().iter().flat_map(|i| i["units"].as_array().unwrap()).find(|u| u["id"] == id).unwrap().get("overlaps").cloned().unwrap_or(json!([])))
+    };
+    let want = [json!([{ "path": "a.txt", "units": ["u2"] }]), json!([{ "path": "a.txt", "units": ["u1"] }])];
+    assert_eq!(overlaps(), want);
+    // The base moves on again; the branches stay where they are.
+    std::fs::write(r.join("later.txt"), "later\n").unwrap();
+    git(&r, &["add", "."]);
+    git(&r, &["commit", "-q", "-m", "base moves again"]);
+    assert_eq!(overlaps(), want);
+}

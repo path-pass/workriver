@@ -136,6 +136,8 @@ export interface FileDelta {
   parts: FilePart[]
 }
 
+/** Another open unit that changes a file too: its id and its intent's. */
+export interface Also { unit: string; intent: string; title: string }
 export interface FilePart { touched: number[]; upTo: number; before: string | null; after: string | null; add: number; del: number }
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */

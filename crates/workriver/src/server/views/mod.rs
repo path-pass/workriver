@@ -1,6 +1,6 @@
 // The workspace in the exact shape the web UI reads (frontend/web/src/*/types.ts): the
 // recorded state, the units' commits from git, and the agents the runtime knows.
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use workriver_core::runtime::{AgentState, RuntimeAgent};
@@ -104,6 +104,7 @@ fn hide_unit(u: &mut Unit) {
     u.tasks.retain(|t| t.state != "unregistered");
     u.commits.retain(|c| !c.live);
     u.code.clear();
+    u.overlaps.clear();
     u.net = None;
     for c in &mut u.commits {
         c.subject.clear();
@@ -267,6 +268,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();
+    cache.changed.clear();
     (cache.recomputed, cache.reused) = (0, 0);
     let machines = cache.machines.as_ref().map(|m| m.states()).unwrap_or_default();
     let names = Names(state.agents.iter().map(|a| (a.session.clone(), a.name.clone())).chain(live.iter().map(|a| (a.session.clone(), a.name.clone()))).collect());
@@ -313,6 +315,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             t.stalled = t.id.parse().ok().and_then(|n| stalls.get(&(u.id.clone(), n))).cloned();
         }
     }
+    overlaps(&mut intents, &cache.changed);
     // Live agents, then those the records name that are gone.
     let mut sessions: Vec<Session> = live
         .iter()
@@ -397,6 +400,38 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .collect();
     let messages = messages(state, live, &names);
     Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
+}
+
+/// Whether a unit is work to coordinate with: not merged, not closed, and its intent neither
+/// done nor dropped (dropping an intent leaves its units as they were).
+fn open_work(state: &core::State, u: &core::Unit) -> bool {
+    let ended = state.intents.iter().any(|i| i.id == u.intent && matches!(i.state, core::IntentState::Done | core::IntentState::Dropped));
+    !ended && !matches!(state.progress(u), core::Progress::Merged | core::Progress::Done)
+}
+
+/// Names on each open code unit the files it changes that another open unit of the same
+/// project also changes, in the same repository on the same machine (`Unit::overlaps`).
+/// Units on two machines are not compared: their repositories are two copies, and a path in
+/// one says nothing of the other. `changed` holds the open units only (`open_work`); each
+/// path is indexed once, so units that share nothing cost nothing more.
+fn overlaps(intents: &mut [Intent], changed: &HashMap<String, BTreeSet<String>>) {
+    // Each path an open unit changes, where it is (project, machine (empty: this one),
+    // repository), and the units that change it, in the page's order.
+    let mut by: BTreeMap<[&str; 4], Vec<&str>> = BTreeMap::new();
+    for (i, u) in intents.iter().flat_map(|i| i.units.iter().map(move |u| (i, u))) {
+        for path in changed.get(&u.id).into_iter().flatten() {
+            by.entry([i.project.as_str(), u.machine.as_deref().unwrap_or_default(), u.repo.as_str(), path.as_str()]).or_default().push(u.id.as_str());
+        }
+    }
+    let mut found: HashMap<String, Vec<Overlap>> = HashMap::new();
+    for ([.., path], units) in by.iter().filter(|(_, units)| units.len() > 1) {
+        for id in units {
+            found.entry(id.to_string()).or_default().push(Overlap { path: path.to_string(), units: units.iter().filter(|x| x != &id).map(|x| x.to_string()).collect() });
+        }
+    }
+    for u in intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
+        u.overlaps = found.remove(&u.id).unwrap_or_default();
+    }
 }
 
 /// The project (its folder) a runtime group works on, and how that is known: what the user
@@ -527,6 +562,7 @@ fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names:
         squash: None,
         overdue: None,
         threads: if intent_level { vec![] } else { threads(state, live, names, &u.id, 0) },
+        overlaps: vec![],
     }
 }
 
@@ -588,6 +624,14 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         }
     };
     let code = code_of(&commits, &files, net.as_ref());
+    // What it changes, for the files another open unit changes too: from the texts, which a
+    // bare build leaves out of what it shows but has read (`Cache::nets`, `Cache::commits`;
+    // another machine's as the background read them, in full).
+    if !cache.light && open_work(state, u) {
+        let net = net.as_ref().map(|(id, files)| cache.nets.get(id).unwrap_or(files).as_slice());
+        let full: Vec<&scan::Commit> = if net.is_some() { vec![] } else { commits.iter().map(|c| cache.commits.get(&c.hash).unwrap_or(c)).collect() };
+        cache.changed.insert(u.id.clone(), changed_paths(&full, &files, net));
+    }
     let (commits, files) = if cache.light || cache.bare { (commits.iter().map(bare_commit).collect(), files.iter().map(scan::FileChange::bare).collect()) } else { (commits, files) };
     let net = net.map(|(id, files)| Net { id, files: if cache.light || cache.bare { files.iter().map(scan::FileChange::bare).collect() } else { files } });
 
@@ -682,6 +726,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
             (ago >= after).then_some(since)
         }),
         threads: threads(state, live, names, &u.id, 0),
+        overlaps: vec![],
     }
 }
 

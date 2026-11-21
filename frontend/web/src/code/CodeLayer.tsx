@@ -13,11 +13,12 @@ import { Switch } from '@/ui/primitives/switch'
 import type { Selection } from '@/work/select'
 import { changeOf, fileTree, filterTree, ROOT, shownDelta } from './files'
 import type { Pick } from '@/work/types'
-import type { Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus } from './types'
+import type { Also, Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus } from './types'
 import { contentLang, useT } from '@/i18n'
 import type { Unit } from '@/planning/types'
 import { Who } from '@/agents/Mark'
-import { Icon } from '@/ui/Icon'
+import { Icon, Mark } from '@/ui/Icon'
+import { pathOf } from '@/app/link'
 import { Tip } from '@/ui/Tip'
 import { useResize } from '@/lib/useResize'
 import { CODE_TREE_WIDTH } from '@/config/defaults'
@@ -127,10 +128,40 @@ function Status({ r }: { r: TreeRow }) {
   return <span className="st" />
 }
 
+/** Another open unit and its intent, as the tree's mark and the file's header name it. */
+const named = (a: Also) => `${a.unit} (${[a.intent, a.title].filter(Boolean).join(' ')})`
+
+/** A file another open unit also changes: a quiet mark, the units and intents on hover. */
+function AlsoMark({ also }: { also: Also[] }) {
+  const { t } = useT()
+  return <span className="flex flex-none text-ink-2" data-also><Mark name="overlap" label={t('tree.also', { units: also.map(named).join(t('list.sep')) })} /></span>
+}
+
+/** The other open units that change the file too, each a link that opens it. */
+function AlsoLinks({ also, onUnit }: { also: Also[]; onUnit: (id: string) => void }) {
+  const { t } = useT()
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2" data-also>
+      <Icon name="overlap" className="size-3.5" />
+      <span>{t('file.also')}</span>
+      {also.map(a => (
+        <span key={a.unit} className="inline-flex min-w-0 items-center gap-1">
+          <a
+            className="chip inline-flex items-center"
+            href={pathOf(a.unit, null)}
+            onClick={e => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) { e.preventDefault(); onUnit(a.unit) } }}
+          >{a.unit}</a>
+          {a.intent && <span className="min-w-0 wrap-anywhere" lang={contentLang(a.title)}>{a.intent} {a.title}</span>}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 const gone = (id: string): TreeRow =>
   ({ id, name: '', folder: false, children: [], add: 0, del: 0, planned: false, ghost: false, writers: [], changed: false, inPick: false })
 
-function Files({ ft, file, onFile }: { ft: FileTree; file: string | null; onFile: (path: string) => void }) {
+function Files({ ft, file, onFile, also }: { ft: FileTree; file: string | null; onFile: (path: string) => void; also: Map<string, Also[]> }) {
   const { t, num } = useT()
   // Open folders start from the pick; the user may open and close freely until it changes.
   const [expanded, setExpanded] = useState(ft.open)
@@ -168,6 +199,8 @@ function Files({ ft, file, onFile }: { ft: FileTree; file: string | null; onFile
           >
             {r.folder ? <Icon name="chev" className="chev" /> : <Status r={r} />}
             <span className="nm">{r.name}{r.folder && '/'}</span>
+            {/* A file only: a folder does not sum it. */}
+            {!r.folder && also.has(r.id) && <AlsoMark also={also.get(r.id)!} />}
             {r.folder && r.planned && !r.add && !r.del && <Status r={{ ...r, folder: false }} />}
             {r.writers.length > 0 && (
               <span className="flex flex-none items-center gap-0.5">
@@ -266,11 +299,13 @@ interface WholeProps extends LinePicking {
   unit: Unit
   sel: Selection
   path: string
+  also: Also[]
+  onUnit: (id: string) => void
   onPick: (p: Pick) => void
   onBack: () => void
 }
 
-function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) {
+function WholeFile({ unit, sel, path, also, onUnit, onPick, onBack, ...picking }: WholeProps) {
   const { t } = useT()
   const delta = shownDelta(unit, sel, path)
   const touched = delta?.touched ?? []
@@ -307,6 +342,7 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
             : <span key={label} className="font-mono">{label}</span>
         ))}
       </div>
+      {also.length > 0 && <AlsoLinks also={also} onUnit={onUnit} />}
       {!delta || !parts
         ? <p className="text-sm text-ink-2">{t('file.unchanged', { path })}</p>
         : parts.length === 1
@@ -336,9 +372,12 @@ interface Props {
   onAsk: (l: Lines) => void
   /** A commit to bring into view (opened from the panel's commits). */
   commit: CommitFocus | null
+  /** The other open units that change each file too (`alsoChanged`), and how to open one. */
+  also: Map<string, Also[]>
+  onUnit: (id: string) => void
 }
 
-export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick, file, onFile: setFile, lines, onLines, onAsk, commit }: Props) {
+export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick, file, onFile: setFile, lines, onLines, onAsk, commit, also, onUnit }: Props) {
   const { t, date } = useT()
   // The block's own width decides (the rails and the side panel change it, not the window):
   // wide, the tree is a pane beside the diff; narrow, a drawer over it, closed at first.
@@ -413,7 +452,7 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
       </div>
       <ScrollArea className="code-tree">
         {ft.rows.get(ROOT)!.children.length
-          ? <Files key={`${unit.id}:${onlyChanged}:${q}`} ft={ft} file={file} onFile={p => { setFile(f => (f === p ? null : p)); if (narrow) setDrawer(false) }} />
+          ? <Files key={`${unit.id}:${onlyChanged}:${q}`} ft={ft} file={file} also={also} onFile={p => { setFile(f => (f === p ? null : p)); if (narrow) setDrawer(false) }} />
           : <p className="p-2 text-sm text-ink-2">{t(q ? 'tree.noMatch' : 'code.none')}</p>}
       </ScrollArea>
     </>
@@ -443,7 +482,7 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
         )}
         <div className="min-w-0">
           {file ? (
-            <WholeFile unit={unit} sel={sel} path={file} onPick={onPick} onBack={() => setFile(null)} lines={lines} onLines={onLines} onAsk={onAsk} />
+            <WholeFile unit={unit} sel={sel} path={file} also={also.get(file) ?? []} onUnit={onUnit} onPick={onPick} onBack={() => setFile(null)} lines={lines} onLines={onLines} onAsk={onAsk} />
           ) : waiting ? (
             <div className="text-sm wrap-anywhere">
               {t('io.notStarted')}

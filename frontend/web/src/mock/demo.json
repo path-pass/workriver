@@ -2786,6 +2786,14 @@
        "started": "2026-11-15 10:00",
        "delivered": "2026-11-15 10:30"
       }
+     ],
+     "overlaps": [
+      {
+       "path": "app/store/messages.ts",
+       "units": [
+        "virtual-list"
+       ]
+      }
      ]
     },
     {
@@ -3928,7 +3936,21 @@
          "status": "A",
          "before": null,
          "after": "// Which messages to render: those in view, and 20 on either side.\nexport function window(total: number, first: number, last: number, margin = 20) {\n  return { from: Math.max(0, first - margin), to: Math.min(total, last + margin) }\n}\n"
+        },
+        {
+         "path": "app/store/messages.ts",
+         "status": "M",
+         "before": "// Storing messages, newest last, per channel.\nconst byChannel = new Map()\n\nexport function save(channel, text, id = crypto.randomUUID()) {\n  const message = { id, channel, text, at: Date.now() }\n  const list = byChannel.get(channel) ?? []\n  byChannel.set(channel, [...list.filter(m => m.id !== id), message])\n  return message\n}\n\nexport function messagesIn(channel) {\n  return byChannel.get(channel) ?? []\n}\n",
+         "after": "// Storing messages, newest last, per channel.\nconst byChannel = new Map()\n\nexport function save(channel, text, id = crypto.randomUUID()) {\n  const message = { id, channel, text, at: Date.now() }\n  const list = byChannel.get(channel) ?? []\n  byChannel.set(channel, [...list.filter(m => m.id !== id), message])\n  return message\n}\n\nexport function messagesIn(channel) {\n  return byChannel.get(channel) ?? []\n}\n\n// The messages from index `from` up to `to`, for the list to render.\nexport function messagesBetween(channel, from, to) {\n  return messagesIn(channel).slice(from, to)\n}\n"
         }
+       ]
+      }
+     ],
+     "overlaps": [
+      {
+       "path": "app/store/messages.ts",
+       "units": [
+        "recall"
        ]
       }
      ]

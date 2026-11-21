@@ -50,7 +50,18 @@ its sections went.
      has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
      alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
      text changed and changed back on the way; a mode or a submodule pointer changed and
-     changed back is not. A picked piece of
+     changed back is not. A file the unit changes that another open unit (not merged, not
+     closed, its intent neither done nor dropped) of the same project also changes, in the
+     same repository, gets a small
+     neutral mark after its name (two crossing arrows); its tooltip names those units and
+     their intents ("Also changed by u2 (i1 Search)"), and the single-file view of it says the
+     same in a line of its own, each unit a link that opens it. Both units' changes are
+     their net change as the tree shows it with nothing picked: the net change against the
+     base (`unit.net`) with uncommitted work on top, an uncommitted side compared by its text,
+     as above; so nothing the base brought in, however it came, and nothing changed back
+     (the service compares them, from the same texts). Units on two machines are not compared: their repositories are two copies. A
+     folder does not sum the mark; nothing goes to Needs you and no one is told: the user
+     sees it and coordinates. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added
      and deleted itself is not there either. Where other commits touched a file between the
      work's own (a merge of the base, other work), the texts do not chain: the file's change
