@@ -1,5 +1,5 @@
 // The icon set, and the marks and counts made of it.
-import { Archive, ArrowLeft, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, X, type LucideIcon } from 'lucide-react'
+import { Archive, ArrowLeft, GitCompareArrows, Ban, FoldVertical, UnfoldVertical, EyeOff, Server, ArrowUp, Bot, ExternalLink, GripVertical, Play, Telescope, Crown, DraftingCompass, Scale, FlaskConicalOff, GitCommitHorizontal, Link2, Check, CircleDashed, ChevronRight, Circle, Clock, Copy, Expand, Eye, FileText, GitMerge, FlaskConical, Hand, ImagePlus, Inbox, ListTodo, MessageSquare, Moon, OctagonAlert, PanelLeftClose, PanelLeftOpen, PanelRightClose, Plus, SquareTerminal, Users, Pencil, Rocket, X, type LucideIcon } from 'lucide-react'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { Tip } from './Tip'
@@ -56,6 +56,8 @@ const ICONS: Record<string, LucideIcon> = {
   back: ArrowLeft,
   foldLines: FoldVertical,
   unfold: UnfoldVertical,
+  // Another open unit changes the same file.
+  overlap: GitCompareArrows,
 }
 
 export function Icon({ name, className }: { name: string; className?: string }) {

@@ -152,4 +152,7 @@ export interface Unit {
   merged?: string;
   /** Conversations about the unit as a whole (asked with no task picked), oldest first. */
   threads?: Thread[];
+  /** Open: the files it changes that another open unit of its project, in the same
+   *  repository, changes too, with those units (the service compares their changes). */
+  overlaps?: { path: string; units: string[] }[];
 }

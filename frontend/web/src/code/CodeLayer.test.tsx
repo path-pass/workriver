@@ -1,63 +1,79 @@
-// A file's change in the list and the single-file view: a binary file says so as git does
-// ("Binary files differ"), a submodule pointer names its two commits; neither has line counts.
+// A file another open unit of the project also changes is marked in the code tree, with the
+// units and their intents on hover; a folder does not sum it; the file's own view names those
+// units as links that open them.
 import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
+import i18n from 'i18next'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { en } from '@/i18n/en'
-import '@/i18n'
-import { FileDiff } from './CodeLayer'
-import type { FileChange } from './types'
+import { TooltipProvider } from '@/ui/primitives/tooltip'
+import { selectionOf } from '@/work/select'
+import type { Intent, Unit } from '@/planning/types'
+import { CodeLayer } from './CodeLayer'
+import { alsoChanged, changeOf } from './files'
+import type { FileChange, ModuleNode } from './types'
 
-const GONE = '000000', NULL = '0'.repeat(40), A = 'a'.repeat(40), B = 'b'.repeat(40)
-const file = (more: Partial<FileChange>): FileChange => ({
-  path: 'x', status: 'M', before: null, after: null, add: 0, del: 0, lines: [], beforeMode: '100644', beforeId: A, afterMode: '100644', afterId: B, ...more,
-})
+declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-let root: Root
-let el: HTMLDivElement
-beforeEach(() => { el = document.createElement('div'); document.body.append(el); root = createRoot(el) })
-afterEach(() => { act(() => root.unmount()); el.remove() })
-const show = (f: FileChange, whole = false) => { act(() => root.render(<FileDiff file={f} whole={whole} />)); return el.textContent ?? '' }
+const change = (path: string, before: string, after: string): FileChange =>
+  ({ path, status: 'M', before, after, ...changeOf(before, after), beforeMode: '100644', afterMode: '100644', beforeId: before, afterId: after })
+const unit = {
+  id: 'u1', commits: [{ id: 'c1', subject: 'Store', date: '2026-11-21T00:00:00Z', author: 'a', live: false, files: [change('app/store.ts', 'a\n', 'b\n'), change('app/view.ts', 'a\n', 'b\n')] }],
+  tasks: [{ id: '1', taskId: '1', kind: 'implement', state: 'done', title: 'Store', plans: [], inputs: [], output: { commits: ['c1'] } }],
+  overlaps: [{ path: 'app/store.ts', units: ['u2', 'u3'] }],
+} as unknown as Unit
+const intents = [
+  { id: 'i1', title: 'Search', units: [unit] },
+  { id: 'i2', title: 'Login', units: [{ id: 'u2' }] },
+  { id: 'i3', title: 'Export', units: [{ id: 'u3' }] },
+] as unknown as Intent[]
+const root: ModuleNode = { name: '', path: '', loc: 2, files: 2, children: [{ name: 'app', path: 'app', loc: 2, files: 2, children: [
+  { name: 'store.ts', path: 'app/store.ts', loc: 1, files: 1 }, { name: 'view.ts', path: 'app/view.ts', loc: 1, files: 1 },
+] }] }
 
-describe('a change with no lines', () => {
-  for (const whole of [false, true]) {
-    it(`a binary file: "Binary files differ", no counts (${whole ? 'single file' : 'list'})`, () => {
-      const text = show(file({ path: 'logo.png', beforeBinary: true, afterBinary: true }), whole)
-      expect(text).toContain('logo.png')
-      expect(text).toContain(en.change.binary)
-      expect(text).not.toMatch(/\+0|−0/)
-    })
+let host: HTMLDivElement
+beforeEach(async () => { await i18n.changeLanguage('en'); host = document.createElement('div'); document.body.append(host) })
+afterEach(() => host.remove())
 
-    it(`a submodule pointer: its two commits, no counts (${whole ? 'single file' : 'list'})`, () => {
-      const text = show(file({ path: 'vendor/lib', beforeMode: '160000', afterMode: '160000' }), whole)
-      expect(text).toContain(A.slice(0, 9))
-      expect(text).toContain(B.slice(0, 9))
-      expect(text).not.toMatch(/\+0|−0/)
-    })
-  }
+function shown(file: string | null, opened: string[] = []) {
+  const view = createRoot(host)
+  act(() => view.render(
+    <TooltipProvider>
+      <CodeLayer
+        root={root} unit={unit} sel={selectionOf(unit, null)} onlyChanged onOnlyChanged={() => {}} onPick={() => {}}
+        file={file} onFile={() => {}} lines={null} onLines={() => {}} onAsk={() => {}} commit={null}
+        also={alsoChanged(intents, unit)} onUnit={id => opened.push(id)}
+      />
+    </TooltipProvider>,
+  ))
+  return view
+}
 
-  it('a submodule added or removed names the commit on its one side', () => {
-    expect(show(file({ status: 'A', beforeMode: GONE, beforeId: NULL, afterMode: '160000' }))).toContain(B.slice(0, 9))
-    expect(show(file({ status: 'D', beforeMode: '160000', afterMode: GONE, afterId: NULL }))).toContain(A.slice(0, 9))
+describe('a file another open unit also changes', () => {
+  it('is marked in the tree, with the units and their intents; a folder and another file are not', () => {
+    const r = shown(null)
+    const rows = [...host.querySelectorAll('.trow')]
+    const row = (name: string) => rows.find(b => b.querySelector('.nm')?.textContent?.startsWith(name))!
+    expect(row('store.ts').querySelector('[data-also] [role="img"]')?.getAttribute('aria-label')).toBe('Also changed by u2 (i2 Login), u3 (i3 Export)')
+    expect(row('view.ts').querySelector('[data-also]')).toBeNull()
+    expect(row('app').querySelector('[data-also]')).toBeNull()
+    act(() => r.unmount())
   })
 
-  it('a file or a binary file made a submodule: the pointer, never "Binary files differ" nor lines', () => {
-    for (const was of [{ before: 'one\n', del: 0 }, { beforeBinary: true }]) {
-      const text = show(file({ path: 'vendor/lib', ...was, afterMode: '160000' }))
-      expect(text).toContain(B.slice(0, 9))
-      expect(text).not.toContain(en.change.binary)
-      expect(text).not.toMatch(/\+0|−0|−1/)
-    }
+  it('in its own view, names the units as links that open them', () => {
+    const opened: string[] = []
+    const r = shown('app/store.ts', opened)
+    // The tree's mark is a span; the file's header line is a block of its own.
+    const line = host.querySelector('div[data-also]')!
+    for (const part of ['Also changed by', 'i2 Login', 'i3 Export']) expect(line.textContent).toContain(part)
+    const links = [...line.querySelectorAll('a')]
+    expect(links.map(a => a.getAttribute('href'))).toEqual(['/u2', '/u3'])
+    act(() => links[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })))
+    expect(opened).toEqual(['u3'])
+    act(() => r.unmount())
   })
 
-  it('a pointer scan could not read (its checkout gone meanwhile) is unknown, never a commit of zeros', () => {
-    const text = show(file({ path: 'vendor/lib', beforeMode: '160000', afterMode: '160000', afterId: NULL }))
-    expect(text).toContain(A.slice(0, 9))
-    expect(text).toContain(en.change.pointerUnknown)
-    expect(text).not.toContain('000000000')
-  })
-
-  it('a mode change alone keeps its +0 −0', () => {
-    expect(show(file({ path: 'run.sh', afterMode: '100755' }))).toMatch(/\+0 −0/)
+  it('a unit no other open unit overlaps has no mark at all', () => {
+    expect(alsoChanged(intents, { ...unit, overlaps: undefined }).size).toBe(0)
   })
 })

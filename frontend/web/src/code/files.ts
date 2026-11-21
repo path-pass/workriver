@@ -1,8 +1,8 @@
 // A unit's files: their changes over some commits, which commit last changed each line, and
 // the file tree the code layer shows.
 import { diffLines, structuredPatch } from 'diff'
-import type { FileChange, ModuleNode, FileDelta, FileTree, TreeRow, Kind } from './types'
-import type { Unit } from '@/planning/types'
+import type { Also, FileChange, ModuleNode, FileDelta, FileTree, TreeRow, Kind } from './types'
+import type { Intent, Unit } from '@/planning/types'
 import { type Selection, working } from '@/work/select'
 
 /** The change from one text to another as unified-diff lines, with `context` lines around each change. */
@@ -223,6 +223,18 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   rows.set(ROOT, build(ROOT))
   const focus = [...rows.values()].filter(r => !r.folder && (r.inPick || (!narrow && r.writers.length)) && r.changed).map(r => r.id)
   return { rows, open: [...rows.values()].filter(r => r.folder && r.id !== ROOT && focus.some(f => f.startsWith(r.id + '/'))).map(r => r.id) }
+}
+
+/**
+ * The other open units that change each of the unit's files too (the service compares them:
+ * `overlaps`), by path, each with its intent.
+ */
+export function alsoChanged(intents: Intent[], unit: Unit): Map<string, Also[]> {
+  const of = (id: string): Also => {
+    const i = intents.find(x => x.units.some(u => u.id === id))
+    return { unit: id, intent: i?.id ?? '', title: i?.title ?? '' }
+  }
+  return new Map((unit.overlaps ?? []).map(o => [o.path, o.units.map(of)]))
 }
 
 /**

@@ -373,6 +373,17 @@ pub(crate) struct Unit {
     /// Conversations about the unit as a whole ("ask why" with no task picked), oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) threads: Vec<ThreadOut>,
+    /// Open, the files it changes that another open unit of its project, in the same
+    /// repository, changes too: by path.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) overlaps: Vec<Overlap>,
+}
+
+/// A file two or more open units change (`Unit::overlaps`): its path and the other units.
+#[derive(Serialize)]
+pub(crate) struct Overlap {
+    pub(crate) path: String,
+    pub(crate) units: Vec<String>,
 }
 
 #[derive(Serialize)]

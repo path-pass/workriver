@@ -154,6 +154,8 @@ export interface FileDelta {
   parts: FilePart[]
 }
 
+/** Another open unit that changes a file too: its id and its intent's. */
+export interface Also { unit: string; intent: string; title: string }
 /** One stretch of a file's change; how it changed is from its ends' entries (a binary file and a
  *  submodule pointer have no texts to tell it by). */
 export interface FilePart extends Kind { touched: number[]; upTo: number; status: 'A' | 'M' | 'D'; before: string | null; after: string | null; add: number; del: number }

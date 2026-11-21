@@ -110,6 +110,11 @@ workspace.intents[].units[].net.files[].status: string
 workspace.intents[].units[].net.files[]: object
 workspace.intents[].units[].net.id: string
 workspace.intents[].units[].net: object
+workspace.intents[].units[].overlaps: array
+workspace.intents[].units[].overlaps[].path: string
+workspace.intents[].units[].overlaps[].units: array
+workspace.intents[].units[].overlaps[].units[]: string
+workspace.intents[].units[].overlaps[]: object
 workspace.intents[].units[].progress: string
 workspace.intents[].units[].purpose: string
 workspace.intents[].units[].repo: string
