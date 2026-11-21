@@ -95,6 +95,7 @@ export const zhCN: OneForm<typeof en> = {
       fieldSize: '规模',
       fieldTags: '标签',
       tagsHint: '回车或逗号添加一个；最多 8 个。',
+      tagsOver: '一个意图最多 {{max}} 个标签：加上这些就超了。先删掉一些，或少输几个。',
       tagAdd: '添加标签',
       tagRemove: '移除 {{tag}}',
       fieldTitle: '标题',

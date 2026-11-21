@@ -98,6 +98,7 @@ export const en = {
       fieldSize: 'Size',
       fieldTags: 'Tags',
       tagsHint: 'Enter or comma adds one; at most 8.',
+      tagsOver: 'An intent has at most {{max}} tags: these would make more. Remove some first, or type fewer.',
       tagAdd: 'Add a tag',
       tagRemove: 'Remove {{tag}}',
       fieldTitle: 'Title',

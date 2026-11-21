@@ -95,6 +95,7 @@ export const ja: OneForm<typeof en> = {
       fieldSize: '規模',
       fieldTags: 'タグ',
       tagsHint: 'Enter かカンマで追加；最大 8 個。',
+      tagsOver: 'インテントのタグは最大 {{max}} 個です：これを加えると超えます。先にいくつか外すか、減らして入力してください。',
       tagAdd: 'タグを追加',
       tagRemove: '{{tag}} を削除',
       fieldTitle: 'タイトル',

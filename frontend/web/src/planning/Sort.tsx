@@ -108,18 +108,23 @@ export function SizeToggle({ value, onChange }: { value: Size | null; onChange: 
 /**
  * Tags as chips with a field after them: Enter or a comma adds what is typed (leaving the field
  * adds it too), × or Backspace in an empty field removes one; the project's tags are offered
- * as one types. At most eight.
+ * as one types. At most eight: what is typed that would pass them stays in the field, said,
+ * and none of it is added (never cut). While an input method composes, its keys are its own.
  */
 export function TagInput({ value, onChange, offered, labelledBy }: { value: string[]; onChange: (tags: string[]) => void; offered: string[]; labelledBy?: string }) {
   const { t } = useT()
   const [text, setText] = useState('')
+  const [over, setOver] = useState(false)
   const add = () => {
     if (!text.trim()) return
-    onChange(normalTags([...value, ...splitTags(text)]).slice(0, MAX_TAGS))
+    const next = normalTags([...value, ...splitTags(text)])
+    if (next.length > MAX_TAGS) return setOver(true)
+    onChange(next)
     setText('')
   }
   const full = value.length >= MAX_TAGS
   const list = 'intent-tags-offered'
+  const alert = 'intent-tags-over'
   return (
     <div className="field flex min-h-8 flex-wrap items-center gap-1 py-1" role="group" aria-labelledby={labelledBy}>
       {value.map(x => (
@@ -137,15 +142,19 @@ export function TagInput({ value, onChange, offered, labelledBy }: { value: stri
         list={list}
         aria-label={t('intent.edit.tagAdd')}
         placeholder={full ? '' : t('intent.edit.tagAdd')}
-        onChange={e => setText(e.target.value)}
+        aria-invalid={over || undefined}
+        aria-describedby={over ? alert : undefined}
+        onChange={e => { setText(e.target.value); setOver(false) }}
         onBlur={add}
         onKeyDown={e => {
+          if (e.nativeEvent.isComposing) return
           if ((e.key === 'Enter' || e.key === ',') && text.trim()) { e.preventDefault(); add() }
           else if (e.key === ',') e.preventDefault()
           else if (e.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1))
         }}
       />
       <datalist id={list}>{offered.filter(x => !value.includes(x)).map(x => <option key={x} value={x} />)}</datalist>
+      {over && <p id={alert} role="alert" className="basis-full text-xs text-del">{t('intent.edit.tagsOver', { max: MAX_TAGS })}</p>}
     </div>
   )
 }
