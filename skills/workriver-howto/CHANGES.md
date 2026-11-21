@@ -200,9 +200,10 @@ Newest first. A manager that was already running reads this once after an update
   `machines`, backlog import)
 - **A manager can start a message to the user** (managers): `workriver say --text "…"` puts
   it in your workspace's conversation in the page and in the user's Needs you until read
-  (replies too now show there). For what the user should know without acting: a milestone, a
-  changed plan, a finished intent; not every step. A decision still goes in a decide gate.
-  (`user-message`)
+  (replies too now show there). For what the user should know without acting and did not
+  ask for: a milestone, a changed plan, a finished intent; not every step. Work the user asked
+  for in a message is answered there, with `workriver reply <message>`, also once it is done.
+  A decision still goes in a decide gate. (`user-message`)
 - **A done unit given a new task is open again** (managers): it no longer stays "done"
   with work in it; its state is worked out from its tasks as before. Make its worktree again
   if it was removed. (`closing-units`)
