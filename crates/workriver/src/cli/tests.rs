@@ -91,3 +91,24 @@ fn a_choice_gate_shows_its_options_and_the_answer() {
     let answered = text(&shown);
     assert!(answered.contains("result: answered:\n  Chose: hold \"先不合并\"\n  Note (written by the user):"), "{answered}");
 }
+
+/// The service answers a connection to its caller socket at once and closes it. A CLI that
+/// reads only after that (a busy machine) still takes the proof waiting for it: on macOS a
+/// socket whose other end has closed refuses a read timeout (EINVAL), which once dropped
+/// the proof and got the command refused as a request that shows no process.
+#[test]
+fn a_proof_answered_and_closed_before_it_is_read_is_still_taken() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("caller.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let cli = std::os::unix::net::UnixStream::connect(&path).unwrap();
+    let (service, _) = listener.accept().unwrap();
+    (&service).write_all(b"0123abcd\n").unwrap();
+    drop(service);
+    assert_eq!(crate::cli::proof_from(cli).as_deref(), Some("0123abcd"));
+    // A connection closed with nothing written gives no proof, and does not wait for one.
+    let cli = std::os::unix::net::UnixStream::connect(&path).unwrap();
+    drop(listener.accept().unwrap());
+    assert_eq!(crate::cli::proof_from(cli), None);
+}
