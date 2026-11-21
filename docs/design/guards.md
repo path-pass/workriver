@@ -116,10 +116,13 @@ cd frontend/web && pnpm typecheck && pnpm build && pnpm test
 
 Two runs of the suite may overlap (several agents test at once): a test counts and talks
 only to what it started. `tests/cli.rs` gives its tunnel a sleep no other run has
-(`6417.<pid>`) and counts only that. The tests' raw HTTP helper (`server/tests/support.rs`,
-`http`) sends a request in one write, to keep out of the way of a known bug of the product:
-the service answers a request it refuses from the headers and closes before the body has
-arrived, and a client still sending gets a reset or a broken pipe instead of the refusal.
+(`6417.<pid>`) and counts only that. A request refused from its headers alone (or a record
+larger than taken) gets its refusal through the CLI's own client, however large its body up
+to the largest attachment, and above that the CLI says the service closed the connection:
+`server/tests/access.rs`, `a_refused_large_request_gets_its_refusal` (the service reads what a
+handler leaves of a body before it answers, `server/http/drain.rs`). A client that asks before
+it sends (Expect: 100-continue) and is refused from its headers gets the refusal at once, not
+an invitation to send: `a_request_that_asks_first_is_refused_before_it_sends`.
 
 ## The mock-page checklist (a change to the page that should show nothing new)
 

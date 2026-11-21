@@ -16,6 +16,9 @@ anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "sync", "signal", "time"] }
 axum = "0.8.9"
+# axum's body trait (axum names it HttpBody but not its Frame): server/http/drain.rs.
+# Already in the lock file, through axum.
+http-body = "1.0.1"
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 rust-embed = { version = "8.14.0", features = ["mime-guess"] }
 mime_guess = "2.0.5"

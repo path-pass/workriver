@@ -74,6 +74,24 @@ impl Daemon {
         }
     }
 
+    /// Why a request got no answer. A connection closed after it was made is not a service
+    /// that cannot be reached: the service took it and closed it without answering, which it
+    /// does to a request it does not take that is larger than it reads, and when it stops.
+    fn failed(&self, e: ureq::Error) -> anyhow::Error {
+        use std::io::ErrorKind::*;
+        if !matches!(&e, ureq::Error::Io(io) if matches!(io.kind(), BrokenPipe | ConnectionReset | ConnectionAborted)) {
+            return self.unreachable(e);
+        }
+        let most = crate::common::wire::MAX_ATTACHMENT / 1024 / 1024;
+        match THROUGH.get() {
+            Some(host) => anyhow!(
+                "workriver on {host}, through the ssh tunnel (port {}), closed the connection before answering ({e}): it does so to a request it does not take that is larger than {most} MB, the most it reads of one, and when it stops; so does the tunnel when it reconnects",
+                self.port
+            ),
+            None => anyhow!("workriver on 127.0.0.1:{} closed the connection before answering ({e}): it does so to a request it does not take that is larger than {most} MB, the most it reads of one, and when it stops", self.port),
+        }
+    }
+
     /// Through a tunnel, first a quick look that the daemon answers at all: the forward of a
     /// connection that died accepts and then says nothing, and a request would wait out
     /// its whole time. Once per command.
@@ -105,7 +123,7 @@ impl Daemon {
         loop {
             let (proof, pid) = self.process(fresh);
             let headers = [("authorization", token.clone()), ("x-workriver-place", self.place.clone().unwrap_or_default()), ("x-workriver-caller", proof.unwrap_or_default()), ("x-workriver-pid", pid.to_string())];
-            let res = make(&headers).map_err(|e| self.unreachable(e))?;
+            let res = make(&headers).map_err(|e| self.failed(e))?;
             let expired = res.headers().get("x-workriver-caller").is_some_and(|v| v == crate::common::wire::EXPIRED);
             if !expired || fresh {
                 return Ok(res);
