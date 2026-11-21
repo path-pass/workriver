@@ -230,6 +230,14 @@ fn a_registration_naming_only_an_intent_never_renames_the_record() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "New", "state": "planned", "runtime_ref": {"id": "w7", "label": "seven"}}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i2"}})).unwrap();
     assert_eq!(records(&s), ["w1:api:boss", "w7:seven:boss"]);
+    // An intent the user made under another id of a recorded label, never started there, is
+    // found at that record by the label: registering for it, and dropping it, find the
+    // record and leave its id as it is.
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Elsewhere", "state": "planned", "runtime_ref": {"id": "w8", "label": "api"}}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i3"}})).unwrap();
+    assert_eq!(records(&s), ["w1:api:boss", "w7:seven:boss"]);
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i3", "state": "dropped", "reason": "r"}})).unwrap();
+    assert_eq!(records(&s), ["w1:api:boss", "w7:seven:boss"]);
     assert_eq!(replayed(&s).workspaces, s.state().workspaces);
 }
 
