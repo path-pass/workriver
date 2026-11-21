@@ -1,4 +1,4 @@
-// Editing an intent's title, goal and note, in a dialog opened from its page (the pencil in
+// Editing an intent's title, goal, note, kind, size and tags, in a dialog opened from its page (the pencil in
 // its header, or "Restore this version" in its history). Save records the fields that
 // changed against the intent as the dialog opened it, with that version as the base, however
 // the page refreshes meanwhile; when one of them was changed since, the service refuses it,
@@ -12,8 +12,10 @@ import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { contentLang, useT } from '@/i18n'
 import { Prose } from '@/content/Prose'
 import { editIntent, intentVersion } from '@/api/actions'
-import { conflictOf, conflictsOf, draftOf, editBody, wordDiff, type Draft, type Field } from './edit'
+import { conflictOf, conflictsOf, draftOf, editBody, valueOf, wordDiff, type Draft, type Field } from './edit'
 import { Runs } from './IntentHistory'
+import { KindSelect, SizeToggle, TagInput } from './Sort'
+import { withTyped, type Kind, type Size } from './classify'
 import type { Intent, IntentText } from './types'
 
 /** The version the intent is at, as the service's refusal named it, and its text: what the
@@ -23,12 +25,14 @@ interface Conflict {
   text: IntentText;
 }
 
-export function EditIntentDialog({ intent, draft, restoring, onClose }: {
+export function EditIntentDialog({ intent, draft, restoring, offered = [], onClose }: {
   intent: Intent
   /** What the fields start with: the intent's text, or a version to restore. */
   draft: Draft
   /** The version being restored, if any. */
   restoring?: number
+  /** Its project's tags, offered as one types a tag. */
+  offered?: string[]
   onClose: () => void
 }) {
   const { t } = useT()
@@ -40,15 +44,27 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
   // The intent as the dialog opened it: what the edit changes, and the version it is made
   // from, whatever the page shows meanwhile.
   const [opened] = useState(intent)
-  const body = editBody(opened, d)
+  // What the tag field holds is part of the edit, added as chips or only typed; a batch that
+  // would make more than eight holds the save (the field says so) until it fits or is cleared.
+  const [tagText, setTagText] = useState('')
+  const tags = tagText.trim() ? withTyped(d.tags ?? [], tagText) : d.tags
+  const sent: Draft = { ...d, tags: tags ?? d.tags }
+  const body = editBody(opened, sent)
   // Every field the edit now sends that changed since it opened, against what it says at the
   // version the service named: shown before "Save anyway", whatever is edited after the refusal.
   const conflicts: Field[] = conflict && body ? conflictsOf(draftOf(opened), conflict.text, body) : []
-  const ready = !!body && !busy
-  const set = (k: keyof Draft) => (e: { target: { value: string } }) => setD(x => ({ ...x, [k]: e.target.value }))
+  const ready = !!body && !busy && tags !== null
+  const set = (k: 'title' | 'goal' | 'note') => (e: { target: { value: string } }) => setD(x => ({ ...x, [k]: e.target.value }))
+  // A field's value in words, for the conflict: a kind's label, "Not set", tags joined.
+  const words = (x: Draft | IntentText, f: Field) => {
+    const v = valueOf(x, f)
+    if (f === 'kind') return v ? t(`intent.kind.${v as Kind}`) : t('intent.notSet')
+    if (f === 'size') return v ? t(`intent.size.${v as Size}`) : t('intent.notSet')
+    return f === 'title' || f === 'goal' ? v.trim() : v
+  }
 
   const save = (anyway: boolean) => {
-    if (!body || busy) return
+    if (!body || busy || tags === null) return
     setBusy(true)
     setError('')
     editIntent(intent, anyway && conflict ? { ...body, base: conflict.now } : body).then(
@@ -101,13 +117,28 @@ export function EditIntentDialog({ intent, draft, restoring, onClose }: {
               ? <div className="min-h-32 rounded-lg border border-line-2 px-2.5 py-1.5 text-sm" aria-labelledby="edit-note">{d.note.trim() ? <Prose text={d.note} fold={false} /> : <p className="text-ink-2">{t('intent.edit.nothing')}</p>}</div>
               : <textarea className="field text-sm" rows={8} value={d.note} lang={contentLang(d.note)} onChange={set('note')} aria-labelledby="edit-note" />}
           </div>
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+            <div className="flex w-44 flex-col gap-1 text-xs text-ink-2">
+              {t('intent.edit.fieldKind')}
+              <KindSelect value={d.kind ?? null} onChange={kind => setD(x => ({ ...x, kind }))} className="h-7" />
+            </div>
+            <div className="flex flex-col gap-1 text-xs text-ink-2">
+              {t('intent.edit.fieldSize')}
+              <SizeToggle value={d.size ?? null} onChange={size => setD(x => ({ ...x, size }))} />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-ink-2">
+            <span id="edit-tags">{t('intent.edit.fieldTags')}</span>
+            <TagInput value={d.tags ?? []} onChange={tags => setD(x => ({ ...x, tags }))} text={tagText} onText={setTagText} offered={offered} labelledBy="edit-tags" />
+            <span>{t('intent.edit.tagsHint')}</span>
+          </div>
           {conflict && conflicts.length > 0 && (
             <div role="alert" className="flex flex-col gap-1.5 rounded-lg border border-line-2 bg-sunken p-2.5 text-xs">
-              {conflicts.map(field => [field, conflict.text[field]] as const).map(([field, theirs]) => (
+              {conflicts.map(field => [field, words(conflict.text, field)] as const).map(([field, theirs]) => (
                 <div key={field} className="flex flex-col gap-1">
                   <p>{t(`intent.edit.conflict.${field}`, { n: conflict.now })}</p>
                   <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm wrap-anywhere" lang={contentLang(theirs)}>
-                    <Runs runs={wordDiff(theirs, field === 'note' ? d.note : d[field].trim())} />
+                    <Runs runs={wordDiff(theirs, words(sent, field))} />
                   </p>
                 </div>
               ))}

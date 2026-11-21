@@ -3,6 +3,7 @@ import type { Thread } from '@/conversations/types'
 import type { RuntimeState } from '@/agents/types'
 import type { Commit, Net } from '@/code/types'
 import type { Chore, Finding, Task } from '@/work/types'
+import type { Kind, Size } from './classify'
 
 /** A folder holding one or more repositories; or a repository outside every registered one. */
 export interface Project {
@@ -66,6 +67,10 @@ export interface Intent {
   order?: number;
   /** Dropped: why. */
   reason?: string;
+  /** What kind of work it is, how big it is expected to be, free tags; absent when not set. */
+  kind?: Kind;
+  size?: Size;
+  tags?: string[];
   units: Unit[];
   /** Things agents left for the user that block nobody. Never on a graph. */
   chores: Chore[];
@@ -96,13 +101,20 @@ export interface IntentVersion {
   added?: string;
   /** The intents merged into it. */
   merged?: string[];
+  /** The kind and size it set (null: cleared), the tags it left; absent when it did not change them. */
+  kind?: Kind | null;
+  size?: Size | null;
+  tags?: string[];
 }
 
-/** An intent's text as one version left it. */
+/** An intent's text as one version left it, with its kind, size and tags. */
 export interface IntentText {
   title: string;
   goal: string;
   note: string;
+  kind?: Kind | null;
+  size?: Size | null;
+  tags?: string[];
 }
 
 export type UnitStatus = 'active' | 'planned' | 'merged';

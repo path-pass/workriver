@@ -293,6 +293,13 @@ pub(crate) struct Intent {
     /// Dropped: why.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reason: Option<String>,
+    /// What kind of work it is, how big it is expected to be, its tags: left out when not set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) kind: Option<core::IntentKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) size: Option<core::IntentSize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) tags: Vec<String>,
     pub(crate) units: Vec<Unit>,
     pub(crate) chores: Vec<Chore>,
     /// The manager's name.

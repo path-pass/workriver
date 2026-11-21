@@ -100,9 +100,9 @@ impl App {
                 Body::ProjectAdded { id, path: folder.to_string_lossy().into_owned(), title }
             }
             Body::FindingAdded { project, intent, finding, source, note } => Body::FindingAdded { project: self.project_folder(&project, machine)?, intent, finding, source, note },
-            Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external } => {
+            Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external, kind, size, tags } => {
                 let project = if project.is_empty() { project } else { self.project_folder(&project, machine)? };
-                Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external }
+                Body::IntentCreated { id, title, goal, runtime_ref, project, state, note, external, kind, size, tags }
             }
             // The repository is where the work happens: on the machine named, else on the
             // one the unit was recorded from. It is checked there, over ssh for another machine.

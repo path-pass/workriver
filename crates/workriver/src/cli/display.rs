@@ -103,7 +103,8 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
         if units.is_empty() && chores.is_empty() && !wanted(&i.id, None) {
             continue;
         }
-        let _ = writeln!(out, "{} {}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
+        let sort = planning::labels(&serde_json::to_value(i).unwrap_or_default());
+        let _ = writeln!(out, "{} {}{sort}{}", i.id, i.title, state.manager_of(&i.id).map(|m| format!("  (manager {})", named(m))).unwrap_or_default());
         link(&mut out, "  ", &i.id);
         if i.state == core::IntentState::Dropped {
             let _ = writeln!(out, "  dropped: {}", i.reason.as_deref().unwrap_or(""));
@@ -540,17 +541,33 @@ pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>
     use std::fmt::Write as _;
     let mut out = String::new();
     let field = |v: &Value, k: &str| v[k].as_str().unwrap_or_default().to_string();
+    // Kind, size and tags as words: "fix", "S", "security, cli"; empty when not set.
+    let sort = |v: &Value, k: &str| match k {
+        "size" => field(v, k).to_uppercase(),
+        "tags" => v[k].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", "),
+        _ => field(v, k),
+    };
     if let Some(n) = version.or(diff) {
         let got = d.get(&format!("/api/intent/{intent}/history?version={n}"))?;
         let (now, before) = (&got["text"], &got["before"]);
         if version.is_some() || before.is_null() {
-            let _ = writeln!(out, "{intent} v{n}\ntitle: {}\ngoal: {}\nnote:\n{}", field(now, "title"), field(now, "goal"), field(now, "note"));
+            let _ = writeln!(out, "{intent} v{n}\ntitle: {}\ngoal: {}", field(now, "title"), field(now, "goal"));
+            for k in ["kind", "size", "tags"].into_iter().filter(|k| !sort(now, k).is_empty()) {
+                let _ = writeln!(out, "{k}: {}", sort(now, k));
+            }
+            let _ = writeln!(out, "note:\n{}", field(now, "note"));
             return Ok(out);
         }
         let _ = writeln!(out, "{intent} v{n} against v{}", n - 1);
         for k in ["title", "goal"] {
             if field(before, k) != field(now, k) {
                 let _ = writeln!(out, "{k}: {} -> {}", field(before, k), field(now, k));
+            }
+        }
+        let shown = |v: &Value, k: &str| Some(sort(v, k)).filter(|x| !x.is_empty()).unwrap_or_else(|| "(not set)".into());
+        for k in ["kind", "size", "tags"] {
+            if sort(before, k) != sort(now, k) {
+                let _ = writeln!(out, "{k}: {} -> {}", shown(before, k), shown(now, k));
             }
         }
         let (a, b) = (field(before, "note") + "\n", field(now, "note") + "\n");
@@ -567,13 +584,16 @@ pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>
             None if v["by"] == "user" => "the user".to_string(),
             None => field(v, "by"),
         };
-        let mut changed: Vec<&str> = ["title", "goal", "note"].into_iter().filter(|k| !v[*k].is_null()).collect();
+        // A key present is a field the version set (a kind or size cleared is null).
+        let mut changed: Vec<&str> = ["title", "goal", "note", "kind", "size", "tags"].into_iter().filter(|k| v.get(*k).is_some()).collect();
         let what = match v["how"].as_str() {
             Some("created") => "created".to_string(),
             Some("merged") => {
                 let from: Vec<String> = v["merged"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
                 let title = if changed.contains(&"title") { ", with a new title" } else { "" };
-                format!("merged {} into it{title}", from.join(", "))
+                // The user's merge widens the tags (a version of them); an agent's never does.
+                let tags = if changed.contains(&"tags") { "; changed the tags" } else { "" };
+                format!("merged {} into it{title}{tags}", from.join(", "))
             }
             _ => {
                 let added = !v["added"].is_null();
@@ -588,6 +608,6 @@ pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>
         let _ = writeln!(out, "v{}  {}  {who}  {what}", v["n"], field(v, "at"));
     }
     let n = versions.last().map(|v| v["n"].to_string()).unwrap_or_default();
-    let _ = writeln!(out, "(now v{n}: give it as --base to change the title, goal or note; one whole: `workriver intent history {intent} --version N`; what it changed: `--diff N`)");
+    let _ = writeln!(out, "(now v{n}: give it as --base to change the title, goal, note, kind, size or tags; one whole: `workriver intent history {intent} --version N`; what it changed: `--diff N`)");
     Ok(out)
 }

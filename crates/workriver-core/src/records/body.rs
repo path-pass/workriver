@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 use super::*;
 use crate::choices::Choice;
 
+/// A field that may be absent (None, by `default`), written as null (Some(None)) or given:
+/// serde reads a plain double option's null as absent.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
+}
+
 /// One recorded event's content. `kind` and `body` are the columns of the same name.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(tag = "kind", content = "body")]
@@ -31,6 +37,14 @@ pub enum Body {
         note: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         external: Option<External>,
+        /// What kind of work it is, how big, and free tags: none when not given, and then not
+        /// written (an intent without them is stored as before).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<IntentKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<IntentSize>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tags: Vec<String>,
     },
     /// A project: a folder holding one or more repositories.
     #[serde(rename = "project.added")]
@@ -131,9 +145,10 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         workspace: Option<RuntimeRef>,
     },
-    /// A new title, goal or note, or who decides its findings. Title, goal and findings are
-    /// the user's; the note is also its manager's while it is active, and takes additions from
-    /// a manager of its project while it is planned (`prepare_intents`).
+    /// A new title, goal, note, kind, size or tags, or who decides its findings. Title, goal
+    /// and findings are the user's; the note, kind, size and tags are also its manager's while
+    /// it is active, and the note takes additions from a manager of its project while it is
+    /// planned (`prepare_intents`).
     #[serde(rename = "intent.updated")]
     IntentUpdated {
         intent: String,
@@ -154,6 +169,15 @@ pub enum Body {
         /// changed after it. None: not checked (records from before versions, an addition).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         base: Option<u32>,
+        /// Absent: as it is; null: cleared; else the new kind (`present`: null and absent are
+        /// two things here).
+        #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+        kind: Option<Option<IntentKind>>,
+        #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+        size: Option<Option<IntentSize>>,
+        /// The whole new set; `[]` clears it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tags: Option<Vec<String>>,
     },
     /// A unit's repository is somewhere else than recorded: another machine, path or branch.
     #[serde(rename = "unit.relocated")]

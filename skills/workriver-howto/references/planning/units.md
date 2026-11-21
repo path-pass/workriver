@@ -14,7 +14,9 @@
 
 A unit is built, reviewed and merged on its own, on its own branch. The branch is the
 unit's own, never its base, and says what it holds: `feat/<name>` for new work,
-`fix/<name>` for a fix, `chore/<name>` for the rest. Each code unit gets a git worktree of its own, next
+`fix/<name>` for a fix, `chore/<name>` for the rest; the first unit's prefix follows the
+intent's kind (`feature` → `feat/`, `fix` → `fix/`, `chore` → `chore/`; a `research` intent
+starts with a research unit). Each code unit gets a git worktree of its own, next
 to the repository, made from the base's newest commit:
 
     git -C <repo> fetch && git -C <repo> worktree add <repo>.worktrees/<unit> -b feat/<name> origin/main

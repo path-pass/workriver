@@ -82,4 +82,55 @@ describe('the edit dialog', () => {
     await click('Save anyway')
     expect(api.sent[1]).toEqual({ intent: 'i1', title: 'Chat v2', note: 'Mine', base: 3 })
   })
+
+  it('sends the size picked and the tags typed (Enter or a comma adds one; × removes one), nothing else', async () => {
+    await act(() => root.render(<EditIntentDialog intent={{ ...v1, tags: ['ui'] }} draft={draftOf({ ...v1, tags: ['ui'] })} onClose={() => {}} />))
+    await act(async () => { (document.querySelector('[role=dialog] [aria-label^="M:"]') as HTMLButtonElement).click() })
+    const tag = document.querySelector<HTMLInputElement>('[role=dialog] input[aria-label="Add a tag"]')!
+    type(tag, 'Security')
+    act(() => { tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    type(tag, 'cli')
+    act(() => { tag.dispatchEvent(new KeyboardEvent('keydown', { key: ',', bubbles: true })) })
+    await act(async () => { (document.querySelector('[role=dialog] button[aria-label="Remove ui"]') as HTMLButtonElement).click() })
+    await click('Save')
+    expect(api.sent).toEqual([{ intent: 'i1', size: 'm', tags: ['security', 'cli'], base: 1 }])
+  })
+
+  const seven = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+  const tagField = () => document.querySelector<HTMLInputElement>('[role=dialog] input[aria-label="Add a tag"]')!
+  const tagAlert = () => document.querySelector('[role=dialog] [role=group] [role=alert]')?.textContent ?? ''
+  const showSeven = (onClose = () => {}) => act(() => root.render(<EditIntentDialog intent={{ ...v1, tags: seven }} draft={draftOf({ ...v1, tags: seven })} onClose={onClose} />))
+
+  it('does not save while the tag field holds a batch that would pass eight, after Enter or after leaving the field', async () => {
+    for (const leave of [false, true]) {
+      api.sent = []
+      const onClose = vi.fn()
+      await showSeven(onClose)
+      type(fields()[0], 'Chat v2')
+      type(tagField(), 'ui, cli')
+      if (leave) act(() => { tagField().focus(); tagField().blur() })
+      else act(() => { tagField().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+      expect(tagAlert()).toContain('at most 8')
+      await click('Save')
+      expect(api.sent).toEqual([])
+      expect(onClose).not.toHaveBeenCalled()
+      expect(tagField().value).toBe('ui, cli')
+      expect(fields()[0].value).toBe('Chat v2')
+      // Once a chip goes and the batch fits, Save takes the batch with the other edits.
+      await act(async () => { (document.querySelector('[role=dialog] button[aria-label="Remove a"]') as HTMLButtonElement).click() })
+      expect(tagAlert()).toBe('')
+      await click('Save')
+      expect(api.sent).toEqual([{ intent: 'i1', title: 'Chat v2', tags: [...seven.slice(1), 'ui', 'cli'], base: 1 }])
+      expect(onClose).toHaveBeenCalled()
+      act(() => root.render(<></>))
+    }
+  })
+
+  it('saves the tags left typed in the field, not added yet, with the rest', async () => {
+    await show(v1)
+    type(fields()[0], 'Chat v2')
+    type(tagField(), 'UI, cli')
+    await click('Save')
+    expect(api.sent).toEqual([{ intent: 'i1', title: 'Chat v2', tags: ['ui', 'cli'], base: 1 }])
+  })
 })

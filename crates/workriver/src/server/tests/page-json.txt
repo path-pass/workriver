@@ -67,12 +67,16 @@ workspace.intents[].external: object
 workspace.intents[].findings: string
 workspace.intents[].goal: string
 workspace.intents[].id: string
+workspace.intents[].kind: string
 workspace.intents[].manager: string
 workspace.intents[].managerState: string
 workspace.intents[].note: string
 workspace.intents[].order: number
 workspace.intents[].project: string
+workspace.intents[].size: string
 workspace.intents[].state: string
+workspace.intents[].tags: array
+workspace.intents[].tags[]: string
 workspace.intents[].title: string
 workspace.intents[].units: array
 workspace.intents[].units[].base: string

@@ -698,3 +698,217 @@ fn agents_do_not_set_where_an_intent_runs() {
     let old = recorded_before(s, "boss", json!({"kind": "intent.created", "body": {"id": "i6", "title": "Old", "state": "active", "runtime_ref": w2}}));
     assert_eq!(old.state().intent_for(&RuntimeRef { id: "w2".into(), label: "docs".into(), machine: None }).map(|i| i.id.as_str()), Some("i6"));
 }
+
+/// The intent's `intent.updated` with a kind, size or tags, as a JSON body.
+fn tagged(i: &str, f: serde_json::Value) -> serde_json::Value {
+    let mut b = json!({"intent": i});
+    b.as_object_mut().unwrap().extend(f.as_object().unwrap().clone());
+    json!({"kind": "intent.updated", "body": b})
+}
+
+/// An intent's kind, size and tags: optional, checked and kept lower-case; who sets them goes
+/// by its state, as for its note (the user always; whoever adds it; its manager while active).
+#[test]
+fn an_intents_kind_size_and_tags() {
+    let mut s = Records::default();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "Chat"}})).unwrap();
+    // Whoever adds it sets them, normalised: trimmed, lower-case (other scripts as written), no repeats.
+    add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Login", "project": "/p", "state": "planned", "kind": "fix", "size": "s", "tags": [" Security", "CLI", "security", "認証"]}})).unwrap();
+    let i = s.state().intent("i1").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.clone()), (Some(IntentKind::Fix), Some(IntentSize::S), vec!["security".to_string(), "cli".into(), "認証".into()]));
+    assert_eq!((i.edits.version, i.edits.kind, i.edits.size, i.edits.tags), (1, 1, 1, 1));
+    // None of them: as before.
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "project": "/p", "state": "planned"}})).unwrap();
+    let i = s.state().intent("i2").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.len()), (None, None, 0));
+    assert_eq!((i.edits.kind, i.edits.size, i.edits.tags), (0, 0, 0));
+    // The limits, each refusal naming the tag.
+    let long = "x".repeat(33);
+    for (tags, says) in [
+        (json!(["a b"]), "«a b»"),
+        (json!(["a,b"]), "«a,b»"),
+        (json!(["  "]), "1–32 characters"),
+        (json!([long]), "1–32 characters"),
+        (json!(["1", "2", "3", "4", "5", "6", "7", "8", "9"]), "at most 8"),
+    ] {
+        let e = add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "T", "project": "/p", "state": "planned", "tags": tags}})).unwrap_err();
+        assert!(e.contains(says), "{tags}: {e}");
+        let e = add(&mut s, "user", tagged("i2", json!({"tags": tags, "base": 1}))).unwrap_err();
+        assert!(e.contains(says), "{tags}: {e}");
+    }
+    // Eight after repeats are dropped is fine; an unknown kind or size is no record at all.
+    add(&mut s, "user", tagged("i2", json!({"tags": ["a", "b", "c", "d", "e", "f", "g", "h", "A"], "base": 1}))).unwrap();
+    assert_eq!(s.state().intent("i2").unwrap().tags.len(), 8);
+    assert!(serde_json::from_value::<Body>(tagged("i2", json!({"kind": "bug"}))).is_err());
+    assert!(serde_json::from_value::<Body>(tagged("i2", json!({"size": "xl"}))).is_err());
+
+    // Only a kind, size or tags is something to change; the refusal names them.
+    let e = add(&mut s, "user", tagged("i2", json!({}))).unwrap_err();
+    assert!(e.contains("--kind, --size or --tags"), "{e}");
+    // Set, then cleared: null clears kind and size, [] clears tags; absent leaves each as it is.
+    add(&mut s, "user", tagged("i2", json!({"kind": "feature", "size": "m", "base": 2}))).unwrap();
+    add(&mut s, "user", tagged("i2", json!({"goal": "Find", "base": 3}))).unwrap();
+    let i = s.state().intent("i2").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.len()), (Some(IntentKind::Feature), Some(IntentSize::M), 8), "an unrelated edit keeps them");
+    add(&mut s, "user", tagged("i2", json!({"kind": null, "tags": [], "base": 4}))).unwrap();
+    let i = s.state().intent("i2").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.len()), (None, Some(IntentSize::M), 0));
+    let e = &i.edits;
+    assert_eq!((e.version, e.kind, e.size, e.tags, e.goal), (5, 5, 3, 5, 4));
+
+    // A replace from an older version is refused when that field changed since; another goes through.
+    let e = add(&mut s, "user", tagged("i2", json!({"size": "l", "base": 2}))).unwrap_err();
+    assert!(e.contains("i2's size changed since v2") && e.contains("(in v3;"), "{e}");
+    let e = add(&mut s, "user", tagged("i2", json!({"tags": ["x"], "base": 4}))).unwrap_err();
+    assert!(e.contains("i2's tags changed since v4"), "{e}");
+    add(&mut s, "user", tagged("i2", json!({"tags": ["x"], "base": 3}))).unwrap_err();
+    add(&mut s, "user", tagged("i2", json!({"size": "l", "base": 3}))).unwrap();
+
+    // Planned: the user's alone, even for a manager of its project (who adds to its note).
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "workspace.project_set", "body": {"workspace": w1, "project": "/p"}})).unwrap();
+    for f in [json!({"kind": "fix", "base": 6}), json!({"size": null, "base": 6}), json!({"tags": ["ui"], "base": 6})] {
+        let e = add(&mut s, "boss", tagged("i2", f)).unwrap_err();
+        assert!(e.contains("i2 is planned") && e.contains("kind, size and tags") && e.contains("the user's"), "{e}");
+    }
+    add(&mut s, "boss", tagged("i2", json!({"add_note": "Seen"}))).unwrap();
+    // Active: its manager sets all three; another agent does not.
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": w1}})).unwrap();
+    add(&mut s, "boss", tagged("i2", json!({"kind": "chore", "size": "s", "tags": ["build"], "base": 7}))).unwrap();
+    let i = s.state().intent("i2").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.clone()), (Some(IntentKind::Chore), Some(IntentSize::S), vec!["build".to_string()]));
+    let e = add(&mut s, "agent-x", tagged("i2", json!({"kind": "fix", "base": 8}))).unwrap_err();
+    assert!(e.contains("only the user or the manager of intent i2"), "{e}");
+    // Done: the user's alone.
+    add(&mut s, "boss", json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "done"}})).unwrap();
+    let e = add(&mut s, "boss", tagged("i2", json!({"size": "m", "base": 8}))).unwrap_err();
+    assert!(e.contains("i2 is done") && e.contains("only the user"), "{e}");
+    add(&mut s, "user", tagged("i2", json!({"size": "m", "base": 8}))).unwrap();
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// Absent, null and [] stay three things through the stored form: an absent field is not
+/// written, a cleared one is written as null (kind, size) or [] (tags), and each reads back as
+/// it was written; a creation without them is written as before.
+#[test]
+fn kind_size_and_tags_keep_absent_and_cleared_apart_on_the_wire() {
+    let round = |v: serde_json::Value| serde_json::to_value(body(v.clone())).unwrap();
+    for b in [
+        json!({"intent": "i1", "goal": "x"}),
+        json!({"intent": "i1", "kind": null}),
+        json!({"intent": "i1", "size": null, "tags": []}),
+        json!({"intent": "i1", "kind": "research", "size": "l", "tags": ["a"]}),
+    ] {
+        let v = json!({"kind": "intent.updated", "body": b});
+        assert_eq!(round(v.clone()), v);
+    }
+    let Body::IntentUpdated { kind, size, tags, .. } = body(json!({"kind": "intent.updated", "body": {"intent": "i1", "kind": null, "tags": []}})) else { panic!() };
+    assert_eq!((kind, size, tags), (Some(None), None, Some(vec![])));
+    let created = json!({"kind": "intent.created", "body": {"id": "i1", "title": "T", "state": "planned"}});
+    assert_eq!(round(created.clone()), created, "nothing new is written for an intent without them");
+    let Body::IntentCreated { kind, size, tags, .. } = body(json!({"kind": "intent.created", "body": {"title": "T", "kind": null, "tags": []}})) else { panic!() };
+    assert_eq!((kind, size, tags.len()), (None, None, 0));
+}
+
+/// A merge keeps the target's kind and size. Only the user's merge unions the tags (its own
+/// first, cut to 8), a version of its tags; an agent's leaves the target's as they are. Either
+/// way each merged intent's kind, size and tags go into its block of the note.
+#[test]
+fn a_merge_keeps_the_kind_and_unions_tags_only_for_the_user() {
+    let mut s = Records::default();
+    let plan = |title: &str, extra: serde_json::Value| {
+        let mut b = json!({"title": title, "project": "/p", "state": "planned"});
+        b.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        json!({"kind": "intent.created", "body": b})
+    };
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": {"id": "w1", "label": "chat"}}})).unwrap();
+    add(&mut s, "importer", plan("Login", json!({"kind": "feature", "size": "m", "tags": ["ui"]}))).unwrap(); // i1
+    add(&mut s, "importer", plan("Login bug", json!({"kind": "fix", "size": "s", "tags": ["security", "cli"]}))).unwrap(); // i2
+    add(&mut s, "importer", plan("Plain", json!({}))).unwrap(); // i3
+    add(&mut s, "user", tagged("i1", json!({"tags": ["ui", "auth"], "base": 1}))).unwrap();
+    // An agent's merge: the user's tags stay as they are; the note keeps the source's.
+    add(&mut s, "boss", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2", "i3"]}})).unwrap();
+    let i = s.state().intent("i1").unwrap();
+    assert_eq!((i.kind, i.size, i.tags.clone()), (Some(IntentKind::Feature), Some(IntentSize::M), vec!["ui".to_string(), "auth".into()]));
+    assert!(i.note.contains("Merged from i2: Login bug\nfix · S · `security`, `cli`"), "{}", i.note);
+    assert!(i.note.ends_with("Merged from i3: Plain"), "{}", i.note);
+    assert_eq!((i.edits.version, i.edits.tags), (3, 2), "an agent's merge is no version of the tags");
+    // The user's merge: the union, its own first, cut to 8; a version of the tags.
+    add(&mut s, "importer", plan("Many", json!({"tags": ["auth", "a", "b", "c", "d", "e", "f", "g"]}))).unwrap(); // i4
+    add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i4"]}})).unwrap();
+    let i = s.state().intent("i1").unwrap();
+    assert_eq!(i.tags, ["ui", "auth", "a", "b", "c", "d", "e", "f"]);
+    assert_eq!((i.edits.version, i.edits.tags, i.edits.kind), (4, 4, 1));
+    // A stale tags edit now conflicts; a user's merge that adds nothing is no version of the tags.
+    let e = add(&mut s, "user", tagged("i1", json!({"tags": [], "base": 3}))).unwrap_err();
+    assert!(e.contains("i1's tags changed since v3"), "{e}");
+    add(&mut s, "user", plan("Same", json!({"tags": ["ui"]}))).unwrap(); // i5
+    add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i5"]}})).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().edits.tags, 4);
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// A merged intent's tags go into its block of the note as written, each a code span: a tag
+/// that looks like Markdown (a fence, a heading's underline, a backtick) changes nothing
+/// around it; a block of a source with no kind, size or tags is as before.
+#[test]
+fn merged_tags_are_literal_in_the_note() {
+    let mut s = Records::default();
+    let plan = |title: &str, tags: serde_json::Value| json!({"kind": "intent.created", "body": {"title": title, "goal": "Its goal", "project": "/p", "state": "planned", "tags": tags}});
+    add(&mut s, "user", plan("Target", json!([]))).unwrap(); // i1
+    add(&mut s, "user", plan("Fence", json!(["~~~"]))).unwrap(); // i2
+    add(&mut s, "user", plan("Odd", json!(["---", "a`b", "`x", "``"]))).unwrap(); // i3
+    add(&mut s, "user", plan("Plain", json!([]))).unwrap(); // i4
+    add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2", "i3", "i4"]}})).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "Merged from i2: Fence\n`~~~`\nIts goal\n\nMerged from i3: Odd\n`---`, ``a`b``, `` `x ``, ``` `` ```\nIts goal\n\nMerged from i4: Plain\nIts goal");
+}
+
+/// The tag check is bounded before any tag is read (it runs in the rules, under the service's
+/// one lock on the store, and any agent may add an intent): a list of any length is refused at
+/// once. An edit's refusal of who may set them comes before it.
+#[test]
+fn a_long_tag_list_is_refused_at_once() {
+    let mut s = Records::default();
+    let many: Vec<String> = (0..50_000).map(|n| format!("t{n}")).collect();
+    let quick = std::time::Duration::from_secs(1);
+    let t = std::time::Instant::now();
+    let e = add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Flood", "project": "/p", "state": "planned", "tags": many}})).unwrap_err();
+    assert!(t.elapsed() < quick && e.contains("an intent has at most 8 tags; 50000 given"), "{:?}: {e}", t.elapsed());
+    // Repeats of one tag are as many given.
+    let e = add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Flood", "project": "/p", "state": "planned", "tags": vec!["ui"; 50_000]}})).unwrap_err();
+    assert!(e.contains("at most 8 tags; 50000 given"), "{e}");
+    add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Mine", "project": "/p", "state": "planned"}})).unwrap();
+    let t = std::time::Instant::now();
+    let e = add(&mut s, "agent-y", tagged("i1", json!({"tags": many, "base": 1}))).unwrap_err();
+    assert!(t.elapsed() < quick && e.contains("i1 is planned: its kind, size and tags are the user's"), "{:?}: {e}", t.elapsed());
+    let e = add(&mut s, "user", tagged("i1", json!({"tags": many, "base": 1}))).unwrap_err();
+    assert!(e.contains("at most 8 tags; 50000 given"), "{e}");
+    assert!(s.state().intents.len() == 1 && s.state().intent("i1").unwrap().tags.is_empty());
+}
+
+/// A version says the kind, size and tags it set (null: cleared), and a version's text holds
+/// them, so a restore brings them back.
+#[test]
+fn the_history_holds_kind_size_and_tags() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "project": "/p", "state": "planned", "kind": "feature"}})).unwrap();
+    add(&mut s, "user", tagged("i1", json!({"size": "m", "tags": ["ui"], "base": 1}))).unwrap();
+    add(&mut s, "user", tagged("i1", json!({"kind": null, "base": 2}))).unwrap();
+    add(&mut s, "user", tagged("i1", json!({"goal": "Find", "base": 3}))).unwrap();
+    let all = s.events();
+    let v = intent_versions(all, "i1");
+    let seen: Vec<_> = v.iter().map(|v| (v.n, v.kind, v.size, v.tags.clone())).collect();
+    assert_eq!(seen, [
+        (1, Some(Some(IntentKind::Feature)), None, None),
+        (2, None, Some(Some(IntentSize::M)), Some(vec!["ui".to_string()])),
+        (3, Some(None), None, None),
+        (4, None, None, None),
+    ]);
+    let wire = serde_json::to_value(&v[2]).unwrap();
+    assert!(wire["kind"].is_null() && wire.as_object().unwrap().contains_key("kind") && !wire.as_object().unwrap().contains_key("size"), "{wire}");
+    let t = intent_text(all, "i1", 2).unwrap();
+    assert_eq!((t.kind, t.size, t.tags), (Some(IntentKind::Feature), Some(IntentSize::M), vec!["ui".to_string()]));
+    let t = intent_text(all, "i1", 4).unwrap();
+    assert_eq!((t.kind, t.size), (None, Some(IntentSize::M)));
+}

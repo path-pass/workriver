@@ -288,6 +288,16 @@ fn an_edit_is_told_as_it_was_committed() {
     let (to, said) = edited(&committed, &note).unwrap();
     assert_eq!(to, "boss");
     assert_eq!(said, "[workriver] The user changed i1 (now v2): its note changed (`workriver intent history i1 --diff 2`).");
+    // Kind and size in workriver's words, the tags quoted as the user's; cleared ones said so.
+    let sort = at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "kind": "fix", "size": "m", "tags": ["security", "«cli»"], "base": 3}}));
+    let (_, said) = edited(&s.recorded().unwrap(), &sort).unwrap();
+    assert_eq!(said, "[workriver] The user changed i1 (now v4): kind fix; size M; tags: «security, ‹cli›».");
+    let cleared = at(&mut s, "user", json!({"kind": "intent.updated", "body": {"intent": "i1", "kind": null, "size": null, "tags": [], "base": 4}}));
+    let (_, said) = edited(&s.recorded().unwrap(), &cleared).unwrap();
+    assert_eq!(said, "[workriver] The user changed i1 (now v5): kind not set; size not set; no tags.");
+    // An agent's change is told to nobody.
+    let boss = at(&mut s, "boss", json!({"kind": "intent.updated", "body": {"intent": "i1", "size": "s", "base": 5}}));
+    assert!(edited(&s.recorded().unwrap(), &boss).is_none());
 }
 
 /// The user's message asks for work and its result; the notice when that work is merged

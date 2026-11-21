@@ -30,8 +30,11 @@ workriver backlog add
 workriver backlog add  arg external --external value=["SYSTEM:KEY"] num=1 action=Set
 workriver backlog add  arg goal --goal value=["GOAL"] num=1 action=Set required
 workriver backlog add  arg help --help -h num=0 action=Help
+workriver backlog add  arg kind --kind value=["KIND"] num=1 one-of=["feature", "fix", "chore", "research"] action=Set
 workriver backlog add  arg note --note value=["NOTE"] num=1 default=[""] action=Set
 workriver backlog add  arg project --project value=["PROJECT"] num=1 default=["."] action=Set
+workriver backlog add  arg size --size value=["SIZE"] num=1 one-of=["s", "m", "l"] action=Set
+workriver backlog add  arg tags --tag value=["TAG"] num=1 action=Append
 workriver backlog add  arg title index=1 value=["TITLE"] num=1 action=Set required
 workriver backlog add  arg url --url value=["URL"] num=1 action=Set
 workriver backlog add-finding
@@ -59,7 +62,10 @@ workriver backlog help merge
 workriver backlog help move
 workriver backlog list
 workriver backlog list  arg help --help -h num=0 action=Help
+workriver backlog list  arg kind --kind value=["KIND"] num=1 one-of=["feature", "fix", "chore", "research"] action=Append
 workriver backlog list  arg project --project value=["PROJECT"] num=1 action=Set
+workriver backlog list  arg size --size value=["SIZE"] num=1 one-of=["s", "m", "l"] action=Append
+workriver backlog list  arg tag --tag value=["TAG"] num=1 action=Append
 workriver backlog merge
 workriver backlog merge  arg from index=2 value=["FROM"] num=1.. action=Append required
 workriver backlog merge  arg help --help -h num=0 action=Help
@@ -227,7 +233,10 @@ workriver intent  arg help --help -h num=0 action=Help
 workriver intent add
 workriver intent add  arg goal --goal value=["GOAL"] num=1 default=[""] action=Set
 workriver intent add  arg help --help -h num=0 action=Help
+workriver intent add  arg kind --kind value=["KIND"] num=1 one-of=["feature", "fix", "chore", "research"] action=Set
 workriver intent add  arg project --project value=["PROJECT"] num=1 default=["."] action=Set
+workriver intent add  arg size --size value=["SIZE"] num=1 one-of=["s", "m", "l"] action=Set
+workriver intent add  arg tags --tag value=["TAG"] num=1 action=Append
 workriver intent add  arg title index=1 value=["TITLE"] num=1 action=Set required
 workriver intent done
 workriver intent done  arg help --help -h num=0 action=Help
@@ -256,7 +265,10 @@ workriver intent set  arg findings --findings value=["FINDINGS"] num=1 one-of=["
 workriver intent set  arg goal --goal value=["GOAL"] num=1 action=Set
 workriver intent set  arg help --help -h num=0 action=Help
 workriver intent set  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver intent set  arg kind --kind value=["KIND"] num=1 one-of=["feature", "fix", "chore", "research", "none"] action=Set
 workriver intent set  arg note --note value=["TEXT"] num=1 action=Set conflicts=add_note
+workriver intent set  arg size --size value=["SIZE"] num=1 one-of=["s", "m", "l", "none"] action=Set
+workriver intent set  arg tags --tags value=["TAGS"] num=1 action=Set
 workriver intent set  arg title --title value=["TITLE"] num=1 action=Set
 workriver intent start
 workriver intent start  arg help --help -h num=0 action=Help

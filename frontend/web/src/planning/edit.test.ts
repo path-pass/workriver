@@ -1,7 +1,7 @@
 // Editing an intent on its page: what Save sends, what a version changed, a word diff, and
 // what the service's refusal of an edit from an older version says.
 import { describe, expect, it } from 'vitest'
-import { changesOf, conflictOf, conflictsOf, editBody, wordDiff } from './edit'
+import { changesOf, conflictOf, conflictsOf, draftOf, editBody, wordDiff } from './edit'
 import type { Intent } from './types'
 
 const intent = (more: Partial<Intent> = {}): Intent => ({ id: 'i3', title: 'Search', goal: 'Find fast', note: 'First\n\nSecond', units: [], chores: [], version: 4, ...more }) as Intent
@@ -90,5 +90,43 @@ describe('a refusal of an edit from an older version', () => {
 
   it('anything else is not a conflict', () => {
     expect(conflictOf('/api/append: 422 an intent needs a title')).toBeNull()
+  })
+})
+
+describe('kind, size and tags', () => {
+  const tagged = (more: Partial<Intent> = {}) => intent({ kind: 'fix', size: 's', tags: ['security', 'cli'], ...more })
+
+  it('only what changed is sent; a cleared kind or size as null, cleared tags as []', () => {
+    const d = draftOf(tagged())
+    expect(editBody(tagged(), d)).toBeNull()
+    expect(editBody(tagged(), { ...d, kind: 'feature' })).toEqual({ intent: 'i3', kind: 'feature', base: 4 })
+    expect(editBody(tagged(), { ...d, kind: null, size: null, tags: [] })).toEqual({ intent: 'i3', kind: null, size: null, tags: [], base: 4 })
+    expect(editBody(tagged(), { ...d, goal: 'Other' })).toEqual({ intent: 'i3', goal: 'Other', base: 4 })
+  })
+
+  it('tags are compared as kept: case and repeats are no change', () => {
+    expect(editBody(tagged(), { ...draftOf(tagged()), tags: ['Security', 'cli', 'cli'] })).toBeNull()
+    expect(editBody(tagged(), { ...draftOf(tagged()), tags: ['cli', 'security'] })).toEqual({ intent: 'i3', tags: ['cli', 'security'], base: 4 })
+  })
+
+  it('a draft without them (an older caller) leaves them as they are', () => {
+    expect(editBody(tagged(), { title: 'Search', goal: 'Find fast', note: 'First\n\nSecond' })).toBeNull()
+  })
+
+  it('a restore from a version text brings them back', () => {
+    const v2 = { title: 'Search', goal: 'Find fast', note: 'First\n\nSecond', kind: 'feature' as const, size: null, tags: [] }
+    expect(editBody(tagged(), draftOf(v2))).toEqual({ intent: 'i3', kind: 'feature', size: null, tags: [], base: 4 })
+  })
+
+  it('a conflict on them is found like one on the text', () => {
+    const opened = draftOf(tagged())
+    const now = { title: 'Search', goal: 'Find fast', note: 'First\n\nSecond', kind: 'chore' as const, size: 's' as const, tags: ['security', 'cli'] }
+    expect(conflictsOf(opened, now, { kind: 'feature', size: 'm', tags: [] })).toEqual(['kind'])
+    expect(conflictOf("/api/append: 422 i3's tags changed since v4 (in v5; it is at v6, last by the user at x)")).toEqual({ field: 'tags', now: 6 })
+  })
+
+  it('a version that set them says so, also when it cleared one', () => {
+    expect(changesOf({ n: 2, at: '', by: 'user', how: 'edited', kind: null, tags: ['ui'] })).toEqual(['kind', 'tags'])
+    expect(changesOf({ n: 3, at: '', by: 'user', how: 'edited', goal: 'x' })).toEqual(['goal'])
   })
 })

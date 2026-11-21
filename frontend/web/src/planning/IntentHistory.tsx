@@ -10,7 +10,8 @@ import { Prose } from '@/content/Prose'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { intentHistory, intentVersion } from '@/api/actions'
-import { changesOf, wordDiff, type Run } from './edit'
+import { changesOf, valueOf, wordDiff, type Run } from './edit'
+import { SortChip, TagChips } from './Sort'
 import type { Intent, IntentText, IntentVersion } from './types'
 
 /** Runs of a word diff: what was removed struck through in red, what was added in green. */
@@ -98,6 +99,9 @@ export function HistoryDialog({ intent, onClose, onRestore }: {
   }, [intent, n, t])
 
   const detail = shown?.n === n ? shown : null
+  // Kind and size in words ("Not set" when none), to set one version against another.
+  const kindWords = (x: IntentText) => (x.kind ? t(`intent.kind.${x.kind}`) : t('intent.notSet'))
+  const sizeWords = (x: IntentText) => (x.size ? t(`intent.size.${x.size}`) : t('intent.notSet'))
   const first = detail && !detail.before
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
@@ -133,6 +137,7 @@ export function HistoryDialog({ intent, onClose, onRestore }: {
                     {first && <p className="text-xs text-ink-2">{t('intent.history.first')}</p>}
                     <p className="text-sm font-[650] wrap-anywhere" lang={contentLang(detail.text.title)}>{detail.text.title}</p>
                     {detail.text.goal && <p className="text-sm text-ink-2 wrap-anywhere" lang={contentLang(detail.text.goal)}>{detail.text.goal}</p>}
+                    {(detail.text.kind || detail.text.size || !!detail.text.tags?.length) && <p className="flex flex-wrap items-center gap-1"><SortChip intent={{ kind: detail.text.kind ?? undefined, size: detail.text.size ?? undefined }} /><TagChips tags={detail.text.tags} /></p>}
                     {detail.text.note.trim() && <div className="max-h-[45vh] overflow-y-auto text-sm"><Prose text={detail.text.note} fold={false} /></div>}
                   </div>
                 ) : (
@@ -140,6 +145,9 @@ export function HistoryDialog({ intent, onClose, onRestore }: {
                     <Field label={t('intent.edit.fieldTitle')} before={detail.before!.title} now={detail.text.title} />
                     <Field label={t('intent.edit.fieldGoal')} before={detail.before!.goal} now={detail.text.goal} />
                     <Field label={t('intent.edit.fieldNote')} before={detail.before!.note} now={detail.text.note} prose />
+                    <Field label={t('intent.edit.fieldKind')} before={kindWords(detail.before!)} now={kindWords(detail.text)} />
+                    <Field label={t('intent.edit.fieldSize')} before={sizeWords(detail.before!)} now={sizeWords(detail.text)} />
+                    <Field label={t('intent.edit.fieldTags')} before={valueOf(detail.before!, 'tags')} now={valueOf(detail.text, 'tags')} />
                   </>
                 )}
                 <div className="flex flex-wrap items-center justify-end gap-2">
