@@ -4,6 +4,12 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **Nothing is put before a recorded gate; a gate is dropped and asked anew** (managers):
+  when new work must come before a gate already recorded (a fix, another review, an amended
+  design), drop the gate with its reason, record the new work after what the gate followed
+  and a new gate after that work. What waited on the dropped gate waits no more: drop it
+  first and add it again after the new gate. There is no `--before`. A gate the user
+  submitted is done: what changes after it is new work after it. (`ask-user`, `design-gate`)
 - **`task note` reaches the task's agent, or nobody** (managers): a worker on another
   machine that started a moment ago is found and told, files as the command that fetches
   them there. The command does not wait for that search: while other machines are
