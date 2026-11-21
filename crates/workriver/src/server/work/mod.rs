@@ -155,11 +155,14 @@ pub(super) struct Gate {
     findings: Vec<core::NewFinding>,
     #[serde(default)]
     attachments: Vec<String>,
+    /// A choice gate answered: the value picked.
+    #[serde(default)]
+    selected: Vec<String>,
 }
 
 pub(super) async fn gate(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(g): Json<Gate>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
-    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments };
+    let body = Body::GateSubmitted { unit: g.unit, task: g.task, result: g.result, note: g.note, findings: g.findings, attachments: g.attachments, selected: g.selected };
     blocking(move || app.record(&who, body).map(Json)).await
 }
 

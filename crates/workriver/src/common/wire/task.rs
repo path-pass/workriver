@@ -41,6 +41,9 @@ pub struct TaskShow {
     pub earlier: Vec<EarlierShow>,
     pub plans: Vec<String>,
     pub steps: Vec<core::Step>,
+    /// A decide gate's options, as stored (`core::Choice`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<core::Choice>,
     /// What it delivered, once it did.
     pub output: Option<OutputShow>,
     pub commits: Vec<CommitShow>,
@@ -166,8 +169,11 @@ pub struct OutputShow {
     pub evidence: Vec<EvidenceShow>,
     pub findings: Vec<FindingShow>,
     pub files: Vec<String>,
-    /// A gate's: done, or problem.
+    /// A gate's: done, problem, or answered.
     pub result: Option<String>,
+    /// An answered gate's: the option picked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

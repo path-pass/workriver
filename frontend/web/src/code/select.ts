@@ -9,11 +9,11 @@ import { ms, unitsOf } from '@/planning/select'
 /** The repository a unit works in. */
 export const repoOf = (ws: Workspace, unit: Unit) => ws.repos.find(r => r.path === unit.repo && r.machine === unit.machine)!
 
-export const commitStats = (c: Commit) => ({
-  files: c.files.length,
-  add: c.files.reduce((s, f) => s + f.add, 0),
-  del: c.files.reduce((s, f) => s + f.del, 0),
-})
+/** A commit's files and lines; none for a merge that brought the base in, which did no work of its own. */
+export const commitStats = (c: Commit) => {
+  const files = c.merge ? [] : c.files
+  return { files: files.length, add: files.reduce((s, f) => s + f.add, 0), del: files.reduce((s, f) => s + f.del, 0) }
+}
 
 // ---- the commits of every unit, newest first ----
 

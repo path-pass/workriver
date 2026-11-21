@@ -27,6 +27,11 @@ impl Records {
     pub(crate) fn state(&self) -> &State {
         &self.state
     }
+
+    /// Every event recorded so far, in order.
+    pub(crate) fn events(&self) -> &[Event] {
+        &self.events
+    }
 }
 
 /// An intent, a unit, an implement task delivered with evidence and a review with two findings.
@@ -48,7 +53,9 @@ pub(crate) fn seed() -> Vec<Body> {
 
 pub(crate) fn seeded(s: &mut Records) {
     for b in seed() {
-        s.append(&"agent-a".into(), b).unwrap();
+        // An active intent is made by the user (an agent's starts in the roadmap).
+        let who = if matches!(b, Body::IntentCreated { .. }) { "user" } else { "agent-a" };
+        s.append(&who.into(), b).unwrap();
     }
 }
 
@@ -98,16 +105,16 @@ pub(crate) fn add(s: &mut Records, actor: &str, v: serde_json::Value) -> Result<
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
-/// `agent` becomes the manager of `intent`, as `manager here` and `intent start` record it:
-/// registered for workspace w1, the intent started there (one active elsewhere is put back
-/// in the backlog first).
+/// `agent` becomes the manager of `intent`, as `manager here` and a start record it:
+/// registered for workspace w1, the intent started there by the user (an intent of no
+/// project is the user's to start; one active elsewhere is put back in the backlog first).
 pub(crate) fn managed(s: &mut Records, agent: &str, intent: &str) {
     let w = json!({"id": "w1", "label": "chat"});
     add(s, agent, json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
     if s.state().intent(intent).unwrap().state == IntentState::Active {
-        add(s, agent, json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "planned"}})).unwrap();
+        add(s, "user", json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "planned"}})).unwrap();
     }
-    add(s, agent, json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "active", "workspace": w}})).unwrap();
+    add(s, "user", json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "active", "workspace": w}})).unwrap();
 }
 
 /// An event as an old database has it, straight into the records past today's rules (the

@@ -31,7 +31,7 @@ fn designs_their_gates_and_their_revisions() {
         json!({"kind": "task.created", "body": b})
     };
     let found = |n: u32| json!({"kind": "task.delivered", "body": {"unit": "u1", "task": n, "findings": [{"severity": "P2", "problem": "x", "impact": "y", "where": ["a"]}]}});
-    put(&mut s, "boss", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
     put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
     put(&mut s, "boss", task("design", &["start"], json!({}))); // 1: an older design, unrelated
     put(&mut s, "boss", task("design", &["1"], json!({}))); // 2
@@ -115,9 +115,9 @@ fn corrections_after_delivery() {
     s.append(&"user".into(), body(json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P1-1", "decision": "defer", "by": "user"}}))).unwrap();
     let late = s.append(&"agent-a".into(), body(json!({"kind": "task.amended", "body": {"unit": "u1", "task": 2, "findings": []}}))).unwrap_err().to_string();
     assert!(late.contains("already decided") && late.contains("--amend --add-findings"), "{late}");
-    // The goal: the user or the intent's manager only.
+    // The goal: the user's only.
     let other = s.append(&"agent-b".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "x"}}))).unwrap_err().to_string();
-    assert!(other.contains("only the user or the manager"), "{other}");
+    assert!(other.contains("are the user's"), "{other}");
     s.append(&"user".into(), body(json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "Let people mention each other"}}))).unwrap();
     assert_eq!(s.state().intents[0].goal, "Let people mention each other");
 }
@@ -472,4 +472,140 @@ fn a_later_task_says_what_it_follows() {
     let e = add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "causes": [{"unit": "u1", "task": 2, "findings": ["P2-1"]}]}))).unwrap_err();
     assert!(e.contains("u2 already has tasks"), "{e}");
     add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
+}
+
+/// The gate that asks about a design or a research result: for a design its design gate
+/// (after its reviews), for research the same walk taking research; the latest not dropped.
+#[test]
+fn a_results_gate_is_found_through_its_reviews() {
+    let mut s = Records::default();
+    let put = |s: &mut Records, actor: &str, v: serde_json::Value| {
+        s.append(&actor.into(), body(v)).unwrap();
+    };
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
+    put(&mut s, "boss", task("design", &["start"], json!({}))); // 1
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
+    put(&mut s, "boss", task("gate", &["2"], json!({"gate": "decide"}))); // 3
+    put(&mut s, "boss", task("research", &["start"], json!({}))); // 4
+    put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 5
+    put(&mut s, "boss", task("implement", &["3"], json!({}))); // 6
+    put(&mut s, "boss", task("gate", &["6"], json!({"gate": "decide", "title": "Merge?"}))); // 7
+    put(&mut s, "boss", task("research", &["6"], json!({}))); // 8: no gate after it
+    let st = s.state().clone();
+    let gate = |owner: &str, n: u32| st.result_gate(owner, n).map(|g| g.n);
+    assert_eq!((gate("u1", 1), gate("u1", 4), gate("u1", 8), gate("u1", 6), gate("u1", 9)), (Some(3), Some(5), None, None, None));
+    // Asked again: the latest gate not dropped.
+    put(&mut s, "boss", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 5, "reason": "asked again"}}));
+    put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 9
+    assert_eq!(s.state().result_gate("u1", 4).map(|g| g.n), Some(9));
+}
+
+/// Which reviews of a design or research read an earlier delivery: those that had started
+/// when it was amended, in event order (not by time), and only reviews that follow it.
+#[test]
+fn reviews_that_read_an_earlier_delivery() {
+    let mut s = Records::default();
+    let put = |s: &mut Records, actor: &str, v: serde_json::Value| {
+        s.append(&actor.into(), body(v)).unwrap();
+    };
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
+    put(&mut s, "boss", task("research", &["start"], json!({"agent": "r"}))); // 1
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "security-review"}))); // 3
+    put(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
+    put(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "v1"}}));
+    // Amended before any review started: none read an earlier text.
+    put(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "v2"}}));
+    assert!(s.state().task("u1", 1).unwrap().read_before.is_empty());
+    // Review 2 starts and reads v2; amended again: review 2 read an earlier text, 3 did not.
+    put(&mut s, "a", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}}));
+    put(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "v3"}}));
+    assert_eq!(s.state().task("u1", 1).unwrap().read_before, [2]);
+    // The same when the records are read again; never written out with the state.
+    assert_eq!(replayed(&s).task("u1", 1).unwrap().read_before, [2]);
+    assert!(serde_json::to_value(s.state()).unwrap()["units"][0]["tasks"][0].get("read_before").is_none());
+}
+
+/// A decide gate with options (a choice gate): asked by the manager or the user only, never on
+/// a design's gate or as a blocker, nothing hung after it until it is answered; the user answers
+/// with one of its values (a note where the option asks one), and that is all it records.
+#[test]
+fn a_choice_gate_is_answered_and_unlocks_nothing() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    managed(&mut s, "boss", "i1");
+    let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("merge", "Merge and push"), opt("review", "Review again"), opt("hold", "Not now")], &["hold".into()])).unwrap();
+    let gate = |after: &str, more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": "gate", "gate": "decide", "title": "Next?", "inputs": [{"from": after}], "choice": choice});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    let refused = |s: &mut Records, actor: &str, v: serde_json::Value| add(s, actor, v).unwrap_err();
+    // Only on a decide gate; only from the manager or the user; never a blocker.
+    assert!(refused(&mut s, "boss", gate("2", json!({"gate": "test"}))).contains("decide gate"));
+    assert!(refused(&mut s, "boss", gate("2", json!({"kind": "implement"}))).contains("decide gate"));
+    assert!(refused(&mut s, "agent-a", gate("2", json!({}))).contains("manager of intent i1"));
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Docs", "inputs": [{"from": "2"}]}})).unwrap(); // 3
+    assert!(refused(&mut s, "boss", gate("2", json!({"blocks": 3}))).contains("blocker carries no choices"));
+    // A hand-made surface is refused like a bad option.
+    let mut bad = choice.clone();
+    bad["surface"]["createSurface"]["components"][1]["variant"] = json!("multipleSelection");
+    assert!(refused(&mut s, "boss", gate("2", json!({"choice": bad}))).contains("--option"));
+    // Never after a design, directly or through its reviews.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design", "inputs": [{"from": "2"}]}})).unwrap(); // 4
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}]}})).unwrap(); // 5
+    assert!(refused(&mut s, "boss", gate("4", json!({}))).contains("design is confirmed with a decide gate without --option"));
+    assert!(refused(&mut s, "boss", gate("5", json!({}))).contains("design is confirmed"));
+    // Asked by the manager after the code's review, and by the user.
+    add(&mut s, "boss", gate("2", json!({}))).unwrap(); // 6
+    add(&mut s, "user", gate("2", json!({}))).unwrap(); // 7
+    let g = s.state().task("u1", 6).unwrap().clone();
+    assert_eq!((g.choice.as_ref().map(|c| c.options().len()), g.selected.len()), (Some(3), 0));
+    // Nothing hangs after an open one.
+    let after = |n: &str| json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Merge", "inputs": [{"from": n}]}});
+    assert!(refused(&mut s, "boss", after("6")).contains("u1#6 asks the user to choose; add what follows once it is answered"));
+
+    // Submitting: the user's alone; answered with one stored value; done is refused here.
+    let submit = |result: &str, more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "task": 6, "result": result});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "gate.submitted", "body": b})
+    };
+    assert!(refused(&mut s, "boss", submit("answered", json!({"selected": ["review"]}))).contains("only the user"));
+    assert!(refused(&mut s, "user", submit("done", json!({}))).contains("u1#6 asks the user to choose; submit answered --select ID"));
+    assert!(refused(&mut s, "user", submit("answered", json!({}))).contains("pick one"));
+    assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["later"]}))).contains("not one of"));
+    assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["hold"]}))).contains("needs a note"));
+    let finding = json!([{"severity": "P2", "problem": "x"}]);
+    assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["review"], "findings": finding}))).contains("carries no findings"));
+    assert!(refused(&mut s, "user", submit("problem", json!({"selected": ["review"], "findings": finding}))).contains("--select goes with answered"));
+    add(&mut s, "user", submit("answered", json!({"selected": ["hold"], "note": "after the release"}))).unwrap();
+    let g = s.state().task("u1", 6).unwrap();
+    assert_eq!((g.state, g.result, g.selected.clone(), g.note.as_str()), (TaskState::Done, Some(GateResult::Answered), vec!["hold".to_string()], "after the release"));
+    assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["merge"]}))).contains("not a waiting gate"));
+    // Answered, it may be followed: what the manager adds for the chosen option.
+    add(&mut s, "boss", after("6")).unwrap();
+    // A plain decide gate takes no answer; a choice gate may still say the question is wrong.
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Merge?", "inputs": [{"from": "2"}]}})).unwrap(); // 9
+    let plain = json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 9, "result": "answered", "selected": ["merge"]}});
+    assert!(refused(&mut s, "user", plain).contains("u1#9 has no choices; submit done or problem"));
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 7, "result": "problem", "findings": finding}})).unwrap();
+    // It all replays; a gate with no choice is written as before.
+    let replayed = replayed(&s);
+    assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
+    let plain = serde_json::to_value(replayed.task("u1", 9).unwrap()).unwrap();
+    assert!(plain.get("choice").is_none() && plain.get("selected").is_none());
 }

@@ -1,5 +1,5 @@
 // Where a unit's scope grew: along each line of work, a task whose commits reach folders
-// nothing before it on its line reached. Commits only, never merges; reviews and gates never.
+// nothing before it on its line reached. Commits only, never base merges; reviews and gates never.
 import { describe, expect, it } from 'vitest'
 import { growth } from './growth'
 import type { Unit } from '@/planning/types'

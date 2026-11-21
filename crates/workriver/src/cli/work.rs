@@ -23,7 +23,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             print!("{}", display::finding_text(f, ""));
             return Ok(None);
         }
-        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind, blocks }) => {
+        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind, blocks, option, require_note }) => {
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
             // `N` or `u1#N`, in this unit.
             let blocks = blocks
@@ -35,10 +35,17 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 .transpose()?;
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
-            d.append(actor, "task.created", json!({
+            let choice = parse_choice(&option, &require_note)?;
+            let asks = choice.is_none() && gate.as_deref() == Some("decide") && lists_options(&[&[title.as_str(), text.as_str()][..], &step.iter().map(String::as_str).collect::<Vec<_>>()].concat());
+            let out = d.append(actor, "task.created", json!({
                 "unit": unit, "kind": kind, "title": title, "text": text, "inputs": inputs, "causes": causes,
-                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks,
-            }))?
+                "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks, "choice": choice,
+            }))?;
+            if asks {
+                println!("{}\n{OPTIONS_HINT}", made(&out));
+                return Ok(None);
+            }
+            out
         }
         Cmd::Task(TaskCmd::Start { task, agent }) => {
             let (unit, n) = task_ref(&task)?;
@@ -129,14 +136,14 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "finding.decided", json!({ "unit": unit, "task": n, "finding": finding, "decision": decision, "note": note }))?
         }
-        Cmd::Gate(GateCmd::Submit { task, result, note, findings }) => {
+        Cmd::Gate(GateCmd::Submit { task, result, note, findings, select }) => {
             let (unit, n) = task_ref(&task)?;
             let findings = read_findings(findings.as_deref())?;
             let mut findings = findings;
             if let Some(list) = findings.as_array_mut() {
                 upload_finding_files(d, actor, list)?;
             }
-            d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings }))?
+            d.append(actor, "gate.submitted", json!({ "unit": unit, "task": n, "result": result, "note": note, "findings": findings, "selected": select.into_iter().collect::<Vec<_>>() }))?
         }
         Cmd::Chore(ChoreCmd::Add { intent, project, title, unit, step }) => {
             // An intent given or this workspace's; else the project given, or where this runs.
@@ -180,6 +187,8 @@ pub(crate) enum RunCmd {
     },
 }
 
+// Parsed once per run: `Add`'s many options cost nothing worth boxing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub(crate) enum TaskCmd {
     #[command(about = runtime::words::HELP_TASK_SHOW)]
@@ -225,9 +234,18 @@ pub(crate) enum TaskCmd {
         /// project's own rules; `workriver guide how architecture-review`.)
         #[arg(long, value_parser = ["code-review", "security-review", "architecture-review"])]
         reviewer: Option<String>,
-        /// Gate tasks: what the user is asked to do (`decide`: discuss and confirm a design).
+        /// Gate tasks: what the user is asked to do (`decide`: discuss and confirm a design, or
+        /// answer a question).
         #[arg(long, value_parser = ["deploy", "test", "decide"])]
         gate: Option<String>,
+        /// Decide gates: an option the user picks from, `ID=LABEL` (ID: 1 to 32 of a-z, 0-9,
+        /// -); 2 to 8, in the order shown, as radio buttons. Not on a design's gate (there the
+        /// choices go in --text). By the manager or the user. Repeatable.
+        #[arg(long, value_name = "ID=LABEL")]
+        option: Vec<String>,
+        /// An option whose answer needs the user's note (why). Repeatable.
+        #[arg(long, value_name = "ID")]
+        require_note: Vec<String>,
         /// Gate tasks: one step for the user, `TEXT` or `TEXT => COMMAND`. Repeatable.
         #[arg(long)]
         step: Vec<String>,
@@ -380,16 +398,20 @@ pub(crate) enum CommitCmd {
 
 #[derive(Subcommand)]
 pub(crate) enum GateCmd {
-    /// Submit a waiting gate's result. A problem needs findings (JSON as in `task deliver`).
+    /// Submit a waiting gate's result. A problem needs findings (JSON as in `task deliver`); a
+    /// gate with options is answered with one of them (`answered --select ID`).
     Submit {
         /// The gate (u1#5).
         task: String,
-        #[arg(value_parser = ["done", "problem"])]
+        #[arg(value_parser = ["done", "problem", "answered"])]
         result: String,
         #[arg(long, default_value = "")]
         note: String,
         #[arg(long, value_name = "FILE")]
         findings: Option<String>,
+        /// With answered: the option picked (its ID).
+        #[arg(long, value_name = "ID")]
+        select: Option<String>,
     },
 }
 

@@ -1,55 +1,70 @@
-// What the manager or the user added to a task after it was recorded shows under what it
-// asked first, in order, each with whose it is; nothing shows for a task with none.
+// A gate's detail, mounted: the files attached to the gate show while it waits, before the
+// user answers it, the way a task's attachments show, and they stay once it is submitted.
 import { act } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
-import { Added } from './TaskDetail'
-import type { Task } from './types'
+import type { Unit } from '@/planning/types'
+import type { Talk } from '@/conversations/types'
+import type { Attachment } from '@/attachments/types'
+import { ActContext, type Act } from './actions'
+import type { GateResult, Task } from './types'
+import { withEdits, NO_EDITS } from '@/workspace/edits'
+import type { Workspace } from '@/workspace/types'
+import { Detail } from './TaskDetail'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-let host: HTMLDivElement
-beforeEach(() => { host = document.createElement('div'); document.body.append(host) })
-afterEach(() => host.remove())
-
-const task = (notes?: Task['input']['notes']): Task => ({
-  id: '1', kind: 'implement', state: 'running', taskId: '1', title: 'Build the adapter', agent: 'impl', writing: false,
-  inputs: [{ from: 'start', primary: true }], input: { text: 'Build the adapter', causes: [], notes }, output: {}, plans: [],
-})
-
-function shown(n: Task) {
-  const root = createRoot(host)
-  act(() => root.render(<TooltipProvider><Added n={n} /></TooltipProvider>))
-  const list = host.querySelector('ul')
-  const items = [...host.querySelectorAll('li')].map(li => li.textContent ?? '')
-  act(() => root.unmount())
-  return { label: list?.getAttribute('aria-label'), items }
+const plan: Attachment = { id: 'a1', name: 'plan-b.zh-CN.md', url: '/api/attachments/a1', type: 'text/markdown' }
+const shot: Attachment = { id: 'a2', name: 'before.png', url: '/api/attachments/a2', type: 'image/png' }
+const gate: Task = {
+  id: '2', kind: 'gate', gate: 'test', state: 'waiting', taskId: '2', title: 'Try it', agent: null, writing: false,
+  inputs: [{ from: '1', primary: true }], input: { text: 'Read the plan, then try it', causes: [], steps: [] },
+  output: { commits: [], attachments: [plan, shot] }, plans: [],
 }
+const unit = (g: Task): Unit => ({ id: 'u1', title: 'Unit', purpose: '', repo: '/r', branch: 'b', status: 'active', tasks: [g], commits: [] } as unknown as Unit)
+const talk = { sessions: [], file: null, lines: null, onRead: () => {} } as unknown as Talk
+const acts: Act = { submitGate: () => {}, decide: () => {}, undo: () => {}, choreDone: () => {}, merge: async () => {}, delivery: {}, message: {}, retry: {} }
 
-describe('requirements added to a task', () => {
-  it('each under the other, oldest first, with who and when; the user as "you"', () => {
-    const { label, items } = shown(task([
-      { by: 'boss', user: false, at: '2026-11-20T10:00:00Z', text: 'Also cover the Codex adapter' },
-      { by: 'user', user: true, at: '2026-11-20T11:00:00Z', text: 'And keep the old flag' },
-    ]))
-    expect(label).toBe('Added to what it asks')
-    expect(items).toHaveLength(2)
-    expect(items[0]).toContain('boss added to what it asks')
-    expect(items[0]).toContain('Also cover the Codex adapter')
-    expect(items[1]).toContain('You added to what it asks')
-    expect(items[1]).toContain('And keep the old flag')
+let root: Root
+let host: HTMLDivElement
+beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
+afterEach(() => { act(() => root.unmount()); host.remove() })
+
+const show = (u: Unit) => act(() => root.render(
+  <TooltipProvider><ActContext.Provider value={acts}><Detail unit={u} n={u.tasks[0]} onPick={() => {}} talk={talk} /></ActContext.Provider></TooltipProvider>,
+))
+const files = () => [...host.querySelectorAll('.ctx')].map(e => e.textContent)
+const pictures = () => [...host.querySelectorAll('.thumb img')].map(e => e.getAttribute('src'))
+
+describe('a gate’s attachments', () => {
+  it('show while it waits, next to the form', () => {
+    show(unit(gate))
+    expect(host.querySelector('form')).not.toBeNull()
+    expect(files()).toEqual(['plan-b.zh-CN.md'])
+    expect(pictures()).toEqual(['/api/attachments/a2'])
   })
 
-  it('"you" only for what the user recorded, not for an agent that goes by "user"', () => {
-    const { items } = shown(task([{ by: 'user', user: false, at: '2026-11-20T10:00:00Z', text: 'Also the docs' }]))
-    expect(items[0]).toContain('user added to what it asks')
-    expect(items[0]).not.toContain('You added')
+  it('stay once the user submits it, with the pictures of the form after them', () => {
+    const mine: Attachment = { id: 'b1', name: 'after.png', url: 'blob:after', type: 'image/png' }
+    const r: GateResult = { result: 'done', note: 'Works', attachments: [mine], findings: [], at: '2026-01-01T00:00:00Z' }
+    const ws = { intents: [{ id: 'i1', title: 'I', units: [unit(gate)], chores: [] }] } as unknown as Workspace
+    const shown = withEdits(ws, { ...NO_EDITS, gates: { 'u1:2': r } })
+    show(shown.intents[0].units[0])
+    expect(host.querySelector('form')).toBeNull()
+    expect(files()).toEqual(['plan-b.zh-CN.md'])
+    expect(pictures()).toEqual(['/api/attachments/a2', 'blob:after'])
   })
 
-  it('nothing for a task with none', () => {
-    expect(shown(task()).items).toEqual([])
-    expect(shown(task([])).label).toBeUndefined()
+  it('once the service has the result, are its list as it is, each once', () => {
+    const mine: Attachment = { id: 'b1', name: 'after.png', url: 'blob:after', type: 'image/png' }
+    const stored: Attachment = { id: 'a3', name: 'after.png', url: '/api/attachments/a3', type: 'image/png' }
+    const r: GateResult = { result: 'done', note: 'Works', attachments: [mine], findings: [], at: '2026-01-01T00:00:00Z' }
+    const done: Task = { ...gate, state: 'done', output: { ...gate.output, note: 'Works', attachments: [plan, shot, stored] } }
+    const ws = { intents: [{ id: 'i1', title: 'I', units: [unit(done)], chores: [] }] } as unknown as Workspace
+    show(withEdits(ws, { ...NO_EDITS, gates: { 'u1:2': r } }).intents[0].units[0])
+    expect(files()).toEqual(['plan-b.zh-CN.md'])
+    expect(pictures()).toEqual(['/api/attachments/a2', '/api/attachments/a3'])
   })
 })

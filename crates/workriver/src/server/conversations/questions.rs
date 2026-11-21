@@ -150,42 +150,73 @@ impl App {
         // A manager on a blind task is told nothing of other work: the user's message waits
         // (`poll` tries again) until that task is delivered. Checked at every try, since it may
         // have become blind while the message was held. Unread, it is not given either.
-        if matches!(h.kind, For::Message | For::Notice) && !self.blind_free(&h.to) {
+        if matches!(h.kind, For::Message | For::Notice | For::Discussion | For::Duty) && !self.blind_free(&h.to) {
             h.not_ready = None;
             self.held.lock().unwrap().push(h);
             return;
         }
         let live = self.runtime.agents();
-        let at = live.as_ref().ok().and_then(|l| l.iter().find(|a| is(a)));
+        let found = live.as_ref().ok().and_then(|l| l.iter().find(|a| is(a)));
         // Its session gone, a notice is given to nobody: the runtime would look for an agent
         // of that name next. (A runtime that does not answer says so itself, below.)
-        if h.kind == For::Notice && live.is_ok() && at.is_none() {
+        if h.kind == For::Notice && live.is_ok() && found.is_none() {
             let gone = RuntimeError::NoAgent(h.name.clone());
             return self.told(h, Err(gone));
         }
-        let sent = |h: &Held| match at.filter(|_| h.kind == For::Notice) {
+        // A discussion's agent is named as the runtime lists it when it is given the question.
+        if let (For::Discussion, Some(a)) = (h.kind, found) {
+            h.name = a.name.clone();
+        }
+        // A notice goes to the session found, on its machine; anything else by `to`.
+        let sent = |h: &Held| match found.filter(|_| h.kind == For::Notice) {
             Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
             None => self.send(&h.to, &h.text),
         };
-        match at.map(|a| a.state) {
+        match found.map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
-            _ => match sent(&h) {
-                Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
-                Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
-                Ok(()) => return,
-                Err(RuntimeError::Blocked(_)) => h.not_ready = None,
-                Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
-                Err(e) => {
-                    return match h.kind {
-                        For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
-                        For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
-                        For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
-                        For::Notice => self.told(h, Err(e)),
-                    };
+            // A discussion never interrupts its agent's work; one not listed (the runtime not
+            // read, or gone) waits for `poll`, which alone says it is gone.
+            Some(AgentState::Working) | None if h.kind == For::Discussion => h.not_ready = None,
+            None if h.kind == For::Duty => h.not_ready = None,
+            _ => {
+                // A discussion's question: the records are read again right before typing in, in
+                // order with a gate's record (`App::discussing`, held by both): one closed
+                // meanwhile goes nowhere, one whose gate was submitted fails now, and with
+                // records that cannot be read it waits. A gate recorded later comes after the
+                // send, which then stands as asked before the user decided.
+                let _order = (h.kind == For::Discussion).then(|| self.discussing.lock().unwrap());
+                let asked = if h.kind == For::Discussion { self.still_asked(&h.question) } else { Some(true) };
+                match asked {
+                    Some(false) => return,
+                    None => h.not_ready = None,
+                    Some(true) => match sent(&h) {
+                        Ok(()) if h.kind == For::Message => return self.message_delivery(&h.question, Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text }),
+                        Ok(()) if h.kind == For::Discussion => return self.discussion_given(&h),
+                        Ok(()) if h.kind == For::Duty => return,
+                        Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
+                        Ok(()) => return,
+                        Err(RuntimeError::Blocked(_)) => h.not_ready = None,
+                        Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
+                        // Never lost while the service runs: tried again at the next poll.
+                        Err(e) if h.kind == For::Duty => {
+                            tracing::warn!("cannot give {} what it must act on yet: {e}", h.name);
+                            h.not_ready = None
+                        }
+                        Err(e) => {
+                            return match h.kind {
+                                For::Message => self.message_not_delivered(&h.question, Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
+                                For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                                For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
+                                For::Notice => self.told(h, Err(e)),
+                                For::Discussion => self.drop_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                                For::Duty => unreachable!("a duty is held, never dropped"),
+                            };
+                        }
+                    },
                 }
-            },
+            }
         }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());

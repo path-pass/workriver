@@ -128,12 +128,16 @@ they need with `workriver attach <file> --task u1#3 --move`.
 
 ## 5. What happens next
 
+You start the workspace's first intent: "Start" on i1 "Mentions" in the roadmap, picking the
+workspace (or set the workspace's project in Settings and let the manager start it). From
+then on the workspace works on that project, and its manager starts that project's next
+intents itself (`workriver intent start i2`); another project's it leaves to you.
+
 The manager, from its terminal:
 
 ```sh
 workriver manager here                 # registers it as the workspace's manager
-workriver backlog list                 # the roadmap: i1 "Mentions" ...
-workriver intent start i1              # active here; the workspace's current intent
+workriver backlog list                 # the roadmap: i1 "Mentions" (active, started by you) ...
 workriver unit add --title "Mentions" --branch feat/mention   # its own branch: feat/, fix/ or chore/
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
 ```

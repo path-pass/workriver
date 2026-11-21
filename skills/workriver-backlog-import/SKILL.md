@@ -85,6 +85,7 @@ Run `workriver backlog list --project <P>` and show it, then a short list: how m
 and findings were added, what was skipped and why. Remind the user they can reorder the
 roadmap by dragging in the web UI (or `workriver backlog move <intent> --before <other>`).
 If you see you split the import too finely, merge it yourself: `workriver backlog merge
-<into> <from>... [--title "<new title>"]` keeps what each said in the target's note and,
-with `--title`, renames the target. You may merge intents agents added (this import), not
-ones the user added; those the user merges in the roadmap ("Merge…" in its heading).
+<into> <from>...` keeps what each said in the target's note; the target keeps its title
+(a new title is the user's: say which you would give, and they rename it on its page). You
+may merge intents agents added (this import), not ones the user added; those the user merges
+in the roadmap ("Merge…" in its heading).

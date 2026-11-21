@@ -2,6 +2,7 @@
 import type { Sent, Thread, Turn } from '@/conversations/types'
 import type { External } from '@/planning/types'
 import type { Attachment } from '@/attachments/types'
+import type { Choice } from '@/content/choice/surface'
 
 /** One thing to do by hand, with the command for it when there is one. */
 export interface Step {
@@ -174,6 +175,10 @@ export interface Task {
    * was reminded, and whether that did not help (then it is the user's and the manager's).
    */
   stalled?: { since: string; gone?: boolean; reminded?: string; escalated?: boolean };
+  /** A delivered design or research with its agent: the user may discuss it with that agent
+   *  now (open); its agent is no longer running (gone); the gate that asks about it was
+   *  submitted (over). */
+  discuss?: 'open' | 'gone' | 'over';
   /** Review nodes only. */
   reviewer?: Reviewer;
   /** Review nodes only: found problems, found none, or still running. */
@@ -190,6 +195,8 @@ export interface Task {
     steps?: Step[];
     /** Requirements added to what it asks since it was recorded (by the manager or the user), oldest first. */
     notes?: Note[];
+    /** A decide gate's options (the manager's), which the user picks from. */
+    choice?: Choice;
   };
   output: {
     /** Implement nodes: ids of the commits that carry the work out. */
@@ -198,10 +205,14 @@ export interface Task {
     findings?: Finding[];
     /** Gate nodes: what the user reported back, in a few words. */
     note?: string;
-    /** Gate nodes: pictures with the note. */
+    /** Files with the output: an agent's (on a gate too, shown while it waits), and a gate's pictures with the note. */
     attachments?: Attachment[];
     /** Implement and tests tasks: the commands run to check the work, and what came of them. */
     evidence?: Evidence[];
+    /** A design or research: the gate that asks the user about it, by its id. */
+    gate?: string;
+    /** An answered decide gate: the option picked (its value). */
+    selected?: string[];
   };
   /** Paths the work still expects to change (files or folders, possibly not existing yet). */
   plans: string[];
@@ -232,7 +243,9 @@ export interface NewFinding {
 }
 
 export interface GateResult {
-  result: 'done' | 'problem'
+  /** answered: a gate with options, one picked (`selected`). */
+  result: 'done' | 'problem' | 'answered'
+  selected?: string[]
   note: string
   attachments: Attachment[]
   findings: NewFinding[]

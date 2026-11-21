@@ -43,10 +43,10 @@ anything in `frontend/`.
 
 | File | What it holds |
 |---|---|
-| [`navigation.md`](docs/design/ui/navigation.md) | The rail, an intent's page, merging planned intents, the side panel and its Needs you, Agents and Backlog sections, signing in, addresses |
+| [`navigation.md`](docs/design/ui/navigation.md) | The rail, an intent's page, editing an intent and its history, merging planned intents, the side panel and its Needs you, Agents and Backlog sections, signing in, addresses |
 | [`activity.md`](docs/design/ui/activity.md) | The main area and its first layer (the graph), a node's detail, findings, gates and chores, what the user puts in, evidence, where the scope grew |
 | [`code.md`](docs/design/ui/code.md) | The code layer, the Commits section, the view by function (postponed) |
-| [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, agents asking each other |
+| [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, discussing a delivered result with its agent, agents asking each other |
 | [`operations.md`](docs/design/ui/operations.md) | Running a command as the user, Machines, other machines, stopped workers, machine alerts, opening a terminal |
 | [`attachments.md`](docs/design/ui/attachments.md) | Attachments and the viewer |
 | [`presentation.md`](docs/design/ui/presentation.md) | Colour, type, space and shape, the river lines, states, loading |
@@ -98,11 +98,11 @@ paths made whole and "see …" naming the file):
 
 - Contrast has not been measured pair by pair, only looked at in both themes.
 - No loading state (the code layer is simply not there until its texts are read). The one empty state: with no units recorded, the main area is a short
-  start guide (start a manager agent per Herdr workspace, give it the skill, register, start
-  an intent from the roadmap; the commands copyable; the commit trailer; the import skill
+  start guide (start a manager agent per Herdr workspace, give it the skill, register, the user
+  starts its first intent from the roadmap, then it starts that project's; the commands copyable; the commit trailer; the import skill
   for an existing backlog file). An intent with no units yet keeps its
   rail group, open, with a quiet "No units yet".
 - No syntax highlighting in the diff.
 - Trackers: intents and findings carry an optional external id (`system`, `key`, `url`),
-  shown as a link chip. Later a tracker adapter (a trait like the runtime one) imports items
+  shown as a link chip, not edited on the page (it is the tracker's to keep in step). Later a tracker adapter (a trait like the runtime one) imports items
   into the backlog and pushes status and links back; agents never talk to trackers directly.

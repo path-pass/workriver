@@ -1,12 +1,15 @@
 // A conversation as a chat: each exchange, a conversation folded to one line or open (past
 // questions, read-only), and the user's messages to a manager with its replies.
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { ms } from '@/planning/select'
 import { contentLang, useT } from '@/i18n'
 import { focusAgent } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { AskContext, ManagerMessage, Thread, Turn } from './types'
+import type { Answer, AskContext, Asked, ManagerMessage, Thread, Turn } from './types'
+import { ChoiceSurface, Chose } from '@/content/choice/Choice'
+import { needsNote, type Choice } from '@/content/choice/surface'
+import { Input } from '@/ui/primitives/input'
 import { Who } from '@/agents/Mark'
 import { Prose } from '@/content/Prose'
 import { ChipName } from '@/content/Chips'
@@ -81,8 +84,9 @@ const Named = ({ name, manager }: { name: string; manager?: boolean }) => {
   return <span className="flex min-w-0 items-center gap-1"><Who name={name} /><span className="truncate">{name}</span>{manager && <Mark name="manager" label={t('manager.mark')} />}</span>
 }
 
-/** One exchange: the question, then the answer (or how far it has got). */
-function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; onFile: (path: string) => void }) {
+/** One exchange: the question, then the answer (or how far it has got). In a discussion
+ *  (`discuss`) the question goes to the task's own agent, so how far it got reads so. */
+function TurnView({ turn, agent, discuss, onFile }: { turn: Turn; agent: string | null; discuss?: boolean; onFile: (path: string) => void }) {
   const { t } = useT()
   const answered = turn.answer !== null && !turn.conclude
   const by = turn.answerBy === 'user' ? t('ask.you') : turn.answerBy ?? t('ask.answerer')
@@ -100,7 +104,7 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
       {turn.failed ? (
         <Theirs>
           <Tip text={turn.failed.reason}>
-            <p className="text-del">{t('ask.cannot', { reason: t(`deliver.reason.${turn.failed.code}`) })}</p>
+            <p className="text-del">{t(discuss ? 'discuss.cannot' : 'ask.cannot', { reason: t(`deliver.reason.${turn.failed.code}`) })}</p>
           </Tip>
         </Theirs>
       ) : turn.answer === null && turn.step === 'blocked' && turn.blocked ? (
@@ -112,9 +116,14 @@ function TurnView({ turn, agent, onFile }: { turn: Turn; agent: string | null; o
             <Button variant="outline" size="xs" className="rounded-sm" onClick={() => focusAgent(turn.blocked!.session)}><Icon name="terminal" className="size-3.5" />{t('ask.toTerminal')}</Button>
           </div>
         </Theirs>
+      ) : turn.answer === null && turn.step === 'held' ? (
+        // Its agent is at work or on a blind task: it goes in once that agent is free (why on hover).
+        <Theirs>
+          <Tip text={turn.reason ?? ''}><p className="text-ink-2"><span className="pending" aria-hidden />{t('discuss.held', { agent: agent ?? '' })}</p></Tip>
+        </Theirs>
       ) : turn.answer === null ? (
         <Theirs>
-          <p className="text-ink-2"><span className="pending" aria-hidden />{t(`ask.step.${turn.step ?? 'starting'}`, { agent: agent ?? '' })}</p>
+          <p className="text-ink-2"><span className="pending" aria-hidden />{discuss ? t(turn.step === 'reading' ? 'discuss.reading' : 'discuss.sending', { agent: agent ?? '' }) : t(`ask.step.${turn.step ?? 'starting'}`, { agent: agent ?? '' })}</p>
         </Theirs>
       ) : turn.conclude ? (
         // The conclusion stands where it was asked for: questions after it come below it.
@@ -149,7 +158,8 @@ export function ThreadRow({ th, open, body, onToggle }: { th: Thread; open: bool
     <button type="button" className="thread-row" aria-expanded={open} aria-controls={open ? body : undefined} onClick={onToggle}>
       <Icon name="chev" className="size-3.5 flex-none transition-transform" />
       {first?.by ? <Who name={first.by} /> : null}
-      <span className="line-clamp-1 min-w-0 flex-1 wrap-anywhere" lang={contentLang(first?.question)}>{first?.question}</span>
+      {th.discuss && <span className="ctx flex-none">{t('discuss.tag')}</span>}
+      <span className="line-clamp-1 min-w-0 flex-1 wrap-anywhere" lang={contentLang(first?.question)}>{first?.conclude ? t('ask.concludeAsked') : first?.question}</span>
       <span className="flex-none text-ink-2">{t('ask.exchanges', { count: th.turns.length, n: num(th.turns.length) })}</span>
       <span className="thread-state flex-none" data-state={state}>{t(`ask.state.${state}`)}</span>
       {Number.isFinite(at) && <Tip text={when(at)}><span className="thread-age flex-none text-right text-ink-2">{waited(at)}</span></Tip>}
@@ -186,7 +196,7 @@ export function ThreadBody({ id, th, agent, onFile }: { id: string; th: Thread; 
     <>
       <Log id={id} size={size} label={t('ask.log')}>
         <ol className="chat">
-          {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={agent} onFile={onFile} />)}
+          {th.turns.map((turn, j) => <TurnView key={turn.id ?? j} turn={turn} agent={agent} discuss={th.discuss} onFile={onFile} />)}
         </ol>
         {/* A conclusion with no request in the thread (the sample's): after it. */}
         {th.conclusion && !th.turns.some(x => x.conclude && x.answer !== null) && (
@@ -204,38 +214,68 @@ export function ThreadBody({ id, th, agent, onFile }: { id: string; th: Thread; 
 /** Conversations shown before "earlier" is opened. */
 const LATEST = 3
 
+/** How long a discussion is open on screen before its new answers count as read, in ms. */
+const READ_AFTER = 1500
+
 /**
  * Past questions about a task (or a unit), the user's and agents': each conversation folded to
- * one row, one opened at a time as a chat. No box: the user asks the manager; agents keep
- * asking each other through workriver.
+ * one row, one opened at a time as a chat. The task's discussion (the user's with the agent of
+ * a delivered design or research) opens by itself, and its new answers are read once it has
+ * been on screen a moment (`onRead`); its box is below (`Discussion.tsx`). Other questions go
+ * to the manager; agents keep asking each other through workriver.
  */
-export function Questions({ id, threads, agent, onFile }: { id: string; threads: Thread[]; agent: string | null; onFile: (path: string) => void }) {
+export function Questions({ id, threads, agent, onFile, onRead, children }: { id: string; threads: Thread[]; agent: string | null; onFile: (path: string) => void; onRead?: (at: string) => void; children?: ReactNode }) {
   const { t } = useT()
   const keyOf = (th: Thread, k: number) => th.id || `#${k}`
-  const [open, setOpen] = useState<string | null>(null)
+  const talk = threads.findIndex(th => th.discuss)
+  const [open, setOpen] = useState<string | null>(talk >= 0 ? keyOf(threads[talk], talk) : null)
   const [all, setAll] = useState(false)
-  if (!threads.length) return null
-  const earlier = all ? 0 : Math.max(0, threads.length - LATEST)
+  // A discussion that starts while the block is on screen opens too.
+  const talkKey = talk >= 0 ? keyOf(threads[talk], talk) : null
+  const seenTalk = useRef(talkKey)
+  useEffect(() => { if (talkKey && talkKey !== seenTalk.current) { seenTalk.current = talkKey; setOpen(talkKey) } }, [talkKey])
+  // The newest answer not read, while the discussion is open on screen (not in a hidden tab):
+  // measured on the discussion itself, not on the block around it.
+  const shown = useRef<HTMLElement>(null)
+  const newest = open !== null && open === talkKey ? threads[talk].turns.filter(x => x.unread && x.answeredAt).map(x => x.answeredAt!).sort((a, b) => ms(a) - ms(b)).at(-1) : undefined
+  useEffect(() => {
+    if (!newest || !onRead) return
+    let k = 0
+    const look = () => {
+      clearTimeout(k)
+      k = window.setTimeout(() => { if (!document.hidden && shown.current?.getClientRects().length) onRead(newest) }, READ_AFTER)
+    }
+    look()
+    document.addEventListener('visibilitychange', look)
+    return () => { clearTimeout(k); document.removeEventListener('visibilitychange', look) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newest])
+  if (!threads.length && !children) return null
+  // Only past conversations fold behind "earlier": the discussion always shows.
+  const others = threads.filter(th => !th.discuss)
+  const earlier = all ? 0 : Math.max(0, others.length - LATEST)
+  const hidden = (th: Thread) => !th.discuss && others.indexOf(th) < earlier
   return (
     <section aria-labelledby={`${id}-h`} className="flex flex-col text-sm">
       <h3 id={`${id}-h`} className="mb-1.5 flex items-baseline gap-2 text-xs font-semibold text-ink-2">
-        {t('ask.questions')}<span className="font-normal">{t('ask.conversations', { count: threads.length })}</span>
+        {t('ask.questions')}{threads.length > 0 && <span className="font-normal">{t('ask.conversations', { count: threads.length })}</span>}
       </h3>
       {earlier > 0 && (
         <button type="button" className="mb-1 self-start text-xs text-ink-2 hover:text-ink" onClick={() => setAll(true)}>{t('ask.earlier', { count: earlier })}</button>
       )}
       {threads.map((th, k) => {
-        if (k < earlier) return null
+        if (hidden(th)) return null
         const key = keyOf(th, k)
         const isOpen = open === key
         const body = `${id}-${key}`
         return (
-          <section key={key} className="thread" data-open={isOpen || undefined}>
+          <section key={key} ref={th.discuss ? shown : undefined} className="thread" data-open={isOpen || undefined}>
             <ThreadRow th={th} open={isOpen} body={body} onToggle={() => setOpen(isOpen ? null : key)} />
             {isOpen && <ThreadBody id={body} th={th} agent={agent} onFile={onFile} />}
           </section>
         )
       })}
+      {children}
     </section>
   )
 }
@@ -273,16 +313,57 @@ function Picked({ m }: { m: ManagerMessage }) {
   )
 }
 
-export function MessageView({ m }: { m: ManagerMessage }) {
+/**
+ * A manager's question with options, under its words: answered, the option picked; open, the
+ * options to pick from (a note where the option asks one); else shown, not to be answered.
+ */
+function Question({ q, onAnswer }: { q: Asked; onAnswer: (selected: string, note: string) => void }) {
   const { t } = useT()
+  const [picked, setPicked] = useState<string>()
+  const [note, setNote] = useState('')
+  const [missing, setMissing] = useState(false)
+  if (!q.choice) return null
+  const choice = q.choice
+  if (q.answered) return <div className="mt-2">{q.answered.selected.map(v => <Chose key={v} choice={choice} value={v} />)}</div>
+  if (!q.open)
+    return (
+      <div className="mt-2">
+        <ChoiceSurface choice={choice} disabled />
+        <p className="mt-1.5 text-xs text-ink-2">{t('choice.closed')}</p>
+      </div>
+    )
+  const needed = !!picked && needsNote(choice, picked)
+  const answer = () => {
+    if (!picked || (needed && !note.trim())) return setMissing(true)
+    onAnswer(picked, note.trim())
+  }
+  return (
+    <div className="mt-2">
+      <ChoiceSurface choice={choice} picked={picked} onPick={v => { setPicked(v); setMissing(false) }} onAnswer={answer}>
+        <Input
+          value={note} onChange={e => { setNote(e.target.value); setMissing(false) }}
+          placeholder={t(needed ? 'choice.noteNeeded' : 'choice.note')} aria-label={t(needed ? 'choice.noteNeeded' : 'choice.note')}
+          aria-required={needed || undefined} aria-invalid={(missing && needed) || undefined} className="h-8 text-sm md:text-sm"
+        />
+        {missing && <p className="text-xs text-del" role="alert">{t('choice.needNote')}</p>}
+      </ChoiceSurface>
+    </div>
+  )
+}
+
+/** `onAnswer`: the user answers a manager's question; `asked`: the options a message of the user's answered. */
+export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswer: (a: Answer, note: string) => void; asked: (a: Answer) => Choice | undefined }) {
+  const { t } = useT()
+  const answer = (reply: number) => (selected: string, note: string) => m.id && onAnswer({ message: m.id, ...(reply && { reply }), selected: [selected] }, note)
   return (
     <>
       {/* One the manager started: its words alone, nothing of the user's above them. */}
       {m.byManager
-        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /></Theirs>
+        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /><Question q={m} onAnswer={answer(0)} /></Theirs>
         : (
           <Mine who={t('ask.you')} at={m.at}>
-            <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
+            {m.answer?.selected.map(v => <Chose key={v} choice={asked(m.answer!)} value={v} />)}
+            {m.text && <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>}
             <Picked m={m} />
             <Step m={m} />
           </Mine>
@@ -290,6 +371,7 @@ export function MessageView({ m }: { m: ManagerMessage }) {
       {m.replies.map((r, j) => (
         <Theirs key={j} who={<Named name={r.by} manager />} at={r.at}>
           <Prose text={r.text} fold={false} />
+          <Question q={r} onAnswer={answer(j + 1)} />
         </Theirs>
       ))}
     </>

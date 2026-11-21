@@ -30,7 +30,7 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge' | 'message'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge' | 'message' | 'discussion'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
@@ -41,6 +41,8 @@ export interface InboxRow {
   alert?: MachineAlert
   /** message: a workspace's conversation with unread words of its manager: how many, the newest. */
   talk?: { workspace: string; manager: string; count: number; text: string }
+  /** discussion: a task's discussion with answers of its agent the user has not read: how many, the newest. */
+  discussion?: { agent: string; count: number; text: string }
   /** The unit it belongs to; null for a chore that concerns the intent as a whole. */
   unit: Unit | null
   /** What a click opens; null for a chore. */
@@ -61,7 +63,8 @@ export interface Inbox {
   machines: InboxRow[]
   /** Reviews and gates with open findings, the highest open severity first. */
   decisions: InboxRow[]
-  /** Workspaces whose manager wrote what the user has not read: one row each. */
+  /** Workspaces whose manager wrote what the user has not read, and tasks whose agent answered
+   *  in their discussion what the user has not read: one row each, the newest first. */
   messages: InboxRow[]
   /** Commits that name no node. */
   gaps: InboxRow[]
@@ -72,6 +75,7 @@ export interface Inbox {
 export function inbox(ws: Workspace): Inbox {
   const box: Inbox = { blocking: [], machines: [], decisions: [], messages: [], gaps: [], later: [] }
   const stalled: InboxRow[] = []
+  const discussions: InboxRow[] = []
   for (const intent of ws.intents) for (const unit of intent.units) {
     const row = (kind: InboxRow['kind'], unit: Unit, node: Task, since: number, finding?: string): InboxRow =>
       ({ key: `${kind}:${unit.id}:${node.id}`, kind, intent, unit, node, pick: { kind: 'task', id: node.id, finding }, chore: null, since })
@@ -80,6 +84,13 @@ export function inbox(ws: Workspace): Inbox {
     // A worker that stopped without delivering, and a reminder did not help (or it is gone).
     for (const n of unit.tasks.filter(n => n.stalled?.escalated)) stalled.push(row('stalled', unit, n, ms(n.stalled!.since)))
     for (const { review: n } of a.asked) box.decisions.push(row('decision', unit, n, ms(n.since), openFindings(n)[0].id))
+    // A discussion's new answers: nothing waits on them, so they sit with the manager's words.
+    for (const n of unit.tasks) {
+      const said = (n.threads ?? []).filter(th => th.discuss).flatMap(th => th.turns).filter(x => x.unread && x.answer !== null && x.answeredAt)
+      if (!said.length) continue
+      const last = said.reduce((a, b) => (ms(b.answeredAt) >= ms(a.answeredAt) ? b : a))
+      discussions.push({ ...row('discussion', unit, n, ms(last.answeredAt)), discussion: { agent: last.answerBy ?? n.agent ?? '', count: said.length, text: last.answer!.trim().split('\n')[0].replace(/`/g, '') } })
+    }
     for (const n of a.loose) box.gaps.push(row('loose', unit, n, Math.min(...unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date)))))
     // Ready and maybe merged where git cannot see it (a squash), or ready for long: with no
     // manager to tell, the user is the one to check.
@@ -120,7 +131,7 @@ export function inbox(ws: Workspace): Inbox {
       key: `message:${workspace}`, kind: 'message', intent: ws.intents.find(i => i.id === last.m.intent) ?? null, unit: null, node: null, pick: null, chore: null, since: ms(last.at),
       talk: { workspace, manager: last.by, count: said.length, text: last.text.trim().split('\n')[0].replace(/`/g, '') },
     }
-  }).sort((a, b) => b.since - a.since)
+  }).concat(discussions).sort((a, b) => b.since - a.since)
   box.gaps.sort(oldest)
   box.later.sort(oldest)
   return box

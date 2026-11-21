@@ -36,7 +36,9 @@ its sections went.
   it into units and tasks (`workriver guide how start-intent`)", its goal quoted; the dialog
   then says where it started and whether the message was delivered (or why not, in the user's
   language). A workspace without a manager says so and shows the steps to start one, with the
-  commands to copy – workriver never starts an agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
+  commands to copy, the last being to start the intent here once it has one (a workspace's
+  first intent is the user's to start; its manager starts only its project's) – workriver
+  never starts an agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
   "+" adds one inline, title and one-sentence goal, to the project shown; a quiet "Merge…"
   in the heading, when a project has two planned intents or more, opens a dialog to merge
   them), and **Done**,
@@ -84,7 +86,9 @@ its sections went.
 ## An intent's page
 
 - **An intent's page** (`/i3`, `workriver link i3`; its title in the rail opens it): its id
-  and title with "copy link", its state, "Ready to close", its link chip; its goal under it. Then a
+  and title with "copy link" and a quiet pencil (edit), its state, "Ready to close", its link
+  chip; its goal under it, and under that, once it has more than one version, a quiet line
+  "v5 · edited 2d ago by claude 1 · History" ("by you" for the user; the date on hover). Then a
   block with its note (short Markdown with links, as an agent's longer text; folded past six
   lines; `workriver intent set i3 --add-note` adds a paragraph) and where it runs: the
   workspace (and quietly "works on <project>", when known), the manager (name, state, the terminal button, and "Write to the manager",
@@ -95,6 +99,37 @@ its sections went.
   when it last moved ("moved 2d ago", the date on hover). Last, when it has any, "Earlier
   research and design": its own tasks from before research units, as a graph with the same
   detail under it as a unit's, so `/i3/1` opens there with the task picked.
+
+## Editing an intent, and its history
+
+- **Editing** is a dialog opened by the pencil, on every state (the page is the user's, who
+  edits every field of every intent; who else may is in `docs/security.md`): Title (one line,
+  required), Goal (two rows), Note (a textarea, Markdown, with a Write / Preview switch; the
+  preview renders as the note does). Save records only the fields that changed against the
+  intent as the dialog opened it, with that version as `base`: the page reading the
+  workspace again meanwhile changes neither (the same for a restore). The note is saved as
+  written, its indentation and blank lines included (they are Markdown); spaces at the ends
+  of the title and goal are not kept. Save is disabled when nothing changed or the title is
+  blank. Cancel and Escape close it. Not inline: three fields, a conflict and a preview need
+  one place.
+- **A conflict**: when a field it saves was changed meanwhile, the service refuses it; the
+  dialog stays open with the user's text and, for every field it would save that changed
+  since it opened (not only the one the service names, and also one the user edits after the
+  refusal), says so with the version the intent is at and shows what that field says now
+  against the user's text, word by word; then it offers "Save anyway" (saved from that
+  version). Nothing is lost: what it said stays in the history. No
+  three-way merge, and no live sign while the dialog is open.
+- **The history** is a dialog opened by "History": the versions, the newest first, each with
+  its number, who (an agent with its robot mark, as the manager's decisions are shown; "you"
+  for the user), how long ago (the date on hover) and what it changed in words ("title, goal
+  and note", "added to the note", "created", "i7 merged in"); beside them (above them on a
+  narrow screen) the one picked, the newest at first: title, goal and note against the
+  version before it, word by word (removed struck through in the removed colour, added in the
+  added colour; words as the language has them, so Chinese and Japanese are not split mid
+  word), only what changed; "Whole text" shows it whole, the note rendered. The first version
+  is shown whole. "Restore this version" (not on the newest) opens the edit dialog filled with
+  it, saying which version it restores; saving makes it a new version, nothing is removed.
+  Its versions are read when it opens (`/api/intent/{id}/history`), not with the page.
 
 ## Merging planned intents
 
@@ -153,8 +188,15 @@ its sections went.
      Machines section and leaves by itself once the alert clears.
   3. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
-  4. **Gaps** – commits that name no node.
-  5. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
+  4. **Messages** – what was said to the user and not read yet, the newest first: one row
+     per workspace whose manager wrote (its newest words, how many new in violet, the
+     manager), which opens that workspace's Manager conversation; and one row per task whose
+     agent answered in its discussion (`conversations.md`, Discussing a delivered result):
+     its newest answer's first line, how many new in plain ink (nothing waits on it), the
+     agent and the task, which opens the task at its discussion. They count in no mark and
+     not in the tab's title, and leave once read.
+  5. **Gaps** – commits that name no node.
+  6. **Not urgent** – chores, quietest; a row opens its steps. A chore of no intent names
      its project where others name their intent, or nothing when it has none. Then, for an
      intent with no manager, ready units that look squash-merged or have been ready for
      long ("u2 looks squash-merged into main"); the row opens the unit.

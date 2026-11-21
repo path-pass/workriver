@@ -35,7 +35,7 @@ impl State {
             .intents
             .iter()
             .filter(|i| mine.iter().any(|(o, _)| o == &i.id) || units.iter().any(|u| u.intent == i.id))
-            .map(|i| Intent { note: String::new(), reason: None, tasks: own(&i.id, &i.tasks), ..i.clone() })
+            .map(|i| Intent { note: String::new(), reason: None, tasks: own(&i.id, &i.tasks), edits: Edits::default(), ..i.clone() })
             .collect();
         // What was added to its own task is part of what it asks, files included.
         let added: Vec<String> = units.iter().flat_map(|u| &u.tasks).chain(intents.iter().flat_map(|i| &i.tasks)).flat_map(|t| &t.notes).flat_map(|n| n.attachments.iter().cloned()).collect();

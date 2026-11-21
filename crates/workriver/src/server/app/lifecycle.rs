@@ -125,6 +125,10 @@ impl App {
                     h.not_ready.is_some_and(|end| end > at)
                         || match h.kind {
                             For::Notice => !matches!(state(h), Some(AgentState::Blocked | AgentState::Unknown)),
+                            // Only to an agent listed and free: whether it is gone is
+                            // `discussions_gone`'s to say, from a complete read.
+                            For::Discussion => matches!(state(h), Some(AgentState::Idle | AgentState::Done)),
+                            For::Duty => matches!(state(h), Some(s) if !matches!(s, AgentState::Blocked | AgentState::Unknown)),
                             _ => !matches!(state(h), Some(AgentState::Blocked | AgentState::Working | AgentState::Unknown)),
                         }
                 };
@@ -142,10 +146,17 @@ impl App {
                             let gone = RuntimeError::NoAgent(h.name.clone());
                             self.told(h, Err(gone))
                         }
+                        // Not listed is not gone: only `discussions_gone`, from a complete read, says
+                        // that; a duty waits for its manager. Both are held again.
+                        For::Discussion | For::Duty => self.held.lock().unwrap().push(Held { not_ready: None, ..h }),
                     },
                     Some(_) => self.hand(h),
                 }
             }
+            let gone = crate::server::conversations::gone_from(&mut self.seen_on.lock().unwrap(), agents, &self.readable(agents));
+            *self.gone.lock().unwrap() = gone.clone();
+            self.discussions_gone(&gone);
+            self.discussions_over();
         }
         self.give_notes();
         // Questions whose temporary agent has not answered in time.
@@ -234,11 +245,14 @@ impl App {
         let now = std::time::Instant::now();
         let pending: Vec<Pending> = got(app.store.lock().unwrap().delivered()).ok().flatten().unwrap_or_default().into_iter().map(|d| Pending { unit: d.unit, task: d.task, finding: d.finding, chore: d.chore, delivery: d.delivery, armed: false, sent: now }).collect();
         app.pending.lock().unwrap().extend(pending);
-        // Questions left open by a previous run have lost their wait; close them.
+        // Questions left open by a previous run have lost their wait; close them. Not those of
+        // a discussion: their answerer is the task's own agent, which goes on; one never given
+        // is given now.
         let open = got(app.store.lock().unwrap().open_questions()).ok().flatten().unwrap_or_default();
         for id in open {
             app.fail_question(&id, ReasonCode::Restarted, "the service restarted while the question was open");
         }
+        app.discussions_again();
         // Messages to a manager held by a previous run (its manager was waiting in its terminal) are lost.
         let held = got(app.store.lock().unwrap().held_messages()).ok().flatten().unwrap_or_default();
         for id in held {

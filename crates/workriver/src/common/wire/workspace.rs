@@ -107,6 +107,17 @@ pub(crate) struct MessageOut {
     /// The manager's message, not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+    /// The manager's message with options (`say`), the user's answer to it, and whether the
+    /// user can still answer it (not answered, and asked by the workspace's manager now).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answered: Option<core::Answered>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open: bool,
+    /// The user's message that answers a manager's options: which, and the value picked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answer: Option<core::Answer>,
 }
 
 #[derive(Serialize)]
@@ -117,6 +128,13 @@ pub(crate) struct ReplyOut {
     /// Not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+    /// As on `MessageOut`: the reply's options, their answer, and whether it is still open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answered: Option<core::Answered>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open: bool,
 }
 
 /// A unit's file texts, which the page's snapshot leaves out (`Cache::bare`): read when its
@@ -126,6 +144,18 @@ pub struct Code {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub(crate) code: String,
     pub(crate) commits: Vec<CommitCode>,
+    /// The unit's net change with its texts (`Unit::net`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) net: Option<Net>,
+}
+
+/// A unit's net change against its base, as `git diff base...head` names it: from where the
+/// branch meets its base now (merged: where it met it before), to its last commit.
+#[derive(Serialize)]
+pub(crate) struct Net {
+    /// "from..tip" (full hashes): it changes when the base moves, the commits the same.
+    pub(crate) id: String,
+    pub(crate) files: Vec<scan::FileChange>,
 }
 
 #[derive(Serialize)]
@@ -249,6 +279,18 @@ pub(crate) struct Intent {
     /// Still active, and every unit of it merged or done: it can be closed.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) complete: bool,
+    /// Its last version (1 when never changed): what an edit names as its base.
+    pub(crate) version: u32,
+    /// Who made that version and when; its history is read on its own route.
+    pub(crate) edited: Edited,
+}
+
+/// Who made an intent's last version, and when.
+#[derive(Serialize)]
+pub(crate) struct Edited {
+    pub(crate) at: String,
+    /// The agent's name; none: the user.
+    pub(crate) by: Option<String>,
 }
 
 /// Where the message about a user's input is, as the page shows it.
@@ -314,6 +356,10 @@ pub(crate) struct Unit {
     pub(crate) done_reason: Option<String>,
     pub(crate) tasks: Vec<Task>,
     pub(crate) commits: Vec<Commit>,
+    /// Its net change (`Net`): the code tree with nothing picked. None where git could not
+    /// tell, or before it was read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) net: Option<Net>,
     /// Which texts its commits and uncommitted work have (a hash of them): the page reads
     /// them (`code`) again only when this changes.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -395,6 +441,10 @@ pub(crate) struct Task {
     /// Running, and its agent stopped without delivering (idle too long, or gone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stalled: Option<super::Stall>,
+    /// A delivered design or research with its agent: whether the user may discuss it now
+    /// ("open"), its agent is gone ("gone"), or its gate was submitted ("over").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) discuss: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -406,6 +456,9 @@ pub(crate) struct TaskIn {
     /// Requirements added to what it asks since it was recorded, oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) notes: Vec<NoteOut>,
+    /// A decide gate's options, as stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
 }
 
 #[derive(Serialize)]
@@ -427,6 +480,13 @@ pub(crate) struct TaskOut {
     /// Gates: pictures with the note; other tasks: files with the output.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) attachments: Vec<AttachmentOut>,
+    /// A design or research: the gate that asks the user about it (`State::result_gate`), by
+    /// its id as in `inputs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) gate: Option<String>,
+    /// An answered gate: the option picked.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) selected: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -531,7 +591,10 @@ pub(crate) struct Commit {
     /// The same change as this commit of a branch the unit left (a rebase): its old hash.
     #[serde(rename = "rebasedFrom", skip_serializing_if = "Option::is_none")]
     pub(crate) rebased_from: Option<String>,
-    /// A merge commit (the base merged into the branch): its files are not work of its own.
+    /// A merge that brought the base into the branch (a parent other than its first is in the
+    /// history of where the branch meets its base): its files, against its first parent as
+    /// every commit's, are the base's work, none of it a task's. A merge of any other branch
+    /// is not one: what it brought is the branch's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) merge: bool,
 }
@@ -545,6 +608,9 @@ pub(crate) struct ThreadOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) conclusion: Option<String>,
     pub(crate) turns: Vec<Turn>,
+    /// The user's discussion of the task with its own agent.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) discuss: bool,
 }
 
 #[derive(Serialize)]
@@ -579,6 +645,12 @@ pub(crate) struct Turn {
     /// A request for the thread's conclusion.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) conclude: bool,
+    /// While held (step "held"): why, in the service's words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+    /// A discussion's answer the user has not read yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unread: bool,
 }
 
 #[derive(Serialize)]

@@ -1,6 +1,6 @@
 ---
 name: workriver-howto
-description: Exact commands for a situation under workriver - starting an intent, a spike (an experiment kept as code, never merged), units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, architecture reviews (code organization and solution architecture against the project's own rules), adding to a decided finding, deciding findings, deferred batches, gates and chores, a worker stuck on what only the user can do (a blocker), reaching the manager, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
+description: Exact commands for a situation under workriver - starting an intent, a spike (an experiment kept as code, never merged), units on another machine, a renamed or rebased branch, a commit without its trailer, design and decide gates, asking the user to decide (merge, deploy), blind reviews, architecture reviews (code organization and solution architecture against the project's own rules), adding to a decided finding, deciding findings, deferred batches, gates and chores, a worker stuck on what only the user can do (a blocker), reaching the manager, attachments, asking another task, remote machines, a message that was not delivered, a message from the user to reply to, the user discussing a delivered research or design result with its agent, a worker that stopped without delivering, closing idle workers, updating. Use when a workriver manager or worker needs to know how to do one specific thing, or when a workriver command was refused.
 ---
 
 # workriver: how to
@@ -39,6 +39,7 @@ copy of this file.
 | `ask` | asking about another task |
 | `machines` | other machines and linked workspaces (the user's to set up) |
 | `not-delivered` | a decision or result did not reach an agent |
+| `discussion` | the user discusses your delivered research or design result with you; answering, amending at the conclusion |
 | `user-message` | the user wrote to you from the page (`message m3`); replying with `workriver reply`; telling the user something unasked with `workriver say` |
 | `stalled` | a worker stopped without delivering, or is gone |
 | `updating` | after workriver was updated |

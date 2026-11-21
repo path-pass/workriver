@@ -45,7 +45,7 @@ fn linked_commits_and_rebased_branches() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, after) in [("First", "start"), ("Second", "1")] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w", "inputs": [{ "from": after }] })).unwrap();
@@ -130,7 +130,7 @@ fn a_task_shown_in_full() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login.", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
@@ -261,4 +261,62 @@ fn a_task_shown_in_full() {
     assert!(own.get("earlier").is_none() && !crate::cli::text(&serde_json::from_value(own).unwrap()).contains("Tokens live"));
     // Nobody reads as nobody.
     assert_eq!(http(port, "GET", "/api/task?task=u1%233", &[], None).0, 401);
+}
+
+/// A file attached to a gate is in what the page reads while the gate waits, before the user
+/// answers it, and stays after; a blind agent's view still has none of it.
+#[test]
+fn a_waiting_gate_carries_its_attachments() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&repo, &["switch", "-q", "-c", "feat/f"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-imp", "imp", "w1", Idle)), ("p3".into(), live("s-sec", "sec", "w1", Idle))];
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    let options = kernel.options();
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    let user = kernel.client(port, tmp.path());
+    let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
+    let (boss, imp, sec) = (at("p1"), at("p2"), at("p3"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
+    imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    imp.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Done" })).unwrap();
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Read the plan", "inputs": [{ "from": "1" }] })).unwrap();
+    let plan = tmp.path().join("plan.md");
+    std::fs::write(&plan, b"# Plan B\n").unwrap();
+    let id = imp.upload(&plan, "", Some(("u1", 2, None))).unwrap()["id"].as_str().unwrap().to_string();
+    let gate = |ws: &serde_json::Value| ws["intents"][0]["units"][0]["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "2").cloned().unwrap();
+    let names = |g: &serde_json::Value| g["output"]["attachments"].as_array().unwrap().iter().map(|a| (a["name"].as_str().unwrap().to_string(), a["url"].as_str().unwrap().to_string())).collect::<Vec<_>>();
+    let waiting = gate(&user.get("/api/workspace").unwrap());
+    assert_eq!(waiting["state"], "waiting");
+    assert_eq!(names(&waiting), [("plan.md".to_string(), format!("/api/attachments/{id}"))]);
+
+    // A blind review running: the gate and its file are not in what it reads.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{ "from": "1" }], "agent": "s-sec", "blind": true })).unwrap();
+    sec.append("", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+    let blind = sec.get("/api/workspace").unwrap().to_string();
+    assert!(!blind.contains(&id) && !blind.contains("Read the plan"), "{blind}");
+
+    // Submitted with a picture of the user's: the agent's file stays, the picture after it.
+    let shot = tmp.path().join("shot.png");
+    std::fs::write(&shot, b"\x89PNG user").unwrap();
+    let mine = user.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
+    user.call("/api/gate", Some(json!({ "unit": "u1", "task": 2, "result": "done", "note": "Read", "findings": [], "attachments": [mine] }))).unwrap();
+    let done = gate(&user.get("/api/workspace").unwrap());
+    assert_eq!(done["state"], "done");
+    assert_eq!(names(&done).into_iter().map(|(n, _)| n).collect::<Vec<_>>(), ["plan.md", "shot.png"]);
 }

@@ -22,8 +22,16 @@ export const severityCounts = (found: Finding[]) =>
 // ---- labels ----
 
 /** Who found a finding: the reviewer, or the kind of gate. */
+/**
+ * Who a gate's result goes to while it is on its way: the agent of the work it follows; none
+ * (the manager) for a decide gate, whose result always goes to the manager (as the service's
+ * delivery plan sends it).
+ */
+export const waitsOn = (u: Unit, n: Task): string | null =>
+  n.gate === 'decide' ? null : (u.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null)
+
 export const finderLabel = (t: T, n: Task): string =>
-  n.gate ? t(`gate.${n.gate}`) : n.reviewer ? t(`reviewer.${n.reviewer}`) : t('kind.review')
+  n.gate ? t(n.input.choice ? 'gate.choice' : `gate.${n.gate}`) : n.reviewer ? t(`reviewer.${n.reviewer}`) : t('kind.review')
 
 export function reviewLabel(t: T, n: Task): string {
   const by = finderLabel(t, n)
@@ -73,6 +81,8 @@ export interface Selection {
   node: Task | null
   /** Indexes into unit.commits that the pick covers; empty for "the unit as a whole". */
   commits: number[]
+  /** The pick's only commits merged the base in: it changed nothing of its own. */
+  onlyMerges?: boolean
   /** Planned places of the picked node; null when no node is picked. */
   plans: string[] | null
 }
@@ -90,11 +100,14 @@ export function selectionOf(unit: Unit, pick: Pick): Selection {
           .map(id => unit.tasks.find(n => n.id === id))
           .filter((n): n is Task => !!n)
       : [node]
+  // A merge that brought the base in is no task's change, whoever made it.
   const ids = new Set(group.flatMap(n => n.output.commits ?? []))
-  const commits = unit.commits.flatMap((c, k) => (ids.has(c.id) ? [k] : []))
+  const all = unit.commits.flatMap((c, k) => (ids.has(c.id) ? [k] : []))
+  const commits = all.filter(k => !unit.commits[k].merge)
   return {
     node,
     commits,
+    onlyMerges: all.length > commits.length && !commits.length,
     plans: group.filter(n => n.state !== 'done').flatMap(n => n.plans),
   }
 }

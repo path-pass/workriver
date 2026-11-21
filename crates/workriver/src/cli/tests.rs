@@ -45,3 +45,49 @@ fn link_paths() {
         assert!(crate::cli::link_path(r).is_err(), "{r}");
     }
 }
+
+/// `--option ID=LABEL` and `--require-note ID` become the stored choice; a note requirement
+/// without options is refused before anything is sent.
+#[test]
+fn options_become_a_choice() {
+    use crate::cli::parse_choice;
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    assert_eq!(parse_choice(&[], &[]).unwrap(), None);
+    let c = parse_choice(&s(&["merge=Merge = and push", " hold = Not now "]), &s(&["hold"])).unwrap().unwrap();
+    let c: workriver_core::Choice = serde_json::from_value(c).unwrap();
+    let got: Vec<(String, String)> = c.options().into_iter().map(|o| (o.value, o.label)).collect();
+    assert_eq!(got, [("merge".to_string(), "Merge = and push".to_string()), ("hold".to_string(), "Not now".to_string())]);
+    assert_eq!(c.needs_note, ["hold"]);
+    assert!(parse_choice(&s(&["merge"]), &[]).unwrap_err().to_string().contains("--option takes ID=LABEL"));
+    assert!(parse_choice(&[], &s(&["hold"])).unwrap_err().to_string().contains("--require-note goes with --option"));
+}
+
+/// The hint after a question asked without options: when its words list some.
+#[test]
+fn a_question_that_lists_options_is_noticed() {
+    use crate::cli::lists_options;
+    for yes in ["选一个：合并并推送／先再审一轮／先不合并", "Merge now, or wait?  Choose one", "A / B / C", "cursor | page", "Which option?", "pick the order", "One of: x, y", "先审还是先合并"] {
+        assert!(lists_options(&[yes]), "{yes}");
+    }
+    for no in ["Merge u2 (feat/readme) into main?", "Deploy to staging and/or prod", "u1 is merged; u2 starts next."] {
+        assert!(!lists_options(&[no]), "{no}");
+    }
+    assert!(lists_options(&["Next?", "", "选一个"]));
+}
+
+/// `task show` of a choice gate: the options before the output, then the one picked.
+#[test]
+fn a_choice_gate_shows_its_options_and_the_answer() {
+    let opt = |v: &str, l: &str| workriver_core::ChoiceOption { value: v.into(), label: l.into() };
+    let choice = workriver_core::Choice::new(&[opt("merge", "核对通过后合并并推送"), opt("review", "先再审一轮"), opt("hold", "先不合并")], &["hold".into()]);
+    let part = json!({"id": "u2", "title": "Readme", "about": ""});
+    let mut shown = json!({"ref": "u2#8", "kind": "gate", "state": "waiting", "title": "Next?", "intent": part, "unit": null, "place": null, "agent": null,
+        "blind": false, "text": "", "writtenBy": "boss", "after": ["7"], "causes": [], "plans": [], "steps": [], "output": null,
+        "commits": [], "lostCommits": [], "questions": [], "choice": choice});
+    let text = |v: &serde_json::Value| crate::cli::text(&serde_json::from_value(v.clone()).unwrap());
+    let waiting = text(&shown);
+    assert!(waiting.contains("Choices (the user picks one):\n  merge   核对通过后合并并推送\n  review  先再审一轮\n  hold    先不合并 (a note required)\nOutput: not delivered yet"), "{waiting}");
+    shown["output"] = json!({"at": "2026-11-21T10:00:00Z", "deliveredBy": "the user", "note": "after the release", "evidence": [], "findings": [], "files": [], "result": "answered", "selected": ["hold"]});
+    let answered = text(&shown);
+    assert!(answered.contains("result: answered:\n  Chose: hold \"先不合并\"\n  Note (written by the user):"), "{answered}");
+}

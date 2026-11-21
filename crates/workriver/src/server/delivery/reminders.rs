@@ -191,9 +191,12 @@ fn not_a_worker(state: &State, x: &RuntimeAgent) -> bool {
     managers.any(|m| m == x.session) || temporary
 }
 
-/// It has work: a task to do or being done, in work still open.
+/// It has work: a task to do or being done, in work still open; or a delivered design or
+/// research whose gate (`State::result_gate`) is not submitted, which the user may discuss
+/// with it.
 fn busy(state: &State, x: &RuntimeAgent) -> bool {
-    all_tasks(state).any(|(_, open, t)| open && matches!(t.state, TaskState::Todo | TaskState::Running) && of(t, x))
+    let discussed = |o: &str, t: &Task| matches!(t.kind, TaskKind::Design | TaskKind::Research) && t.state == TaskState::Done && state.result_gate(o, t.n).is_some_and(|g| g.state != TaskState::Done);
+    all_tasks(state).any(|(o, open, t)| open && of(t, x) && (matches!(t.state, TaskState::Todo | TaskState::Running) || discussed(o, t)))
 }
 
 /// The agents of `owners`' tasks (units, or an intent for its own) still in the runtime with
@@ -280,6 +283,34 @@ mod tests {
         assert!(matches!(&found[..], [IdleWorker { session, manager, last, .. }] if session == "w" && manager == "boss" && last == &("u1".to_string(), 1)));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "y", "agent": "w", "inputs": [{"from": "1"}]}}));
         assert!(idle_workers(s.state(), &live, &idle, minute, &[None, Some("box".into())]).is_empty(), "it has a task");
+    }
+
+    /// The agent of a delivered research or design is kept while the gate that asks about it
+    /// waits: the user may discuss the result with it. Once that gate is submitted it is idle
+    /// with no task like any other.
+    #[test]
+    fn the_agent_of_a_result_is_kept_until_its_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+        let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
+        let boss = || Principal::Agent { session: "boss".into(), machine: None };
+        let r = || Principal::Agent { session: "r".into(), machine: None };
+        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
+        let w1 = json!({"id": "w1", "label": "chat"});
+        at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"workspace": w1}}));
+        at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}}));
+        at(&mut s, boss(), json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
+        at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "x", "agent": "r"}}));
+        at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Which?", "inputs": [{"from": "1"}]}}));
+        at(&mut s, r(), json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
+        at(&mut s, r(), json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "SQLite."}}));
+        let long_ago = Instant::now() - Duration::from_secs(3600);
+        let idle: HashMap<String, (String, Instant)> = [("r".to_string(), ("2026-11-17T00:00:00Z".to_string(), long_ago))].into();
+        let live = [agent("r", AgentState::Idle, None), agent("boss", AgentState::Idle, None)];
+        let minute = Duration::from_secs(60);
+        assert!(idle_workers(s.state(), &live, &idle, minute, &[None]).is_empty(), "kept while its gate waits");
+        at(&mut s, Principal::User, json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 2, "result": "done"}}));
+        assert_eq!(idle_workers(s.state(), &live, &idle, minute, &[None]).len(), 1, "idle once it is submitted");
     }
 
     /// An agent on a machine that cannot be reached is unknown, never stopped: neither when it
