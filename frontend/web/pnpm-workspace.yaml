@@ -3,3 +3,7 @@
 # seen or measured. Do not edit files inside node_modules: the store and every other
 # worktree would change with them.
 packageImportMethod: hardlink
+# shadcn (a dev-only CLI) reaches minimatch through ts-morph 26, whose @ts-morph/common 0.27
+# asks for ^10; versions below 11.0.1 carry GHSA-g3hv-75wg-m249.
+overrides:
+  minimatch@<11.0.1: ^11.0.1
