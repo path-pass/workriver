@@ -16,8 +16,9 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 
 function Field({ start }: { start: string[] }) {
   const [value, setValue] = useState(start)
+  const [text, setText] = useState('')
   tags = value
-  return <TagInput value={value} onChange={setValue} offered={[]} />
+  return <TagInput value={value} onChange={setValue} text={text} onText={setText} offered={[]} />
 }
 const show = (start: string[]) => act(() => root.render(<Field start={start} />))
 const input = () => host.querySelector('input')!
@@ -76,5 +77,20 @@ describe('the tag field', () => {
     type('日本語')
     expect(press('Enter')).toBe(true)
     expect(tags).toEqual(['ui', '日本語'])
+  })
+
+  it('drops its word once the user removes a chip and the batch fits, and the batch then goes in', () => {
+    show(seven)
+    type('ui, cli')
+    press('Enter')
+    expect(alert()).toContain('at most 8')
+    act(() => { (host.querySelector('button[aria-label="Remove a"]') as HTMLButtonElement).click() })
+    expect(alert()).toBe('')
+    expect(input().getAttribute('aria-invalid')).toBeNull()
+    press('Enter')
+    expect(tags).toEqual([...seven.slice(1), 'ui', 'cli'])
+    expect(input().value).toBe('')
+    expect(alert()).toBe('')
+    expect(input().getAttribute('aria-invalid')).toBeNull()
   })
 })

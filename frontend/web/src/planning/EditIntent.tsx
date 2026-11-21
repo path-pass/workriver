@@ -15,7 +15,7 @@ import { editIntent, intentVersion } from '@/api/actions'
 import { conflictOf, conflictsOf, draftOf, editBody, valueOf, wordDiff, type Draft, type Field } from './edit'
 import { Runs } from './IntentHistory'
 import { KindSelect, SizeToggle, TagInput } from './Sort'
-import type { Kind, Size } from './classify'
+import { withTyped, type Kind, type Size } from './classify'
 import type { Intent, IntentText } from './types'
 
 /** The version the intent is at, as the service's refusal named it, and its text: what the
@@ -44,11 +44,16 @@ export function EditIntentDialog({ intent, draft, restoring, offered = [], onClo
   // The intent as the dialog opened it: what the edit changes, and the version it is made
   // from, whatever the page shows meanwhile.
   const [opened] = useState(intent)
-  const body = editBody(opened, d)
+  // What the tag field holds is part of the edit, added as chips or only typed; a batch that
+  // would make more than eight holds the save (the field says so) until it fits or is cleared.
+  const [tagText, setTagText] = useState('')
+  const tags = tagText.trim() ? withTyped(d.tags ?? [], tagText) : d.tags
+  const sent: Draft = { ...d, tags: tags ?? d.tags }
+  const body = editBody(opened, sent)
   // Every field the edit now sends that changed since it opened, against what it says at the
   // version the service named: shown before "Save anyway", whatever is edited after the refusal.
   const conflicts: Field[] = conflict && body ? conflictsOf(draftOf(opened), conflict.text, body) : []
-  const ready = !!body && !busy
+  const ready = !!body && !busy && tags !== null
   const set = (k: 'title' | 'goal' | 'note') => (e: { target: { value: string } }) => setD(x => ({ ...x, [k]: e.target.value }))
   // A field's value in words, for the conflict: a kind's label, "Not set", tags joined.
   const words = (x: Draft | IntentText, f: Field) => {
@@ -59,7 +64,7 @@ export function EditIntentDialog({ intent, draft, restoring, offered = [], onClo
   }
 
   const save = (anyway: boolean) => {
-    if (!body || busy) return
+    if (!body || busy || tags === null) return
     setBusy(true)
     setError('')
     editIntent(intent, anyway && conflict ? { ...body, base: conflict.now } : body).then(
@@ -124,7 +129,7 @@ export function EditIntentDialog({ intent, draft, restoring, offered = [], onClo
           </div>
           <div className="flex flex-col gap-1 text-xs text-ink-2">
             <span id="edit-tags">{t('intent.edit.fieldTags')}</span>
-            <TagInput value={d.tags ?? []} onChange={tags => setD(x => ({ ...x, tags }))} offered={offered} labelledBy="edit-tags" />
+            <TagInput value={d.tags ?? []} onChange={tags => setD(x => ({ ...x, tags }))} text={tagText} onText={setTagText} offered={offered} labelledBy="edit-tags" />
             <span>{t('intent.edit.tagsHint')}</span>
           </div>
           {conflict && conflicts.length > 0 && (
@@ -133,7 +138,7 @@ export function EditIntentDialog({ intent, draft, restoring, offered = [], onClo
                 <div key={field} className="flex flex-col gap-1">
                   <p>{t(`intent.edit.conflict.${field}`, { n: conflict.now })}</p>
                   <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm wrap-anywhere" lang={contentLang(theirs)}>
-                    <Runs runs={wordDiff(theirs, words(d, field))} />
+                    <Runs runs={wordDiff(theirs, words(sent, field))} />
                   </p>
                 </div>
               ))}

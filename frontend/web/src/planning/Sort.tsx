@@ -1,7 +1,7 @@
 // An intent's kind, size and tags as the page shows them: the quiet chip (`Fix · S`, neutral:
 // colour means the state of work, and a kind is none), its tags as chips, the rail's filter
 // popover, and the edit dialog's three fields (a select, a segmented size, a token input).
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/primitives/popover'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
@@ -10,7 +10,7 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { contentLang, useT } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { filtersOn, KINDS, MAX_TAGS, normalTags, SIZES, splitTags, type Filter, type Kind, type Size } from './classify'
+import { filtersOn, KINDS, MAX_TAGS, SIZES, withTyped, type Filter, type Kind, type Size } from './classify'
 import type { Intent } from './types'
 
 /** Radix takes no empty value: "not set" is a word of its own. */
@@ -108,19 +108,19 @@ export function SizeToggle({ value, onChange }: { value: Size | null; onChange: 
 /**
  * Tags as chips with a field after them: Enter or a comma adds what is typed (leaving the field
  * adds it too), × or Backspace in an empty field removes one; the project's tags are offered
- * as one types. At most eight: what is typed that would pass them stays in the field, said,
- * and none of it is added (never cut). While an input method composes, its keys are its own.
+ * as one types. At most eight: while what is typed would pass them it stays in the field, said,
+ * and none of it is added (never cut); the word goes once it fits or is cleared. The typed
+ * text is the owner's (`text`), so that a save takes what is left in the field. While an input
+ * method composes, its keys are its own.
  */
-export function TagInput({ value, onChange, offered, labelledBy }: { value: string[]; onChange: (tags: string[]) => void; offered: string[]; labelledBy?: string }) {
+export function TagInput({ value, onChange, text, onText, offered, labelledBy }: { value: string[]; onChange: (tags: string[]) => void; text: string; onText: (text: string) => void; offered: string[]; labelledBy?: string }) {
   const { t } = useT()
-  const [text, setText] = useState('')
-  const [over, setOver] = useState(false)
+  const over = withTyped(value, text) === null
   const add = () => {
-    if (!text.trim()) return
-    const next = normalTags([...value, ...splitTags(text)])
-    if (next.length > MAX_TAGS) return setOver(true)
+    const next = text.trim() ? withTyped(value, text) : null
+    if (!next) return
     onChange(next)
-    setText('')
+    onText('')
   }
   const full = value.length >= MAX_TAGS
   const list = 'intent-tags-offered'
@@ -144,7 +144,7 @@ export function TagInput({ value, onChange, offered, labelledBy }: { value: stri
         placeholder={full ? '' : t('intent.edit.tagAdd')}
         aria-invalid={over || undefined}
         aria-describedby={over ? alert : undefined}
-        onChange={e => { setText(e.target.value); setOver(false) }}
+        onChange={e => onText(e.target.value)}
         onBlur={add}
         onKeyDown={e => {
           if (e.nativeEvent.isComposing) return

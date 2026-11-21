@@ -25,6 +25,13 @@ export function normalTags(given: string[]): string[] {
 /** Typed text as tags: split at commas (and spaces, which a tag cannot hold). */
 export const splitTags = (text: string) => normalTags(text.split(/[,\s]+/))
 
+/** The tags with what is typed added, or null when that would make more than eight (none of it
+ *  is then added, never cut). */
+export function withTyped(tags: string[], text: string): string[] | null {
+  const next = normalTags([...tags, ...splitTags(text)])
+  return next.length > MAX_TAGS ? null : next
+}
+
 /** What the rail narrows to: within each of kind, size and tag any one ticked, all three together. */
 export interface Filter {
   kinds: Kind[];

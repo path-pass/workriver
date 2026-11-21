@@ -130,14 +130,15 @@ its sections went.
   or a comma adds one, × or Backspace in the empty field removes one, leaving the field adds
   what is typed; the project's tags are offered as one types; at most eight, kept
   lower-case: what is typed that would make more stays in the field, none of it added, and
-  an alert under it says so; while an input method composes, Enter, comma and Backspace are
-  its own). Save records only the fields that changed against the
+  an alert under it says so until it fits or is cleared; while an input method composes,
+  Enter, comma and Backspace are its own). What is left typed in the tag field is part of
+  the edit: Save sends it with the tags. Save records only the fields that changed against the
   intent as the dialog opened it, with that version as `base`: the page reading the
   workspace again meanwhile changes neither (the same for a restore). The note is saved as
   written, its indentation and blank lines included (they are Markdown); spaces at the ends
   of the title and goal are not kept. A kind or size cleared is sent as null, tags cleared as
-  an empty list; one not changed is not sent at all, so it stays as it is. Save is disabled when nothing changed or the title is
-  blank. Cancel and Escape close it. Not inline: six fields, a conflict and a preview need
+  an empty list; one not changed is not sent at all, so it stays as it is. Save is disabled when nothing changed, the title is
+  blank or the tag field holds what would make more than eight (the edit stays open as it is). Cancel and Escape close it. Not inline: six fields, a conflict and a preview need
   one place.
 - **A conflict**: when a field it saves was changed meanwhile, the service refuses it; the
   dialog stays open with the user's text and, for every field it would save that changed
