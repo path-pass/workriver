@@ -173,14 +173,14 @@ impl State {
         }
         let Some(c) = &t.choice else { return Ok(()) };
         if t.kind != TaskKind::Gate || t.gate != Some(GateKind::Decide) {
-            return no("options are for a decide gate: --kind gate --gate decide");
+            return no("options are for a decide gate: --kind gate --gate decide --option ID=LABEL");
         }
         if t.blocks.is_some() {
             return no("a blocker carries no choices; tell your manager: workriver manager tell <task> --text \"...\"");
         }
         // As `designs_asked` sees it: a design before it, directly or through reviews.
         if inputs().any(|b| b.kind == TaskKind::Design || (b.kind == TaskKind::Review && !self.designs_asked(owner, b.n).is_empty())) {
-            return no("a design is confirmed with a decide gate without --option; put the choices in --text");
+            return no("a design is confirmed with a decide gate without --option (--go); put the choices in --text");
         }
         c.check()
     }

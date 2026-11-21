@@ -5,22 +5,24 @@ units would change, anything destructive, or a task failed the same way twice. T
 does not watch your pane; they watch Needs you. Ask there, with a decide gate, never only in
 your pane.
 
-    workriver task add u2 --kind gate --gate decide --title "Merge u2 (feat/readme) into main?" --after 4 --text "<what is ready, what was checked, what merging does>"
-    workriver task add u5 --kind gate --gate decide --title "Drop the export part of the goal?" --after start --text "<why, and the options>"
+    workriver task add u2 --kind gate --gate decide --go --title "Merge u2 (feat/readme) into main?" --after 4 --text "<what is ready, what was checked, what merging does>"
+    workriver task add u5 --kind gate --gate decide --go --title "Drop the export part of the goal?" --after start --text "<why, and what changes>"
 
-**Two kinds of decide gate.** A **go** asks may I (merge, deploy, change the goal): the user
-confirms (done) or not (findings), and work may wait behind it. A **choice** asks which of
-several answers: give each as an option, `--option ID=LABEL` (ID: 1 to 32 of a-z, 0-9, -; 2 to
-8 options, in the order shown), and `--require-note ID` for one whose answer needs a reason.
-The page shows them as radio buttons; never list options only in `--text` or a step.
+**Two kinds of decide gate; say which, one of the two.** A **go** (`--go`) asks may I (merge,
+deploy, change the goal, a design's gate): the user confirms (done) or not (findings), and
+work may wait behind it. A **choice** asks which of several answers: give each as an option,
+`--option ID=LABEL` (ID: 1 to 32 of a-z, 0-9, -; 2 to 8 options, in the order shown), and
+`--require-note ID` for one whose answer needs a reason. The page shows them as radio
+buttons; never list options only in `--text` or a step. A decide gate with neither, or with
+both, is refused before anything is recorded.
 
     workriver task add u2 --kind gate --gate decide --title "u2: next?" --after 7 --text "<what is ready, what was checked>" \
       --option 'merge=Merge and push once u2#7 is checked' --option 'review=Review once more' \
       --option 'hold=Not now' --require-note hold
 
-**Except a design's gate** (after a design, directly or through its reviews): its choices
-stay in `--text` and done confirms the design, the note saying which way (`design-gate`);
-`--option` is refused there. A question nothing waits on, while talking with the user,
+**Except a design's gate** (after a design, directly or through its reviews): it is a `--go`
+gate; its choices stay in `--text` and done confirms the design, the note saying which way
+(`design-gate`); `--option` is refused there. A question nothing waits on, while talking with the user,
 goes in the conversation instead (`workriver say --option …`, `user-message`).
 
 A unit's question goes on the unit, after its last task; a question about the whole
@@ -49,7 +51,7 @@ design reads "confirmed the design" (`design-gate`). Until then, wait; do not me
 gate, the options changed), ask anew and drop the old gate, or it waits in Needs you for good.
 A task is dropped, never deleted; what follows it no longer waits on it:
 
-    workriver task add u1 --kind gate --gate decide --title "Merge u1 (feat/readme) into main?" --after 16 --text "<what changed since>"
+    workriver task add u1 --kind gate --gate decide --go --title "Merge u1 (feat/readme) into main?" --after 16 --text "<what changed since>"
     workriver task drop u1#15 --reason "superseded by u1#17: the branch changed"
 
 The same for any task re-planning made unneeded: its agent is told to stop (the reason is
@@ -67,16 +69,18 @@ push 9 follows the gate, and a fix of the review's P2-1 must come first:
     workriver task drop u1#9 --reason "waits on the gate asked anew: a fix comes first"
     workriver task drop u1#8 --reason "asked anew: a fix of P2-1 of u1#7 comes first"
     workriver task add u1 --title "Fix P2-1" --cause 7:P2-1 --after 7 --agent fix
-    workriver task add u1 --kind gate --gate decide --title "Push u1 (feat/readme)?" --after 10 --text "<what is there now>"
+    workriver task add u1 --kind gate --gate decide --go --title "Push u1 (feat/readme)?" --after 10 --text "<what is there now>"
     workriver task add u1 --title "Push feat/readme" --after 11 --agent pusher --text "Push the branch only."
 
 The user sees a new gate about what is there now, and the dropped one says why. A gate the
 user submitted is done and is not dropped: what changes after it is new work after it (a
 changed design is a new design task, `design-gate`).
 
-**Refusals:** "gate … is not open yet: it follows …" - it waits until the tasks before it
+**Refusals:** "a decide gate asks either may I (--go …) or which (--option …)" - give one
+of the two; "a decide gate takes --go or --option, not both"; "--go is for a decide gate
+only" - a deploy or test gate, or a task that is no gate, takes no `--go`. "gate … is not open yet: it follows …" - it waits until the tasks before it
 are done; that is fine, it shows in Needs you then. "a design is confirmed with a decide gate
-without --option" - a design's gate: options in `--text`. "u2#8 asks the user to choose; add
+without --option (--go)" - a design's gate: `--go`, options in `--text`. "u2#8 asks the user to choose; add
 what follows once it is answered" - nothing hangs after a choice not answered yet. "choices
 are asked by the manager of intent …" - a worker tells its manager. "a choice has 2 to 8
 options", "an option's ID is 1 to 32 of [a-z0-9-]", "--require-note … names no option". "… is done; only work not done yet is

@@ -368,6 +368,7 @@ workriver task add  arg blind --blind value=["BLIND"] num=0 default=["false"] ac
 workriver task add  arg blocks --blocks value=["N"] num=1 action=Set
 workriver task add  arg cause --cause value=["N:IDS"] num=1 action=Append
 workriver task add  arg gate --gate value=["GATE"] num=1 one-of=["deploy", "test", "decide"] action=Set
+workriver task add  arg go --go value=["GO"] num=0 default=["false"] action=SetTrue
 workriver task add  arg help --help -h num=0 action=Help
 workriver task add  arg kind --kind value=["KIND"] num=1 one-of=["implement", "design", "research", "review", "tests", "gate"] default=["implement"] action=Set
 workriver task add  arg option --option value=["ID=LABEL"] num=1 action=Append

@@ -72,7 +72,8 @@ Exact commands:
 - **Questions with options** to the user carry one `--option ID=LABEL` each, never options
   typed into the text: a decide gate when work waits on the answer (`ask-user`), `say` or
   `reply` when nothing does (`user-message`). The answer starts nothing by itself. The one
-  exception is a design's gate: options in `--text`, done confirms the design (`design-gate`).
+  exception is a design's gate: a `--go` gate, options in `--text`, done confirms the design
+  (`design-gate`).
 - **What the user asks of you** in a message or your pane that takes time (a fix, a check,
   watching a deploy) is a task for a worker (`workriver task add`), never done or watched
   by you; reply with its link (`workriver link u1#3`). Answer at once only what needs no
@@ -87,4 +88,5 @@ Exact commands:
 Before changing the goal or units agreed, merging, deploying or anything destructive, when
 a task failed the same way twice, and before splitting an intent of another project than
 the one you work on (`start-intent`): add a decide gate (`ask-user`) for the user's Needs
-you, never only in your pane; with options when there are several answers.
+you, never only in your pane: `--go` when it asks may I, an `--option` each when it asks which
+(one of the two; neither is refused).

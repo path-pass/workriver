@@ -317,7 +317,7 @@ pub(super) fn decision_message(state: &State, unit: &str, n: u32, finding: &str,
     m.own.push(match decision {
         // From a design decision: the design is done again, and confirmed again.
         Decision::Accept | Decision::Revise if design => format!(
-            "Next: revise the design: `workriver task add {unit} --kind design --title \"<revised design>\" --cause {n}:{finding} --agent <agent>`, then, if the design sets the shape of the work, its architecture review (`--kind review --reviewer architecture-review`), and a new `--kind gate --gate decide` after that; the implementation hangs after the new gate, not after {unit}#{n} (`workriver guide how design-gate`)."
+            "Next: revise the design: `workriver task add {unit} --kind design --title \"<revised design>\" --cause {n}:{finding} --agent <agent>`, then, if the design sets the shape of the work, its architecture review (`--kind review --reviewer architecture-review`), and a new `--kind gate --gate decide --go` after that; the implementation hangs after the new gate, not after {unit}#{n} (`workriver guide how design-gate`)."
         ),
         Decision::Accept | Decision::Revise => format!(
             "Next: hand out work for it, e.g. `workriver task add {unit} --title \"<what to do>\" --cause {n}:{finding} --agent <agent>`, then give that task to an agent with the worker instructions (`workriver guide worker`)."

@@ -88,7 +88,7 @@ fn picks_the_receiver_and_writes_the_message() {
     let revise = at(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 8, "finding": "P2-1", "decision": "revise", "note": "Two tables", "by": "user"}}));
     let p = plan(s.state(), Some(&live), std::path::Path::new("/h"), &revise).unwrap();
     assert!(p.message.contains("fixed their way: follow what the user wrote below, not the finding's suggestion.") && p.message.ends_with("The finding, as the user wrote it: «Problem: Too rigid.» The user wrote: «Two tables»"), "{}", p.message);
-    assert!(p.message.contains("--kind design") && p.message.contains("--cause 8:P2-1") && p.message.contains("--gate decide"), "{}", p.message);
+    assert!(p.message.contains("--kind design") && p.message.contains("--cause 8:P2-1") && p.message.contains("--gate decide --go"), "{}", p.message);
     // Findings are the manager's to decide unless the user keeps them: a delivery says
     // so, and the manager's own decision is not told back to it.
     at(&mut s, "rev", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}]}}));
