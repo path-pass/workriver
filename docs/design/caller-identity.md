@@ -188,6 +188,11 @@ pid like every other call and saves into the current folder), never with a link 
 
 - **The process exits.** The CLI waits on the socket for the proof, so the chain is read
   while the peer is connected. A peer that vanished gets no proof.
+- **The service answers before the CLI reads.** The service writes the proof and closes at
+  once, so a busy CLI may find its socket closed by the other end. macOS then refuses a
+  read timeout on it (`EINVAL`); the CLI reads the proof already waiting, without waiting
+  for more. Dropping it there once refused ordinary commands now and then, as requests
+  that show no process.
 - **Pid reuse.** The chain is read within the accept. The service drops a chain whose first
   process started after the accept. Start times have microseconds on macOS and clock ticks
   on Linux; on another machine's `ps` branch they have seconds, where the pid is the
