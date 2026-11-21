@@ -82,4 +82,17 @@ describe('the edit dialog', () => {
     await click('Save anyway')
     expect(api.sent[1]).toEqual({ intent: 'i1', title: 'Chat v2', note: 'Mine', base: 3 })
   })
+
+  it('sends the size picked and the tags typed (Enter or a comma adds one; × removes one), nothing else', async () => {
+    await act(() => root.render(<EditIntentDialog intent={{ ...v1, tags: ['ui'] }} draft={draftOf({ ...v1, tags: ['ui'] })} onClose={() => {}} />))
+    await act(async () => { (document.querySelector('[role=dialog] [aria-label^="M:"]') as HTMLButtonElement).click() })
+    const tag = document.querySelector<HTMLInputElement>('[role=dialog] input[aria-label="Add a tag"]')!
+    type(tag, 'Security')
+    act(() => { tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    type(tag, 'cli')
+    act(() => { tag.dispatchEvent(new KeyboardEvent('keydown', { key: ',', bubbles: true })) })
+    await act(async () => { (document.querySelector('[role=dialog] button[aria-label="Remove ui"]') as HTMLButtonElement).click() })
+    await click('Save')
+    expect(api.sent).toEqual([{ intent: 'i1', size: 'm', tags: ['security', 'cli'], base: 1 }])
+  })
 })

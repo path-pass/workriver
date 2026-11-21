@@ -24,6 +24,8 @@ import { Activity } from '@/work/Activity'
 import { EditIntentDialog } from './EditIntent'
 import { HistoryDialog, HistoryLine } from './IntentHistory'
 import { draftOf, type Draft } from './edit'
+import { SortChip, TagChips } from './Sort'
+import { tagsOf } from './classify'
 
 /** A label and its value, one row of the "where it runs" list. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -97,9 +99,11 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
               <Button variant="ghost" size="icon-xs" className="flex-none self-center text-ink-2" aria-label={t('intent.edit.open')} onClick={() => setEditing({ draft: draftOf(intent) })}><Icon name="pen" className="size-3.5" /></Button>
             </Tip>
             <span className="tag self-center font-normal tracking-normal">{t(`intent.state.${state}`)}</span>
+            <SortChip intent={intent} className="self-center" />
             {intent.complete && <Tip text={t('unit.complete')}><span className="tag self-center font-normal tracking-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
             <span className="self-center"><ExternalChip ext={intent.external} /></span>
           </h1>
+          {!!intent.tags?.length && <p className="mt-1 flex flex-wrap items-center gap-1" aria-label={t('intent.tags')}><TagChips tags={intent.tags} /></p>}
           {intent.goal && <p className="mt-0.5 max-w-[75ch] text-sm text-ink-2" lang={contentLang(intent.goal)}>{intent.goal}</p>}
           <HistoryLine intent={intent} onOpen={() => setHistory(true)} />
           {state === 'dropped' && intent.reason && <p className="mt-0.5 text-sm text-ink-2"><Slot text={t('intent.dropped', { reason: SLOT })}><Content text={intent.reason} /></Slot></p>}
@@ -164,8 +168,8 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
           : <p className="text-sm text-ink-2">{t('rail.noUnits')}</p>}
       </section>
 
-      {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} onClose={() => setEditing(null)} />}
-      {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: text, restoring: n }) }} />}
+      {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} offered={tagsOf(ws.intents.filter(i => i.project === intent.project))} onClose={() => setEditing(null)} />}
+      {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: draftOf(text), restoring: n }) }} />}
 
       {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
     </>

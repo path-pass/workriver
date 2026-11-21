@@ -1,6 +1,6 @@
-// The rail picks a project and its units: product name, the project switch, search; the
-// active intents with their units and signals, the roadmap of planned intents (ordered by
-// dragging, added to inline), the done ones folded; settings. What asks something of the
+// The rail picks a project and its units: product name, the filter by kind, size and tag, the
+// project switch, search; the active intents with their units and signals, the roadmap of
+// planned intents (ordered by dragging, added to inline), the done ones folded; settings. What asks something of the
 // user and where the agents are live in the side panel on the right.
 import { Waves } from 'lucide-react'
 import { useEffect, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
@@ -25,6 +25,8 @@ import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Choice } from '@/ui/Choice'
 import { MergeDialog } from './Merge'
+import { KindSelect, RailFilter, SortChip } from './Sort'
+import { filtersOn, keeps, loadFilter, NO_FILTER, saveFilter, tagsOf, type Filter, type Kind } from './classify'
 
 /** All projects, in the project switch (Radix takes no empty value). */
 const ALL = '*'
@@ -140,11 +142,23 @@ export function ManagerState({ intent }: { intent: Intent }) {
 /** The first sentence of a goal, for a tooltip. */
 export const firstSentence = (s?: string) => (s ?? '').trim().split(/(?<=[.!?。！？])\s*/)[0] ?? ''
 
-/** An intent's title line in the rail: its id quietly in mono, the title cut to one line; the goal's first sentence on hover. */
-function IntentTitle({ intent }: { intent: Intent }) {
+/** What a rail row's tooltip says: the title, the goal's first sentence, the tags. */
+function RowTip({ intent }: { intent: Intent }) {
+  const { t } = useT()
   const goal = firstSentence(intent.goal)
   return (
-    <Tip text={<><span className="block font-semibold" lang={contentLang(intent.title)}>{intent.title}</span>{goal && <span className="block" lang={contentLang(goal)}>{goal}</span>}</>}>
+    <>
+      <span className="block font-semibold" lang={contentLang(intent.title)}>{intent.title}</span>
+      {goal && <span className="block" lang={contentLang(goal)}>{goal}</span>}
+      {!!intent.tags?.length && <span className="block">{t('rail.tags', { tags: intent.tags.join(', ') })}</span>}
+    </>
+  )
+}
+
+/** An intent's title line in the rail: its id quietly in mono, the title cut to one line; the goal's first sentence and the tags on hover. */
+function IntentTitle({ intent }: { intent: Intent }) {
+  return (
+    <Tip text={<RowTip intent={intent} />}>
       <span className="min-w-0 flex-1 truncate">
         <span className="mr-1.5 font-mono text-[11px] font-normal text-rail-ink-2">{intent.id}</span><span lang={contentLang(intent.title)}>{intent.title}</span>
       </span>
@@ -207,8 +221,9 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
             {/* Folded, the group still says what waits inside it. */}
             {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
           </span>
-          {/* One quiet line: where it runs, its manager (none is a warning), quiet, finished. */}
+          {/* One quiet line: its kind and size, where it runs, its manager (none is a warning), quiet, finished. */}
           <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-normal empty:hidden">
+            <SortChip intent={intent} />
             {active && intent.workspace && <span className="font-mono">{intent.workspace.label}</span>}
             {active && <ManagerState intent={intent} />}
             <Quiet since={intentQuietSince(intent)} />
@@ -259,6 +274,7 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const [goal, setGoal] = useState('')
+  const [kind, setKind] = useState<Kind | null>(null)
   const fail = (e: unknown) => onError(t('rail.failed', { error: String(e) }))
   const move = (id: string, to: string, where: 'before' | 'after') => { if (id !== to) record('intent.moved', { intent: id, [where]: to }).catch(fail) }
   const projectOf = (id: string | null) => all.find(i => i.id === id)?.project
@@ -279,8 +295,8 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
   }
   const save = () => {
     if (!addTo || !title.trim() || !goal.trim()) return
-    record('intent.created', { title: title.trim(), goal: goal.trim(), project: addTo, state: 'planned' })
-      .then(() => { setTitle(''); setGoal(''); setAdding(false) }, fail)
+    record('intent.created', { title: title.trim(), goal: goal.trim(), project: addTo, state: 'planned', ...(kind ? { kind } : {}) })
+      .then(() => { setTitle(''); setGoal(''); setKind(null); setAdding(false) }, fail)
   }
   const add = (
     <Tip text={addTo ? t('rail.add') : t('rail.addPick')}>
@@ -316,10 +332,10 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
           </Tip>
           {/* Its id and title (its page on a click); where else it is tracked, under it. */}
           <button type="button" aria-pressed={here === i.id} onClick={() => onIntent(i.id)} className="flex min-w-0 flex-1 flex-col items-start rounded-sm text-left hover:text-rail-ink aria-pressed:text-rail-ink">
-            <Tip text={<><span className="block font-semibold" lang={contentLang(i.title)}>{i.title}</span>{i.goal && <span className="block" lang={contentLang(i.goal)}>{firstSentence(i.goal)}</span>}</>}>
+            <Tip text={<RowTip intent={i} />}>
               <span className="block text-sm leading-[1.4] font-[550] wrap-anywhere"><span className="mr-1.5 font-mono text-xs font-normal text-rail-ink-2">{i.id}</span><span lang={contentLang(i.title)}>{i.title}</span></span>
             </Tip>
-            {i.external && <span className="mt-0.5 flex"><ExternalChip ext={i.external} /></span>}
+            {(i.kind || i.size || i.external) && <span className="mt-0.5 flex flex-wrap items-center gap-1"><SortChip intent={i} />{i.external && <ExternalChip ext={i.external} />}</span>}
           </button>
           <Tip text={<span><Slot text={t('plan.title', { title: SLOT })}><Content text={i.title} /></Slot></span>}>
             <Button variant="ghost" size="sm" className="h-6 flex-none gap-1 rounded-sm px-1.5 text-xs text-rail-ink-2 hover:bg-rail-3 hover:text-rail-ink" onClick={() => onStart(i)}>
@@ -332,6 +348,7 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
         <form className="flex flex-col gap-1.5 px-1.5 py-1" onSubmit={e => { e.preventDefault(); save() }}>
           <input className="rail-field" autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder={t('rail.addTitle')} aria-label={t('rail.addTitle')} />
           <input className="rail-field" value={goal} onChange={e => setGoal(e.target.value)} placeholder={t('rail.addGoal')} aria-label={t('rail.addGoal')} />
+          <KindSelect tone="rail" value={kind} onChange={setKind} placeholder={t('rail.addKind')} className="h-7" />
           <div className="flex gap-1.5">
             <Button type="submit" size="sm" variant="outline" className="h-7 rounded-sm bg-transparent text-rail-ink" disabled={!title.trim() || !goal.trim()}>{t('rail.addSave')}</Button>
             <Button type="button" size="sm" variant="ghost" className="h-7 rounded-sm text-rail-ink-2" onClick={() => setAdding(false)}>{t('rail.addCancel')}</Button>
@@ -348,21 +365,31 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const size = useResize({ key: 'workriver.rail.width', variable: '--rail-w', ...RAIL_WIDTH, edge: 'right' })
   useEffect(() => onWidth?.(size.width), [onWidth, size.width])
   const projects = ws?.projects ?? []
-  const intents = (ws?.intents ?? []).filter(i => !project || i.project === project)
+  const inProject = (ws?.intents ?? []).filter(i => !project || i.project === project)
+  // The filter by kind, size and tag, remembered per project: it narrows Active, Roadmap and
+  // Done alike and never re-sorts the roadmap.
+  const [filter, setFilter] = useState<Filter>(() => loadFilter(project))
+  useEffect(() => setFilter(loadFilter(project)), [project])
+  const filterBy = (f: Filter) => { setFilter(f); saveFilter(project, f) }
+  const listed = inProject.filter(i => stateOf(i) !== 'dropped')
+  const intents = inProject.filter(i => keeps(filter, i))
   const needle = q.trim().toLowerCase()
+  // A search for a tag shows its intents with all their units.
+  const tagged = (i: Intent) => !!needle && (i.tags ?? []).some(x => x.includes(needle))
   const match = (u: Unit) => !needle || (u.id + ' ' + u.title + ' ' + u.purpose).toLowerCase().includes(needle)
   // The intent's own earlier work is on its page, not here. A search for an intent's id
   // shows it with all its units; an intent with no units yet still shows, but not in a search.
   const groupsOf = (list: Intent[]) => list
     .map(intent => {
       const units = intent.units.filter(u => !u.intentLevel)
-      return { intent, units: needle && intent.id.toLowerCase() === needle ? units : units.filter(match), named: !!needle && intent.id.toLowerCase() === needle }
+      const named = !!needle && (intent.id.toLowerCase() === needle || tagged(intent))
+      return { intent, units: named ? units : units.filter(match), named }
     })
     .filter(g => g.units.length || g.named || (!needle && !g.intent.units.some(u => !u.intentLevel)))
   const active = groupsOf(intents.filter(i => stateOf(i) === 'active'))
   const done = groupsOf(intents.filter(i => stateOf(i) === 'done'))
   const planned = intents
-    .filter(i => stateOf(i) === 'planned' && (!needle || [i.id, i.title, i.goal, i.note].join(' ').toLowerCase().includes(needle)))
+    .filter(i => stateOf(i) === 'planned' && (!needle || [i.id, i.title, i.goal, i.note, ...(i.tags ?? [])].join(' ').toLowerCase().includes(needle)))
     .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? '') || (a.order ?? 0) - (b.order ?? 0))
   // New intents go to the project shown, or to the only one there is.
   const addTo = project ?? (projects.length === 1 ? projects[0].id : null)
@@ -411,8 +438,15 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
         <Waves aria-hidden size={20} strokeWidth={1.6} className="flex-none" />
         workriver
         <span className="min-w-0 flex-1 truncate font-normal text-rail-ink-2">{repo}</span>
+        <RailFilter filter={filter} onChange={filterBy} tags={tagsOf(listed)} />
         <Fold open onToggle={onToggle} />
       </div>
+      {filtersOn(filter) > 0 && (
+        <p className="-mt-2 flex items-center gap-2 pl-1 text-xs text-rail-ink-2">
+          <span className="flex-1">{t('rail.filtered', { shown: listed.filter(i => keeps(filter, i)).length, all: listed.length })}</span>
+          <button type="button" className="rounded-sm px-1 font-semibold hover:bg-rail-2 hover:text-rail-ink" onClick={() => filterBy(NO_FILTER)}>{t('rail.filterClear')}</button>
+        </p>
+      )}
 
       {projects.length > 0 && (
         <Choice
