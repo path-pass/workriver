@@ -221,7 +221,8 @@ crates/workriver/
 │   │   │   ├── guard.rs              # Host/Origin/proof/header extraction: what fills the Caller.
 │   │   │   │                         # Part of the security spine (below).
 │   │   │   ├── drain.rs              # Reads what a handler leaves of a body (capped, timed), so
-│   │   │   │                         # a client still sending gets the answer, not a reset.
+│   │   │   │                         # a client still sending gets the answer, not a reset;
+│   │   │   │                         # one that asked first (Expect) and was not read, none.
 │   │   │   ├── session.rs            # Session status/code/exchange routes.
 │   │   │   ├── error.rs              # ApiError, status mapping, blocking helper.
 │   │   │   └── assets.rs             # Embedded web dist, MIME/caching, SPA fallback.

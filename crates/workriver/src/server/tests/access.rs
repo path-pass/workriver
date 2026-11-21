@@ -824,3 +824,39 @@ fn a_refused_large_request_gets_its_refusal() {
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+/// A client that asks before sending its body (Expect: 100-continue, as curl does for one over
+/// 1 MB) and is refused from its headers gets the refusal at once, without sending the body;
+/// one whose body a handler reads is told to send it.
+#[test]
+fn a_request_that_asks_first_is_refused_before_it_sends() {
+    use std::io::{Read, Write};
+    let tmp = tempfile::tempdir().unwrap();
+    let (port, kernel) = daemon_over(std::sync::Arc::new(Fake::default()), None, &tmp.path().join("w.db"));
+    let _user = kernel.client(port, tmp.path());
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    // The first line answered to the headers alone; the body is never sent.
+    let first = |path: &str, headers: &[(&str, String)]| {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        let mut req = format!("POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\ncontent-length: {}\r\nexpect: 100-continue\r\n", 20 * 1024 * 1024);
+        for (k, v) in headers {
+            req += &format!("{k}: {v}\r\n");
+        }
+        s.write_all(format!("{req}\r\n").as_bytes()).unwrap();
+        let (mut got, mut b) = (vec![], [0u8; 1024]);
+        while !got.windows(2).any(|w| w == b"\r\n") {
+            match s.read(&mut b) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => got.extend_from_slice(&b[..n]),
+            }
+        }
+        String::from_utf8_lossy(&got).lines().next().unwrap_or_default().to_string()
+    };
+    let upload = [("x-workriver-caller", "not-a-proof".to_string()), ("content-type", "application/octet-stream".to_string())];
+    let refused = first("/api/attachments?name=big.bin", &upload);
+    assert!(refused.starts_with("HTTP/1.1 401"), "a refused upload was answered {refused:?}");
+    let token = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());
+    let taken = first("/api/append", &[("authorization", token), ("content-type", "application/json".to_string())]);
+    assert_eq!(taken, "HTTP/1.1 100 Continue", "a request whose body is read");
+}

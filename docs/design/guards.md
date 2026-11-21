@@ -120,7 +120,9 @@ only to what it started. `tests/cli.rs` gives its tunnel a sleep no other run ha
 larger than taken) gets its refusal through the CLI's own client, however large its body up
 to the largest attachment, and above that the CLI says the service closed the connection:
 `server/tests/access.rs`, `a_refused_large_request_gets_its_refusal` (the service reads what a
-handler leaves of a body before it answers, `server/http/drain.rs`).
+handler leaves of a body before it answers, `server/http/drain.rs`). A client that asks before
+it sends (Expect: 100-continue) and is refused from its headers gets the refusal at once, not
+an invitation to send: `a_request_that_asks_first_is_refused_before_it_sends`.
 
 ## The mock-page checklist (a change to the page that should show nothing new)
 

@@ -19,23 +19,32 @@ use super::*;
 /// the client sees it closed.
 const MOST: u64 = crate::common::wire::MAX_ATTACHMENT as u64;
 
+/// What the handler left of a request's body, and whether it ever read from it.
+#[derive(Default)]
+struct Left {
+    body: Body,
+    read: bool,
+}
+
 /// A request's body as the handler reads it; what it does not read stays here.
-struct Kept(Arc<Mutex<Body>>);
+struct Kept(Arc<Mutex<Left>>);
 
 impl HttpBody for Kept {
     type Data = Bytes;
     type Error = axum::Error;
 
     fn poll_frame(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<http_body::Frame<Bytes>, axum::Error>>> {
-        Pin::new(&mut *self.0.lock().unwrap()).poll_frame(cx)
+        let mut left = self.0.lock().unwrap();
+        left.read = true;
+        Pin::new(&mut left.body).poll_frame(cx)
     }
 
     fn is_end_stream(&self) -> bool {
-        self.0.lock().unwrap().is_end_stream()
+        self.0.lock().unwrap().body.is_end_stream()
     }
 
     fn size_hint(&self) -> http_body::SizeHint {
-        self.0.lock().unwrap().size_hint()
+        self.0.lock().unwrap().body.size_hint()
     }
 }
 
@@ -43,9 +52,15 @@ impl HttpBody for Kept {
 /// is read, or given up on.
 pub(super) async fn drain(req: Request, next: Next) -> Response {
     let (parts, body) = req.into_parts();
-    let kept = Arc::new(Mutex::new(body));
+    let asks = parts.headers.get(axum::http::header::EXPECT).is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"100-continue"));
+    let kept = Arc::new(Mutex::new(Left { body, read: false }));
     let res = next.run(Request::from_parts(parts, Body::new(Kept(kept.clone())))).await;
-    let mut rest = std::mem::take(&mut *kept.lock().unwrap());
+    let Left { body: mut rest, read } = std::mem::take(&mut *kept.lock().unwrap());
+    // A client that asks before it sends (Expect: 100-continue) sends nothing until told to,
+    // and hyper tells it to on the first read of the body: unread, it gets the answer instead.
+    if asks && !read {
+        return res;
+    }
     // What is left, as far as the request says (its Content-Length less what was read).
     if rest.is_end_stream() || rest.size_hint().lower() > MOST {
         return res;
