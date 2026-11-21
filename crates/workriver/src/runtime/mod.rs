@@ -42,6 +42,12 @@ pub fn socket_option(socket: Option<String>) -> MachineOptions {
     MachineOptions { socket }
 }
 
+/// Today's adapter behind a socket of a test's own, as for a followed machine.
+#[cfg(test)]
+pub fn adapter_at(socket: std::path::PathBuf) -> Arc<dyn Runtime> {
+    adapter::remote::connect(socket, "box", String::new())
+}
+
 /// The same as `machine add` sends them to the service, to go into its request.
 pub fn socket_request(socket: Option<String>) -> serde_json::Value {
     adapter::remote::request(socket)

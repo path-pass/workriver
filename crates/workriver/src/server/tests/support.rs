@@ -149,6 +149,9 @@ pub(in crate::server) struct Fake {
     /// The agents are listed, but typing into one fails as when Herdr's socket drops before
     /// the prompt is written: nothing is typed.
     pub(super) prompt_down: std::sync::atomic::AtomicBool,
+    /// Typing into this session goes through this runtime instead: the real adapter behind
+    /// a socket of the test's own.
+    pub(super) through: std::sync::Mutex<Option<(String, std::sync::Arc<dyn workriver_core::runtime::Runtime>)>>,
     /// Lines typed into new shells: (machine, group, dir, line); what each place shows, by place.
     pub(super) shells: std::sync::Mutex<Vec<Typed>>,
     pub(super) screens: std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -245,6 +248,9 @@ impl workriver_core::runtime::Runtime for Fake {
         Ok(())
     }
     fn send(&self, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        if let Some((to, runtime)) = &*self.through.lock().unwrap() && to == session {
+            return runtime.send_to(None, session, text);
+        }
         // As Herdr's socket that does not answer: nothing is typed.
         if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.prompt_down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);

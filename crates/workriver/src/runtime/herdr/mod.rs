@@ -84,9 +84,14 @@ impl Runtime for Herdr {
     }
 
     /// The pane that holds this session now, read fresh; a pane whose agent only goes by it
-    /// as a name is not it.
+    /// as a name is not it. A read that fails asked for no prompt: nothing was typed, so
+    /// Herdr cannot be reached now (`Unreachable`); only what fails once the prompt is asked
+    /// for may have typed it.
     fn send_to(&self, _: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
-        let (_, list) = self.read()?;
+        let (_, list) = self.read().map_err(|e| match e {
+            RuntimeError::Failed(words) => RuntimeError::Unreachable(words),
+            e => e,
+        })?;
         let pane = list.into_iter().find(|(_, a)| a.session == session).map(|(p, _)| p).ok_or_else(|| RuntimeError::NoAgent(session.into()))?;
         self.call("agent.prompt", json!({ "target": pane, "text": text }))?;
         Ok(())

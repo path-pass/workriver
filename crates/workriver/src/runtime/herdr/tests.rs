@@ -161,6 +161,46 @@ fn starts_a_temporary_agent() {
     assert_eq!((seen[2]["method"].as_str(), &seen[2]["params"]), (Some("pane.close"), &json!({ "pane_id": "w5:p7" })));
 }
 
+/// A socket that reads each connection's one request and gives it the next answer, or
+/// closes it unanswered (None). Hands back the methods asked.
+fn dropping(answers: Vec<Option<Value>>) -> (tempfile::TempDir, Herdr, std::thread::JoinHandle<Vec<String>>) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("h.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut seen = vec![];
+        for answer in answers {
+            let (stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&stream).read_line(&mut line).unwrap();
+            let req: Value = serde_json::from_str(&line).unwrap();
+            seen.push(req["method"].as_str().unwrap().to_string());
+            if let Some(mut reply) = answer {
+                reply["id"] = req["id"].clone();
+                (&stream).write_all(format!("{reply}\n").as_bytes()).unwrap();
+            }
+        }
+        seen
+    });
+    (dir, Herdr::new(path, String::new()), server)
+}
+
+/// Herdr's connection drops while the agents are read before typing (no answer to the
+/// snapshot): nothing was typed, so the runtime cannot be reached now, which the message
+/// waits through. One that drops after the prompt was asked for may have typed it: failed.
+#[test]
+fn a_drop_before_the_prompt_is_unreachable_after_it_failed() {
+    let (_dir, herdr, server) = dropping(vec![None]);
+    let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
+    assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
+    assert_eq!(server.join().unwrap(), ["session.snapshot"]);
+
+    let (_dir, herdr, server) = dropping(vec![Some(snapshot()), None]);
+    let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
+    assert!(matches!(&err, RuntimeError::Failed(w) if w.contains("agent.prompt")), "{err:?}");
+    assert_eq!(server.join().unwrap(), ["session.snapshot", "agent.prompt"]);
+}
+
 #[test]
 fn no_socket_means_no_runtime() {
     let herdr = Herdr::new("/nonexistent/herdr.sock".into(), String::new());
