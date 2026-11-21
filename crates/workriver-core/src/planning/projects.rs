@@ -104,6 +104,17 @@ impl State {
         }
     }
 
+    /// A group's record, found and never renamed: for an event that does not name a workspace
+    /// itself (an intent closed, a manager registered for an intent), which must not set a
+    /// record's id and label back to the ones its intent was started with. Made when there
+    /// is none.
+    pub(super) fn workspace_found_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
+        match self.workspace_at(g) {
+            Some(k) => &mut self.workspaces[k],
+            None => self.workspace_mut(g),
+        }
+    }
+
     /// The rules of a project's or a workspace's events: `prepare`, for these kinds.
     pub(crate) fn prepare_projects(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
         use Body::*;
@@ -196,13 +207,17 @@ impl State {
             WorkspaceProjectSet { workspace, project } => self.workspace_mut(workspace).project = project.clone(),
             ManagerRegistered { intent, agent, workspace } => {
                 // Before 0.2: the intent's manager, which is the manager of its runtime group.
-                let mut group = workspace.clone();
+                let mut ran = None;
                 if let Some(i) = intent.as_ref().and_then(|id| self.intents.iter_mut().find(|i| &i.id == id)) {
                     i.manager = Some(agent.clone());
-                    group = group.or(i.workspace.clone());
+                    ran = i.workspace.clone();
                 }
-                if let Some(g) = group {
-                    self.workspace_mut(&g).manager = Some(agent.clone());
+                // Only a workspace the event names is followed (its id and label); the
+                // intent's is found as it is recorded now.
+                if let Some(g) = workspace {
+                    self.workspace_mut(g).manager = Some(agent.clone());
+                } else if let Some(g) = ran {
+                    self.workspace_found_mut(&g).manager = Some(agent.clone());
                 }
             }
             other => unreachable!("{} is not one of a project's or a workspace's kinds", name_of_kind(other)),

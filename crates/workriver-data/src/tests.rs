@@ -26,8 +26,9 @@ fn seed(s: &mut dyn WorkStore) {
         json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
         json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}),
     ] {
-        // An intent made active is the user's to add; an agent's starts in the roadmap.
-        let who = if v["kind"] == "intent.created" { Principal::User } else { agent_a() };
+        // An intent made active is the user's to add (an agent's starts in the roadmap), and
+        // so is a unit of an intent with no manager.
+        let who = if v["kind"] == "task.created" { agent_a() } else { Principal::User };
         s.record(&who, body(v)).unwrap();
     }
 }

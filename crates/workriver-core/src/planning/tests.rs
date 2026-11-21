@@ -3,6 +3,8 @@ use serde_json::json;
 use crate::records::tests::*;
 use crate::*;
 
+mod ownership;
+
 /// A unit's branch is its own and says what it holds; units named before that rule still
 /// load from the records and keep working.
 #[test]
@@ -177,9 +179,9 @@ fn research_units_and_old_intent_level_work() {
         json!({"kind": "unit.created", "body": b})
     };
     for extra in [json!({"branch": "feat/x"}), json!({"repo": "/r"}), json!({"base": "main"}), json!({"machine": "box"})] {
-        assert!(add(&mut s, "boss", research(extra.clone())).unwrap_err().contains("has no repository, branch"), "{extra}");
+        assert!(add(&mut s, "user", research(extra.clone())).unwrap_err().contains("has no repository, branch"), "{extra}");
     }
-    let e = add(&mut s, "boss", research(json!({}))).unwrap();
+    let e = add(&mut s, "user", research(json!({}))).unwrap();
     assert_eq!(e.body.refs(), (Some("i1".into()), Some("u1".into()), None));
     let u = s.state().unit("u1").unwrap().clone();
     assert_eq!((u.kind, u.repo.as_str(), u.branch.as_str(), u.has_code()), (UnitKind::Research, "/p", "", false), "it reads in the project's folder");
@@ -214,7 +216,7 @@ fn research_units_and_old_intent_level_work() {
     add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "Found it"}})).unwrap();
     add(&mut s, "r2", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 2, "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap();
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "i1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "Fix", "causes": [{"unit": "i1", "task": 2, "findings": ["P2-1"]}]}})).unwrap();
     assert_eq!(s.state().task("u2", 1).unwrap().intent, "i1", "a unit's tasks record their intent too");
     assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "research", "title": "More", "inputs": [{"from": "1"}]}})).unwrap_err().contains("tasks go into a unit"));
@@ -229,10 +231,10 @@ fn spike_units_keep_code_but_are_never_merged() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync"}})).unwrap();
     let unit = |kind: &str, branch: &str| json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Try CRDTs", "repo": "/r", "branch": branch, "base": "main", "kind": kind}});
     for (kind, branch, says) in [("spike", "feat/crdt", "--branch spike/crdt"), ("spike", "spike/", "a spike's branch starts with spike/"), ("spike", "main", "must not be its base"), ("code", "spike/crdt", "spike/<name> is for --kind spike")] {
-        let e = add(&mut s, "boss", unit(kind, branch)).unwrap_err();
+        let e = add(&mut s, "user", unit(kind, branch)).unwrap_err();
         assert!(e.contains(says), "{kind} {branch}: {e}");
     }
-    add(&mut s, "boss", unit("spike", "spike/crdt")).unwrap();
+    add(&mut s, "user", unit("spike", "spike/crdt")).unwrap();
     let u = s.state().unit("u1").unwrap().clone();
     assert_eq!((u.kind, u.branch.as_str(), u.has_code(), u.kind.merges()), (UnitKind::Spike, "spike/crdt", true, false));
     // Every kind of task.
@@ -357,10 +359,15 @@ fn units_are_where_the_work_is() {
     assert!(add(&mut s, "worker", unit(Some("box"))).unwrap_err().contains("only the user or the manager"));
     add(&mut s, "boss", unit(Some("box"))).unwrap();
     assert_eq!(s.state().unit("u1").unwrap().machine.as_deref(), Some("box"));
-    // An agent over there records a unit over there without more ado; the user, anywhere.
+    // An agent over there that is not the intent's manager adds none. Its manager over
+    // there (of the linked workspace) records a unit over there without more ado; the user,
+    // anywhere.
     let far = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
+    assert!(s.append(&far, body(unit(Some("box")))).unwrap_err().to_string().contains("only the user or the manager of intent i1 (boss) adds its units"));
+    s.append(&far, body(json!({"kind": "manager.registered", "body": {"workspace": {"id": "box:b1", "label": "work", "machine": "box"}}}))).unwrap();
     s.append(&far, body(unit(Some("box")))).unwrap();
     assert!(s.append(&far, body(unit(Some("other")))).is_err());
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"workspace": w1}})).unwrap();
     add(&mut s, "user", unit(Some("other"))).unwrap();
     add(&mut s, "boss", unit(None)).unwrap();
 

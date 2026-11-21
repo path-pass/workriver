@@ -14,9 +14,10 @@ fn agent_a() -> Principal {
     Principal::Agent { session: "agent-a".into(), machine: None }
 }
 
-/// Who records a seeded event: an active intent is the user's to add, the rest agent-a's.
+/// Who records a seeded event: an active intent is the user's to add, and so is a unit of
+/// an intent with no manager; the rest agent-a's.
 fn by(b: &Body) -> Principal {
-    if matches!(b, Body::IntentCreated { .. }) { Principal::User } else { agent_a() }
+    if matches!(b, Body::IntentCreated { .. } | Body::UnitCreated { .. }) { Principal::User } else { agent_a() }
 }
 
 fn seed() -> Vec<Body> {

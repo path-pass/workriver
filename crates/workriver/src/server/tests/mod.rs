@@ -7,6 +7,7 @@ mod files;
 // Guards that hold behaviour while code moves (docs/design/guards.md).
 mod guards;
 mod machines;
+mod ownership;
 mod planning;
 pub(super) mod support;
 mod views;

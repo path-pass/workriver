@@ -240,10 +240,12 @@ fn a_message_carries_what_the_user_picked() {
     add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
     // The seed's unit and tasks, in that intent.
     for b in seed().into_iter().skip(1) {
-        s.append(&"agent-a".into(), b).unwrap();
+        // The unit is its manager's to add.
+        let who = if matches!(b, Body::UnitCreated { .. }) { "boss" } else { "agent-a" };
+        s.append(&who.into(), b).unwrap();
     }
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "Paging", "repo": "/r", "branch": "feat/paging", "base": "main"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i2", "title": "Paging", "repo": "/r", "branch": "feat/paging", "base": "main"}})).unwrap();
     add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "00000000000000e1", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "00000000000000c1", "name": "r.md", "type": "text/markdown", "size": 1, "unit": "u1", "task": 2}})).unwrap();
     add(&mut s, "agent-a", json!({"kind": "attachment.added", "body": {"id": "0000000000000001", "name": "x.md", "type": "text/markdown", "size": 1}})).unwrap();
@@ -387,7 +389,9 @@ fn the_user_writes_to_every_manager() {
 
     // A manager on a blind task gets its copy once it delivers: not refused.
     for b in seed().into_iter().skip(1) {
-        s.append(&"agent-a".into(), b).unwrap();
+        // The unit is its manager's to add.
+        let who = if matches!(b, Body::UnitCreated { .. }) { "boss" } else { "agent-a" };
+        s.append(&who.into(), b).unwrap();
     }
     add(&mut s, "web", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "1"}], "agent": "web", "blind": true}})).unwrap();
     let e = add(&mut s, "user", say(to(&all), json!({"context": [{"kind": "attachment", "label": "shot.png", "id": "00000000000000e1"}]}))).unwrap();
