@@ -1,51 +1,63 @@
-// A draggable edge that sets a panel's width. The width lives in a CSS variable while the
-// pointer moves, so nothing re-renders per frame; it becomes state (and is remembered) when
-// the drag ends, which is when anything that depends on it (a graph that refits) hears of it.
+// A draggable edge that sets a panel's width, or its height when the edge is at the bottom.
+// The size lives in a CSS variable while the pointer moves, so nothing re-renders per frame;
+// it becomes state (and is remembered) when the drag ends, which is when anything that
+// depends on it (a graph that refits) hears of it.
 //
 // Hand-written instead of react-resizable-panels: that library cost +15.3 kB gzip for this
 // one handle (see docs/design/ui/navigation.md, the rail).
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 interface Options {
-  /** The localStorage key the width is kept under. */
+  /** The localStorage key the size is kept under. */
   key: string
-  /** The CSS variable (on the document) that carries the width, e.g. `--rail-w`. */
+  /** The CSS variable (on the document) that carries the size, e.g. `--rail-w`. */
   variable: string
-  def: number
+  /** The size with none set. Without one the panel sizes itself (the variable is unset, so
+   *  its own fallback applies) until the edge is moved, and double-click goes back to that. */
+  def?: number
   min: number
   max: number
-  /** Which edge of the panel the handle is on: dragging away from the panel widens it. */
-  edge: 'right' | 'left'
+  /** Which edge of the panel the handle is on: dragging away from the panel enlarges it. */
+  edge: 'right' | 'left' | 'bottom'
   /** One step with the arrow keys. */
   step?: number
 }
 
 const recall = (key: string) => { try { return Number(localStorage.getItem(key)) || 0 } catch { return 0 } }
-const remember = (key: string, w: number) => { try { localStorage.setItem(key, String(w)) } catch { /* not remembered, still applied */ } }
+const remember = (key: string, w: number) => { try { if (w) localStorage.setItem(key, String(w)); else localStorage.removeItem(key) } catch { /* not remembered, still applied */ } }
 
 export function useResize({ key, variable, def, min, max, edge, step = 16 }: Options) {
   const clamp = useCallback((w: number) => Math.round(Math.min(max, Math.max(min, w))), [min, max])
-  const [width, setWidth] = useState(() => { const w = recall(key); return w ? clamp(w) : def })
-  // Where a drag started: the pointer's x and the width then.
-  const drag = useRef<{ x: number; w: number; now: number } | null>(null)
-  const apply = useCallback((w: number) => document.documentElement.style.setProperty(variable, `${w}px`), [variable])
-  useEffect(() => apply(width), [apply, width])
-  const commit = (w: number) => { const c = clamp(w); apply(c); setWidth(c); remember(key, c) }
-  const sign = edge === 'right' ? 1 : -1
+  // 0: none set, the panel sizes itself.
+  const [size, setSize] = useState(() => { const w = recall(key); return w ? clamp(w) : def ?? 0 })
+  // Where a drag started: the pointer's position and the size then.
+  const drag = useRef<{ at: number; w: number; now: number } | null>(null)
+  const apply = useCallback((w: number) => {
+    const s = document.documentElement.style
+    if (w) s.setProperty(variable, `${w}px`); else s.removeProperty(variable)
+  }, [variable])
+  useEffect(() => apply(size), [apply, size])
+  const commit = (w: number) => { const c = w ? clamp(w) : 0; apply(c); setSize(c); remember(key, c) }
+  const down = edge === 'bottom'
+  const sign = edge === 'left' ? -1 : 1
+  const along = (e: { clientX: number; clientY: number }) => (down ? e.clientY : e.clientX)
+  // The size to start from: the one set, else what the panel (the handle's parent) has now.
+  const from = (handle: HTMLElement) => size || (down ? handle.parentElement?.offsetHeight : handle.parentElement?.offsetWidth) || min
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return
     e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
     e.currentTarget.dataset.dragging = ''
-    drag.current = { x: e.clientX, w: width, now: width }
+    const w = from(e.currentTarget)
+    drag.current = { at: along(e), w, now: w }
     // Nothing gets selected while the edge is dragged across text.
     document.body.style.userSelect = 'none'
   }
   const onPointerMove = (e: PointerEvent<HTMLElement>) => {
     const d = drag.current
     if (!d) return
-    d.now = clamp(d.w + sign * (e.clientX - d.x))
+    d.now = clamp(d.w + sign * (along(e) - d.at))
     apply(d.now)
     e.currentTarget.setAttribute('aria-valuenow', String(d.now))
   }
@@ -58,27 +70,30 @@ export function useResize({ key, variable, def, min, max, edge, step = 16 }: Opt
     commit(d.now)
   }
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    const to = e.key === 'ArrowRight' ? width + sign * step : e.key === 'ArrowLeft' ? width - sign * step : e.key === 'Home' ? min : e.key === 'End' ? max : null
+    const [more, less] = down ? ['ArrowDown', 'ArrowUp'] : ['ArrowRight', 'ArrowLeft']
+    const w = from(e.currentTarget)
+    const to = e.key === more ? w + sign * step : e.key === less ? w - sign * step : e.key === 'Home' ? min : e.key === 'End' ? max : null
     if (to === null) return
     e.preventDefault()
     commit(to)
   }
   return {
-    /** The width as last settled (not while dragging). */
-    width,
+    /** The size as last settled (not while dragging); 0 while the panel sizes itself. */
+    size,
     /** For the handle element; give it an `aria-label` and a class. */
     handle: {
       role: 'separator' as const,
       tabIndex: 0,
-      'aria-orientation': 'vertical' as const,
-      'aria-valuenow': width,
+      // A separator's orientation is the line it draws: a bottom edge is a horizontal one.
+      'aria-orientation': down ? 'horizontal' as const : 'vertical' as const,
+      'aria-valuenow': size || undefined,
       'aria-valuemin': min,
       'aria-valuemax': max,
       onPointerDown,
       onPointerMove,
       onPointerUp: end,
       onPointerCancel: end,
-      onDoubleClick: () => commit(def),
+      onDoubleClick: () => commit(def ?? 0),
       onKeyDown,
     },
   }

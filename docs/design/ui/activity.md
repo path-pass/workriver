@@ -33,6 +33,14 @@ its sections went.
      colours (done water, running amber, a waiting gate violet, the rest neutral), the part
      in view clear and the rest shaded; a drag or a click there moves the view. It is hidden
      when the whole graph fits, where it would only repeat it.
+     **The canvas's height**: with none set, the graph's own height plus room (plus the
+     overview's, while it shows), at most 70% of the window. Its bottom edge drags it, the
+     same handle as the rail's and the side panel's edges turned on its side (a 6 px hit area
+     with the row-resize cursor, a line in the selection colour when pointed at, focused or
+     dragged; a separator for the keyboard, arrows ↑/↓ by 16 px, Home and End to the ends):
+     between 160 px and the window's height. The height set is one for every unit and is
+     remembered (`workriver.flow.height`); a double-click forgets it, back to the graph's
+     own height. The view settles again once when a drag ends, not during it.
 
 ## A node's detail
 

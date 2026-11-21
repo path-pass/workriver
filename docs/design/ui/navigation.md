@@ -80,7 +80,7 @@ its sections went.
   (they wrap); an intent's title stays on one line and is cut with its full text on
   hover; at the default width it keeps the line to itself (and the folded group's violet
   marks), everything else about the intent is on the line under it. The handle is a small hook of ours (`frontend/web/src/lib/useResize.ts`), written so the side
-  panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
+  panel (and the Activity graph's height, `activity.md`) could use it too: react-resizable-panels measured +15.3 kB gzip for this one
   handle, which is the case the "prefer a library" rule excepts.
 - **Kind, size and tags in the rail.** An intent's kind (feature, fix, chore, research: closed,
   translated) and estimated size (S, M, L) show as one quiet chip, the kind's label and the
