@@ -355,6 +355,10 @@ then the user's text quoted. For example:
 - To a manager on another machine each store path becomes `workriver attach fetch
   <id>.<ext>` (`App::send`).
 - The delivery record (`MessageDelivery.message`) holds this text.
+- How to reply (`replying`, the same for a single message and each copy to every manager)
+  gives the user's rule for reply and say: the result of what the message asked, once
+  done, is a reply to it too (`workriver reply` again, never `say`); `say` is for what
+  nobody asked (a merge, a deploy, a gate's outcome, a problem found).
 - To every manager, each copy is `delivery::broadcast_message`: that it went to every
   manager, how many, and which workspace is this manager's own (its label, and "on machine
   …" for another machine, through `quote::name`), so it answers for that one only; then the

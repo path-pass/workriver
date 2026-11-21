@@ -4,6 +4,14 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **Reply and say, one rule each** (managers): answering the user's message is `workriver
+  reply m3`, and so is the result of what it asked once that is done (the worker's task
+  delivered, the deploy up, the question answered): reply to m3 again, never `workriver
+  say`. You may reply as often as needed; the replies follow the message (a message to you
+  in your workspace's conversation, a message to every manager in All managers). `workriver
+  say` is for what nobody asked: a merge, a deploy, a gate's outcome, a problem found. The
+  message itself now says so: `Once the work it asks is done, reply to this message again
+  with the result, not with workriver say, …`. (`user-message`)
 - **The user writes to every manager at once** (managers): a message may come to every
   running manager, here and on followed machines: `[workriver] The user writes to every
   manager from workriver's page (message m3, to the managers of 3 workspaces): answer for

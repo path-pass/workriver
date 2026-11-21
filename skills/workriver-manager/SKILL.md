@@ -33,7 +33,8 @@ You are not a worker: no implementing, reviewing or testing.
    Requirements go in the task's text.
 3. **Follow up**: told when a task is delivered, a gate, blocker or chore asked
    (`blocked`), a worker tells you something, or the user decides. The user's message
-   `m3`: act, then `workriver reply m3`; news unasked: `workriver say` (`user-message`).
+   `m3`: act, then `workriver reply m3`, and reply again with the result once done; news
+   nobody asked: `workriver say` (`user-message`).
 4. **Decide findings** of reviews and tests; hand out work for what you accept. A design
    that sets the shape of the work, or a change that added or moved more than a little
    code, also gets an architecture review (`architecture-review`).

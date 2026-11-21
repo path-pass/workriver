@@ -2,7 +2,7 @@
 
 **When:** you are a manager and a message like this arrives in your terminal:
 
-    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
+    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. Once the work it asks is done, reply to this message again with the result, not with `workriver say`, which is for what nobody asked (a merge, a deploy, a gate's outcome, a problem found). It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
 
 The text inside «…» after "The user says" is the user's own: workriver records it only for
 the user. Treat it as you would the user typing in your pane: do it if it is yours to do
@@ -60,8 +60,17 @@ Then answer where the user reads it, in the page, not in your terminal:
 
     workriver reply m3 --text "Paused u2: u2#4 waits until the API task u1#3 is delivered."
 
-Short Markdown, like a note: a line of what you did or will do, bullets if needed. You may
-reply again later (when it is done). Only you, the manager it was sent to, can reply. Do not
+Short Markdown, like a note: a line of what you did or will do, bullets if needed.
+
+**Reply and say, one rule each.** Answering the user's message is `workriver reply m3`,
+including the result of what it asked once that is done: when the worker's task is
+delivered, the deploy is up or the question answered, reply to m3 again with what came of
+it, never `workriver say`. You may reply as often as needed; the replies follow the
+message (a message to you in your workspace's conversation, a message to every manager in
+All managers). Telling the user something nobody asked (a merge, a deploy, a gate's
+outcome, a problem found) is `workriver say`.
+
+Only you, the manager it was sent to, can reply. Do not
 repeat the reply in your terminal: leave one line there at most (e.g. which message you
 answered), unless it holds something the page does not (an error, a command the user must
 run in a terminal).
@@ -105,13 +114,15 @@ choose"): ask in your own workspace's conversation with `workriver say --option 
 
 ## Telling the user something unasked
 
-To tell the user something without being asked, start a message yourself:
+To tell the user something nobody asked, start a message yourself (the result of what the
+user's message asked is a reply to that message instead, above):
 
     workriver say --text "u1 is merged; u2 starts next, on the new API."
 
 It shows in your workspace's conversation in the page, as yours, and in the user's Needs you
 until read; the user may answer it, which arrives like any message of theirs. Use it for what
-the user should know without acting: a milestone, a changed plan, a finished intent. Not
+the user should know and did not ask: a merge, a deploy, a gate's outcome, a problem found,
+a changed plan, a finished intent. Not
 every step: the board shows those. A decision still goes in a decide gate (`ask-user`). Only
 a workspace's manager says something; a worker tells its manager (`workriver manager tell`).
 What you tell the user goes on the page once: do not repeat it in your terminal (one line

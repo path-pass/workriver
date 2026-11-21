@@ -216,7 +216,7 @@ pub(in crate::server) fn broadcast_message(state: &State, m: &workriver_core::Me
 /// How a manager answers the user's message `id`, in workriver's words.
 fn replying(id: &str) -> String {
     format!(
-        "Reply with `workriver reply {id} --text \"...\"`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. "
+        "Reply with `workriver reply {id} --text \"...\"`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. Once the work it asks is done, reply to this message again with the result, not with `workriver say`, which is for what nobody asked (a merge, a deploy, a gate's outcome, a problem found). "
     )
 }
 
