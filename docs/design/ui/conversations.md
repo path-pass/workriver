@@ -374,7 +374,12 @@ then the user's text quoted. For example:
   it is given (`RuntimeError::None`: Herdr's socket does not answer; `Unreachable`: its
   machine is disconnected), so that nothing was typed, is no reason to give up: the message
   waits and is tried again at each poll until the manager takes it, or is gone (not
-  delivered). Any other failure of the send may have typed it, so it is not tried twice:
+  delivered). Gone is said only by a complete read of the manager's machine: while a
+  machine's runtime does not answer (another machine disconnected, or this machine's Herdr
+  while another machine is followed), its agents are listed as last seen, in no state of
+  theirs (`Machines::agents`; not counted by `App::readable`), so a copy held for one of
+  them waits, and a message to every manager written then goes to them too, each copy
+  waiting. Any other failure of the send may have typed it, so it is not tried twice:
   not delivered. If its manager is then on a blind task in
   progress, it waits for that task's delivery too. A restart while it waits marks it not
   delivered (the service restarted), so the user sees that and can send it again.

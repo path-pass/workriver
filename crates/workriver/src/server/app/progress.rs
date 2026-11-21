@@ -115,11 +115,12 @@ impl App {
     }
 
     /// Where the runtime was read just now and listed agents (None: this machine): elsewhere
-    /// (a failed or empty read, a machine that cannot be reached, listed as last seen) agents
-    /// are unknown.
+    /// (a failed or empty read, a machine that cannot be reached or this one's runtime that
+    /// did not answer, listed as last seen) agents are unknown.
     pub(super) fn readable(&self, live: &[RuntimeAgent]) -> Vec<Option<String>> {
         let down: Vec<String> = self.machines.iter().flat_map(|m| m.states()).filter(|m| !m.reachable).map(|m| m.label).collect();
-        let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m))).collect();
+        let here_unread = self.machines.as_ref().is_some_and(|m| !m.here_read());
+        let mut read: Vec<Option<String>> = live.iter().map(|a| a.machine.clone()).filter(|m| !m.as_ref().is_some_and(|m| down.contains(m)) && !(m.is_none() && here_unread)).collect();
         read.dedup();
         read
     }

@@ -987,6 +987,56 @@ fn a_copy_not_reachable_for_now_waits() {
     assert_eq!(t.far.sent.lock().unwrap().iter().filter(|(_, text)| text.contains("message m1")).count(), 1);
 }
 
+/// A copy held for a manager here (it waits for a person in its terminal) is not given up
+/// while this machine's runtime cannot be read and another machine's still can: a list that
+/// could not be read says nobody is gone. It is given once the manager is free.
+#[test]
+fn a_held_copy_here_waits_while_only_this_machine_is_unread() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::AgentState::{Blocked, Idle};
+    let t = every_manager(None);
+    let set_web = |state| t.local.agents.lock().unwrap().iter_mut().find(|(_, a)| a.session == "s-web").unwrap().1.state = state;
+    set_web(Blocked);
+    t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    wait_until("boss has its copy", || t.copy("boss")["step"] == "delivered");
+    assert_eq!(t.copy("web")["step"], "sending");
+    t.local.down.store(true, SeqCst);
+    // Several polls while this machine is unread: the copy still waits.
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let web = t.copy("web");
+        assert_eq!(web["step"], "sending", "while this machine is unread: {web}");
+    }
+    set_web(Idle);
+    t.local.down.store(false, SeqCst);
+    wait_until("web has its copy", || t.copy("web")["step"] == "delivered");
+    assert_eq!(t.local.sent.lock().unwrap().iter().filter(|(to, text)| to == "s-web" && text.contains("message m1")).count(), 1);
+}
+
+/// A message to every manager written while this machine's runtime cannot be read, another
+/// machine's still can: the managers here as last seen are among its recipients, their
+/// copies wait, and each is given once this machine answers again. Never a message that
+/// leaves them out because only part of the list was read.
+#[test]
+fn every_manager_includes_those_here_while_this_machine_is_unread() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let t = every_manager(None);
+    t.local.down.store(true, SeqCst);
+    let sent = t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    let mut managers: Vec<&str> = sent["body"]["to"].as_array().unwrap().iter().map(|r| r["manager"].as_str().unwrap()).collect();
+    managers.sort();
+    assert_eq!(managers, ["s-boss", "s-far", "s-old", "s-web"], "{sent}");
+    wait_until("far has its copy", || t.copy("far")["step"] == "delivered");
+    for m in ["boss", "web", "old"] {
+        let copy = t.copy(m);
+        assert_eq!(copy["step"], "sending", "{m} waits while this machine is unread: {copy}");
+    }
+    t.local.down.store(false, SeqCst);
+    for m in ["boss", "web", "old"] {
+        wait_until("the managers here have their copies", || t.copy(m)["step"] == "delivered");
+    }
+}
+
 /// The user discusses a delivered design with the agent that did it: each question goes to
 /// that agent (held while it works), never to a temporary one; its answer shows unread until
 /// read; the manager hears of an amendment while the gate waits and of the conclusion, not of

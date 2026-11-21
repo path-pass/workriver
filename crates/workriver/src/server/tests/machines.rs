@@ -120,6 +120,33 @@ fn machines_are_separate_until_linked() {
     assert_eq!(ws["machines"].as_array().unwrap().len(), 2);
 }
 
+/// This machine's runtime not answering while another machine's does: its agents are as
+/// last seen, in no state of theirs, like a machine that cannot be reached, and the read is
+/// known not to be complete; once it answers they are read fresh again. With no other
+/// machine followed, its failure is the runtime's.
+#[test]
+fn this_machines_agents_are_as_last_seen_while_its_runtime_does_not_answer() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::{AgentState::*, Runtime};
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-boss", "boss", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far)]);
+    let states = |all: &crate::runtime::follow::Machines| all.agents().unwrap().into_iter().map(|a| (a.session, a.state)).collect::<Vec<_>>();
+    assert_eq!(states(&all), [("s-boss".to_string(), Idle), ("s-far".to_string(), Idle)]);
+    assert!(all.here_read());
+    local.down.store(true, SeqCst);
+    assert_eq!(states(&all), [("s-boss".to_string(), Unknown), ("s-far".to_string(), Idle)]);
+    assert!(!all.here_read());
+    local.down.store(false, SeqCst);
+    assert_eq!(states(&all), [("s-boss".to_string(), Idle), ("s-far".to_string(), Idle)]);
+    assert!(all.here_read());
+    let alone = crate::runtime::follow::Machines::with(local.clone(), vec![]);
+    local.down.store(true, SeqCst);
+    assert!(alone.agents().is_err() && !alone.here_read());
+}
+
 /// A worker on another machine that started since that machine's agents were last read is
 /// told of a requirement added to its task all the same, once, and a file that came with it
 /// is the command that fetches it there, never a path on this machine. Looking for it is

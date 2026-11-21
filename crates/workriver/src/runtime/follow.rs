@@ -8,7 +8,8 @@
 //! holds up this one.
 //!
 //! While a machine's connection is down nothing waits on it: its agents are as last seen
-//! (and not counted as working or waiting), its repositories as last read.
+//! (and not counted as working or waiting), its repositories as last read. So are this
+//! machine's agents while its runtime does not answer and other machines are followed.
 //!
 //! The list of machines is workriver's own, in `<home>/settings.json`.
 use std::collections::BTreeMap;
@@ -47,6 +48,8 @@ struct Entry {
 
 pub struct Machines {
     local: Arc<dyn Runtime>,
+    /// This machine's agents as last read, and whether the last read was.
+    here: Mutex<Seen>,
     home: PathBuf,
     terminal_app: String,
     /// The ssh program (a stand-in in tests) and the supervisor's waits.
@@ -64,13 +67,13 @@ const MAX: Duration = Duration::from_secs(120);
 
 impl Machines {
     pub fn new(local: Arc<dyn Runtime>, home: PathBuf, terminal_app: String) -> Arc<Machines> {
-        Arc::new(Machines { local, home, terminal_app, ssh: "ssh".into(), pace: Pace::default(), entries: Mutex::default(), ports: Mutex::default() })
+        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app, ssh: "ssh".into(), pace: Pace::default(), entries: Mutex::default(), ports: Mutex::default() })
     }
 
     /// For tests: ssh is `program` (a stand-in), with these waits.
     #[cfg(test)]
     pub fn with_ssh(local: Arc<dyn Runtime>, home: PathBuf, program: &str, pace: Pace) -> Arc<Machines> {
-        Arc::new(Machines { local, home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default() })
+        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default() })
     }
 
     fn settings(&self) -> Settings {
@@ -92,6 +95,12 @@ impl Machines {
                 None => MachineState { label, ssh: s.ssh, enabled: s.enabled, port: None, down_since: None, retry_in: None, reachable: false, error: None, connecting: false, tunnel: false, tunnel_error: None, agents: 0 },
             })
             .collect()
+    }
+
+    /// Whether this machine's runtime answered the last read of the agents: if not, they are
+    /// as last seen, and what is not listed is not known to be gone.
+    pub fn here_read(&self) -> bool {
+        self.here.lock().unwrap().ok
     }
 
     /// The machines followed now.
@@ -436,13 +445,23 @@ fn poll_once(e: &Entry, quiet: bool) -> bool {
 }
 
 impl Runtime for Machines {
-    /// This machine's agents read fresh, and every followed machine's as last seen.
+    /// This machine's agents read fresh, and every followed machine's as last seen. While
+    /// this machine's runtime does not answer, its agents too are as last seen, in no state
+    /// of theirs: a part not read is never taken for a part with nobody in it.
     fn agents(&self) -> Result<Vec<RuntimeAgent>, RuntimeError> {
         let entries = self.entries.lock().unwrap().clone();
-        let mut all = match self.local.agents() {
-            Ok(a) => a,
-            Err(e) if entries.is_empty() => return Err(e),
-            Err(_) => vec![],
+        let read = self.local.agents();
+        let mut all = {
+            let mut here = self.here.lock().unwrap();
+            here.ok = read.is_ok();
+            match read {
+                Ok(a) => {
+                    here.agents = a.clone();
+                    a
+                }
+                Err(e) if entries.is_empty() => return Err(e),
+                Err(_) => here.agents.iter().map(|a| RuntimeAgent { state: workriver_core::runtime::AgentState::Unknown, ..a.clone() }).collect(),
+            }
         };
         for e in entries {
             // A machine that is disconnected: its agents as last seen, in no state of theirs.
