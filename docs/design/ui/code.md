@@ -47,10 +47,43 @@ its sections went.
      from before the unit. A merge of any other branch is the branch's work. Whether a file
      changed is whether its git entry (existence, mode and object id) differs at the two
      ends, never its text, which gives only the +/− counts (uncommitted work, which git
-     has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
+     has not hashed, is compared by its text; a symlink's text is where it points; git's
+     placeholder id is all zeros, 40 of them or, in a SHA-256 repository, 64; uncommitted
+     work git lists but that cannot be read or hashed, not allowed or gone meanwhile, is a
+     change, and the rest of the work is read as ever; a file's name is the one git has, line
+     breaks and all, as git's NUL-separated lists give it): a file whose mode or type
      alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
      text changed and changed back on the way; a mode or a submodule pointer changed and
-     changed back is not. A picked piece of
+     changed back is not. An untracked file is taken as `git add` would take it: a symlink
+     with mode 120000, its text where it points (never the file there), any other as a
+     regular file. A binary file (as git takes one by default: a NUL in the first 8000 bytes
+     of either side) is there like any file, A, M or D, with no line counts in
+     the tree or the diff, which says "Binary files differ" as git does; uncommitted, it is
+     compared by the object id git would give it. Only a change's ends say whether it is
+     binary: a text side keeps its text next to a binary one (a binary side's bytes are
+     never sent), so a binary version between two texts, over a pick's commits or ending in
+     uncommitted work, leaves the text change git shows, with its lines. A submodule's
+     pointer has no text either:
+     its change shows as the pointer, the commit it moved from and the one it moved to (only
+     one when it is added or removed), with no line counts, never as lines, also where a
+     file or a binary file became one or one became a file (git: a type change), in the
+     tree, the list of commits and the single-file view alike; uncommitted, the
+     pointer is the commit the submodule's checkout is at, and work inside the submodule that
+     leaves it there is no change; a checkout that cannot be read (gone since git listed it)
+     leaves its pointer a change to an unknown commit, said so, never git's placeholder, and
+     the rest of the work is read as ever. A file the unit changes that another open unit (not
+     merged, not
+     closed, its intent neither done nor dropped) of the same project also changes, in the
+     same repository, gets a small
+     neutral mark after its name (two crossing arrows); its tooltip names those units and
+     their intents ("Also changed by u2 (i1 Search)"), and the single-file view of it says the
+     same in a line of its own, each unit a link that opens it. Both units' changes are
+     their net change as the tree shows it with nothing picked: the net change against the
+     base (`unit.net`) with uncommitted work on top, an uncommitted side compared by its text,
+     as above; so nothing the base brought in, however it came, and nothing changed back
+     (the service compares them, from the same texts). Units on two machines are not compared: their repositories are two copies. A
+     folder does not sum the mark; nothing goes to Needs you and no one is told: the user
+     sees it and coordinates. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added
      and deleted itself is not there either. Where other commits touched a file between the
      work's own (a merge of the base, other work), the texts do not chain: the file's change
@@ -74,6 +107,10 @@ its sections went.
      lists both), and the tree may start from another one than `git diff base...head` does.
      The unit's change can then show the base's files instead of the branch's, and the merge
      that brought the base in can show as that work's change.
+
+     Also kept for now: a text file larger than 512 KiB is left out of the tree and the diff;
+     binary is told by content alone, not by `.gitattributes` (`binary`, `-diff`); an
+     untracked executable file is taken as 100644, not 100755.
 
 ## Commits
 

@@ -1,8 +1,8 @@
 // A unit's files: their changes over some commits, which commit last changed each line, and
 // the file tree the code layer shows.
 import { diffLines, structuredPatch } from 'diff'
-import type { FileChange, ModuleNode, FileDelta, FileTree, TreeRow } from './types'
-import type { Unit } from '@/planning/types'
+import type { Also, FileChange, ModuleNode, FileDelta, FileTree, TreeRow, Kind } from './types'
+import type { Intent, Unit } from '@/planning/types'
 import { type Selection, working } from '@/work/select'
 
 /** The change from one text to another as unified-diff lines, with `context` lines around each change. */
@@ -42,19 +42,42 @@ export function blame(unit: Unit, path: string, upTo: number): number[] {
   return owner
 }
 
-/** git's mode and object id for a side that does not exist; the id also of one not hashed. */
-const GONE = '000000', NULL = '0'.repeat(40)
+/** git's mode for a side that does not exist. */
+const GONE = '000000'
+/**
+ * Whether an object id is git's placeholder, for a side that does not exist or one git has
+ * not hashed: all zeros, 40 or, in a SHA-256 repository, 64 of them.
+ */
+export const isNull = (id: string) => /^0+$/.test(id)
+/** A submodule pointer's mode (a gitlink): its object id is a commit, it has no text. */
+const GITLINK = '160000'
+
+type Entries = Pick<FileChange, 'beforeMode' | 'beforeId' | 'afterMode' | 'afterId' | 'beforeBinary' | 'afterBinary'>
+
+/**
+ * What the change from `first`'s before to `last`'s after is when it has no lines: a submodule's
+ * pointer (either end one: its commits), else a binary file's (either end binary, as git says
+ * "Binary files differ"). Empty for a text change. Only the ends count: a binary version
+ * between two texts leaves a text change.
+ */
+export function kindOf(first: Entries, last: Entries): Kind {
+  if (first.beforeMode === GITLINK || last.afterMode === GITLINK)
+    return { pointer: { from: first.beforeMode === GITLINK ? first.beforeId : null, to: last.afterMode === GITLINK ? last.afterId : null } }
+  return first.beforeBinary || last.afterBinary ? { binary: true } : {}
+}
 
 /**
  * Whether a file is the same at two ends: the same git entry (existence, mode, object id).
- * Uncommitted work's side has no object id (git has not hashed it): its text stands for one.
+ * Uncommitted work's side has no object id (git has not hashed it): its text stands for one;
+ * one with no text (scan could not read or hash it) is not known to be the same, and git
+ * lists it as changed.
  */
 function same(first: FileChange, last: FileChange) {
-  const unhashed = last.afterId === NULL && last.afterMode !== GONE
-  return first.beforeMode === last.afterMode && (unhashed ? first.before === last.after : first.beforeId === last.afterId)
+  const unhashed = isNull(last.afterId) && last.afterMode !== GONE
+  return first.beforeMode === last.afterMode && (unhashed ? last.after !== null && first.before === last.after : first.beforeId === last.afterId)
 }
 
-const statusOf = (first: FileChange, last: FileChange) => (first.beforeMode === GONE ? 'A' : last.afterMode === GONE ? 'D' : 'M')
+const statusOf = (first: FileChange, last: FileChange): 'A' | 'M' | 'D' => (first.beforeMode === GONE ? 'A' : last.afterMode === GONE ? 'D' : 'M')
 
 /**
  * A file's change over some commits taken together, from their own changes only: its git
@@ -82,7 +105,7 @@ export function fileDelta(unit: Unit, path: string, scope: number[]): FileDelta 
   if (first.beforeMode === GONE && last.afterMode === GONE) return null
   const kept = stretches.flatMap(ks => {
     const a = at(ks[0])!, b = at(ks.at(-1)!)!
-    return same(a, b) ? [] : [{ a, b, part: { touched: ks, upTo: ks.at(-1)!, before: a.before, after: b.after, ...counted(a, b) } }]
+    return same(a, b) ? [] : [{ a, b, part: { touched: ks, upTo: ks.at(-1)!, status: statusOf(a, b), before: a.before, after: b.after, ...counted(a, b), ...kindOf(a, b) } }]
   })
   if (!kept.length) return null
   // How it changed, from the parts kept: a part that undid itself says nothing (a file the
@@ -111,15 +134,18 @@ export function wholeDelta(unit: Unit, path: string): FileDelta | null {
   const touched = unit.commits.flatMap((c, k) => (!c.merge && c.files.some(f => f.path === path) ? [k] : []))
   const { add, del } = counted(first, last)
   const upTo = unit.commits.length - 1
-  return { touched, before: first.before, after: last.after, upTo, status: statusOf(first, last), add, del, parts: [{ touched, upTo, before: first.before, after: last.after, add, del }] }
+  return { touched, before: first.before, after: last.after, upTo, status: statusOf(first, last), add, del, parts: [{ touched, upTo, status: statusOf(first, last), before: first.before, after: last.after, add, del, ...kindOf(first, last) }] }
 }
 
 // Line counts from one file version's `before` to another's `after`, kept per pair: a file's
 // versions stay the same objects while its unit's code is unchanged, and diffing whole texts
-// again on every pick made picking a task in a big unit take up to a second.
+// again on every pick made picking a task in a big unit take up to a second. A change with no
+// lines (binary, a submodule's pointer) counts none, whatever text the other end has.
 const counts = new WeakMap<FileChange, WeakMap<FileChange, { add: number; del: number }>>()
 function counted(first: FileChange, last: FileChange) {
   if (first === last) return { add: first.add, del: first.del }
+  const kind = kindOf(first, last)
+  if (kind.binary || kind.pointer) return { add: 0, del: 0 }
   let to = counts.get(first)
   if (!to) counts.set(first, (to = new WeakMap()))
   let c = to.get(last)
@@ -197,6 +223,18 @@ export function fileTree(root: ModuleNode, unit: Unit, sel: Selection, onlyChang
   rows.set(ROOT, build(ROOT))
   const focus = [...rows.values()].filter(r => !r.folder && (r.inPick || (!narrow && r.writers.length)) && r.changed).map(r => r.id)
   return { rows, open: [...rows.values()].filter(r => r.folder && r.id !== ROOT && focus.some(f => f.startsWith(r.id + '/'))).map(r => r.id) }
+}
+
+/**
+ * The other open units that change each of the unit's files too (the service compares them:
+ * `overlaps`), by path, each with its intent.
+ */
+export function alsoChanged(intents: Intent[], unit: Unit): Map<string, Also[]> {
+  const of = (id: string): Also => {
+    const i = intents.find(x => x.units.some(u => u.id === id))
+    return { unit: id, intent: i?.id ?? '', title: i?.title ?? '' }
+  }
+  return new Map((unit.overlaps ?? []).map(o => [o.path, o.units.map(of)]))
 }
 
 /**

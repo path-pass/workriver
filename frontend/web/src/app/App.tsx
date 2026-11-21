@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActContext, findingKey, gateKey, type Act } from '@/work/actions'
 import { Activity } from '@/work/Activity'
 import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from './Side'
-import type { CommitFocus, Lines } from '@/code/types'
+import type { Also, CommitFocus, Lines } from '@/code/types'
 import { Progress, Squashed, Rail } from '@/planning/Rail'
 import { Topics } from '@/agents/Mark'
 import { MachineChip, alertLimit, alertValue, topLine } from '@/machines/format'
@@ -24,7 +24,7 @@ import { blockedAgents, inbox } from '@/attention/select'
 import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
-import { blame, shownDelta } from '@/code/files'
+import { alsoChanged, blame, shownDelta } from '@/code/files'
 import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
 import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
@@ -176,6 +176,8 @@ export default function App() {
   const coded = useCode(unit)
   const codeSel = useMemo(() => (coded ? selectionOf(coded, pick) : null), [coded, pick])
   const tree = useSame(ws && unit && !noCode(unit) ? repoOf(ws, unit).modules : null)
+  // The files another open unit also changes, with those units and their intents.
+  const also = useMemo(() => (ws && unit ? alsoChanged(ws.intents, unit) : new Map<string, Also[]>()), [ws, unit])
 
   // What the address named and is not there; whether it has been followed; the latest data.
   const [missing, setMissing] = useState<string | null>(null)
@@ -500,6 +502,8 @@ export default function App() {
               onLines={setLines}
               onAsk={askAbout}
               commit={commit?.unit === unit.id ? commit : null}
+              also={also}
+              onUnit={id => ws && pickUnit(ws, id)}
             />}
           </>
         )}

@@ -733,7 +733,8 @@ export const ja: OneForm<typeof en> = {
     from: '変更元',
     unchanged: 'このユニットはまだ {{path}} を変更していません。',
     onlyChanges: '変更のみ',
-    whole: 'ファイル全体'
+    whole: 'ファイル全体',
+    also: 'ほかに変更中'
   },
   tree: {
     label: 'ファイル',
@@ -744,12 +745,18 @@ export const ja: OneForm<typeof en> = {
     expand: 'ファイルツリーを開く',
     resize: 'ファイルツリーの幅',
     planned: '変更予定、未変更',
-    ghost: '予定、まだ存在しません'
+    ghost: '予定、まだ存在しません',
+    also: '{{units}} もこのファイルを変更しています'
   },
   change: {
     A: '追加',
     M: '変更',
-    D: '削除'
+    D: '削除',
+    binary: 'バイナリファイルが異なります',
+    pointerMoved: 'サブモジュールのコミット {{from}} → {{to}}',
+    pointerAdded: 'サブモジュール、コミット {{to}}',
+    pointerRemoved: 'サブモジュール、元はコミット {{from}}',
+    pointerUnknown: '不明'
   },
   code: {
     none: '変更はありません。',

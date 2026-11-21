@@ -733,7 +733,8 @@ export const zhCN: OneForm<typeof en> = {
     from: '改动来自',
     unchanged: '这个单元还没有改动 {{path}}。',
     onlyChanges: '只看改动',
-    whole: '看全文'
+    whole: '看全文',
+    also: '也在改它的'
   },
   tree: {
     label: '文件',
@@ -744,12 +745,18 @@ export const zhCN: OneForm<typeof en> = {
     expand: '展开文件树',
     resize: '文件树的宽度',
     planned: '计划会改，还没动',
-    ghost: '计划新增，还不存在'
+    ghost: '计划新增，还不存在',
+    also: '{{units}} 也在改这个文件'
   },
   change: {
     A: '新增',
     M: '修改',
-    D: '删除'
+    D: '删除',
+    binary: '二进制文件不同',
+    pointerMoved: '子模块提交 {{from}} → {{to}}',
+    pointerAdded: '子模块，位于提交 {{to}}',
+    pointerRemoved: '子模块，原在提交 {{from}}',
+    pointerUnknown: '未知'
   },
   code: {
     none: '没有改动。',

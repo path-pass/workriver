@@ -85,9 +85,9 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
         raws.push((head, raw(parts.next().unwrap_or_default())));
     }
     // Every text needed, in one call.
-    let specs: Vec<String> = raws.iter().flat_map(|(_, files)| files.iter().flat_map(|f| f.ids.clone())).filter(|b| b != NULL).collect();
+    let specs: Vec<String> = raws.iter().flat_map(|(_, files)| files.iter().flat_map(texted)).collect();
     let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
-    let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
+    let text = |b: &str| if is_null(b) { None } else { texts.get(b).cloned().flatten() };
     Ok(raws
         .into_iter()
         .map(|(head, files)| {
@@ -95,7 +95,7 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
             let id = hash.chars().take(9).collect();
             let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
             let files = files.into_iter().filter_map(|f| {
-                let (b, a) = (if f.status == "A" { None } else { Some(text(&f.ids[0]).unwrap_or_default()) }, if f.status == "D" { None } else { Some(text(&f.ids[1]).unwrap_or_default()) });
+                let (b, a) = (f.texted(0).then(|| text(&f.ids[0]).unwrap_or_default()), f.texted(1).then(|| text(&f.ids[1]).unwrap_or_default()));
                 change(f, b, a)
             });
             let parents: Vec<String> = parents.split(' ').filter(|p| !p.is_empty()).map(str::to_string).collect();
@@ -104,7 +104,8 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
         .collect())
 }
 
-/// One commit with its files' text before and after. Binary and very large files are left out.
+/// One commit with its files' text before and after. Very large text files are left out; a
+/// binary file is there without texts.
 pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
     let fmt = "--format=%h%x00%an%x00%aI%x00%P%x00%(trailers:key=Task,valueonly,separator=%x2C)%x00%s";
     let out = git(at, repo, &["log", "-1", "--abbrev=9", fmt, hash, "--"])?;
@@ -116,10 +117,10 @@ pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
     let task = task.split(',').next().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
     let mut files = vec![];
     for f in raw(&String::from_utf8_lossy(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--raw", "--no-abbrev", parent, hash], &[])?)) {
-        // By object id, as `commits` reads them: a submodule's pointer has no text of its own.
+        // By object id, as `commits` reads them; a submodule's pointer has no text.
         let text = |id: &String| blobs(at, repo, std::slice::from_ref(id)).map(|mut b| b.pop().flatten().unwrap_or_default());
-        let before = if f.status == "A" { None } else { Some(text(&f.ids[0])?) };
-        let after = if f.status == "D" { None } else { Some(text(&f.ids[1])?) };
+        let before = if f.texted(0) { Some(text(&f.ids[0])?) } else { None };
+        let after = if f.texted(1) { Some(text(&f.ids[1])?) } else { None };
         if let Some(c) = change(f, before, after) {
             files.push(c);
         }
@@ -129,19 +130,25 @@ pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
 }
 
 /// What changed from commit `from` to commit `to`, as `git diff --no-renames from to` names
-/// it, with each file's texts (binary and very large files left out). Two git calls.
+/// it, with each file's texts (very large text files left out, a binary file there without
+/// texts). Two git calls.
 pub fn diff(at: &Runner, repo: &Path, from: &str, to: &str) -> Result<Vec<FileChange>> {
     let raws = raw(&String::from_utf8_lossy(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--raw", "--no-abbrev", from, to], &[])?));
-    let specs: Vec<String> = raws.iter().flat_map(|f| f.ids.clone()).filter(|b| b != NULL).collect();
+    let specs: Vec<String> = raws.iter().flat_map(texted).collect();
     let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
-    let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
+    let text = |b: &str| if is_null(b) { None } else { texts.get(b).cloned().flatten() };
     Ok(raws
         .into_iter()
         .filter_map(|f| {
-            let (b, a) = (if f.status == "A" { None } else { Some(text(&f.ids[0]).unwrap_or_default()) }, if f.status == "D" { None } else { Some(text(&f.ids[1]).unwrap_or_default()) });
+            let (b, a) = (f.texted(0).then(|| text(&f.ids[0]).unwrap_or_default()), f.texted(1).then(|| text(&f.ids[1]).unwrap_or_default()));
             change(f, b, a)
         })
         .collect())
+}
+
+/// The object ids of a file change's sides that have a text (not a submodule's pointer).
+fn texted(f: &Raw) -> Vec<String> {
+    (0..2).filter(|&k| f.texted(k)).map(|k| f.ids[k].clone()).collect()
 }
 
 /// Where two commits meet: their merge base, None when they never do.

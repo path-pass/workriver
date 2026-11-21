@@ -51,7 +51,12 @@ export interface FileChange {
    * leaves the texts out (null here, `lines` empty): a unit's come with its code (`loadCode`).
    */
   before: string | null;
-  /** The whole file after this commit; null when the commit deletes it. */
+  /**
+   * The whole file after this commit; null when the commit deletes it. Null on a binary side
+   * (its other side keeps its text, so a change over several commits is from its ends), on a
+   * side that is a submodule's pointer (no text) and on uncommitted work scan could not read:
+   * see `beforeBinary`, `afterBinary` and the modes.
+   */
   after: string | null;
   /** Lines added and removed: from the service, or worked out from the texts. */
   add: number;
@@ -61,13 +66,26 @@ export interface FileChange {
   /**
    * Each side's git entry: its mode ('100644'; '000000' where the side does not exist) and
    * object id (zeros where it does not exist, and for uncommitted work's side, which git has
-   * not hashed). Whether a file changed over several commits is whether these differ.
+   * not hashed: 40, or 64 in a SHA-256 repository). Whether a file changed over several
+   * commits is whether these differ.
    */
   beforeMode: string;
   beforeId: string;
   afterMode: string;
   afterId: string;
+  /**
+   * Each side is binary: that side has no text; where either is, git says "Binary files
+   * differ" and there are no line counts.
+   */
+  beforeBinary?: boolean;
+  afterBinary?: boolean;
 }
+
+/** A submodule's pointer at the ends of a change: its commits, null where an end is not one. */
+export interface Pointer { from: string | null; to: string | null }
+
+/** What a change is that has no lines: a binary file's, or a submodule pointer's. */
+export interface Kind { binary?: boolean; pointer?: Pointer }
 
 /**
  * A unit's net change against its base, as `git diff base...head` names it: from where the
@@ -136,7 +154,11 @@ export interface FileDelta {
   parts: FilePart[]
 }
 
-export interface FilePart { touched: number[]; upTo: number; before: string | null; after: string | null; add: number; del: number }
+/** Another open unit that changes a file too: its id and its intent's. */
+export interface Also { unit: string; intent: string; title: string }
+/** One stretch of a file's change; how it changed is from its ends' entries (a binary file and a
+ *  submodule pointer have no texts to tell it by). */
+export interface FilePart extends Kind { touched: number[]; upTo: number; status: 'A' | 'M' | 'D'; before: string | null; after: string | null; add: number; del: number }
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }
