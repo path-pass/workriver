@@ -354,6 +354,31 @@ fn an_intent_follows_its_workspaces_record() {
     boss.append("", "intent.state_changed", json!({ "intent": id, "state": "done" })).expect("its manager closes it");
 }
 
+/// Only the moved record's own intents follow it. boss1 manages w1 "one" with i1, boss2
+/// manages w2 "two" with i2. The runtime restarts w1 (now w9 "one") and boss1 registers
+/// again: i1 follows w1's record, i2 stays in w2 and boss2 stays its manager, where once
+/// every intent was moved to w9 and boss1 became the manager of the other workspace's.
+#[test]
+fn only_the_moved_records_intents_follow_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), labelled("s-one", "boss1", "w1", "one")), ("p2".into(), labelled("s-two", "boss2", "w2", "two"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let (b1, b2) = (at_place(&d, "p1"), at_place(&d, "p2"));
+    b1.append("", "manager.registered", json!({ "workspace": group(&b1) })).unwrap();
+    b2.append("", "manager.registered", json!({ "workspace": group(&b2) })).unwrap();
+    let (i1, i2) = (planned(&d, "One", None), planned(&d, "Two", None));
+    d.append("user", "intent.state_changed", start(&i1, &group(&b1))).unwrap();
+    d.append("user", "intent.state_changed", start(&i2, &group(&b2))).unwrap();
+    fake.agents.lock().unwrap()[0].1 = labelled("s-one", "boss1", "w9", "one");
+    b1.append("", "manager.registered", json!({ "workspace": group(&b1) })).unwrap();
+    assert_eq!(records(&d), ["w9:one:s-one:-", "w2:two:s-two:-"]);
+    b1.append("", "intent.updated", json!({ "intent": i1, "add_note": "boss1's" })).expect("its own followed it");
+    b2.append("", "intent.updated", json!({ "intent": i2, "add_note": "boss2's" })).expect("still its manager");
+    let e = b1.append("", "intent.updated", json!({ "intent": i2, "add_note": "boss1's" })).unwrap_err().to_string();
+    assert!(e.contains(&format!("only the user or the manager of intent {i2}")), "another workspace's intent followed w1's record: {e}");
+}
+
 /// A service that follows machine "box", as it runs for real (no `--as`): the runtimes read
 /// through, the user's client, and a client of box's own listener.
 fn following(tmp: &std::path::Path, local: std::sync::Arc<Fake>, far: std::sync::Arc<Fake>) -> (std::sync::Arc<crate::runtime::follow::Machines>, Daemon, Daemon) {
@@ -468,8 +493,16 @@ fn an_agents_workspace_is_read_with_its_place() {
     assert!(status == 403 && said.contains("the workspace it runs in"), "{status} {said}");
 }
 
-/// Runs `then` once, from inside the service, as it next lists the agents for a request:
-/// after a registration was let in, before it is recorded.
+// The check and the record are one step (`App::record_in`): a group is checked on what is
+// recorded under the same lock of the store that then records it. The tests below run
+// another request's record in the one place a test can reach between a request being let in
+// and its check, the runtime read before the lock (`as_the_agents_are_listed`). What none of
+// them catches: the check and the record under two separate locks, with the other record
+// falling between the two. No hook sits there; that stays for review to see.
+
+/// Runs `then` once, from inside the service, as it next lists the agents for a request
+/// (the fake's open groups are its agents' groups, so a start's runtime read lists them too):
+/// after the request was let in, before it is checked and recorded.
 fn as_the_agents_are_listed(fake: &Fake, then: impl Fn() + Send + Sync + 'static) {
     let done = std::sync::atomic::AtomicBool::new(false);
     *fake.on_agents.lock().unwrap() = Some(std::sync::Arc::new(move || {
@@ -497,6 +530,30 @@ fn the_check_and_the_record_are_one_step() {
     let (status, said) = answered(&d, "p2", "manager.registered", json!({ "workspace": g2 }));
     assert!(status == 409 && said.contains(&format!("workspace docs {SAME_NAME}")), "{status} {said}");
     assert_eq!(records(&d), ["w1:docs:s-boss:-"]);
+}
+
+/// The same for a start, and for every event that names a group other than a registration.
+/// Two open workspaces "docs", neither recorded. While the user's start of i2 in w2 is under
+/// way, i1 is started in w1 and recorded: i2's start is checked against that record and
+/// refused, where it once passed against no record and then renamed w1's record to w2, with
+/// i1 in it.
+#[test]
+fn a_start_is_checked_on_what_is_recorded_as_it_is_recorded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), docs("s-boss", "boss", "w1")), ("p2".into(), docs("s-other", "other", "w2"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let (g1, g2) = (group(&at_place(&d, "p1")), group(&at_place(&d, "p2")));
+    let (i1, i2) = (planned(&d, "One", None), planned(&d, "Two", None));
+    let (user, first) = (d.clone(), i1.clone());
+    as_the_agents_are_listed(&fake, move || {
+        user.append("user", "intent.state_changed", start(&first, &g1)).unwrap();
+    });
+    let e = d.append("user", "intent.state_changed", start(&i2, &g2)).unwrap_err().to_string();
+    assert!(e.contains(&format!("workspace docs {SAME_NAME}")), "{e}");
+    assert_eq!(records(&d), ["w1:docs:-:-"]);
+    assert_eq!(d.get("/api/state").unwrap()["workspaces"][0]["current"], i1.as_str());
+    assert_eq!(intent(&d, &i2).0, "planned");
 }
 
 /// The same for a registration that names only an intent: the workspace it sets the manager
