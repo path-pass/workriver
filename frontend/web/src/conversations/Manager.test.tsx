@@ -36,9 +36,9 @@ let told: Parameters<Talk['onTell']>[]
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host); told = [] })
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
-function show(to: string, messages: ManagerMessage[]) {
+function show(to: string, messages: ManagerMessage[], live = sessions) {
   const talk: Talk = {
-    sessions, file: null, lines: null, managerAt: 1, to, onRead: () => {}, onFile: () => {}, focusAt: 0, onOpen: () => {}, extra: [],
+    sessions: live, file: null, lines: null, managerAt: 1, to, onRead: () => {}, onFile: () => {}, focusAt: 0, onOpen: () => {}, extra: [],
     intents: [], messages, onTell: (...a) => { told.push(a) }, onAnswer: () => {},
   }
   const unit = { id: 'u1', title: 'Search' } as unknown as Unit
@@ -72,6 +72,24 @@ describe('the conversation with every manager', () => {
     act(() => { (host.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click() })
     expect(told).toEqual([[{ workspace: EVERY, all: true }, 'Clean up your worktrees.', '', { unit: '', task: 0, context: [] }, []]])
     expect(host.textContent).toContain('Typed into the terminals of the 3 managers running')
+  })
+
+  it('keeps All managers picked while managers close, and the draft when none runs', () => {
+    show(EVERY, [], sessions.slice(0, 2))
+    const box = host.querySelector('textarea')!
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => { set.call(box, 'Maintenance in ten minutes.'); box.dispatchEvent(new Event('input', { bubbles: true })) })
+    // One closes: still to every manager, not to the one left.
+    show(EVERY, [], sessions.slice(0, 1))
+    expect(host.querySelector('[aria-label="Workspace"]')?.textContent).toBe('All managers')
+    // None runs: nothing can be sent, and the draft stays.
+    show(EVERY, [], [])
+    expect(host.textContent).toContain('No manager is running: nobody would read it.')
+    expect(host.querySelector('textarea')!.value).toBe('Maintenance in ten minutes.')
+    expect((host.querySelector('button[aria-label="Send"]') as HTMLButtonElement).disabled).toBe(true)
+    show(EVERY, [], sessions.slice(0, 1))
+    act(() => { (host.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click() })
+    expect(told).toEqual([[{ workspace: EVERY, all: true }, 'Maintenance in ten minutes.', '', { unit: '', task: 0, context: [] }, []]])
   })
 
   it('keeps a workspace’s own conversation apart', () => {

@@ -148,9 +148,10 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   const own = intent?.state === 'active' ? intent.workspace?.label : undefined
   const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
   const labels = [...new Set([own, ...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter((l): l is string => !!l))]
-  // Every manager at once: offered with more than one running, or once written to.
-  const every = running.length > 1 || talk.messages.some(m => m.workspace === EVERY)
   const [chosen, setChosen] = useState<string | null>(talk.to ?? null)
+  // Every manager at once: offered with more than one running, or once written to; once
+  // picked it stays picked, however many run (none: the draft stays and nothing is sent).
+  const every = running.length > 1 || chosen === EVERY || talk.messages.some(m => m.workspace === EVERY)
   // Asked for again (Needs you, an intent's page): the workspace named, or the one on screen.
   // (Kept outside the component: the section may mount with the request already made.)
   useEffect(() => {
