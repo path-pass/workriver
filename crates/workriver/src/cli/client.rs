@@ -240,9 +240,18 @@ pub(super) fn read_answer(res: &mut ureq::http::Response<ureq::Body>) -> anyhow:
 /// The CLI's side: a proof for this process from the service whose data directory is `home`;
 /// none when there is no service socket there (another machine, an older service).
 pub(crate) fn fetch(home: &Path) -> Option<String> {
+    proof_from(std::os::unix::net::UnixStream::connect(home.join(SOCKET)).ok()?)
+}
+
+/// The proof the service writes into a connection to its caller socket, as one line.
+pub(super) fn proof_from(stream: std::os::unix::net::UnixStream) -> Option<String> {
     use std::io::BufRead;
-    let stream = std::os::unix::net::UnixStream::connect(home.join(SOCKET)).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
+    // The service answers at once and closes. On macOS a socket whose other end has closed
+    // refuses a timeout (EINVAL): its answer is then all there already, so read it without
+    // waiting. Either way the read never hangs.
+    if stream.set_read_timeout(Some(Duration::from_secs(3))).is_err() {
+        stream.set_nonblocking(true).ok()?;
+    }
     let mut line = String::new();
     std::io::BufReader::new(stream).read_line(&mut line).ok()?;
     Some(line.trim().to_string()).filter(|p| !p.is_empty())
