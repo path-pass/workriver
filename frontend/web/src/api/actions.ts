@@ -1,15 +1,16 @@
 // The one place where the UI reaches out to agents, through the workriver service. With the
 // sample (VITE_MOCK=1) nothing is reached: focusing a terminal only says so, and a
 // manager's reply is made up.
-import { MOCK } from '@/workspace/source'
+import { MOCK, MOCK_CHANGED } from '@/workspace/source'
 import type { Decision, GateResult, Finding, Task } from '@/work/types'
 import type { Attachment } from '@/attachments/types'
-import type { Unit } from '@/planning/types'
+import type { Intent, IntentText, IntentVersion, Unit } from '@/planning/types'
 import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machines/types'
-import type { AskContext, Sent } from '@/conversations/types'
+import type { Answer, AskContext, Sent } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
-import { call, post, SIGNED_OUT } from './http'
+import { call, post, read, SIGNED_OUT } from './http'
+import { labelOf } from '@/content/choice/surface'
 
 /** The event the UI listens to for a short note at the bottom of the screen. */
 export const NOTE = 'workriver:note'
@@ -74,8 +75,11 @@ const files = (list: Attachment[]) => list.length > 0 && `  Attachments: ${list.
 
 /** What a gate's result says to the agent waiting on it. */
 export function gateMessage(gate: Task, r: GateResult): string {
+  const picked = r.selected?.[0]
   return lines(
-    `${gate.gate === 'deploy' ? 'Manual deploy' : 'Manual test'} "${gate.title}": ${r.result === 'done' ? 'done' : 'problem found'}`,
+    r.result === 'answered' && picked !== undefined
+      ? `Answered "${gate.title}": ${(gate.input.choice && labelOf(gate.input.choice, picked)) ?? picked}`
+      : `${gate.gate === 'deploy' ? 'Manual deploy' : 'Manual test'} "${gate.title}": ${r.result === 'done' ? 'done' : 'problem found'}`,
     r.note && `Note: ${r.note}`,
     files(r.attachments),
     ...r.findings.flatMap(f => [
@@ -103,7 +107,7 @@ export function submitGate(unit: Unit, gate: Task, r: GateResult, to: string, on
     const findings = await Promise.all(r.findings.map(async f => ({
       severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence, attachments: await Promise.all(f.attachments.map(upload)),
     })))
-    await post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings, attachments })
+    await post('/api/gate', { unit: unit.id, task: Number(gate.id), result: r.result, note: r.note, findings, attachments, selected: r.selected ?? [] })
   }
   return { message, cancel: deliver(to, message, record, onStep) }
 }
@@ -148,10 +152,36 @@ export async function tellManager(to: { intent?: string; workspace: string }, te
   await post('/api/message', { ...to, text, ...about, context: [...about.context, ...attached] })
 }
 
+/** Answers a manager's question in a workspace's conversation: a message of the user's,
+ * naming the question and the value picked, with the user's note as its text. */
+export async function answerManager(workspace: string, answer: Answer, note: string) {
+  await post('/api/message', { workspace, text: note, answer })
+}
+
 /** The user has read a workspace's conversation with its manager, up to `at`. */
 export function readMessages(workspace: string, at: string) {
   if (!MOCK) post('/api/messages/read', { workspace, at }).catch(e => console.warn(e))
 }
+
+/** A question in the discussion of a delivered design or research (or, `conclude`, the request
+ * for its conclusion): the service types it into the task's own agent, which answers with
+ * `workriver answer`. The user's files are stored first and named by their ids. A refusal is
+ * thrown with the service's words. */
+export async function discuss(unit: string, task: number, text: string, conclude: boolean, files: Attachment[] = []) {
+  const stored = await Promise.all(files.map(async a => ({ kind: 'attachment' as const, label: a.name, id: await upload(a) })))
+  const context = stored.filter((c, k) => stored.findIndex(x => x.id === c.id) === k)
+  await post('/api/discuss', { unit, task, text, conclude, context })
+}
+
+/** The user has read a task's discussion, up to `at`. */
+export function readDiscussion(unit: string, task: number, at: string) {
+  if (!MOCK) post('/api/discuss/read', { unit, task, at }).catch(e => console.warn(e))
+}
+
+/** The sample's made-up answer from a task's agent; content, not UI text. */
+export const mockAnswer = (text: string, conclude: boolean) => conclude
+  ? '（示例结论，还没有接到真正的 agent）\n- 决定：照报告的推荐做\n- 改了：没有\n- 未定：无'
+  : `（示例回答，还没有接到真正的 agent）关于「${text}」：报告里第 2 节写了理由。`
 
 /** The sample's made-up reply from a manager; content, not UI text. */
 export const mockReply = (text: string) => `（示例回复，还没有接到真正的 manager）收到：「${text}」，我会安排。`
@@ -176,6 +206,32 @@ export async function record(kind: string, body: unknown) {
 export async function dropTask(unit: Unit, task: Task, reason: string) {
   if (MOCK) return
   await post('/api/task/drop', { unit: unit.id, task: Number(task.id), reason })
+}
+
+/**
+ * Records the user's edit of an intent's title, goal or note (`editBody`); a refusal is
+ * thrown with the service's words (an edit from an older version: `conflictOf`). With the
+ * sample it is kept in memory and the sample shown again with it.
+ */
+export async function editIntent(intent: Intent, body: Record<string, unknown>) {
+  if (MOCK) {
+    const changed = (await import('@/mock/history')).mockEdit(intent, body)
+    window.dispatchEvent(new CustomEvent(MOCK_CHANGED, { detail: (ws: Workspace) => ({ ...ws, intents: ws.intents.map(i => (i.id === intent.id ? { ...i, ...changed } : i)) }) }))
+    return
+  }
+  await post('/api/append', { kind: 'intent.updated', body })
+}
+
+/** An intent's versions, oldest first (who, when, what each changed). */
+export async function intentHistory(intent: Intent): Promise<IntentVersion[]> {
+  if (MOCK) return (await import('@/mock/history')).mockHistory(intent)
+  return (await read<{ versions: IntentVersion[] }>(`/api/intent/${encodeURIComponent(intent.id)}/history`)).versions
+}
+
+/** Version `n` of an intent whole, with the one before it (none before the first). */
+export async function intentVersion(intent: Intent, n: number): Promise<{ text: IntentText; before: IntentText | null }> {
+  if (MOCK) return (await import('@/mock/history')).mockVersion(intent, n)
+  return read(`/api/intent/${encodeURIComponent(intent.id)}/history?version=${n}`)
 }
 
 /** Merges planned intents into one: the user's alone, so it has a route of its own. */

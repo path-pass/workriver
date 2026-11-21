@@ -26,7 +26,9 @@ fn seed(s: &mut dyn WorkStore) {
         json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/mention", "base": "main"}}),
         json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}),
     ] {
-        s.record(&agent_a(), body(v)).unwrap();
+        // An intent made active is the user's to add; an agent's starts in the roadmap.
+        let who = if v["kind"] == "intent.created" { Principal::User } else { agent_a() };
+        s.record(&who, body(v)).unwrap();
     }
 }
 
@@ -37,7 +39,7 @@ fn a_record_returns_the_committed_change_and_its_revision() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = open(dir.path());
     assert_eq!(s.recorded().unwrap().revision(), Revision(0));
-    let done = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Chat v2"}}))).unwrap();
+    let done = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Chat v2", "state": "planned"}}))).unwrap();
     assert_eq!(done.revision, Revision(1));
     assert_eq!((done.event.seq, done.event.actor.as_str()), (1, "agent-a"));
     assert!(matches!(&done.event.body, Body::IntentCreated { id, .. } if id == "i1"), "the rules gave the id: {:?}", done.event.body);
@@ -78,7 +80,7 @@ fn a_refused_request_changes_nothing() {
     assert_eq!(s.recorded().unwrap(), before);
     assert_eq!(s.history(Revision(0), 100).unwrap().events.len(), 3);
     assert_eq!(s.status().unwrap().events, 3);
-    let next = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Search"}}))).unwrap();
+    let next = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Search", "state": "planned"}}))).unwrap();
     assert!(matches!(&next.event.body, Body::IntentCreated { id, .. } if id == "i2"), "{:?}", next.event.body);
     assert_eq!(next.revision, Revision(4));
 }
@@ -89,7 +91,7 @@ fn a_refused_request_changes_nothing() {
 fn history_is_read_by_cursor_and_survives_reopening() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = open(dir.path());
-    let first = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Chat v2"}}))).unwrap().event;
+    let first = s.record(&agent_a(), body(json!({"kind": "intent.created", "body": {"title": "Chat v2", "state": "planned"}}))).unwrap().event;
     let page = s.history(Revision(0), 1).unwrap();
     assert_eq!((page.events.as_slice(), page.next), ([first].as_slice(), Revision(1)));
     seed(&mut *s);

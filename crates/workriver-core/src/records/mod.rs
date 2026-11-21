@@ -72,6 +72,9 @@ pub struct State {
     /// Up to when the user has read each workspace's conversation with its manager, by label.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub read: std::collections::BTreeMap<String, String>,
+    /// Up to when the user has read each task's discussion, by `unit#task`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub questions_read: std::collections::BTreeMap<String, String>,
     /// Not the records but a part of them: what an agent on a blind task may see.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reduced: bool,
@@ -128,7 +131,7 @@ impl State {
             ChoreCreated { .. } | ChoreDone { .. } => self.prepare_chores(who, body),
             CommandRan { .. } | CommandEnded { .. } | CommandReviewed { .. } => self.prepare_commands(who, body),
             // Conversations: conversations/.
-            QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } => self.prepare_questions(who, body),
+            QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } | QuestionsRead { .. } => self.prepare_questions(who, body),
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.prepare_messages(who, body),
             DeliveryUpdated { .. } => self.prepare_deliveries(who, body),
             AttachmentAdded { .. } => self.prepare_attachments(who, body),
@@ -151,7 +154,7 @@ impl State {
             ChoreCreated { .. } | ChoreDone { .. } => self.apply_chores(e),
             CommandRan { .. } | CommandEnded { .. } | CommandReviewed { .. } => self.apply_commands(e),
             // Conversations: conversations/.
-            QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } => self.apply_questions(e),
+            QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } | QuestionsRead { .. } => self.apply_questions(e),
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.apply_messages(e),
             DeliveryUpdated { .. } => self.apply_deliveries(e),
             AttachmentAdded { .. } => self.apply_attachments(e),

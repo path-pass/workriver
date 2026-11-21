@@ -94,3 +94,10 @@
 {"seq":94,"at":"2025-12-03T13:00:00Z","actor":"user","kind":"intent.state_changed","body":{"intent":"i1","state":"done"}}
 {"seq":95,"at":"2025-12-03T13:01:00Z","actor":"user","kind":"intent.state_changed","body":{"intent":"i4","state":"dropped","reason":"later"}}
 {"seq":96,"at":"2025-12-03T13:02:00Z","actor":"user","kind":"intent.created","body":{"id":"i5","title":"Later","project":"/r/chat","state":"planned","external":{"system":"gh","key":"7"}}}
+{"seq":97,"at":"2025-12-03T13:03:00Z","actor":"user","kind":"intent.updated","body":{"intent":"i5","title":"Later, maybe","note":"Whole note","base":1}}
+{"seq":98,"at":"2025-12-03T14:00:00Z","actor":"user","kind":"question.asked","body":{"id":"q5","thread":"q5","unit":"u3","task":1,"text":"Why three?","discuss":true}}
+{"seq":99,"at":"2025-12-03T14:00:01Z","actor":"workriver","kind":"question.started","body":{"question":"q5","agent":"s-s","name":"surveyor","temporary":false}}
+{"seq":100,"at":"2025-12-03T14:01:00Z","actor":"s-s","kind":"question.answered","body":{"question":"q5","text":"Each fits a case."}}
+{"seq":101,"at":"2025-12-03T14:02:00Z","actor":"user","kind":"questions.read","body":{"unit":"u3","task":1,"at":"2025-12-03T14:01:00Z"}}
+{"seq":102,"at":"2025-12-03T14:03:00Z","actor":"user","kind":"question.asked","body":{"id":"q6","thread":"q5","unit":"u3","task":1,"text":"","conclude":true,"discuss":true}}
+{"seq":103,"at":"2025-12-03T14:04:00Z","actor":"workriver","kind":"question.failed","body":{"question":"q6","reason_code":"agent-gone","reason":"surveyor is no longer running"}}

@@ -3058,6 +3058,118 @@
        "delivered": "2026-10-29 11:00"
       },
       {
+       "id": "g2|decide",
+       "kind": "gate",
+       "gate": "decide",
+       "state": "done",
+       "taskId": null,
+       "title": "搜索结果先怎么排？",
+       "agent": null,
+       "writing": false,
+       "inputs": [
+        {
+         "from": "g|deploy",
+         "primary": true
+        }
+       ],
+       "input": {
+        "text": "上线后两种意见都有：按时间排，或按相关度排。你定先做哪个。",
+        "causes": [],
+        "steps": [],
+        "choice": {
+         "surface": {
+          "version": "1.0",
+          "createSurface": {
+           "surfaceId": "choice",
+           "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+           "components": [
+            {
+             "id": "root",
+             "component": "Column",
+             "children": [
+              "options",
+              "submit"
+             ]
+            },
+            {
+             "id": "options",
+             "component": "ChoicePicker",
+             "variant": "mutuallyExclusive",
+             "options": [
+              {
+               "label": "先按时间排序",
+               "value": "time"
+              },
+              {
+               "label": "先按相关度排序，时间排序以后再说",
+               "value": "relevance"
+              },
+              {
+               "label": "先都不动，等用户反馈",
+               "value": "later"
+              }
+             ],
+             "value": {
+              "@path": "/selected"
+             }
+            },
+            {
+             "id": "submit",
+             "component": "Button",
+             "variant": "primary",
+             "child": "submit-label",
+             "action": {
+              "event": {
+               "name": "answer",
+               "context": {
+                "selected": {
+                 "@path": "/selected"
+                }
+               }
+              }
+             },
+             "@checks": [
+              {
+               "condition": {
+                "@call": "required",
+                "args": {
+                 "value": {
+                  "@path": "/selected"
+                 }
+                }
+               }
+              }
+             ]
+            },
+            {
+             "id": "submit-label",
+             "component": "Text",
+             "text": {
+              "@path": "/ui/submit"
+             }
+            }
+           ],
+           "dataModel": {
+            "selected": []
+           }
+          }
+         },
+         "needs_note": [
+          "later"
+         ]
+        }
+       },
+       "output": {
+        "note": "先看一周反馈再说，现在两边都有人要。",
+        "selected": [
+         "later"
+        ]
+       },
+       "plans": [],
+       "started": "2026-10-29 11:00",
+       "delivered": "2026-10-29 11:20"
+      },
+      {
        "id": "u|b51c0e9a3",
        "kind": "implement",
        "state": "unregistered",
@@ -3284,13 +3396,46 @@
         "causes": []
        },
        "output": {
-        "note": "账号限流误伤更少：公司网络共享出口 IP 时，IP 限流会把整层楼一起挡住。建议每账号每分钟 10 次，超出后指数退避。"
+        "note": "账号限流误伤更少：公司网络共享出口 IP 时，IP 限流会把整层楼一起挡住。建议每账号每分钟 10 次，超出后指数退避。",
+        "gate": "2"
        },
        "plans": [],
        "started": "2026-11-10 09:30",
        "delivered": "2026-11-10 15:20",
        "research": true,
-       "raisedBy": "plan"
+       "raisedBy": "plan",
+       "discuss": "over",
+       "threads": [
+        {
+         "id": "q1",
+         "ended": false,
+         "live": false,
+         "discuss": true,
+         "turns": [
+          {
+           "id": "q1",
+           "question": "共享出口 IP 的公司网络下，账号限流会不会让撞库更容易？",
+           "context": [],
+           "answer": "不会更容易：账号限流按每个账号计数，撞库换账号也会各自被限。\n- 另加一条：同一 IP 每分钟失败超过 100 次时告警，不拦截。",
+           "answerBy": "agent-R",
+           "answeredAt": "2026-11-10T16:02:00Z",
+           "at": "2026-11-10T16:00:00Z"
+          },
+          {
+           "id": "q2",
+           "question": "",
+           "context": [],
+           "answer": "- 决定：按账号限流，10 次/分钟；同一 IP 失败过多只告警\n- 改了：报告第 3 节加上告警阈值\n- 未定：告警发到哪里，上线前再定",
+           "answerBy": "agent-R",
+           "answeredAt": "2026-11-10T16:20:00Z",
+           "at": "2026-11-10T16:15:00Z",
+           "conclude": true
+          }
+         ],
+         "conclusion": "- 决定：按账号限流，10 次/分钟；同一 IP 失败过多只告警\n- 改了：报告第 3 节加上告警阈值\n- 未定：告警发到哪里，上线前再定"
+        }
+       ],
+       "amended": "2026-11-10T16:18:00Z"
       },
       {
        "id": "2",
@@ -3353,7 +3498,38 @@
    "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。",
    "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10",
    "manager": "mgr-hard",
-   "managerState": "idle"
+   "managerState": "idle",
+   "version": 3,
+   "edited": {
+    "at": "2026-11-14T10:05:00Z",
+    "by": null
+   },
+   "history": [
+    {
+     "n": 1,
+     "at": "2026-11-10T09:00:00Z",
+     "by": "user",
+     "how": "created",
+     "title": "上线前加固",
+     "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期。",
+     "note": "这一轮不做的：两步验证。"
+    },
+    {
+     "n": 2,
+     "at": "2026-11-12T15:20:00Z",
+     "by": "s-mgr-hard",
+     "name": "mgr-hard",
+     "how": "edited",
+     "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10"
+    },
+    {
+     "n": 3,
+     "at": "2026-11-14T10:05:00Z",
+     "by": "user",
+     "how": "edited",
+     "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。"
+    }
+   ]
   },
   {
    "id": "ops",
@@ -3966,6 +4142,100 @@
    "replies": [],
    "byManager": true,
    "unread": true
+  },
+  {
+   "id": "m6",
+   "intent": "hardening",
+   "workspace": "hardening",
+   "manager": "mgr-hard",
+   "text": "限流的压测先在哪儿跑？",
+   "at": "2026-11-17T09:30:00Z",
+   "step": "delivered",
+   "replies": [],
+   "byManager": true,
+   "choice": {
+    "surface": {
+     "version": "1.0",
+     "createSurface": {
+      "surfaceId": "choice",
+      "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+      "components": [
+       {
+        "id": "root",
+        "component": "Column",
+        "children": [
+         "options",
+         "submit"
+        ]
+       },
+       {
+        "id": "options",
+        "component": "ChoicePicker",
+        "variant": "mutuallyExclusive",
+        "options": [
+         {
+          "label": "在 staging 上跑",
+          "value": "staging"
+         },
+         {
+          "label": "先在本机跑一轮",
+          "value": "local"
+         },
+         {
+          "label": "这次不压测",
+          "value": "skip"
+         }
+        ],
+        "value": {
+         "@path": "/selected"
+        }
+       },
+       {
+        "id": "submit",
+        "component": "Button",
+        "variant": "primary",
+        "child": "submit-label",
+        "action": {
+         "event": {
+          "name": "answer",
+          "context": {
+           "selected": {
+            "@path": "/selected"
+           }
+          }
+         }
+        },
+        "@checks": [
+         {
+          "condition": {
+           "@call": "required",
+           "args": {
+            "value": {
+             "@path": "/selected"
+            }
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "submit-label",
+        "component": "Text",
+        "text": {
+         "@path": "/ui/submit"
+        }
+       }
+      ],
+      "dataModel": {
+       "selected": []
+      }
+     }
+    },
+    "needs_note": [
+     "skip"
+    ]
+   },
+   "open": true
   }
  ],
  "workspaces": [

@@ -103,7 +103,7 @@ impl App {
         let path = std::fs::canonicalize(given).map_err(|e| bad(format!("project {given:?}: no such id or folder ({e})")))?;
         let path = path.to_string_lossy().into_owned();
         let all = self.store.lock().unwrap().recorded()?;
-        if let Some(p) = views::project_of(&all, &path) {
+        if let Some(p) = all.project_of(&path) {
             return Ok(p.path.clone());
         }
         scan::toplevel(&scan::Runner::Local, Path::new(&path)).map(|t| t.to_string_lossy().into_owned()).map_err(|_| bad(format!("{path} is neither a registered project nor a git repository; register it with `workriver project add`")))

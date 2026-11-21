@@ -35,7 +35,7 @@ terminal" below is the one the runtime runs that agent in.
   always that agent's, even if it can read the token. There is no `--as user`.
 - **Another machine** you follow can report and ask, never act as you. Its agents reach the
   service through a listener of their own that serves an allow-list: who am I, record my
-  work, ask and answer, attach and fetch files, read the board. No session, no token, no
+  work, ask and answer, attach and fetch files, read the board and an intent's history. No session, no token, no
   machine settings, no decisions there, whatever the request carries.
 
 ## Which terminal a command comes from
@@ -95,7 +95,8 @@ in none of the runtime's terminals needs no tty to be yours. Everything else sta
 ## What only you can do
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
-drop them, end a conversation, focus a terminal from the page, start a planned intent in a
+drop them, end a conversation, discuss a delivered research or design result with the agent
+that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, start a planned intent in a
 workspace from the page (`/api/intent/start`), run a command (below), add projects, add or
 enable machines, link workspaces, say which project a workspace works on, set when the machines alert (`/api/metrics/thresholds`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
@@ -103,6 +104,32 @@ Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metri
 machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
 the rules of the event store refuse those events from anyone else as a last line of
 defence.
+
+An intent's text is yours, with one owner beside you: its title and goal only you change; its
+note its manager also changes while the intent is active; while it is planned, a manager of
+any workspace whose project is the intent's (the project you set for that workspace, else
+the project of its current intent: what is recorded, never the folder its terminal is in)
+may only add to its note; no other agent changes any of it, and a done or dropped intent, or
+dropping a planned one, is yours alone. These are the rules of the event store
+(`intent.updated`, recorded through the same route as other records, `App::who`), not of a
+route. Every change is kept as a version, recorded as whoever the service found the caller
+to be, and you can restore any of them on the intent's page; when you change an active
+intent, its manager is told, your words quoted. Its history is read like the rest
+(`App::view`); an agent on a blind task cannot read it, since it holds the note.
+
+Since these rules go by the intent's state and by the project its workspace works on, who
+moves an intent and which project a workspace works on are held as well. An active intent is
+marked done, put back in the roadmap or dropped by you or its manager only. A manager starts
+only intents of the project its workspace works on by the records (what you set, else its
+current intent's, else the one project of the intents that ran in it); while nothing
+recorded says, it starts none of a known project: you start a workspace's first intent (or
+set its project), so no agent makes its workspace another project's, or becomes the manager
+of another project's intent, by starting it. You may start any intent anywhere (the page
+asks you to confirm another project's). An intent of no project (from before projects) only
+you start. And where an intent runs is set by nothing else: an agent adds intents to the
+roadmap only (planned, in no workspace), and linking an intent to a workspace is yours alone,
+so no agent becomes another intent's manager, or gives its workspace a project, by writing
+where an intent runs.
 
 Findings are the exception by design: by default the intent's **manager decides them**, so
 that work does not wait for you. The trade-off, plainly: a manager that is compromised or

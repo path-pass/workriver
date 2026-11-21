@@ -22,8 +22,16 @@ export const severityCounts = (found: Finding[]) =>
 // ---- labels ----
 
 /** Who found a finding: the reviewer, or the kind of gate. */
+/**
+ * Who a gate's result goes to while it is on its way: the agent of the work it follows; none
+ * (the manager) for a decide gate, whose result always goes to the manager (as the service's
+ * delivery plan sends it).
+ */
+export const waitsOn = (u: Unit, n: Task): string | null =>
+  n.gate === 'decide' ? null : (u.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null)
+
 export const finderLabel = (t: T, n: Task): string =>
-  n.gate ? t(`gate.${n.gate}`) : n.reviewer ? t(`reviewer.${n.reviewer}`) : t('kind.review')
+  n.gate ? t(n.input.choice ? 'gate.choice' : `gate.${n.gate}`) : n.reviewer ? t(`reviewer.${n.reviewer}`) : t('kind.review')
 
 export function reviewLabel(t: T, n: Task): string {
   const by = finderLabel(t, n)

@@ -71,7 +71,46 @@ export const ja: OneForm<typeof en> = {
     moved: '{{time}}前に動きあり',
     neverMoved: 'まだ動きなし',
     earlier: '以前の調査と設計',
-    earlierHint: '調査と設計がそれぞれのユニットになる前に、インテント自体に記録されたものです。'
+    earlierHint: '調査と設計がそれぞれのユニットになる前に、インテント自体に記録されたものです。',
+    edit: {
+      open: 'タイトル・目標・メモを編集',
+      title: 'インテントを編集',
+      hint: '変更はすべてバージョンとして履歴に残ります。',
+      fieldTitle: 'タイトル',
+      fieldGoal: '目標',
+      fieldNote: 'メモ',
+      write: '編集',
+      preview: 'プレビュー',
+      nothing: 'プレビューする内容がありません。',
+      save: '保存',
+      cancel: 'キャンセル',
+      saveAnyway: 'それでも保存',
+      failed: '保存できませんでした：{{error}}',
+      conflict: {
+        title: 'その間にタイトルが変更されました（現在 v{{n}}）。今の内容とあなたの内容の差分：',
+        goal: 'その間に目標が変更されました（現在 v{{n}}）。今の内容とあなたの内容の差分：',
+        note: 'その間にメモが変更されました（現在 v{{n}}）。今の内容とあなたの内容の差分：'
+      },
+      anyway: 'それでも保存すると、今の内容は履歴に残ります。',
+      restoring: 'v{{n}} を復元：保存すると新しいバージョンになります。削除されるものはありません。'
+    },
+    history: {
+      line: 'v{{n}} · {{time}}前に{{who}}が編集',
+      you: 'あなた',
+      open: '履歴',
+      heading: '履歴',
+      hint: 'タイトル・目標・メモのすべてのバージョン（新しい順）。',
+      created: '作成',
+      title: 'タイトル',
+      goal: '目標',
+      note: 'メモ',
+      added: 'メモに追記',
+      merged: '{{from}} を統合',
+      first: '最初のバージョン（全文）。',
+      whole: '全文',
+      restore: 'このバージョンを復元',
+      failed: '履歴を読めません：{{error}}'
+    }
   },
   start: {
     title: 'はじめに',
@@ -80,7 +119,7 @@ export const ja: OneForm<typeof en> = {
     agent: '{{runtime}} ワークスペースでコーディングエージェントを起動し、そのマネージャーにします。',
     skill: 'マネージャースキルを渡します：skills/workriver-manager をそのスキルフォルダにリンクするか、このコマンドの出力を貼り付けます。',
     register: 'ワークスペースのマネージャーとして登録させます：',
-    begin: '次に、左のロードマップから目標を開始させます（先に `workriver backlog add` で追加することもできます）：',
+    begin: '最初の目標はあなたが開始します：左のロードマップの目標で「開始」を押し、そのワークスペースを選びます。以降、そのプロジェクトの目標はマネージャー自身が開始します。ロードマップの確認：',
     import: '既存のバックログファイルがあれば、エージェントにインポートスキルで取り込ませます：',
     work: 'マネージャーが目標をユニットとタスクに分けてワーカーエージェントに渡し、その作業がここに表示されます。',
     trailer: 'コミットメッセージに次の行を書くと、そのコミットはタスクに属します：'
@@ -243,7 +282,7 @@ export const ja: OneForm<typeof en> = {
     workspace: 'このための {{runtime}} ワークスペースを開くか、マネージャーにまだインテントを任せられるワークスペースを選びます。',
     agent: 'ワークスペースにまだマネージャーがいなければ、そこでコーディングエージェントを起動してマネージャースキルを渡します：',
     register: 'マネージャーのターミナルで登録します：',
-    start: 'そこでこのインテントを開始します。そのワークスペースの新しいユニットとタスクはこのインテントに入ります：',
+    start: '次に、ここでそのワークスペースを選んで開始します。ワークスペースの最初のインテントはあなたが開始します（以降そのプロジェクトを担当します）。そのプロジェクトの次のインテントはマネージャー自身が開始します。',
     pickLabel: '開始する場所',
     option: '{{label}} · {{manager}}：{{state}}',
     optionNone: '{{label}} · マネージャーなし',
@@ -361,6 +400,7 @@ export const ja: OneForm<typeof en> = {
     log: '会話',
     questions: '質問',
     step: {
+      held: '{{agent}} を待っています。空いたら質問が入ります。',
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
       asking: '{{agent}} に確認中…',
@@ -384,6 +424,21 @@ export const ja: OneForm<typeof en> = {
     },
     conversations_other: '会話 {{count, number}} 件',
     count_other: '質問 {{count, number}} 件'
+  },
+  discuss: {
+    tag: '議論',
+    label: '{{agent}} への質問',
+    placeholder: 'この結果について {{agent}} に質問…',
+    how: 'このタスクを担当した {{agent}} に直接届き、回答はここに表示されます。終わったら「結論を依頼」を押してください。',
+    gone: '{{agent}} はもう動いていません。続けるにはマネージャーに相談してください。',
+    over: 'ゲート {{gate}} が提出されたので、議論は終わりました。ここから変えるなら新しいタスクです。マネージャーに相談してください。',
+    conclude: '結論を依頼',
+    failed: '送れませんでした：{{error}}',
+    cannot: '回答は来ません：{{reason}}',
+    held: '{{agent}} を待っています。空いたら質問が入ります。',
+    sending: '{{agent}} に送っています…',
+    reading: '{{agent}} が回答しています…',
+    atGate: '{{task}} を {{agent}} と議論'
   },
   talk: {
     title: 'マネージャー',
@@ -473,6 +528,7 @@ export const ja: OneForm<typeof en> = {
     deploy: '手動デプロイ',
     test: '手動テスト',
     decide: '設計の確認',
+    choice: '質問',
     result: '結果',
     done: '完了',
     problem: '問題あり',
@@ -482,8 +538,19 @@ export const ja: OneForm<typeof en> = {
     where: '場所：ファイルパスをカンマか改行で区切って入力',
     addFinding: '指摘を追加',
     removeFinding: 'この指摘を削除',
+    answer: '回答',
     needFinding: '「問題あり」には、何が問題かを書いた指摘が少なくとも 1 件必要です。',
     submit: '送信'
+  },
+  choice: {
+    pick: '選択肢',
+    answer: '回答する',
+    withNote: '理由が必要',
+    chose: '選択：{{label}}',
+    note: 'メモ（任意）',
+    noteNeeded: '理由（この回答には必須）',
+    needNote: 'この回答には理由のメモが必要です。',
+    closed: 'このワークスペースの以前のマネージャーの質問なので、ここでは回答できません。マネージャーに直接書いてください。'
   },
   attach: {
     add: '添付',
@@ -526,6 +593,8 @@ export const ja: OneForm<typeof en> = {
       restarted: 'サービスが再起動しました',
       blocked: '担当のエージェントがその間ずっとターミナルで回答を待っていました',
       'not-ready': '新しいエージェントがプロンプトを受け付ける状態になりませんでした。そのターミナルは {{runtime}} に残してあります',
+      'agent-gone': 'このタスクを担当したエージェントはもう動いていません',
+      'gate-submitted': 'ゲートが提出されたので、議論は終わりました',
       unknown: '理由が不明です'
     },
     failed: '記録できませんでした：サービスが受け付けませんでした'

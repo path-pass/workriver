@@ -23,6 +23,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/settings/stall", &["GET", "POST"]),
     ("/api/workspace", &["GET"]),
     ("/api/unit/{id}/code", &["GET"]),
+    ("/api/intent/{id}/history", &["GET"]),
     ("/api/state", &["GET"]),
     ("/api/task", &["GET"]),
     ("/api/status", &["GET"]),
@@ -44,6 +45,8 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/ask", &["POST"]),
     ("/api/message", &["POST"]),
     ("/api/messages/read", &["POST"]),
+    ("/api/discuss", &["POST"]),
+    ("/api/discuss/read", &["POST"]),
     ("/api/attachments", &["POST"]),
     ("/api/attachments/inbox", &["POST"]),
     ("/api/attachments/{id}", &["GET"]),
@@ -61,6 +64,7 @@ const MACHINE: &[(&str, &[&str])] = &[
     ("/api/workspace", &["GET"]),
     ("/api/state", &["GET"]),
     ("/api/task", &["GET"]),
+    ("/api/intent/{id}/history", &["GET"]),
     ("/api/status", &["GET"]),
     ("/api/metrics", &["GET"]),
     ("/api/metrics/history", &["GET"]),
@@ -179,6 +183,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/settings/stall", r#"{"minutes":30}"#),
     ("GET", "/api/workspace", ""),
     ("GET", "/api/unit/u1/code", ""),
+    ("GET", "/api/intent/i1/history", ""),
     ("GET", "/api/state", ""),
     ("GET", "/api/task?task=u1%231", ""),
     ("GET", "/api/status", ""),
@@ -200,6 +205,8 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
     ("POST", "/api/messages/read", r#"{"workspace":"chat","at":"2026-01-01T00:00:00Z"}"#),
+    ("POST", "/api/discuss", r#"{"unit":"u1","task":1,"text":"Why?"}"#),
+    ("POST", "/api/discuss/read", r#"{"unit":"u1","task":1,"at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/attachments?name=probe.txt", "BYTES"),
     ("POST", "/api/attachments/inbox", r#"{"unit":"u1","task":1}"#),
     ("GET", "/api/attachments/x1", ""),
@@ -235,7 +242,7 @@ fn who_may_use_each_route() {
     let group = json!({ "id": "w1", "label": "chat" });
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
@@ -344,8 +351,8 @@ fn shape(v: &Value, at: &str, out: &mut BTreeSet<String>) {
 /// A workspace with most of what the page shows: projects and a roadmap, a backlog, an
 /// intent with its manager, a code unit with committed, unregistered and uncommitted work,
 /// a research unit, a design, its review with decided findings, a waiting gate, a chore, an
-/// attachment, a question with its temporary agent, a conversation with the manager, and a
-/// second machine.
+/// attachment, a question with its temporary agent, a discussion of a delivered research, a
+/// conversation with the manager, and a second machine.
 fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     use workriver_core::runtime::AgentState::*;
     let repo = tmp.join("repo");
@@ -407,9 +414,28 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
     wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    // A delivered research discussed with its agent, which is at work: one answer unread, one
+    // question held; the gate that asks about it.
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "research", "title": "Compare stores", "agent": "impl", "inputs": [{ "from": "start" }] })).unwrap();
+    d.append("s-impl", "task.delivered", json!({ "unit": "u2", "task": 2, "note": "SQLite" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "2" }] })).unwrap();
+    d.call("/api/discuss", Some(json!({ "unit": "u2", "task": 2, "text": "Why not Postgres?" }))).unwrap();
+    d.append("s-impl", "question.answered", json!({ "question": "q2", "text": "No server." })).unwrap();
+    d.call("/api/discuss", Some(json!({ "unit": "u2", "task": 2, "text": "And backups?" }))).unwrap();
     let context = json!([{ "kind": "task", "label": "#1", "task": 1 }, { "kind": "lines", "label": "a.txt L1–2", "path": "a.txt", "from": 1, "to": 2 }, { "kind": "attachment", "label": "shot.png", "id": shot["id"] }]);
     d.call("/api/message", Some(json!({ "intent": "i1", "text": "How is it going?", "unit": "u1", "task": 2, "context": context }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Design confirmed." })).unwrap();
+    // Options: a decide gate answered; a manager's message answered, and replies to the
+    // answer, one answered and one still open.
+    let choice = crate::cli::parse_choice(&["merge=Merge".into(), "hold=Not now".into()], &["hold".into()]).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "gate", "gate": "decide", "title": "Which tool?", "inputs": [{ "from": "start" }], "choice": choice })).unwrap();
+    d.call("/api/gate", Some(json!({ "unit": "u2", "task": 4, "result": "answered", "selected": ["hold"], "note": "Later" }))).unwrap();
+    d.append("s-boss", "message.said", json!({ "text": "Which first?", "choice": choice })).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m3", "selected": ["merge"] } }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Squash?", "choice": choice })).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m4", "reply": 1, "selected": ["merge"] } }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Tag it?", "choice": choice })).unwrap();
+    d.append("s-boss", "message.said", json!({ "text": "Then which?", "choice": choice })).unwrap();
     (d, fake)
 }
 

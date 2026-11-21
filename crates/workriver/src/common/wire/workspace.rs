@@ -107,6 +107,17 @@ pub(crate) struct MessageOut {
     /// The manager's message, not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+    /// The manager's message with options (`say`), the user's answer to it, and whether the
+    /// user can still answer it (not answered, and asked by the workspace's manager now).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answered: Option<core::Answered>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open: bool,
+    /// The user's message that answers a manager's options: which, and the value picked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answer: Option<core::Answer>,
 }
 
 #[derive(Serialize)]
@@ -117,6 +128,13 @@ pub(crate) struct ReplyOut {
     /// Not read by the user yet.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
+    /// As on `MessageOut`: the reply's options, their answer, and whether it is still open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) answered: Option<core::Answered>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) open: bool,
 }
 
 /// A unit's file texts, which the page's snapshot leaves out (`Cache::bare`): read when its
@@ -261,6 +279,18 @@ pub(crate) struct Intent {
     /// Still active, and every unit of it merged or done: it can be closed.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) complete: bool,
+    /// Its last version (1 when never changed): what an edit names as its base.
+    pub(crate) version: u32,
+    /// Who made that version and when; its history is read on its own route.
+    pub(crate) edited: Edited,
+}
+
+/// Who made an intent's last version, and when.
+#[derive(Serialize)]
+pub(crate) struct Edited {
+    pub(crate) at: String,
+    /// The agent's name; none: the user.
+    pub(crate) by: Option<String>,
 }
 
 /// Where the message about a user's input is, as the page shows it.
@@ -411,6 +441,10 @@ pub(crate) struct Task {
     /// Running, and its agent stopped without delivering (idle too long, or gone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stalled: Option<super::Stall>,
+    /// A delivered design or research with its agent: whether the user may discuss it now
+    /// ("open"), its agent is gone ("gone"), or its gate was submitted ("over").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) discuss: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -419,6 +453,9 @@ pub(crate) struct TaskIn {
     pub(crate) causes: Vec<Cause>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) steps: Option<Vec<core::Step>>,
+    /// A decide gate's options, as stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) choice: Option<core::Choice>,
 }
 
 #[derive(Serialize)]
@@ -440,6 +477,13 @@ pub(crate) struct TaskOut {
     /// Gates: pictures with the note; other tasks: files with the output.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) attachments: Vec<AttachmentOut>,
+    /// A design or research: the gate that asks the user about it (`State::result_gate`), by
+    /// its id as in `inputs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) gate: Option<String>,
+    /// An answered gate: the option picked.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) selected: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -558,6 +602,9 @@ pub(crate) struct ThreadOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) conclusion: Option<String>,
     pub(crate) turns: Vec<Turn>,
+    /// The user's discussion of the task with its own agent.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) discuss: bool,
 }
 
 #[derive(Serialize)]
@@ -592,6 +639,12 @@ pub(crate) struct Turn {
     /// A request for the thread's conclusion.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) conclude: bool,
+    /// While held (step "held"): why, in the service's words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+    /// A discussion's answer the user has not read yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unread: bool,
 }
 
 #[derive(Serialize)]

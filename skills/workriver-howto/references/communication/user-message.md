@@ -2,7 +2,7 @@
 
 **When:** you are a manager and a message like this arrives in your terminal:
 
-    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
+    [workriver] The user writes to you from workriver's page (message m3, about intent i2 "Search"). Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. Do not repeat the reply here (one line at most, e.g. which message you answered). Work that takes time goes into a task for a worker (`workriver task add ...`) and your reply carries its link (`workriver link <task>`); answer at once only what needs no work. It points at: task u1#3 "Paging" (implement, by worker-2); task u1#5 "Cursor" (implement, by worker-4); finding P2-1; lines 10-24 of src/api.ts; the attachment "shot.png" at ~/workriver-data/attachments/9f2c….png. The files are in ~/src/search.worktrees/u1 on branch feat/paging (from main). Details: `workriver task show u1#3`. The user says, in workriver: «Why is the list not paged here?»
 
 The text inside «…» after "The user says" is the user's own: workriver records it only for
 the user. Treat it as you would the user typing in your pane: do it if it is yours to do
@@ -37,6 +37,13 @@ records do not say), do not wait for it:
 3. When "[workriver] Your question q7 … was answered" arrives in your terminal, reply again
    with the answer: `workriver reply m3 --text "..."`.
 
+**About a delivered research or design result** whose agent still runs and whose gate is
+not submitted: do not relay round by round. Reply with the task's link; the user discusses
+it with that agent in the task's detail, and you hear only of an amendment and of the
+conclusion (`design-gate`):
+
+    workriver reply m3 --text "Ask research-1 under its report, it answers there: http://127.0.0.1:47820/u2/1"
+
 A task that is blind and not delivered cannot be asked: reply that it waits for its
 delivery. (Nothing is typed into you while you are on a blind task yourself: the user's
 new message is refused, and one already waiting for you is held, until you deliver.)
@@ -46,12 +53,27 @@ Then answer where the user reads it, in the page, not in your terminal:
     workriver reply m3 --text "Paused u2: u2#4 waits until the API task u1#3 is delivered."
 
 Short Markdown, like a note: a line of what you did or will do, bullets if needed. You may
-reply again later (when it is done). Only you, the manager it was sent to, can reply.
+reply again later (when it is done). Only you, the manager it was sent to, can reply. Do not
+repeat the reply in your terminal: leave one line there at most (e.g. which message you
+answered), unless it holds something the page does not (an error, a command the user must
+run in a terminal).
 
 Something only the user may decide (a merge, a deploy, the goal) still goes through a decide
 gate (`ask-user`); say in the reply that it waits there.
 
-**Refusals:** "message m3 went to … only that manager replies to it" - it was sent to
+**A question with options**, nothing waiting on it ("which of these do you mean?"): give
+them as options on the reply (or on `say`), one `--option ID=LABEL` each, `--require-note ID`
+where the answer needs a reason; the page shows radio buttons under it:
+
+    workriver reply m3 --text "Which paging?" --option 'cursor=By cursor' --option 'page=By page number'
+
+The answer is a message of the user's, typed to you like any: "[workriver] The user answered
+your question m3 … : option `cursor`", the option's words and the user's note quoted. Reply
+if there is something to say; it starts nothing by itself. A question asked by an earlier
+manager of the workspace can no longer be answered; the page says so.
+
+**Refusals:** "a choice is stored as workriver's A2UI 1.0 subset; give it with --option" and
+the option rules of `ask-user`. "message m3 went to … only that manager replies to it" - it was sent to
 another manager (an earlier one of this workspace); the user can write again. "no message
 m3" - check the id in the message.
 
@@ -66,3 +88,6 @@ until read; the user may answer it, which arrives like any message of theirs. Us
 the user should know without acting: a milestone, a changed plan, a finished intent. Not
 every step: the board shows those. A decision still goes in a decide gate (`ask-user`). Only
 a workspace's manager says something; a worker tells its manager (`workriver manager tell`).
+What you tell the user goes on the page once: do not repeat it in your terminal (one line
+there at most, unless it holds something the page does not — an error, a command the user
+must run in a terminal).

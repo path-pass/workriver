@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use workriver_core::runtime::RuntimeAgent;
-use workriver_core::{AskContext, Body, Decision, Event, Finding, GateKind, GateResult, ReasonCode, State, Task, TaskKind, Who, name};
+use workriver_core::{AskContext, Body, Decision, Event, Finding, GateKind, GateResult, ReasonCode, State, Task, TaskKind, TaskState, Who, name};
 
 use quote::{quoted, users};
 
@@ -128,10 +128,11 @@ fn target(state: &State, live: Option<&[RuntimeAgent]>, intent: &str, first: Opt
 /// Who is told that something was added to a finding, and what. The agents of the work it
 /// led to that is still open (they must meet the new requirement) and the intent's manager;
 /// while nobody decided it yet, the manager only when it is the manager's to decide (the
-/// user sees it on the page). Never the one who wrote it, never an agent on a blind task.
-pub(super) fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::path::Path, e: &Event) -> Vec<(String, String)> {
+/// user sees it on the page). Never the one who wrote it. Who can take it when (a blind task,
+/// a person's prompt, not listed) is `App::hand`'s: held, never dropped (`For::Duty`).
+pub(super) fn notes(state: &State, e: &Event, home: &std::path::Path) -> Vec<(String, String)> {
     let Body::FindingNoted { unit, task, finding, text, attachments } = &e.body else { return vec![] };
-    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+    let Ok(t) = state.task(unit, *task) else { return vec![] };
     let Some(f) = t.findings.iter().find(|f| &f.found.id == finding) else { return vec![] };
     let intent = state.intent_of(unit).unwrap_or_default();
     let policy = state.intents.iter().find(|i| i.id == intent).map(|i| i.findings).unwrap_or_default();
@@ -158,17 +159,18 @@ pub(super) fn notes(state: &State, live: Option<&[RuntimeAgent]>, home: &std::pa
             out.push((m.to_string(), format!("[workriver] {by} added to {of} ({about}). {}{files} {said}", details(unit, *task))));
         }
     }
-    out.retain(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty());
+    out.retain(|(to, _)| to != &e.actor);
     out.dedup_by(|a, b| a.0 == b.0);
     out
 }
 
 /// Who is told that a task was dropped: its agent (assigned or started), to stop it, and
-/// the intent's manager, who plans; never the one who dropped it, never an agent on a
-/// blind task, only live ones. The reason goes in as a quote.
+/// the intent's manager, who plans; never the one who dropped it. The reason goes in as a
+/// quote. Held, never dropped, like every notice an agent must act on (`For::Duty`).
 pub(super) fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
     let Body::TaskDropped { unit, task, reason } = &e.body else { return vec![] };
-    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+    let Ok(t) = state.task(unit, *task) else { return vec![] };
+    let live = live.unwrap_or_default();
     let user = e.actor == "user";
     let by = if user { "The user".to_string() } else { who(state, &e.actor) };
     let why = if user { users("The user wrote", reason) } else { quoted(&format!("Why, quoted from {by}"), reason) };
@@ -182,20 +184,17 @@ pub(super) fn dropped(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -
         let agent = t.agent.as_deref().map(|a| format!(" Its agent {} was told to stop.", who(state, a))).unwrap_or_default();
         out.push((m.to_string(), format!("[workriver] {by} dropped {what} as no longer needed; what follows it no longer waits on it.{agent} Re-plan if anything still needs doing. {} {why}", details(unit, *task))));
     }
-    out.retain(|(to, _)| to != &e.actor && live.iter().any(|a| &a.session == to) && state.blind_tasks(to).is_empty());
+    out.retain(|(to, _)| to != &e.actor);
     out.dedup_by(|a, b| a.0 == b.0);
     out
 }
 
 /// What an agent told the manager of a task's intent (`workriver manager tell`): to that
-/// manager while it runs and is not on a blind task, the agent's words quoted.
-pub(super) fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+/// manager, the agent's words quoted; held while it cannot take it (`For::Duty`).
+pub(super) fn told(state: &State, e: &Event) -> Vec<(String, String)> {
     let Body::ManagerTold { unit, task, text } = &e.body else { return vec![] };
-    let (Ok(t), Some(live)) = (state.task(unit, *task), live) else { return vec![] };
+    let Ok(t) = state.task(unit, *task) else { return vec![] };
     let Some(m) = state.intent_of(unit).and_then(|i| state.manager_of(i)) else { return vec![] };
-    if !live.iter().any(|a| a.session == m) || !state.blind_tasks(m).is_empty() {
-        return vec![];
-    }
     let by = who(state, &e.actor);
     vec![(
         m.to_string(),
@@ -203,11 +202,80 @@ pub(super) fn told(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> V
     )]
 }
 
+/// What the intent's manager hears of the user's discussion of a delivered design or
+/// research: not each round, only what it must act on. An amendment of the result while the
+/// gate that asks about it is not submitted (after a review that started, the gate would
+/// confirm a text the review did not see: drop it, review again, a new gate; a review not
+/// started yet reads the amended result), and the conclusion, quoted as the agent's. Never
+/// to the one who did it. Who can take it when is `App::hand`'s (`For::Duty`): held while the
+/// manager is on a blind task, never dropped.
+pub(super) fn discussed(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
+    let live = live.unwrap_or_default();
+    // As the runtime lists it, else as last recorded.
+    let named = |s: &str| live.iter().find(|a| a.session == s).map(|a| quote::name(&a.name)).unwrap_or_else(|| who(state, s));
+    let found = || -> Option<(String, String)> {
+        let (unit, n) = match &e.body {
+            Body::TaskAmended { unit, task, .. } => (unit.clone(), *task),
+            Body::QuestionAnswered { question, conclusion: true, .. } => {
+                let q = state.question(question).ok().filter(|q| q.discuss)?;
+                (q.unit.clone(), q.task)
+            }
+            _ => return None,
+        };
+        let t = state.task(&unit, n).ok()?;
+        let thread = state.discussion(&unit, n)?;
+        let gate = state.result_gate(&unit, n).filter(|g| g.state != TaskState::Done);
+        let what = label(state, &unit, t);
+        let agent = t.agent.as_deref().map(named).unwrap_or_default();
+        // The reviews between the result and its gate: one that started read the text before
+        // the amendment; one not started yet reads the amended result.
+        let reviews: Vec<&Task> = gate
+            .and_then(|g| {
+                let before = state.before(&unit, g.n);
+                Some(state.tasks_of(&unit)?.iter().filter(|r| r.kind == TaskKind::Review && r.dropped.is_none() && before.contains(&r.n) && state.before(&unit, r.n).contains(&n)).collect())
+            })
+            .unwrap_or_default();
+        let reviewed = reviews.iter().copied().find(|r| t.read_before.contains(&r.n));
+        let pending = reviews.iter().copied().find(|r| r.state == TaskState::Todo);
+        let again = |g: &Task, r: &Task| format!("{} reviewed the text before it: drop the gate (`workriver task drop {unit}#{} --reason \"...\"`), then add the review again and a new decide gate after it (`workriver guide how design-gate`).", label(state, &unit, r), g.n);
+        let m = state.intent_of(&unit).and_then(|i| state.manager_of(i))?.to_string();
+        let text = match &e.body {
+            Body::TaskAmended { .. } => {
+                let g = gate?;
+                let next = match (reviewed, pending) {
+                    (Some(r), _) => again(g, r),
+                    (None, Some(r)) => format!("{} has not started: it reads the amended result, and the gate asks about that.", label(state, &unit, r)),
+                    (None, None) => "The gate now asks about the amended result; nothing to do unless the change needs a review.".into(),
+                };
+                format!("[workriver] {} amended {what} while the user discusses it; its gate {} is not submitted yet. {next} {}", named(&e.actor), label(state, &unit, g), details(&unit, n))
+            }
+            Body::QuestionAnswered { text, .. } => {
+                // Amended after the discussion began, in event order.
+                let amended = t.amended.as_ref().filter(|_| thread.amended);
+                let result = match amended {
+                    Some(at) => format!("Its result was amended at {at}."),
+                    None => "Its result is as delivered.".into(),
+                };
+                let next = match (gate, reviewed) {
+                    (Some(g), Some(r)) => again(g, r),
+                    (Some(g), None) => format!("the gate {} waits for the user.", label(state, &unit, g)),
+                    (None, _) => format!("if work must start on this, add a decide gate after {unit}#{n} (`workriver guide how ask-user`); otherwise nothing."),
+                };
+                format!("[workriver] The user concluded the discussion of {what} with {agent} (thread {}). {result} Next: {next} {}", thread.id, quoted(&format!("Concluded, quoted from {agent}"), text))
+            }
+            _ => return None,
+        };
+        Some((m, text))
+    };
+    found().into_iter().filter(|(to, _)| to != &e.actor).collect()
+}
+
 /// Who is told that work is over (a unit merged or done, an intent done): its manager, to
 /// tell the user with `workriver say` what came of it, and of the agents that worked on it
 /// and are still running with no other task, to close them; workriver never closes them
 /// itself. An intent the manager closed itself: its command's output says the first
-/// (`said_done`), the message only the second. Only a live manager not on a blind task.
+/// (`said_done`), the message only the second. Held while the manager cannot take it
+/// (`For::Duty`); the workers named are those of the runtime's list then.
 pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) -> Vec<(String, String)> {
     let (what, owners, came): (String, Vec<String>, &str) = match &e.body {
         Body::UnitMerged { unit, .. } => (format!("{unit} is merged"), vec![unit.clone()], "what was merged"),
@@ -219,9 +287,6 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
     };
     let Some(live) = live else { return vec![] };
     let Some(m) = owners.first().and_then(|o| state.intent_of(o)).and_then(|i| state.manager_of(i)) else { return vec![] };
-    if !live.iter().any(|a| a.session == m) || !state.blind_tasks(m).is_empty() {
-        return vec![];
-    }
     let said = matches!(e.body, Body::IntentStateChanged { .. }) && e.actor == m;
     let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
     let names: Vec<String> = reminders::finished_workers(state, live, &owners).iter().map(|x| quote::name(&x.name)).collect();
@@ -240,6 +305,34 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
         (Some(c), Some(s)) => format!("[workriver] {what}: {c} {s}"),
     };
     vec![(m.to_string(), message)]
+}
+
+/// What the manager of an active intent hears when the user changes its title, goal or
+/// note: the new version, the title and goal quoted as the user's, the note only pointed at
+/// (it may be long). Nothing for who decides findings, and nothing of an agent's edit (only
+/// the user edits what is not the manager's own).
+pub(super) fn edited(state: &State, e: &Event) -> Option<(String, String)> {
+    let Body::IntentUpdated { intent, title, goal, note, add_note, .. } = &e.body else { return None };
+    if e.actor != "user" {
+        return None;
+    }
+    let i = state.intents.iter().find(|i| &i.id == intent).filter(|i| i.state == workriver_core::IntentState::Active)?;
+    let m = state.manager_of(intent)?;
+    let n = i.edits.version;
+    let mut what = vec![];
+    if let Some(t) = title {
+        what.push(users("title", t));
+    }
+    if let Some(g) = goal {
+        what.push(users("goal", g));
+    }
+    if note.is_some() || add_note.is_some() {
+        what.push(format!("its note changed (`workriver intent history {intent} --diff {n}`)"));
+    }
+    if what.is_empty() {
+        return None;
+    }
+    Some((m.to_string(), format!("[workriver] The user changed {intent} (now v{n}): {}.", what.join("; "))))
 }
 
 /// What an intent came to, for the manager to tell the user.
@@ -264,7 +357,7 @@ pub(super) fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };
     // Its project, so that a manager working on another one stops before splitting it.
-    let folder = crate::server::views::project_folder(state, i);
+    let folder = state.project_folder(i);
     let project = if folder.is_empty() {
         String::new()
     } else {
