@@ -159,6 +159,19 @@ the reason as written. Work not done yet has a quiet "No longer needed…" at th
 details; it opens a reason field (required) with "Mark no longer needed" and "Cancel". The
 service tells the agent on it to stop, and the manager.
 
+A task is **never inserted** before another (no `--before`): a task's inputs are written
+once, when it is recorded. The one exception is a blocker (`--blocks`), a gate put before the
+task still to do or running that an agent is stuck on, never before a gate. A gate asks about the designs and research before it, through the
+reviews between; work put before a gate (a design, a review of another design) changes what
+the gate asks, so a gate open or already answered could read as confirming a design the user
+never saw. An attempt to allow it under checks was given up after four review rounds, each
+finding another path to that (through a review a choice gate follows, a choice gate already
+answered, a gate after the one inserted before, a review of another design); the branch
+`feat/insert-task` keeps it. A recorded gate is dropped and asked anew instead: the new work
+after what the gate followed, a new gate after it, and what waited on the old gate added
+again after the new one (`ask-user`). The user sees a gate about what is there now, and the
+dropped one says why.
+
 ## What the user puts in
 
 Everything the user decides goes to the service through one place (`frontend/web/src/api/actions.ts`), which
