@@ -86,14 +86,24 @@ impl State {
         self.intents.iter().find(|i| i.id == id)
     }
 
-    /// A runtime group's record, made when first needed; it follows the group's latest id and label.
+    /// A runtime group's record, made when first needed; it follows the group's latest id and
+    /// label, and the intents that run or ran in it follow the record: an intent is in its
+    /// workspace's record, not under the id or label it was started with, or the next
+    /// workspace to carry that label would be found as where it runs.
     pub(super) fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
         // A linked group's record is the local workspace's, which keeps its own id and label.
         let local = self.link_of(g).map(|l| RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None });
         match self.workspace_at(g) {
             Some(k) => {
-                if local.is_none() {
+                if local.is_none() && self.workspaces[k].group != *g {
+                    // Those of the record's own groups; one in a linked group of another
+                    // machine stays in that group, which the link finds by its own label.
+                    let there = |i: &Intent| i.workspace.as_ref().is_some_and(|x| self.link_of(x).is_none() && self.workspace_at(x) == Some(k));
+                    let ran: Vec<usize> = (0..self.intents.len()).filter(|n| there(&self.intents[*n])).collect();
                     self.workspaces[k].group = g.clone();
+                    for n in ran {
+                        self.intents[n].workspace = Some(g.clone());
+                    }
                 }
                 &mut self.workspaces[k]
             }

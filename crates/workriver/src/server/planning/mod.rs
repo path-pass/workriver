@@ -48,9 +48,11 @@ pub(super) struct StartIntent {
 pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(s): Json<StartIntent>) -> Result<Json<serde_json::Value>, ApiError> {
     let who = app.user(&caller)?;
     blocking(move || {
-        // The workspace as the runtime knows it, never as the page names it.
-        let groups = app.runtime.groups().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        let group = groups.into_iter().find(|g| g.id == s.workspace).ok_or_else(|| bad(format!("no workspace {} in the runtime", s.workspace)))?;
+        // The workspace as its machine's runtime has it now, never as the page names it nor
+        // as it was last read: the regular read only says which machine it is on.
+        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string());
+        let machine = app.runtime.groups().map_err(cannot)?.into_iter().find(|g| g.id == s.workspace).and_then(|g| g.machine);
+        let group = app.runtime.groups_on(machine.as_deref()).map_err(cannot)?.into_iter().find(|g| g.id == s.workspace).ok_or_else(|| bad(format!("no workspace {} in the runtime", s.workspace)))?;
         // Its manager would get work from a project it is not in: only once the user confirmed.
         if !s.confirm_other_project {
             let live = app.runtime.agents().unwrap_or_default();

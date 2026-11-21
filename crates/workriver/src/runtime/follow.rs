@@ -576,6 +576,9 @@ impl Runtime for Machines {
         self.at(machine, |r| r.focus_place(None, place))
     }
 
+    /// This machine's groups read fresh, and every followed machine's as last seen; none of
+    /// this machine's while its runtime does not answer and other machines are followed. For
+    /// what is shown; what must know that a group is gone asks `groups_on`.
     fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
         let entries = self.entries.lock().unwrap().clone();
         let mut all = match self.local.groups() {
@@ -587,5 +590,16 @@ impl Runtime for Machines {
             all.extend(e.seen.lock().unwrap().groups.iter().cloned());
         }
         Ok(all)
+    }
+
+    /// Asked of that machine's own runtime, now: a failure is given, and nothing last seen.
+    fn groups_on(&self, machine: Option<&str>) -> Result<Vec<RuntimeRef>, RuntimeError> {
+        match machine {
+            None => self.local.groups(),
+            Some(m) => {
+                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
+                Ok(on(&e, &|r: &dyn Runtime| r.groups())?.into_iter().map(|g| theirs(g, m)).collect())
+            }
+        }
     }
 }

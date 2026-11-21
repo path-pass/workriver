@@ -152,21 +152,30 @@ event sets them, and no name a request carries.
   start any intent anywhere (the page asks you to confirm another project's).
 - **A workspace is what the runtime says it is.** An agent registers as manager
   (`workriver manager here`) and starts intents only in the workspace it runs in, and the
-  event is recorded with the id and name the runtime gives for it, never the ones the
-  request carries.
+  event is recorded with the id and name the runtime gives for it when the request comes
+  (on another machine too), never the ones the request carries.
 - **Its manager** is the manager of the workspace it runs in, or last ran in: an agent
   running there that registered, which takes over only from a manager no longer running. An
   intent in a workspace where nobody registered has no manager, and you act for it. (A
   manager registered for one intent, as before 0.2, counts only for an intent that has no
   workspace at all.)
+- **An intent stays with its workspace, not with a name.** When the runtime restarts and
+  gives the workspace a new id, or you rename it, workriver's record of the workspace
+  follows it the next time it is recorded (its manager runs `workriver manager here`, an
+  intent is started there, you set its project), and the intents that run or ran there
+  follow the record. A workspace you open later under the old name is a new workspace: its
+  manager is nobody to those intents.
 - **Two open workspaces with one name are refused, never taken for one.** workriver finds a
   workspace's record by its id, and by its name only once that id is gone (a runtime may
   give its workspaces new ids when it restarts). While the recorded workspace is still
   open, another one with the same name is refused wherever it would be recorded, for agents
   and for you alike: `workriver manager here` and `workriver intent start` there, starting
   an intent in it from the page, setting its project. The refusal names both ("workspace
-  docs is already recorded for another open workspace (…)"): rename one of them. While the
-  runtime cannot be asked which workspaces are open, such a request is refused too.
+  docs is already recorded for another open workspace (…)"): rename one of them. Which
+  workspaces are open is asked of the runtime of the workspace's machine at each such
+  request, and the request is checked and recorded in one step. While that runtime cannot
+  be asked, the request is refused too: a list that could not be read never counts as "that
+  workspace is closed".
 
 What these do not hold, since the runtime's own interface is your account's, is under
 [What this does not protect against](#what-this-does-not-protect-against): a workspace
@@ -305,6 +314,9 @@ determined program on your machine:
     workspace the name a link to another machine's workspace names. workriver does not see
     either happen, and no request to workriver does it; you would see a workspace gone or
     renamed. Two workspaces that are both open under one name are refused instead (above).
+    A workspace that gets a new id and a new name with nothing recorded in between (the
+    runtime restarts and it is renamed before anything names it again) is not found again:
+    it is a new workspace to workriver, and its old record is a closed one's, as here.
   - **A terminal the runtime knows as an agent's only by report can be released** and is
     then a plain terminal: yours, with the token. (Under Herdr, which agents are
     not such terminals: [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr).)

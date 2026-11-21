@@ -8,16 +8,25 @@ Newest first. A manager that was already running reads this once after an update
   start the rules checked. What changes for you:
   - Units of an intent are added by its manager or the user (`workriver unit add` from
     another agent is refused: "only the user or the manager of intent i3 (boss) adds its
-    units"); an intent in the roadmap, or running where nobody registered, has no manager
-    ("i7 has no manager: …"): start it first, or ask the user.
+    units"); an intent that is planned and never ran, or runs where nobody registered, has
+    no manager ("i7 has no manager: …"): start it first, or ask the user. One put back in
+    the roadmap keeps the manager of the workspace it last ran in, who still adds its units.
   - An intent's project is the one recorded on it, never its units'. If your `intent start`
     or `--add-note` is now refused with "your workspace's project is not known", ask the
-    user to set your workspace's project (Settings, or `workriver workspace project`).
+    user to set your workspace's project (Settings, or `workriver workspace project`). A
+    planned intent with no project takes a note from the user only ("i7 is planned and has
+    no project: only the user adds to its note"): ask the user to add yours; no setting of
+    your workspace changes that.
   - `workriver intent start`, like `manager here`, runs from your own pane only, and is
     recorded for the workspace you run in as the runtime names it ("an agent starts intents
     in the workspace it runs in").
   - Both are refused in a workspace that has the name of another open workspace ("workspace
     docs is already recorded for another open workspace (…)"): ask the user to rename one.
+    While the runtime of that workspace's machine does not say which workspaces are open,
+    they are refused too (503): run the command again once it answers.
+  - Your intents stay yours when your workspace gets a new id (the runtime restarted) or the
+    user renames it: run `workriver manager here` again there, as after any restart. A
+    workspace opened later under the old name is another workspace.
   - `intent done` and `intent drop` name no workspace (the CLI never did; nothing to change).
   - You manage the intents of the workspace you registered in. A registration for one intent
     (`manager here --intent`, old prompts) no longer follows the intent into a workspace

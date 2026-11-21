@@ -96,7 +96,10 @@ fn a_unit_never_makes_an_intents_project() {
     let i = s.state().intent("i4").unwrap();
     assert_eq!((s.state().project_folder(i).as_str(), s.state().intent_project(i).as_str()), ("/p", ""));
     assert!(add(&mut s, "boss", state("i4", "active", Some(&w1))).unwrap_err().contains("i4 has no project: ask the user to start it"));
-    assert!(add(&mut s, "boss", set("i4", json!({"add_note": "x"}))).unwrap_err().contains("your workspace's project is not known"), "nor a note to add to");
+    // Nor a note to add to: the intent has no project, whatever boss's workspace works on,
+    // so nothing boss could have set would make it boss's.
+    let e = add(&mut s, "boss", set("i4", json!({"add_note": "x"}))).unwrap_err();
+    assert_eq!(e, "i4 is planned and has no project: only the user adds to its note; ask the user to add yours");
     let i = s.state().intent("i4").unwrap();
     assert_eq!((i.state, i.note.as_str()), (IntentState::Planned, "The user's old words"));
     // A recorded project is the registered one that holds it.
@@ -248,4 +251,59 @@ fn the_rules_take_a_workspace_as_it_is_named() {
     add(&mut s, "boss", registered(&json!({"id": "w1", "label": "docs"}))).unwrap();
     assert_eq!(records(&s), ["w1:docs:boss", "w2:docs:other"]);
     assert_eq!(s.state().manager_of("i3"), Some("boss"), "the limit: the first record with the link's label");
+}
+
+/// An intent runs in its workspace's record, not under the label it was started with. The
+/// record follows its workspace to a new id (the runtime restarted) and to a new label (the
+/// user renamed it), and the intents that run or ran there follow the record. So the next
+/// workspace opened under the old label is a workspace of its own: its manager is not the
+/// manager of an intent that never ran there.
+#[test]
+fn an_intent_follows_its_workspaces_record() {
+    for order in [["restart", "rename"], ["rename", "restart"]] {
+        let mut s = Records::default();
+        add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
+        add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mine", "note": "The user's words", "project": "/p", "state": "planned"}})).unwrap();
+        add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Done there", "project": "/p", "state": "planned"}})).unwrap();
+        let w1 = json!({"id": "w1", "label": "docs"});
+        add(&mut s, "boss", registered(&w1)).unwrap();
+        add(&mut s, "user", state("i2", "active", Some(&w1))).unwrap();
+        add(&mut s, "boss", state("i2", "done", None)).unwrap();
+        add(&mut s, "user", state("i1", "active", Some(&w1))).unwrap();
+        // Each step is recorded by the next event that names the workspace.
+        let steps = if order[0] == "restart" { [json!({"id": "w9", "label": "docs"}), json!({"id": "w9", "label": "notes"})] } else { [json!({"id": "w1", "label": "notes"}), json!({"id": "w9", "label": "notes"})] };
+        for (step, g) in order.iter().zip(&steps) {
+            add(&mut s, "boss", registered(g)).unwrap();
+            assert_eq!(s.state().manager_of("i1"), Some("boss"), "{order:?}: after the {step}");
+        }
+        let now = group(&steps[1]);
+        for i in ["i1", "i2"] {
+            assert_eq!(s.state().intent(i).unwrap().workspace.as_ref(), Some(&now), "{order:?}: {i} is where its record is");
+        }
+        // Another workspace, open under the old name: its agent registers in its own.
+        add(&mut s, "newcomer", registered(&json!({"id": "w5", "label": "docs"}))).unwrap();
+        assert_eq!(records(&s), ["w9:notes:boss", "w5:docs:newcomer"], "{order:?}");
+        assert_eq!(s.state().manager_of("i1"), Some("boss"), "{order:?}");
+        assert!(add(&mut s, "newcomer", set("i1", json!({"note": "replaced", "base": 1}))).unwrap_err().contains("only the user or the manager of intent i1"));
+        assert!(add(&mut s, "newcomer", unit("i1", "/p/r")).unwrap_err().contains("only the user or the manager of intent i1 (boss)"));
+        assert!(add(&mut s, "newcomer", state("i1", "done", None)).unwrap_err().contains("only the user or the manager of intent i1"));
+        assert_eq!(project(&s, "w5"), None, "{order:?}: nothing ran in the newcomer's");
+        add(&mut s, "boss", set("i1", json!({"add_note": "its manager's"}))).unwrap();
+        assert_eq!(replayed(&s).intents, s.state().intents, "{order:?}");
+    }
+}
+
+/// A workspace of another machine linked to a local one keeps the group it runs in: only
+/// the local record is renamed, and the link still names it by the label the user gave.
+#[test]
+fn a_linked_intent_keeps_its_own_group() {
+    let mut s = Records::default();
+    let far = json!({"id": "x@box", "label": "x", "machine": "box"});
+    add(&mut s, "boss", registered(&json!({"id": "w1", "label": "docs"}))).unwrap();
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "x", "local": "docs"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Over there", "state": "planned"}})).unwrap();
+    add(&mut s, "user", state("i1", "active", Some(&far))).unwrap();
+    add(&mut s, "boss", registered(&json!({"id": "w9", "label": "docs"}))).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().workspace.as_ref(), Some(&group(&far)));
+    assert_eq!(s.state().manager_of("i1"), Some("boss"));
 }

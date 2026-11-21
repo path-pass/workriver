@@ -168,10 +168,14 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
   `hand-off` recipe. Text written by agents or the user goes
   into messages only through `quote.rs`. An intent's project, the workspace it runs in and
   its manager are set only by the user or by a start the rules checked (`docs/security.md`):
-  a workspace an agent's event names is recorded as the runtime gives it
-  (`callers_workspace`), and every event that names a runtime group passes
-  `not_another_open`, both in `App::record`; a new kind that names a workspace joins them,
-  and the rules never read an intent's project from its units (`intent_project`). Reading is
+  a workspace an agent's event names is recorded as the runtime gave it for the place the
+  caller was found at (`App::who_in`, `callers_workspace`; never a list read earlier), and
+  every event that names a runtime group passes `not_another_open`, on the groups that
+  group's machine gives at the request (`Runtime::groups_on`; it cannot be asked: 503). Both
+  are in `App::record_in`, which checks against the store and records under one lock of it;
+  a new kind that names a workspace joins them. An intent follows its workspace's record to
+  a new id or label (`workspace_mut`), and the rules never read an intent's project from
+  its units (`intent_project`). Reading is
   scoped the same way: a route that
   returns records goes through `App::view` (the user sees all; an agent sees all unless it
   is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new

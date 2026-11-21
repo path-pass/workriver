@@ -172,6 +172,8 @@ pub(in crate::server) struct Fake {
     pub(super) no_shell: std::sync::Mutex<Vec<String>>,
     /// Which places hold an agent cannot be asked (the runtime errs), the rest can.
     pub(super) agent_roots_down: std::sync::atomic::AtomicBool,
+    /// Which groups there are cannot be asked (the runtime errs); agents and places can.
+    pub(super) groups_down: std::sync::atomic::AtomicBool,
     /// Called with the receiver as a message is taken, before `send` returns: what a test
     /// wants to look at at that very moment.
     pub(super) on_send: std::sync::Mutex<Option<Look>>,
@@ -243,6 +245,19 @@ impl workriver_core::runtime::Runtime for Fake {
                 workriver_core::runtime::Root { shell: (!no_shell.contains(&p)).then_some(pid), front: vec![pid], at: self.locate(None, &p).unwrap(), place: p }
             })
             .collect())
+    }
+    /// Those of the agents, as by default, unless the test says they cannot be asked.
+    fn groups(&self) -> Result<Vec<workriver_core::RuntimeRef>, workriver_core::runtime::RuntimeError> {
+        if self.groups_down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::Failed("the runtime cannot say which groups are open".into()));
+        }
+        let mut all = vec![];
+        for g in self.agents()?.into_iter().filter_map(|a| a.group) {
+            if !all.contains(&g) {
+                all.push(g);
+            }
+        }
+        Ok(all)
     }
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Ok(())

@@ -242,10 +242,29 @@ Agents run under the user's account, and this check does not change that.
     agent's first calls.
   - **A workspace's record is found by its label once its id is gone**, and the runtime's
     socket renames and closes workspaces. The service records an agent's workspace as the
-    runtime names it (never as a request does), and refuses a group whose record is another
-    workspace still open (`not_another_open` in `App::record`: every event that names a
-    group, the user's too; an unreadable runtime refuses). So two open workspaces that share
-    a label are refused, not matched. What is left goes through the socket only:
+    runtime names it (never as a request does): the group of the place the caller was
+    found at, read with that place (`App::who_in`), on a followed machine too, never the
+    one a regular read of the agents last had. It refuses a group whose record is another
+    workspace still open (`not_another_open` in `App::record_in`: every event that names a
+    group, the user's too). Which workspaces are open is asked of the group's own machine
+    at the request (`Runtime::groups_on`): a list that cannot be read is no proof that a
+    workspace closed, so the request is refused (503), on this machine while others are
+    followed as well, and a followed machine's last regular read is never asked. The check
+    and the record are one step under the store's lock, on what is recorded then: two
+    requests cannot both pass against a state that has neither's record, and a
+    registration that names only an intent is for the workspace the intent is in when it
+    is recorded. So two open workspaces that share a label are refused, not matched.
+
+    An intent is in its workspace's record, not under the id or label it was started
+    with: when an event that names the workspace moves its record to a new id (the runtime
+    restarted) or a new label (it was renamed), the intents that run or ran there are
+    rewritten with it (`workspace_mut`; one in a linked group of another machine keeps that
+    group). A workspace opened later under the old label is then a workspace of its own,
+    and its manager is nobody to those intents. A workspace that got a new id and a new
+    label with nothing recorded in between is found by neither: it is a new workspace to
+    workriver, and its old record is a closed workspace's (below).
+
+    What is left goes through the socket only:
     - an agent gives its own workspace the label a link names: when that label is next
       recorded, from the runtime, the link resolves to the first local record that has it,
       and the linked workspace's intents are that record's manager's;

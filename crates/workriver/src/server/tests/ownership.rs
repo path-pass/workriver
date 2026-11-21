@@ -320,3 +320,208 @@ fn an_unreadable_runtime_matches_no_workspace_by_name() {
     fake.down.store(false, std::sync::atomic::Ordering::Relaxed);
     assert_eq!(records(&d), ["w1:docs:s-boss:-"]);
 }
+
+/// An intent runs in its workspace's record, not under the name it was started with. boss
+/// manages w1 "docs" and the user starts an intent there. The runtime restarts (w1 is w9)
+/// and the user renames the workspace "notes"; boss registers after each, and stays its
+/// intent's manager. A new workspace opened under the old name "docs" is one of its own:
+/// its agent registers there and is nobody to that intent.
+#[test]
+fn an_intent_follows_its_workspaces_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), docs("s-boss", "boss", "w1"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let boss = at_place(&d, "p1");
+    boss.append("", "manager.registered", json!({ "workspace": group(&boss) })).unwrap();
+    let id = planned(&d, "Mine", None);
+    d.append("user", "intent.state_changed", start(&id, &group(&boss))).unwrap();
+    for (n, label) in [(1, "docs"), (2, "notes")] {
+        fake.agents.lock().unwrap()[0].1 = labelled("s-boss", "boss", "w9", label);
+        boss.append("", "manager.registered", json!({ "workspace": group(&boss) })).unwrap();
+        boss.append("", "intent.updated", json!({ "intent": id, "add_note": format!("its manager's {n}") })).expect("still its manager");
+    }
+    fake.agents.lock().unwrap().push(("p2".into(), docs("s-new", "newcomer", "w5")));
+    let newcomer = at_place(&d, "p2");
+    newcomer.append("", "manager.registered", json!({ "workspace": group(&newcomer) })).expect("in its own workspace");
+    assert_eq!(records(&d), ["w9:notes:s-boss:-", "w5:docs:s-new:-"]);
+    let refusal = format!("only the user or the manager of intent {id}");
+    for (what, body) in [("intent.updated", json!({ "intent": id, "note": "replaced", "base": 3 })), ("intent.state_changed", json!({ "intent": id, "state": "planned" })), ("intent.state_changed", json!({ "intent": id, "state": "done" }))] {
+        let e = newcomer.append("", what, body).unwrap_err().to_string();
+        assert!(e.contains(&refusal), "{what}: {e}");
+    }
+    assert_eq!(intent(&d, &id), ("active".to_string(), "The user's own words\n\nits manager's 1\n\nits manager's 2".to_string()));
+    boss.append("", "intent.state_changed", json!({ "intent": id, "state": "done" })).expect("its manager closes it");
+}
+
+/// A service that follows machine "box", as it runs for real (no `--as`): the runtimes read
+/// through, the user's client, and a client of box's own listener.
+fn following(tmp: &std::path::Path, local: std::sync::Arc<Fake>, far: std::sync::Arc<Fake>) -> (std::sync::Arc<crate::runtime::follow::Machines>, Daemon, Daemon) {
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.join("w.db"));
+    let user = kernel.client(port, tmp);
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    (all, user, there)
+}
+
+/// Whether a record's own workspace is still open is asked of its machine's runtime, now.
+/// While another machine is followed, this machine's runtime not answering is not "no
+/// workspace is open here": the second of two open workspaces of one name is refused (503),
+/// from an agent and from the user, and the first one's record stays its own.
+#[test]
+fn a_group_list_that_cannot_be_read_is_not_an_empty_one() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("p1".into(), docs("s-work", "worker", "w1")), ("p2".into(), docs("s-other", "other", "w2"))];
+    let (_all, user, _there) = following(tmp.path(), local.clone(), std::sync::Arc::new(Fake::default()));
+    let (g1, g2) = (group(&at_place(&user, "p1")), group(&at_place(&user, "p2")));
+    let id = planned(&user, "In w1", None);
+    user.append("user", "intent.state_changed", start(&id, &g1)).unwrap();
+    assert_eq!(records(&user), ["w1:docs:-:-"]);
+    local.groups_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (status, said) = answered(&user, "p2", "manager.registered", json!({ "workspace": g2 }));
+    assert!(status == 503 && said.contains("cannot say which groups are open"), "an agent: {status} {said}");
+    let next = planned(&user, "Next", None);
+    let ways = [
+        ("the page's start", user.call("/api/intent/start", Some(json!({ "intent": next, "workspace": "w2" })))),
+        ("intent start", user.append("user", "intent.state_changed", start(&next, &g2))),
+        ("workspace project", user.append("user", "workspace.project_set", json!({ "workspace": g2, "project": null }))),
+    ];
+    for (way, r) in ways {
+        let e = r.expect_err(way).to_string();
+        assert!(e.contains("cannot say which groups are open"), "{way}: {e}");
+    }
+    assert_eq!(records(&user), ["w1:docs:-:-"]);
+    // What needs no answer is not held up: the recorded workspace itself is named as ever.
+    user.append("user", "workspace.project_set", json!({ "workspace": g1, "project": null })).unwrap();
+    local.groups_down.store(false, std::sync::atomic::Ordering::Relaxed);
+    let e = user.append("user", "intent.state_changed", start(&next, &g2)).unwrap_err().to_string();
+    assert!(e.contains(SAME_NAME), "{e}");
+}
+
+/// The same on a followed machine: its workspaces are asked of its runtime at the request,
+/// never taken from the last regular read. A workspace that restarted there since (its old
+/// id is gone) keeps its record, though the last read still lists the old id; and while
+/// that machine's runtime cannot say which workspaces are open, a second one of the name is
+/// refused (503), not matched.
+#[test]
+fn a_followed_machines_workspaces_are_read_at_the_request() {
+    let tmp = tempfile::tempdir().unwrap();
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p1".into(), docs("s-far", "far", "w1"))];
+    let (_all, user, there) = following(tmp.path(), std::sync::Arc::new(Fake::default()), far.clone());
+    let g1 = group(&at_place(&there, "p1"));
+    assert_eq!(g1, json!({ "id": "w1@box", "label": "docs", "machine": "box" }));
+    let id = planned(&user, "Over there", None);
+    user.append("user", "intent.state_changed", start(&id, &g1)).unwrap();
+    // The runtime over there restarted: the same workspace under a new id. Not read again here.
+    *far.agents.lock().unwrap() = vec![("p9".into(), docs("s-far2", "far", "w9"))];
+    let g9 = group(&at_place(&there, "p9"));
+    user.append("user", "workspace.project_set", json!({ "workspace": g9, "project": null })).expect("its own record, under its new id");
+    assert_eq!(records(&user), ["w9@box:docs:-:-"]);
+    // Another workspace of that name opens there, and its runtime stops saying which are open.
+    far.agents.lock().unwrap().push(("p5".into(), docs("s-five", "five", "w5")));
+    let g5 = group(&at_place(&there, "p5"));
+    far.groups_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (status, said) = http_at(&there, there.port, "p5", "POST", "/api/append", &[], Some(&json!({ "kind": "manager.registered", "body": { "workspace": g5 } }).to_string()));
+    assert!(status == 503 && said.contains("cannot say which groups are open"), "an agent there: {status} {said}");
+    let e = user.append("user", "workspace.project_set", json!({ "workspace": g5, "project": null })).unwrap_err().to_string();
+    assert!(e.contains("cannot say which groups are open"), "{e}");
+    far.groups_down.store(false, std::sync::atomic::Ordering::Relaxed);
+    let e = user.append("user", "workspace.project_set", json!({ "workspace": g5, "project": null })).unwrap_err().to_string();
+    assert!(e.contains("is already recorded for another open workspace (w9@box)"), "{e}");
+    assert_eq!(records(&user), ["w9@box:docs:-:-"]);
+}
+
+/// An agent's workspace is the one its place was found in when the request came, on a
+/// followed machine too, never the one the last regular read of that machine had. The user
+/// renamed boss's workspace over there since that read: boss's start is recorded under the
+/// new name. And an agent that started there since registers in its workspace, though the
+/// last read does not know it.
+#[test]
+fn an_agents_workspace_is_read_with_its_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mine = repo(tmp.path(), "mine");
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p1".into(), docs("s-boss", "boss", "w1"))];
+    let (_all, user, there) = following(tmp.path(), std::sync::Arc::new(Fake::default()), far.clone());
+    let boss = at_place(&there, "p1");
+    user.append("user", "project.added", json!({ "path": mine, "title": "Mine" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group(&boss) })).unwrap();
+    user.append("user", "workspace.project_set", json!({ "workspace": group(&boss), "project": mine })).unwrap();
+    let id = planned(&user, "Own", Some(&mine));
+    far.agents.lock().unwrap()[0].1 = labelled("s-boss", "boss", "w1", "notes");
+    let named = group(&boss);
+    assert_eq!(named["label"], "notes");
+    let started = boss.append("", "intent.state_changed", start(&id, &named)).unwrap();
+    assert_eq!(started["body"]["workspace"], named, "as the runtime names it now");
+    boss.append("", "manager.registered", json!({ "workspace": named })).unwrap();
+    assert_eq!(records(&user), [format!("w1@box:notes:s-boss:{mine}")]);
+    // Started since the last read of that machine.
+    far.agents.lock().unwrap().push(("p2".into(), labelled("s-late", "late", "w2", "other")));
+    let late = at_place(&there, "p2");
+    late.append("", "manager.registered", json!({ "workspace": group(&late) })).expect("in its own workspace");
+    assert_eq!(records(&user), [format!("w1@box:notes:s-boss:{mine}"), "w2@box:other:s-late:-".to_string()]);
+    // In another's, or in none: refused, as on this machine.
+    let (status, said) = http_at(&there, there.port, "p2", "POST", "/api/append", &[], Some(&json!({ "kind": "manager.registered", "body": { "workspace": named } }).to_string()));
+    assert!(status == 403 && said.contains("the workspace it runs in"), "{status} {said}");
+}
+
+/// Runs `then` once, from inside the service, as it next lists the agents for a request:
+/// after a registration was let in, before it is recorded.
+fn as_the_agents_are_listed(fake: &Fake, then: impl Fn() + Send + Sync + 'static) {
+    let done = std::sync::atomic::AtomicBool::new(false);
+    *fake.on_agents.lock().unwrap() = Some(std::sync::Arc::new(move || {
+        if !done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            then();
+        }
+    }));
+}
+
+/// What a group is checked against is what it is recorded on: the check and the record are
+/// one step. Two workspaces of one name are open and neither is recorded yet. While other's
+/// registration is under way, boss's is recorded: other's is checked against that, and
+/// refused, where it once passed against no record and then took boss's record by its name.
+#[test]
+fn the_check_and_the_record_are_one_step() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), docs("s-boss", "boss", "w1")), ("p2".into(), docs("s-other", "other", "w2"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let (boss, other) = (at_place(&d, "p1"), at_place(&d, "p2"));
+    let (g1, g2) = (group(&boss), group(&other));
+    as_the_agents_are_listed(&fake, move || {
+        boss.append("", "manager.registered", json!({ "workspace": g1 })).unwrap();
+    });
+    let (status, said) = answered(&d, "p2", "manager.registered", json!({ "workspace": g2 }));
+    assert!(status == 409 && said.contains(&format!("workspace docs {SAME_NAME}")), "{status} {said}");
+    assert_eq!(records(&d), ["w1:docs:s-boss:-"]);
+}
+
+/// The same for a registration that names only an intent: the workspace it sets the manager
+/// of is the one the intent is in as it is recorded. The user moves the intent to another
+/// workspace while an agent of the first registers for it: refused, where it once passed
+/// for the first workspace and was then recorded as the manager of the second.
+#[test]
+fn a_registration_for_an_intent_is_for_where_it_is_recorded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), labelled("s-one", "one", "w1", "one")), ("p2".into(), labelled("s-two", "two", "w2", "two"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let (g1, g2) = (group(&at_place(&d, "p1")), group(&at_place(&d, "p2")));
+    let id = planned(&d, "Moves", None);
+    d.append("user", "intent.state_changed", start(&id, &g1)).unwrap();
+    let (user, moved) = (d.clone(), id.clone());
+    as_the_agents_are_listed(&fake, move || {
+        user.append("user", "intent.linked", json!({ "intent": moved, "runtime_ref": g2 })).unwrap();
+    });
+    let (status, said) = answered(&d, "p1", "manager.registered", json!({ "intent": id }));
+    assert!(status == 403 && said.contains("the workspace it runs in"), "{status} {said}");
+    assert_eq!(records(&d), ["w1:one:-:-", "w2:two:-:-"]);
+    // Where the intent still is, it registers as before.
+    let back = planned(&d, "Stays", None);
+    d.append("user", "intent.state_changed", start(&back, &g1)).unwrap();
+    at_place(&d, "p1").append("", "manager.registered", json!({ "intent": back })).unwrap();
+    assert_eq!(records(&d), ["w1:one:s-one:-", "w2:two:-:-"]);
+}

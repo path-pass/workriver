@@ -656,12 +656,17 @@ impl State {
                     return no(format!("{id} is planned: a manager adds to its note (--add-note), nothing more; the rest is the user's"));
                 }
                 let theirs = self.intent_project(i);
+                // Of no project (a record from before projects): no workspace's, whatever
+                // the manager's own works on, so no setting of its workspace would help.
+                if theirs.is_empty() {
+                    return no(format!("{id} is planned and has no project: only the user adds to its note; ask the user to add yours"));
+                }
                 let name = self.project_of(&theirs).map_or(theirs.clone(), |p| p.title.clone());
                 let known: Vec<String> = mine.iter().filter_map(|w| self.workspace_project(w)).collect();
-                if !theirs.is_empty() && known.contains(&theirs) {
+                if known.contains(&theirs) {
                     return Ok(());
                 }
-                if known.is_empty() || theirs.is_empty() {
+                if known.is_empty() {
                     return no(format!("{id} belongs to project {name}; your workspace's project is not known: ask the user to set it (Settings, or `workriver workspace project`)"));
                 }
                 no(format!("{id} belongs to project {name}; no workspace you manage works on it, so its note is not yours to add to"))

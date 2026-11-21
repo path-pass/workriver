@@ -14,8 +14,9 @@
 
 Units are added by the intent's manager (you, for an intent that runs in the workspace you
 manage) or by the user, by nobody else: a worker that finds work for another unit tells
-you. An intent still in the roadmap, or running where no manager registered, has no manager:
-start it first (`start-intent`), or the user adds the unit.
+you. An intent that is planned and never ran, or runs where no manager registered, has no
+manager: start it first (`start-intent`), or the user adds the unit. One put back in the
+roadmap keeps the manager of the workspace it last ran in, who still adds its units.
 
 A unit is built, reviewed and merged on its own, on its own branch. The branch is the
 unit's own, never its base, and says what it holds: `feat/<name>` for new work,
@@ -78,4 +79,5 @@ with feat/, chore/ or fix/" / "a unit's branch must not be its base" - name the 
 branch so, as the message says. "only the user or the manager of intent i3 (boss) adds its
 units" - not your intent: tell its manager (`workriver manager tell <your task> --text "…"`).
 "i7 has no manager: units are added by the manager of the workspace it runs in, once it is
-started, or by the user" - start it first (`start-intent`), or ask the user.
+started, or by the user" - it never ran, or runs where nobody registered: start it first
+(`start-intent`), or ask the user.

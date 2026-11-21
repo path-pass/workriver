@@ -157,15 +157,23 @@ conflict error, since one service writes. `DataError` is `Rejected` (a broken ru
 `Rejected` inside), `Unavailable` or `Corrupt`, the last two with the storage's own text;
 the service answers 422 for a broken rule and 500 otherwise.
 
-`App::record` keeps, outside the adapter, what surrounds a write: `may_manage`, the
-workspace checks and `complete` before it, and after the commit, in this order, delivery,
-the kind's follow-up, the branch watch and the page's signal. `callers_workspace` gives the
-caller's workspace as the runtime has it, and `record` puts that in place of the one an
-agent's registration or start names: the label a request gives is never recorded.
-`not_another_open` refuses a group whose record is another workspace still open, for every
-event that names a group (a registration, a start, `intent.created` with a group,
-`intent.linked`, `workspace.project_set`), whoever sends it (`caller-identity.md`,
-section 6). A requirement added to a task (`task.noted`) is
+`App::record` keeps, outside the adapter, what surrounds a write: the workspace checks and
+`complete` before it, and after the commit, in this order, delivery, the kind's follow-up,
+the branch watch and the page's signal. It is `App::record_in` with no workspace; the append
+handler, the one way an agent's own event comes in, calls `record_in` with the workspace
+`App::who_in` found the caller's place in. `record_in` works in two steps. With nothing
+locked it reads what the runtime says: `callers_workspace` puts the caller's workspace, as
+the runtime gave it for that place, in place of the one an agent's registration or start
+names (the label a request gives is never recorded, and no list of agents read earlier is
+asked), and the groups open on the named group's machine are asked of that machine
+(`Runtime::groups_on`, never the regular read's list). Then it locks the store, checks, and
+records, without letting go in between: `not_another_open` refuses a group whose record is
+another workspace still open, for every event that names a group (a registration, a start,
+`intent.created` with a group, `intent.linked`, `workspace.project_set`), whoever sends it,
+and refuses (503) when that machine's groups could not be asked; `may_manage` keeps a
+running manager's seat; a registration that names only an intent is checked against the
+workspace the intent is recorded in then (`caller-identity.md`, section 6). No runtime is
+asked while the store is locked. A requirement added to a task (`task.noted`) is
 told apart: the append handler calls `App::noted` after the commit, which tells the task's
 agent (found in the runtime now, not the last poll) and gives how far that got, answered
 beside the recorded event. An agent not found while machines are followed may have started
@@ -226,7 +234,7 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/complete/may_manage, the workspace checks, noted/give_notes,
+│   │   │   ├── record.rs             # App::record/record_in/complete/may_manage, the workspace checks, noted/give_notes,
 │   │   │   │                         # post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
