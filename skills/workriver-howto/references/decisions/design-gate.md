@@ -27,7 +27,9 @@ You hear of the discussion only when the design is amended in it and when it is 
 
 When the amended design's architecture review before the gate had started, the review and
 the gate saw the old text: drop the gate (`workriver task drop u1#3 --reason "amended in its
-discussion"`), add the review again and a new decide gate after it. A review not started
+discussion"`), add the review again and a new decide gate after it; the build recorded after
+the old gate is dropped first and added again after the new one. Nothing is put before a
+recorded gate (`ask-user`, Nothing is put before a recorded gate). A review not started
 yet reads the amended design; otherwise the gate now asks about the amended design. The
 message says which. Once the gate is submitted the discussion is over; a change
 then is a new design task (below). Every task after it in the

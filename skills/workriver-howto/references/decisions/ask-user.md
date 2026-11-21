@@ -55,6 +55,25 @@ A task is dropped, never deleted; what follows it no longer waits on it:
 The same for any task re-planning made unneeded: its agent is told to stop (the reason is
 quoted to it); the board shows `dropped (reason)`.
 
+**Nothing is put before a recorded gate.** Once a gate is recorded, no task goes before it
+(there is no `--before`): work put there would change what the gate asks, and a gate open
+or already answered could then read as confirming what the user never saw. When new work
+must come first (a fix, another review, an amended design), ask anew: drop the gate with
+its reason, record the new work after what the gate followed, and a new gate after that
+work. What waited on the dropped gate waits no more (a gate after it would open at once),
+so drop that first and add it again after the new gate. Say gate u1#8 follows review 7,
+push 9 follows the gate, and a fix of the review's P2-1 must come first:
+
+    workriver task drop u1#9 --reason "waits on the gate asked anew: a fix comes first"
+    workriver task drop u1#8 --reason "asked anew: a fix of P2-1 of u1#7 comes first"
+    workriver task add u1 --title "Fix P2-1" --cause 7:P2-1 --after 7 --agent fix
+    workriver task add u1 --kind gate --gate decide --title "Push u1 (feat/readme)?" --after 10 --text "<what is there now>"
+    workriver task add u1 --title "Push feat/readme" --after 11 --agent pusher --text "Push the branch only."
+
+The user sees a new gate about what is there now, and the dropped one says why. A gate the
+user submitted is done and is not dropped: what changes after it is new work after it (a
+changed design is a new design task, `design-gate`).
+
 **Refusals:** "gate … is not open yet: it follows …" - it waits until the tasks before it
 are done; that is fine, it shows in Needs you then. "a design is confirmed with a decide gate
 without --option" - a design's gate: options in `--text`. "u2#8 asks the user to choose; add
