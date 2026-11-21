@@ -367,7 +367,8 @@ pub(super) fn discussed(state: &State, live: Option<&[RuntimeAgent]>, e: &Event)
 }
 
 /// Who is told that work is over (a unit merged or done, an intent done): its manager, to
-/// tell the user with `workriver say` what came of it, and of the agents that worked on it
+/// tell the user what came of it (a reply to the user's message that asked for the work,
+/// else `workriver say`), and of the agents that worked on it
 /// and are still running with no other task, to close them; workriver never closes them
 /// itself. An intent the manager closed itself: its command's output says the first
 /// (`said_done`), the message only the second. Held while the manager cannot take it
@@ -386,7 +387,7 @@ pub(super) fn finished(state: &State, live: Option<&[RuntimeAgent]>, e: &Event) 
     let said = matches!(e.body, Body::IntentStateChanged { .. }) && e.actor == m;
     let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
     let names: Vec<String> = reminders::finished_workers(state, live, &owners).iter().map(|x| quote::name(&x.name)).collect();
-    let say = (!said).then(|| say(came));
+    let say = (!said).then(|| tell(came));
     let close = (!names.is_empty()).then(|| {
         let (are, them) = if names.len() == 1 { ("is", "it") } else { ("are", "them") };
         format!(
@@ -434,15 +435,16 @@ pub(super) fn edited(state: &State, e: &Event) -> Option<(String, String)> {
 /// What an intent came to, for the manager to tell the user.
 const INTENT_CAME: &str = "what the intent came to";
 
-/// The reminder to tell the user what came of finished work (`what`), in one sentence.
-fn say(what: &str) -> String {
-    format!("Tell the user with `workriver say --text \"...\"` {what} and what they should do now, if anything (restart a service, re-open the page, update other machines).")
+/// The reminder to tell the user what came of finished work (`what`), in one sentence: one
+/// rule with the user's message, which says the same (`messages::replying`).
+fn tell(what: &str) -> String {
+    format!("Tell the user {what} and what they should do now, if anything (restart a service, re-open the page, update other machines): if the user asked for this work in a message, reply to that message with `workriver reply <message> --text \"...\"`; otherwise with `workriver say --text \"...\"`.")
 }
 
 /// What the output of `workriver intent done` says when the intent's manager ran it, in place
 /// of the message: tell the user what the intent came to.
 pub(super) fn said_done() -> String {
-    say(INTENT_CAME)
+    tell(INTENT_CAME)
 }
 
 /// What the manager of the workspace hears when the user starts a planned intent there from

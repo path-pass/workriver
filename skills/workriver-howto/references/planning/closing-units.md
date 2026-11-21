@@ -26,13 +26,18 @@ A research unit (`units`) has no branch: it goes from ready ("ready to close") t
     workriver unit done u2 --reason "superseded by u1"      # research, abandoned, superseded
     workriver intent done i3                                # once the board says every unit is merged or done
 
-**Tell the user** what came of it each time. When a unit is merged or done, or the user
-marks the intent done, your message ends with "Tell the user with `workriver say --text
-"..."` what was merged and what they should do now, if anything (restart a service, re-open
-the page, update other machines)."; when you run `workriver intent done`, its output says it
-after `i3 done`. One line: what changed for the user and what they must do.
+**Tell the user** what came of it each time, by the rule of `user-message`: work the user
+asked for in a message (`m3`, also one to every manager) is answered there, as a reply to
+it; work nobody asked for is `workriver say`. When a unit is merged or done, or the user
+marks the intent done, your message ends with "Tell the user what was merged and what they
+should do now, if anything (restart a service, re-open the page, update other machines): if
+the user asked for this work in a message, reply to that message with `workriver reply
+<message> --text "..."`; otherwise with `workriver say --text "..."`."; when you run
+`workriver intent done`, its output says it after `i3 done`. One line: what changed for the
+user and what they must do.
 
-    workriver say --text "u1 is merged: replies show in the page. Restart workriver serve and re-open the page."
+    workriver reply m3 --text "u1 is merged: replies show in the page. Restart workriver serve and re-open the page."   # m3 asked for it
+    workriver say --text "u1 is merged: replies show in the page. Restart workriver serve and re-open the page."        # nobody asked
 
 A squash merge leaves the branch's commits off the base, so git cannot show it; workriver
 notices and tells you, once per branch tip:

@@ -11,7 +11,11 @@ Newest first. A manager that was already running reads this once after an update
   in your workspace's conversation, a message to every manager in All managers). `workriver
   say` is for what nobody asked: a merge, a deploy, a gate's outcome, a problem found. The
   message itself now says so: `Once the work it asks is done, reply to this message again
-  with the result, not with workriver say, …`. (`user-message`)
+  with the result, not with workriver say, …`, and so does the notice when work is over (a
+  unit merged or done, an intent done, the output of `workriver intent done`): `Tell the
+  user what was merged … : if the user asked for this work in a message, reply to that
+  message with workriver reply <message> --text "..."; otherwise with workriver say --text
+  "..."`. (`user-message`, `closing-units`)
 - **The user writes to every manager at once** (managers): a message may come to every
   running manager, here and on followed machines: `[workriver] The user writes to every
   manager from workriver's page (message m3, to the managers of 3 workspaces): answer for
@@ -112,9 +116,10 @@ Newest first. A manager that was already running reads this once after an update
   only from the last paragraph, so a `Task:` line followed by a blank line and another
   trailer was not seen and the commit showed as unregistered. (`commit-link`, `hand-off`)
 - **workriver reminds you when to tell the user and when to hand work out** (managers): a
-  unit merged or done, and an intent done, now end their message with "Tell the user with
-  `workriver say` …" (also when no worker is left to close: then that is the whole
-  message); `workriver intent done` that you ran says it in its output. A message from the
+  unit merged or done, and an intent done, now end their message with "Tell the user …"
+  (also when no worker is left to close: then that is the whole message): a reply to the
+  user's message that asked for the work, else `workriver say` (see "Reply and say, one rule
+  each" above); `workriver intent done` that you ran says it in its output. A message from the
   user says that work that takes time goes into a task for a worker and your reply carries
   its link; answer at once only what needs no work. (`closing-units`, `closing-workers`,
   `user-message`)

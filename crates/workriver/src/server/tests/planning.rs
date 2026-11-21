@@ -296,8 +296,9 @@ fn units_finish() {
 
     // Work over: the manager is told to tell the user, with the workers to close or without.
     let to_boss = |what: &str| fake.sent.lock().unwrap().iter().filter(|(t, m)| t == "s-boss" && m.contains(what)).map(|(_, m)| m.clone()).collect::<Vec<_>>();
-    let say = "Tell the user with `workriver say --text \"...\"` ";
-    let now = " and what they should do now, if anything (restart a service, re-open the page, update other machines).";
+    // One rule with the user's message: the work it asked for is answered there, the rest said.
+    let say = "Tell the user ";
+    let now = " and what they should do now, if anything (restart a service, re-open the page, update other machines): if the user asked for this work in a message, reply to that message with `workriver reply <message> --text \"...\"`; otherwise with `workriver say --text \"...\"`.";
     let merged = to_boss("u1 is merged");
     assert!(matches!(&merged[..], [m] if m.starts_with("[workriver] u1 is merged: w, rev worked on it") && m.ends_with(&format!("{say}what was merged{now}"))), "{merged:?}");
     assert_eq!(to_boss("u2 is done"), [format!("[workriver] u2 is done. {say}what it came to{now}")]);
@@ -306,7 +307,7 @@ fn units_finish() {
     let out = boss.append("", "intent.state_changed", json!({ "intent": "i1", "state": "done" })).unwrap();
     assert_eq!(crate::cli::made(&out), format!("i1 done\n{say}what the intent came to{now}"));
     let done = to_boss("Intent i1 is done");
-    assert!(matches!(&done[..], [m] if m.starts_with("[workriver] Intent i1 is done: w, rev worked on it") && !m.contains("workriver say")), "{done:?}");
+    assert!(matches!(&done[..], [m] if m.starts_with("[workriver] Intent i1 is done: w, rev worked on it") && !m.contains("workriver say") && !m.contains("workriver reply")), "{done:?}");
     // The user closes one: the manager is told, and the user's own output says nothing of it.
     user.append("", "intent.created", json!({ "title": "Logout", "state": "planned" })).unwrap();
     user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).unwrap();

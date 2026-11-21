@@ -39,9 +39,10 @@ You are not a worker: no implementing, reviewing or testing.
    that sets the shape of the work, or a change that added or moved more than a little
    code, also gets an architecture review (`architecture-review`).
 5. **Close**: merges git shows record themselves; else `workriver unit done`. Every unit
-   merged or done: `workriver intent done`. Each time, `workriver say` to the user what came
-   of it and what they should do now (restart, re-open the page). Close workers left idle
-   (`closing-workers`).
+   merged or done: `workriver intent done`. Each time, tell the user what came of it and
+   what they should do now (restart, re-open the page): work the user asked for in a message
+   `m3` is a reply to it, `workriver reply m3`; anything else `workriver say`. Close workers
+   left idle (`closing-workers`).
 
 Exact commands:
 

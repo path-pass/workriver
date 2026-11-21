@@ -68,7 +68,9 @@ delivered, the deploy is up or the question answered, reply to m3 again with wha
 it, never `workriver say`. You may reply as often as needed; the replies follow the
 message (a message to you in your workspace's conversation, a message to every manager in
 All managers). Telling the user something nobody asked (a merge, a deploy, a gate's
-outcome, a problem found) is `workriver say`.
+outcome, a problem found) is `workriver say`. workriver's notice when work is over (a unit
+merged or done, an intent done) says the same: a merge the user asked for in m3 is a reply
+to m3 (`closing-units`).
 
 Only you, the manager it was sent to, can reply. Do not
 repeat the reply in your terminal: leave one line there at most (e.g. which message you

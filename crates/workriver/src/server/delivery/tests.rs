@@ -289,3 +289,26 @@ fn an_edit_is_told_as_it_was_committed() {
     assert_eq!(to, "boss");
     assert_eq!(said, "[workriver] The user changed i1 (now v2): its note changed (`workriver intent history i1 --diff 2`).");
 }
+
+/// The user's message asks for work and its result; the notice when that work is merged
+/// keeps the same rule: the result goes to the message that asked for it, as a reply; only
+/// work nobody asked for is said.
+#[test]
+fn a_finished_notice_replies_to_the_message_that_asked_else_says() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+    let group = json!({"id": "w1", "label": "chat"});
+    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "runtime_ref": group}}));
+    at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1", "workspace": group}}));
+    at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/b", "base": "main"}}));
+    at(&mut s, "user", json!({"kind": "message.sent", "body": {
+        "text": "Merge your ready work and tell me what merged.",
+        "to": [{"workspace": group, "manager": "boss"}]
+    }}));
+    let m = s.state().message("m1").unwrap();
+    let request = super::messages::broadcast_message(s.state(), m, &m.to[0], dir.path());
+    assert!(request.contains("reply to this message again with the result, not with `workriver say`"), "{request}");
+    let merged = at(&mut s, "user", json!({"kind": "unit.merged", "body": {"unit": "u1"}}));
+    let notices = finished(s.state(), Some(&[agent("boss")]), &merged);
+    assert_eq!(notices, [("boss".to_string(), "[workriver] u1 is merged. Tell the user what was merged and what they should do now, if anything (restart a service, re-open the page, update other machines): if the user asked for this work in a message, reply to that message with `workriver reply <message> --text \"...\"`; otherwise with `workriver say --text \"...\"`.".to_string())]);
+}

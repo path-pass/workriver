@@ -18,8 +18,9 @@ Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>"
 Only for a goal the user named. A step or part of a goal you are already on is never an
 intent of its own: it goes into that intent, as a task of its unit or a line in a task's
 text (`units`).
-Finished: `workriver intent done i3`; its output then asks you to tell the user with
-`workriver say` what the intent came to (`closing-units`). Given up: `workriver intent drop
+Finished: `workriver intent done i3`; its output then asks you to tell the user what the
+intent came to: a reply to the user's message that asked for it, else `workriver say`
+(`closing-units`). Given up: `workriver intent drop
 i3 --reason "..."` (an intent you manage; one still in the roadmap is the user's to drop).
 Done, dropped or back in the roadmap: only you, as its manager, or the user.
 Planned intents that are one goal merge into one (`workriver backlog merge <into>
