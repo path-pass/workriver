@@ -142,41 +142,86 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        let is = |a: &RuntimeAgent| a.session == h.to || a.name == h.to;
+        // A notice is for a session: an agent that only goes by it as a name is not it.
+        let is = |a: &RuntimeAgent| a.session == h.to || (h.kind != For::Notice && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
         };
         // A manager on a blind task is told nothing of other work: the user's message waits
         // (`poll` tries again) until that task is delivered. Checked at every try, since it may
         // have become blind while the message was held. Unread, it is not given either.
-        if matches!(h.kind, For::Message | For::Broadcast | For::Notice) && !self.blind_free(&h.to) {
+        if matches!(h.kind, For::Message | For::Broadcast | For::Notice | For::Discussion | For::Duty) && !self.blind_free(&h.to) {
             h.not_ready = None;
             self.held.lock().unwrap().push(h);
             return;
         }
-        match self.runtime.agents().ok().and_then(|l| l.into_iter().find(is)).map(|a| a.state) {
+        let live = self.runtime.agents();
+        let found = live.as_ref().ok().and_then(|l| l.iter().find(|a| is(a)));
+        // Its session gone, a notice is given to nobody: the runtime would look for an agent
+        // of that name next. (A runtime that does not answer says so itself, below.)
+        if h.kind == For::Notice && live.is_ok() && found.is_none() {
+            let gone = RuntimeError::NoAgent(h.name.clone());
+            return self.told(h, Err(gone));
+        }
+        // A discussion's agent is named as the runtime lists it when it is given the question.
+        if let (For::Discussion, Some(a)) = (h.kind, found) {
+            h.name = a.name.clone();
+        }
+        // A notice goes to the session found, on its machine; anything else by `to`.
+        let sent = |h: &Held| match found.filter(|_| h.kind == For::Notice) {
+            Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
+            None => self.send(&h.to, &h.text),
+        };
+        match found.map(|a| a.state) {
             Some(AgentState::Blocked) => h.not_ready = None,
             // No state yet: not typed into, whatever the terminal shows.
             Some(AgentState::Unknown) => not_ready(&mut h),
-            _ => match self.send(&h.to, &h.text) {
-                Ok(()) if matches!(h.kind, For::Message | For::Broadcast) => return self.message_delivery(&h.question, h.copy(), Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text.clone() }),
-                Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
-                Ok(()) => return,
-                Err(RuntimeError::Blocked(_)) => h.not_ready = None,
-                Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
-                // The user's message to a manager whose runtime cannot be reached now: nothing
-                // was typed, so it waits and is tried again (`poll`) until the manager takes it
-                // or is gone. Not one that may have been typed: that is not given twice.
-                Err(RuntimeError::None | RuntimeError::Unreachable(_)) if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
-                Err(e) => {
-                    return match h.kind {
-                        For::Message | For::Broadcast => self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
-                        For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
-                        For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
-                        For::Notice => self.told(h, Err(e)),
-                    };
+            // A discussion never interrupts its agent's work; one not listed (the runtime not
+            // read, or gone) waits for `poll`, which alone says it is gone.
+            Some(AgentState::Working) | None if h.kind == For::Discussion => h.not_ready = None,
+            None if h.kind == For::Duty => h.not_ready = None,
+            _ => {
+                // A discussion's question: the records are read again right before typing in, in
+                // order with a gate's record (`App::discussing`, held by both): one closed
+                // meanwhile goes nowhere, one whose gate was submitted fails now, and with
+                // records that cannot be read it waits. A gate recorded later comes after the
+                // send, which then stands as asked before the user decided.
+                let _order = (h.kind == For::Discussion).then(|| self.discussing.lock().unwrap());
+                let asked = if h.kind == For::Discussion { self.still_asked(&h.question) } else { Some(true) };
+                match asked {
+                    Some(false) => return,
+                    None => h.not_ready = None,
+                    Some(true) => match sent(&h) {
+                        Ok(()) if matches!(h.kind, For::Message | For::Broadcast) => return self.message_delivery(&h.question, h.copy(), Delivery { step: DeliveryStep::Delivered, to: Some(h.to.clone()), reason_code: None, reason: None, message: h.text.clone() }),
+                        Ok(()) if h.kind == For::Discussion => return self.discussion_given(&h),
+                        Ok(()) if h.kind == For::Duty => return,
+                        Ok(()) if h.kind == For::Notice => return self.told(h, Ok(())),
+                        Ok(()) => return,
+                        Err(RuntimeError::Blocked(_)) => h.not_ready = None,
+                        Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
+                        // The user's message to a manager whose runtime cannot be reached now:
+                        // nothing was typed, so it waits and is tried again (`poll`) until the
+                        // manager takes it or is gone. Not one that may have been typed: that is
+                        // not given twice.
+                        Err(RuntimeError::None | RuntimeError::Unreachable(_)) if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
+                        // Never lost while the service runs: tried again at the next poll.
+                        Err(e) if h.kind == For::Duty => {
+                            tracing::warn!("cannot give {} what it must act on yet: {e}", h.name);
+                            h.not_ready = None
+                        }
+                        Err(e) => {
+                            return match h.kind {
+                                For::Message | For::Broadcast => self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),
+                                For::Question => self.fail_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                                For::Review => self.review_failed(&h.question, &format!("cannot give {} the command: {e}", h.name)),
+                                For::Notice => self.told(h, Err(e)),
+                                For::Discussion => self.drop_question(&h.question, ReasonCode::RuntimeError, &format!("cannot give {} the question: {e}", h.name)),
+                                For::Duty => unreachable!("a duty is held, never dropped"),
+                            };
+                        }
+                    },
                 }
-            },
+            }
         }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());
@@ -191,9 +236,14 @@ impl App {
     /// is on a blind task in progress, or the records that would say cannot be read.
     pub(in crate::server) fn held_because(&self, session: &str) -> Option<String> {
         let read = got(self.store.lock().unwrap().recorded());
+        // By who it is in the runtime too (the last poll): a task may be its by a name only.
+        let live = self.live().unwrap_or_default();
         match read {
-            Ok(Some(s)) if s.blind_tasks(session).is_empty() => None,
-            Ok(Some(s)) => Some(format!("{} is on a blind task: it is told once that task is delivered", s.name_of(session).unwrap_or(session))),
+            Ok(Some(s)) if !delivery::blind(&s, &live, session) => None,
+            Ok(Some(s)) => {
+                let name = s.name_of(session).or_else(|| live.iter().find(|a| a.session == session).map(|a| a.name.as_str())).unwrap_or(session);
+                Some(format!("{name} is on a blind task: it is told once that task is delivered"))
+            }
             Ok(None) | Err(_) => Some("the records cannot be read now: it is told once they can".into()),
         }
     }

@@ -37,7 +37,7 @@ fn only_the_user_does_what_is_the_users() {
     assert!(add(&mut s, "user", json!({"kind": "manager.registered", "body": {"workspace": w}})).is_err());
     let e = add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
     assert_eq!(e.body, body(json!({"kind": "manager.registered", "body": {"agent": "agent-a", "workspace": w}})));
-    add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    managed(&mut s, "agent-a", "i1");
     // The intent's manager decides findings unless the user keeps them (nobody else says
     // which); no other agent ever does; and what an agent decides is an agent's decision.
     let decide = |d: &str| json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": d, "by": "user"}});

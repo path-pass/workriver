@@ -277,6 +277,17 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         add: Vec<NewFinding>,
     },
+    /// A requirement added to a task not delivered yet, by the intent's manager or the user:
+    /// part of what the task asks from then on. What it asked first is never rewritten.
+    #[serde(rename = "task.noted")]
+    TaskNoted {
+        unit: String,
+        task: u32,
+        #[serde(default)]
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<String>,
+    },
     /// Something added to a finding after it was reported: a requirement for its fix, a
     /// detail. The finding itself is never rewritten.
     #[serde(rename = "finding.noted")]
@@ -399,7 +410,15 @@ pub enum Body {
         /// A request to write the thread's conclusion rather than a question.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         conclude: bool,
+        /// The user discusses a delivered design or research with its own agent: one thread
+        /// per task, answered by that agent alone, until the task's gate is submitted.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        discuss: bool,
     },
+    /// The user has read the discussion of a task (`unit#task`) up to `at` (the time of the
+    /// newest answer the page showed); the page records it.
+    #[serde(rename = "questions.read")]
+    QuestionsRead { unit: String, task: u32, at: String },
     /// The temporary agent that answers it is running.
     #[serde(rename = "question.started")]
     QuestionStarted {
@@ -536,6 +555,7 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
+            QuestionsRead { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
             ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
@@ -556,6 +576,7 @@ impl Body {
             | TaskDelivered { unit, task: n, .. }
             | TaskDropped { unit, task: n, .. }
             | TaskAmended { unit, task: n, .. }
+            | TaskNoted { unit, task: n, .. }
             | FindingNoted { unit, task: n, .. }
             | FindingDecided { unit, task: n, .. }
             | GateSubmitted { unit, task: n, .. }

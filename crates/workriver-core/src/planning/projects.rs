@@ -58,6 +58,11 @@ impl State {
         self.workspace_at(r).map(|k| &self.workspaces[k])
     }
 
+    /// Whether two runtime groups are one workspace: the same group, or the same record.
+    pub(crate) fn same_group(&self, a: &RuntimeRef, b: &RuntimeRef) -> bool {
+        (a.id == b.id && a.machine == b.machine) || self.workspace_at(a).is_some_and(|k| self.workspace_at(b) == Some(k))
+    }
+
     /// The link of a group of another machine, if it has one.
     pub fn link_of(&self, r: &RuntimeRef) -> Option<&Link> {
         let m = r.machine.as_ref()?;
@@ -152,11 +157,17 @@ impl State {
                 WorkspaceProjectSet { workspace, project }
             }
             ManagerRegistered { intent, agent, workspace } => {
-                if let Some(i) = &intent {
-                    self.intent(i)?;
-                }
                 if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
                     return no("a manager manages a runtime workspace: run `workriver manager here` in its terminal");
+                }
+                // Naming an intent (as before 0.2) is managing the workspace it runs in, and only that.
+                if let Some(i) = &intent {
+                    let Some(at) = &self.intent(i)?.workspace else {
+                        return no(format!("{i} runs in no workspace: run `workriver manager here` in your workspace's terminal, without --intent, then `workriver intent start {i}`"));
+                    };
+                    if let Some(g) = workspace.as_ref().filter(|g| !self.same_group(g, at)) {
+                        return no(format!("{i} runs in workspace {}, not {}: a manager manages the workspace it runs in; run `workriver manager here` there, without --intent", at.label, g.label));
+                    }
                 }
                 // An agent registers itself; nobody is made a manager by someone else.
                 let agent = match who {

@@ -62,7 +62,7 @@ workriver/
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
 │   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
 │   │       │   ├── graph.rs          # Inputs, ancestors, follow-ups, progress, readiness, and design
-│   │       │   │                     # ancestry (decide gates, superseding designs).
+│   │       │   │                     # ancestry (decide gates, superseding designs); result_gate.
 │   │       │   ├── findings.rs       # Findings, suggestions, decisions, additions, deferred batches.
 │   │       │   ├── gates.rs          # Gate submission/opening and results.
 │   │       │   ├── chores.rs         # Non-blocking chores and their completion.
@@ -70,7 +70,8 @@ workriver/
 │   │       │   └── tests.rs
 │   │       ├── conversations/        # Durable communication records.
 │   │       │   ├── mod.rs            # Question/thread/message/delivery types and transitions.
-│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks.
+│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks; the
+│   │       │   │                     # user's discussion of a delivered result, its read mark.
 │   │       │   ├── messages.rs       # Manager messages, replies, read position, agents seen.
 │   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
 │   │       │   └── tests.rs
@@ -102,7 +103,7 @@ workriver/
 │           ├── history/
 │           │   ├── mod.rs            # Repo/rev/ref discovery, names, history exports.
 │           │   ├── branches.rs       # Branch membership, fork/squash, patch ids.
-│           │   └── commits.rs        # Batched commit/blob reads, commit metadata.
+│           │   └── commits.rs        # Batched commit/blob reads, commit metadata, where a branch meets its base, diffs.
 │           ├── files/
 │           │   ├── mod.rs            # FileChange/counts, before/after, live/worktree reads.
 │           │   └── tree.rs           # Module tree and line counts.
@@ -142,7 +143,8 @@ Core defines `WorkStore` in `ports/data.rs`; it is all the service knows of stor
   (`/api/intent/{id}/history`) goes through `App::view` and refuses a reduced view first.
 
 Named reads of one record (`unit`, `task`, `question`, `agent`, `thread`, `run`, …, and what
-a previous run left: `delivered`, `open_questions`, `held_messages`, `thread_agents`) are
+a previous run left: `delivered`, `open_questions`, `open_discussions`, `held_messages`,
+`thread_agents`) are
 provided methods over `recorded()` that a store may answer without the whole state; add one
 when it is missing. `recorded()` is used only where a function of the whole state is called
 or several records of one revision are needed. Every read returns a `Result`.
@@ -156,8 +158,21 @@ the service answers 422 for a broken rule and 500 otherwise.
 
 `App::record` keeps, outside the adapter, what surrounds a write: `may_manage` and
 `complete` before it, and after the commit, in this order, delivery, the kind's follow-up,
-the branch watch and the page's signal. How a failed read is handled before and after the
-commit is in AGENTS.md (Layout).
+the branch watch and the page's signal. `may_manage` also gives the caller's workspace as
+the runtime has it, and `record` puts that in place of the one a registration names: the
+label a request gives is never recorded. A requirement added to a task (`task.noted`) is
+told apart: the append handler calls `App::noted` after the commit, which tells the task's
+agent (found in the runtime now, not the last poll) and gives how far that got, answered
+beside the recorded event. An agent not found while machines are followed may have started
+on one since it was last read: the answer says it is not told yet, and a thread of its own
+(`find_noted`) reads the machines again (`Machines::refresh`, each on its own thread) and
+tells it after the first read that shows it, so no request ever waits for a machine. One whose agent is
+on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
+each poll works it out again (`give_notes`), so it is given only while the task is still
+started and with that agent. It goes out by `App::send_to` (the runtime's `send_to`): to
+that session on that machine and no other, files as that machine can get them. A held
+notice (`For::Notice`) is matched and sent the same way, by session only. How a failed read is handled before and after the commit is in
+AGENTS.md (Layout).
 
 ## The outer crate
 
@@ -206,7 +221,7 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/complete/may_manage, post-commit order.
+│   │   │   ├── record.rs             # App::record/complete/may_manage/noted/give_notes, post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
 │   │   │   ├── mod.rs                # App::who/user/view/here, the Caller and the Reader.
@@ -224,10 +239,12 @@ crates/workriver/
 │   │   ├── planning/mod.rs           # Intent/project/workspace/start/merge handlers.
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── conversations/
-│   │   │   ├── mod.rs                # Ask/end/reply/message/read handlers, shared state.
+│   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
 │   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
+│   │   │   ├── discussions.rs        # A discussion's question to its task's agent: hand, gone,
+│   │   │   │                         # gate submitted, restart; what the manager hears of it.
 │   │   │   ├── messages.rs           # Manager conversation send/hold/delivery/failure.
-│   │   │   └── prompts.rs            # Ask, follow-up and answer-back prompts.
+│   │   │   └── prompts.rs            # Ask, follow-up, answer-back and discussion prompts.
 │   │   ├── commands/
 │   │   │   ├── mod.rs                # Prepare/run/read/focus handlers; the user check in each.
 │   │   │   ├── shell.rs              # Command checks, marker parsing, polling, safe close.
@@ -250,7 +267,7 @@ crates/workriver/
 │   │   │   ├── mod.rs                # Workspace build, project/group derivation.
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads; an intent's
 │   │   │   │                         # history (through App::view, a reduced view refused).
-│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads.
+│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads, net change.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
@@ -367,7 +384,7 @@ frontend/web/
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
-    ├── conversations/                # types.ts select.ts Ask.tsx Turns.tsx; never imports app/
+    ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
     ├── attachments/                  # types.ts Viewer.tsx Thumbs.tsx preview.ts; Viewer calls onAsk, never Ask
     ├── commands/                     # types.ts Run.tsx context.tsx

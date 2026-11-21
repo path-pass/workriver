@@ -1,6 +1,7 @@
 // The graph of a unit's tasks: what each follows, what came before it, what follows from a
 // finding, which inputs are unfinished, and the designs a task stands on (which gate asked
-// about a design, which later design revised it, which one stands in its place).
+// about a design or a research result, which later design revised it, which one stands in
+// its place).
 use crate::*;
 
 impl State {
@@ -21,19 +22,25 @@ impl State {
     /// through reviews only (design, its reviews, the gate). Not through implementing or
     /// another gate: a question to merge, asked after the work, is about no design.
     pub fn designs_asked(&self, owner: &str, n: u32) -> Vec<u32> {
+        self.results_asked(owner, n, TaskKind::Design)
+    }
+
+    /// The tasks of `kind` (design or research) a gate or a review is about, as
+    /// `designs_asked` finds designs.
+    fn results_asked(&self, owner: &str, n: u32, kind: TaskKind) -> Vec<u32> {
         let mut found = std::collections::BTreeSet::new();
-        self.before_through(owner, n, &mut found);
+        self.before_through(owner, n, kind, &mut found);
         found.into_iter().collect()
     }
 
-    fn before_through(&self, owner: &str, n: u32, found: &mut std::collections::BTreeSet<u32>) {
+    fn before_through(&self, owner: &str, n: u32, kind: TaskKind, found: &mut std::collections::BTreeSet<u32>) {
         let Ok(t) = self.task(owner, n) else { return };
         for k in t.inputs.iter().filter_map(|i| i.from.parse::<u32>().ok()) {
             match self.task(owner, k).map(|b| b.kind) {
-                Ok(TaskKind::Design) => {
+                Ok(x) if x == kind => {
                     found.insert(k);
                 }
-                Ok(TaskKind::Review) if k < n => self.before_through(owner, k, found),
+                Ok(TaskKind::Review) if k < n => self.before_through(owner, k, kind, found),
                 _ => {}
             }
         }
@@ -44,6 +51,21 @@ impl State {
     pub fn design_gate(&self, owner: &str, d: u32) -> Option<&Task> {
         let gates = self.tasks_of(owner)?.iter().filter(|g| g.gate == Some(GateKind::Decide) && g.dropped.is_none());
         gates.filter(|g| self.designs_asked(owner, g.n).contains(&d)).max_by_key(|g| g.n)
+    }
+
+    /// The gate that asks the user about design or research `n`: for a design its
+    /// `design_gate`; for research the same walk through reviews, taking research. The latest
+    /// not dropped. None: another kind, or nobody was asked (yet). A discussion of the task
+    /// ends once it is submitted, and its agent is kept while it is not.
+    pub fn result_gate(&self, owner: &str, n: u32) -> Option<&Task> {
+        match self.task(owner, n).ok()?.kind {
+            TaskKind::Design => self.design_gate(owner, n),
+            TaskKind::Research => {
+                let gates = self.tasks_of(owner)?.iter().filter(|g| g.gate == Some(GateKind::Decide) && g.dropped.is_none());
+                gates.filter(|g| self.results_asked(owner, g.n, TaskKind::Research).contains(&n)).max_by_key(|g| g.n)
+            }
+            _ => None,
+        }
     }
 
     /// The design tasks that revise design `d`, with their owner: those not dropped that

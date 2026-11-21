@@ -51,6 +51,7 @@ fn every_read_of_an_unavailable_store_says_so() {
     said("units", s.units().err());
     said("delivered", s.delivered().err());
     said("open_questions", s.open_questions().err());
+    said("open_discussions", s.open_discussions().err());
     said("held_messages", s.held_messages().err());
     said("thread_agents", s.thread_agents().err());
     said("intent_events", s.intent_events("i1").err());

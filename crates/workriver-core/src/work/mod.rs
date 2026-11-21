@@ -182,6 +182,10 @@ pub struct Task {
     /// When it was last corrected after delivery.
     #[serde(default)]
     pub amended: Option<String>,
+    /// The reviews that follow it and had started when it was amended: they read an earlier
+    /// delivery. In event order, worked out as the events are applied; never stored.
+    #[serde(skip)]
+    pub read_before: Vec<u32>,
     /// A gate: since when it waits for the user (every task it follows was done then).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_since: Option<String>,
@@ -191,6 +195,9 @@ pub struct Task {
     /// Dropped as no longer needed: when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dropped: Option<Closed>,
+    /// Requirements added to what it asks after it was recorded (`task.noted`), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<FindingNote>,
 }
 
 /// `u1#3` -> ("u1", 3).

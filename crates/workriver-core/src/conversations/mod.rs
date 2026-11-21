@@ -47,6 +47,10 @@ pub enum ReasonCode {
     Blocked,
     /// A new agent never became ready to take its first message.
     NotReady,
+    /// The agent that answers a discussion (its task's own) is no longer running.
+    AgentGone,
+    /// The gate that asks about the discussed result was submitted: the discussion is over.
+    GateSubmitted,
 }
 
 /// Where the message about a user's input (a decision, a gate result) is.

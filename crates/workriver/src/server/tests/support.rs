@@ -169,6 +169,9 @@ pub(in crate::server) struct Fake {
     /// Called with the receiver as a message is taken, before `send` returns: what a test
     /// wants to look at at that very moment.
     pub(super) on_send: std::sync::Mutex<Option<Look>>,
+    /// Called as the agents are listed, before the list is read: a test pauses the service
+    /// there.
+    pub(super) on_agents: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// What a test does as a message is taken, given its receiver.
@@ -199,6 +202,8 @@ impl Fake {
 
 impl workriver_core::runtime::Runtime for Fake {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
+        let probe = self.on_agents.lock().unwrap().clone();
+        if let Some(probe) = probe { probe(); }
         if self.down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);
         }
@@ -456,6 +461,34 @@ pub(super) struct Broken;
 impl workriver_core::runtime::Runtime for Broken {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::Failed("ssh: connect to host gone: Operation timed out".into()))
+    }
+    fn locate(&self, _: Option<&str>, _: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn send(&self, _: &str, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn close(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+}
+
+/// A runtime with nobody in it that takes `wait` milliseconds to say so, each time it is read.
+#[derive(Default)]
+pub(super) struct Slow {
+    pub(super) wait: std::sync::atomic::AtomicU64,
+}
+
+impl workriver_core::runtime::Runtime for Slow {
+    fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
+        std::thread::sleep(std::time::Duration::from_millis(self.wait.load(std::sync::atomic::Ordering::Relaxed)));
+        Ok(vec![])
     }
     fn locate(&self, _: Option<&str>, _: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)

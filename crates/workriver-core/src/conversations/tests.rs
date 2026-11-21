@@ -47,8 +47,8 @@ fn attachments_are_stored_before_they_are_used() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["00000000000000ab"]);
 }
 
-/// A question may point at an attachment shown with its task (its own, its findings', those of
-/// the findings it answers), never at another's; a blind task not delivered, not even at those
+/// A question may point at an attachment shown with its task (its own, those added to what it
+/// asks, its findings', those of the findings it answers), never at another's; a blind task not delivered, not even at those
 /// of the findings it answers.
 #[test]
 fn questions_point_only_at_their_tasks_attachments() {
@@ -78,8 +78,15 @@ fn questions_point_only_at_their_tasks_attachments() {
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "3"}], "causes": [{"task": 2, "findings": ["P2-1"]}], "agent": "sec", "blind": true}})).unwrap();
     assert!(s.state().attachments_of("u1", 4).is_empty());
     assert!(add(&mut s, "user", ask(4, Some("00000000000000f1"))).unwrap_err().contains("is not one of u1#4's"));
+    // What was added to what a task asks shows with it, its files too, blind or not; not with other work.
+    add(&mut s, "boss", file("00000000000000e4", json!({}))).unwrap();
+    add(&mut s, "user", json!({"kind": "task.noted", "body": {"unit": "u1", "task": 4, "text": "Read the logs too", "attachments": ["00000000000000e4"]}})).unwrap();
+    assert_eq!(s.state().attachments_of("u1", 4), ["00000000000000e4"]);
+    add(&mut s, "user", ask(4, Some("00000000000000e4"))).unwrap();
+    assert!(add(&mut s, "user", ask(1, Some("00000000000000e4"))).unwrap_err().contains("is not one of u1#1's"));
     add(&mut s, "sec", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "findings": []}})).unwrap();
     add(&mut s, "user", ask(4, Some("00000000000000f1"))).unwrap();
+    add(&mut s, "agent-a", ask(4, Some("00000000000000e4"))).unwrap();
     assert!(replayed(&s).questions.iter().all(|q| q.context[0].kind == "attachment"));
 }
 
@@ -473,6 +480,108 @@ fn every_manager_is_the_current_one_where_it_runs() {
     let Body::MessageSent { to, .. } = &e.body else { panic!() };
     assert_eq!(to[1].workspace.machine.as_deref(), Some("box"), "where it runs: {to:?}");
     assert_eq!(replayed(&s), *s.state());
+}
+
+/// A delivered design or research is discussed by the user with its own agent, in one thread
+/// per task, until the gate that asks about it is submitted.
+#[test]
+fn discussions_are_the_users_with_the_tasks_own_agent() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    let ok = |s: &mut Records, actor: &str, v: serde_json::Value| add(s, actor, v).unwrap();
+    let says = |s: &mut Records, actor: &str, v: serde_json::Value, what: &str| {
+        let e = add(s, actor, v).unwrap_err();
+        assert!(e.contains(what), "{e:?} does not say {what:?}");
+    };
+    let task = |kind: &str, inputs: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": inputs.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    ok(&mut s, "boss", task("design", &["2"], json!({}))); // 3
+    ok(&mut s, "boss", task("review", &["3"], json!({"reviewer": "architecture-review"}))); // 4
+    ok(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 5: confirms design 3
+    ok(&mut s, "designer", json!({"kind": "task.started", "body": {"unit": "u1", "task": 3}}));
+    let discuss = |text: &str, more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "task": 3, "text": text, "discuss": true});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "question.asked", "body": b})
+    };
+    // Only a delivered design or research, and only the user.
+    says(&mut s, "user", discuss("Why?", json!({})), "is not delivered");
+    ok(&mut s, "designer", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "Use a trie."}}));
+    says(&mut s, "boss", discuss("Why?", json!({})), "only the user discusses");
+    says(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why?", "discuss": true}}), "research or design");
+    says(&mut s, "user", discuss("Sum it up", json!({"conclude": true})), "nothing to conclude");
+
+    // The first question opens the discussion; the next joins it with no thread named.
+    ok(&mut s, "user", discuss("Why a trie?", json!({}))); // q1
+    ok(&mut s, "user", discuss("And memory?", json!({}))); // q2
+    let st = s.state().clone();
+    assert_eq!(st.questions.iter().map(|q| (q.id.as_str(), q.thread.as_str(), q.discuss)).collect::<Vec<_>>(), [("q1", "q1", true), ("q2", "q1", true)]);
+    assert_eq!(st.threads.iter().map(|t| (t.id.as_str(), t.discuss)).collect::<Vec<_>>(), [("q1", true)]);
+    // Another thread of the task is not the discussion, and an agent's question cannot join it.
+    ok(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "Which trie?"}})); // q3, its own thread
+    says(&mut s, "user", discuss("x", json!({"thread": "q3"})), "not the discussion");
+    says(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "thread": "q1", "text": "x"}}), "is a discussion");
+    // Nobody ends a discussion.
+    says(&mut s, "user", json!({"kind": "thread.ended", "body": {"thread": "q1"}}), "is not ended");
+
+    // Only the task's own agent answers it: not the user, not another agent.
+    says(&mut s, "user", json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}), "answered by the agent of u1#3");
+    says(&mut s, "agent-a", json!({"kind": "question.answered", "body": {"question": "q1", "text": "x"}}), "answered by the agent of u1#3");
+    ok(&mut s, "designer", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Fast prefix lookups."}}));
+    ok(&mut s, "user", discuss("Sum it up", json!({"conclude": true}))); // q4
+    assert_eq!(s.state().question("q4").unwrap().thread, "q1");
+
+    // The user has read it up to a time: user-only, stored per task.
+    says(&mut s, "designer", json!({"kind": "questions.read", "body": {"unit": "u1", "task": 3, "at": "2026-01-01T00:00:00Z"}}), "only the user does this");
+    ok(&mut s, "user", json!({"kind": "questions.read", "body": {"unit": "u1", "task": 3, "at": "2026-01-01T00:00:00Z"}}));
+    assert_eq!(s.state().questions_read.get("u1#3").map(String::as_str), Some("2026-01-01T00:00:00Z"));
+
+    // Once the gate that asks about it is submitted: no more questions, no late answers.
+    ok(&mut s, "arch", json!({"kind": "task.started", "body": {"unit": "u1", "task": 4}}));
+    ok(&mut s, "arch", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "findings": []}}));
+    ok(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 5, "result": "done"}}));
+    says(&mut s, "user", discuss("One more", json!({})), "u1#5 was submitted");
+    says(&mut s, "designer", json!({"kind": "question.answered", "body": {"question": "q2", "text": "late", "conclusion": false}}), "u1#5 was submitted");
+
+    // Old records replay as they were: a question without the flag is no discussion.
+    let state = replayed(&s);
+    assert_eq!(&state, s.state());
+}
+
+/// That a question failed is workriver's receipt: nobody else records it, so no agent can
+/// close the user's question (a discussion's or any other) in workriver's words.
+#[test]
+fn only_workriver_fails_a_question() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why?"}})).unwrap();
+    let failed = json!({"kind": "question.failed", "body": {"question": "q1", "reason_code": "gate-submitted", "reason": "its gate u1#2 was submitted"}});
+    for who in ["agent-x", "agent-a", "user"] {
+        let e = add(&mut s, who, failed.clone()).unwrap_err();
+        assert!(e.contains("only workriver records this (question.failed)"), "{who}: {e}");
+    }
+    add(&mut s, "workriver", failed).unwrap();
+}
+
+/// Whether a result was amended while it was discussed, in event order: an amendment before
+/// the first question does not count, one after it does; never written out with the state.
+#[test]
+fn a_discussion_knows_its_result_was_amended() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "Survey", "inputs": [{"from": "start"}]}})).unwrap(); // 3
+    add(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "u1", "task": 3}})).unwrap();
+    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "note": "v1"}})).unwrap();
+    add(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 3, "note": "v2"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "Why?", "discuss": true}})).unwrap();
+    assert!(!s.state().discussion("u1", 3).unwrap().amended);
+    add(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 3, "note": "v3"}})).unwrap();
+    assert!(s.state().discussion("u1", 3).unwrap().amended);
+    assert!(replayed(&s).discussion("u1", 3).unwrap().amended);
+    assert!(serde_json::to_value(s.state()).unwrap()["threads"][0].get("amended").is_none());
 }
 
 /// A manager's message or reply may carry options; the user answers with a message of their own

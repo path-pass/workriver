@@ -95,7 +95,18 @@ export interface Finding {
   /** While open: it would be the manager's, but none is registered or running: it falls to the user. */
   noManager?: boolean;
   /** What was added to it since it was reported, oldest first. */
-  notes?: { by: string; at: string; text: string; attachments?: Attachment[] }[];
+  notes?: Note[];
+}
+
+/** Something added later, to a finding or to what a task asks: by whom, when, what. */
+export interface Note {
+  /** The name its author is shown by. */
+  by: string;
+  /** The user wrote it (the service says so from who recorded it, never from the name). */
+  user: boolean;
+  at: string;
+  text: string;
+  attachments?: Attachment[];
 }
 
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */
@@ -164,6 +175,10 @@ export interface Task {
    * was reminded, and whether that did not help (then it is the user's and the manager's).
    */
   stalled?: { since: string; gone?: boolean; reminded?: string; escalated?: boolean };
+  /** A delivered design or research with its agent: the user may discuss it with that agent
+   *  now (open); its agent is no longer running (gone); the gate that asks about it was
+   *  submitted (over). */
+  discuss?: 'open' | 'gone' | 'over';
   /** Review nodes only. */
   reviewer?: Reviewer;
   /** Review nodes only: found problems, found none, or still running. */
@@ -178,6 +193,8 @@ export interface Task {
     causes: { review: string; findings: string[] }[];
     /** Gate nodes only: what the agent prepared for the user to do. */
     steps?: Step[];
+    /** Requirements added to what it asks since it was recorded (by the manager or the user), oldest first. */
+    notes?: Note[];
     /** A decide gate's options (the manager's), which the user picks from. */
     choice?: Choice;
   };
@@ -192,6 +209,8 @@ export interface Task {
     attachments?: Attachment[];
     /** Implement and tests tasks: the commands run to check the work, and what came of them. */
     evidence?: Evidence[];
+    /** A design or research: the gate that asks the user about it, by its id. */
+    gate?: string;
     /** An answered decide gate: the option picked (its value). */
     selected?: string[];
   };

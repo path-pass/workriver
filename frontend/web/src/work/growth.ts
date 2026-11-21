@@ -18,8 +18,8 @@ const cache = new Map<string, { key: string; marks: Map<string, Growth> }>()
 
 /**
  * The marked tasks of a unit, by task id. Only commits count, by the folders of their files:
- * not plans (not changed yet), not uncommitted work (it changes all the time), not merge
- * commits (the base's work, not the task's). Reviews and gates change nothing. A task with
+ * not plans (not changed yet), not uncommitted work (it changes all the time), not a merge
+ * that brings the base in (the base's work, not the task's). Reviews and gates change nothing. A task with
  * nothing changed before it on its line (the first on it) is not marked. Where lines join,
  * "before" is everything before any of them.
  *

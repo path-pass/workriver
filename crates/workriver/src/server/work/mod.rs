@@ -88,6 +88,10 @@ pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extensi
         let who = app.who(&caller, a.named.as_deref())?;
         let e = app.record(&who, body)?;
         let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        // A requirement added to a task: whether its agent was told, apart from the note.
+        if let Body::TaskNoted { .. } = &e.body {
+            out["told"] = json!(app.noted(&e));
+        }
         // A manager that starts an intent of another project than its workspace's is told so.
         if let Body::IntentStateChanged { intent, state: core::IntentState::Active, workspace: Some(g), .. } = &e.body {
             let live = app.runtime.agents().unwrap_or_default();

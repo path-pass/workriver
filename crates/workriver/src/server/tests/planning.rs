@@ -67,14 +67,16 @@ fn identity_intents_and_delivery() {
 }
 
 /// One workspace, one manager: an agent manages only the workspace it runs in, and takes it
-/// over only when its manager is gone.
+/// over only when its manager is gone. Which workspace that is, and what it is called, is
+/// what the runtime says of the caller, never the label its request gives.
 #[test]
 fn a_workspace_has_one_manager() {
     use workriver_core::runtime::AgentState::*;
     let tmp = tempfile::tempdir().unwrap();
     let fake = std::sync::Arc::new(Fake::default());
-    *fake.agents.lock().unwrap() =
-        vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), live("s-far", "far", "w2", Idle))];
+    let mut far = live("s-far", "far", "w2", Idle);
+    far.group.as_mut().unwrap().label = "search".into();
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), far)];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
     let w1 = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap()["group"].clone();
@@ -89,8 +91,17 @@ fn a_workspace_has_one_manager() {
     d.append("s-boss", "manager.registered", json!({ "workspace": w1 })).expect("a manager registers again");
     assert_eq!(manager(&d), "s-boss");
 
-    // Its manager gone, another agent of the workspace takes it over.
+    // Its manager gone, another agent of the workspace takes it over. Not one of another
+    // workspace that gives its own the label of this one: it is recorded as the workspace
+    // the runtime says it is, which is not the intent's.
     fake.agents.lock().unwrap().remove(0);
+    let lie = json!({ "id": "w2", "label": "chat" });
+    let err = d.append("s-far", "manager.registered", json!({ "intent": "i1", "workspace": lie })).unwrap_err().to_string();
+    assert!(err.contains("i1 runs in workspace chat, not search"), "{err}");
+    let made = d.append("s-far", "manager.registered", json!({ "workspace": lie })).unwrap();
+    assert_eq!(made["body"]["workspace"], json!({ "id": "w2", "label": "search" }));
+    assert_eq!(manager(&d), "s-boss");
+    assert_eq!(d.get("/api/state").unwrap()["workspaces"][0]["group"], w1);
     d.append("s-rev", "manager.registered", json!({ "workspace": w1 })).unwrap();
     assert_eq!(manager(&d), "s-rev");
 }

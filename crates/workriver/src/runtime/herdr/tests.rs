@@ -91,6 +91,19 @@ fn sends_to_the_sessions_pane_and_reports_errors() {
     assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
 }
 
+/// A message for a session goes to the pane that holds it, read fresh; a pane whose agent
+/// only goes by that as a name gets nothing: nothing is asked of Herdr but who is there.
+#[test]
+fn sends_to_a_session_never_to_a_name() {
+    let (_dir, herdr, server) = fake(vec![snapshot(), snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } })]);
+    let err = herdr.send_to(None, "reviewer", "hello").unwrap_err();
+    assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "reviewer"), "{err}");
+    herdr.send_to(None, "herdr:w5:p2", "hello").unwrap();
+    let seen = server.join().unwrap();
+    assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["session.snapshot", "session.snapshot", "agent.prompt"]);
+    assert_eq!(seen[2]["params"], json!({ "target": "w5:p2", "text": "hello" }));
+}
+
 /// A run's shell is closed by its pane, the place `run_shell` gave, and only while that
 /// pane is still a plain shell in the runs' workspace: one that is gone, sits in another
 /// workspace or holds an agent by now is refused, and nothing is closed.

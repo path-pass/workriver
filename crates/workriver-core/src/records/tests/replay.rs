@@ -67,6 +67,7 @@ fn seen(state: &State, events: &[Event]) -> Value {
             next(Principal::User, json!({ "kind": "finding.added", "body": { "project": "/r/chat", "finding": { "severity": "P3", "problem": "x", "impact": "y", "where": ["a"] } } })),
             next(Principal::User, json!({ "kind": "question.asked", "body": { "unit": "u2", "task": 4, "text": "And?" } })),
             next(Principal::User, json!({ "kind": "message.sent", "body": { "intent": "i2", "text": "Hello" } })),
+            next(Principal::User, json!({ "kind": "question.asked", "body": { "unit": "u3", "task": 1, "text": "And a fourth?", "discuss": true } })),
             next(Principal::Agent { session: "s-r2".into(), machine: None }, json!({ "kind": "task.delivered", "body": { "unit": "u2", "task": 2 } })),
         ],
     })

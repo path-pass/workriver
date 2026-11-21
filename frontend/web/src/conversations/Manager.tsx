@@ -35,9 +35,10 @@ const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 let tookFocus = 0
 
 /** The box fixed at the bottom: chips and actions above it, a line under it. Enter sends, Shift+Enter breaks the line.
- *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button. */
-function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFiles }: {
-  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
+ *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button.
+ *  (A task's discussion uses it too, under its Questions block.) */
+export function Box({ label, placeholder, focusAt, above, below, disabled, closed, onSend, onFiles }: {
+  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; closed?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
 }) {
   const { t } = useT()
   const [text, setText] = useState('')
@@ -77,6 +78,7 @@ function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFi
           value={text}
           aria-label={label}
           placeholder={placeholder}
+          disabled={closed}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }

@@ -190,7 +190,7 @@ fn deferred_batches() {
 fn findings_grow_after_they_are_decided() {
     let mut s = Records::default();
     seeded(&mut s);
-    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    managed(&mut s, "boss", "i1");
     add(&mut s, "agent-b", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}})).unwrap();
     add(&mut s, "agent-b", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 3, "findings": [{"severity": "P1", "problem": "Bypass", "impact": "Anyone gets in", "where": ["auth.rs"]}]}})).unwrap();
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 3, "finding": "P1-1", "decision": "accept"}})).unwrap();
@@ -314,6 +314,60 @@ fn a_blocker_is_put_before_a_running_task() {
     add(&mut s, "user", blocker()).unwrap();
 }
 
+/// A requirement added to a task already recorded: by the intent's manager or the user
+/// only, while the task is not delivered or dropped; never empty; kept in order with who and
+/// when, apart from what the task asked first; replayed the same. On a blind task it is part
+/// of what that task's agent sees, files included.
+#[test]
+fn a_task_gets_added_requirements() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    managed(&mut s, "boss", "i1");
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build", "text": "Build the adapter", "agent": "w"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}], "agent": "rev", "blind": true}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Later", "inputs": [{"from": "1"}]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{"from": "1"}]}})).unwrap();
+    let note = |n: u32, text: &str| json!({"kind": "task.noted", "body": {"unit": "u1", "task": n, "text": text}});
+
+    // Who: the manager or the user; not the task's own agent, not another agent.
+    assert!(add(&mut s, "w", note(1, "I will skip the tests")).unwrap_err().contains("by the manager of its intent or the user; to tell the manager: workriver manager tell u1#1"));
+    assert!(add(&mut s, "x", note(1, "Mine")).unwrap_err().contains("by the manager of its intent or the user"));
+    assert!(add(&mut s, "boss", note(1, " ")).unwrap_err().contains("a requirement needs its text"));
+    assert!(add(&mut s, "boss", note(9, "x")).unwrap_err().contains("no task u1#9"));
+    assert!(add(&mut s, "boss", json!({"kind": "task.noted", "body": {"unit": "u1", "task": 1, "attachments": ["0123456789abcdef"]}})).is_err(), "a file must be stored first");
+    // Which states: to do (nobody told yet), running, a waiting gate.
+    let first = add(&mut s, "boss", note(1, "Also cover the Codex adapter")).unwrap();
+    add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
+    let second = add(&mut s, "user", note(1, "And keep the old flag working")).unwrap();
+    add(&mut s, "boss", json!({"kind": "attachment.added", "body": {"id": "aaaaaaaaaaaaaaaa", "name": "spec.md", "type": "text/markdown", "size": 3}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "task.noted", "body": {"unit": "u1", "task": 2, "text": "Check the error paths too", "attachments": ["aaaaaaaaaaaaaaaa"]}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "attachment.added", "body": {"id": "bbbbbbbbbbbbbbbb", "name": "other.md", "type": "text/markdown", "size": 3}})).unwrap();
+    let t = s.state().task("u1", 1).unwrap();
+    assert_eq!(t.text, "Build the adapter", "what it asked first is not rewritten");
+    assert_eq!(
+        t.notes.iter().map(|n| (n.by.as_str(), n.at.as_str(), n.text.as_str())).collect::<Vec<_>>(),
+        [("boss", first.at.as_str(), "Also cover the Codex adapter"), ("user", second.at.as_str(), "And keep the old flag working")]
+    );
+    // The blind reviewer sees what was added to its own task, with its file; nothing else's.
+    let v = s.state().blind_view("rev").unwrap();
+    assert_eq!(v.units[0].tasks.iter().map(|t| (t.n, t.notes.len())).collect::<Vec<_>>(), [(2, 1)]);
+    assert_eq!(v.attachments.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["aaaaaaaaaaaaaaaa"]);
+    assert!(!serde_json::to_string(&v).unwrap().contains("Codex adapter"));
+
+    // Delivered, submitted or dropped: refused, saying why and what to do instead.
+    add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
+    assert!(add(&mut s, "boss", note(1, "One more")).unwrap_err().contains("u1#1 is already delivered; what it asked is not changed after that: record the rest as new work (workriver task add u1 --after 1"));
+    add(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 4, "result": "done"}})).unwrap();
+    assert!(add(&mut s, "boss", note(4, "x")).unwrap_err().contains("u1#4 is already submitted"));
+    add(&mut s, "boss", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 3, "reason": "not needed"}})).unwrap();
+    assert!(add(&mut s, "boss", note(3, "x")).unwrap_err().contains("was dropped as no longer needed (not needed)"));
+    let replayed = replayed(&s);
+    assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
+    // A task with nothing added is written as before.
+    assert!(serde_json::to_value(replayed.task("u1", 3).unwrap()).unwrap().get("notes").is_none());
+}
+
 /// A task no longer needed is dropped, never deleted: by the intent's manager, the user, or
 /// the agent that recorded it, with a reason, while it is not done. It then holds nothing
 /// up (a gate after it opens, its blind agent sees again), leaves what waits for the user,
@@ -323,7 +377,7 @@ fn a_task_no_longer_needed_is_dropped() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    managed(&mut s, "boss", "i1");
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Build", "agent": "w"}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}})).unwrap();
     add(&mut s, "w", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "evidence": [{"command": "t", "result": "passed", "summary": "ok"}]}})).unwrap();
@@ -420,6 +474,70 @@ fn a_later_task_says_what_it_follows() {
     add(&mut s, "boss", task(json!({"unit": "u2", "kind": "research", "title": "Again", "inputs": [{"from": "1"}]}))).unwrap();
 }
 
+/// The gate that asks about a design or a research result: for a design its design gate
+/// (after its reviews), for research the same walk taking research; the latest not dropped.
+#[test]
+fn a_results_gate_is_found_through_its_reviews() {
+    let mut s = Records::default();
+    let put = |s: &mut Records, actor: &str, v: serde_json::Value| {
+        s.append(&actor.into(), body(v)).unwrap();
+    };
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/m", "base": "main"}}));
+    put(&mut s, "boss", task("design", &["start"], json!({}))); // 1
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
+    put(&mut s, "boss", task("gate", &["2"], json!({"gate": "decide"}))); // 3
+    put(&mut s, "boss", task("research", &["start"], json!({}))); // 4
+    put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 5
+    put(&mut s, "boss", task("implement", &["3"], json!({}))); // 6
+    put(&mut s, "boss", task("gate", &["6"], json!({"gate": "decide", "title": "Merge?"}))); // 7
+    put(&mut s, "boss", task("research", &["6"], json!({}))); // 8: no gate after it
+    let st = s.state().clone();
+    let gate = |owner: &str, n: u32| st.result_gate(owner, n).map(|g| g.n);
+    assert_eq!((gate("u1", 1), gate("u1", 4), gate("u1", 8), gate("u1", 6), gate("u1", 9)), (Some(3), Some(5), None, None, None));
+    // Asked again: the latest gate not dropped.
+    put(&mut s, "boss", json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 5, "reason": "asked again"}}));
+    put(&mut s, "boss", task("gate", &["4"], json!({"gate": "decide"}))); // 9
+    assert_eq!(s.state().result_gate("u1", 4).map(|g| g.n), Some(9));
+}
+
+/// Which reviews of a design or research read an earlier delivery: those that had started
+/// when it was amended, in event order (not by time), and only reviews that follow it.
+#[test]
+fn reviews_that_read_an_earlier_delivery() {
+    let mut s = Records::default();
+    let put = |s: &mut Records, actor: &str, v: serde_json::Value| {
+        s.append(&actor.into(), body(v)).unwrap();
+    };
+    let task = |kind: &str, after: &[&str], more: serde_json::Value| {
+        let mut b = json!({"unit": "u1", "kind": kind, "title": kind, "inputs": after.iter().map(|f| json!({"from": f})).collect::<Vec<_>>()});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        json!({"kind": "task.created", "body": b})
+    };
+    put(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    put(&mut s, "boss", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
+    put(&mut s, "boss", task("research", &["start"], json!({"agent": "r"}))); // 1
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "architecture-review"}))); // 2
+    put(&mut s, "boss", task("review", &["1"], json!({"reviewer": "security-review"}))); // 3
+    put(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
+    put(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 1, "note": "v1"}}));
+    // Amended before any review started: none read an earlier text.
+    put(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "v2"}}));
+    assert!(s.state().task("u1", 1).unwrap().read_before.is_empty());
+    // Review 2 starts and reads v2; amended again: review 2 read an earlier text, 3 did not.
+    put(&mut s, "a", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}}));
+    put(&mut s, "r", json!({"kind": "task.amended", "body": {"unit": "u1", "task": 1, "note": "v3"}}));
+    assert_eq!(s.state().task("u1", 1).unwrap().read_before, [2]);
+    // The same when the records are read again; never written out with the state.
+    assert_eq!(replayed(&s).task("u1", 1).unwrap().read_before, [2]);
+    assert!(serde_json::to_value(s.state()).unwrap()["units"][0]["tasks"][0].get("read_before").is_none());
+}
+
 /// A decide gate with options (a choice gate): asked by the manager or the user only, never on
 /// a design's gate or as a blocker, nothing hung after it until it is answered; the user answers
 /// with one of its values (a note where the option asks one), and that is all it records.
@@ -427,7 +545,7 @@ fn a_later_task_says_what_it_follows() {
 fn a_choice_gate_is_answered_and_unlocks_nothing() {
     let mut s = Records::default();
     seeded(&mut s);
-    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}})).unwrap();
+    managed(&mut s, "boss", "i1");
     let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
     let choice = serde_json::to_value(Choice::new(&[opt("merge", "Merge and push"), opt("review", "Review again"), opt("hold", "Not now")], &["hold".into()])).unwrap();
     let gate = |after: &str, more: serde_json::Value| {

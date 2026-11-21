@@ -43,8 +43,9 @@ its sections went.
   "amended" and the time next to the Output heading.
   After Output, a **Questions** block holds the past questions about the task (the user's
   from when the page had its own Ask, agents' to each other), read-only, folded to rows (`conversations.md`,
-  Past questions); at the bottom a small "Ask the manager" opens the Manager box with the
-  task as its chip. With no node picked, the unit's own past questions show under the graph
+  Past questions); a delivered design or research also has its discussion there, open, with
+  a box under it (`conversations.md`, Discussing a delivered result); at the bottom a small
+  "Ask the manager" opens the Manager box with the task as its chip. With no node picked, the unit's own past questions show under the graph
   the same way, when it has any.
   Longer text written by agents or the user – a task's input, a delivery or gate note, an
   answer to a question, a manager's reply – is short Markdown, rendered compact by the same safe renderer as
@@ -54,6 +55,12 @@ its sections went.
   text with its line breaks. Shorter text (a finding's problem, impact and reason, a
   decision's note, a question, a chore's or gate's step, a reason for dropping) is plain,
   its line breaks kept. Agents are told to write it so (a line or two of what, then bullets).
+  What the intent's manager or the user added to what a task asks after it was recorded
+  (`workriver task note`) is never merged into its text: under that text (a review's: under
+  what it reviews), set off by a thin line on the left, each addition oldest first, with its
+  author's mark, "<name> added to what it asks" ("You added …" for the user's own, as the
+  service marks it from who recorded it, never from the name) and the time, then its text as Markdown like the input's, and its files. A task with none shows
+  nothing there.
 
 ## Findings
 
@@ -128,7 +135,9 @@ it follows is done; before that it is drawn like any task not started and counts
 you counts from the moment it opened. The work behind it stays not
 started, and the lines around a waiting gate do not flow, so a stuck branch is visible on
 the graph. Its input is the steps the agent prepared, each command with a copy button and
-"Run" (see Running a command as the user, `operations.md`);
+"Run" (see Running a command as the user, `operations.md`), and, while it waits, a "Discuss
+#1 with agent-R" button for each design or research it asks about that may still be
+discussed, which picks that task (`conversations.md`, Discussing a delivered result);
 its output is a short note and, for a try-out that went wrong, findings like a review's.
 A decide gate may instead ask a **question with options** (a choice gate, see Choices
 below): named "Question", answered by picking one; nothing follows from the answer but what
@@ -214,8 +223,9 @@ the scope so far carry nothing, so the marks show where the scope grew, step by 
 is information, not a call to act: no colour, no motion, not counted in Needs you.
 
 - Only commits count, by their files' folders: not plans (nothing changed yet), not
-  uncommitted work, not merge commits (the base merged into the branch brings the base's
-  work, not the task's; the service marks a commit with more than one parent `merge`).
+  uncommitted work, not a merge that brings the base into the branch (it brings the base's
+  work, not the task's; the service marks such a merge `merge`, and a merge of any other
+  branch counts: what it brings is the branch's).
 - Reviews and gates change no files: never compared, never marked. Tests tasks are compared
   like the rest. A task with nothing changed before it on its line (the first) is not marked.
 - Where lines join, "before" is everything before any of them.

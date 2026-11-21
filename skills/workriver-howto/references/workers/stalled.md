@@ -13,10 +13,12 @@ It stopped (idle in its terminal): look at why.
 
 Then one of:
 
-- **Get it going:** `herdr agent prompt <name> "<what to do about what stopped it>"`. A command
-  refused (a hook forbids push, a missing permission) that only the user can clear: have it
-  put a blocker before its task, or put one yourself (`blocked`); else tell it to deliver with
-  what it did and the refusal in `--note`.
+- **Get it going:** what it is to do about what stopped it goes on its task, which tells it:
+  `workriver task note u1#3 --text "<what to do>"` (`hand-off`); an agent idle at its prompt
+  gets the message as its next turn. A command refused (a hook forbids push, a missing
+  permission) that only the user can clear: have it put a blocker before its task, or put
+  one yourself (`blocked`); else tell it, the same way, to deliver with what it did and the
+  refusal in `--note`.
 - **Hand it to another agent:** the task stays as it is; the new worker goes on with `u1#3`
   (no `task start`: it is already running), commits with `Task: u1#3`, and delivers it.
 - **Drop it:** `workriver task drop u1#3 --reason "…"`, and re-plan.

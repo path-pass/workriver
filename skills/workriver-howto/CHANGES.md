@@ -11,6 +11,47 @@ Newest first. A manager that was already running reads this once after an update
   what you did there), with `workriver reply m3` as usual; the other managers answer for
   theirs, and the page shows each reply under the message with its workspace. A reply to it
   gives no options: ask in your own workspace with `workriver say --option`. (`user-message`)
+- **`task note` reaches the task's agent, or nobody** (managers): a worker on another
+  machine that started a moment ago is found and told, files as the command that fetches
+  them there. The command does not wait for that search: while other machines are
+  followed and the worker is not seen running, it answers `added to u1#3; not told yet:
+  fix is not seen running: it is told once it is found on a machine workriver follows`.
+  The requirement is recorded: do not add it again. If the worker is found nowhere (it
+  closed), nothing more is said; it stays on the task. An addition that waits for the worker's blind task is given only if, by
+  then, the task is still started and with that same worker: dropped, or the worker
+  closed, it is not given (it stays on the task; whoever takes the task reads it at
+  `task show`).
+- **`manager here` records your workspace as the runtime names it** (managers): the label
+  is no longer taken from the request, so a workspace is never taken for another one by
+  what a command calls it.
+- **`manager here --intent` is for that intent's own workspace** (managers): naming an
+  intent registers you for the workspace it runs in, and only from there. An intent that
+  runs in no workspace, or in another one than yours, is refused: run `workriver manager
+  here` without `--intent` in your workspace's terminal, then `workriver intent start`.
+  Registrations already recorded stay as they are.
+- **More for a task already handed out is `workriver task note`** (managers): `workriver task
+  note u1#3 --text "..." [--attach FILE]` adds a requirement to a task not delivered or
+  dropped, by you or the user only. It shows under what the task asks, with who and when, in
+  `task show` (and `--json`) and on the page; the worker on a started task is told at once,
+  your text quoted (a blind task's worker too, of that task; of another task of its only
+  once it delivers the blind one); one not started reads it at `task show`. The command
+  says whether the worker was told (`added to u1#3; fix was told in its terminal`, or why
+  not). Use it instead of typing into a worker's terminal (`hand-off`, `stalled`,
+  `user-message`). Workers: a message "Your task u1#3 … has an added requirement" means
+  `workriver task show u1#3` and meet it too.
+- **What you must act on waits for you instead of being lost** (managers, workers): while
+  you are on a blind task (or wait for a person in your terminal), a worker's `manager tell`,
+  "your task was dropped: stop", "u2 is done / close your workers" and an addition to a
+  finding are held, and typed in once you can take them, as answers and decisions already
+  were. Before, they were dropped. (`blind-review`, `blocked`, `closing-workers`)
+- **The user discusses a delivered research or design result with its agent** (managers,
+  workers): in the task's detail, each question goes straight to the agent that did it,
+  which answers with `workriver answer` and, when the user asks for the conclusion, amends
+  its delivery first if the result changed. No task or gate per round. Managers keep that
+  agent until the gate that asks about the result is submitted (the idle reminder waits too),
+  hear of an amendment and of the conclusion, not of each round, and point the user at the
+  task instead of relaying. Once the gate is submitted the discussion is over: a change is a
+  new task. (`discussion`, `closing-workers`, `user-message`, `design-gate`, `ask-user`)
 - **A question with options carries them as options** (managers, workers): give one
   `--option ID=LABEL` each (and `--require-note ID` where the answer needs a reason), on a
   decide gate (`task add --kind gate --gate decide`) or on `workriver say` / `reply`; the user

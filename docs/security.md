@@ -95,7 +95,8 @@ in none of the runtime's terminals needs no tty to be yours. Everything else sta
 ## What only you can do
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
-drop them, end a conversation, focus a terminal from the page, start a planned intent in a
+drop them, end a conversation, discuss a delivered research or design result with the agent
+that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, start a planned intent in a
 workspace from the page (`/api/intent/start`), run a command (below), add projects, add or
 enable machines, link workspaces, say which project a workspace works on, set when the machines alert (`/api/metrics/thresholds`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
@@ -199,7 +200,8 @@ only your own text is quoted as yours.
 A review, tests, research or design task can be handed out blind
 (`workriver task add … --blind`), so that its agent is not anchored by the implementer's
 account or by other reviews. Until that agent delivers, the service shows it only its own
-task, the unit and the intent, and its own attachments: not other tasks' notes, evidence,
+task (with what the manager or you added to it, and that addition's files), the unit and
+the intent, and its own attachments: not other tasks' notes, evidence,
 findings or decisions, no questions, no backlog. It cannot ask other agents and they cannot
 ask it; nothing is typed into its terminal about other work. Afterwards it sees everything
 again, and the task keeps a "blind" mark so you can weigh its findings as an independent
@@ -221,8 +223,19 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Other terminals.** Where the runtime lets any agent read another's terminal (Herdr does:
   [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr)), what another
   agent's terminal shows is not workriver's to hide.
-- **The manager's message.** What the manager writes into the hand-off is up to it; its
-  instructions say what to leave out.
+- **The manager's message.** What the manager writes into the hand-off, or adds to the task
+  later (`workriver task note`, which the blind agent is told and shown: it is its own
+  task), is up to it; its instructions say what to leave out. workriver's own words in that
+  notice name the task only as the blind agent's view shows it; an addition to another task
+  of the same agent waits, like any other notice, until it delivers.
+
+Who is blind and who is told are one question, answered once: the agent a task is with is
+found by its session among the agents running now (a task given by a name, as before
+sessions were recorded, belongs to the one running agent that goes by it), and that same
+agent is the one checked for blind work and the one typed to. What waits for a blind agent
+is for that session on its machine alone: if it closes meanwhile, nothing is given to an
+agent that came since, whatever it is called; and an addition whose task was dropped or
+handed to someone else meanwhile is not given at all.
 
 ## What this does not protect against
 

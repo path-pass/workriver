@@ -9,6 +9,8 @@ can neither ask nor be asked. Your hand-off carries **only** the ref and goal, t
 repository, branch and range, "run `workriver task show <ref>`" (its own task only), and
 the worker instructions: not the implementer's note, the evidence, other findings, or your
 opinion. Tell it to read the diff, not the commit messages. Use an agent new to the unit.
+What you add to its task later (`workriver task note`, `hand-off`) reaches it and is shown
+to it, being its own task: the same holds there, no one else's account.
 
 As in every review, what is wrong (a bug, a hole, a broken test) is a finding by itself;
 how the code should look or be organized is judged by the project's own rules (its

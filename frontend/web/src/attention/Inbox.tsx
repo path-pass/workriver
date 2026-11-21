@@ -41,6 +41,22 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
       </button>
     )
   }
+  // A task's agent answered in its discussion what the user has not read: the row opens the task.
+  if (r.discussion) {
+    const d = r.discussion
+    return (
+      <button type="button" className="irow" data-kind="discussion" onClick={() => onOpen(r.unit!.id, r.pick)}>
+        <Icon name="talk" />
+        <span className="title" lang={contentLang(d.text)}>{d.text}</span>
+        <span className="meta">
+          <span className="flex-none">{t('inbox.unread', { count: d.count })}</span>
+          <span className="flex min-w-0 items-center gap-1"><Who name={d.agent} /><span className="truncate">{d.agent}</span></span>
+          <span className="unit" lang={contentLang(r.node?.title)}>{r.node?.title}</span>
+        </span>
+        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+      </button>
+    )
+  }
   // A machine past an alert threshold: the row opens the Machines section.
   // Its level is its colour and its first word; the processes using the most memory follow.
   if (r.alert) {

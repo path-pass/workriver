@@ -87,6 +87,15 @@ pub struct Delivered {
     pub delivery: Delivery,
 }
 
+/// A question of a discussion neither answered nor failed: with the agent of its task (its
+/// session; none when the task has none). Which machine that agent runs on is the runtime's
+/// to say, not the unit's.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Discussed {
+    pub question: Question,
+    pub agent: Option<String>,
+}
+
 /// Why the store did not do what was asked. The texts are shown as they are.
 #[derive(Debug, thiserror::Error)]
 pub enum DataError {
@@ -253,9 +262,17 @@ pub trait WorkStore: Send {
         Ok(out)
     }
 
-    /// The ids of the questions neither answered nor failed.
+    /// The ids of the questions neither answered nor failed, but those of a discussion (their
+    /// answerer is the task's own agent, not one a run of the service started).
     fn open_questions(&self) -> Result<Vec<String>, DataError> {
-        Ok(self.recorded()?.questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect())
+        Ok(self.recorded()?.questions.iter().filter(|q| q.open() && !q.discuss).map(|q| q.id.clone()).collect())
+    }
+
+    /// The questions of a discussion neither answered nor failed.
+    fn open_discussions(&self) -> Result<Vec<Discussed>, DataError> {
+        let s = self.recorded()?;
+        let of = |q: &Question| Discussed { question: q.clone(), agent: s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone()) };
+        Ok(s.questions.iter().filter(|q| q.open() && q.discuss).map(of).collect())
     }
 
     /// The user's messages to a manager that got no delivery yet: each message's id and, for

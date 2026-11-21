@@ -193,7 +193,8 @@ pub(crate) enum Cmd {
         #[arg(long, value_name = "TASK", conflicts_with_all = ["files", "task"])]
         dir: Option<String>,
     },
-    /// Answer a question about a task (for the agent it was given to, or the task's own agent).
+    /// Answer a question about a task (for the agent it was given to, or the task's own agent;
+    /// a question of the user's discussion of a delivered result, the task's own agent alone).
     Answer {
         /// The question (q3).
         question: String,
@@ -202,7 +203,8 @@ pub(crate) enum Cmd {
         /// The agent that did the work, if you asked it.
         #[arg(long)]
         asked: Option<String>,
-        /// The text is the conclusion the user asked for.
+        /// The text is the conclusion the user asked for (in a discussion: amend your delivery
+        /// first if the result changed).
         #[arg(long)]
         conclusion: bool,
     },
@@ -416,6 +418,8 @@ pub(crate) fn made(out: &serde_json::Value) -> String {
             format!("added findings {}", ids.join(" "))
         }
         Some("task.amended") => "amended".into(),
+        // Recorded either way; whether its agent was told is said apart.
+        Some("task.noted") => format!("added to {}#{}; {}", b["unit"].as_str().unwrap_or("?"), b["task"], out["told"].as_str().unwrap_or("its agent was not told")),
         Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
         Some("message.replied") => "replied".into(),

@@ -56,6 +56,28 @@ pub(super) fn follow_up(state: &State, q: &Question, home: &Path) -> String {
     format!("[workriver] {ask}{at}{} Then wait; more may come. {}", how_to_answer(q), question(state, q)).trim_end().to_string()
 }
 
+/// What the agent of a delivered design or research is given when the user discusses it: a
+/// question to answer where the user reads it, or the request for the conclusion (amending
+/// the delivery first if the result changed). One paragraph; the user's words quoted last.
+pub(in crate::server) fn discussion(state: &State, q: &Question, home: &Path) -> String {
+    let r = format!("{}#{}", q.unit, q.task);
+    let what = state.task(&q.unit, q.task).map(|t| crate::server::delivery::label(state, &q.unit, t)).unwrap_or_else(|_| r.clone());
+    let about = pointed(state, q, home);
+    let at = if about.is_empty() { String::new() } else { format!(" It points at: {}.", about.join("; ")) };
+    let own = if q.conclude {
+        format!(
+            "[workriver] The user asks for the conclusion of the discussion of your delivered task {what} (question {}, discussion {}).{at} If what you delivered must change, amend your delivery first (`workriver task deliver {r} --amend --note \"...\"`, files as when you delivered), then answer with `workriver answer {} --conclusion --text \"...\"`: what was decided, what changed, what stays open, in short Markdown. The user reads it in workriver's page, not in this terminal. How: `workriver guide how discussion`.",
+            q.id, q.thread, q.id
+        )
+    } else {
+        format!(
+            "[workriver] The user discusses your delivered task {what} (question {}, discussion {}).{at} Answer with `workriver answer {} --text \"...\"`; the user reads it in workriver's page, not in this terminal. Short Markdown, in the language of the question. Do not amend your delivery now: when the user asks for the conclusion, you amend it if it must change. How: `workriver guide how discussion`.",
+            q.id, q.thread, q.id
+        )
+    };
+    if q.text.trim().is_empty() { own } else { format!("{own} {}", users("The user says, in workriver", &q.text)) }
+}
+
 /// What a question points at besides its task (see `delivery::pointed`, shared with the
 /// user's messages to a manager).
 fn pointed(state: &State, q: &Question, home: &Path) -> Vec<String> {

@@ -448,3 +448,122 @@ fn an_uncommitted_symlink_is_its_target() {
     let s = |x: &str| x.to_string();
     assert_eq!(now, vec![(s("link.txt"), Some(s("old-target")), Some(s("new-target")), s("120000"))]);
 }
+
+/// What `git diff --no-renames --name-only` gives, sorted.
+fn git_names(repo: &Path, args: &[&str]) -> Vec<String> {
+    let out = Command::new("git").arg("-C").arg(repo).args(["diff", "--no-renames", "--name-only"]).args(args).output().unwrap().stdout;
+    let mut names: Vec<String> = String::from_utf8(out).unwrap().lines().map(str::to_string).collect();
+    names.sort();
+    names
+}
+
+fn rev(repo: &Path, r: &str) -> String {
+    String::from_utf8(Command::new("git").arg("-C").arg(repo).args(["rev-parse", r]).output().unwrap().stdout).unwrap().trim().to_string()
+}
+
+/// The branch's change against its base is from where they meet, as `git diff base...tip`:
+/// a base that reached the branch through another branch (made from a newer base) is not
+/// the branch's change, while that branch's own work is; a merge of the base itself brought
+/// the base in, a merge of the other branch did not.
+#[test]
+fn the_change_is_from_where_the_branch_meets_its_base() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "root.txt", "root\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "root"]);
+    sh(repo, &["switch", "-q", "-c", "feature"]);
+    write(repo, "feature.txt", "own\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Own\n\nTask: u1#1"]);
+    sh(repo, &["switch", "-q", "main"]);
+    write(repo, "base-only.txt", "new base file\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Advance base"]);
+    sh(repo, &["switch", "-q", "-c", "side"]);
+    write(repo, "side.txt", "side work\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Side work"]);
+    sh(repo, &["switch", "-q", "feature"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Bring side with a newer base\n\nTask: u1#2", "side"]);
+    let side_merge = rev(repo, "HEAD");
+    let base_at = merge_base(&at, repo, "main", "feature").unwrap().unwrap();
+    assert_eq!(base_at, rev(repo, "main"), "they meet where side left main");
+    let names = |from: &str| {
+        let mut n: Vec<String> = diff(&at, repo, from, "feature").unwrap().into_iter().map(|f| f.path).collect();
+        n.sort();
+        n
+    };
+    assert_eq!(names(&base_at), git_names(repo, &["main...feature"]));
+    assert_eq!(names(&base_at), ["feature.txt", "side.txt"]);
+    let read = commits(&at, repo, std::slice::from_ref(&side_merge)).unwrap();
+    assert!(read[0].merge);
+    assert!(!brings_base(&at, repo, &read[0], &base_at).unwrap(), "side is not the base");
+    // The base itself merged in.
+    sh(repo, &["switch", "-q", "main"]);
+    write(repo, "base-two.txt", "two\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Base two"]);
+    sh(repo, &["switch", "-q", "feature"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Sync\n\nTask: u1#3", "main"]);
+    let sync = commits(&at, repo, &[rev(repo, "HEAD")]).unwrap().remove(0);
+    let base_at = merge_base(&at, repo, "main", "feature").unwrap().unwrap();
+    assert!(brings_base(&at, repo, &sync, &base_at).unwrap());
+    assert!(!brings_base(&at, repo, &read[0], &base_at).unwrap());
+    assert_eq!(names(&base_at), git_names(repo, &["main...feature"]));
+    // The base's upstream ahead of it and merged into the branch: they meet there.
+    sh(repo, &["switch", "-q", "-c", "up", "main"]);
+    write(repo, "up.txt", "up\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Upstream"]);
+    sh(repo, &["branch", "-q", "--set-upstream-to=up", "main"]);
+    sh(repo, &["switch", "-q", "feature"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Upstream in", "up"]);
+    assert_eq!(merge_base(&at, repo, "main", "feature").unwrap().unwrap(), rev(repo, "up"));
+}
+
+/// A branch merged into its base meets it, as before that merge, where it did then: a merge
+/// of another branch it holds stays that branch's work once the base has it too. Merged by a
+/// fast-forward, where the base stood before is not known.
+#[test]
+fn a_merged_branch_meets_its_base_as_before() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    sh(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "root.txt", "root\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "root"]);
+    sh(repo, &["switch", "-q", "-c", "feature"]);
+    write(repo, "feature.txt", "own\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Own\n\nTask: u1#1"]);
+    sh(repo, &["switch", "-q", "-c", "side", "main"]);
+    write(repo, "side.txt", "side work\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "Side"]);
+    sh(repo, &["switch", "-q", "feature"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Bring side in\n\nTask: u1#2", "side"]);
+    let tip = rev(repo, "feature");
+    let side_merge = commits(&at, repo, std::slice::from_ref(&tip)).unwrap().remove(0);
+    let before = merge_base(&at, repo, "main", "feature").unwrap().unwrap();
+    assert!(!brings_base(&at, repo, &side_merge, &before).unwrap());
+    assert_eq!(base_before(&at, repo, "main", &tip).unwrap(), None, "not merged yet");
+    sh(repo, &["switch", "-q", "main"]);
+    sh(repo, &["merge", "-q", "--no-ff", "-m", "Merge the unit", "feature"]);
+    // Now the base has side too; as it stood before, it did not.
+    assert!(brings_base(&at, repo, &side_merge, &merge_base(&at, repo, "main", &tip).unwrap().unwrap()).unwrap());
+    let then = base_before(&at, repo, "main", &tip).unwrap().unwrap();
+    assert_eq!(then, before);
+    assert!(!brings_base(&at, repo, &side_merge, &then).unwrap());
+    // A fast-forward leaves no trace of where the base stood.
+    sh(repo, &["switch", "-q", "-c", "ff", "main"]);
+    write(repo, "more.txt", "more\n");
+    sh(repo, &["add", "."]);
+    sh(repo, &["commit", "-q", "-m", "More"]);
+    sh(repo, &["switch", "-q", "main"]);
+    sh(repo, &["merge", "-q", "--ff-only", "ff"]);
+    assert_eq!(base_before(&at, repo, "main", &rev(repo, "ff")).unwrap(), None);
+}

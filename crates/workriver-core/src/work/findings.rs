@@ -145,7 +145,7 @@ pub struct Decided {
     pub at: String,
 }
 
-/// An addition to a finding: by whom, when, what.
+/// An addition to a finding, or to what a task asks: by whom, when, what.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct FindingNote {
     pub by: String,

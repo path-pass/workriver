@@ -28,7 +28,23 @@ its sections went.
      count if several write inside). The unit's change is the branch's net change against
      its base, as `git diff base...head` gives it: a file added and later moved or deleted
      on the branch, or changed and changed back, is not there, and a moved file shows only
-     where it is now (and as deleted where it was, if the base has it). Whether a file
+     where it is now (and as deleted where it was, if the base has it). The base is
+     counted from where the branch meets it now (`git merge-base`; the base's upstream too,
+     when it is ahead), however it came in: by a merge of the base, or of another branch
+     made from a newer base. Nothing the base did is the unit's. The service works this net
+     change out; a merged unit's is from where it met its base just before it merged: as the
+     base, or its upstream when that is what took it, stood before the merge that took it,
+     from the history; only where the history cannot tell (a fast-forward) as last seen at
+     the same last commit. What it is measured against follows the base's upstream as it is
+     configured now, as git does, no branch having moved. Every commit is
+     read against its first parent, so what a commit holds never depends on the base;
+     whether a merge brought the base in (a parent other than its first is in the history of
+     where they meet) does, and is worked out again whenever the base or its upstream moves; a
+     merged unit's, from where it met its base then, so a branch it merged stays its work once the base has
+     it too. Such a merge is no piece of work's change, even when its message names one:
+     picked, that work has no change of its own; the list of commits shows nothing under it
+     and its +/− are none; a line it brought, or wrote resolving a conflict, is the base's,
+     from before the unit. A merge of any other branch is the branch's work. Whether a file
      changed is whether its git entry (existence, mode and object id) differs at the two
      ends, never its text, which gives only the +/− counts (uncommitted work, which git
      has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
@@ -36,7 +52,11 @@ its sections went.
      text changed and changed back on the way; a mode or a submodule pointer changed and
      changed back is not. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added
-     and deleted itself is not there either. A file a piece of work plans to change shows a dashed
+     and deleted itself is not there either. Where other commits touched a file between the
+     work's own (a merge of the base, other work), the texts do not chain: the file's change
+     is shown in parts, each compared alone and headed by its commits, its +/− their sums,
+     so nothing those commits did is the work's; whether it is added, changed or deleted is
+     from the parts kept, so a part that undid itself says nothing. A file a piece of work plans to change shows a dashed
      circle; one it will add, and that does not exist yet, also has a dashed underline.
      With a piece of work picked, the files it touched are open and normal and the unit's
      other changes are folded and faded; with nothing picked, all of the unit's changes
@@ -48,6 +68,12 @@ its sections went.
      "all changes" goes back to the list; picking a node that did not touch the file lets
      it go. On a narrow screen the tree stacks above the changes with a height of its own
      and opens on the pick's files only.
+
+     A known limit, kept for now: when the branch and its base each merged an older head of
+     the other (a criss-cross), git has two equally good merge bases (`git merge-base --all`
+     lists both), and the tree may start from another one than `git diff base...head` does.
+     The unit's change can then show the base's files instead of the branch's, and the merge
+     that brought the base in can show as that work's change.
 
 ## Commits
 

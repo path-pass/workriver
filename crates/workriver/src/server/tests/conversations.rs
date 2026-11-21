@@ -987,6 +987,473 @@ fn a_copy_not_reachable_for_now_waits() {
     assert_eq!(t.far.sent.lock().unwrap().iter().filter(|(_, text)| text.contains("message m1")).count(), 1);
 }
 
+/// The user discusses a delivered design with the agent that did it: each question goes to
+/// that agent (held while it works), never to a temporary one; its answer shows unread until
+/// read; the manager hears of an amendment while the gate waits and of the conclusion, not of
+/// each round.
+#[test]
+fn discussing_a_delivered_design_with_its_agent() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-d", "designer", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the index", "agent": "s-d" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm", "inputs": [{ "from": "2" }] })).unwrap();
+    d.append("s-d", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-d", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "A trie." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    let to = |who: &str| fake.sent.lock().unwrap().iter().filter(|(t, _)| t == who).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let tasks = || d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"].clone();
+    let set = |s: workriver_core::runtime::AgentState| fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.session == "s-d").for_each(|(_, a)| a.state = s);
+
+    // A question goes to the task's own agent, recorded as started by it, not temporary.
+    let asked = d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why a trie?" }))).unwrap();
+    assert_eq!((asked["body"]["thread"].as_str(), asked["body"]["discuss"].as_bool()), (Some("q1"), Some(true)));
+    wait_until("the designer is asked", || to("s-d").len() == 1);
+    let m = to("s-d")[0].clone();
+    assert!(m.starts_with("[workriver] The user discusses your delivered task u1#1 \"Design the index\"") && m.contains("workriver answer q1 --text") && m.contains("Do not amend your delivery now") && m.ends_with("«Why a trie?»"), "{m}");
+    assert!(fake.started.lock().unwrap().is_empty(), "no temporary agent");
+    wait_until("it is recorded as given", || d.get("/api/state").unwrap()["questions"][0]["agent"] == "s-d");
+    assert_eq!(d.get("/api/state").unwrap()["questions"][0]["temporary"], false);
+    let t = tasks();
+    assert_eq!((t[0]["discuss"].as_str(), t[0]["output"]["gate"].as_str()), (Some("open"), t[2]["id"].as_str()), "discussed until its gate (after the review)");
+    assert_eq!(t[0]["threads"][0]["discuss"], true);
+
+    // While it works, the next one waits, saying so; once idle it is given.
+    set(Working);
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "And memory?" }))).unwrap();
+    wait_until("it is held", || tasks()[0]["threads"][0]["turns"][1]["step"] == "held");
+    assert!(tasks()[0]["threads"][0]["turns"][1]["reason"].as_str().unwrap().contains("designer is working"));
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(to("s-d").len(), 1, "not typed into a working agent");
+    set(Idle);
+    wait_until("given once idle", || to("s-d").len() == 2);
+    assert_eq!(d.get("/api/state").unwrap()["questions"][1]["thread"], "q1");
+
+    // Only the designer answers; the answer is unread until the user reads the discussion.
+    assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
+    d.append("s-d", "question.answered", json!({ "question": "q1", "text": "Prefix lookups." })).unwrap();
+    let turn = tasks()[0]["threads"][0]["turns"][0].clone();
+    assert_eq!((turn["answer"].as_str(), turn["unread"].as_bool()), (Some("Prefix lookups."), Some(true)));
+    d.call("/api/discuss/read", Some(json!({ "unit": "u1", "task": 1, "at": turn["answeredAt"] }))).unwrap();
+    assert!(tasks()[0]["threads"][0]["turns"][0].get("unread").is_none());
+    let boss_before = to("s-boss").len();
+
+    // An amendment while the gate waits: the manager hears it. Its review has not started, so
+    // it reads the amended design (`an_amendment_asks_for_the_review_again_only_when_it_started`).
+    d.append("s-d", "task.amended", json!({ "unit": "u1", "task": 1, "note": "A trie, compressed." })).unwrap();
+    wait_until("the manager hears of the amendment", || to("s-boss").len() == boss_before + 1);
+    let m = to("s-boss").last().unwrap().clone();
+    assert!(m.contains("amended u1#1 \"Design the index\" while the user discusses it") && m.contains("has not started") && !m.contains("workriver task drop"), "{m}");
+
+    // The conclusion: the agent is asked to amend first; the manager hears the conclusion, quoted.
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
+    wait_until("the conclusion is asked for", || to("s-d").len() == 3);
+    let m = to("s-d")[2].clone();
+    assert!(m.contains("workriver answer q3 --conclusion") && m.contains("amend your delivery first"), "{m}");
+    d.append("s-d", "question.answered", json!({ "question": "q2", "text": "Small." })).unwrap();
+    assert_eq!(to("s-boss").len(), boss_before + 1, "not told of each round");
+    d.append("s-d", "question.answered", json!({ "question": "q3", "text": "A compressed trie; memory is small.", "conclusion": true })).unwrap();
+    wait_until("the manager hears the conclusion", || to("s-boss").len() == boss_before + 2);
+    let m = to("s-boss").last().unwrap().clone();
+    assert!(m.starts_with("[workriver] The user concluded the discussion of u1#1 \"Design the index\" with designer") && m.contains("was amended") && m.ends_with("«A compressed trie; memory is small.»"), "{m}");
+
+    // The gate submitted: an open question fails, and the discussion is over.
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "One more?" }))).unwrap();
+    wait_until("given", || to("s-d").len() == 4);
+    d.append("s-arch", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+    d.append("s-arch", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    d.call("/api/gate", Some(json!({ "unit": "u1", "task": 3, "result": "done" }))).unwrap();
+    wait_until("the open question fails", || tasks()[0]["threads"][0]["turns"][3]["failed"]["reason"].as_str().is_some_and(|r| r.contains("u1#3 was submitted")));
+    assert_eq!(tasks()[0]["discuss"], "over");
+    assert!(d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "?" }))).unwrap_err().to_string().contains("was submitted"));
+}
+
+/// A discussion question whose agent is gone fails, whether it waited or was given; one
+/// whose agent's machine was not read stays; one open at a restart is kept, and one not yet
+/// given is given then.
+#[test]
+fn a_discussion_follows_its_agent_not_the_service() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &db, crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Compare stores", "agent": "s-r" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-r", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-r", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SQLite." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let to = |who: &str| fake.sent.lock().unwrap().iter().filter(|(t, _)| t == who).count();
+    let state = |d: &Daemon| d.get("/api/state").unwrap();
+
+    // Given, then the service restarts: still open, still the agent's, not asked again.
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why not Postgres?" }))).unwrap();
+    wait_until("given", || to("s-r") == 1);
+    wait_until("recorded as given", || state(&d)["questions"][0]["agent"] == "s-r");
+    // One more, held while the agent works.
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "And backups?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(to("s-r"), 1);
+    drop(d);
+    let next = std::sync::Arc::new(Fake::default());
+    *next.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Idle))];
+    let d = daemon_with(next.clone(), &db, crate::server::Waits::default());
+    let to = |who: &str| next.sent.lock().unwrap().iter().filter(|(t, _)| t == who).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    wait_until("the one not given is given now", || to("s-r").len() == 1);
+    assert!(to("s-r")[0].ends_with("«And backups?»"), "only the one never given");
+    let qs = state(&d)["questions"].clone();
+    assert!(qs[0]["failed"].is_null() && qs[1]["failed"].is_null(), "nothing failed by the restart: {qs}");
+    d.append("s-r", "question.answered", json!({ "question": "q1", "text": "No server." })).unwrap();
+
+    // Its agent gone from a read that is not complete (no agent of this machine listed): kept.
+    let keep = next.agents.lock().unwrap().clone();
+    next.agents.lock().unwrap().clear();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(state(&d)["questions"][1]["failed"].is_null(), "an empty read says nothing");
+    // Gone from a complete read: the open question fails, and the page says so.
+    *next.agents.lock().unwrap() = vec![keep[0].clone()];
+    wait_until("the question fails", || !state(&d)["questions"][1]["failed"].is_null());
+    let failed = state(&d)["questions"][1]["failed"].clone();
+    assert_eq!((failed[0].as_str(), failed[1].as_str()), (Some("agent-gone"), Some("researcher is no longer running")));
+    assert_eq!(d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["discuss"], "gone");
+}
+
+/// A research unit: manager s-boss (p1), researcher s-r (p2, did u1#1), another agent s-x
+/// (p3), and a decide gate u1#2 about the research, waiting.
+fn researched(fake: &std::sync::Arc<Fake>, db: &std::path::Path) -> Daemon {
+    use workriver_core::runtime::AgentState::*;
+    *fake.agents.lock().unwrap() = vec![
+        ("p1".into(), live("s-boss", "boss", "w1", Idle)),
+        ("p2".into(), live("s-r", "researcher", "w1", Idle)),
+        ("p3".into(), live("s-x", "other", "w1", Idle)),
+    ];
+    let d = daemon_with(fake.clone(), db, crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Compare stores", "agent": "s-r" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-r", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-r", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SQLite." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    d
+}
+
+fn sent(fake: &Fake, to: &str) -> Vec<String> {
+    fake.sent.lock().unwrap().iter().filter(|(t, _)| t == to).map(|(_, m)| m.clone()).collect()
+}
+
+/// After `researched`: an architecture review by s-x between the research and a second gate
+/// (u1#3, u1#4), started when `started`, and a question of the user's given to s-r.
+fn reviewed_and_discussed(d: &Daemon, fake: &Fake, started: bool) {
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "architecture-review", "agent": "s-x", "inputs": [{ "from": "1" }] })).unwrap(); // 3
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store, reviewed?", "inputs": [{ "from": "3" }] })).unwrap(); // 4
+    if started {
+        d.append("s-x", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+        d.append("s-x", "task.delivered", json!({ "unit": "u1", "task": 3, "findings": [] })).unwrap();
+    }
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why not Postgres?" }))).unwrap();
+    wait_until("given", || sent(fake, "s-r").len() == 1);
+}
+
+/// A manager on a blind task is told nothing of a discussion while blind, and what it must
+/// act on (the amendment, the conclusion) once that task is delivered: held, never lost.
+#[test]
+fn a_blind_manager_hears_of_the_discussion_later() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    reviewed_and_discussed(&d, &fake, true);
+    // The manager takes a blind review of other work.
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Other design", "agent": "s-x" })).unwrap();
+    d.append("s-x", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "OTHER" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    let before = sent(&fake, "s-boss").len();
+    d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, AMENDED_IN_DISCUSSION." })).unwrap();
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
+    wait_until("conclusion asked", || sent(&fake, "s-r").len() == 2);
+    d.append("s-r", "question.answered", json!({ "question": "q2", "text": "CONCLUSION_TEXT", "conclusion": true })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    let blind_got: Vec<String> = sent(&fake, "s-boss")[before..].to_vec();
+    assert!(blind_got.iter().all(|m| !m.contains("CONCLUSION_TEXT") && !m.contains("amended u1#1")), "nothing typed into a blind manager: {blind_got:?}");
+    // Its blind task delivered: what it must act on reaches it now.
+    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
+    wait_until("the manager hears both", || {
+        let later = sent(&fake, "s-boss")[before..].to_vec();
+        later.iter().any(|m| m.contains("amended u1#1")) && later.iter().any(|m| m.contains("CONCLUSION_TEXT"))
+    });
+}
+
+/// A manager waiting for a person in its terminal is not typed over: what it must act on
+/// waits, and is given once it is free.
+#[test]
+fn a_blocked_manager_hears_of_an_amendment_once_free() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    reviewed_and_discussed(&d, &fake, true);
+    let before = sent(&fake, "s-boss").len();
+    fake.agents.lock().unwrap()[0].1.state = Blocked;
+    d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, amended." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    assert_eq!(sent(&fake, "s-boss").len(), before, "not typed over a person's prompt");
+    fake.agents.lock().unwrap()[0].1.state = Idle;
+    wait_until("given once free", || sent(&fake, "s-boss")[before..].iter().any(|m| m.contains("amended u1#1")));
+}
+
+/// An amendment while the gate waits always reaches the manager; it asks for the review
+/// again only when the review could have read the earlier text (it started).
+#[test]
+fn an_amendment_asks_for_the_review_again_only_when_it_started() {
+    for started in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake = std::sync::Arc::new(Fake::default());
+        let d = researched(&fake, &tmp.path().join("w.db"));
+        reviewed_and_discussed(&d, &fake, started);
+        let before = sent(&fake, "s-boss").len();
+        d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, amended." })).unwrap();
+        wait_until("the manager hears of it", || sent(&fake, "s-boss")[before..].iter().any(|m| m.contains("amended u1#1")));
+        let m = sent(&fake, "s-boss")[before..].iter().find(|m| m.contains("amended u1#1")).unwrap().clone();
+        if started {
+            assert!(m.contains("workriver task drop u1#4") && m.contains("review again"), "{m}");
+        } else {
+            assert!(!m.contains("workriver task drop") && m.contains("has not started"), "{m}");
+        }
+    }
+}
+
+/// A question held while its agent shows no state yet survives a read that lists nobody:
+/// only a complete read says its agent is gone.
+#[test]
+fn an_empty_read_does_not_fail_a_held_question() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    fake.agents.lock().unwrap()[1].1.state = Unknown;
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Still there?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let keep = fake.agents.lock().unwrap().clone();
+    fake.agents.lock().unwrap().clear(); // a read that lists nobody: incomplete
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    let q = d.get("/api/state").unwrap()["questions"][0].clone();
+    *fake.agents.lock().unwrap() = keep;
+    assert!(q["failed"].is_null(), "an empty read failed it: {}", q["failed"]);
+}
+
+/// The gate submitted and the service gone before it failed the open questions: at the next
+/// start they fail then, given or not, and nothing more is typed into the agent.
+#[test]
+fn a_restart_after_the_gate_asks_nothing_more() {
+    use workriver_core::ports::WorkStore;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &db);
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Given?" }))).unwrap();
+    wait_until("given", || sent(&fake, "s-r").len() == 1);
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Held?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    drop(d);
+    // What a run that stopped right after committing the gate leaves: the gate, no failure.
+    let mut store = workriver_data::Store::open(&db).unwrap();
+    store.record(&workriver_core::Principal::User, serde_json::from_value(json!({ "kind": "gate.submitted", "body": { "unit": "u1", "task": 2, "result": "done" } })).unwrap()).unwrap();
+    drop(store);
+    let next = std::sync::Arc::new(Fake::default());
+    *next.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Idle))];
+    let d = daemon_with(next.clone(), &db, crate::server::Waits::default());
+    let failed = |k: usize| d.get("/api/state").unwrap()["questions"][k]["failed"][0].as_str().map(str::to_string);
+    wait_until("both fail as over", || failed(0).as_deref() == Some("gate-submitted") && failed(1).as_deref() == Some("gate-submitted"));
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(sent(&next, "s-r").is_empty(), "nothing typed into the agent: {:?}", sent(&next, "s-r"));
+}
+
+/// `agent` takes a blind review (u2#2) of other work (u2#1 by s-x).
+fn on_blind_review(d: &Daemon, agent: &str) {
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Other", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "design", "title": "Other design", "agent": "s-x" })).unwrap();
+    d.append("s-x", "task.delivered", json!({ "unit": "u2", "task": 1, "note": "OTHER" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "review", "reviewer": "security-review", "agent": agent, "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+}
+
+/// `workriver manager tell` to a manager on a blind task: nothing typed in while blind, and
+/// given once its blind task is delivered (held, as every notice an agent must act on).
+#[test]
+fn a_blind_manager_hears_a_worker_later() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    // Control: not blind, it arrives.
+    d.append("s-r", "manager.told", json!({ "unit": "u1", "task": 1, "text": "CONTROL_TELL" })).unwrap();
+    wait_until("control told", || sent(&fake, "s-boss").iter().any(|m| m.contains("CONTROL_TELL")));
+    on_blind_review(&d, "s-boss");
+    let out = d.append("s-r", "manager.told", json!({ "unit": "u1", "task": 1, "text": "STUCK_NEED_X" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(sent(&fake, "s-boss").iter().all(|m| !m.contains("STUCK_NEED_X")), "nothing typed into a blind manager");
+    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(sent(&fake, "s-boss").iter().any(|m| m.contains("STUCK_NEED_X")), "the worker's message is never given to the manager (the append answered {out})");
+}
+
+/// A task dropped while its agent is on a blind task: it is told to stop once that task is
+/// delivered, not before.
+#[test]
+fn a_blind_agent_hears_its_task_dropped_later() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "More stores", "agent": "s-r", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    on_blind_review(&d, "s-r");
+    d.append("s-boss", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROP_REASON" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(sent(&fake, "s-r").iter().all(|m| !m.contains("DROP_REASON")), "nothing typed into a blind agent");
+    d.append("s-r", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(sent(&fake, "s-r").iter().any(|m| m.contains("DROP_REASON")), "the agent is never told its task u1#3 was dropped: {:?}", sent(&fake, "s-r"));
+}
+
+/// A unit closed while its manager is on a blind task: the manager is told (to tell the user,
+/// to close its workers) once that task is delivered, not before.
+#[test]
+fn a_blind_manager_hears_work_is_over_later() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    on_blind_review(&d, "s-boss");
+    d.append("user", "unit.done", json!({ "unit": "u1", "reason": "UNIT_OVER" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(sent(&fake, "s-boss").iter().all(|m| !m.contains("u1 is done")), "nothing typed into a blind manager");
+    d.append("s-boss", "task.delivered", json!({ "unit": "u2", "task": 2, "findings": [] })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(4500));
+    assert!(sent(&fake, "s-boss").iter().any(|m| m.contains("u1 is done")), "the manager never hears u1 is done: {:?}", sent(&fake, "s-boss"));
+}
+
+/// The same notices reach an agent that is not blind at once.
+#[test]
+fn notices_reach_an_agent_that_is_not_blind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "More stores", "agent": "s-r", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    d.append("s-boss", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROP_REASON" })).unwrap();
+    wait_until("the agent is told", || sent(&fake, "s-r").iter().any(|m| m.contains("DROP_REASON")));
+    d.append("user", "unit.done", json!({ "unit": "u1", "reason": "UNIT_OVER" })).unwrap();
+    wait_until("the manager is told", || sent(&fake, "s-boss").iter().any(|m| m.contains("u1 is done")));
+}
+
+/// A question held for its agent when the gate is submitted and the read after the commit
+/// fails (so the hook fails nothing): it is never given once reads work again, without a
+/// restart. The poll reconciles it with the gate, and every send checks first.
+#[test]
+fn a_held_question_is_not_given_after_its_gate_whatever_failed() {
+    use std::sync::atomic::Ordering::SeqCst;
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-r", "researcher", "w1", Working))];
+    let (d, _kernel, faults) = flaky_service(fake.clone(), &tmp.path().join("w.db"), crate::server::Waits::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Survey", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Compare stores", "agent": "s-r" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Which store?", "inputs": [{ "from": "1" }] })).unwrap();
+    d.append("s-r", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    d.append("s-r", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "SQLite." })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Held?" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert!(sent(&fake, "s-r").is_empty(), "held while it works");
+    *faults.down_after.lock().unwrap() = Some("gate.submitted".into());
+    let _ = d.call("/api/gate", Some(json!({ "unit": "u1", "task": 2, "result": "done" })));
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    faults.down.store(false, SeqCst);
+    fake.agents.lock().unwrap()[1].1.state = Idle;
+    wait_until("it fails as over", || d.get("/api/state").unwrap()["questions"][0]["failed"][0] == "gate-submitted");
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    assert!(sent(&fake, "s-r").is_empty(), "never given: {:?}", sent(&fake, "s-r"));
+}
+
+/// The conclusion asks for the review again only when the review read an earlier delivery
+/// (it started before an amendment), in event order: amended, then reviewed, then concluded
+/// keeps the review and its gate.
+#[test]
+fn a_conclusion_keeps_a_review_of_the_amended_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    reviewed_and_discussed(&d, &fake, false);
+    d.append("s-r", "task.amended", json!({ "unit": "u1", "task": 1, "note": "SQLite, amended." })).unwrap();
+    d.append("s-x", "task.started", json!({ "unit": "u1", "task": 3 })).unwrap();
+    d.append("s-x", "task.delivered", json!({ "unit": "u1", "task": 3, "findings": [] })).unwrap();
+    let before = sent(&fake, "s-boss").len();
+    d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "", "conclude": true }))).unwrap();
+    wait_until("conclusion asked", || sent(&fake, "s-r").len() == 2);
+    d.append("s-r", "question.answered", json!({ "question": "q2", "text": "SQLite.", "conclusion": true })).unwrap();
+    wait_until("the manager hears the conclusion", || sent(&fake, "s-boss")[before..].iter().any(|m| m.contains("concluded the discussion")));
+    let m = sent(&fake, "s-boss")[before..].iter().find(|m| m.contains("concluded the discussion")).unwrap().clone();
+    assert!(m.contains("was amended") && m.contains("the gate u1#4") && !m.contains("workriver task drop"), "{m}");
+}
+
+/// A gate submitted while a held question is on its way (its agent just freed, the runtime
+/// slow to list it): the question failed with the gate is never typed in. The send and the
+/// gate's record are ordered: the records are read again right before typing in.
+#[test]
+fn a_gate_submitted_during_the_send_stops_the_prompt() {
+    use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering::SeqCst}, mpsc};
+    use std::time::Duration;
+    use workriver_core::runtime::AgentState::{Idle, Working};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    fake.agents.lock().unwrap()[1].1.state = Working;
+    d.call("/api/discuss", Some(json!({"unit":"u1","task":1,"text":"Wait for gate race"}))).unwrap();
+    assert!(sent(&fake, "s-r").is_empty());
+
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (continue_tx, continue_rx) = mpsc::channel();
+    let continue_rx = Mutex::new(continue_rx);
+    let calls = AtomicUsize::new(0);
+    let stand_in = Arc::downgrade(&fake);
+    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, SeqCst) {
+        // First list in poll: make the held question eligible for retry.
+        0 => stand_in.upgrade().unwrap().agents.lock().unwrap()[1].1.state = Idle,
+        // The second list is Runtime::groups. The third is inside hand, after its
+        // read of the gate and before its runtime send.
+        2 => {
+            paused_tx.send(()).unwrap();
+            continue_rx.lock().unwrap().recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        _ => {}
+    }));
+    paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let submitted = d.call("/api/gate", Some(json!({"unit":"u1","task":2,"result":"done"})));
+    let state = d.get("/api/state").unwrap();
+    let pre_resume = sent(&fake, "s-r");
+    continue_tx.send(()).unwrap();
+    assert_eq!(submitted.unwrap()["kind"], "gate.submitted");
+    assert_eq!(state["questions"][0]["failed"][0], "gate-submitted");
+    assert!(pre_resume.iter().all(|m| !m.contains("Wait for gate race")));
+    std::thread::sleep(Duration::from_millis(2300));
+    let prompts = sent(&fake, "s-r");
+    assert!(prompts.iter().all(|m| !m.contains("Wait for gate race")), "the committed gate already failed the question before the blocked poll was released, but it sent: {prompts:?}");
+}
+
 /// A question's options, both ways it is asked: a decide gate and a manager's message. The user
 /// answers through the page's own routes; the page reads the options, the pick and whether a
 /// conversation's question is still open; the manager is told the option. `task show` prints

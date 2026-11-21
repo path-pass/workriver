@@ -18,7 +18,19 @@ and the user confirms with done, saying which in the note. `--option` there is r
 answer to options would confirm nothing; `ask-user`).
 
 The designer delivers the design as its note (`workriver task deliver u1#1 --note "..."`).
-The user discusses it in the browser and confirms at the gate. Every task after it in the
+The user discusses it in the browser with the designer, in the design task's detail
+(`discussion`: keep the designer until the gate is submitted), and confirms at the gate.
+You hear of the discussion only when the design is amended in it and when it is concluded:
+
+    [workriver] designer amended u1#1 "Design the picker" while the user discusses it; its gate u1#3 "Confirm the design" is not submitted yet. …
+    [workriver] The user concluded the discussion of u1#1 "Design the picker" with designer (thread q5). Its result was amended at …. Next: …
+
+When the amended design's architecture review before the gate had started, the review and
+the gate saw the old text: drop the gate (`workriver task drop u1#3 --reason "amended in its
+discussion"`), add the review again and a new decide gate after it. A review not started
+yet reads the amended design; otherwise the gate now asks about the amended design. The
+message says which. Once the gate is submitted the discussion is over; a change
+then is a new design task (below). Every task after it in the
 unit reads that note and its files in `workriver task show` ("Designed and found before
 this task", with whether the user confirmed it) and follows it; reviews check the work
 against it.

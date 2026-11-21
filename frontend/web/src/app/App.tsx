@@ -14,7 +14,7 @@ import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
 import { Manager } from '@/conversations/Manager'
-import type { Talk, AskContext, Copy, ManagerMessage } from '@/conversations/types'
+import type { Talk, AskContext, Copy, ManagerMessage, Turn } from '@/conversations/types'
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
@@ -29,7 +29,7 @@ import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspa
 import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
-import { answerManager, choreDone, notify, decideFinding, detach, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
+import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
@@ -248,7 +248,7 @@ export default function App() {
   const askAbout = (l: Lines) => {
     const unit = coded, sel = codeSel
     if (!unit || !sel) return
-    const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.touched.at(-1)
+    const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.upTo
     const owners = upTo === undefined ? [] : [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0))].sort((a, b) => b - a)
     const tasks = [...new Set(owners.map(k => unit.tasks.find(n => n.output.commits?.includes(unit.commits[k].id))).filter((n): n is Task => !!n))]
     // No task wrote these lines: the unit's chip, with the lines.
@@ -333,12 +333,34 @@ export default function App() {
     setEdits(e => ({ ...e, read: { ...e.read, [workspace]: at } }))
     readMessages(workspace, at)
   }
+  // A question in a task's discussion: to the service, which gives it to the task's agent; the
+  // sample answers it itself a moment later, as unread.
+  const onDiscuss: Talk['onDiscuss'] = async (unitId, task, agent, text, conclude, files) => {
+    if (!MOCK) {
+      try { await discuss(unitId, Number(task), text, conclude, files) } finally { files.forEach(detach) }
+      return
+    }
+    const key = `${unitId}:${task}`
+    // As the service: nothing to conclude before anything was discussed.
+    const n = ws?.intents.flatMap(i => i.units).find(u => u.id === unitId)?.tasks.find(x => x.id === task)
+    if (conclude && !n?.threads?.some(th => th.discuss)) throw new Error(`nothing to conclude: ${unitId}#${task} has not been discussed yet`)
+    const turn: Turn = { question: text, context: [], attachments: files, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
+    setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: [...(e.discussed[key] ?? []), turn] } }))
+    setTimeout(() => {
+      const answered: Turn = { ...turn, answer: mockAnswer(text, conclude), answerBy: agent, answeredAt: new Date().toISOString(), step: undefined, unread: true }
+      setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: (e.discussed[key] ?? []).map(x => (x === turn ? answered : x)) } }))
+    }, 1200)
+  }
+  const onDiscussRead: Talk['onDiscussRead'] = (unitId, task, at) => {
+    setEdits(e => ({ ...e, discussRead: { ...e.discussRead, [`${unitId}:${task}`]: at } }))
+    readDiscussion(unitId, Number(task), at)
+  }
   // The manager conversation needs no unit on screen (Needs you opens it from anywhere).
   const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines,
         intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
-        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onAnswer,
+        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead, onAnswer,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,

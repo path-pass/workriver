@@ -400,6 +400,7 @@ export const ja: OneForm<typeof en> = {
     log: '会話',
     questions: '質問',
     step: {
+      held: '{{agent}} を待っています。空いたら質問が入ります。',
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
       asking: '{{agent}} に確認中…',
@@ -423,6 +424,21 @@ export const ja: OneForm<typeof en> = {
     },
     conversations_other: '会話 {{count, number}} 件',
     count_other: '質問 {{count, number}} 件'
+  },
+  discuss: {
+    tag: '議論',
+    label: '{{agent}} への質問',
+    placeholder: 'この結果について {{agent}} に質問…',
+    how: 'このタスクを担当した {{agent}} に直接届き、回答はここに表示されます。終わったら「結論を依頼」を押してください。',
+    gone: '{{agent}} はもう動いていません。続けるにはマネージャーに相談してください。',
+    over: 'ゲート {{gate}} が提出されたので、議論は終わりました。ここから変えるなら新しいタスクです。マネージャーに相談してください。',
+    conclude: '結論を依頼',
+    failed: '送れませんでした：{{error}}',
+    cannot: '回答は来ません：{{reason}}',
+    held: '{{agent}} を待っています。空いたら質問が入ります。',
+    sending: '{{agent}} に送っています…',
+    reading: '{{agent}} が回答しています…',
+    atGate: '{{task}} を {{agent}} と議論'
   },
   talk: {
     title: 'マネージャー',
@@ -584,6 +600,8 @@ export const ja: OneForm<typeof en> = {
       restarted: 'サービスが再起動しました',
       blocked: '担当のエージェントがその間ずっとターミナルで回答を待っていました',
       'not-ready': '新しいエージェントがプロンプトを受け付ける状態になりませんでした。そのターミナルは {{runtime}} に残してあります',
+      'agent-gone': 'このタスクを担当したエージェントはもう動いていません',
+      'gate-submitted': 'ゲートが提出されたので、議論は終わりました',
       unknown: '理由が不明です'
     },
     failed: '記録できませんでした：サービスが受け付けませんでした'
@@ -638,6 +656,9 @@ export const ja: OneForm<typeof en> = {
   task: {
     blind: 'ブラインド',
     blindHint: 'ブラインド：他の作業を見ずに行ったため、指摘はこのレビュー独自の見方です',
+    added: '{{by}} が要件を追加',
+    addedByYou: 'あなたが要件を追加',
+    addedList: '追加された要件',
     unregistered: '未登録：{{title}}',
     dropped: '不要',
     droppedBy: '{{by}} が不要にしました（{{when}}）',
