@@ -1,7 +1,7 @@
 //! What the CLI prints for the commands nothing else tested (docs/design/guards.md):
 //! `project list`, `workspace list`, `backlog list` and `export`, `finding show`
 //! and `finding drop`, and the user adding, enabling, disabling and removing a machine,
-//! down to the settings file. Runs the real binary against a stand-in for the runtime's
+//! down to the settings file; and what `task add` refuses of a decide gate. Runs the real binary against a stand-in for the runtime's
 //! socket and an ssh stand-in; a test run has no terminal, so the service is started as
 //! tests start it (`WORKRIVER_ALLOW_AS=1`, see security.md).
 use std::io::{BufRead, BufReader, Write};
@@ -169,4 +169,35 @@ fn lists_findings_and_machines_from_the_cli() {
     assert_eq!(run(&["machine", "list"]), "");
     let again = cli().args(["machine", "remove", "box"]).output().unwrap();
     assert!(!again.status.success() && String::from_utf8_lossy(&again.stderr).contains("no machine box"), "{:?}: {}", again.status, String::from_utf8_lossy(&again.stderr));
+}
+
+/// A decide gate asks either may I (`--go`) or which (two or more `--option`), never neither
+/// and never both; `--go` is for a decide gate only. Each is refused before anything is sent:
+/// no service runs here, so a command that tried to send would fail with another message.
+#[test]
+fn a_decide_gate_takes_go_or_options() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    // A port nobody listens on.
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let refused = |args: &[&str]| {
+        let mut c = Command::new(BIN);
+        c.env("WORKRIVER_HOME", &home).env("WORKRIVER_PORT", port.to_string());
+        for k in ["HERDR_ENV", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID", "HERDR_SOCKET_PATH", "WORKRIVER_AS", "WORKRIVER_ALLOW_AS"] {
+            c.env_remove(k);
+        }
+        let out = c.args(["task", "add", "u1"]).args(args).output().unwrap();
+        assert!(!out.status.success(), "{args:?} was taken");
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let gate = ["--kind", "gate", "--gate", "decide", "--title", "Merge u1?"];
+    let neither = refused(&gate);
+    assert!(neither.contains("a decide gate asks either may I (--go") && neither.contains("or which (--option ID=LABEL, two or more)"), "{neither}");
+    let both = refused(&[&gate[..], &["--go", "--option", "a=A", "--option", "b=B"]].concat());
+    assert!(both.contains("--go or --option, not both"), "{both}");
+    for other in [&["--kind", "gate", "--gate", "test", "--title", "Try it", "--go"][..], &["--kind", "implement", "--title", "Build it", "--go"]] {
+        let said = refused(other);
+        assert!(said.contains("--go is for a decide gate"), "{other:?}: {said}");
+    }
 }

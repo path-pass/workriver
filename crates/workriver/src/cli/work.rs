@@ -23,7 +23,15 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             print!("{}", display::finding_text(f, ""));
             return Ok(None);
         }
-        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, step, plan, blind, blocks, option, require_note }) => {
+        Cmd::Task(TaskCmd::Add { unit, kind, title, text, after, cause, agent, reviewer, gate, go, step, plan, blind, blocks, option, require_note }) => {
+            // A decide gate says what it asks: may I (--go) or which (--option); the stored
+            // task is the same as before, a gate without a choice or with one.
+            match (kind == "gate" && gate.as_deref() == Some("decide"), go, option.is_empty()) {
+                (true, false, true) => bail!("a decide gate asks either may I (--go: merge, deploy, change the goal, a design's gate) or which (--option ID=LABEL, two or more); give one of them (workriver guide how ask-user)"),
+                (true, true, false) => bail!("a decide gate takes --go or --option, not both: --go asks may I, --option asks which"),
+                (false, true, _) => bail!("--go is for a decide gate only (--kind gate --gate decide --go): it asks the user may I"),
+                _ => {}
+            }
             let inputs: Vec<Value> = after.iter().enumerate().map(|(k, n)| json!({ "from": n, "primary": k == 0 })).collect();
             // `N` or `u1#N`, in this unit.
             let blocks = blocks
@@ -36,16 +44,10 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             let causes = cause.iter().map(|c| parse_cause(c)).collect::<anyhow::Result<Vec<_>>>()?;
             let steps: Vec<Value> = step.iter().map(|s| parse_step(s)).collect();
             let choice = parse_choice(&option, &require_note)?;
-            let asks = choice.is_none() && gate.as_deref() == Some("decide") && lists_options(&[&[title.as_str(), text.as_str()][..], &step.iter().map(String::as_str).collect::<Vec<_>>()].concat());
-            let out = d.append(actor, "task.created", json!({
+            d.append(actor, "task.created", json!({
                 "unit": unit, "kind": kind, "title": title, "text": text, "inputs": inputs, "causes": causes,
                 "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks, "choice": choice,
-            }))?;
-            if asks {
-                println!("{}\n{OPTIONS_HINT}", made(&out));
-                return Ok(None);
-            }
-            out
+            }))?
         }
         Cmd::Task(TaskCmd::Start { task, agent }) => {
             let (unit, n) = task_ref(&task)?;
@@ -235,12 +237,16 @@ pub(crate) enum TaskCmd {
         #[arg(long, value_parser = ["code-review", "security-review", "architecture-review"])]
         reviewer: Option<String>,
         /// Gate tasks: what the user is asked to do (`decide`: discuss and confirm a design, or
-        /// answer a question).
+        /// answer a question; it takes --go or --option, one of the two).
         #[arg(long, value_parser = ["deploy", "test", "decide"])]
         gate: Option<String>,
-        /// Decide gates: an option the user picks from, `ID=LABEL` (ID: 1 to 32 of a-z, 0-9,
-        /// -); 2 to 8, in the order shown, as radio buttons. Not on a design's gate (there the
-        /// choices go in --text). By the manager or the user. Repeatable.
+        /// Decide gates: it asks may I (merge, deploy, change the goal, a design's gate): the
+        /// user confirms or not. Without it a decide gate takes --option.
+        #[arg(long)]
+        go: bool,
+        /// Decide gates: it asks which: an option the user picks from, `ID=LABEL` (ID: 1 to 32
+        /// of a-z, 0-9, -); 2 to 8, in the order shown, as radio buttons. Not on a design's gate
+        /// (that is --go, its choices in --text). By the manager or the user. Repeatable.
         #[arg(long, value_name = "ID=LABEL")]
         option: Vec<String>,
         /// An option whose answer needs the user's note (why). Repeatable.

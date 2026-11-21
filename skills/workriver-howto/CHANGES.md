@@ -4,6 +4,13 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **A decide gate says what it asks: `--go` or `--option`, one of the two** (managers):
+  `task add --kind gate --gate decide` takes `--go` when it asks may I (merge, deploy, change
+  the goal, a design's gate, whose choices stay in `--text`) or two or more `--option ID=LABEL`
+  when it asks which. With neither, or with both, it is refused before anything is recorded,
+  so options never end up only in the text by mistake; `--go` on any other task is refused
+  too. Gates already recorded stay as they are; the page and what the user does at a gate do
+  not change. (`ask-user`, `design-gate`, `push-pr-merge`, `architecture-review`, `blocked`)
 - **Nothing is put before a recorded gate; a gate is dropped and asked anew** (managers):
   when new work must come before a gate already recorded (a fix, another review, an amended
   design), drop the gate with its reason, record the new work after what the gate followed
@@ -53,7 +60,7 @@ Newest first. A manager that was already running reads this once after an update
   new task. (`discussion`, `closing-workers`, `user-message`, `design-gate`, `ask-user`)
 - **A question with options carries them as options** (managers, workers): give one
   `--option ID=LABEL` each (and `--require-note ID` where the answer needs a reason), on a
-  decide gate (`task add --kind gate --gate decide`) or on `workriver say` / `reply`; the user
+  decide gate (`task add --kind gate --gate decide --option …`) or on `workriver say` / `reply`; the user
   picks one from radio buttons in the page instead of typing an answer. A gate comes back as
   "The user answered gate … : option `ID`", a message as "The user answered your question …":
   nothing follows from it by itself; add the task the option calls for (`--after` the gate).
