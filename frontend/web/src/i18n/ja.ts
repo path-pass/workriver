@@ -711,7 +711,8 @@ export const ja: OneForm<typeof en> = {
     zoomIn: '拡大',
     zoomOut: '縮小',
     fit: 'グラフ全体を表示（収まらないときは最新の作業）',
-    overview: 'グラフの全体図'
+    overview: 'グラフの全体図',
+    resize: 'グラフの高さ（ドラッグ、または矢印キー。ダブルクリックで自動の高さ）'
   },
   io: {
     input: '入力',

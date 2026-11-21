@@ -117,7 +117,7 @@ export function SidePanel({ section, onSection, onClose, onWidth, ...content }: 
   const { t } = useT()
   // The left edge drags the width; double-click: the default.
   const size = useResize({ key: 'workriver.side.width', variable: '--side-w', ...SIDE_WIDTH, edge: 'left' })
-  useEffect(() => onWidth?.(size.width), [onWidth, size.width])
+  useEffect(() => onWidth?.(size.size), [onWidth, size.size])
   if (!section)
     return (
       <aside className="sticky top-0 flex h-screen w-11 flex-col items-center gap-1 border-l border-line bg-surface pt-3 max-[860px]:hidden">
