@@ -730,3 +730,41 @@ fn an_edit_is_told_as_committed_when_another_follows() {
     wait_until("the manager is told", || !told().is_empty());
     assert_eq!(told()[0], "[workriver] The user changed i1 (now v2): its note changed (`workriver intent history i1 --diff 2`).");
 }
+
+/// An agent's request with a long list of tags (about 1 MB, under the body limit) is refused
+/// without holding the store: the user's edit sent while it is handled is answered at once,
+/// and nothing is recorded of it. Before, the check took seconds for every request in turn.
+#[test]
+fn a_long_tag_list_does_not_hold_the_service() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = daemon_with(std::sync::Arc::new(Fake::default()), &tmp.path().join("w.db"), Default::default());
+    d.append("user", "intent.created", json!({ "title": "A goal", "goal": "", "state": "planned", "project": "", "note": "" })).unwrap();
+    // Distinct and short (base 36): 150 000 of them make about 1 MB.
+    let b36 = |mut n: usize| {
+        let mut s = String::new();
+        loop {
+            s.insert(0, char::from_digit((n % 36) as u32, 36).unwrap());
+            n /= 36;
+            if n == 0 {
+                break s;
+            }
+        }
+    };
+    let tags: Vec<String> = (0..150_000).map(b36).collect();
+    let agent = d.clone();
+    let flood = std::thread::spawn(move || {
+        let created = agent.append("s-stranger", "intent.created", json!({ "title": "Flood", "state": "planned", "project": "", "tags": tags.clone() }));
+        let updated = agent.append("s-stranger", "intent.updated", json!({ "intent": "i1", "tags": tags, "base": 1 }));
+        [created, updated].map(|r| r.map(|_| ()).unwrap_err().to_string())
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let t = std::time::Instant::now();
+    d.append("user", "intent.updated", json!({ "intent": "i1", "goal": "Still here", "base": 1 })).unwrap();
+    let waited = t.elapsed();
+    let [created, updated] = flood.join().unwrap();
+    assert!(created.contains("an intent has at most 8 tags; 150000 given"), "{created}");
+    assert!(updated.contains("i1 is planned: its kind, size and tags are the user's"), "{updated}");
+    assert!(waited < std::time::Duration::from_secs(3), "the user's edit waited {waited:?} behind the agent's tags");
+    let state = d.get("/api/state").unwrap();
+    assert_eq!(state["intents"].as_array().unwrap().len(), 1, "{state}");
+}

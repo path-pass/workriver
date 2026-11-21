@@ -591,7 +591,9 @@ pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>
             Some("merged") => {
                 let from: Vec<String> = v["merged"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
                 let title = if changed.contains(&"title") { ", with a new title" } else { "" };
-                format!("merged {} into it{title}", from.join(", "))
+                // The user's merge widens the tags (a version of them); an agent's never does.
+                let tags = if changed.contains(&"tags") { "; changed the tags" } else { "" };
+                format!("merged {} into it{title}{tags}", from.join(", "))
             }
             _ => {
                 let added = !v["added"].is_null();

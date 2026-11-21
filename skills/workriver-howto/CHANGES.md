@@ -9,7 +9,8 @@ Newest first. A manager that was already running reads this once after an update
   comma). All optional. Set them when you add one (`workriver backlog add … --kind fix
   --size s --tag security --tag cli`, the same on `intent add`), and on an active intent you
   manage with `workriver intent set i3 --kind K --size S --tags a,b --base N` (`none` clears
-  one; each replaces what is there, so `--base` as for the note). When you split an intent,
+  one; a list that names no tag, such as `--tags ,`, is refused; each replaces what is
+  there, so `--base` as for the note). When you split an intent,
   set a kind it lacks and the size you judge; never change what the user set: tell them if
   you think it is wrong. A planned, done or dropped intent's are the user's (refused: "i7 is
   planned: its kind, size and tags are the user's"). The first unit's branch prefix follows
@@ -17,7 +18,8 @@ Newest first. A manager that was already running reads this once after an update
   `backlog list --kind fix --tag security` filters, `backlog export` writes them, and the
   user's changes reach you in the edit notice (`kind fix; size M; tags «security, cli»`).
   Your merge of agents' intents keeps the target's tags and writes each merged one's kind,
-  size and tags into its block of the note; only the user's merge adds their tags.
+  size and tags into its block of the note; only the user's merge adds their tags
+  (`intent history` then says `merged i4 into it; changed the tags`).
   (`start-intent`, `units`, the import skill)
 - **Reply and say, one rule each** (managers): answering the user's message is `workriver
   reply m3`, and so is the result of what it asked once that is done (the worker's task

@@ -126,7 +126,9 @@ when that field changed since). A manager is asked by its instructions, not stop
 rule, to leave what you set as it is; the history shows who set what. Merging intents never
 widens what an agent may change: an agent's merge of agents' intents keeps the target's
 tags as they are (the merged ones' are written into its note); only your merge adds them,
-as a new version of its tags.
+as a new version of its tags. The check of the tags a request gives is bounded: more than
+32 are refused before any is read, and an edit is refused for who sends it before its tags
+are read, so that no request holds workriver up while it is checked.
 
 Since these rules go by the intent's state and by the project its workspace works on, who
 moves an intent and which project a workspace works on are held as well. An active intent is

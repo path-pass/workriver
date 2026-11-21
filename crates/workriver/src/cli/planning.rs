@@ -272,7 +272,13 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 body["size"] = if none(&z) { Value::Null } else { json!(z.to_lowercase()) };
             }
             if let Some(t) = tags {
-                body["tags"] = if none(&t) { json!([]) } else { json!(t.split(',').map(str::trim).filter(|t| !t.is_empty()).collect::<Vec<_>>()) };
+                // None is the one clear: a list that names no tag (empty, only commas) is a
+                // mistake, not a wish to drop them all.
+                let given: Vec<&str> = if none(&t) { vec![] } else { t.split(',').map(str::trim).filter(|t| !t.is_empty()).collect() };
+                if given.is_empty() && !none(&t) {
+                    bail!("--tags names no tag ({t:?}): give them comma-separated (--tags security,cli), or none to clear them");
+                }
+                body["tags"] = json!(given);
             }
             d.append(actor, "intent.updated", body)?
         }
@@ -385,7 +391,8 @@ pub(crate) enum IntentCmd {
         /// How big it is expected to be (s, m, l); none clears it. Needs --base.
         #[arg(long, value_parser = ["s", "m", "l", "none"], ignore_case = true)]
         size: Option<String>,
-        /// Its tags, the whole set, comma-separated (security,cli); none clears them. Needs --base.
+        /// Its tags, the whole set, comma-separated (security,cli); none clears them (a list
+        /// that names no tag is refused). Needs --base.
         #[arg(long, value_name = "TAGS")]
         tags: Option<String>,
     },

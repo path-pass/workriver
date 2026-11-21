@@ -51,8 +51,13 @@ pub const MAX_TAGS: usize = 8;
 
 /// An intent's tags as they are kept: each trimmed and lower-case (other scripts as written),
 /// repeats dropped, in the order given; refused, naming it, when one breaks the limits (1–32
-/// characters, no space or comma) or there are more than `MAX_TAGS`.
+/// characters, no space or comma) or there are more than `MAX_TAGS`. More than four times
+/// `MAX_TAGS` given, repeats or not, is refused before any is read: the rules run under the
+/// service's one lock on the store, and any agent may add an intent.
 pub fn tags(given: &[String]) -> Result<Vec<String>, Rejected> {
+    if given.len() > 4 * MAX_TAGS {
+        return no(format!("an intent has at most {MAX_TAGS} tags; {} given", given.len()));
+    }
     let mut out: Vec<String> = vec![];
     for t in given {
         let t = t.trim().to_lowercase();
@@ -73,11 +78,21 @@ pub fn tags(given: &[String]) -> Result<Vec<String>, Rejected> {
     Ok(out)
 }
 
-/// A merged intent's kind, size and tags, as one line of its block (`fix · S · security, cli`);
-/// empty when it has none.
+/// A merged intent's kind, size and tags, as one line of its block (`` fix · S · `security`, `cli` ``);
+/// empty when it has none. Each tag is a code span, so that it reads as written in the note's
+/// Markdown, whatever it looks like (`~~~` would open a fence, `---` underline a heading).
 fn meta_line(i: &Intent) -> String {
     let size = i.size.map(|z| name(&z).to_uppercase());
-    [i.kind.map(|k| name(&k)), size, (!i.tags.is_empty()).then(|| i.tags.join(", "))].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+    let tags = i.tags.iter().map(|t| literal(t)).collect::<Vec<_>>().join(", ");
+    [i.kind.map(|k| name(&k)), size, (!tags.is_empty()).then_some(tags)].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+}
+
+/// A tag as a Markdown code span: fenced by one backtick more than its longest run of them,
+/// and spaced inside when it starts or ends with one (a tag has no space to lose).
+fn literal(tag: &str) -> String {
+    let fence = "`".repeat(tag.split(|c| c != '`').map(str::len).max().unwrap_or(0) + 1);
+    let pad = if tag.starts_with('`') || tag.ends_with('`') { " " } else { "" };
+    format!("{fence}{pad}{tag}{pad}{fence}")
 }
 
 /// The same item in an outside tracker (Jira, Linear, GitHub Issues); only kept and shown.
@@ -257,7 +272,6 @@ impl State {
         let user = *who == Principal::User;
         Ok(match body {
             IntentCreated { title, goal, runtime_ref, project, state, note, external, kind, size, tags: given, .. } => {
-                let tags = tags(&given)?;
                 if blank(&title) {
                     return no("an intent needs a title");
                 }
@@ -273,6 +287,7 @@ impl State {
                 if !user && (runtime_ref.is_some() || state == IntentState::Active) {
                     return no("an agent adds an intent to the roadmap, planned and in no workspace (`workriver backlog add`); it runs where it is started (`workriver intent start`)");
                 }
+                let tags = tags(&given)?;
                 IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external, kind, size, tags }
             }
             IntentStateChanged { intent, state, reason, workspace } => {
@@ -407,7 +422,6 @@ impl State {
                 if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() && note.is_none() && kind.is_none() && size.is_none() && given.is_none() {
                     return no("nothing to change: give a title, a goal, --note, --add-note, --findings, --kind, --size or --tags");
                 }
-                let tags = given.as_deref().map(tags).transpose()?;
                 if note.is_some() && add_note.is_some() {
                     return no("give --note or --add-note, not both: --note replaces the whole note");
                 }
@@ -417,10 +431,13 @@ impl State {
                 if add_note.as_deref().is_some_and(blank) {
                     return no("the note to add is empty: --add-note \"...\"");
                 }
-                let set = Changed { title: title.is_some(), goal: goal.is_some(), note: note.is_some(), kind: kind.is_some(), size: size.is_some(), tags: tags.is_some() };
+                let set = Changed { title: title.is_some(), goal: goal.is_some(), note: note.is_some(), kind: kind.is_some(), size: size.is_some(), tags: given.is_some() };
+                // Who may set them before the tags are read: an agent with no right on the
+                // intent is refused without the work.
                 if !user {
                     self.may_edit(actor, i, set, findings.is_some())?;
                 }
+                let tags = given.as_deref().map(tags).transpose()?;
                 self.unchanged_since(i, base, set)?;
                 // The whole note as written: its indentation and blank lines are Markdown.
                 IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()), note, base, kind, size, tags }

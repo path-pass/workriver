@@ -171,6 +171,21 @@ fn lists_findings_and_machines_from_the_cli() {
     assert_eq!(run(&["intent", "history", "i3", "--version", "1"]), "i3 v1\ntitle: Login bug\ngoal: No lockout\nkind: fix\nsize: S\ntags: security, cli\nnote:\n\n");
     assert_eq!(run(&["intent", "history", "i3", "--diff", "3"]), "i3 v3 against v2\nkind: fix -> (not set)\ntags: security, cli -> (not set)\n");
     assert!(run(&["board", "i3"]).starts_with("i3 Login bug [feature S] auth, ui\n"));
+    // A list that names no tag is no clear (none is): refused, the tags and version as they were.
+    for empty in [" , , ", "", ","] {
+        let refused = cli().args(["intent", "set", "i3", "--tags", empty, "--base", "4"]).output().unwrap();
+        let said = String::from_utf8_lossy(&refused.stderr);
+        assert!(!refused.status.success() && said.contains("--tags names no tag") && said.contains("none"), "{empty:?}: {said}");
+    }
+    assert!(run(&["board", "i3"]).starts_with("i3 Login bug [feature S] auth, ui\n"));
+    assert!(run(&["intent", "history", "i3"]).contains("(now v4:"));
+    // The user's merge that adds tags says so in the history; one that adds none does not.
+    run(&["backlog", "add", "Lockout mail", "--goal", "Mail it", "--project", &repo, "--tag", "mail"]);
+    run(&["backlog", "add", "Lockout text", "--goal", "Text it", "--project", &repo, "--tag", "ui"]);
+    run(&["backlog", "merge", "i3", "i4"]);
+    run(&["backlog", "merge", "i3", "i5"]);
+    let history = run(&["intent", "history", "i3"]);
+    assert!(history.contains("  the user  merged i4 into it; changed the tags\n") && history.contains("  the user  merged i5 into it\n"), "{history}");
 
     // The user adds a machine (not followed yet), follows it, stops, and removes it; the
     // settings file says so at every step, and the connection lives only while followed.

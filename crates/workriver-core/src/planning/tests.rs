@@ -831,7 +831,7 @@ fn a_merge_keeps_the_kind_and_unions_tags_only_for_the_user() {
     add(&mut s, "boss", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2", "i3"]}})).unwrap();
     let i = s.state().intent("i1").unwrap();
     assert_eq!((i.kind, i.size, i.tags.clone()), (Some(IntentKind::Feature), Some(IntentSize::M), vec!["ui".to_string(), "auth".into()]));
-    assert!(i.note.contains("Merged from i2: Login bug\nfix · S · security, cli"), "{}", i.note);
+    assert!(i.note.contains("Merged from i2: Login bug\nfix · S · `security`, `cli`"), "{}", i.note);
     assert!(i.note.ends_with("Merged from i3: Plain"), "{}", i.note);
     assert_eq!((i.edits.version, i.edits.tags), (3, 2), "an agent's merge is no version of the tags");
     // The user's merge: the union, its own first, cut to 8; a version of the tags.
@@ -847,6 +847,44 @@ fn a_merge_keeps_the_kind_and_unions_tags_only_for_the_user() {
     add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i5"]}})).unwrap();
     assert_eq!(s.state().intent("i1").unwrap().edits.tags, 4);
     assert_eq!(replayed(&s), *s.state());
+}
+
+/// A merged intent's tags go into its block of the note as written, each a code span: a tag
+/// that looks like Markdown (a fence, a heading's underline, a backtick) changes nothing
+/// around it; a block of a source with no kind, size or tags is as before.
+#[test]
+fn merged_tags_are_literal_in_the_note() {
+    let mut s = Records::default();
+    let plan = |title: &str, tags: serde_json::Value| json!({"kind": "intent.created", "body": {"title": title, "goal": "Its goal", "project": "/p", "state": "planned", "tags": tags}});
+    add(&mut s, "user", plan("Target", json!([]))).unwrap(); // i1
+    add(&mut s, "user", plan("Fence", json!(["~~~"]))).unwrap(); // i2
+    add(&mut s, "user", plan("Odd", json!(["---", "a`b", "`x", "``"]))).unwrap(); // i3
+    add(&mut s, "user", plan("Plain", json!([]))).unwrap(); // i4
+    add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2", "i3", "i4"]}})).unwrap();
+    assert_eq!(s.state().intent("i1").unwrap().note, "Merged from i2: Fence\n`~~~`\nIts goal\n\nMerged from i3: Odd\n`---`, ``a`b``, `` `x ``, ``` `` ```\nIts goal\n\nMerged from i4: Plain\nIts goal");
+}
+
+/// The tag check is bounded before any tag is read (it runs in the rules, under the service's
+/// one lock on the store, and any agent may add an intent): a list of any length is refused at
+/// once. An edit's refusal of who may set them comes before it.
+#[test]
+fn a_long_tag_list_is_refused_at_once() {
+    let mut s = Records::default();
+    let many: Vec<String> = (0..50_000).map(|n| format!("t{n}")).collect();
+    let quick = std::time::Duration::from_secs(1);
+    let t = std::time::Instant::now();
+    let e = add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Flood", "project": "/p", "state": "planned", "tags": many}})).unwrap_err();
+    assert!(t.elapsed() < quick && e.contains("an intent has at most 8 tags; 50000 given"), "{:?}: {e}", t.elapsed());
+    // Repeats of one tag are as many given.
+    let e = add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Flood", "project": "/p", "state": "planned", "tags": vec!["ui"; 50_000]}})).unwrap_err();
+    assert!(e.contains("at most 8 tags; 50000 given"), "{e}");
+    add(&mut s, "agent-x", json!({"kind": "intent.created", "body": {"title": "Mine", "project": "/p", "state": "planned"}})).unwrap();
+    let t = std::time::Instant::now();
+    let e = add(&mut s, "agent-y", tagged("i1", json!({"tags": many, "base": 1}))).unwrap_err();
+    assert!(t.elapsed() < quick && e.contains("i1 is planned: its kind, size and tags are the user's"), "{:?}: {e}", t.elapsed());
+    let e = add(&mut s, "user", tagged("i1", json!({"tags": many, "base": 1}))).unwrap_err();
+    assert!(e.contains("at most 8 tags; 50000 given"), "{e}");
+    assert!(s.state().intents.len() == 1 && s.state().intent("i1").unwrap().tags.is_empty());
 }
 
 /// A version says the kind, size and tags it set (null: cleared), and a version's text holds

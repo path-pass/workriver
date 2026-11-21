@@ -129,7 +129,9 @@ its sections went.
   Not set, a segmented control; what each means is read out) and Tags (a token input: Enter
   or a comma adds one, × or Backspace in the empty field removes one, leaving the field adds
   what is typed; the project's tags are offered as one types; at most eight, kept
-  lower-case). Save records only the fields that changed against the
+  lower-case: what is typed that would make more stays in the field, none of it added, and
+  an alert under it says so; while an input method composes, Enter, comma and Backspace are
+  its own). Save records only the fields that changed against the
   intent as the dialog opened it, with that version as `base`: the page reading the
   workspace again meanwhile changes neither (the same for a restore). The note is saved as
   written, its indentation and blank lines included (they are Markdown); spaces at the ends
@@ -169,7 +171,8 @@ its sections went.
   happens: the others are dropped and what they said goes into its note. The one that stays
   keeps its kind and size; the user's merge gives it the tags of all (its own first, at most
   eight), each merged one's kind, size and tags going into its block of the note
-  (`fix · S · security, cli`). An agent's merge (`workriver backlog merge`, of intents agents
+  (``fix · S · `security`, `cli` ``: each tag a code span, so that a tag reads as written
+  whatever Markdown it looks like). An agent's merge (`workriver backlog merge`, of intents agents
   added) keeps the target's tags as they are and writes the merged ones' only into the note. Merge and Cancel;
   the service's refusal shows in the dialog. Escape closes it and focus goes back to "Merge…".
 
