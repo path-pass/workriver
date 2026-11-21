@@ -22,7 +22,7 @@ fn at(store: &mut Store, actor: &str, v: serde_json::Value) -> Event {
 fn picks_the_receiver_and_writes_the_message() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(&dir.path().join("w.db")).unwrap();
-    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "runtime_ref": {"id": "w1", "label": "chat"}}}));
     at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/b", "base": "main"}}));
     at(&mut s, "worker", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions"}}));
     at(&mut s, "worker", json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}));
@@ -151,7 +151,7 @@ fn picks_the_receiver_and_writes_the_message() {
 fn a_dropped_task_is_told_to_its_agent_and_the_manager() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(&dir.path().join("w.db")).unwrap();
-    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "runtime_ref": {"id": "w1", "label": "chat"}}}));
     at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Mentions", "repo": "/r", "branch": "feat/b", "base": "main"}}));
     at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
     at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Find mentions", "agent": "worker"}}));
@@ -235,9 +235,11 @@ fn choice() -> serde_json::Value {
 fn an_answered_gate_tells_the_manager_the_option() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(&dir.path().join("w.db")).unwrap();
-    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
     at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Readme", "repo": "/r", "branch": "feat/r", "base": "main"}}));
-    at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
+    let w1 = json!({"id": "w1", "label": "chat"});
+    at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"workspace": w1}}));
+    at(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}}));
     at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Next?", "choice": choice()}}));
     let e = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "answered", "selected": ["hold"], "note": "After the release"}}));
     let p = plan(s.state(), Some(&[agent("boss")]), std::path::Path::new("/h"), &e).unwrap();

@@ -168,6 +168,11 @@ A task that is no longer needed (a gate asked again after the branch changed) is
 never deleted: "No longer needed…" in its details on the page, or `workriver task drop u1#15
 --reason "superseded by u1#17"`. It turns grey, leaves Needs you, holds nothing up, and its
 agent and the manager are told.
+A requirement that comes up after a task was handed out is added to it, not typed into its
+agent's terminal: `workriver task note u1#3 --text "Also cover the Codex adapter"`, by the
+intent's manager or you, while the task is not delivered. It shows under what the task asks,
+with who and when, on the page and in `workriver task show`, and the agent on the started
+task is told.
 Reviews and tests are tasks of their own. Their findings are decided by the intent's
 manager by default (shown with a robot mark; you can change any decision on the page, or
 keep the deciding to yourself per intent: "Findings: Manual" in the rail, or `workriver

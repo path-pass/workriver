@@ -267,7 +267,7 @@ mod tests {
         let mut s = Store::open(&dir.path().join("w.db")).unwrap();
         let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
-        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat"}}));
+        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "runtime_ref": {"id": "w1", "label": "chat"}}}));
         at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
         at(&mut s, Principal::User, json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "agent": "w"}}));
@@ -295,8 +295,10 @@ mod tests {
         let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
         let r = || Principal::Agent { session: "r".into(), machine: None };
-        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat"}}));
-        at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
+        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
+        let w1 = json!({"id": "w1", "label": "chat"});
+        at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"workspace": w1}}));
+        at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}}));
         at(&mut s, boss(), json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "x", "agent": "r"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Which?", "inputs": [{"from": "1"}]}}));

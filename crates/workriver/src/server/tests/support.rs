@@ -475,6 +475,34 @@ impl workriver_core::runtime::Runtime for Broken {
     }
 }
 
+/// A runtime with nobody in it that takes `wait` milliseconds to say so, each time it is read.
+#[derive(Default)]
+pub(super) struct Slow {
+    pub(super) wait: std::sync::atomic::AtomicU64,
+}
+
+impl workriver_core::runtime::Runtime for Slow {
+    fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
+        std::thread::sleep(std::time::Duration::from_millis(self.wait.load(std::sync::atomic::Ordering::Relaxed)));
+        Ok(vec![])
+    }
+    fn locate(&self, _: Option<&str>, _: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn send(&self, _: &str, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+    fn close(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        Err(workriver_core::runtime::RuntimeError::None)
+    }
+}
+
 /// A stand-in for ssh on a machine whose sshd keeps the sessions of dead connections (and
 /// the ports they forward) for good. `-N`: a tunnel; it asks for a port and gets the next
 /// free one, refusing one still held ("remote port forwarding failed"), says it on stderr

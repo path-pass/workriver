@@ -96,6 +96,14 @@ pub trait Runtime: Send + Sync {
     /// Type a message into the agent's terminal and submit it; does not wait for an answer.
     /// `agent` is a session or a live agent's name.
     fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError>;
+    /// As `send`, to the agent that has exactly this session on `machine` (none: this one),
+    /// and to no other: `NoAgent` when no live agent has it, whatever another one is called.
+    fn send_to(&self, machine: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
+        if !self.agents()?.iter().any(|a| a.session == session && a.machine.as_deref() == machine) {
+            return Err(RuntimeError::NoAgent(session.into()));
+        }
+        self.send(session, text)
+    }
     /// Start a temporary agent of `harness`, named `name`, in a place of its own inside
     /// `group`, working in `cwd`; returns it once it is ready for a prompt.
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError>;

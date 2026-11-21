@@ -105,6 +105,18 @@ pub(crate) fn add(s: &mut Records, actor: &str, v: serde_json::Value) -> Result<
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
+/// `agent` becomes the manager of `intent`, as `manager here` and a start record it:
+/// registered for workspace w1, the intent started there by the user (an intent of no
+/// project is the user's to start; one active elsewhere is put back in the backlog first).
+pub(crate) fn managed(s: &mut Records, agent: &str, intent: &str) {
+    let w = json!({"id": "w1", "label": "chat"});
+    add(s, agent, json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
+    if s.state().intent(intent).unwrap().state == IntentState::Active {
+        add(s, "user", json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "planned"}})).unwrap();
+    }
+    add(s, "user", json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "active", "workspace": w}})).unwrap();
+}
+
 /// An event as an old database has it, straight into the records past today's rules (the
 /// body as it was stored, ids and numbers filled in); the state is rebuilt from them.
 pub(crate) fn recorded_before(mut s: Records, actor: &str, v: serde_json::Value) -> Records {

@@ -290,6 +290,27 @@ impl State {
                 let add = numbered_after(add, &t.findings);
                 TaskAmended { unit, task, note, evidence, findings: findings.map(numbered), attachments, add }
             }
+            TaskNoted { unit, task, text, attachments } => {
+                let t = self.task(&unit, task)?;
+                // The manager plans the work and the user owns it: nobody else changes what it asks.
+                let manager = self.intent_of(&unit).and_then(|i| self.manager_of(i)) == Some(actor);
+                if !user && !manager {
+                    return no(format!("a requirement is added to {unit}#{task} by the manager of its intent or the user; to tell the manager: workriver manager tell {unit}#{task} --text \"...\""));
+                }
+                not_dropped(&unit, t)?;
+                // Delivered work is judged as it was asked; more is new work.
+                if t.state == TaskState::Done {
+                    return no(format!(
+                        "{unit}#{task} is already {}; what it asked is not changed after that: record the rest as new work (workriver task add {unit} --after {task} ...)",
+                        if t.kind == TaskKind::Gate { "submitted" } else { "delivered" }
+                    ));
+                }
+                if blank(&text) && attachments.is_empty() {
+                    return no("a requirement needs its text: --text \"...\" (or a file: --attach FILE)");
+                }
+                self.stored(attachments.iter())?;
+                TaskNoted { unit, task, text, attachments }
+            }
             other => unreachable!("{} is not one of a task's kinds", name_of_kind(&other)),
         })
     }
@@ -341,6 +362,7 @@ impl State {
                         waiting_since: None,
                         attachments: vec![],
                         dropped: None,
+                        notes: vec![],
                     })
                 }
                 // More work for a unit closed as done: it is open again, its state from its tasks.
@@ -427,6 +449,11 @@ impl State {
                         t.findings = f.iter().cloned().map(open).collect();
                     }
                     t.amended = Some(at.clone());
+                }
+            }
+            TaskNoted { unit, task, text, attachments } => {
+                if let Some(t) = self.task_mut(unit, *task) {
+                    t.notes.push(FindingNote { by: e.actor.clone(), at: at.clone(), text: text.clone(), attachments: attachments.clone() });
                 }
             }
             other => unreachable!("{} is not one of a task's kinds", name_of_kind(other)),

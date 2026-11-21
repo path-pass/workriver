@@ -51,6 +51,14 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
         }
+        Cmd::Task(TaskCmd::Note { task, text, attach }) => {
+            let (unit, n) = task_ref(&task)?;
+            let mut files = vec![];
+            for f in &attach {
+                files.push(d.upload(Path::new(f), actor, None)?["id"].clone());
+            }
+            d.append(actor, "task.noted", json!({ "unit": unit, "task": n, "text": text, "attachments": files }))?
+        }
         Cmd::Task(TaskCmd::Drop { task, reason }) => {
             let (unit, n) = task_ref(&task)?;
             d.append(actor, "task.dropped", json!({ "unit": unit, "task": n, "reason": reason }))?
@@ -294,6 +302,21 @@ pub(crate) enum TaskCmd {
         /// has, which stay as they are, decided or not.
         #[arg(long, value_name = "FILE", requires = "amend", conflicts_with = "findings")]
         add_findings: Option<String>,
+    },
+    /// Add a requirement to a task already recorded and not delivered: what it asks first is
+    /// kept, and the addition shows under it, with who and when, in `task show` and on the
+    /// page. A started task's agent is told in its terminal; one not started reads it when it
+    /// runs `task show`. By the intent's manager or the user. Use this, not typing into the
+    /// agent's terminal, to give a worker more to do on its task.
+    Note {
+        /// The task (u1#3).
+        task: String,
+        /// The requirement: short Markdown, a line of what, then bullets.
+        #[arg(long, default_value = "")]
+        text: String,
+        /// A file that goes with it. Repeatable.
+        #[arg(long, value_name = "FILE")]
+        attach: Vec<String>,
     },
     /// Mark a task not done yet as no longer needed (a gate asked again, a plan changed). It
     /// is kept, never deleted; what follows it no longer waits on it, and its agent is told

@@ -54,6 +54,10 @@ pub(super) struct App {
     pub(super) deadlines: Mutex<Vec<(String, std::time::Instant)>>,
     /// Questions whose agent waits for a person in its terminal: given once it is free.
     pub(super) held: Mutex<Vec<Held>>,
+    /// Requirements added to tasks whose agent is not told yet (it is on a blind task): the
+    /// event, and the agent it is for. Looked at again at each poll (`App::give_notes`).
+    // ponytail: in memory, like `held`; after a restart the agent reads it at `task show`.
+    pub(super) notes: Mutex<Vec<(core::Event, delivery::Receiver)>>,
     /// Threads whose temporary agent waits for a follow-up: name, and when it is closed.
     pub(super) idle: Mutex<Vec<(String, String, std::time::Instant)>>,
     pub(super) waits: Waits,
@@ -188,9 +192,22 @@ impl App {
     /// machine: paths into the attachment store become links through its tunnel.
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
+        self.runtime.send(to, &self.readable_on(machine.as_deref(), text))
+    }
+
+    /// Sends a message to the agent that has this session on `machine` (none: this one), as
+    /// the caller found it in the runtime, and to no other: one that is gone is not replaced
+    /// by an agent going by its name. Files as `send` gives them, for that machine.
+    pub(super) fn send_to(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
+        self.runtime.send_to(machine, session, &self.readable_on(machine, text))
+    }
+
+    /// A message as an agent on `machine` can use it: paths into the attachment store are,
+    /// on another machine, the command that fetches the file there.
+    fn readable_on<'a>(&self, machine: Option<&str>, text: &'a str) -> std::borrow::Cow<'a, str> {
         match machine {
-            Some(_) => self.runtime.send(to, &files::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display()))),
-            None => self.runtime.send(to, text),
+            Some(_) => files::links(text, &format!("{}/", crate::common::home::attachments_dir(&self.home).display())).into(),
+            None => text.into(),
         }
     }
 

@@ -313,6 +313,36 @@ impl Machines {
         entries[k] = Arc::new(Entry { label: old.label.clone(), setting: old.setting.clone(), runtime: old.runtime.clone(), runner, seen: Mutex::new(std::mem::take(&mut *old.seen.lock().unwrap())), tunnel, stop: AtomicBool::new(false) });
     }
 
+    /// Whether any machine's connection is up: whether `refresh` would read anything.
+    pub fn any_up(&self) -> bool {
+        self.entries.lock().unwrap().iter().any(|e| e.tunnel.lock().unwrap().up)
+    }
+
+    /// Reads again, now, the agents of every machine whose connection is up, each on a
+    /// thread of its own so that a slow one holds up no other: for whoever looks for an
+    /// agent the last read did not have, which may have started since. `found` is called
+    /// here after each machine was read, until it says the search is over. It returns once
+    /// every read ended, which a slow machine makes long: never call it while a request waits.
+    pub fn refresh(&self, mut found: impl FnMut() -> bool) {
+        let entries: Vec<Arc<Entry>> = self.entries.lock().unwrap().iter().filter(|e| e.tunnel.lock().unwrap().up).cloned().collect();
+        let (read, reads) = std::sync::mpsc::channel();
+        std::thread::scope(|s| {
+            for e in &entries {
+                let read = read.clone();
+                s.spawn(move || {
+                    poll_once(e, false);
+                    let _ = read.send(());
+                });
+            }
+            drop(read);
+            for () in reads {
+                if found() {
+                    break;
+                }
+            }
+        });
+    }
+
     #[cfg(test)]
     pub fn poll_all(&self) {
         for e in self.entries.lock().unwrap().iter() {
@@ -440,6 +470,11 @@ impl Runtime for Machines {
 
     fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError> {
         self.route(agent, |r| r.send(agent, text))
+    }
+
+    /// Asked of the machine named, whether or not the agent was seen there yet.
+    fn send_to(&self, machine: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.send_to(None, session, text))
     }
 
     /// A group of a machine is `<id>@<machine>`: the agent starts there.

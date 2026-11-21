@@ -11,7 +11,8 @@ impl State {
     }
 
     /// What an agent on a blind task may see until it delivers: its task (as handed out),
-    /// the task's unit and intent, what it attached itself. None for anyone else.
+    /// the task's unit and intent (with what was added to what the task asks), what it
+    /// attached itself. None for anyone else.
     ///
     /// Everything else is left out: other tasks with their output, notes, evidence, findings
     /// and decisions, questions, deliveries, the backlog, other units and intents.
@@ -30,17 +31,19 @@ impl State {
         };
         // Not where the unit was before, nor what was linked: both carry others' words.
         let units: Vec<Unit> = self.units.iter().filter(|u| mine.iter().any(|(o, _)| o == &u.id)).map(|u| Unit { tasks: own(&u.id, &u.tasks), earlier: vec![], links: vec![], ..u.clone() }).collect();
-        let intents = self
+        let intents: Vec<Intent> = self
             .intents
             .iter()
             .filter(|i| mine.iter().any(|(o, _)| o == &i.id) || units.iter().any(|u| u.intent == i.id))
             .map(|i| Intent { note: String::new(), reason: None, tasks: own(&i.id, &i.tasks), edits: Edits::default(), ..i.clone() })
             .collect();
+        // What was added to its own task is part of what it asks, files included.
+        let added: Vec<String> = units.iter().flat_map(|u| &u.tasks).chain(intents.iter().flat_map(|i| &i.tasks)).flat_map(|t| &t.notes).flat_map(|n| n.attachments.iter().cloned()).collect();
         Some(State {
             intents,
             units,
             agents: self.agents.clone(),
-            attachments: self.attachments.iter().filter(|a| a.by == session).cloned().collect(),
+            attachments: self.attachments.iter().filter(|a| a.by == session || added.contains(&a.id)).cloned().collect(),
             projects: self.projects.clone(),
             workspaces: self.workspaces.clone(),
             links: self.links.clone(),

@@ -453,6 +453,9 @@ pub(crate) struct TaskIn {
     pub(crate) causes: Vec<Cause>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) steps: Option<Vec<core::Step>>,
+    /// Requirements added to what it asks since it was recorded, oldest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) notes: Vec<NoteOut>,
     /// A decide gate's options, as stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) choice: Option<core::Choice>,
@@ -549,10 +552,13 @@ pub(crate) struct Finding {
     pub(crate) reason: Option<String>,
 }
 
-/// An addition to a finding.
+/// An addition to a finding, or to what a task asks.
 #[derive(Serialize)]
 pub(crate) struct NoteOut {
+    /// The name its author is shown by.
     pub(crate) by: String,
+    /// The user wrote it: told by who recorded it, never by the name (an agent may be called "user").
+    pub(crate) user: bool,
     pub(crate) at: String,
     pub(crate) text: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]

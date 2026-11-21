@@ -50,7 +50,7 @@ pub(super) fn plan(state: &State, live: Option<&[RuntimeAgent]>, home: &std::pat
             let gate = state.task(unit, *task).ok();
             let decide = gate.is_some_and(|g| g.gate == Some(GateKind::Decide));
             // Never to an agent on a blind task: it is told nothing until it delivers.
-            let waiting = gate.filter(|_| !decide).and_then(|g| waiting_on(state, unit, g)).filter(|a| state.blind_tasks(a).is_empty());
+            let waiting = gate.filter(|_| !decide).and_then(|g| waiting_on(state, unit, g)).filter(|a| !blind(state, live.unwrap_or_default(), a));
             let to = target(state, live, &intent_of(unit)?, waiting.as_deref());
             Some(on(unit, *task, None, to, gate_message(state, unit, *task)?.text(&files(unit, *task, None))))
         }
@@ -162,6 +162,102 @@ pub(super) fn notes(state: &State, e: &Event, home: &std::path::Path) -> Vec<(St
     out.retain(|(to, _)| to != &e.actor);
     out.dedup_by(|a, b| a.0 == b.0);
     out
+}
+
+/// The agent a message is for, as found in the runtime: its session and the machine it runs
+/// on (none: this one).
+#[derive(Debug, PartialEq, Clone)]
+pub(super) struct Receiver {
+    pub(super) session: String,
+    pub(super) machine: Option<String>,
+}
+
+/// The message about a requirement added to a task, for its agent.
+#[derive(Debug, PartialEq)]
+pub(super) struct Noted {
+    /// The agent, and the name it goes by now.
+    pub(super) to: Receiver,
+    pub(super) name: String,
+    pub(super) message: String,
+    /// It is the agent's own blind task: told now, named as its blind view shows it. Else it
+    /// is told once it is on no blind task in progress (`blind`).
+    pub(super) own_blind: bool,
+}
+
+/// Why nobody is told of a requirement added to a task.
+#[derive(Debug, PartialEq)]
+pub(super) struct Untold {
+    pub(super) why: String,
+    /// Its agent, by the name to say, when it is not among the live ones given: it may be
+    /// one not read yet.
+    pub(super) gone: Option<String>,
+}
+
+/// Who is told that a requirement was added to a task, and what; else why nobody is. Its
+/// agent, while the task is started and not delivered, live (in `live`, the runtime now) and
+/// not the one who added it. The agent is the session the task was started with; a name
+/// recorded before sessions were is only the one live agent going by it, and a session that
+/// is gone is nobody else. Not started: nobody, it reads it at `task show`. A blind task is
+/// its agent's own: it hears of it by what the blind view of whom the task was given to
+/// shows, whatever is recorded of the session found. What was added goes in as a quote.
+pub(super) fn task_noted(state: &State, live: &[RuntimeAgent], home: &Path, e: &Event) -> Result<Noted, Untold> {
+    let no = |why: String| Untold { why, gone: None };
+    let Body::TaskNoted { unit, task, text, attachments } = &e.body else { return Err(no("it is not a requirement added to a task".into())) };
+    let t = state.task(unit, *task).map_err(|e| no(e.to_string()))?;
+    match t.state {
+        workriver_core::TaskState::Running => {}
+        workriver_core::TaskState::Todo => return Err(no(format!("{unit}#{task} is not started; its agent reads it with `workriver task show {unit}#{task}`"))),
+        over => return Err(no(format!("{unit}#{task} is {} by now", name(&over)))),
+    }
+    let Some(agent) = t.agent.as_deref() else { return Err(no(format!("{unit}#{task} has no agent"))) };
+    let Some(to) = running(state, live, agent) else { return Err(Untold { why: format!("{} is not running", who(state, agent)), gone: Some(who(state, agent)) }) };
+    if to.session == e.actor {
+        return Err(no("you are its agent".into()));
+    }
+    let view = match t.blind {
+        true => Some(state.blind_view(agent).ok_or_else(|| no(format!("{unit}#{task} is blind, and what its agent may see cannot be told")))?),
+        false => None,
+    };
+    let seen = view.as_ref().unwrap_or(state);
+    let shown = seen.task(unit, *task).map_err(|e| no(e.to_string()))?;
+    let user = e.actor == "user";
+    let from = if user { "the user".to_string() } else { format!("your manager ({})", who(state, &e.actor)) };
+    let said = if user { users("The user wrote", text) } else { quoted(&format!("What was added, quoted from {}", who(state, &e.actor)), text) };
+    let files: Vec<String> = attachments.iter().filter_map(|id| seen.attachments.iter().find(|a| &a.id == id)).filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name)).map(|p| p.display().to_string()).collect();
+    let files = if files.is_empty() { String::new() } else { format!(" Attachments: {}.", files.join(", ")) };
+    let message = format!(
+        "[workriver] Your task {} has an added requirement from {from}: it is part of what the task asks now. Read it with `workriver task show {unit}#{task}`.{files} {said}",
+        label(seen, unit, shown)
+    );
+    Ok(Noted { name: quote::name(&to.name), to: Receiver { session: to.session.clone(), machine: to.machine.clone() }, message, own_blind: t.blind })
+}
+
+/// The live agent a task was given to: by its session; a name recorded before sessions
+/// were, only when one live agent goes by it. A known session that is not live is nobody:
+/// another agent may go by a name that looks like it.
+fn running<'a>(state: &State, live: &'a [RuntimeAgent], agent: &str) -> Option<&'a RuntimeAgent> {
+    if let Some(a) = live.iter().find(|a| a.session == agent) {
+        return Some(a);
+    }
+    if state.name_of(agent).is_some() {
+        return None;
+    }
+    match live.iter().filter(|a| a.name == agent).collect::<Vec<_>>()[..] {
+        [one] => Some(one),
+        _ => None,
+    }
+}
+
+/// Whether an agent is on a blind task in progress, and so is told nothing of other work:
+/// one given to its session or to the name recorded of it (`State::blind_tasks`), or one
+/// given to a name it is found by as a task's agent is (`running`), whether or not that
+/// name was ever recorded of its session. `live`: the agents now.
+pub(super) fn blind(state: &State, live: &[RuntimeAgent], session: &str) -> bool {
+    if !state.blind_tasks(session).is_empty() {
+        return true;
+    }
+    let Some(a) = live.iter().find(|a| a.session == session) else { return false };
+    running(state, live, &a.name).is_some_and(|x| x.session == session) && !state.blind_tasks(&a.name).is_empty()
 }
 
 /// Who is told that a task was dropped: its agent (assigned or started), to stop it, and

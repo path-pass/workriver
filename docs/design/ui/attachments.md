@@ -35,8 +35,9 @@ its sections went.
   name) next to the task's; the message then points at it, and the manager is given its
   path in the store (a command that fetches it, on another machine). A message may point
   only at an attachment shown with its task (with the unit alone, with one of its tasks: its
-  output, checks, findings and what was added to them, and the findings it answers – but
-  not those for a blind task not yet delivered), or at a file the user stored; the service
+  output, checks, findings and what was added to them, what was added to what it asks, and
+  the findings it answers – but not those for a blind task not yet delivered), or at a file
+  the user stored; the service
   refuses any other. Agents' questions to each other follow the same rule.
 - **Diagrams in Markdown**: a ` ```mermaid ` block, wherever Markdown is rendered (an
   attachment, a task's input, a delivery note, an answer), is drawn as a diagram by mermaid

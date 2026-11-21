@@ -65,7 +65,8 @@ Exact commands:
 - **Commits** carry `Task: u1#3` in the message's last paragraph, with any other trailers
   and no blank line between them; one made without it is linked (`workriver commit link`).
 - **Blind tasks** get only the goal, place and range from you.
-- **Other agents' terminals** are not yours: questions go through `workriver ask`.
+- **Other agents' terminals** are not yours: questions go through `workriver ask`; more for
+  a task already handed out is `workriver task note`, which tells its worker (`hand-off`).
 - **Questions with options** to the user carry one `--option ID=LABEL` each, never options
   typed into the text: a decide gate when work waits on the answer (`ask-user`), `say` or
   `reply` when nothing does (`user-message`). The answer starts nothing by itself. The one

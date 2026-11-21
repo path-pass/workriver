@@ -669,6 +669,9 @@ export const en = {
   task: {
     blind: 'Blind',
     blindHint: 'Blind: done without seeing other work, so its findings are its own view',
+    added: '{{by}} added to what it asks',
+    addedByYou: 'You added to what it asks',
+    addedList: 'Added to what it asks',
     unregistered: 'Unregistered: {{title}}',
     dropped: 'No longer needed',
     droppedBy: 'Marked no longer needed by {{by}}, {{when}}',

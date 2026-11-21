@@ -47,8 +47,8 @@ fn attachments_are_stored_before_they_are_used() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[0].found.attachments, ["00000000000000ab"]);
 }
 
-/// A question may point at an attachment shown with its task (its own, its findings', those of
-/// the findings it answers), never at another's; a blind task not delivered, not even at those
+/// A question may point at an attachment shown with its task (its own, those added to what it
+/// asks, its findings', those of the findings it answers), never at another's; a blind task not delivered, not even at those
 /// of the findings it answers.
 #[test]
 fn questions_point_only_at_their_tasks_attachments() {
@@ -78,8 +78,15 @@ fn questions_point_only_at_their_tasks_attachments() {
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{"from": "3"}], "causes": [{"task": 2, "findings": ["P2-1"]}], "agent": "sec", "blind": true}})).unwrap();
     assert!(s.state().attachments_of("u1", 4).is_empty());
     assert!(add(&mut s, "user", ask(4, Some("00000000000000f1"))).unwrap_err().contains("is not one of u1#4's"));
+    // What was added to what a task asks shows with it, its files too, blind or not; not with other work.
+    add(&mut s, "boss", file("00000000000000e4", json!({}))).unwrap();
+    add(&mut s, "user", json!({"kind": "task.noted", "body": {"unit": "u1", "task": 4, "text": "Read the logs too", "attachments": ["00000000000000e4"]}})).unwrap();
+    assert_eq!(s.state().attachments_of("u1", 4), ["00000000000000e4"]);
+    add(&mut s, "user", ask(4, Some("00000000000000e4"))).unwrap();
+    assert!(add(&mut s, "user", ask(1, Some("00000000000000e4"))).unwrap_err().contains("is not one of u1#1's"));
     add(&mut s, "sec", json!({"kind": "task.delivered", "body": {"unit": "u1", "task": 4, "findings": []}})).unwrap();
     add(&mut s, "user", ask(4, Some("00000000000000f1"))).unwrap();
+    add(&mut s, "agent-a", ask(4, Some("00000000000000e4"))).unwrap();
     assert!(replayed(&s).questions.iter().all(|q| q.context[0].kind == "attachment"));
 }
 

@@ -93,6 +93,13 @@
               "kind": "tests",
               "n": 1,
               "note": "",
+              "notes": [
+                {
+                  "at": "2025-12-03T13:03:00Z",
+                  "by": "s-boss2",
+                  "text": "Also try it offline"
+                }
+              ],
               "plans": [],
               "result": null,
               "reviewer": null,
@@ -1355,6 +1362,14 @@
     },
     {
       "body": {
+        "task": 1,
+        "text": "Also try it offline",
+        "unit": "u4"
+      },
+      "kind": "task.noted"
+    },
+    {
+      "body": {
         "context": [],
         "discuss": true,
         "id": "q5",
@@ -2538,6 +2553,13 @@
             "kind": "tests",
             "n": 1,
             "note": "",
+            "notes": [
+              {
+                "at": "2025-12-03T13:03:00Z",
+                "by": "s-boss2",
+                "text": "Also try it offline"
+              }
+            ],
             "plans": [],
             "result": null,
             "reviewer": null,

@@ -55,6 +55,12 @@ its sections went.
   text with its line breaks. Shorter text (a finding's problem, impact and reason, a
   decision's note, a question, a chore's or gate's step, a reason for dropping) is plain,
   its line breaks kept. Agents are told to write it so (a line or two of what, then bullets).
+  What the intent's manager or the user added to what a task asks after it was recorded
+  (`workriver task note`) is never merged into its text: under that text (a review's: under
+  what it reviews), set off by a thin line on the left, each addition oldest first, with its
+  author's mark, "<name> added to what it asks" ("You added …" for the user's own, as the
+  service marks it from who recorded it, never from the name) and the time, then its text as Markdown like the input's, and its files. A task with none shows
+  nothing there.
 
 ## Findings
 

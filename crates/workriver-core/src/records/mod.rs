@@ -125,7 +125,7 @@ impl State {
             ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => self.prepare_projects(who, body),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.prepare_units(who, body),
             // The work: work/.
-            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } => self.prepare_tasks(who, body),
+            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.prepare_tasks(who, body),
             FindingsBatched { .. } | FindingAdded { .. } | FindingDropped { .. } | FindingNoted { .. } | FindingDecided { .. } => self.prepare_findings(who, body),
             GateSubmitted { .. } => self.prepare_gates(who, body),
             ChoreCreated { .. } | ChoreDone { .. } => self.prepare_chores(who, body),
@@ -148,7 +148,7 @@ impl State {
             ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => self.apply_projects(e),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.apply_units(e),
             // The work: work/.
-            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } => self.apply_tasks(e),
+            TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.apply_tasks(e),
             FindingsBatched { .. } | FindingAdded { .. } | FindingDropped { .. } | FindingNoted { .. } | FindingDecided { .. } => self.apply_findings(e),
             GateSubmitted { .. } => self.apply_gates(e),
             ChoreCreated { .. } | ChoreDone { .. } => self.apply_chores(e),

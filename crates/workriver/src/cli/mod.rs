@@ -418,6 +418,8 @@ pub(crate) fn made(out: &serde_json::Value) -> String {
             format!("added findings {}", ids.join(" "))
         }
         Some("task.amended") => "amended".into(),
+        // Recorded either way; whether its agent was told is said apart.
+        Some("task.noted") => format!("added to {}#{}; {}", b["unit"].as_str().unwrap_or("?"), b["task"], out["told"].as_str().unwrap_or("its agent was not told")),
         Some("task.dropped") => format!("{}#{} dropped", b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("question.answered") => "answered".into(),
         Some("message.replied") => "replied".into(),
