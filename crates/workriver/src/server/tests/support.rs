@@ -146,6 +146,9 @@ pub(in crate::server) struct Fake {
     pub(super) not_ready: std::sync::atomic::AtomicUsize,
     /// Herdr does not answer: reading the agents and typing into one fail.
     pub(super) down: std::sync::atomic::AtomicBool,
+    /// The agents are listed, but typing into one fails as when Herdr's socket drops before
+    /// the prompt is written: nothing is typed.
+    pub(super) prompt_down: std::sync::atomic::AtomicBool,
     /// Lines typed into new shells: (machine, group, dir, line); what each place shows, by place.
     pub(super) shells: std::sync::Mutex<Vec<Typed>>,
     pub(super) screens: std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -243,7 +246,7 @@ impl workriver_core::runtime::Runtime for Fake {
     }
     fn send(&self, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         // As Herdr's socket that does not answer: nothing is typed.
-        if self.down.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.prompt_down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);
         }
         if self.strict.load(std::sync::atomic::Ordering::Relaxed) && !self.agents.lock().unwrap().iter().any(|(_, a)| a.session == session || a.name == session) {

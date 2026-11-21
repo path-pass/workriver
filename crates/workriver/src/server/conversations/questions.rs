@@ -167,8 +167,10 @@ impl App {
         if let (For::Discussion, Some(a)) = (h.kind, found) {
             h.name = a.name.clone();
         }
-        // A notice goes to the session found, on its machine; anything else by `to`.
-        let sent = |h: &Held| match found.filter(|_| h.kind == For::Notice) {
+        // A notice and the user's message go to the session found, on its machine, and to no
+        // other: what that machine's runtime answers is kept (one that drops before typing
+        // stays one that typed nothing). Anything else by `to`.
+        let sent = |h: &Held| match found.filter(|_| matches!(h.kind, For::Notice | For::Message | For::Broadcast)) {
             Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
             None => self.send(&h.to, &h.text),
         };
@@ -180,6 +182,9 @@ impl App {
             // read, or gone) waits for `poll`, which alone says it is gone.
             Some(AgentState::Working) | None if h.kind == For::Discussion => h.not_ready = None,
             None if h.kind == For::Duty => h.not_ready = None,
+            // The user's message to a manager not listed (the runtime not read, or not listed
+            // as it is given): it waits for `poll`, which alone says it is gone, from a read.
+            None if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
             _ => {
                 // A discussion's question: the records are read again right before typing in, in
                 // order with a gate's record (`App::discussing`, held by both): one closed

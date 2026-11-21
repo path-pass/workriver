@@ -987,6 +987,73 @@ fn a_copy_not_reachable_for_now_waits() {
     assert_eq!(t.far.sent.lock().unwrap().iter().filter(|(_, text)| text.contains("message m1")).count(), 1);
 }
 
+/// The runtime, this machine's alone, stops answering right after the message to every
+/// manager is recorded, before any copy is given: the list it could not read says nobody is
+/// gone, so each copy waits and is given once the runtime answers again.
+#[test]
+fn copies_wait_when_the_only_runtime_drops_before_they_are_given() {
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering::SeqCst}};
+    use workriver_core::runtime::AgentState::Idle;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("w.db");
+    let local = Arc::new(Fake::default());
+    let mut web = live("s-web", "web", "w2", Idle);
+    web.group.as_mut().unwrap().label = "web".into();
+    *local.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), web)];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![]);
+    let store = workriver_data::Store::open(&db).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
+    let options = crate::server::Options { machines: Some(all.clone()), allow_as: true, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, all, options)));
+    manage(&d, "p1", "s-boss");
+    manage(&d, "p2", "s-web");
+    // The first read of the agents after the message is recorded finds the runtime down.
+    let cut = Arc::new(AtomicBool::new(false));
+    let (cut_now, runtime) = (cut.clone(), Arc::downgrade(&local));
+    *local.on_agents.lock().unwrap() = Some(Arc::new(move || {
+        if !cut_now.load(SeqCst) && stored(&db).iter().any(|e| matches!(e.body, workriver_core::Body::MessageSent { .. })) && !cut_now.swap(true, SeqCst) {
+            runtime.upgrade().unwrap().down.store(true, SeqCst);
+        }
+    }));
+    let sent = d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    assert_eq!(sent["body"]["to"].as_array().unwrap().len(), 2);
+    assert!(cut.load(SeqCst), "the runtime dropped after the message was recorded");
+    let copies = || d.get("/api/workspace").unwrap()["messages"][0]["to"].clone();
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let now = copies();
+        assert!(now.as_array().unwrap().iter().all(|c| c["step"] == "sending"), "while the runtime is down: {now}");
+    }
+    local.down.store(false, SeqCst);
+    wait_until("both copies given", || copies().as_array().unwrap().iter().all(|c| c["step"] == "delivered"));
+    assert_eq!(local.sent.lock().unwrap().iter().filter(|(_, text)| text.contains("message m1")).count(), 2);
+}
+
+/// This machine's runtime lists a manager, but typing into it fails before the prompt is
+/// written (the socket drops): nothing was typed, so its copy waits and is given once it can
+/// be, the other copies given meanwhile.
+#[test]
+fn a_copy_here_waits_when_typing_into_its_manager_fails_before_the_prompt() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let t = every_manager(None);
+    let runtime = std::sync::Arc::downgrade(&t.local);
+    *t.local.on_send.lock().unwrap() = Some(Box::new(move |to| {
+        if to == "s-boss" {
+            runtime.upgrade().unwrap().prompt_down.store(true, SeqCst);
+        }
+    }));
+    t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    wait_until("boss and far have theirs", || t.copy("boss")["step"] == "delivered" && t.copy("far")["step"] == "delivered");
+    let waiting = t.copy("web");
+    assert_eq!(waiting["step"], "sending", "{waiting}");
+    t.local.prompt_down.store(false, SeqCst);
+    wait_until("web has its copy", || t.copy("web")["step"] == "delivered");
+    assert_eq!(t.local.sent.lock().unwrap().iter().filter(|(to, text)| to == "s-web" && text.contains("message m1")).count(), 1);
+}
+
 /// A copy held for a manager here (it waits for a person in its terminal) is not given up
 /// while this machine's runtime cannot be read and another machine's still can: a list that
 /// could not be read says nobody is gone. It is given once the manager is free.

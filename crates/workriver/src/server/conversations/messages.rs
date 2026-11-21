@@ -15,8 +15,8 @@ impl App {
     }
 
     /// The user wrote to a manager (or to every manager: each copy alike): typed into its
-    /// terminal now, or held while it waits for a person there (`hand`), or recorded as not
-    /// delivered when it is not running.
+    /// terminal now, or held while it waits for a person there or its runtime cannot be read
+    /// (`hand`), or recorded as not delivered when a read of the runtime does not list it.
     pub(in crate::server) fn tell_manager(&self, id: &str) {
         // Without the message nothing is given to anyone: it stays as the page shows it, sent
         // and not delivered yet.
@@ -33,9 +33,9 @@ impl App {
         let live = self.runtime.agents();
         for (text, name, copy, to) in copies {
             match &live {
-                Err(_) => self.message_not_delivered(id, &copy, None, ReasonCode::RuntimeDown, words::NOT_CONNECTED),
+                // A list not read says nobody is gone: `hand` holds it until one is read.
                 Ok(live) if !live.iter().any(|a| a.session == to) => self.message_not_delivered(id, &copy, None, ReasonCode::ManagerGone, &format!("the manager {name} is not running")),
-                Ok(_) => self.hand(Held { question: id.into(), kind: if copy.is_empty() { For::Message } else { For::Broadcast }, to, name, text, not_ready: None, about: None }),
+                _ => self.hand(Held { question: id.into(), kind: if copy.is_empty() { For::Message } else { For::Broadcast }, to, name, text, not_ready: None, about: None }),
             }
         }
     }

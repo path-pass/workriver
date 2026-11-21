@@ -374,7 +374,11 @@ then the user's text quoted. For example:
   it is given (`RuntimeError::None`: Herdr's socket does not answer; `Unreachable`: its
   machine is disconnected), so that nothing was typed, is no reason to give up: the message
   waits and is tried again at each poll until the manager takes it, or is gone (not
-  delivered). Gone is said only by a complete read of the manager's machine: while a
+  delivered). That holds from the first try: a runtime whose agents cannot be read as the
+  message is first given (`App::tell_manager`) holds it too. It is typed into the session
+  found, on its machine (`send_to`), never re-routed by name, so a send connection that
+  drops before the prompt is written stays `None` and the message waits. Gone is said only
+  by a complete read of the manager's machine: while a
   machine's runtime does not answer (another machine disconnected, or this machine's Herdr
   while another machine is followed), its agents are listed as last seen, in no state of
   theirs (`Machines::agents`; not counted by `App::readable`), so a copy held for one of
