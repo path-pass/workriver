@@ -106,8 +106,9 @@ pub fn live_in(at: &Runner, dir: &Path) -> Result<Vec<FileChange>> {
     let dir = dir.to_path_buf();
     let out = run(at, &dir, &["diff", "HEAD", "--no-renames", "-z", "--raw", "--no-abbrev"], &[])?;
     let changed = raw(&String::from_utf8_lossy(&out));
-    // What was committed, for every changed file in one call; what is there now, from disk.
-    let specs: Vec<String> = changed.iter().filter(|r| r.texted(0)).map(|r| format!("HEAD:{}", r.path)).collect();
+    // What was committed, for every changed file in one call, by object id (a name may carry
+    // a line break, which ends a line of `cat-file --batch`); what is there now, from disk.
+    let specs: Vec<String> = changed.iter().filter(|r| r.texted(0)).map(|r| r.ids[0].clone()).collect();
     let mut before = blobs(at, &dir, &specs)?.into_iter();
     let mut files = vec![];
     for mut r in changed {
@@ -116,8 +117,13 @@ pub fn live_in(at: &Runner, dir: &Path) -> Result<Vec<FileChange>> {
         let after = if !r.texted(1) { None } else if r.modes[1] == LINK { at.read_link(&dir.join(&r.path)) } else { at.read(&dir.join(&r.path)) };
         // A submodule's pointer, which `--raw` leaves unnamed here: the commit its checkout is
         // at (`git diff` shows that one), when it is checked out (the top of its own work tree).
+        // One git cannot read there (gone since git listed it) stays unknown, as an unhashed
+        // side does; the others keep theirs.
         if r.modes[1] == GITLINK && is_null(&r.ids[1]) {
-            let out = git(at, &dir.join(&r.path), &["rev-parse", "--show-prefix", "HEAD"])?;
+            let out = match git(at, &dir.join(&r.path), &["rev-parse", "--show-prefix", "HEAD"]) {
+                Err(Error::Git(_)) => String::new(),
+                out => out?,
+            };
             if let [prefix, head] = out.lines().collect::<Vec<_>>()[..]
                 && prefix.is_empty()
             {
@@ -245,12 +251,13 @@ impl Raw {
 }
 
 /// `-z --raw` output: `:mode mode id id status` and the path, each ended by a NUL (a line
-/// break before the first, in `git log`'s).
+/// break before the first, in `git log`'s). Only the line break before a `:mode` is
+/// formatting: a path is taken as it is, line breaks and all.
 pub(crate) fn raw(out: &str) -> Vec<Raw> {
     let mut files = vec![];
-    let mut tokens = out.split('\0').map(|t| t.trim_start_matches('\n'));
+    let mut tokens = out.split('\0');
     while let Some(t) = tokens.next() {
-        let Some(meta) = t.strip_prefix(':') else { continue };
+        let Some(meta) = t.trim_start_matches('\n').strip_prefix(':') else { continue };
         let Some(path) = tokens.next() else { break };
         if let [before_mode, after_mode, before_id, after_id, status, ..] = meta.split(' ').collect::<Vec<_>>()[..] {
             let status = if status.starts_with('A') || status.starts_with('D') { status[..1].to_string() } else { "M".into() };

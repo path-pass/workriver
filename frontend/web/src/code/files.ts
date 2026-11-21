@@ -48,7 +48,7 @@ const GONE = '000000'
  * Whether an object id is git's placeholder, for a side that does not exist or one git has
  * not hashed: all zeros, 40 or, in a SHA-256 repository, 64 of them.
  */
-const isNull = (id: string) => /^0+$/.test(id)
+export const isNull = (id: string) => /^0+$/.test(id)
 /** A submodule pointer's mode (a gitlink): its object id is a commit, it has no text. */
 const GITLINK = '160000'
 

@@ -746,7 +746,8 @@ export const ja: OneForm<typeof en> = {
     binary: 'バイナリファイルが異なります',
     pointerMoved: 'サブモジュールのコミット {{from}} → {{to}}',
     pointerAdded: 'サブモジュール、コミット {{to}}',
-    pointerRemoved: 'サブモジュール、元はコミット {{from}}'
+    pointerRemoved: 'サブモジュール、元はコミット {{from}}',
+    pointerUnknown: '不明'
   },
   code: {
     none: '変更はありません。',

@@ -746,7 +746,8 @@ export const zhCN: OneForm<typeof en> = {
     binary: '二进制文件不同',
     pointerMoved: '子模块提交 {{from}} → {{to}}',
     pointerAdded: '子模块，位于提交 {{to}}',
-    pointerRemoved: '子模块，原在提交 {{from}}'
+    pointerRemoved: '子模块，原在提交 {{from}}',
+    pointerUnknown: '未知'
   },
   code: {
     none: '没有改动。',

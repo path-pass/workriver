@@ -700,6 +700,89 @@ fn sha256_placeholders_are_resolved_too() {
     assert_eq!(now, vec![("b.bin".to_string(), hashed), ("inner".to_string(), i1)]);
 }
 
+/// A repository with a submodule checkout at `module` moved off its committed pointer, and
+/// an unrelated text edit in `other.txt`; the commit the checkout is at.
+fn moved_submodule(repo: &Path, module: &str) -> String {
+    sh(repo, &["init", "-q", "-b", "main"]);
+    let inner = repo.join(module);
+    std::fs::create_dir(&inner).unwrap();
+    sh(&inner, &["init", "-q", "-b", "main"]);
+    write(&inner, "a", "1\n");
+    sh(&inner, &["add", "."]);
+    sh(&inner, &["commit", "-q", "-m", "i1"]);
+    let i1 = rev(&inner, "HEAD");
+    write(&inner, "a", "2\n");
+    sh(&inner, &["commit", "-q", "-am", "i2"]);
+    write(repo, "other.txt", "o\n");
+    sh(repo, &["-c", "advice.addEmbeddedRepo=false", "add", "."]);
+    sh(repo, &["commit", "-q", "-m", "base"]);
+    sh(&inner, &["checkout", "-q", &i1]);
+    write(repo, "other.txt", "o2\n");
+    i1
+}
+
+/// What `git diff HEAD --no-renames --name-only -z` gives, sorted: names as git has them.
+fn git_changed(repo: &Path) -> Vec<String> {
+    let out = Command::new("git").arg("-C").arg(repo).args(["diff", "HEAD", "--no-renames", "--name-only", "-z"]).output().unwrap().stdout;
+    let mut names: Vec<String> = out.split(|b| *b == 0).filter(|s| !s.is_empty()).map(|s| String::from_utf8(s.to_vec()).unwrap()).collect();
+    names.sort();
+    names
+}
+
+/// A name may carry a line break (here a submodule's checkout and a text file whose names
+/// start with one): it is the name git has, read NUL-separated, never trimmed or split, so
+/// the pointer is where that checkout is, the file's committed text is its own, and its
+/// lines count in the tree.
+#[test]
+fn a_name_with_a_line_break_is_the_name_git_has() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    let at = Runner::Local;
+    write(repo, "\nnote.txt", "n\n");
+    let i1 = moved_submodule(repo, "\nmodule");
+    write(repo, "\nnote.txt", "n2\n");
+    assert_eq!(git_changed(repo), ["\nmodule", "\nnote.txt", "other.txt"]);
+    let mut now: Vec<_> = live_in(&at, repo).unwrap().into_iter().map(|f| (f.path, f.before, f.after, f.after_id)).collect();
+    now.sort();
+    let s = |x: &str| x.to_string();
+    let unhashed = s(NULL);
+    assert_eq!(now, vec![(s("\nmodule"), None, None, i1), (s("\nnote.txt"), Some(s("n\n")), Some(s("n2\n")), unhashed.clone()), (s("other.txt"), Some(s("o\n")), Some(s("o2\n")), unhashed)]);
+    let t = tree(&at, repo).unwrap();
+    assert_eq!((t.files, t.loc), (3, 2), "the checkout (no lines), \\nnote.txt and other.txt (a line each)");
+}
+
+/// A submodule checkout gone between git listing the changes and reading where it is (moved
+/// away during the scan) leaves that pointer unknown, as git has not named it; the other
+/// changes keep what was read of them.
+#[test]
+fn a_checkout_gone_during_the_scan_leaves_the_others() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    moved_submodule(&repo, "module");
+    let (pointer, other) = (rev(&repo, "HEAD:module"), rev(&repo, "HEAD:other.txt"));
+    assert_eq!(git_changed(&repo), ["module", "other.txt"]);
+    // An ssh stand-in that runs each command line in a shell and, right after git lists the
+    // changes, moves the checkout away.
+    let fake = tmp.path().join("fake-ssh");
+    let away = tmp.path().join("away");
+    let script = format!(
+        "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift; shift\nsh -c \"$1\"; code=$?\ncase \"$1\" in *\"'diff' 'HEAD'\"*) mv '{}' '{}';; esac\nexit $code\n",
+        repo.join("module").display(),
+        away.display()
+    );
+    std::fs::write(&fake, script).unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let at = Runner::Ssh { program: fake.to_string_lossy().into_owned(), options: vec![], target: "box".into() };
+    let now = live_in(&at, &repo);
+    assert!(away.exists(), "the checkout was moved during the scan");
+    let mut now: Vec<_> = now.unwrap().into_iter().map(|f| (f.path, f.after, f.before_id, is_null(&f.after_id))).collect();
+    now.sort();
+    let s = |x: &str| x.to_string();
+    assert_eq!(now, vec![(s("module"), None, pointer, true), (s("other.txt"), Some(s("o2\n")), other, true)]);
+}
+
 /// What `git diff --no-renames --name-only` gives, sorted.
 fn git_names(repo: &Path, args: &[&str]) -> Vec<String> {
     let out = Command::new("git").arg("-C").arg(repo).args(["diff", "--no-renames", "--name-only"]).args(args).output().unwrap().stdout;

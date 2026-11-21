@@ -50,7 +50,8 @@ its sections went.
      has not hashed, is compared by its text; a symlink's text is where it points; git's
      placeholder id is all zeros, 40 of them or, in a SHA-256 repository, 64; uncommitted
      work git lists but that cannot be read or hashed, not allowed or gone meanwhile, is a
-     change, and the rest of the work is read as ever): a file whose mode or type
+     change, and the rest of the work is read as ever; a file's name is the one git has, line
+     breaks and all, as git's NUL-separated lists give it): a file whose mode or type
      alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
      text changed and changed back on the way; a mode or a submodule pointer changed and
      changed back is not. An untracked file is taken as `git add` would take it: a symlink
@@ -68,7 +69,9 @@ its sections went.
      file or a binary file became one or one became a file (git: a type change), in the
      tree, the list of commits and the single-file view alike; uncommitted, the
      pointer is the commit the submodule's checkout is at, and work inside the submodule that
-     leaves it there is no change. A picked piece of
+     leaves it there is no change; a checkout that cannot be read (gone since git listed it)
+     leaves its pointer a change to an unknown commit, said so, never git's placeholder, and
+     the rest of the work is read as ever. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added
      and deleted itself is not there either. Where other commits touched a file between the
      work's own (a merge of the base, other work), the texts do not chain: the file's change

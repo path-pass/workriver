@@ -767,7 +767,8 @@ export const en = {
     binary: 'Binary files differ',
     pointerMoved: 'Submodule commit {{from}} → {{to}}',
     pointerAdded: 'Submodule at commit {{to}}',
-    pointerRemoved: 'Submodule was at commit {{from}}'
+    pointerRemoved: 'Submodule was at commit {{from}}',
+    pointerUnknown: 'unknown'
   },
   code: {
     none: 'No changes.',

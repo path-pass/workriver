@@ -50,6 +50,13 @@ describe('a change with no lines', () => {
     }
   })
 
+  it('a pointer scan could not read (its checkout gone meanwhile) is unknown, never a commit of zeros', () => {
+    const text = show(file({ path: 'vendor/lib', beforeMode: '160000', afterMode: '160000', afterId: NULL }))
+    expect(text).toContain(A.slice(0, 9))
+    expect(text).toContain(en.change.pointerUnknown)
+    expect(text).not.toContain('000000000')
+  })
+
   it('a mode change alone keeps its +0 −0', () => {
     expect(show(file({ path: 'run.sh', afterMode: '100755' }))).toMatch(/\+0 −0/)
   })

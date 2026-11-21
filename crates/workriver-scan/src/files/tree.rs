@@ -25,12 +25,17 @@ pub fn tree(at: &Runner, repo: &Path) -> Result<Module> {
     if !has_rev(at, &top, "HEAD") {
         return Ok(root);
     }
-    // `git grep -c ''` counts lines of every text file at HEAD in one go: "HEAD:path\0count".
+    // `git grep -c ''` counts lines of every text file at HEAD in one go: "HEAD:path\0count\n"
+    // each. A path may carry a line break, a count never does: split at the NULs, then each
+    // count from the next path at its line break.
     let mut loc = HashMap::new();
-    for line in String::from_utf8_lossy(&run(at, &top, &["grep", "-I", "-z", "-c", "", "HEAD", "--"], &[1])?).lines() {
-        if let Some((path, n)) = line.split_once('\0') {
-            loc.insert(path.trim_start_matches("HEAD:").to_string(), n.parse().unwrap_or(0));
-        }
+    let out = String::from_utf8_lossy(&run(at, &top, &["grep", "-I", "-z", "-c", "", "HEAD", "--"], &[1])?).into_owned();
+    let mut parts = out.split('\0');
+    let mut path = parts.next().unwrap_or_default();
+    for part in parts {
+        let (n, next) = part.split_once('\n').unwrap_or((part, ""));
+        loc.insert(path.strip_prefix("HEAD:").unwrap_or(path).to_string(), n.parse().unwrap_or(0));
+        path = next;
     }
     for path in split0(&run(at, &top, &["ls-tree", "-r", "--name-only", "-z", "HEAD"], &[])?) {
         let n = loc.get(&path).copied().unwrap_or(0);

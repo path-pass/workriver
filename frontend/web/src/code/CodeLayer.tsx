@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primit
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { Switch } from '@/ui/primitives/switch'
 import type { Selection } from '@/work/select'
-import { changeOf, fileTree, filterTree, kindOf, ROOT, shownDelta } from './files'
+import { changeOf, fileTree, filterTree, isNull, kindOf, ROOT, shownDelta } from './files'
 import type { Pick } from '@/work/types'
 import type { Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus, Kind } from './types'
 import { contentLang, useT } from '@/i18n'
@@ -71,16 +71,16 @@ function useNear() {
 // One row of diff2html's table, measured (13px mono): what a diff never drawn holds open.
 const ROW_PX = 20.7
 
-/** A commit as a change names it: as short as the unit's commits are named. */
-const short = (id: string) => id.slice(0, 9)
-
 /**
  * A file's diff; `keep` keeps it drawn away from the view (it has picked lines). A change with
  * no lines says what it is instead, with no counts: a binary file's as git does, a submodule's
- * by the commits its pointer moved between.
+ * by the commits its pointer moved between (one scan could not read, its checkout gone
+ * meanwhile, is unknown: git's placeholder is no commit).
  */
 export function FileDiff({ file, whole = false, keep = false }: { file: Change; whole?: boolean; keep?: boolean }) {
   const { t, num } = useT()
+  // A commit as a change names it: as short as the unit's commits are named.
+  const short = (id: string) => (isNull(id) ? t('change.pointerUnknown') : id.slice(0, 9))
   const { binary, pointer } = file.binary || file.pointer ? file : kindOf(file, file)
   const note = binary ? t('change.binary')
     : !pointer ? null
