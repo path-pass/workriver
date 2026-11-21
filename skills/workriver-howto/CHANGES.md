@@ -9,7 +9,19 @@ Newest first. A manager that was already running reads this once after an update
   manager from workriver's page (message m3, to the managers of 3 workspaces): answer for
   your own workspace, "chat", only.` Answer for your own workspace alone (what runs there,
   what you did there), with `workriver reply m3` as usual; the other managers answer for
-  theirs, and the page shows each reply under the message with its workspace. (`user-message`)
+  theirs, and the page shows each reply under the message with its workspace. A reply to it
+  gives no options: ask in your own workspace with `workriver say --option`. (`user-message`)
+- **A question with options carries them as options** (managers, workers): give one
+  `--option ID=LABEL` each (and `--require-note ID` where the answer needs a reason), on a
+  decide gate (`task add --kind gate --gate decide`) or on `workriver say` / `reply`; the user
+  picks one from radio buttons in the page instead of typing an answer. A gate comes back as
+  "The user answered gate … : option `ID`", a message as "The user answered your question …":
+  nothing follows from it by itself; add the task the option calls for (`--after` the gate).
+  A design's gate keeps its options in `--text` and done confirms the design (`--option` is
+  refused there, as with `--blocks` and from anyone but the manager or the user); a worker
+  gives its manager the options. Asked without options, a question whose words list some gets
+  a hint line. (`ask-user`, `user-message`, `push-pr-merge`, `design-gate`,
+  `architecture-review`, `gates-chores`, `blocked`)
 - **Tell the user once, on the page** (managers): after `workriver reply` or `workriver
   say`, do not repeat the same text in your terminal; leave one line there at most (e.g.
   which message you answered), unless it holds something the page does not (an error, a

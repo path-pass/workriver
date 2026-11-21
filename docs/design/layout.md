@@ -44,6 +44,11 @@ workriver/
 │   │       │   ├── data.rs           # WorkStore: reads at a revision, checked record, history, status,
 │   │       │   │                     # an intent's events, errors.
 │   │       │   └── tests.rs          # What every store must answer (reads that fail say so).
+│   │       ├── choices/              # A question's options as recorded: a fixed A2UI v1.0 subset;
+│   │       │   │                     # its write rule (build, check, read the values). No UI.
+│   │       │   ├── mod.rs            # Choice, ChoiceOption; new/check/options/check_answer.
+│   │       │   ├── tests.rs          # The stored form, its rules, and the A2UI schema guard.
+│   │       │   └── __fixtures__/a2ui-v1_0/  # The A2UI v1.0 JSON Schemas (Apache-2.0), vendored.
 │   │       ├── planning/             # Projects, intents, units, workspaces and their transitions.
 │   │       │   ├── mod.rs            # Planning types/exports and transition entry points.
 │   │       │   ├── intents.rs        # Roadmap; intent create/update/start/close/merge; finding policy;
@@ -358,7 +363,7 @@ frontend/web/
     │   ├── types.ts  source.ts  edits.ts
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
     │                                 # Merge.tsx EditIntent.tsx IntentHistory.tsx
-    ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts
+    ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
@@ -368,9 +373,10 @@ frontend/web/
     ├── commands/                     # types.ts Run.tsx context.tsx
     ├── machines/                     # types.ts format.tsx Machines.tsx Settings.tsx
     ├── session/                      # Session.tsx
-    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid);
+    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid),
+    │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
-    ├── ui/                           # primitives/ (the shadcn files) Choice.tsx Icon.tsx
+    ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx among them) Choice.tsx Icon.tsx
     │                                 # CopyButton.tsx Tip.tsx; never feature/data/API imports
     ├── lib/                          # utils.ts useResize.ts isField.ts
     ├── config/defaults.ts            # Quiet/resize/cache/preview defaults and widths.

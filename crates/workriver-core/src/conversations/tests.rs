@@ -392,6 +392,11 @@ fn the_user_writes_to_every_manager() {
     let reply = |text: &str| json!({"kind": "message.replied", "body": {"message": "m1", "text": text}});
     assert!(add(&mut s, "worker", reply("Ok")).unwrap_err().contains("only the managers it went to reply"));
     assert!(add(&mut s, "user", reply("Ok")).unwrap_err().contains("only the managers it went to reply"));
+    // A reply to it asks nothing to choose: a question goes in the manager's own workspace.
+    let opt = |v: &str| ChoiceOption { value: v.into(), label: v.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("a"), opt("b")], &[])).unwrap();
+    let asking = json!({"kind": "message.replied", "body": {"message": "m1", "text": "Which?", "choice": choice}});
+    assert!(add(&mut s, "boss", asking).unwrap_err().contains("asks nothing to choose"));
     add(&mut s, "boss", reply("chat: nothing running.")).unwrap();
     s.append(&remote, crate::records::tests::body(reply("api: two worktrees removed."))).unwrap();
     let m = s.state().message("m1").unwrap();
@@ -409,4 +414,119 @@ fn the_user_writes_to_every_manager() {
     assert_eq!(s.state().read[""], "2026-11-21T10:00:00Z");
     assert!(add(&mut s, "user", json!({"kind": "messages.read", "body": {"workspace": " ", "at": "2026-11-21T10:00:00Z"}})).unwrap_err().contains("which workspace's conversation"));
     assert_eq!(replayed(&s), *s.state());
+}
+
+/// A manager's message or reply may carry options; the user answers with a message of their own
+/// that names it and the value picked: once, to the manager who asked, a note where the option
+/// asks one. Nothing else follows from it. A question of an earlier manager is closed.
+#[test]
+fn the_user_answers_a_managers_choice_with_a_message() {
+    let mut s = Records::default();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "state": "planned"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("cursor", "By cursor"), opt("page", "By page"), opt("other", "Something else")], &["other".into()])).unwrap();
+    // Asked with `say` (m1) and in a reply to the user's message (m2, its first reply).
+    let mut bad = choice.clone();
+    bad["surface"]["version"] = json!("0.9");
+    assert!(add(&mut s, "boss", json!({"kind": "message.said", "body": {"text": "Which paging?", "choice": bad}})).unwrap_err().contains("--option"));
+    add(&mut s, "boss", json!({"kind": "message.said", "body": {"text": "Which paging?", "choice": choice}})).unwrap();
+    add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "How do we page?"}})).unwrap();
+    add(&mut s, "boss", json!({"kind": "message.replied", "body": {"message": "m2", "text": "Pick one:", "choice": choice}})).unwrap();
+    assert!(s.state().message("m1").unwrap().choice.is_some() && s.state().message("m2").unwrap().replies[0].choice.is_some());
+
+    let answer = |message: &str, reply: u32, selected: &[&str], text: &str| {
+        json!({"kind": "message.sent", "body": {"workspace": "chat", "text": text, "answer": {"message": message, "reply": reply, "selected": selected}}})
+    };
+    let refused = |s: &mut Records, v: serde_json::Value| add(s, "user", v).unwrap_err();
+    assert!(add(&mut s, "boss", answer("m1", 0, &["page"], "")).unwrap_err().contains("only the user"));
+    assert!(refused(&mut s, answer("m9", 0, &["page"], "")).contains("no message m9"));
+    assert!(refused(&mut s, answer("m2", 0, &["page"], "")).contains("m2 asks nothing to choose"));
+    assert!(refused(&mut s, answer("m2", 2, &["page"], "")).contains("m2 has no reply 2"));
+    assert!(refused(&mut s, answer("m1", 0, &["pages"], "")).contains("not one of"));
+    assert!(refused(&mut s, answer("m1", 0, &["other"], " ")).contains("needs a note"));
+    // An answer needs no text of its own; it is recorded on the question, once.
+    let e = add(&mut s, "user", answer("m1", 0, &["page"], "")).unwrap();
+    let Body::MessageSent { id, manager, .. } = &e.body else { panic!() };
+    assert_eq!((id.as_str(), manager.as_str()), ("m3", "boss"));
+    let asked = s.state().message("m1").unwrap().answered.clone().unwrap();
+    assert_eq!((asked.by.as_str(), asked.selected.clone()), ("m3", vec!["page".to_string()]));
+    assert!(refused(&mut s, answer("m1", 0, &["cursor"], "")).contains("m1 is answered already"));
+    add(&mut s, "user", answer("m2", 1, &["other"], "keyset paging")).unwrap();
+    assert_eq!(s.state().message("m2").unwrap().replies[0].answered.as_ref().map(|a| a.by.as_str()), Some("m4"));
+    // A plain message still needs its text.
+    assert!(refused(&mut s, json!({"kind": "message.sent", "body": {"workspace": "chat", "text": " "}})).contains("needs its text"));
+
+    // A manager registered anew: the earlier one's open question is closed.
+    add(&mut s, "boss", json!({"kind": "message.said", "body": {"text": "And sorting?", "choice": choice}})).unwrap(); // m5
+    assert!(s.state().choice_open("m5", 0));
+    assert!(!s.state().choice_open("m1", 0), "answered");
+    add(&mut s, "boss2", json!({"kind": "manager.registered", "body": {"agent": "boss2", "workspace": w1}})).unwrap();
+    assert!(!s.state().choice_open("m5", 0));
+    assert!(refused(&mut s, answer("m5", 0, &["page"], "")).contains("asked by an earlier manager"));
+    let replayed = replayed(&s);
+    assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
+    // A message with no choice is written as before.
+    let plain = serde_json::to_value(replayed.message("m2").unwrap()).unwrap();
+    assert!(plain.get("choice").is_none() && plain.get("answered").is_none());
+}
+
+/// A manager on another machine, in a workspace not linked to one here (of the same label as a
+/// local one with its own manager), asks with options: the question is open while it manages
+/// that workspace, and the user's answer goes to it, whatever the page names; not to the local
+/// manager of the same label.
+#[test]
+fn a_far_managers_choice_is_answered_to_it() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Here", "state": "planned"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Far", "state": "planned"}})).unwrap();
+    let w1 = json!({"id": "w1", "label": "chat"});
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();
+    let far = Principal::Agent { session: "far".into(), machine: Some("box".into()) };
+    let remote = json!({"id": "w1@box", "label": "chat", "machine": "box"});
+    let as_far = |s: &mut Records, v: serde_json::Value| s.append(&far, crate::records::tests::body(v));
+    as_far(&mut s, json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": remote}})).unwrap();
+    s.append(&Principal::User, crate::records::tests::body(json!({"kind": "intent.state_changed", "body": {"intent": "i2", "state": "active", "workspace": remote}}))).unwrap();
+    let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("a", "A"), opt("b", "B")], &[])).unwrap();
+    as_far(&mut s, json!({"kind": "message.said", "body": {"text": "Which?", "choice": choice}})).unwrap();
+    assert!(s.state().choice_open("m1", 0), "its manager still manages it");
+    // The page names the question's workspace by its label; the answer goes to the asker.
+    let e = add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "", "answer": {"message": "m1", "selected": ["a"]}}})).unwrap();
+    let Body::MessageSent { manager, intent, .. } = &e.body else { panic!() };
+    assert_eq!((manager.as_str(), intent.as_str()), ("far", "i2"));
+    assert!(!s.state().choice_open("m1", 0));
+    // By intent, as a remote message is addressed, it goes to the asker too.
+    as_far(&mut s, json!({"kind": "message.said", "body": {"text": "And?", "choice": choice}})).unwrap();
+    let e = add(&mut s, "user", json!({"kind": "message.sent", "body": {"intent": "i2", "text": "", "answer": {"message": "m3", "selected": ["b"]}}})).unwrap();
+    let Body::MessageSent { manager, .. } = &e.body else { panic!() };
+    assert_eq!(manager, "far");
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// Linking a far workspace to the local one of its label makes the local manager the one that
+/// manages it, as every message is resolved: a question the far manager asked before is then
+/// closed and its answer refused, though both managers still run; the unlinked case stays open.
+#[test]
+fn linking_closes_an_earlier_far_managers_question() {
+    let mut s = Records::default();
+    let far = Principal::Agent { session: "s-far".into(), machine: Some("box".into()) };
+    let remote = json!({"id": "r1", "label": "chat", "machine": "box"});
+    let local = json!({"id": "l1", "label": "chat"});
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Remote chat", "state": "planned"}})).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "manager.registered", "body": {"workspace": remote}}))).unwrap();
+    s.append(&Principal::User, crate::records::tests::body(json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": remote}}))).unwrap();
+    add(&mut s, "s-local", json!({"kind": "manager.registered", "body": {"workspace": local}})).unwrap();
+    let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
+    let choice = serde_json::to_value(Choice::new(&[opt("short", "Short"), opt("long", "Long")], &[])).unwrap();
+    s.append(&far, crate::records::tests::body(json!({"kind": "message.said", "body": {"text": "What format?", "choice": choice}}))).unwrap();
+    assert!(s.state().choice_open("m1", 0), "unlinked: the far manager manages its own chat");
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "chat", "local": "chat"}})).unwrap();
+    assert_eq!(s.state().manager_of("i1"), Some("s-local"));
+    assert!(!s.state().choice_open("m1", 0), "linked: the local manager manages it now");
+    let e = add(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "intent": "i1", "text": "", "answer": {"message": "m1", "selected": ["short"]}}})).unwrap_err();
+    assert!(e.contains("asked by an earlier manager"), "{e}");
 }

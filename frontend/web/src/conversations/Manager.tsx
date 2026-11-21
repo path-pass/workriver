@@ -12,7 +12,7 @@ import { attach, detach, MAX_ATTACHMENT } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
-import type { Talk } from './types'
+import type { Talk, Answer } from './types'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
@@ -164,6 +164,11 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   const all = label === EVERY
   const manager = all ? undefined : running.find(s => s.group!.label === label)
   const list = talk.messages.filter(m => m.workspace === label)
+  // The options a message of the user's answered: the manager's message, or one of its replies.
+  const askedOf = (a: Answer) => {
+    const q = list.find(m => m.id === a.message)
+    return a.reply ? q?.replies[a.reply - 1]?.choice : q?.choice
+  }
 
   // What is picked, as chips; only to the unit's own workspace's manager. A chip left out
   // stays out until the selection changes.
@@ -232,7 +237,10 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
               <Log size={size} label={t('talk.label')}>
                 <ol className="chat">
                   {list.map((m, k) => (
-                    <MessageView key={m.id ?? `local-${k}`} m={m} />
+                    <MessageView
+                      key={m.id ?? `local-${k}`} m={m} asked={askedOf}
+                      onAnswer={(a, note) => label && talk.onAnswer(label, a, note, manager?.agent ?? '')}
+                    />
                   ))}
                 </ol>
               </Log>

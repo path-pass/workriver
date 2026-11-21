@@ -216,6 +216,14 @@ pub(crate) enum Cmd {
         message: String,
         #[arg(long)]
         text: String,
+        /// An option the user picks from, `ID=LABEL` (ID: 1 to 32 of a-z, 0-9, -); 2 to 8,
+        /// shown as radio buttons under the reply. For a question nothing waits on; a decision
+        /// work waits on is a decide gate. Repeatable.
+        #[arg(long, value_name = "ID=LABEL")]
+        option: Vec<String>,
+        /// An option whose answer needs the user's note (why). Repeatable.
+        #[arg(long, value_name = "ID")]
+        require_note: Vec<String>,
     },
     /// As a workspace's manager, tell the user something without being asked: it shows in
     /// your workspace's conversation in workriver's page, and in the user's Needs you until
@@ -224,6 +232,14 @@ pub(crate) enum Cmd {
     Say {
         #[arg(long)]
         text: String,
+        /// An option the user picks from, `ID=LABEL` (ID: 1 to 32 of a-z, 0-9, -); 2 to 8,
+        /// shown as radio buttons under the message. For a question nothing waits on.
+        /// Repeatable.
+        #[arg(long, value_name = "ID=LABEL")]
+        option: Vec<String>,
+        /// An option whose answer needs the user's note (why). Repeatable.
+        #[arg(long, value_name = "ID")]
+        require_note: Vec<String>,
     },
     /// Print the instructions for an agent working with workriver.
     ///

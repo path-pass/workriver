@@ -39,7 +39,7 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 function show(to: string, messages: ManagerMessage[]) {
   const talk: Talk = {
     sessions, file: null, lines: null, managerAt: 1, to, onRead: () => {}, onFile: () => {}, focusAt: 0, onOpen: () => {}, extra: [],
-    intents: [], messages, onTell: (...a) => { told.push(a) },
+    intents: [], messages, onTell: (...a) => { told.push(a) }, onAnswer: () => {},
   }
   const unit = { id: 'u1', title: 'Search' } as unknown as Unit
   act(() => root.render(<TooltipProvider><Manager unit={unit} n={null} talk={talk} /></TooltipProvider>))

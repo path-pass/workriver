@@ -885,3 +885,52 @@ fn the_user_writes_to_every_manager() {
     d.call("/api/messages/read", Some(json!({ "workspace": "", "at": at }))).unwrap();
     assert!(message()["to"].as_array().unwrap().iter().flat_map(|c| c["replies"].as_array().unwrap()).all(|r| r["unread"] != true));
 }
+
+/// A question's options, both ways it is asked: a decide gate and a manager's message. The user
+/// answers through the page's own routes; the page reads the options, the pick and whether a
+/// conversation's question is still open; the manager is told the option. `task show` prints
+/// both the options and the pick.
+#[test]
+fn choices_go_to_the_page_and_the_answer_to_the_manager() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-new", "new", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    let to_boss = || fake.sent.lock().unwrap().iter().filter(|(to, _)| to == "s-boss").map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let ws = || d.get("/api/workspace").unwrap();
+    let choice = crate::cli::parse_choice(&["merge=Merge and push".into(), "hold=Not now".into()], &["hold".into()]).unwrap();
+
+    // A gate: the page reads its options; the user answers it through /api/gate.
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Readme", "kind": "research" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Next?", "choice": choice })).unwrap();
+    let gate = || ws()["intents"][0]["units"][0]["tasks"][0].clone();
+    assert_eq!((gate()["input"]["choice"].clone(), gate()["output"].get("selected").cloned()), (choice.clone().unwrap(), None));
+    assert!(d.call("/api/gate", Some(json!({ "unit": "u1", "task": 1, "result": "done" }))).unwrap_err().to_string().contains("asks the user to choose"));
+    d.call("/api/gate", Some(json!({ "unit": "u1", "task": 1, "result": "answered", "selected": ["hold"], "note": "After the release" }))).unwrap();
+    assert_eq!(gate()["output"]["selected"], json!(["hold"]));
+    wait_until("the manager is told", || to_boss().iter().any(|m| m.starts_with("[workriver] The user answered gate u1#1 \"Next?\": option `hold`.")));
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(d.get("/api/task?task=u1%231").unwrap()).unwrap();
+    let text = crate::cli::text(&shown);
+    assert!(text.contains("  hold   Not now (a note required)") && text.contains("result: answered:\n  Chose: hold \"Not now\""), "{text}");
+
+    // A manager's message: open to answer, once; the answer goes as the user's message.
+    d.append("s-boss", "message.said", json!({ "text": "Merge now?", "choice": choice })).unwrap();
+    let said = |k: usize| ws()["messages"][k].clone();
+    assert_eq!((said(0)["choice"].clone(), said(0)["open"].as_bool()), (choice.clone().unwrap(), Some(true)));
+    let sent = d.call("/api/message", Some(json!({ "workspace": "chat", "text": "", "answer": { "message": "m1", "selected": ["merge"] } }))).unwrap();
+    assert_eq!(sent["body"]["id"], "m2");
+    assert_eq!((said(0)["answered"].clone(), said(0).get("open").cloned()), (json!({ "by": "m2", "selected": ["merge"] }), None));
+    assert_eq!(said(1)["answer"], json!({ "message": "m1", "selected": ["merge"] }));
+    wait_until("typed to the manager", || to_boss().iter().any(|m| m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2, about intent i1 \"Chat\"): option `merge`.")));
+    // In a reply, and closed once another manager runs the workspace.
+    d.append("s-boss", "message.replied", json!({ "message": "m2", "text": "Then?", "choice": choice })).unwrap();
+    assert_eq!(said(1)["replies"][0]["open"], true);
+    fake.agents.lock().unwrap().retain(|(p, _)| p != "p1");
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let here = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
+    d.append("s-new", "manager.registered", json!({ "agent": "s-new", "workspace": here["group"] })).unwrap();
+    assert!(said(1)["replies"][0].get("open").is_none() && said(1)["replies"][0].get("answered").is_none());
+    assert!(d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m2", "reply": 1, "selected": ["merge"] } }))).unwrap_err().to_string().contains("asked by an earlier manager"));
+}

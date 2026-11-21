@@ -519,6 +519,7 @@ export const ja: OneForm<typeof en> = {
     deploy: '手動デプロイ',
     test: '手動テスト',
     decide: '設計の確認',
+    choice: '質問',
     result: '結果',
     done: '完了',
     problem: '問題あり',
@@ -528,8 +529,19 @@ export const ja: OneForm<typeof en> = {
     where: '場所：ファイルパスをカンマか改行で区切って入力',
     addFinding: '指摘を追加',
     removeFinding: 'この指摘を削除',
+    answer: '回答',
     needFinding: '「問題あり」には、何が問題かを書いた指摘が少なくとも 1 件必要です。',
     submit: '送信'
+  },
+  choice: {
+    pick: '選択肢',
+    answer: '回答する',
+    withNote: '理由が必要',
+    chose: '選択：{{label}}',
+    note: 'メモ（任意）',
+    noteNeeded: '理由（この回答には必須）',
+    needNote: 'この回答には理由のメモが必要です。',
+    closed: 'このワークスペースの以前のマネージャーの質問なので、ここでは回答できません。マネージャーに直接書いてください。'
   },
   attach: {
     add: '添付',

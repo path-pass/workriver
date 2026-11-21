@@ -8,6 +8,21 @@ your pane.
     workriver task add u2 --kind gate --gate decide --title "Merge u2 (feat/readme) into main?" --after 4 --text "<what is ready, what was checked, what merging does>"
     workriver task add u5 --kind gate --gate decide --title "Drop the export part of the goal?" --after start --text "<why, and the options>"
 
+**Two kinds of decide gate.** A **go** asks may I (merge, deploy, change the goal): the user
+confirms (done) or not (findings), and work may wait behind it. A **choice** asks which of
+several answers: give each as an option, `--option ID=LABEL` (ID: 1 to 32 of a-z, 0-9, -; 2 to
+8 options, in the order shown), and `--require-note ID` for one whose answer needs a reason.
+The page shows them as radio buttons; never list options only in `--text` or a step.
+
+    workriver task add u2 --kind gate --gate decide --title "u2: next?" --after 7 --text "<what is ready, what was checked>" \
+      --option 'merge=Merge and push once u2#7 is checked' --option 'review=Review once more' \
+      --option 'hold=Not now' --require-note hold
+
+**Except a design's gate** (after a design, directly or through its reviews): its choices
+stay in `--text` and done confirms the design, the note saying which way (`design-gate`);
+`--option` is refused there. A question nothing waits on, while talking with the user,
+goes in the conversation instead (`workriver say --option …`, `user-message`).
+
 A unit's question goes on the unit, after its last task; a question about the whole
 intent goes in the intent's research unit (`units`; add one if it has none), after the task
 that raised it, or `--after start` when none did. Put in `--text` what the user needs to decide without
@@ -18,7 +33,10 @@ the link that opens it in the user's browser (`u2`, `i3`, `u2#5:P2-1` work too),
 also on another machine. `workriver task show` and `workriver board` print links as well.
 
 **You will see:** "The user confirmed gate …" with their note: do it (merge, deploy,
-change the goal). Or "did not confirm gate …" with findings: the user decides each, and you
+change the goal). A choice: "The user answered gate u2#8 …: option `review`", the option's
+words and the user's note quoted: nothing follows from it by itself; add the task that option
+calls for, `--after 8`, within what the question said (push, pull request and merge stay one
+task each). Or "did not confirm gate …" with findings: the user decides each, and you
 hand out work for those accepted (`deciding-findings`). Only a gate that comes after a
 design reads "confirmed the design" (`design-gate`). Until then, wait; do not merge or deploy.
 
@@ -33,7 +51,11 @@ The same for any task re-planning made unneeded: its agent is told to stop (the 
 quoted to it); the board shows `dropped (reason)`.
 
 **Refusals:** "gate … is not open yet: it follows …" - it waits until the tasks before it
-are done; that is fine, it shows in Needs you then. "… is done; only work not done yet is
+are done; that is fine, it shows in Needs you then. "a design is confirmed with a decide gate
+without --option" - a design's gate: options in `--text`. "u2#8 asks the user to choose; add
+what follows once it is answered" - nothing hangs after a choice not answered yet. "choices
+are asked by the manager of intent …" - a worker tells its manager. "a choice has 2 to 8
+options", "an option's ID is 1 to 32 of [a-z0-9-]", "--require-note … names no option". "… is done; only work not done yet is
 dropped" - a gate the user submitted is done. "… is dropped by the manager of its intent or
 the user (or the agent that recorded it)" - a worker tells its manager instead. "… was
 dropped as no longer needed (…)" - it is not started, delivered or submitted any more.

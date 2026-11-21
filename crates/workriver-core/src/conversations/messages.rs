@@ -41,6 +41,14 @@ pub struct Message {
     /// Started by the manager (`workriver say`): its text is the manager's, and it went nowhere.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_manager: bool,
+    /// A manager's message with options to pick from, and the user's answer to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<Choice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered: Option<Answered>,
+    /// The user's message that answers a manager's choice: which one, and the value picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<Answer>,
 }
 
 /// A manager a message to every manager goes to: the workspace it manages, as recorded, and
@@ -58,6 +66,27 @@ pub struct Reply {
     pub by: String,
     pub text: String,
     pub at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<Choice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered: Option<Answered>,
+}
+
+/// What the user's message answers: a manager's message (`m7`) or its `reply`-th reply (from
+/// 1; 0: the message itself), and the value picked.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Answer {
+    pub message: String,
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
+    pub reply: u32,
+    pub selected: Vec<String>,
+}
+
+/// A choice answered: by which message of the user's, and the value picked.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Answered {
+    pub by: String,
+    pub selected: Vec<String>,
 }
 
 impl State {
@@ -78,6 +107,42 @@ impl State {
             }
         }
         out
+    }
+
+    /// A manager's choice in a conversation: its message's `reply`-th reply (0: the message),
+    /// with who asked it and its answer so far.
+    fn asked(&self, message: &str, reply: u32) -> Result<(&str, &Choice, Option<&Answered>), Rejected> {
+        let m = self.message(message)?;
+        let (by, choice, answered) = match reply {
+            0 => (m.by_manager.then_some(m.manager.as_str()), m.choice.as_ref(), m.answered.as_ref()),
+            k => {
+                let Some(r) = m.replies.get(k as usize - 1) else { return no(format!("{message} has no reply {k}")) };
+                (Some(r.by.as_str()), r.choice.as_ref(), r.answered.as_ref())
+            }
+        };
+        match (by, choice) {
+            (Some(by), Some(c)) => Ok((by, c, answered)),
+            _ => no(format!("{message}{} asks nothing to choose", if reply == 0 { String::new() } else { format!("'s reply {reply}") })),
+        }
+    }
+
+    /// Whether `session` manages a workspace of this label now, on this machine or another
+    /// (the conversation's workspace is named by its label): a record of that label it was
+    /// registered on, resolved as every message is (a linked group of another machine is the
+    /// local workspace it is linked to), whose manager it still is.
+    fn manages(&self, label: &str, session: &str) -> bool {
+        self.workspaces
+            .iter()
+            .filter(|w| w.group.label == label && w.manager.as_deref() == Some(session))
+            .any(|w| self.workspace_of(&w.group).and_then(|now| now.manager.as_deref()) == Some(session))
+    }
+
+    /// Whether the user can still answer a manager's choice in a conversation: not answered,
+    /// and its asker still manages the question's workspace (an earlier manager's answer would
+    /// go nowhere). The same rule routes the answer (`prepare` of `message.sent`).
+    pub fn choice_open(&self, message: &str, reply: u32) -> bool {
+        let Ok(m) = self.message(message) else { return false };
+        self.asked(message, reply).is_ok_and(|(by, _, answered)| answered.is_none() && self.manages(&m.workspace, by))
     }
 
     pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
@@ -150,9 +215,12 @@ impl State {
                 }
                 AgentSeen { session, name, harness }
             }
-            MessageSent { intent, text, unit, task, context, to, .. } if !to.is_empty() => {
+            MessageSent { intent, text, unit, task, context, to, answer, .. } if !to.is_empty() => {
                 if blank(&text) {
                     return no("a message needs its text");
+                }
+                if answer.is_some() {
+                    return no("an answer goes to the manager that asked, not to every manager");
                 }
                 if !intent.is_empty() || !unit.is_empty() || task != 0 {
                     return no("a message to every manager is about no intent or unit; only the user's own files go with it");
@@ -171,21 +239,36 @@ impl State {
                 }
                 self.picked("", None, "", 0, &context)?;
                 let to = to.into_iter().map(|r| Recipient { delivery: None, ..r }).collect();
-                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace: String::new(), manager: String::new(), text, unit, task, context, to }
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace: String::new(), manager: String::new(), text, unit, task, context, to, answer: None }
             }
-            MessageSent { intent, workspace, text, unit, task, context, .. } => {
-                if blank(&text) {
+            MessageSent { intent, workspace, text, unit, task, context, answer, .. } => {
+                if blank(&text) && answer.is_none() {
                     return no("a message needs its text");
                 }
-                // To the manager of the intent's workspace, or of the workspace named (here).
-                // (Resolved once: the unit picked must be of an intent that runs in it.)
-                let (workspace, manager, target) = if intent.is_empty() {
+                // An answer goes to whoever asked, in the question's workspace and about its
+                // intent, while it manages that workspace (here or on another machine).
+                // Otherwise to the manager of the intent's workspace, or of the workspace
+                // named (here). (Resolved once: the unit picked must be of an intent that runs
+                // in it.)
+                let (intent, workspace, manager, target) = if let Some(a) = &answer {
+                    let (by, choice, answered) = self.asked(&a.message, a.reply)?;
+                    if answered.is_some() {
+                        return no(format!("{} is answered already; write to the manager instead", a.message));
+                    }
+                    let q = self.message(&a.message)?;
+                    if !self.manages(&q.workspace, by) {
+                        return no(format!("{} was asked by an earlier manager of this workspace; write to the manager instead", a.message));
+                    }
+                    choice.check_answer(&a.selected, &text)?;
+                    (q.intent.clone(), q.workspace.clone(), Some(by.to_string()), None)
+                } else if intent.is_empty() {
                     let w = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == workspace);
-                    (workspace, w.and_then(|w| w.manager.clone()), w)
+                    (intent, workspace, w.and_then(|w| w.manager.clone()), w)
                 } else {
                     let i = self.intent(&intent)?;
                     let label = self.intent_workspace(&intent).map(|w| &w.group.label).or(i.workspace.as_ref().map(|g| &g.label)).cloned().unwrap_or_default();
-                    (label, self.manager_of(&intent).map(str::to_string), None)
+                    let manager = self.manager_of(&intent).map(str::to_string);
+                    (intent, label, manager, None)
                 };
                 let Some(manager) = manager else {
                     return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
@@ -195,7 +278,7 @@ impl State {
                     return no(format!("the manager {} is on a blind task: write once it is delivered", self.name_of(&manager).unwrap_or(&manager)));
                 }
                 self.picked(&intent, target, &unit, task, &context)?;
-                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context, to: vec![] }
+                MessageSent { id: format!("m{}", self.messages.len() + 1), intent, workspace, manager, text, unit, task, context, to: vec![], answer }
             }
             MessageDelivery { id, manager, delivery } => {
                 if *who != Principal::Service {
@@ -224,7 +307,7 @@ impl State {
                 }
                 ManagerTold { unit, task, text }
             }
-            MessageReplied { message, text } => {
+            MessageReplied { message, text, choice } => {
                 let m = self.message(&message)?;
                 // To every manager: each it went to, for its own workspace.
                 if !m.to.is_empty() && !m.to.iter().any(|r| r.manager == actor) {
@@ -237,9 +320,16 @@ impl State {
                 if blank(&text) {
                     return no("a reply needs its text");
                 }
-                MessageReplied { message, text }
+                if let Some(c) = &choice {
+                    // An answer is routed to one workspace's conversation: ask there (`say`).
+                    if !m.to.is_empty() {
+                        return no("a reply to a message to every manager asks nothing to choose; ask in your own workspace: `workriver say --text \"...\" --option ...`");
+                    }
+                    c.check()?;
+                }
+                MessageReplied { message, text, choice }
             }
-            MessageSaid { text, .. } => {
+            MessageSaid { text, choice, .. } => {
                 if user {
                     return no("the user writes to a manager in workriver's page (Manager)");
                 }
@@ -249,7 +339,10 @@ impl State {
                 if blank(&text) {
                     return no("say what: --text \"...\"");
                 }
-                MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.group.label.clone(), text }
+                if let Some(c) = &choice {
+                    c.check()?;
+                }
+                MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.group.label.clone(), text, choice }
             }
             MessagesRead { workspace, at } => {
                 // Empty: the conversation with every manager.
@@ -276,22 +369,40 @@ impl State {
                     None => self.agents.push(seen),
                 }
             }
-            MessageSent { id, intent, workspace, manager, text, unit, task, context, to } => self.messages.push(Message {
-                id: id.clone(),
-                intent: intent.clone(),
-                workspace: workspace.clone(),
-                manager: manager.clone(),
-                text: text.clone(),
-                unit: unit.clone(),
-                task: *task,
-                context: context.clone(),
-                to: to.clone(),
-                at: at.clone(),
-                delivery: None,
-                replies: vec![],
-                by_manager: false,
-            }),
-            MessageSaid { id, intent, workspace, text } => self.messages.push(Message {
+            MessageSent { id, intent, workspace, manager, text, unit, task, context, to, answer } => {
+                if let Some(a) = answer {
+                    let answered = Some(Answered { by: id.clone(), selected: a.selected.clone() });
+                    if let Some(m) = self.messages.iter_mut().find(|m| m.id == a.message) {
+                        match a.reply {
+                            0 => m.answered = answered,
+                            k => {
+                                if let Some(r) = m.replies.get_mut(k as usize - 1) {
+                                    r.answered = answered;
+                                }
+                            }
+                        }
+                    }
+                }
+                self.messages.push(Message {
+                    id: id.clone(),
+                    intent: intent.clone(),
+                    workspace: workspace.clone(),
+                    manager: manager.clone(),
+                    text: text.clone(),
+                    unit: unit.clone(),
+                    task: *task,
+                    context: context.clone(),
+                    to: to.clone(),
+                    at: at.clone(),
+                    delivery: None,
+                    replies: vec![],
+                    by_manager: false,
+                    choice: None,
+                    answered: None,
+                    answer: answer.clone(),
+                })
+            }
+            MessageSaid { id, intent, workspace, text, choice } => self.messages.push(Message {
                 id: id.clone(),
                 intent: intent.clone(),
                 workspace: workspace.clone(),
@@ -305,6 +416,9 @@ impl State {
                 delivery: None,
                 replies: vec![],
                 by_manager: true,
+                choice: choice.clone(),
+                answered: None,
+                answer: None,
             }),
             MessagesRead { workspace, at: upto } => {
                 let r = self.read.entry(workspace.clone()).or_default();
@@ -320,9 +434,9 @@ impl State {
                     }
                 }
             }
-            MessageReplied { message, text } => {
+            MessageReplied { message, text, choice } => {
                 if let Some(m) = self.messages.iter_mut().find(|m| &m.id == message) {
-                    m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone() });
+                    m.replies.push(Reply { by: e.actor.clone(), text: text.clone(), at: at.clone(), choice: choice.clone(), answered: None });
                 }
             }
             // Only told: the record is the event itself.

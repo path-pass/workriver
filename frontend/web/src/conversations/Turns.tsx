@@ -6,7 +6,10 @@ import { ms } from '@/planning/select'
 import { contentLang, useT } from '@/i18n'
 import { focusAgent } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { AskContext, Copy, ManagerMessage, Thread, Turn } from './types'
+import type { Answer, AskContext, Asked, Copy, ManagerMessage, Thread, Turn } from './types'
+import { ChoiceSurface, Chose } from '@/content/choice/Choice'
+import { needsNote, type Choice } from '@/content/choice/surface'
+import { Input } from '@/ui/primitives/input'
 import { Who } from '@/agents/Mark'
 import { Prose } from '@/content/Prose'
 import { ChipName } from '@/content/Chips'
@@ -274,21 +277,62 @@ function Picked({ m }: { m: ManagerMessage }) {
   )
 }
 
-export function MessageView({ m }: { m: ManagerMessage }) {
+/**
+ * A manager's question with options, under its words: answered, the option picked; open, the
+ * options to pick from (a note where the option asks one); else shown, not to be answered.
+ */
+function Question({ q, onAnswer }: { q: Asked; onAnswer: (selected: string, note: string) => void }) {
   const { t } = useT()
+  const [picked, setPicked] = useState<string>()
+  const [note, setNote] = useState('')
+  const [missing, setMissing] = useState(false)
+  if (!q.choice) return null
+  const choice = q.choice
+  if (q.answered) return <div className="mt-2">{q.answered.selected.map(v => <Chose key={v} choice={choice} value={v} />)}</div>
+  if (!q.open)
+    return (
+      <div className="mt-2">
+        <ChoiceSurface choice={choice} disabled />
+        <p className="mt-1.5 text-xs text-ink-2">{t('choice.closed')}</p>
+      </div>
+    )
+  const needed = !!picked && needsNote(choice, picked)
+  const answer = () => {
+    if (!picked || (needed && !note.trim())) return setMissing(true)
+    onAnswer(picked, note.trim())
+  }
+  return (
+    <div className="mt-2">
+      <ChoiceSurface choice={choice} picked={picked} onPick={v => { setPicked(v); setMissing(false) }} onAnswer={answer}>
+        <Input
+          value={note} onChange={e => { setNote(e.target.value); setMissing(false) }}
+          placeholder={t(needed ? 'choice.noteNeeded' : 'choice.note')} aria-label={t(needed ? 'choice.noteNeeded' : 'choice.note')}
+          aria-required={needed || undefined} aria-invalid={(missing && needed) || undefined} className="h-8 text-sm md:text-sm"
+        />
+        {missing && <p className="text-xs text-del" role="alert">{t('choice.needNote')}</p>}
+      </ChoiceSurface>
+    </div>
+  )
+}
+
+/** `onAnswer`: the user answers a manager's question; `asked`: the options a message of the user's answered. */
+export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswer: (a: Answer, note: string) => void; asked: (a: Answer) => Choice | undefined }) {
+  const { t } = useT()
+  const answer = (reply: number) => (selected: string, note: string) => m.id && onAnswer({ message: m.id, ...(reply && { reply }), selected: [selected] }, note)
   // To every manager: each copy's replies, in the order they came, labelled by its workspace.
   const copies = m.to ?? []
   const replies = copies.length
     ? copies.flatMap(c => c.replies.map(r => ({ ...r, place: <Place c={c} /> }))).sort((a, b) => ms(a.at) - ms(b.at))
-    : m.replies.map(r => ({ ...r, place: null }))
+    : m.replies.map((r, k) => ({ ...r, place: null, k: k + 1 }))
   return (
     <>
       {/* One the manager started: its words alone, nothing of the user's above them. */}
       {m.byManager
-        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /></Theirs>
+        ? <Theirs who={<Named name={m.manager} manager />} at={m.at}><Prose text={m.text} fold={false} /><Question q={m} onAnswer={answer(0)} /></Theirs>
         : (
           <Mine who={t('ask.you')} at={m.at}>
-            <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>
+            {m.answer?.selected.map(v => <Chose key={v} choice={asked(m.answer!)} value={v} />)}
+            {m.text && <p className="whitespace-pre-line wrap-anywhere" lang={contentLang(m.text)}>{m.text}</p>}
             <Picked m={m} />
             {copies.length
               ? <ul className="mt-1 flex flex-col" aria-label={t('talk.copies')}>{copies.map((c, k) => <li key={k}><Step m={c} place={<Place c={c} />} /></li>)}</ul>
@@ -298,6 +342,8 @@ export function MessageView({ m }: { m: ManagerMessage }) {
       {replies.map((r, j) => (
         <Theirs key={j} who={<>{<Named name={r.by} manager />}{r.place && <span className="min-w-0 truncate">{r.place}</span>}</>} at={r.at}>
           <Prose text={r.text} fold={false} />
+          {/* A reply to every manager asks nothing to choose (the service refuses one). */}
+          {'k' in r && <Question q={r} onAnswer={answer(r.k)} />}
         </Theirs>
       ))}
     </>

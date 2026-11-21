@@ -54,11 +54,23 @@ run in a terminal).
 Something only the user may decide (a merge, a deploy, the goal) still goes through a decide
 gate (`ask-user`); say in the reply that it waits there.
 
-**Refusals:** "message m3 went to … only that manager replies to it" - it was sent to
-another manager (an earlier one of this workspace); the user can write again. "message m3
-went to every manager; only the managers it went to reply to it" - it went to the managers
-running when it was sent, and you were not one of them. "no message m3" - check the id in
-the message.
+**A question with options**, nothing waiting on it ("which of these do you mean?"): give
+them as options on the reply (or on `say`), one `--option ID=LABEL` each, `--require-note ID`
+where the answer needs a reason; the page shows radio buttons under it:
+
+    workriver reply m3 --text "Which paging?" --option 'cursor=By cursor' --option 'page=By page number'
+
+The answer is a message of the user's, typed to you like any: "[workriver] The user answered
+your question m3 … : option `cursor`", the option's words and the user's note quoted. Reply
+if there is something to say; it starts nothing by itself. A question asked by an earlier
+manager of the workspace can no longer be answered; the page says so.
+
+**Refusals:** "a choice is stored as workriver's A2UI 1.0 subset; give it with --option" and
+the option rules of `ask-user`. "message m3 went to … only that manager replies to it" - it
+was sent to another manager (an earlier one of this workspace); the user can write again.
+"message m3 went to every manager; only the managers it went to reply to it" - it went to the
+managers running when it was sent, and you were not one of them. "no message m3" - check the
+id in the message.
 
 ## A message to every manager
 
@@ -73,6 +85,8 @@ worker, `closing-workers`), never for another workspace, and reply with what you
 do there: `workriver reply m3 --text "chat: paused u2; worktrees of u1 removed."`. The page
 shows the message once, each manager's reply under it, labelled by its workspace. It points
 at nothing of an intent; it may carry the user's files, by their paths, as any message.
+A reply to it gives no options ("a reply to a message to every manager asks nothing to
+choose"): ask in your own workspace's conversation with `workriver say --option ...`.
 
 ## Telling the user something unasked
 

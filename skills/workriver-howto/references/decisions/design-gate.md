@@ -13,6 +13,10 @@ it, so the user is not asked to confirm what the review is about to change
 (`architecture-review`). A design that does not set the shape skips the review: the gate
 `--after 1`, the build after the gate.
 
+The design's gate is a plain decide gate: the choices the design leaves go in its `--text`,
+and the user confirms with done, saying which in the note. `--option` there is refused (an
+answer to options would confirm nothing; `ask-user`).
+
 The designer delivers the design as its note (`workriver task deliver u1#1 --note "..."`).
 The user discusses it in the browser and confirms at the gate. Every task after it in the
 unit reads that note and its files in `workriver task show` ("Designed and found before

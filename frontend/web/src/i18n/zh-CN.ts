@@ -519,6 +519,7 @@ export const zhCN: OneForm<typeof en> = {
     deploy: '手动部署',
     test: '手动试用',
     decide: '确认方案',
+    choice: '选择题',
     result: '结果',
     done: '做完了',
     problem: '有问题',
@@ -528,8 +529,19 @@ export const zhCN: OneForm<typeof en> = {
     where: '出处：文件路径，用逗号或换行分开',
     addFinding: '再加一个问题',
     removeFinding: '删掉这个问题',
+    answer: '回答',
     needFinding: '有问题时至少要写一个问题，说清哪里不对。',
     submit: '提交'
+  },
+  choice: {
+    pick: '选项',
+    answer: '回答',
+    withNote: '要写原因',
+    chose: '选了：{{label}}',
+    note: '备注（可不填）',
+    noteNeeded: '原因（选这一项要写）',
+    needNote: '选这一项要写明原因。',
+    closed: '这是本工作区之前的管理者问的，这里已经不能回答。请直接写给管理者。'
   },
   attach: {
     add: '添加图片',
