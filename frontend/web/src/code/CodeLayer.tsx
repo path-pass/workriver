@@ -309,13 +309,17 @@ function WholeFile({ unit, sel, path, also, onUnit, onPick, onBack, ...picking }
   const { t } = useT()
   const delta = shownDelta(unit, sel, path)
   const touched = delta?.touched ?? []
-  const before = delta?.before ?? null, after = delta?.after ?? null, status = delta?.status ?? 'M'
   // Every line of the file, or only the changes with a few lines around each (remembered).
   const [folded, setFolded] = useState(() => recall(FOLDED) === '1')
   const fold = (on: boolean) => { setFolded(on); remember(FOLDED, on ? '1' : '0') }
-  const change = useMemo(
-    () => ({ path, status, ...changeOf(before, after, folded ? 3 : Number.MAX_SAFE_INTEGER) }) as Change,
-    [path, status, before, after, folded],
+  // One diff, or one per part where other commits touched the file between the pick's.
+  const parts = delta?.parts
+  const changes = useMemo(
+    () => (parts ?? []).map(p => ({
+      path, status: parts!.length === 1 ? delta!.status : p.before === null ? 'A' : p.after === null ? 'D' : 'M',
+      ...changeOf(p.before, p.after, folded ? 3 : Number.MAX_SAFE_INTEGER),
+    }) as Change),
+    [path, parts, delta, folded],
   )
   // Which pieces of work the shown change comes from; a commit that names none, by its hash.
   const from = [...new Map(touched.map(k => {
@@ -326,7 +330,7 @@ function WholeFile({ unit, sel, path, also, onUnit, onPick, onBack, ...picking }
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
         <Button variant="ghost" size="xs" className="-ml-2 rounded-sm" onClick={onBack}><Icon name="back" className="size-3.5" />{t('file.back')}</Button>
-        {touched.length > 0 && (
+        {delta && (
           <Button variant="ghost" size="xs" className="rounded-sm" aria-pressed={folded} onClick={() => fold(!folded)}>
             <Icon name={folded ? 'unfold' : 'foldLines'} className="size-3.5" />{folded ? t('file.whole') : t('file.onlyChanges')}
           </Button>
@@ -339,9 +343,16 @@ function WholeFile({ unit, sel, path, also, onUnit, onPick, onBack, ...picking }
         ))}
       </div>
       {also.length > 0 && <AlsoLinks also={also} onUnit={onUnit} />}
-      {touched.length
-        ? <Pickable path={path} {...picking}><FileDiff file={change} whole /></Pickable>
-        : <p className="text-sm text-ink-2">{t('file.unchanged', { path })}</p>}
+      {!delta || !parts
+        ? <p className="text-sm text-ink-2">{t('file.unchanged', { path })}</p>
+        : parts.length === 1
+          ? <Pickable path={path} {...picking}><FileDiff file={changes[0]} whole /></Pickable>
+          : parts.map((p, i) => (
+              <div key={p.upTo} className="flex flex-col gap-1">
+                <div className="font-mono text-xs text-ink-2">{p.touched.map(k => unit.commits[k].id).join(' · ')}</div>
+                <Pickable path={path} commit={p.upTo} {...picking}><FileDiff file={changes[i]} whole /></Pickable>
+              </div>
+            ))}
     </div>
   )
 }
@@ -395,8 +406,9 @@ export function CodeLayer({ root, unit, sel, onlyChanged, onOnlyChanged, onPick,
   const ft = useMemo(() => filterTree(fileTree(root, unit, sel, onlyChanged, narrow), q), [root, unit, sel, onlyChanged, narrow, q])
   // ponytail: 30 files per commit in the list; the tree still reaches the rest, one file at a time.
   const limit = 30
-  const blocks = unit.commits.flatMap((c, k) => (sel.commits.length && !sel.commits.includes(k) ? [] : c.files.length ? [{ c, k, files: c.files }] : []))
-  const waiting = sel.node && !sel.commits.length
+  // A merge that brought the base in is listed with no change: none of its files is its own.
+  const blocks = sel.onlyMerges ? [] : unit.commits.flatMap((c, k) => (c.merge || (sel.commits.length && !sel.commits.includes(k)) ? [] : c.files.length ? [{ c, k, files: c.files }] : []))
+  const waiting = sel.node && !sel.commits.length && !sel.onlyMerges
 
   // A commit asked for from the panel: back to the list, and that commit in view.
   useEffect(() => {

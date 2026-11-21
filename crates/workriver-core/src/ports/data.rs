@@ -48,11 +48,14 @@ impl Deref for Recorded {
 }
 
 /// A request that was recorded: the event as it was committed (ids and numbers given by the
-/// rules, the time, who it was recorded as), and the revision it made.
+/// rules, the time, who it was recorded as), the revision it made, and everything recorded
+/// at that revision: what follows the record is worked out on the state it made, not on
+/// whatever was recorded after it by the time it is read again.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Committed {
     pub event: Event,
     pub revision: Revision,
+    pub recorded: Recorded,
 }
 
 /// A stretch of the history, oldest first, and where to read on from.
@@ -82,6 +85,15 @@ pub struct Delivered {
     pub finding: Option<String>,
     pub chore: Option<String>,
     pub delivery: Delivery,
+}
+
+/// A question of a discussion neither answered nor failed: with the agent of its task (its
+/// session; none when the task has none). Which machine that agent runs on is the runtime's
+/// to say, not the unit's.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Discussed {
+    pub question: Question,
+    pub agent: Option<String>,
 }
 
 /// Why the store did not do what was asked. The texts are shown as they are.
@@ -128,6 +140,13 @@ pub trait WorkStore: Send {
     fn history(&self, after: Revision, limit: usize) -> Result<History, DataError>;
 
     fn status(&self) -> Result<DataStatus, DataError>;
+
+    /// The events that make intent `id`'s versions, oldest first: its `intent.created`,
+    /// `intent.updated` and `intent.merged` into it, and the same of every intent merged into
+    /// it, and into those (`intent_versions` and `intent_text` rebuild its history from them).
+    /// None for an intent that is not recorded. Not to be answered to a reader as they are:
+    /// whoever asks is checked first (`App::view`).
+    fn intent_events(&self, id: &str) -> Result<Vec<Event>, DataError>;
 
     // ---- one record, by its id ----
 
@@ -243,9 +262,17 @@ pub trait WorkStore: Send {
         Ok(out)
     }
 
-    /// The ids of the questions neither answered nor failed.
+    /// The ids of the questions neither answered nor failed, but those of a discussion (their
+    /// answerer is the task's own agent, not one a run of the service started).
     fn open_questions(&self) -> Result<Vec<String>, DataError> {
-        Ok(self.recorded()?.questions.iter().filter(|q| q.open()).map(|q| q.id.clone()).collect())
+        Ok(self.recorded()?.questions.iter().filter(|q| q.open() && !q.discuss).map(|q| q.id.clone()).collect())
+    }
+
+    /// The questions of a discussion neither answered nor failed.
+    fn open_discussions(&self) -> Result<Vec<Discussed>, DataError> {
+        let s = self.recorded()?;
+        let of = |q: &Question| Discussed { question: q.clone(), agent: s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone()) };
+        Ok(s.questions.iter().filter(|q| q.open() && q.discuss).map(of).collect())
     }
 
     /// The ids of the user's messages to a manager that got no delivery yet.

@@ -14,12 +14,13 @@ pub(super) fn code(state: &core::State, cache: &mut Cache, live: Option<&[Runtim
         hide_unit(&mut shown);
     }
     let commits = shown.commits.into_iter().filter(|c| c.live || !have.contains(&c.id.as_str())).map(|c| CommitCode { id: c.id, files: c.files }).collect();
-    Some(Code { code: shown.code, commits })
+    Some(Code { code: shown.code, commits, net: shown.net })
 }
 
-/// A unit's commits and its uncommitted files, read from git where its repository is.
 /// A unit's commits now (oldest first), by the rules of `scan::branch`, and whether git
-/// shows it merged. What the branch held is kept, for when it is merged or gone.
+/// shows it merged. What the branch held is kept, for when it is merged or gone, and where
+/// it met its base (`Seen::base_at`): while it is not merged, where they meet now; merged,
+/// where they met while it was not, else as the base stood before the merge that took it.
 pub(in crate::server) fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<scan::Named>, bool)> {
     let place = format!("{}|{}|{}", u.repo, u.branch, u.base);
     let seen = cache.stored.seen.get(&u.id).filter(|s| s.place == place).cloned();
@@ -31,7 +32,18 @@ pub(in crate::server) fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: 
         scan::Found::Fresh => (vec![], fork, false),
         scan::Found::Gone => return Ok((seen.map(|s| s.commits).unwrap_or_default(), false)),
     };
-    let now = Seen { place, fork, commits: commits.clone() };
+    let repo = Path::new(&u.repo);
+    let base_at = match commits.last() {
+        Some(tip) if !merged => scan::merge_base(at, repo, &u.base, &tip.hash)?,
+        // Merged: as the base stood before the merge that took it, from the history; only
+        // when that cannot tell (a fast-forward), as last seen at this same tip.
+        Some(tip) => match scan::base_before(at, repo, &u.base, &tip.hash)? {
+            Some(b) => Some(b),
+            None => seen.as_ref().and_then(|s| recorded_at(s, &tip.hash)),
+        },
+        None => seen.as_ref().and_then(|s| s.base_at.clone()),
+    };
+    let now = Seen { place, fork, commits: commits.clone(), base_at };
     if seen.as_ref() != Some(&now) {
         cache.stored.seen.insert(u.id.clone(), now);
         cache.dirty = true;
@@ -39,12 +51,13 @@ pub(in crate::server) fn unit_commits(at: &scan::Runner, u: &core::Unit, cache: 
     Ok((commits, merged))
 }
 
-/// Which commits are the unit's: as worked out last time while its branch, its base and
-/// what is recorded about it stay as they were (one `git for-each-ref` per repository tells);
-/// else worked out again (`unit_commits`).
-fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<String>, bool)> {
+/// Which commits are the unit's, whether git shows it merged, and where it meets its base:
+/// as worked out last time while its branch, its base and what is recorded about it stay as
+/// they were (one `git for-each-ref` per repository tells); else worked out again
+/// (`unit_commits`).
+fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Result<(Vec<String>, bool, Option<String>)> {
     if u.merged.is_some() && !u.merged_commits.is_empty() {
-        return Ok((u.merged_commits.clone(), false));
+        return Ok((u.merged_commits.clone(), false, met_before(at, u, cache)));
     }
     let fork = cache.stored.seen.get(&u.id).and_then(|s| s.fork.clone()).unwrap_or_default();
     let key = cache.refs(at, u).and_then(|refs| {
@@ -52,12 +65,16 @@ fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Re
         let tip = scan::tip(&refs, &u.branch).unwrap_or("-").to_string();
         // The base's remote copies too: a fetch can merge the branch upstream (`scan::since`).
         let mut up: Vec<&str> = refs.iter().filter(|(r, _)| r.strip_prefix("refs/remotes/").and_then(|r| r.split_once('/')).is_some_and(|(_, b)| b == u.base)).map(|(_, h)| h.as_str()).collect();
+        // And the upstream the base has now, whatever its name, and where it points: unset or
+        // set to another, what the branch is measured against changes, no hash moved.
+        let tracked = scan::upstream(&refs, &u.base).map(|r| format!("{r}={}", refs.get(r).map_or("-", String::as_str)));
+        up.extend(tracked.as_deref());
         up.sort();
         Some(format!("{}|{}={tip}|{}={base}|{fork}|{}|{}|{}|{}", u.repo, u.branch, u.base, u.earlier.len(), u.links.len(), u.merged_commits.len(), up.join(",")))
     });
-    if let Some(m) = cache.stored.memo.get(&u.id).filter(|m| key.as_ref() == Some(&m.key)) {
+    if let Some(m) = cache.stored.memo.get(&u.id).filter(|m| m.based && key.as_ref() == Some(&m.key)) {
         cache.reused += 1;
-        return Ok((m.hashes.clone(), m.merged));
+        return Ok((m.hashes.clone(), m.merged, m.base_at.clone()));
     }
     cache.recomputed += 1;
     let (list, merged) = unit_commits(at, u, cache)?;
@@ -72,11 +89,62 @@ fn unit_hashes(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> scan::Re
     for c in list {
         cache.stored.meta.insert(c.hash.clone(), c);
     }
+    let base_at = cache.stored.seen.get(&u.id).and_then(|s| s.base_at.clone());
     if let Some(key) = key {
-        cache.stored.memo.insert(u.id.clone(), Memo { key, hashes: hashes.clone(), merged });
+        cache.stored.memo.insert(u.id.clone(), Memo { key, hashes: hashes.clone(), merged, base_at: base_at.clone(), based: true });
     }
     cache.dirty = true;
-    Ok((hashes, merged))
+    Ok((hashes, merged, base_at))
+}
+
+/// Where a unit recorded merged met its base before it merged: as the base (or its upstream)
+/// stood before the merge that took its last commit, from the history (worked out once per
+/// run); only when that cannot tell (a fast-forward), as last seen at that same tip. None
+/// when neither tells.
+fn met_before(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) -> Option<String> {
+    let tip = u.merged_commits.last()?.clone();
+    if let Some((_, b)) = cache.before.get(&u.id).filter(|(t, _)| *t == tip) {
+        return b.clone();
+    }
+    let found = match scan::base_before(at, Path::new(&u.repo), &u.base, &tip) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("unit {}: {e}", u.id);
+            return None;
+        }
+    };
+    let b = found.or_else(|| cache.stored.seen.get(&u.id).and_then(|s| recorded_at(s, &tip)));
+    cache.before.insert(u.id.clone(), (tip, b.clone()));
+    b
+}
+
+/// Where the branch met its base as last seen, if it was seen at `tip`: a record of an
+/// earlier tip misses what came after (a last sync of the base, say).
+fn recorded_at(seen: &Seen, tip: &str) -> Option<String> {
+    seen.commits.last().filter(|c| c.hash == tip).and(seen.base_at.clone())
+}
+
+/// A unit's net change against its base, as `git diff from..tip` names it: from where it
+/// meets its base (`base_at`), else from where its commits start; its texts read once per
+/// pair (`Cache::nets`), none in a bare build. None without commits, or when git cannot
+/// tell (the page then counts its commits together).
+fn net(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, hashes: &[String], base_at: Option<&str>) -> Option<NetRead> {
+    let tip = hashes.last()?;
+    let from = base_at.map(str::to_string).unwrap_or_else(|| format!("{}^", hashes[0]));
+    let id = format!("{from}..{tip}");
+    if !cache.nets.contains_key(&id) {
+        match scan::diff(at, Path::new(&u.repo), &from, tip) {
+            Ok(files) => {
+                cache.nets.insert(id.clone(), files);
+            }
+            Err(e) => {
+                tracing::warn!("unit {}: {e}", u.id);
+                return None;
+            }
+        }
+    }
+    let files = &cache.nets[&id];
+    Some((id, if cache.bare { files.iter().map(scan::FileChange::bare).collect() } else { files.clone() }))
 }
 
 /// The background read of repositories on other machines: each unit's commits and work,
@@ -94,19 +162,20 @@ pub(in crate::server) fn refresh_remote(state: &core::State, cache: &mut Cache) 
             let known = cache.stored.memo.get(&u.id).map(|m| m.hashes.clone()).unwrap_or_else(|| u.merged_commits.clone());
             let mut shared = cache.shared.lock().unwrap();
             if !shared.units.contains_key(&u.id) && !known.is_empty() {
-                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, files: vec![] })).collect();
+                let commits = known.iter().filter_map(|h| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, parents: vec![], base_merge: false, files: vec![] })).collect();
                 let patch = cache.stored.patch.iter().filter(|(h, _)| known.contains(h)).map(|(h, p)| (h.clone(), p.clone())).collect();
-                shared.units.insert(u.id.clone(), (commits, vec![], patch));
+                shared.units.insert(u.id.clone(), (commits, vec![], patch, None));
                 changed = true;
             }
             continue;
         };
-        let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
+        let (c, f, n) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
         let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
         let mut shared = cache.shared.lock().unwrap();
-        let same = shared.units.get(&u.id).is_some_and(|(oc, of, op)| oc.iter().map(|x| &x.hash).eq(c.iter().map(|x| &x.hash)) && *of == f && *op == p);
+        // The same commits, read against the same base: which merges brought it in and the net change's ends too.
+        let same = shared.units.get(&u.id).is_some_and(|(oc, of, op, on)| oc.iter().map(|x| (&x.hash, x.base_merge)).eq(c.iter().map(|x| (&x.hash, x.base_merge))) && *of == f && *op == p && on.as_ref().map(|x| &x.0) == n.as_ref().map(|x| &x.0));
         if !same {
-            shared.units.insert(u.id.clone(), (c, f, p));
+            shared.units.insert(u.id.clone(), (c, f, p, n));
             changed = true;
         }
     }
@@ -123,12 +192,12 @@ pub(in crate::server) fn refresh_remote(state: &core::State, cache: &mut Cache) 
 /// A unit's commits and its uncommitted work, read from git where its repository is: the
 /// commits' texts only for those not read before, all in one go; none in a light build.
 /// `ready`: the unit is ready to merge, so whether it looks squash-merged is looked at too.
-pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) -> (Vec<scan::Commit>, Vec<scan::FileChange>) {
+pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, ready: bool) -> (Vec<scan::Commit>, Vec<scan::FileChange>, Option<NetRead>) {
     let started = std::time::Instant::now();
     let calls = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed);
     let repo = Path::new(&u.repo);
-    let hashes = match unit_hashes(at, u, cache) {
-        Ok((hashes, merged)) => {
+    let (hashes, base_at) = match unit_hashes(at, u, cache) {
+        Ok((hashes, merged, base_at)) => {
             // A spike is never merged: neither recorded so nor looked at for a squash.
             if merged && u.kind.merges() && u.merged.is_none() && !cache.merged_now.iter().any(|(x, _)| x == &u.id) {
                 cache.merged_now.push((u.id.clone(), hashes.clone()));
@@ -136,15 +205,15 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
             if ready && u.kind.merges() && !merged && u.merged.is_none() {
                 squash_check(at, u, cache);
             }
-            hashes
+            (hashes, base_at)
         }
         Err(e) => {
             tracing::warn!("unit {}: {e}", u.id);
-            vec![]
+            (vec![], None)
         }
     };
     // Light: what each commit says is enough. Else their texts, those not read yet at once.
-    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, files: vec![] });
+    let named = |h: &String, cache: &Cache| cache.stored.meta.get(h).map(|n| scan::Commit { id: h.chars().take(9).collect(), hash: h.clone(), subject: n.subject.clone(), date: n.date.clone(), author: n.author.clone(), task: n.task.clone(), merge: false, parents: vec![], base_merge: false, files: vec![] });
     let missing: Vec<String> = hashes.iter().filter(|h| !cache.commits.contains_key(*h) && (!cache.light || !cache.stored.meta.contains_key(*h))).cloned().collect();
     if !missing.is_empty() {
         match scan::commits(at, repo, &missing) {
@@ -161,7 +230,25 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
     // Light and bare: which files, not their texts (they are what makes a snapshot many
     // megabytes); not even copied.
     let bare = cache.light || cache.bare;
-    let commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).map(|c| if bare { bare_commit(c) } else { c.clone() }).or_else(|| named(h, cache))).collect();
+    let mut commits: Vec<scan::Commit> = hashes.iter().filter_map(|h| cache.commits.get(h).map(|c| if bare { bare_commit(c) } else { c.clone() }).or_else(|| named(h, cache))).collect();
+    // Which merges brought the base in: against where the branch meets it now, so on the
+    // copies shown, never on the commits kept.
+    if let Some(b) = base_at.as_deref() {
+        for c in commits.iter_mut().filter(|c| c.merge) {
+            let key = format!("{}|{b}", c.hash);
+            c.base_merge = match cache.brings.get(&key) {
+                Some(x) => *x,
+                None => match scan::brings_base(at, repo, c, b) {
+                    Ok(x) => *cache.brings.entry(key).or_insert(x),
+                    Err(e) => {
+                        tracing::warn!("unit {}: {e}", u.id);
+                        false
+                    }
+                },
+            };
+        }
+    }
+    let net = if cache.light { None } else { net(at, u, cache, &hashes, base_at.as_deref()) };
     // Links whose commit is not here any more, and commits of a branch the unit left (a
     // rebase gave them other hashes): told by patch ids, worked out once each (none: "").
     let stale = u.links.iter().any(|l| !commits.iter().any(|c| c.hash == l.hash));
@@ -195,7 +282,7 @@ pub(super) fn read_unit(at: &scan::Runner, u: &core::Unit, cache: &mut Cache, re
     };
     let ms = started.elapsed().as_millis() as u64;
     tracing::info!(target: "perf", kind = "unit", unit = %u.id, machine = u.machine.as_deref().unwrap_or("local"), ms, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, commits = commits.len(), light = cache.light, slow = ms >= crate::common::config::defaults::SLOW_MS);
-    (commits, files)
+    (commits, files, net)
 }
 
 /// Whether a ready unit git does not show merged looks squash-merged (`scan::squashed`):
@@ -230,17 +317,19 @@ fn squash_check(at: &scan::Runner, u: &core::Unit, cache: &mut Cache) {
 }
 
 pub(super) fn bare_commit(c: &scan::Commit) -> scan::Commit {
-    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), merge: c.merge, files: c.files.iter().map(scan::FileChange::bare).collect() }
+    scan::Commit { id: c.id.clone(), hash: c.hash.clone(), subject: c.subject.clone(), date: c.date.clone(), author: c.author.clone(), task: c.task.clone(), merge: c.merge, parents: c.parents.clone(), base_merge: c.base_merge, files: c.files.iter().map(scan::FileChange::bare).collect() }
 }
 
-/// Which texts a unit's commits and uncommitted files have: its commits' hashes (a commit
-/// never changes) and its uncommitted texts and git entries (a mode changed alone changes it).
-pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange]) -> String {
+/// Which texts a unit's commits, net change and uncommitted files have: its commits' hashes
+/// (a commit never changes), its net change's ends (they change with the base, the commits
+/// the same) and its uncommitted texts and git entries (a mode changed alone changes it).
+pub(super) fn code_of(commits: &[scan::Commit], files: &[scan::FileChange], net: Option<&NetRead>) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for c in commits {
         c.hash.hash(&mut h);
     }
+    net.map(|n| &n.0).hash(&mut h);
     for f in files {
         (&f.path, &f.status, &f.before, &f.after, &f.before_mode, &f.before_id, &f.after_mode, &f.after_id).hash(&mut h);
     }

@@ -12,7 +12,7 @@ import { attach, detach, MAX_ATTACHMENT } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
-import type { Talk } from './types'
+import type { Talk, Answer } from './types'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
@@ -35,9 +35,10 @@ const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 let tookFocus = 0
 
 /** The box fixed at the bottom: chips and actions above it, a line under it. Enter sends, Shift+Enter breaks the line.
- *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button. */
-function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFiles }: {
-  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
+ *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button.
+ *  (A task's discussion uses it too, under its Questions block.) */
+export function Box({ label, placeholder, focusAt, above, below, disabled, closed, onSend, onFiles }: {
+  label: string; placeholder: string; focusAt: number; above?: ReactNode; below: ReactNode; disabled?: boolean; closed?: boolean; onSend: (text: string) => void; onFiles?: (files: File[]) => void
 }) {
   const { t } = useT()
   const [text, setText] = useState('')
@@ -77,6 +78,7 @@ function Box({ label, placeholder, focusAt, above, below, disabled, onSend, onFi
           value={text}
           aria-label={label}
           placeholder={placeholder}
+          disabled={closed}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
@@ -157,6 +159,11 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   const label = (chosen && labels.includes(chosen) ? chosen : null) ?? own ?? labels[0] ?? null
   const manager = running.find(s => s.group!.label === label)
   const list = talk.messages.filter(m => m.workspace === label)
+  // The options a message of the user's answered: the manager's message, or one of its replies.
+  const askedOf = (a: Answer) => {
+    const q = list.find(m => m.id === a.message)
+    return a.reply ? q?.replies[a.reply - 1]?.choice : q?.choice
+  }
 
   // What is picked, as chips; only to the unit's own workspace's manager. A chip left out
   // stays out until the selection changes.
@@ -221,7 +228,10 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
               <Log size={size} label={t('talk.label')}>
                 <ol className="chat">
                   {list.map((m, k) => (
-                    <MessageView key={m.id ?? `local-${k}`} m={m} />
+                    <MessageView
+                      key={m.id ?? `local-${k}`} m={m} asked={askedOf}
+                      onAnswer={(a, note) => label && talk.onAnswer(label, a, note, manager?.agent ?? '')}
+                    />
                   ))}
                 </ol>
               </Log>

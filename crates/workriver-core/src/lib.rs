@@ -3,6 +3,7 @@
 //! agent runtime (what keeps the work implements `ports::WorkStore`: workriver-data, the
 //! SQLite store; the data directory is the outer crate's common/home.rs).
 pub mod access;
+pub mod choices;
 pub mod conversations;
 pub mod planning;
 pub mod ports;
@@ -11,6 +12,7 @@ pub mod runtime;
 pub mod work;
 
 pub use access::*;
+pub use choices::*;
 pub use conversations::*;
 pub use planning::*;
 pub use records::*;

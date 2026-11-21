@@ -3,6 +3,7 @@
 // select.ts.
 import type { Workspace } from './types'
 import { withLines } from '@/code/load'
+import type { FileChange } from '@/code/types'
 import { fileTree, shownDelta } from '@/code/files'
 import { repoOf } from '@/code/select'
 import { unitsOf, noCode } from '@/planning/select'
@@ -14,13 +15,23 @@ import { setRuntime } from '@/i18n'
 export const MOCK = import.meta.env.VITE_MOCK === '1'
 
 /**
+ * With the sample, what the page changed (an intent edited), as a function of the workspace
+ * shown: the sample is shown again with it, as the service would after the change.
+ */
+export const MOCK_CHANGED = 'workriver:mock-changed'
+
+/**
  * The service's snapshot names each file with its line counts and leaves its texts out (a
  * unit's come with `loadCode`); the sample carries them inline. The runtime's name it gives
  * goes to the texts that name the runtime.
  */
 function prepare(ws: Workspace): Workspace {
   setRuntime(ws.runtime)
-  for (const unit of unitsOf(ws)) for (const c of unit.commits) c.files = c.files.map(f => (f.before === undefined && f.after === undefined ? { ...f, before: null, after: null, lines: [] } : withLines(f)))
+  const textless = (f: FileChange) => (f.before === undefined && f.after === undefined ? { ...f, before: null, after: null, lines: [] } : withLines(f))
+  for (const unit of unitsOf(ws)) {
+    for (const c of unit.commits) c.files = c.files.map(textless)
+    if (unit.net) unit.net.files = unit.net.files.map(textless)
+  }
   if (import.meta.env.DEV && MOCK) checkCounts(ws)
   return ws
 }
@@ -33,7 +44,7 @@ async function loadWorkspace(): Promise<Workspace> {
   const ws = demo as unknown as Workspace
   // The sample names no git entries: each file is a regular one, its text standing for its id.
   const entry = (text?: string | null) => (text == null ? ['000000', '0'.repeat(40)] : ['100644', text])
-  for (const c of unitsOf(ws).flatMap(u => u.commits)) for (const f of c.files) if (f.beforeMode === undefined) [[f.beforeMode, f.beforeId], [f.afterMode, f.afterId]] = [entry(f.before), entry(f.after)]
+  for (const c of unitsOf(ws).flatMap(u => [...u.commits, ...(u.net ? [u.net] : [])])) for (const f of c.files) if (f.beforeMode === undefined) [[f.beforeMode, f.beforeId], [f.afterMode, f.afterId]] = [entry(f.before), entry(f.after)]
   // Sample pictures are files next to the data.
   const pictures: Record<string, string> = { 'lockscreen.svg': lockscreen }
   for (const n of unitsOf(ws).flatMap(u => u.tasks)) for (const a of [...(n.output.attachments ?? []), ...(n.output.findings ?? []).flatMap(f => f.attachments ?? [])]) a.url = pictures[a.url] ?? a.url
@@ -50,6 +61,7 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
   // At most one read at a time: changes told meanwhile make one more read after it. A hidden
   // tab reads nothing; it reads once when shown again, if anything changed meanwhile.
   let reading = false, again = false, missed = true
+  let shown: Workspace | null = null
   const get = () => {
     if (stopped) return
     if (document.hidden) { missed = true; return }
@@ -57,20 +69,24 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
     reading = true
     missed = again = false
     loadWorkspace()
-      .then(ws => { if (!stopped) onData(ws) }, () => { if (!stopped) onDown() })
+      .then(ws => { if (!stopped) onData((shown = ws)) }, () => { if (!stopped) onDown() })
       .finally(() => { reading = false; if (again) get() })
   }
-  const shown = () => { if (!document.hidden && missed) get() }
-  document.addEventListener('visibilitychange', shown)
+  const visible = () => { if (!document.hidden && missed) get() }
+  document.addEventListener('visibilitychange', visible)
   get()
-  if (MOCK) return () => { stopped = true; document.removeEventListener('visibilitychange', shown) }
+  if (MOCK) {
+    const changed = (e: Event) => { if (shown && !stopped) onData((shown = (e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown))) }
+    window.addEventListener(MOCK_CHANGED, changed)
+    return () => { stopped = true; document.removeEventListener('visibilitychange', visible); window.removeEventListener(MOCK_CHANGED, changed) }
+  }
   const events = changes()
   events.addEventListener('changed', get)
   // The stream reconnects by itself; what changed while it was down is fetched then.
   let opened = false
   events.onopen = () => { if (opened) get(); opened = true }
   events.onerror = () => { if (!stopped) onDown() }
-  return () => { stopped = true; events.close(); document.removeEventListener('visibilitychange', shown) }
+  return () => { stopped = true; events.close(); document.removeEventListener('visibilitychange', visible) }
 }
 
 /**

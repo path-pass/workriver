@@ -20,10 +20,18 @@ pub struct Commit {
     pub author: String,
     /// The value of a `Task:` trailer, e.g. "u1#3".
     pub task: Option<String>,
-    /// More than one parent (the base merged into the branch, say); its files are against
-    /// its first parent, so they are not work of its own.
+    /// More than one parent. Its files are against its first parent, as every commit's are:
+    /// what it brought into the branch, whatever the base is.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub merge: bool,
+    /// Its parents (none for a root commit): whether a merge brought the base in depends on
+    /// the base, so it is asked of these (`brings_base`), never kept with the commit.
+    #[serde(skip)]
+    pub parents: Vec<String>,
+    /// Whether it brought the unit's base into the branch: worked out by the service against
+    /// where the branch meets its base now (`brings_base`); scan leaves it false.
+    #[serde(skip)]
+    pub base_merge: bool,
     pub files: Vec<FileChange>,
 }
 
@@ -90,7 +98,8 @@ pub fn commits(at: &Runner, repo: &Path, hashes: &[String]) -> Result<Vec<Commit
                 let (b, a) = (if f.status == "A" { None } else { Some(text(&f.ids[0]).unwrap_or_default()) }, if f.status == "D" { None } else { Some(text(&f.ids[1]).unwrap_or_default()) });
                 change(f, b, a)
             });
-            Commit { id, hash, subject, date, author, task, merge: parents.split(' ').count() > 1, files: files.collect() }
+            let parents: Vec<String> = parents.split(' ').filter(|p| !p.is_empty()).map(str::to_string).collect();
+            Commit { id, hash, subject, date, author, task, merge: parents.len() > 1, parents, base_merge: false, files: files.collect() }
         })
         .collect())
 }
@@ -115,5 +124,89 @@ pub fn commit(at: &Runner, repo: &Path, hash: &str) -> Result<Commit> {
             files.push(c);
         }
     }
-    Ok(Commit { id: id.into(), hash: hash.into(), subject: subject.into(), date: date.into(), author: author.into(), task, merge: parents.split(' ').count() > 1, files })
+    let parents: Vec<String> = parents.split(' ').filter(|p| !p.is_empty()).map(str::to_string).collect();
+    Ok(Commit { id: id.into(), hash: hash.into(), subject: subject.into(), date: date.into(), author: author.into(), task, merge: parents.len() > 1, parents, base_merge: false, files })
+}
+
+/// What changed from commit `from` to commit `to`, as `git diff --no-renames from to` names
+/// it, with each file's texts (binary and very large files left out). Two git calls.
+pub fn diff(at: &Runner, repo: &Path, from: &str, to: &str) -> Result<Vec<FileChange>> {
+    let raws = raw(&String::from_utf8_lossy(&run(at, repo, &["diff-tree", "-r", "--no-renames", "-z", "--raw", "--no-abbrev", from, to], &[])?));
+    let specs: Vec<String> = raws.iter().flat_map(|f| f.ids.clone()).filter(|b| b != NULL).collect();
+    let texts: HashMap<String, Option<Vec<u8>>> = specs.iter().cloned().zip(blobs(at, repo, &specs)?).collect();
+    let text = |b: &str| if b == NULL { None } else { texts.get(b).cloned().flatten() };
+    Ok(raws
+        .into_iter()
+        .filter_map(|f| {
+            let (b, a) = (if f.status == "A" { None } else { Some(text(&f.ids[0]).unwrap_or_default()) }, if f.status == "D" { None } else { Some(text(&f.ids[1]).unwrap_or_default()) });
+            change(f, b, a)
+        })
+        .collect())
+}
+
+/// Where two commits meet: their merge base, None when they never do.
+fn meet(at: &Runner, repo: &Path, revs: &[&str]) -> Result<Option<String>> {
+    let out = run(at, repo, &[&["merge-base"][..], revs].concat(), &[1])?;
+    Ok(Some(String::from_utf8_lossy(&out).trim().to_string()).filter(|h| !h.is_empty()))
+}
+
+/// Where `tip` and its base meet, as `git diff base...tip` takes it: the newest commit of
+/// `tip`'s history that the base has, or its upstream when it has one (a branch made from a
+/// newer `origin/main` than the local `main`, as `since` counts it). None when they never do.
+pub fn merge_base(at: &Runner, repo: &Path, base: &str, tip: &str) -> Result<Option<String>> {
+    let upstream = format!("{base}@{{upstream}}");
+    let mut revs = vec![tip, base];
+    if has_rev(at, repo, &upstream) {
+        revs.push(&upstream);
+    }
+    // With three, git's merge base of the first and a merge of the other two.
+    meet(at, repo, &revs)
+}
+
+/// Where a branch merged into its base met it just before: the merge base of `tip` and the
+/// base as it stood before the merge that took `tip` in (the first parent of the oldest commit
+/// on its first-parent line that has `tip`), on the base or, when that has not got it (or by
+/// a fast-forward), on its upstream: the one that took it. None when neither has `tip`, or
+/// got it by a fast-forward: their line is the branch's then, and where they stood before is
+/// not in the history.
+pub fn base_before(at: &Runner, repo: &Path, base: &str, tip: &str) -> Result<Option<String>> {
+    let upstream = format!("{base}@{{upstream}}");
+    for into in [base, upstream.as_str()] {
+        if has_rev(at, repo, into)
+            && let Some(met) = before_on(at, repo, into, tip)?
+        {
+            return Ok(Some(met));
+        }
+    }
+    Ok(None)
+}
+
+/// `base_before` on one ref.
+fn before_on(at: &Runner, repo: &Path, into: &str, tip: &str) -> Result<Option<String>> {
+    let range = format!("{tip}..{into}");
+    let line = git(at, repo, &["rev-list", "--first-parent", "--ancestry-path", "--reverse", &range, "--"])?;
+    let Some(took) = line.lines().next() else { return Ok(None) };
+    let before = format!("{took}^1");
+    if !has_rev(at, repo, &before) || is_ancestor(at, repo, tip, &before)? {
+        return Ok(None);
+    }
+    meet(at, repo, &[tip, &before])
+}
+
+/// Whether commit `a` is in `b`'s history (or is `b`).
+pub fn is_ancestor(at: &Runner, repo: &Path, a: &str, b: &str) -> Result<bool> {
+    let full = resolve(at, repo, a)?;
+    Ok(meet(at, repo, &[a, b])?.is_some_and(|m| m == full))
+}
+
+/// Whether merge `c` brought the base in: a parent other than its first is in the history of
+/// `base_at`, where the branch and its base meet. A merge of any other branch did not, even
+/// one made from a newer base: what it brought is the branch's.
+pub fn brings_base(at: &Runner, repo: &Path, c: &Commit, base_at: &str) -> Result<bool> {
+    for p in c.parents.iter().skip(1) {
+        if is_ancestor(at, repo, p, base_at)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

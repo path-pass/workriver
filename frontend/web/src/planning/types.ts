@@ -1,7 +1,7 @@
 // Projects, their intents and the units that serve them.
 import type { Thread } from '@/conversations/types'
 import type { RuntimeState } from '@/agents/types'
-import type { Commit } from '@/code/types'
+import type { Commit, Net } from '@/code/types'
 import type { Chore, Finding, Task } from '@/work/types'
 
 /** A folder holding one or more repositories; or a repository outside every registered one. */
@@ -73,6 +73,36 @@ export interface Intent {
   manager?: string;
   /** The manager's state in the runtime, or 'gone' when it is not running. */
   managerState?: RuntimeState | 'gone';
+  /** Its last version (1 when never changed; absent in the sample: 1): an edit's base. */
+  version?: number;
+  /** Who made that version (an agent's name; null: the user) and when. */
+  edited?: { at: string; by: string | null };
+}
+
+/** One version of an intent's title, goal and note, and what its change set. */
+export interface IntentVersion {
+  n: number;
+  at: string;
+  /** "user", or the agent's session. */
+  by: string;
+  /** The name the agent goes by. */
+  name?: string | null;
+  how: 'created' | 'edited' | 'merged';
+  title?: string;
+  goal?: string;
+  /** The whole note, when the version set it. */
+  note?: string;
+  /** The paragraph it added to the note. */
+  added?: string;
+  /** The intents merged into it. */
+  merged?: string[];
+}
+
+/** An intent's text as one version left it. */
+export interface IntentText {
+  title: string;
+  goal: string;
+  note: string;
 }
 
 export type UnitStatus = 'active' | 'planned' | 'merged';
@@ -109,6 +139,8 @@ export interface Unit {
   tasks: Task[];
   /** Oldest first. The last one may be uncommitted work (`live`). */
   commits: Commit[];
+  /** The branch's net change against its base (the code tree with nothing picked); absent where the service could not tell. */
+  net?: Net;
   /** Which texts its files have: their texts are read again (`loadCode`) only when it changes. */
   code?: string;
   /** Ready, and every change of it is already in its base (or the base's upstream): it looks

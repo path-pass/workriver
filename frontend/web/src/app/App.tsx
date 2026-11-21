@@ -14,24 +14,24 @@ import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
 import { Manager } from '@/conversations/Manager'
-import type { Talk, AskContext, ManagerMessage } from '@/conversations/types'
+import type { Talk, AskContext, ManagerMessage, Turn } from '@/conversations/types'
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
 import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
-import { selectionOf } from '@/work/select'
+import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
 import { alsoChanged, blame, shownDelta } from '@/code/files'
-import { NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
-import type { Pick, Task } from '@/work/types'
+import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspace/edits'
+import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
-import { choreDone, notify, decideFinding, detach, MANAGER, mergeIntents, mockReply, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
+import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
-import type { Intent, Unit } from '@/planning/types'
+import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
 import type { Workspace } from '@/workspace/types'
 import { useCode } from '@/code/useCode'
@@ -250,7 +250,7 @@ export default function App() {
   const askAbout = (l: Lines) => {
     const unit = coded, sel = codeSel
     if (!unit || !sel) return
-    const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.touched.at(-1)
+    const upTo = l.commit ?? shownDelta(unit, sel, l.path)?.upTo
     const owners = upTo === undefined ? [] : [...new Set(blame(unit, l.path, upTo).slice(l.from - 1, l.to).filter(k => k >= 0))].sort((a, b) => b - a)
     const tasks = [...new Set(owners.map(k => unit.tasks.find(n => n.output.commits?.includes(unit.commits[k].id))).filter((n): n is Task => !!n))]
     // No task wrote these lines: the unit's chip, with the lines.
@@ -311,18 +311,52 @@ export default function App() {
       .catch(e => setTold(all => [...all, { ...m, attachments: undefined, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
       .finally(() => files.forEach(detach))
   }
+  // An answer to a manager's question: shown answered at once; a message of the user's.
+  const onAnswer: Talk['onAnswer'] = (workspace, answer, note, manager) => {
+    const m: ManagerMessage = { workspace, manager, text: note, answer, at: new Date().toISOString(), step: MOCK ? 'delivered' : 'sending', replies: [] }
+    const key = `${answer.message}:${answer.reply ?? 0}`
+    if (MOCK) {
+      setEdits(e => ({ ...e, answers: { ...e.answers, [key]: answer.selected } }))
+      return setTold(all => [...all, m])
+    }
+    // Refused or lost: the question is open again, and the attempt shows as not delivered.
+    answerOptimistically(key, answer.selected, () => answerManager(workspace, answer, note), setEdits)
+      .catch(e => setTold(all => [...all, { ...m, step: 'not-delivered', reasonCode: 'runtime-error', reason: String(e) }]))
+  }
   // Read: the manager's words up to `at` are no longer new, here at once (the sample keeps it
   // only in memory), and in every browser of the user's once the service has it.
   const onRead = (workspace: string, at: string) => {
     setEdits(e => ({ ...e, read: { ...e.read, [workspace]: at } }))
     readMessages(workspace, at)
   }
+  // A question in a task's discussion: to the service, which gives it to the task's agent; the
+  // sample answers it itself a moment later, as unread.
+  const onDiscuss: Talk['onDiscuss'] = async (unitId, task, agent, text, conclude, files) => {
+    if (!MOCK) {
+      try { await discuss(unitId, Number(task), text, conclude, files) } finally { files.forEach(detach) }
+      return
+    }
+    const key = `${unitId}:${task}`
+    // As the service: nothing to conclude before anything was discussed.
+    const n = ws?.intents.flatMap(i => i.units).find(u => u.id === unitId)?.tasks.find(x => x.id === task)
+    if (conclude && !n?.threads?.some(th => th.discuss)) throw new Error(`nothing to conclude: ${unitId}#${task} has not been discussed yet`)
+    const turn: Turn = { question: text, context: [], attachments: files, answer: null, step: 'starting', at: new Date().toISOString(), conclude }
+    setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: [...(e.discussed[key] ?? []), turn] } }))
+    setTimeout(() => {
+      const answered: Turn = { ...turn, answer: mockAnswer(text, conclude), answerBy: agent, answeredAt: new Date().toISOString(), step: undefined, unread: true }
+      setEdits(e => ({ ...e, discussed: { ...e.discussed, [key]: (e.discussed[key] ?? []).map(x => (x === turn ? answered : x)) } }))
+    }, 1200)
+  }
+  const onDiscussRead: Talk['onDiscussRead'] = (unitId, task, at) => {
+    setEdits(e => ({ ...e, discussRead: { ...e.discussRead, [`${unitId}:${task}`]: at } }))
+    readDiscussion(unitId, Number(task), at)
+  }
   // The manager conversation needs no unit on screen (Needs you opens it from anywhere).
   const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines,
         intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
-        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell,
+        intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead, onAnswer,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
         focusAt: askReq.at,
@@ -356,9 +390,8 @@ export default function App() {
   // ---- what the user puts in, and where it is on its way ----
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({})
   const [message, setMessage] = useState<Record<string, string>>({})
+  const [retry, setRetry] = useState<Record<string, GateResult>>({})
   const cancels = useRef<Record<string, () => void>>({})
-  // Who waits for the answer: the agent of the work the gate or review follows.
-  const ownerOf = (u: Unit, n: Task) => u.tasks.find(x => x.id === n.inputs.find(i => i.primary)?.from)?.agent ?? null
   const track = (key: string) => (d: Delivery) => setDelivery(all => ({ ...all, [key]: d }))
   const sent = (key: string, out: { message: string; cancel: () => void }) => {
     cancels.current[key] = out.cancel
@@ -369,7 +402,16 @@ export default function App() {
     submitGate: (u, g, r) => {
       const key = gateKey(u, g)
       setEdits(e => ({ ...e, gates: { ...e.gates, [key]: r } }))
-      sent(key, submitGate(u, g, r, ownerOf(u, g) ?? MANAGER, track(key)))
+      setRetry(all => drop(all, key))
+      // Not taken by the service: the gate is as it was, its form again with what was sent
+      // (while the service still has it waiting), the line saying so.
+      const step = track(key)
+      sent(key, submitGate(u, g, r, waitsOn(u, g) ?? MANAGER, d => {
+        step(d)
+        if (d.step !== 'failed') return
+        setEdits(e => ({ ...e, gates: drop(e.gates, key) }))
+        setRetry(all => ({ ...all, [key]: r }))
+      }))
     },
     decide: (u, n, f, d, note) => {
       const key = findingKey(u, n, f)
@@ -391,6 +433,7 @@ export default function App() {
     merge: (into, from, title) => mergeIntents(into, from, title).then(() => setEdits(e => ({ ...e, merges: [...e.merges, { into, from, title }] }))),
     delivery,
     message,
+    retry,
   }
 
   return (

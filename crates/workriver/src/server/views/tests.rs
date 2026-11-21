@@ -35,7 +35,7 @@ fn the_code_token_follows_uncommitted_entries() {
         after_mode: "100644".into(),
         after_id: "0".repeat(40),
     };
-    let token = |f: scan::FileChange| code_of(&[], &[f]);
+    let token = |f: scan::FileChange| code_of(&[], &[f], None);
     let was = token(file.clone());
     for changed in [
         scan::FileChange { after_mode: "100755".into(), ..file.clone() },
@@ -67,7 +67,7 @@ fn a_units_changed_files_are_its_net_change() {
         after_mode: after.0.into(),
         after_id: after.1.into(),
     };
-    let commit = |files: Vec<scan::FileChange>| scan::Commit { id: "c".into(), hash: "c".into(), subject: String::new(), date: String::new(), author: String::new(), task: None, merge: false, files };
+    let commit = |files: Vec<scan::FileChange>| scan::Commit { id: "c".into(), hash: "c".into(), subject: String::new(), date: String::new(), author: String::new(), task: None, merge: false, parents: vec![], base_merge: false, files };
     let commits = [
         commit(vec![
             f("kept.txt", ("100644", one), ("100644", two), (None, None)),
@@ -87,4 +87,197 @@ fn a_units_changed_files_are_its_net_change() {
     ];
     let got: Vec<String> = changed_paths(&commits, &live).into_iter().collect();
     assert_eq!(got, ["kept.txt", "mode.sh", "new.txt", "undone.txt"]);
+}
+
+/// A unit `u1` working on `feature` from `main` in `repo`.
+fn unit_in(repo: &std::path::Path) -> core::Unit {
+    core::Unit {
+        id: "u1".into(), intent: "i1".into(), title: String::new(), purpose: String::new(),
+        repo: repo.to_str().unwrap().into(), branch: "feature".into(), base: "main".into(),
+        at: String::new(), merged: None, machine: None, merged_commits: vec![], tasks: vec![],
+        earlier: vec![], links: vec![], done: None, reopened: None, kind: core::UnitKind::Code,
+    }
+}
+
+/// git in `repo`, failing the test when it does.
+fn git_in(repo: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git").arg("-C").arg(repo).args(["-c", "user.name=Test", "-c", "user.email=test@example.invalid"]).args(args).output().unwrap();
+    assert!(output.status.success(), "{args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// feature (one commit) with a side branch from main merged into it.
+fn side_merged(repo: &std::path::Path) {
+    let add = |name: &str, trailer: &str| {
+        std::fs::write(repo.join(name), format!("{name}\n")).unwrap();
+        git_in(repo, &["add", name]);
+        git_in(repo, &["commit", "-qm", name, "-m", trailer]);
+    };
+    git_in(repo, &["init", "-qb", "main"]);
+    add("root.txt", "Base");
+    git_in(repo, &["switch", "-qc", "feature"]);
+    add("feature.txt", "Task: u1#1");
+    git_in(repo, &["switch", "-qc", "side", "main"]);
+    add("side.txt", "Side");
+    git_in(repo, &["switch", "-q", "feature"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Bring in side", "-m", "Task: u1#2", "side"]);
+}
+
+/// Each commit's hash, whether it brought the base in, and its files; the net change's files.
+type Shown = (Vec<(String, bool, Vec<String>)>, Vec<String>);
+fn seen(read: &(Vec<scan::Commit>, Vec<scan::FileChange>, Option<NetRead>)) -> Shown {
+    let commits = read.0.iter().map(|c| (c.hash.clone(), c.base_merge, c.files.iter().map(|f| f.path.clone()).collect())).collect();
+    let mut net: Vec<String> = read.2.iter().flat_map(|(_, files)| files.iter().map(|f| f.path.clone())).collect();
+    net.sort();
+    (commits, net)
+}
+
+/// The same refs read with a warm cache and a cold one give the same code, and the base
+/// moving on (the branch's commits the same) changes the code's token: what a commit holds
+/// is read against its first parent, which no base changes; whether a merge brought the
+/// base in and the net change are worked out against where the branch meets its base now.
+#[test]
+fn the_code_follows_the_base_warm_or_cold() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path();
+    side_merged(repo);
+    let u = unit_in(repo);
+    let mut cache = Cache::default();
+    let first = super::code::read_unit(&scan::Runner::Local, &u, &mut cache, false);
+    assert_eq!(seen(&first).1, ["feature.txt", "side.txt"], "side's work is the branch's");
+    assert!(!first.0.last().unwrap().base_merge);
+    git_in(repo, &["switch", "-q", "main"]);
+    git_in(repo, &["merge", "-q", "--ff-only", "side"]);
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "main...feature"]), "feature.txt\n");
+    cache.refs.clear();
+    cache.worktrees.clear();
+    let warm = super::code::read_unit(&scan::Runner::Local, &u, &mut cache, false);
+    let cold = super::code::read_unit(&scan::Runner::Local, &u, &mut Cache::default(), false);
+    assert_eq!(seen(&warm), seen(&cold), "warm and cold reads of the same refs agree");
+    assert_eq!(seen(&warm).1, ["feature.txt"], "the net change is git diff main...feature");
+    assert!(warm.0.last().unwrap().base_merge, "side is the base now");
+    assert_eq!(seen(&warm).0.last().unwrap().2, ["side.txt"], "the merge's own files, against its first parent, as before");
+    let token = |r: &(Vec<scan::Commit>, Vec<scan::FileChange>, Option<NetRead>)| code_of(&r.0, &r.1, r.2.as_ref());
+    assert_eq!(token(&warm), token(&cold));
+    assert_ne!(token(&first), token(&warm), "the page reads the code again");
+}
+
+/// A merged unit, read again from nothing (a restart), keeps what its commits were while
+/// it worked: a side branch it merged stays its own work, though the base has it now, found
+/// merged in git or recorded so.
+#[test]
+fn a_merged_unit_keeps_its_history_read_cold() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path();
+    side_merged(repo);
+    let mut u = unit_in(repo);
+    let active = super::code::read_unit(&scan::Runner::Local, &u, &mut Cache::default(), false);
+    assert!(!active.0.last().unwrap().base_merge);
+    git_in(repo, &["switch", "-q", "main"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Merge the unit", "feature"]);
+    let found = super::code::read_unit(&scan::Runner::Local, &u, &mut Cache::default(), false);
+    assert_eq!(seen(&found), seen(&active), "found merged in git");
+    u.merged = Some("2026-11-21T00:00:00Z".into());
+    u.merged_commits = active.0.iter().map(|c| c.hash.clone()).collect();
+    let recorded = super::code::read_unit(&scan::Runner::Local, &u, &mut Cache::default(), false);
+    assert_eq!(seen(&recorded), seen(&active), "recorded merged");
+}
+
+/// A file named `path` holding its name, committed with `trailer`.
+fn add_file(repo: &std::path::Path, path: &str, trailer: &str) {
+    std::fs::write(repo.join(path), format!("{path}\n")).unwrap();
+    git_in(repo, &["add", path]);
+    git_in(repo, &["commit", "-qm", path, "-m", trailer]);
+}
+
+/// `u` read again, as a new snapshot would (refs and work trees read anew).
+fn read_again(repo: &std::path::Path, u: &core::Unit, cache: &mut Cache) -> (Vec<scan::Commit>, Vec<scan::FileChange>, Option<NetRead>) {
+    cache.refs.clear();
+    cache.worktrees.clear();
+    assert_eq!(repo.to_str().unwrap(), &u.repo);
+    super::code::read_unit(&scan::Runner::Local, u, cache, false)
+}
+
+/// The base merged in and the unit merged into it with no read in between: the merged
+/// unit reads from where it met its base just before it merged, warm or cold, found merged
+/// in git or recorded so; the last sync is a base merge, never the unit's work.
+#[test]
+fn a_final_sync_unseen_before_the_merge_is_not_the_units() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    side_merged(repo);
+    let mut u = unit_in(repo);
+    let mut cache = Cache::default();
+    let old = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&old).1, ["feature.txt", "side.txt"]);
+
+    git_in(repo, &["switch", "-q", "main"]);
+    add_file(repo, "base-only.txt", "Base");
+    git_in(repo, &["switch", "-q", "feature"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Final sync", "-m", "Task: u1#3", "main"]);
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "main...feature"]), "feature.txt\nside.txt\n");
+    git_in(repo, &["switch", "-q", "main"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Integrate final tip", "feature"]);
+
+    let cold = read_again(repo, &u, &mut Cache::default());
+    let warm = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&cold).1, ["feature.txt", "side.txt"]);
+    assert!(cold.0.last().unwrap().base_merge);
+    assert_eq!(seen(&warm).0.last().unwrap().2, ["base-only.txt"]);
+    u.merged = Some("2026-11-21T00:00:00Z".into());
+    u.merged_commits = cold.0.iter().map(|c| c.hash.clone()).collect();
+    let recorded = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&recorded), seen(&cold));
+}
+
+/// The base's upstream changed (here: unset), no branch moved: a warm read follows, as a
+/// cold one and git do.
+#[test]
+fn a_change_of_the_bases_upstream_reads_the_code_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    side_merged(repo);
+    git_in(repo, &["branch", "-q", "--set-upstream-to=side", "main"]);
+    let u = unit_in(repo);
+    let mut cache = Cache::default();
+    let initial = read_again(repo, &u, &mut cache);
+    assert_eq!(seen(&initial).1, ["feature.txt"]);
+    assert!(initial.0.last().unwrap().base_merge);
+
+    git_in(repo, &["branch", "-q", "--unset-upstream", "main"]);
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "main...feature"]), "feature.txt\nside.txt\n");
+    let warm = read_again(repo, &u, &mut cache);
+    let cold = read_again(repo, &u, &mut Cache::default());
+    assert_eq!(seen(&cold).1, ["feature.txt", "side.txt"]);
+    assert!(!cold.0.last().unwrap().base_merge);
+    assert_eq!(seen(&warm), seen(&cold));
+}
+
+/// A unit merged only into the base's upstream (the local base behind): it reads as before
+/// the merge there, found merged in git or recorded so.
+#[test]
+fn a_unit_merged_into_the_upstream_only_reads_as_before() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path();
+    side_merged(repo);
+    let mut u = unit_in(repo);
+    git_in(repo, &["switch", "-qc", "up", "main"]);
+    git_in(repo, &["branch", "-q", "--set-upstream-to=up", "main"]);
+    add_file(repo, "base-only.txt", "Upstream work");
+    git_in(repo, &["switch", "-q", "feature"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Sync upstream", "-m", "Task: u1#3", "up"]);
+    let expected = read_again(repo, &u, &mut Cache::default());
+    assert_eq!(git_in(repo, &["diff", "--no-renames", "--name-only", "up...feature"]), "feature.txt\nside.txt\n");
+    assert_eq!(seen(&expected).1, ["feature.txt", "side.txt"]);
+    assert!(expected.0.last().unwrap().base_merge);
+    git_in(repo, &["switch", "-q", "up"]);
+    git_in(repo, &["merge", "-q", "--no-ff", "-m", "Integrate feature only in upstream", "feature"]);
+    let mut cold = Cache::default();
+    let found = read_again(repo, &u, &mut cold);
+    assert_eq!(cold.merged_now.len(), 1);
+    u.merged = Some("2026-11-21T00:00:00Z".into());
+    u.merged_commits = expected.0.iter().map(|c| c.hash.clone()).collect();
+    let recorded = read_again(repo, &u, &mut Cache::default());
+    assert_eq!(seen(&found), seen(&expected), "found merged in git");
+    assert_eq!(seen(&recorded), seen(&expected), "recorded merged");
 }

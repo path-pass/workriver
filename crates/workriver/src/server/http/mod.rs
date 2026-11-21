@@ -13,7 +13,7 @@ use workriver_core as core;
 use workriver_core::ports::DataError;
 
 use crate::server::access::auth;
-use crate::server::views::{events, metrics, metrics_history, stall_get, state, status, unit_code, workspace};
+use crate::server::views::{events, intent_history, metrics, metrics_history, stall_get, state, status, unit_code, workspace};
 use crate::server::access::*;
 use crate::server::app::*;
 
@@ -50,6 +50,7 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/settings/stall", get(stall_get).post(stall_set))
         .route("/api/workspace", get(workspace))
         .route("/api/unit/{id}/code", get(unit_code))
+        .route("/api/intent/{id}/history", get(intent_history))
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
         .route("/api/status", get(status))
@@ -71,6 +72,8 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/ask", post(ask_why))
         .route("/api/message", post(message))
         .route("/api/messages/read", post(messages_read))
+        .route("/api/discuss", post(discuss))
+        .route("/api/discuss/read", post(discussion_read))
         .route("/api/attachments", post(attach).layer(DefaultBodyLimit::max(crate::common::wire::MAX_ATTACHMENT)))
         .route("/api/attachments/inbox", post(inbox))
         .route("/api/attachments/{id}", get(attachment))
@@ -102,7 +105,7 @@ async fn timing(req: Request, next: Next) -> Response {
 
 /// The routes of a followed machine's listener: only what an agent's CLI over there needs.
 /// An allow-list: who it is, recording as that agent, asking, attachments, reading the
-/// board, and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
+/// board and an intent's history (a manager may run there), and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
 /// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
 pub(super) fn machine_router(app: Shared, via: Via) -> Router {
     Router::new()
@@ -115,6 +118,7 @@ pub(super) fn machine_router(app: Shared, via: Via) -> Router {
         .route("/api/workspace", get(workspace))
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
+        .route("/api/intent/{id}/history", get(intent_history))
         .route("/api/status", get(status))
         // Its own load only (the handlers keep a machine's caller to that machine).
         .route("/api/metrics", get(metrics))

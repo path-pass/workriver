@@ -88,6 +88,41 @@ pub struct Intent {
     /// Intent-level work (research, design), numbered `i3#1`…
     #[serde(default)]
     pub tasks: Vec<Task>,
+    /// Its versions, as far as the rules and the board need them; its history is read from
+    /// its events (`intent_versions`). Never serialized: derived on replay, and the history
+    /// is not what every read of the state should carry.
+    #[serde(skip)]
+    pub edits: Edits,
+}
+
+/// Where an intent's text stands: its last version, who made it and when, and the version
+/// that last changed each of its title, goal and note. A version is `intent.created`, and
+/// each `intent.updated` that sets its title, goal or note (or adds to it), and each merge
+/// into it.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct Edits {
+    pub version: u32,
+    pub at: String,
+    /// Who made the last version: "user", or the agent's session.
+    pub by: String,
+    pub title: u32,
+    pub goal: u32,
+    pub note: u32,
+}
+
+impl Edits {
+    /// A new version, by `by` at `at`, changing what is flagged.
+    fn bump(&mut self, at: &str, by: &str, title: bool, goal: bool, note: bool) {
+        self.version += 1;
+        self.at = at.to_string();
+        self.by = by.to_string();
+        let n = self.version;
+        for (changed, field) in [(title, &mut self.title), (goal, &mut self.goal), (note, &mut self.note)] {
+            if changed {
+                *field = n;
+            }
+        }
+    }
 }
 
 /// What a merged intent said, as a block of its target's note: its title, goal, note and
@@ -139,6 +174,12 @@ impl State {
                 if !matches!(state, IntentState::Planned | IntentState::Active) {
                     return no("a new intent is planned (in the backlog) or active");
                 }
+                // Where an intent runs (a workspace's current intent, its project, the intent's
+                // manager) is set by a start the rules check, or by the user; an agent's intent
+                // starts in the roadmap. (Before 0.2 an intent was made in its runtime group.)
+                if !user && (runtime_ref.is_some() || state == IntentState::Active) {
+                    return no("an agent adds an intent to the roadmap, planned and in no workspace (`workriver backlog add`); it runs where it is started (`workriver intent start`)");
+                }
                 IntentCreated { id: format!("i{}", self.intents.len() + 1), title, goal, runtime_ref, project, state, note, external }
             }
             IntentStateChanged { intent, state, reason, workspace } => {
@@ -151,9 +192,48 @@ impl State {
                         if !user && manager != Some(actor) {
                             return no(format!("only the manager of workspace {} starts intents there; register with `workriver manager here` first", g.label));
                         }
+                        // A manager starts its workspace's project's intents only: else it would become
+                        // the manager of another project's intent (and make its workspace that
+                        // project's). The user may start any, anywhere.
+                        // Where its workspace's project is not known by the records, its start would
+                        // make it that project's: the user starts the first one, or sets it.
+                        let theirs = self.project_folder(i);
+                        // One of no known project (records from before projects) is the user's to start.
+                        if !user && theirs.is_empty() {
+                            return no(format!("{intent} has no project: ask the user to start it (in the roadmap, in a workspace of the project it belongs to)"));
+                        }
+                        if !user {
+                            let title = |p: &str| self.project_of(p).map_or(p.to_string(), |x| x.title.clone());
+                            match self.workspace_of(g).and_then(|w| self.workspace_project(w)) {
+                                Some(ours) if ours == theirs => {}
+                                Some(ours) => {
+                                    return no(format!(
+                                        "{intent} belongs to project {}; your workspace works on {}: ask the user to start it (in the roadmap, in a workspace of its project) or to set your workspace's project (Settings, or `workriver workspace project`)",
+                                        title(&theirs),
+                                        title(&ours)
+                                    ));
+                                }
+                                None => {
+                                    return no(format!(
+                                        "{intent} belongs to project {}; your workspace's project is not known yet: ask the user to start {intent} from the roadmap in your workspace, or to set your workspace's project (Settings, or `workriver workspace project`); then you start that project's intents yourself",
+                                        title(&theirs)
+                                    ));
+                                }
+                            }
+                        }
                     }
-                    (Active, Done) | (Active, Planned) => {}
+                    // Closing or shelving an intent is its manager's or the user's, as dropping it is:
+                    // who may edit an intent goes by its state.
+                    (Active, Done) | (Active, Planned) => {
+                        if !user && self.manager_of(&intent) != Some(actor) {
+                            return no(format!("only the user or the manager of intent {intent} marks it {}", name(&state)));
+                        }
+                    }
                     (Planned, Dropped) | (Active, Dropped) => {
+                        // In the roadmap it is the user's, whoever managed it when it ran.
+                        if !user && i.state == Planned {
+                            return no(format!("only the user drops planned intent {intent} (in the roadmap, or `workriver intent drop` from the user's terminal)"));
+                        }
                         if !user && self.manager_of(&intent) != Some(actor) {
                             return no(format!("only the user or the manager of intent {intent} drops it"));
                         }
@@ -186,6 +266,9 @@ impl State {
                 }
                 if title.as_deref().is_some_and(blank) {
                     return no("the new title is empty: give one, or leave --title out to keep the title");
+                }
+                if title.is_some() && !user {
+                    return no(format!("the title is the user's: merge without --title (it keeps {intent}'s); the user renames it on the intent's page"));
                 }
                 if from.is_empty() {
                     return no(format!("name the planned intents to merge into {intent}"));
@@ -226,14 +309,13 @@ impl State {
                 }
                 IntentLinked { intent, runtime_ref }
             }
-            IntentUpdated { intent, title, goal, findings, add_note } => {
-                self.intent(&intent)?;
-                if !user && self.manager_of(&intent) != Some(actor) {
-                    return no(format!("only the user or the manager of intent {intent} may change it"));
+            IntentUpdated { intent, title, goal, findings, add_note, note, base } => {
+                let i = self.intent(&intent)?;
+                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() && note.is_none() {
+                    return no("nothing to change: give a title, a goal, --note, --add-note or --findings");
                 }
-                // Who decides findings is the user's to say, never the one it is handed to.
-                if findings.is_some() && !user {
-                    return no("only the user says who decides an intent's findings (workriver intent set <intent> --findings …, or in the web UI)");
+                if note.is_some() && add_note.is_some() {
+                    return no("give --note or --add-note, not both: --note replaces the whole note");
                 }
                 if title.as_deref().is_some_and(blank) {
                     return no("an intent needs a title");
@@ -241,10 +323,12 @@ impl State {
                 if add_note.as_deref().is_some_and(blank) {
                     return no("the note to add is empty: --add-note \"...\"");
                 }
-                if title.is_none() && goal.is_none() && findings.is_none() && add_note.is_none() {
-                    return no("nothing to change: give a title, a goal, --add-note or --findings");
+                if !user {
+                    self.may_edit(actor, i, title.is_some() || goal.is_some(), findings.is_some(), note.is_some())?;
                 }
-                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()) }
+                self.unchanged_since(i, base, title.is_some(), goal.is_some(), note.is_some())?;
+                // The whole note as written: its indentation and blank lines are Markdown.
+                IntentUpdated { intent, title, goal, findings, add_note: add_note.map(|n| n.trim().to_string()), note, base }
             }
             other => unreachable!("{} is not one of an intent's kinds", name_of_kind(&other)),
         })
@@ -272,7 +356,11 @@ impl State {
                     findings: FindingsPolicy::default(),
                     tasks: vec![],
                     by: e.actor.clone(),
+                    edits: Edits::default(),
                 });
+                if let Some(i) = self.intents.last_mut() {
+                    i.edits.bump(at, &e.actor, true, true, true);
+                }
                 if *state == IntentState::Planned {
                     self.roadmap.push(id.clone());
                 }
@@ -346,10 +434,14 @@ impl State {
                     if let Some(t) = title {
                         i.title = t.clone();
                     }
+                    i.edits.bump(at, &e.actor, title.is_some(), false, true);
                 }
             }
-            IntentUpdated { intent, title, goal, findings, add_note } => {
+            IntentUpdated { intent, title, goal, findings, add_note, note, .. } => {
                 if let Some(i) = self.intents.iter_mut().find(|i| &i.id == intent) {
+                    if let Some(n) = note {
+                        i.note = n.clone();
+                    }
                     if let Some(n) = add_note {
                         let own = i.note.trim_end();
                         i.note = if own.is_empty() { n.clone() } else { format!("{own}\n\n{n}") };
@@ -362,6 +454,9 @@ impl State {
                     }
                     if let Some(f) = findings {
                         i.findings = *f;
+                    }
+                    if title.is_some() || goal.is_some() || note.is_some() || add_note.is_some() {
+                        i.edits.bump(at, &e.actor, title.is_some(), goal.is_some(), note.is_some() || add_note.is_some());
                     }
                 }
             }
@@ -378,5 +473,101 @@ impl State {
             }
             other => unreachable!("{} is not one of an intent's kinds", name_of_kind(other)),
         }
+    }
+}
+
+impl State {
+    /// Whether agent `actor` may make this change to intent `i` (the user may make any): title,
+    /// goal and findings are the user's; the note is its manager's while it is active; a
+    /// planned one takes additions from a manager of a workspace of its project; a done or
+    /// dropped one is the user's.
+    fn may_edit(&self, actor: &str, i: &Intent, title_or_goal: bool, findings: bool, replace: bool) -> Result<(), Rejected> {
+        let id = &i.id;
+        // Who decides findings is the user's to say, never the one it is handed to.
+        if findings {
+            return no("only the user says who decides an intent's findings (workriver intent set <intent> --findings …, or in the web UI)");
+        }
+        if title_or_goal {
+            return no(format!("the title and goal of {id} are the user's: ask the user to change them (on the intent's page); write what you know in its note"));
+        }
+        match i.state {
+            IntentState::Active if self.manager_of(id) == Some(actor) => Ok(()),
+            IntentState::Active => no(format!("only the user or the manager of intent {id} changes its note")),
+            IntentState::Planned => {
+                let mine: Vec<&Workspace> = self.workspaces.iter().filter(|w| w.manager.as_deref() == Some(actor)).collect();
+                if mine.is_empty() {
+                    return no(format!("{id} is planned: only the user, or a manager of a workspace of its project with --add-note, adds to its note"));
+                }
+                if replace {
+                    return no(format!("{id} is planned: a manager adds to its note (--add-note), nothing more; the rest is the user's"));
+                }
+                let theirs = self.project_folder(i);
+                let name = self.project_of(&theirs).map_or(theirs.clone(), |p| p.title.clone());
+                let known: Vec<String> = mine.iter().filter_map(|w| self.workspace_project(w)).collect();
+                if !theirs.is_empty() && known.contains(&theirs) {
+                    return Ok(());
+                }
+                if known.is_empty() || theirs.is_empty() {
+                    return no(format!("{id} belongs to project {name}; your workspace's project is not known: ask the user to set it (Settings, or `workriver workspace project`)"));
+                }
+                no(format!("{id} belongs to project {name}; no workspace you manage works on it, so its note is not yours to add to"))
+            }
+            IntentState::Done | IntentState::Dropped => no(format!("intent {id} is {}: only the user changes it now", name(&i.state))),
+        }
+    }
+
+    /// Refuses a replace made from version `base` when a field it sets changed after it.
+    fn unchanged_since(&self, i: &Intent, base: Option<u32>, title: bool, goal: bool, note: bool) -> Result<(), Rejected> {
+        let Some(base) = base else { return Ok(()) };
+        let id = &i.id;
+        let e = &i.edits;
+        if base > e.version || base == 0 {
+            return no(format!("{id} has no version {base}; it is at v{}", e.version));
+        }
+        for (set, changed, what) in [(title, e.title, "title"), (goal, e.goal, "goal"), (note, e.note, "note")] {
+            if set && changed > base {
+                let by = self.agents.iter().find(|a| a.session == e.by).map_or(e.by.as_str(), |a| a.name.as_str());
+                let by = if by == "user" { "the user" } else { by };
+                let n = e.version;
+                return no(format!("{id}'s {what} changed since v{base} (in v{changed}; it is at v{n}, last by {by} at {}); read it (`workriver intent history {id} --version {changed}`) and run again with `--base {n}`", e.at));
+            }
+        }
+        Ok(())
+    }
+
+    /// The project a workspace works on, from the records: what the user set, else the
+    /// project of its current intent, else the one project of the intents that ran in it
+    /// (none, or several: not known). Never what an agent could steer: a manager starts only
+    /// its workspace's project's intents, and none of a known project while this is not known.
+    pub fn workspace_project(&self, w: &Workspace) -> Option<String> {
+        if let Some(p) = &w.project {
+            return Some(p.clone());
+        }
+        let current = w.current.as_deref().and_then(|c| self.intents.iter().find(|i| i.id == c)).map(|i| self.project_folder(i)).filter(|p| !p.is_empty());
+        current.or_else(|| {
+            let ran: std::collections::BTreeSet<String> = self
+                .intents
+                .iter()
+                .filter(|i| i.workspace.as_ref().and_then(|g| self.workspace_of(g)).is_some_and(|x| x.group == w.group))
+                .map(|i| self.project_folder(i))
+                .filter(|p| !p.is_empty())
+                .collect();
+            (ran.len() == 1).then(|| ran.into_iter().next()).flatten()
+        })
+    }
+
+    /// The registered project whose folder holds `path`, the deepest one.
+    pub fn project_of(&self, path: &str) -> Option<&Project> {
+        self.projects.iter().filter(|p| std::path::Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
+    }
+
+    /// An intent's project folder: as recorded, else where its first unit's repository is;
+    /// the registered project holding it when there is one. Empty: not known.
+    pub fn project_folder(&self, i: &Intent) -> String {
+        let path = if i.project.is_empty() { self.units.iter().find(|u| u.intent == i.id).map(|u| u.repo.clone()).unwrap_or_default() } else { i.project.clone() };
+        if path.is_empty() {
+            return path;
+        }
+        self.project_of(&path).map(|p| p.path.clone()).unwrap_or(path)
     }
 }

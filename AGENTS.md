@@ -75,8 +75,11 @@ frontend/desktop/   desktop shell around the web build (not created yet)
 frontend/ios/       iOS shell around the web build (not created yet)
 crates/             Rust workspace, four crates:
   workriver-core/   records/ (Body, Event, State), planning/, work/, conversations/,
-                    access/ (authority, the blind view), runtime.rs (the runtime interface),
-                    ports/ (the data port: WorkStore, what the service asks of storage)
+                    choices/ (a question's options as recorded, a fixed A2UI v1.0 subset:
+                    a record format and its write rule, no UI: core draws nothing and holds
+                    no UI text), access/ (authority, the blind view), runtime.rs (the runtime
+                    interface), ports/ (the data port: WorkStore, what the service asks of
+                    storage)
   workriver-data/   the SQLite event store (sqlite/), which implements the data port
   workriver-scan/   git and the file tree: runner.rs, history/, files/
   workriver/        the binary: cli/ (the CLI process), server/ (the service: app/,

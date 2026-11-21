@@ -8,6 +8,10 @@ workriver never closes them: you do. Close one when
 - it sits idle with no task of yours now or soon (start a fresh one when work comes);
 - it was a blind reviewer and it delivered: the next blind review needs a fresh agent anyway.
 
+Keep the agent of a delivered research or design task until the gate that asks about its
+result is submitted: the user may discuss the result with it, and only it can answer
+(`discussion`). The idle reminder does not count it as idle with no task until then.
+
 Never close an agent you did not start: the user's own panes, another manager's workers,
 the temporary `why-qN` agents answering questions (workriver closes those).
 

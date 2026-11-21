@@ -1,6 +1,6 @@
 // A unit's file texts: read when its code is shown, kept for the last few units, and their
 // diff lines worked out when first read.
-import type { FileChange, UnitCode } from './types'
+import type { FileChange, Net, UnitCode } from './types'
 import type { Unit } from '@/planning/types'
 import { KEEP_CODES } from '@/config/defaults'
 import { changeOf } from './files'
@@ -26,7 +26,8 @@ const codes = new Map<string, UnitCode>()
 
 /**
  * A unit's file texts, read when its code is shown; read again only once its `code` changed,
- * and then only for commits not read before (a commit never changes) and uncommitted work.
+ * and then only for commits not read before (a commit never changes, whatever the base),
+ * uncommitted work and the net change (its ends move with the base).
  */
 export async function loadCode(unit: Unit): Promise<UnitCode> {
   const had = codes.get(unit.id)
@@ -35,17 +36,21 @@ export async function loadCode(unit: Unit): Promise<UnitCode> {
   if (had) codes.set(unit.id, had)
   if (had && had.code === (unit.code ?? '')) return had
   const have = unit.commits.filter(c => !c.live && had?.files.has(fileKey(c.id, c.files[0]?.path ?? ''))).map(c => c.id)
-  const got = await read<{ code?: string; commits: { id: string; files: FileChange[] }[] }>(`/api/unit/${encodeURIComponent(unit.id)}/code${have.length ? `?have=${have.join(',')}` : ''}`)
+  const got = await read<{ code?: string; commits: { id: string; files: FileChange[] }[]; net?: Net }>(`/api/unit/${encodeURIComponent(unit.id)}/code${have.length ? `?have=${have.join(',')}` : ''}`)
   const kept = new Set(have)
   const files = new Map([...(had?.files ?? [])].filter(([k]) => kept.has(k.slice(0, k.indexOf('\0')))))
   for (const c of got.commits) for (const f of c.files) files.set(fileKey(c.id, f.path), withLines(f))
-  const code = { code: got.code ?? '', files }
+  const net = got.net && { id: got.net.id, files: got.net.files.map(withLines) }
+  const code = { code: got.code ?? '', files, net }
   codes.delete(unit.id)
   codes.set(unit.id, code)
   for (const old of [...codes.keys()].slice(0, -KEEP_CODES)) codes.delete(old)
   return code
 }
 
-/** The unit with its files' texts, where `code` has them. */
-export const withCode = (unit: Unit, code: UnitCode): Unit =>
-  ({ ...unit, commits: unit.commits.map(c => ({ ...c, files: c.files.map(f => code.files.get(fileKey(c.id, f.path)) ?? f) })) })
+/** The unit with its files' texts, where `code` has them; its net change only when it is the same one. */
+export const withCode = (unit: Unit, code: UnitCode): Unit => ({
+  ...unit,
+  commits: unit.commits.map(c => ({ ...c, files: c.files.map(f => code.files.get(fileKey(c.id, f.path)) ?? f) })),
+  net: unit.net && code.net?.id === unit.net.id ? code.net : unit.net,
+})

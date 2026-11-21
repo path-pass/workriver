@@ -8,6 +8,15 @@ pub(in crate::server) struct Cache {
     /// Commits with their files' texts, by hash: they never change.
     // ponytail: unbounded; a commit's texts are kept for the life of the service.
     pub(super) commits: HashMap<String, scan::Commit>,
+    /// Whether a merge brought the base in, by "merge|where the branch meets its base": it
+    /// depends on the base, so never kept with the commit.
+    pub(super) brings: HashMap<String, bool>,
+    /// A unit's net change with its texts, by "from..tip" (`code::net`).
+    // ponytail: unbounded, as `commits`.
+    pub(super) nets: HashMap<String, Vec<scan::FileChange>>,
+    /// Where a merged unit met its base before it merged, when nothing recorded it: by unit,
+    /// with the tip it was worked out for.
+    pub(super) before: HashMap<String, (String, Option<String>)>,
     pub(super) trees: HashMap<String, (String, scan::Module)>,
     /// The machines followed, for repositories that are on one of them.
     pub(super) machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>,
@@ -70,11 +79,20 @@ pub(super) struct Memo {
     pub(super) key: String,
     pub(super) hashes: Vec<String>,
     pub(super) merged: bool,
+    /// Where the branch met its base (`Seen::base_at`) for this key.
+    #[serde(default)]
+    pub(super) base_at: Option<String>,
+    /// `base_at` was worked out (a memo from before it was is worked out again).
+    #[serde(default)]
+    pub(super) based: bool,
 }
 
+/// A unit's net change, as `git diff from..tip` names it: "from..tip", and its files.
+pub(super) type NetRead = (String, Vec<scan::FileChange>);
+
 /// A unit on another machine as last read: its commits, its uncommitted work, the patch ids
-/// of its commits and of those of branches it left.
-type RemoteUnit = (Vec<scan::Commit>, Vec<scan::FileChange>, HashMap<String, String>);
+/// of its commits and of those of branches it left, and its net change.
+type RemoteUnit = (Vec<scan::Commit>, Vec<scan::FileChange>, HashMap<String, String>, Option<NetRead>);
 
 /// What the background read of other machines found last, for requests to show.
 #[derive(Default)]
@@ -92,6 +110,10 @@ pub(super) struct Seen {
     pub(super) place: String,
     pub(super) fork: Option<String>,
     pub(super) commits: Vec<scan::Named>,
+    /// Where the branch last met its base while it was not merged (`scan::merge_base`): kept,
+    /// so a merged unit's history reads as it did then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) base_at: Option<String>,
 }
 
 /// How often a repository on another machine is read again.

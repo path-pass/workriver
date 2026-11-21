@@ -61,10 +61,26 @@ pub fn resolve(at: &Runner, repo: &Path, rev: &str) -> Result<String> {
 }
 
 /// Every branch, tag and remote ref of a repository with the commit it points at: one call
-/// tells which units' branches moved.
+/// tells which units' branches moved. A branch with an upstream also has "<ref>@{upstream}"
+/// naming that upstream's ref (`upstream`): which one is configured changes what a branch is
+/// measured against, its commits the same.
 pub fn refs(at: &Runner, repo: &Path) -> Result<HashMap<String, String>> {
-    let out = git(at, repo, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
-    Ok(out.lines().filter_map(|l| l.split_once(' ')).map(|(h, r)| (r.to_string(), h.to_string())).collect())
+    let out = git(at, repo, &["for-each-ref", "--format=%(objectname) %(refname) %(upstream)"])?;
+    let mut refs = HashMap::new();
+    for l in out.lines() {
+        let mut f = l.split(' ');
+        let (Some(h), Some(r)) = (f.next(), f.next()) else { continue };
+        if let Some(up) = f.next().filter(|u| !u.is_empty()) {
+            refs.insert(format!("{r}@{{upstream}}"), up.to_string());
+        }
+        refs.insert(r.to_string(), h.to_string());
+    }
+    Ok(refs)
+}
+
+/// The ref branch `name` has as its upstream in `refs`, if any.
+pub fn upstream<'a>(refs: &'a HashMap<String, String>, name: &str) -> Option<&'a str> {
+    refs.get(&format!("refs/heads/{name}@{{upstream}}")).map(String::as_str)
 }
 
 /// The commit `name` (a branch, a remote branch, a tag, or a full hash) points at in `refs`.

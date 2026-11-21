@@ -7,7 +7,7 @@ import { Input } from '@/ui/primitives/input'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { gateKey, useAct } from './actions'
 import { SEVERITIES } from './select'
-import type { NewFinding, Severity, Task } from './types'
+import type { GateResult, NewFinding, Severity, Task } from './types'
 import { useT } from '@/i18n'
 import { attach, detach } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
@@ -15,6 +15,8 @@ import type { Unit } from '@/planning/types'
 import { Icon } from '@/ui/Icon'
 import { Thumbs } from '@/attachments/Thumbs'
 import { DeliveryLine } from './Findings'
+import { ChoiceSurface } from '@/content/choice/Choice'
+import { needsNote } from '@/content/choice/surface'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
@@ -36,20 +38,33 @@ function AttachButton({ onAdd }: { onAdd: (a: Attachment[]) => void }) {
 type Draft = { severity: Severity; problem: string; impact: string; where: string; files: Attachment[] }
 const blank = (): Draft => ({ severity: 'P2', problem: '', impact: '', where: '', files: [] })
 
-/** A waiting gate's output: what came of it, a note, and with a problem, findings; pictures welcome. */
+/**
+ * A waiting gate's output: what came of it, a note, and with a problem, findings; pictures
+ * welcome. A gate with options (a choice) is answered by picking one, or found a problem with.
+ */
 export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const { t } = useT()
   const act = useAct()
-  const [result, setResult] = useState<'done' | 'problem'>('done')
+  const choice = gate.input.choice
+  // What was sent from here and not taken by the service: the form starts from it again.
+  const back = act.retry[gateKey(unit, gate)]
+  const [result, setResult] = useState<GateResult['result']>(back?.result ?? (choice ? 'answered' : 'done'))
+  const [picked, setPicked] = useState<string | undefined>(back?.selected?.[0])
+  const [noteMissing, setNoteMissing] = useState(false)
   // A conclusion reached by asking about it starts the note; the user edits it.
-  const [note, setNote] = useState(gate.draft ?? '')
+  const [note, setNote] = useState(back?.note ?? gate.draft ?? '')
   useEffect(() => { if (gate.draft) setNote(n => n || gate.draft!) }, [gate.draft])
-  const [files, setFiles] = useState<Attachment[]>([])
-  const [drafts, setDrafts] = useState<Draft[]>([])
+  const [files, setFiles] = useState<Attachment[]>(back?.attachments ?? [])
+  const [drafts, setDrafts] = useState<Draft[]>(
+    () => back?.findings.map(f => ({ severity: f.severity, problem: f.problem, impact: f.impact, where: f.evidence.join(', '), files: f.attachments })) ?? [],
+  )
   const [error, setError] = useState(false)
-  // Pictures not handed in are let go when the form goes away.
+  // Pictures not handed in are let go when the form goes away, but for those of a result the
+  // service did not take: that draft holds them until it is sent again (then what the new
+  // result no longer carries goes), so the form coming back shows and sends them.
+  const held = (a: Attachment) => !!back && [...back.attachments, ...back.findings.flatMap(f => f.attachments)].some(x => x.url === a.url)
   const kept = useRef<Attachment[]>([])
-  kept.current = [...files, ...drafts.flatMap(d => d.files)]
+  kept.current = [...files, ...drafts.flatMap(d => d.files)].filter(a => !held(a))
   const sent = useRef(false)
   useEffect(() => () => { if (!sent.current) kept.current.forEach(detach) }, [])
 
@@ -63,16 +78,36 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     add(images(e.dataTransfer.files))
   }
   const addNote = (a: Attachment[]) => setFiles(f => [...f, ...a])
-  const drop = (a: Attachment) => { detach(a); setFiles(f => f.filter(x => x !== a)); setDrafts(ds => ds.map(d => ({ ...d, files: d.files.filter(x => x !== a) }))) }
+  const drop = (a: Attachment) => { if (!held(a)) detach(a); setFiles(f => f.filter(x => x !== a)); setDrafts(ds => ds.map(d => ({ ...d, files: d.files.filter(x => x !== a) }))) }
   const findings: NewFinding[] = drafts.filter(d => d.problem.trim()).map(d => ({
     severity: d.severity, problem: d.problem.trim(), impact: d.impact.trim(),
     evidence: d.where.split(/[,，\n]/).map(p => p.trim()).filter(Boolean), attachments: d.files,
   }))
   const submit = () => {
     if (result === 'problem' && !findings.length) return setError(true)
+    const asked = choice && result === 'answered'
+    if (asked && (!picked || (needsNote(choice, picked) && !note.trim()))) return setNoteMissing(true)
     sent.current = true
-    act.submitGate(unit, gate, { result, note: note.trim(), attachments: files, findings: result === 'problem' ? findings : [], at: new Date().toISOString() })
+    // The held draft goes with this result: its pictures this one no longer carries go too.
+    const sending = [...files, ...(result === 'problem' ? drafts.flatMap(d => d.files) : [])]
+    if (back) [...back.attachments, ...back.findings.flatMap(f => f.attachments)].filter(p => !sending.some(x => x.url === p.url)).forEach(detach)
+    act.submitGate(unit, gate, { result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files, findings: result === 'problem' ? findings : [], at: new Date().toISOString() })
   }
+  const noteNeeded = !!(choice && result === 'answered' && picked && needsNote(choice, picked))
+  const noteBlock = (
+    <>
+      <textarea
+        className="field" rows={2} value={note} placeholder={t(noteNeeded ? 'choice.noteNeeded' : 'gate.note')} aria-label={t(noteNeeded ? 'choice.noteNeeded' : 'gate.note')}
+        aria-required={noteNeeded || undefined} aria-invalid={(noteMissing && noteNeeded) || undefined}
+        onChange={e => { setNote(e.target.value); setNoteMissing(false) }} onPaste={pasted(addNote)}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <AttachButton onAdd={addNote} />
+        <span className="text-xs text-ink-2">{t('attach.hint')}</span>
+      </div>
+      <Thumbs list={files} onRemove={drop} />
+    </>
+  )
 
   return (
     <form
@@ -82,23 +117,23 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       onDragOver={e => e.preventDefault()}
       onDrop={dropped(addNote)}
     >
+      {/* A result sent from here that the service did not take: said, and the form is back. */}
+      <DeliveryLine id={gateKey(unit, gate)} />
       <ToggleGroup
         type="single" variant="outline" size="sm" value={result} aria-label={t('gate.result')}
-        onValueChange={v => { if (v) { setResult(v as 'done' | 'problem'); setError(false); if (v === 'problem' && !drafts.length) setDrafts([blank()]) } }}
+        onValueChange={v => { if (v) { setResult(v as GateResult['result']); setError(false); setNoteMissing(false); if (v === 'problem' && !drafts.length) setDrafts([blank()]) } }}
       >
         {/* The picked one must read as picked in both themes: its own colour, not a grey tint. */}
-        <ToggleGroupItem value="done" className="h-7 px-3 text-xs data-[state=on]:border-add data-[state=on]:bg-add-row data-[state=on]:font-semibold data-[state=on]:text-add">{t('gate.done')}</ToggleGroupItem>
+        <ToggleGroupItem value={choice ? 'answered' : 'done'} className="h-7 px-3 text-xs data-[state=on]:border-add data-[state=on]:bg-add-row data-[state=on]:font-semibold data-[state=on]:text-add">{t(choice ? 'gate.answer' : 'gate.done')}</ToggleGroupItem>
         <ToggleGroupItem value="problem" className="h-7 px-3 text-xs data-[state=on]:border-del data-[state=on]:bg-del-row data-[state=on]:font-semibold data-[state=on]:text-del">{t('gate.problem')}</ToggleGroupItem>
       </ToggleGroup>
-      <textarea
-        className="field" rows={2} value={note} placeholder={t('gate.note')} aria-label={t('gate.note')}
-        onChange={e => setNote(e.target.value)} onPaste={pasted(addNote)}
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <AttachButton onAdd={addNote} />
-        <span className="text-xs text-ink-2">{t('attach.hint')}</span>
-      </div>
-      <Thumbs list={files} onRemove={drop} />
+      {choice && result === 'answered' && (
+        <ChoiceSurface choice={choice} picked={picked} onPick={v => { setPicked(v); setNoteMissing(false) }} onAnswer={submit}>
+          {noteBlock}
+          {noteMissing && <p className="text-xs text-del" role="alert">{t('choice.needNote')}</p>}
+        </ChoiceSurface>
+      )}
+      {!(choice && result === 'answered') && noteBlock}
       {result === 'problem' && (
         <div className="flex flex-col gap-2">
           {drafts.map((d, k) => {
@@ -126,7 +161,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
           {error && <p className="text-xs text-del" role="alert">{t('gate.needFinding')}</p>}
         </div>
       )}
-      <div><Button type="submit" size="sm" className="rounded-sm">{t('gate.submit')}</Button></div>
+      {!(choice && result === 'answered') && <div><Button type="submit" size="sm" className="rounded-sm">{t('gate.submit')}</Button></div>}
     </form>
   )
 }

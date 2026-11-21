@@ -76,12 +76,13 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
     const base = p.manager ? t('plan.option', { label, manager: p.manager.agent, state: t(`manager.state.${p.manager.state ?? 'unknown'}`) }) : t('plan.optionNone', { label })
     return { value: p.id, label: !p.project ? t('plan.optionUnknown', { option: base }) : other(p) ? t('plan.optionOther', { option: base, project: p.projectTitle ?? titleOf(p.project) }) : base }
   }
-  const steps = (id: string) => (
+  const steps = (
     <Steps
       steps={[
         { text: t('plan.agent'), command: 'workriver guide manager' },
         { text: t('plan.register'), command: 'workriver manager here' },
-        { text: t('plan.start'), command: `workriver intent start ${id}` },
+        // A workspace's first intent is the user's to start (core refuses its manager's): here, once it has one.
+        { text: t('plan.start') },
       ]}
     />
   )
@@ -113,7 +114,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
               <>
                 <DialogDescription>{t('plan.noWorkspace')}</DialogDescription>
                 <Steps steps={[{ text: t('plan.workspace') }]} />
-                {steps(intent.id)}
+                {steps}
               </>
             ) : (
               <>
@@ -142,7 +143,7 @@ export function StartIntent({ ws, intent, onClose, onStarted }: { ws: Workspace 
                 ) : (
                   <>
                     <p className="text-sm text-ink-2">{t('plan.none', { label: at.label })}</p>
-                    {steps(intent.id)}
+                    {steps}
                   </>
                 )}
                 {error && <p role="alert" className="text-xs text-del wrap-anywhere">{error}</p>}

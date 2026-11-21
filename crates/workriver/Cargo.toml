@@ -27,6 +27,8 @@ ureq = { version = "3.5.2", default-features = false, features = ["json"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 humantime = "2"
+# The note's diff in `intent history --diff` (workriver-scan has it already).
+similar = { version = "3.2.1", default-features = false, features = ["std", "text"] }
 tempfile = "3"
 
 [dev-dependencies]

@@ -41,11 +41,20 @@ workriver/
 │   │       ├── runtime.rs            # R: the runtime port in workriver's words.
 │   │       ├── ports/                # Contracts in workriver terms; C/std, no adapter types.
 │   │       │   ├── mod.rs            # Narrow port exports.
-│   │       │   ├── data.rs           # WorkStore: reads at a revision, checked record, history, status, errors.
+│   │       │   ├── data.rs           # WorkStore: reads at a revision, checked record, history, status,
+│   │       │   │                     # an intent's events, errors.
 │   │       │   └── tests.rs          # What every store must answer (reads that fail say so).
+│   │       ├── choices/              # A question's options as recorded: a fixed A2UI v1.0 subset;
+│   │       │   │                     # its write rule (build, check, read the values). No UI.
+│   │       │   ├── mod.rs            # Choice, ChoiceOption; new/check/options/check_answer.
+│   │       │   ├── tests.rs          # The stored form, its rules, and the A2UI schema guard.
+│   │       │   └── __fixtures__/a2ui-v1_0/  # The A2UI v1.0 JSON Schemas (Apache-2.0), vendored.
 │   │       ├── planning/             # Projects, intents, units, workspaces and their transitions.
 │   │       │   ├── mod.rs            # Planning types/exports and transition entry points.
-│   │       │   ├── intents.rs        # Roadmap; intent create/update/start/close/merge; finding policy.
+│   │       │   ├── intents.rs        # Roadmap; intent create/update/start/close/merge; finding policy;
+│   │       │   │                     # who edits an intent's text, its versions (Edits), the base check,
+│   │       │   │                     # an intent's and a workspace's project.
+│   │       │   ├── history.rs        # An intent's versions and a version's text, rebuilt from its events.
 │   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links.
 │   │       │   ├── projects.rs       # Projects, runtime workspace associations, links, current intent.
 │   │       │   └── tests.rs
@@ -53,7 +62,7 @@ workriver/
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
 │   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
 │   │       │   ├── graph.rs          # Inputs, ancestors, follow-ups, progress, readiness, and design
-│   │       │   │                     # ancestry (decide gates, superseding designs).
+│   │       │   │                     # ancestry (decide gates, superseding designs); result_gate.
 │   │       │   ├── findings.rs       # Findings, suggestions, decisions, additions, deferred batches.
 │   │       │   ├── gates.rs          # Gate submission/opening and results.
 │   │       │   ├── chores.rs         # Non-blocking chores and their completion.
@@ -61,7 +70,8 @@ workriver/
 │   │       │   └── tests.rs
 │   │       ├── conversations/        # Durable communication records.
 │   │       │   ├── mod.rs            # Question/thread/message/delivery types and transitions.
-│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks.
+│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks; the
+│   │       │   │                     # user's discussion of a delivered result, its read mark.
 │   │       │   ├── messages.rs       # Manager messages, replies, read position, agents seen.
 │   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
 │   │       │   └── tests.rs
@@ -81,7 +91,8 @@ workriver/
 │   │       ├── sqlite/
 │   │       │   ├── mod.rs            # The Store (open a given file, append, reads) and its Error.
 │   │       │   ├── migrations.rs     # Schema, PRAGMAs and triggers.
-│   │       │   ├── events.rs         # The stored row both ways: its encoding (insert) and replay.
+│   │       │   ├── events.rs         # The stored row both ways: its encoding (insert) and replay; an
+│   │       │   │                     # intent's events with those merged into it.
 │   │       │   └── tests.rs          # Append-only, replay rebuilds the same state, and the stored
 │   │       │                         # half of the replay guard.
 │   │       └── tests.rs              # The port's contract on this backend.
@@ -92,7 +103,7 @@ workriver/
 │           ├── history/
 │           │   ├── mod.rs            # Repo/rev/ref discovery, names, history exports.
 │           │   ├── branches.rs       # Branch membership, fork/squash, patch ids.
-│           │   └── commits.rs        # Batched commit/blob reads, commit metadata.
+│           │   └── commits.rs        # Batched commit/blob reads, commit metadata, where a branch meets its base, diffs.
 │           ├── files/
 │           │   ├── mod.rs            # FileChange/counts, before/after, live/worktree reads.
 │           │   └── tree.rs           # Module tree and line counts.
@@ -117,16 +128,23 @@ Core defines `WorkStore` in `ports/data.rs`; it is all the service knows of stor
 - `recorded()`: everything recorded at one `Revision`, as the reader's own value (never a
   borrowed replay cache).
 - `record(&Principal, Body)`: checks the request with the rules on what is recorded now,
-  commits it and returns the committed event and its revision. The only way to write; there
+  commits it and returns the committed event, its revision and what is recorded at it (what
+  follows a record is worked out on the state it made, not on a later read). The only way to write; there
   is no unchecked write path.
 - `history(after, limit)`: events oldest first, by cursor. A revision is the number of the
   last committed event and is the history's cursor too. For the service and tests only:
   there is no blind cut for events (core's blind rule cuts a `State`), so no route may serve
   it until such a cut exists.
 - `status()`: where the store is, how many events, the revision.
+- `intent_events(id)`: the events that make an intent's versions (`intent.created`,
+  `intent.updated`, `intent.merged` into it), and those of every intent merged into it,
+  transitively, oldest first; core's `intent_versions` and `intent_text` rebuild its history
+  from them. Like `history`, not answered to a reader as it is: the one route that reads it
+  (`/api/intent/{id}/history`) goes through `App::view` and refuses a reduced view first.
 
 Named reads of one record (`unit`, `task`, `question`, `agent`, `thread`, `run`, …, and what
-a previous run left: `delivered`, `open_questions`, `held_messages`, `thread_agents`) are
+a previous run left: `delivered`, `open_questions`, `open_discussions`, `held_messages`,
+`thread_agents`) are
 provided methods over `recorded()` that a store may answer without the whole state; add one
 when it is missing. `recorded()` is used only where a function of the whole state is called
 or several records of one revision are needed. Every read returns a `Result`.
@@ -177,7 +195,8 @@ crates/workriver/
 │   │   │                             # delivery staging, task show.
 │   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits.
 │   │   ├── machines.rs               # Machine/load commands.
-│   │   ├── display.rs                # Board, history and load text, and a task or finding in full.
+│   │   ├── display.rs                # Board, an intent's history, a machine's history and load text,
+│   │   │                             # and a task or finding in full.
 │   │   ├── guide.rs                  # Embedded guides, topic lookup, install stubs.
 │   │   ├── parse.rs                  # Input/evidence/step/external-ref parsers.
 │   │   ├── tests.rs                  # Parser/guide/help/link/text tests; no running service.
@@ -207,10 +226,12 @@ crates/workriver/
 │   │   ├── planning/mod.rs           # Intent/project/workspace/start/merge handlers.
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── conversations/
-│   │   │   ├── mod.rs                # Ask/end/reply/message/read handlers, shared state.
+│   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
 │   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
+│   │   │   ├── discussions.rs        # A discussion's question to its task's agent: hand, gone,
+│   │   │   │                         # gate submitted, restart; what the manager hears of it.
 │   │   │   ├── messages.rs           # Manager conversation send/hold/delivery/failure.
-│   │   │   └── prompts.rs            # Ask, follow-up and answer-back prompts.
+│   │   │   └── prompts.rs            # Ask, follow-up, answer-back and discussion prompts.
 │   │   ├── commands/
 │   │   │   ├── mod.rs                # Prepare/run/read/focus handlers; the user check in each.
 │   │   │   ├── shell.rs              # Command checks, marker parsing, polling, safe close.
@@ -232,9 +253,10 @@ crates/workriver/
 │   │   ├── views/                    # What the page and the CLI read; git attribution; caches.
 │   │   │   ├── mod.rs                # Workspace build, project/group derivation, the files
 │   │   │   │                         # two open units both change.
-│   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads.
-│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads,
-│   │   │   │                         # the files a unit's net change holds.
+│   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads; an intent's
+│   │   │   │                         # history (through App::view, a reduced view refused).
+│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads, net change,
+│   │   │   │                         # the files the code tree shows it changing.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
@@ -345,26 +367,29 @@ frontend/web/
     │   └── actions.ts                # The page's actions, focus included.
     ├── workspace/                    # Snapshot loading and the optimistic overlay; no components.
     │   ├── types.ts  source.ts  edits.ts
-    ├── planning/                     # types.ts select.ts Rail.tsx IntentPage.tsx Start.tsx Merge.tsx
-    ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts
+    ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
+    │                                 # Merge.tsx EditIntent.tsx IntentHistory.tsx
+    ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
-    ├── conversations/                # types.ts select.ts Ask.tsx Turns.tsx; never imports app/
+    ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
     ├── attachments/                  # types.ts Viewer.tsx Thumbs.tsx preview.ts; Viewer calls onAsk, never Ask
     ├── commands/                     # types.ts Run.tsx context.tsx
     ├── machines/                     # types.ts format.tsx Machines.tsx Settings.tsx
     ├── session/                      # Session.tsx
-    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid);
+    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid),
+    │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
-    ├── ui/                           # primitives/ (the shadcn files) Choice.tsx Icon.tsx
+    ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx among them) Choice.tsx Icon.tsx
     │                                 # CopyButton.tsx Tip.tsx; never feature/data/API imports
     ├── lib/                          # utils.ts useResize.ts isField.ts
     ├── config/defaults.ts            # Quiet/resize/cache/preview defaults and widths.
     ├── theme.ts
     ├── i18n/                         # en, zh-CN, ja, index, the i18next declaration.
-    └── mock/                         # demo.json, lockscreen.svg, metrics.ts: sample content.
+    └── mock/                         # demo.json, lockscreen.svg, metrics.ts, history.ts (intent
+                                      # histories kept in memory): sample content.
 ```
 
 UI composition runs one way: app → domain views → shared content and controls. Pure
