@@ -34,12 +34,15 @@ Agents still ask each other that way (below).
   message already waiting for it (held while it waited for a person) waits for that task
   too, saying so quietly under it ("Waiting: … is on a blind task"; the service's words on
   hover), and goes once the task is delivered.
-- **All managers.** With more than one manager running (or once written to), the select
-  offers "All managers" first: one conversation with every manager at once, here and on
-  followed machines. What the user writes there (text and their own files; never chips) is
+- **All managers.** With more than one manager running (or once written to, or picked),
+  the select offers "All managers" first: one conversation with every manager at once, here
+  and on followed machines. Once picked it stays picked while managers close, so a draft
+  never turns into a message to the one left; with none running, the draft stays and
+  cannot be sent. What the user writes there (text and their own files; never chips) is
   recorded once and typed into the terminal of each workspace's manager running then, each
-  copy held and given like any message (waiting for a person, a blind task) and never
-  skipped: one that cannot be given says "Not delivered" and why. The message shows once,
+  copy held and given like any message (waiting for a person, a blind task, a manager that
+  cannot be reached for now) and never skipped: one that cannot be given (its manager gone)
+  says "Not delivered" and why. The message shows once,
   with a line per copy under it (the workspace, "on <machine>" for another machine, then
   where that copy is, in the same words and colours as a single message's), and each
   manager's replies follow it on the left in the order they came, each headed by the
@@ -151,14 +154,18 @@ Agents still ask each other that way (below).
     task: write once it is delivered"), since nothing about other work is typed into a
     blind agent.
 - **To every manager.** `MessageSent.to` (`serde(default)`, empty for a message to one
-  manager) lists the managers it goes to, a `Recipient` each: the workspace's record (its
-  group, so a workspace of another machine keeps its machine) and its manager's session. The
-  service fills it (`/api/message` with `all`; `App::running_managers`): each workspace's
-  manager on record (`State::managers`) that the runtime shows running; none running, or the
-  runtime unreachable, is a refusal. The rules (`MessageSent` with `to`): each recipient is
-  the recorded manager of its workspace, each once; no intent, unit or task, and context
-  only the user's own files (`State::picked` with no unit); a manager on a blind task is not
-  refused, since its copy is held. The message's `workspace` and `manager` are empty: its
+  manager) lists the managers it goes to, a `Recipient` each: the group its manager runs in
+  when it is sent (so one on another machine keeps its machine, even in a workspace linked
+  to a local one) and its manager's session. The recipients are fixed then, with their right
+  to reply. The service fills it (`/api/message` with `all`; `App::running_managers`):
+  `State::managers_among` the agents the runtime shows running, each one that manages its
+  group's workspace now (a linked group of another machine: the local workspace it is linked
+  to), as the page names a manager; so a manager on record whose workspace was since linked
+  to one with a manager of its own gets no copy. None running, or the runtime unreachable,
+  is a refusal. The rules (`MessageSent` with `to`): each recipient is the manager now of
+  its group's workspace (`workspace_of`, links resolved), each once; no intent, unit or
+  task, and context only the user's own files (`State::picked` with no unit); a manager on
+  a blind task is not refused, since its copy is held. The message's `workspace` and `manager` are empty: its
   conversation is the one under no workspace's label, and `messages.read` with an empty
   workspace reads it. `MessageDelivery.manager` names the copy (the recipient's session; it
   must be one of them, and is empty for a message to one manager), whose `delivery` it
@@ -211,9 +218,16 @@ then the user's text quoted. For example:
       `workriver reply m4 --text "..."`; … The user says, in workriver: «I shut down at six.»
 
   Each copy is held (`For::Broadcast`, keyed by the message and its manager) and recorded
-  apart; a restart while a copy waits marks that copy not delivered.
+  apart; a restart while a copy waits marks that copy not delivered. A reply to it carries
+  no options (`MessageReplied` with a `choice` is refused): an answer is routed to one
+  workspace's conversation, so a manager asks there (`workriver say --option`).
 - **When it is held.** A manager waiting for a person in its terminal is not typed over: the
-  message waits and goes in once it is free. If its manager is then on a blind task in
+  message waits and goes in once it is free. A manager whose runtime cannot be reached as
+  it is given (`RuntimeError::None`: Herdr's socket does not answer; `Unreachable`: its
+  machine is disconnected), so that nothing was typed, is no reason to give up: the message
+  waits and is tried again at each poll until the manager takes it, or is gone (not
+  delivered). Any other failure of the send may have typed it, so it is not tried twice:
+  not delivered. If its manager is then on a blind task in
   progress, it waits for that task's delivery too. A restart while it waits marks it not
   delivered (the service restarted), so the user sees that and can send it again.
 - The manager's side (answer, or reply that the task's agent is asked, `workriver ask` it
