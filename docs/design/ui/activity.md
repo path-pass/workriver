@@ -280,8 +280,9 @@ stored form, one renderer, the same rules.
   hangs after a choice gate until it is answered.
 - **A decide gate says which it asks.** `task add --kind gate --gate decide` takes exactly
   one of `--go` (it asks may I: merge, deploy, change the goal, a design's gate; confirmed
-  or not) and two or more `--option` (it asks which). Neither, or both, is refused by the
-  CLI before anything is sent, with a message naming the two; `--go` on any other gate or
+  or not) and two or more `--option` (it asks which). Neither, one option, or both is
+  refused by the CLI before anything is sent, with a message naming the two (the minimum is
+  core's, `MIN_OPTIONS`; the service checks it again for API callers); `--go` on any other gate or
   task is refused too. `--go` is the CLI's alone: what is recorded is as before, a decide
   gate without a choice or with one, so the service, its API and the page do not change.
   The guess that a text lists options (a hint printed after recording) stays for `say` and

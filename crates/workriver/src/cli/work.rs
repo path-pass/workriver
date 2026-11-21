@@ -29,6 +29,10 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             match (kind == "gate" && gate.as_deref() == Some("decide"), go, option.is_empty()) {
                 (true, false, true) => bail!("a decide gate asks either may I (--go: merge, deploy, change the goal, a design's gate) or which (--option ID=LABEL, two or more); give one of them (workriver guide how ask-user)"),
                 (true, true, false) => bail!("a decide gate takes --go or --option, not both: --go asks may I, --option asks which"),
+                // Core's own check, made before sending: one option is neither form.
+                (true, false, false) if option.len() < core::MIN_OPTIONS => {
+                    bail!("a decide gate that asks which takes at least {} --option, not {}; to ask may I, use --go (workriver guide how ask-user)", core::MIN_OPTIONS, option.len())
+                }
                 (false, true, _) => bail!("--go is for a decide gate only (--kind gate --gate decide --go): it asks the user may I"),
                 _ => {}
             }

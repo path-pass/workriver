@@ -171,8 +171,8 @@ fn lists_findings_and_machines_from_the_cli() {
     assert!(!again.status.success() && String::from_utf8_lossy(&again.stderr).contains("no machine box"), "{:?}: {}", again.status, String::from_utf8_lossy(&again.stderr));
 }
 
-/// A decide gate asks either may I (`--go`) or which (two or more `--option`), never neither
-/// and never both; `--go` is for a decide gate only. Each is refused before anything is sent:
+/// A decide gate asks either may I (`--go`) or which (two or more `--option`), never neither,
+/// never one option and never both; `--go` is for a decide gate only. Each is refused before anything is sent:
 /// no service runs here, so a command that tried to send would fail with another message.
 #[test]
 fn a_decide_gate_takes_go_or_options() {
@@ -194,6 +194,8 @@ fn a_decide_gate_takes_go_or_options() {
     let gate = ["--kind", "gate", "--gate", "decide", "--title", "Merge u1?"];
     let neither = refused(&gate);
     assert!(neither.contains("a decide gate asks either may I (--go") && neither.contains("or which (--option ID=LABEL, two or more)"), "{neither}");
+    let one = refused(&[&gate[..], &["--option", "a=A"]].concat());
+    assert!(one.contains(&format!("at least {} --option, not 1", workriver_core::MIN_OPTIONS)), "{one}");
     let both = refused(&[&gate[..], &["--go", "--option", "a=A", "--option", "b=B"]].concat());
     assert!(both.contains("--go or --option, not both"), "{both}");
     for other in [&["--kind", "gate", "--gate", "test", "--title", "Try it", "--go"][..], &["--kind", "implement", "--title", "Build it", "--go"]] {
