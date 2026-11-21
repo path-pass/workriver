@@ -17,3 +17,6 @@ export const CAP = { markdown: 256 * 1024, text: 1024 * 1024 }
 export const RAIL_WIDTH = { def: 248, min: 200, max: 480 }
 export const SIDE_WIDTH = { def: 340, min: 280, max: 720 }
 export const CODE_TREE_WIDTH = { def: 280, min: 220 }
+/** The least height the Activity graph's canvas can be dragged to, in px; the most is the
+ *  window's height. With none set, the canvas takes the graph's own height (Activity.tsx). */
+export const FLOW_HEIGHT = { min: 160 }

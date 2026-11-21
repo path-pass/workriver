@@ -363,7 +363,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const { t } = useT()
   // The right edge drags the width, between narrow and roomy; double-click: the default.
   const size = useResize({ key: 'workriver.rail.width', variable: '--rail-w', ...RAIL_WIDTH, edge: 'right' })
-  useEffect(() => onWidth?.(size.width), [onWidth, size.width])
+  useEffect(() => onWidth?.(size.size), [onWidth, size.size])
   const projects = ws?.projects ?? []
   const inProject = (ws?.intents ?? []).filter(i => !project || i.project === project)
   // The filter by kind, size and tag, remembered per project: it narrows Active, Roadmap and

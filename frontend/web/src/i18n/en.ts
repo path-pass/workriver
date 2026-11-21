@@ -732,7 +732,8 @@ export const en = {
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     fit: 'Show the whole graph, or its latest work when it does not fit',
-    overview: 'Overview of the graph'
+    overview: 'Overview of the graph',
+    resize: 'Graph height (drag, or arrow keys; double-click for the automatic height)'
   },
   io: {
     input: 'Input',

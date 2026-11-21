@@ -16,6 +16,8 @@ import { Icon } from '@/ui/Icon'
 import { W, H, type Layout, isStart, R, layoutFlow, type Line } from './layout'
 import { type CardData, type LineData, type DotData, nodeTypes, edgeTypes } from './Nodes'
 import { Detail } from './TaskDetail'
+import { useResize } from '@/lib/useResize'
+import { FLOW_HEIGHT } from '@/config/defaults'
 
 // ---- the graph ----
 
@@ -116,15 +118,18 @@ function Graph({ unit, picked, finding, onPick, fitKey }: { unit: Unit; picked: 
   }, [])
   // Another unit: a fresh view, the user's moves forgotten.
   useEffect(() => { flow.current = null; moved.current = false }, [unit.id])
+  // The bottom edge drags the canvas's height, one for every unit; with none set (or after a
+  // double-click) the canvas takes the graph's own height, as below.
+  const height = useResize({ key: 'workriver.flow.height', variable: '--flow-h', ...FLOW_HEIGHT, max: () => window.innerHeight, edge: 'bottom' })
   // When the room around the graph changes (the rail folds, a panel's drag ends, the window
-  // is resized), the view settles again; and once more when the overview comes or goes, since
+  // is resized, the canvas's height is dragged), the view settles again; and once more when the overview comes or goes, since
   // the canvas then takes the zoomed graph's height and room for the overview below it.
   useEffect(() => {
     let later = setTimeout(place, 80)
     const again = () => { clearTimeout(later); later = setTimeout(place, 150) }
     window.addEventListener('resize', again)
     return () => { clearTimeout(later); window.removeEventListener('resize', again) }
-  }, [fitKey, place])
+  }, [fitKey, height.size, place])
   useEffect(() => { place() }, [mini, place])
   // Laid out again only when the graph's shape changes, not on every refresh of the data.
   const shape = unit.id + '|' + unit.tasks.map(n => `${n.id}<${n.inputs.map(i => i.from + (i.primary ? '' : '~')).join(',')}`).join(';')
@@ -190,7 +195,7 @@ function Graph({ unit, picked, finding, onPick, fitKey }: { unit: Unit; picked: 
   const ready = layout && layout.unitId === unit.id
   return (
     <>
-    <div ref={box} className="flow -mx-4" style={{ height: ready ? `min(${Math.round(mini ? layout.h * READABLE + 48 + MINI.height : layout.h + 48)}px, 70vh)` : 240 }}>
+    <div ref={box} className="flow relative -mx-4" style={{ height: `var(--flow-h, ${ready ? `min(${Math.round(mini ? layout.h * READABLE + 48 + MINI.height : layout.h + 48)}px, 70vh)` : '240px'})`, maxHeight: '100vh' }}>
       {ready && (
         <ReactFlow
           key={unit.id}
@@ -237,6 +242,7 @@ function Graph({ unit, picked, finding, onPick, fitKey }: { unit: Unit; picked: 
           )}
         </ReactFlow>
       )}
+      <div {...height.handle} aria-label={t('flow.resize')} className="edge" data-edge="bottom" />
     </div>
     {/* Below the canvas, never over it: no node can hide behind it. */}
     <Legend />

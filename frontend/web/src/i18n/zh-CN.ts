@@ -711,6 +711,7 @@ export const zhCN: OneForm<typeof en> = {
     zoomOut: '缩小',
     fit: '显示整张图；放不下时显示最新的工作',
     overview: '整张图的缩略图',
+    resize: '图的高度（拖动，或用方向键；双击恢复自动高度）',
     start: '开始'
   },
   io: {
