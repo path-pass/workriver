@@ -4,6 +4,30 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **What you must act on waits for you instead of being lost** (managers, workers): while
+  you are on a blind task (or wait for a person in your terminal), a worker's `manager tell`,
+  "your task was dropped: stop", "u2 is done / close your workers" and an addition to a
+  finding are held, and typed in once you can take them, as answers and decisions already
+  were. Before, they were dropped. (`blind-review`, `blocked`, `closing-workers`)
+- **The user discusses a delivered research or design result with its agent** (managers,
+  workers): in the task's detail, each question goes straight to the agent that did it,
+  which answers with `workriver answer` and, when the user asks for the conclusion, amends
+  its delivery first if the result changed. No task or gate per round. Managers keep that
+  agent until the gate that asks about the result is submitted (the idle reminder waits too),
+  hear of an amendment and of the conclusion, not of each round, and point the user at the
+  task instead of relaying. Once the gate is submitted the discussion is over: a change is a
+  new task. (`discussion`, `closing-workers`, `user-message`, `design-gate`, `ask-user`)
+- **A question with options carries them as options** (managers, workers): give one
+  `--option ID=LABEL` each (and `--require-note ID` where the answer needs a reason), on a
+  decide gate (`task add --kind gate --gate decide`) or on `workriver say` / `reply`; the user
+  picks one from radio buttons in the page instead of typing an answer. A gate comes back as
+  "The user answered gate … : option `ID`", a message as "The user answered your question …":
+  nothing follows from it by itself; add the task the option calls for (`--after` the gate).
+  A design's gate keeps its options in `--text` and done confirms the design (`--option` is
+  refused there, as with `--blocks` and from anyone but the manager or the user); a worker
+  gives its manager the options. Asked without options, a question whose words list some gets
+  a hint line. (`ask-user`, `user-message`, `push-pr-merge`, `design-gate`,
+  `architecture-review`, `gates-chores`, `blocked`)
 - **Tell the user once, on the page** (managers): after `workriver reply` or `workriver
   say`, do not repeat the same text in your terminal; leave one line there at most (e.g.
   which message you answered), unless it holds something the page does not (an error, a

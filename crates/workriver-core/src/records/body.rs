@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::*;
+use crate::choices::Choice;
 
 /// One recorded event's content. `kind` and `body` are the columns of the same name.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -315,6 +316,9 @@ pub enum Body {
         /// Stored attachments with the note.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attachments: Vec<String>,
+        /// A choice gate answered: the option's value (one; a list so more may come).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        selected: Vec<String>,
     },
     /// A file was put in the store (once per content; added again only to link it elsewhere),
     /// and linked to a task or one of its findings when given.
@@ -395,7 +399,15 @@ pub enum Body {
         /// A request to write the thread's conclusion rather than a question.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         conclude: bool,
+        /// The user discusses a delivered design or research with its own agent: one thread
+        /// per task, answered by that agent alone, until the task's gate is submitted.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        discuss: bool,
     },
+    /// The user has read the discussion of a task (`unit#task`) up to `at` (the time of the
+    /// newest answer the page showed); the page records it.
+    #[serde(rename = "questions.read")]
+    QuestionsRead { unit: String, task: u32, at: String },
     /// The temporary agent that answers it is running.
     #[serde(rename = "question.started")]
     QuestionStarted {
@@ -467,6 +479,10 @@ pub enum Body {
         /// tasks of the unit.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context: Vec<AskContext>,
+        /// The user's answer to a manager's choice: which message (or reply of it) asked, and
+        /// the value picked; the text is the user's note, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answer: Option<Answer>,
     },
     /// Where the user's message to a manager is; workriver's alone to record.
     #[serde(rename = "message.delivery")]
@@ -478,7 +494,13 @@ pub enum Body {
     },
     /// The manager the message went to answers it (`workriver reply`); it may answer more than once.
     #[serde(rename = "message.replied")]
-    MessageReplied { message: String, text: String },
+    MessageReplied {
+        message: String,
+        text: String,
+        /// Options the user picks from (see `choices`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<Choice>,
+    },
     /// A workspace's manager starts a message to the user (`workriver say`): shown in that
     /// workspace's conversation on the page, as the manager's. Nothing is typed anywhere.
     #[serde(rename = "message.said")]
@@ -492,6 +514,9 @@ pub enum Body {
         #[serde(default)]
         workspace: String,
         text: String,
+        /// Options the user picks from (see `choices`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<Choice>,
     },
     /// The user has read a workspace's conversation with its manager up to `at` (the time of
     /// the newest message of the manager's the page showed); the page records it.
@@ -512,6 +537,7 @@ impl Body {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
             IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
+            QuestionsRead { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
             ManagerTold { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),

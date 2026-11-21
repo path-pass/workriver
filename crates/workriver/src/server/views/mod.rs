@@ -58,9 +58,26 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                     m.delivery.as_ref().and_then(|d| d.reason.clone())
                 },
                 blocked: stuck.filter(|_| !blind).map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
-                replies: m.replies.iter().map(|r| ReplyOut { by: names.of(&r.by), text: r.text.clone(), at: r.at.clone(), unread: unread(&r.at) }).collect(),
+                replies: m
+                    .replies
+                    .iter()
+                    .enumerate()
+                    .map(|(k, r)| ReplyOut {
+                        by: names.of(&r.by),
+                        text: r.text.clone(),
+                        at: r.at.clone(),
+                        unread: unread(&r.at),
+                        choice: r.choice.clone(),
+                        answered: r.answered.clone(),
+                        open: r.choice.is_some() && state.choice_open(&m.id, k as u32 + 1),
+                    })
+                    .collect(),
                 by_manager: m.by_manager,
                 unread: m.by_manager && unread(&m.at),
+                choice: m.choice.clone(),
+                answered: m.answered.clone(),
+                open: m.choice.is_some() && state.choice_open(&m.id, 0),
+                answer: m.answer.clone(),
             }
         })
         .collect()
@@ -87,6 +104,7 @@ fn hide_unit(u: &mut Unit) {
     u.tasks.retain(|t| t.state != "unregistered");
     u.commits.retain(|c| !c.live);
     u.code.clear();
+    u.net = None;
     for c in &mut u.commits {
         c.subject.clear();
         c.author.clear();
@@ -134,10 +152,12 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
         .filter(|t| t.unit == unit && t.task == n)
         .map(|t| {
             let agent = t.name.as_ref().and_then(|name| live.iter().find(|a| &a.name == name));
+            let read = state.questions_read.get(&format!("{unit}#{n}"));
             ThreadOut {
                 id: t.id.clone(),
                 ended: t.ended,
                 live: agent.is_some(),
+                discuss: t.discuss,
                 conclusion: t.conclusion.clone(),
                 turns: state
                     .questions
@@ -146,6 +166,10 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                     .map(|q| {
                         // The agent answering it, when the runtime says it waits for a person.
                         let stuck = q.agent.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).filter(|a| q.open() && a.state == AgentState::Blocked);
+                        // A discussion's question not given yet: to the task's own agent, which
+                        // may be at work, waiting for a person, or on a blind task.
+                        let waiting = (q.discuss && q.open() && q.agent.is_none()).then(|| discussion_wait(state, live, names, unit, n)).flatten();
+                        let stuck = stuck.or(waiting.as_ref().and_then(|w| w.1));
                         Turn {
                         id: q.id.clone(),
                         by: (q.by != "user").then(|| names.of(&q.by)),
@@ -156,7 +180,9 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
                         // The agent started for it is known by the name it was given.
                         answer_by: q.answered_by.as_ref().map(|a| q.name.clone().filter(|_| q.agent.as_ref() == Some(a)).unwrap_or_else(|| names.of(a))),
                         answered_at: q.answered_at.clone(),
-                        step: q.open().then_some(if stuck.is_some() { "blocked" } else if q.agent.is_some() && agent.is_some() { "reading" } else { "starting" }),
+                        step: q.open().then_some(if stuck.is_some() { "blocked" } else if waiting.as_ref().is_some_and(|w| w.0.is_some()) { "held" } else if q.agent.is_some() && (agent.is_some() || q.discuss) { "reading" } else { "starting" }),
+                        reason: waiting.as_ref().and_then(|w| w.0.clone()).filter(|_| stuck.is_none()),
+                        unread: q.discuss && q.answered_at.as_ref().is_some_and(|at| read.is_none_or(|r| at > r)),
                         blocked: stuck.map(|a| Blocked { agent: a.name.clone(), session: a.session.clone() }),
                         consulted: q.asked.as_ref().map(|a| Consulted { agent: names.of(a), outcome: "asked" }),
                         at: q.at.clone(),
@@ -168,6 +194,46 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
             }
         })
         .collect()
+}
+
+/// Why a discussion's question waits for the task's own agent (None: it is about to be
+/// given), and that agent when it waits for a person in its terminal.
+fn discussion_wait<'a>(state: &core::State, live: &'a [RuntimeAgent], names: &Names, unit: &str, n: u32) -> Option<(Option<String>, Option<&'a RuntimeAgent>)> {
+    let a = state.task(unit, n).ok()?.agent.clone()?;
+    let name = names.of(&a);
+    if !state.blind_tasks(&a).is_empty() {
+        return Some((Some(format!("{name} is on a blind task: the question goes once that task is delivered")), None));
+    }
+    let x = live.iter().find(|x| x.session == a);
+    Some(match x.map(|x| x.state) {
+        Some(AgentState::Blocked) => (None, x),
+        Some(AgentState::Working) => {
+            let on = state.units.iter().flat_map(|u| u.tasks.iter().map(move |t| (&u.id, t))).find(|(_, t)| t.state == TaskState::Running && t.agent.as_deref() == Some(a.as_str()));
+            let on = on.map(|(o, t)| format!(" on {o}#{}", t.n)).unwrap_or_default();
+            (Some(format!("{name} is working{on}: the question goes once it is idle")), None)
+        }
+        _ => (None, None),
+    })
+}
+
+/// Whether the user may discuss delivered design or research `t` with its agent now: "open",
+/// or its gate submitted ("over"); `mark_gone` makes an open one "gone". None: not such a task.
+fn discussable(state: &core::State, owner: &str, t: &core::Task) -> Option<&'static str> {
+    if !matches!(t.kind, TaskKind::Design | TaskKind::Research) || t.state != TaskState::Done {
+        return None;
+    }
+    t.agent.as_ref()?;
+    Some(if state.result_gate(owner, t.n).is_some_and(|g| g.state == TaskState::Done) { "over" } else { "open" })
+}
+
+/// An open discussion whose agent is gone (`conversations::gone_from`: last listed on a machine
+/// whose read now is complete without it) reads "gone"; unknown is not gone.
+pub(super) fn mark_gone(ws: &mut Workspace, gone: &std::collections::HashSet<String>) {
+    for t in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()).flat_map(|u| u.tasks.iter_mut()) {
+        if t.discuss == Some("open") && t.agent_session.as_ref().is_some_and(|s| gone.contains(s)) {
+            t.discuss = Some("gone");
+        }
+    }
 }
 
 /// The id of the live commit, as in the UI's data.
@@ -455,6 +521,7 @@ fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names:
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks: u.tasks.iter().map(|t| task(state, live, u, t, names, manager, vec![])).collect(),
         commits: vec![],
+        net: None,
         code: String::new(),
         squash: None,
         overdue: None,
@@ -502,25 +569,26 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let merged = u.merged.is_some();
     // On another machine: as the background read it last (it never waits on ssh here); what
     // was read stays while the machine cannot be reached.
-    let (commits, files, patch) = if u.machine.is_some() && !cache.remote_reads {
+    let (commits, files, patch, net) = if u.machine.is_some() && !cache.remote_reads {
         let shared = cache.shared.lock().unwrap();
-        let (c, f, p) = shared.units.get(&u.id).cloned().unwrap_or_default();
-        (c, if cache.light { vec![] } else { f }, p)
+        let (c, f, p, n) = shared.units.get(&u.id).cloned().unwrap_or_default();
+        (c, if cache.light { vec![] } else { f }, p, if cache.light { None } else { n })
     } else {
         match cache.runner(u.machine.as_deref()) {
             None => Default::default(),
             Some(at) => {
-                let (c, f) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
+                let (c, f, n) = read_unit(&at, u, cache, state.progress(u) == core::Progress::Ready);
                 let p: HashMap<String, String> = c.iter().map(|x| &x.hash).chain(u.earlier.iter().flat_map(|e| &e.commits).map(|x| &x.hash)).filter_map(|h| cache.stored.patch.get(h).map(|p| (h.clone(), p.clone()))).collect();
                 if u.machine.is_some() {
-                    cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone()));
+                    cache.shared.lock().unwrap().units.insert(u.id.clone(), (c.clone(), f.clone(), p.clone(), n.clone()));
                 }
-                (c, f, p)
+                (c, f, p, n)
             }
         }
     };
-    let code = code_of(&commits, &files);
+    let code = code_of(&commits, &files, net.as_ref());
     let (commits, files) = if cache.light || cache.bare { (commits.iter().map(bare_commit).collect(), files.iter().map(scan::FileChange::bare).collect()) } else { (commits, files) };
+    let net = net.map(|(id, files)| Net { id, files: if cache.light || cache.bare { files.iter().map(scan::FileChange::bare).collect() } else { files } });
 
     // A commit linked to a task by hand: by its hash; or, for a link whose commit is gone (a
     // rebase), by the same patch id, else by the same subject and author date.
@@ -557,7 +625,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         .zip(linked)
         .map(|(c, linked)| {
             let rebased_from = again.get(&c.hash).cloned();
-            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.merge, files: c.files, linked, rebased_from }
+            Commit { id: c.id, subject: c.subject, date: c.date, author: c.author, live: false, merge: c.base_merge, files: c.files, linked, rebased_from }
         })
         .collect();
     // Uncommitted work belongs to the running implement task started last.
@@ -603,6 +671,7 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
         done_reason: u.done.as_ref().map(|d| d.reason.clone()),
         tasks,
         commits: shown,
+        net,
         code,
         squash: (progress_now == core::Progress::Ready).then(|| cache.shared.lock().unwrap().squash.get(&u.id).cloned()).flatten(),
         // Waiting for a merge too long; a spike waits for none.
@@ -703,6 +772,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             text: if t.text.is_empty() { t.title.clone() } else { t.text.clone() },
             causes: t.causes.iter().map(|c| Cause { review: c.task.to_string(), findings: c.findings.clone() }).collect(),
             steps: (t.kind == TaskKind::Gate).then(|| t.steps.clone()),
+            choice: t.choice.clone(),
         },
         output: TaskOut {
             commits: Some(commits),
@@ -720,6 +790,8 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
                     .collect()
             }),
             attachments: attachments_of(state, &t.attachments),
+            gate: state.result_gate(&u.id, t.n).map(|g| g.n.to_string()),
+            selected: t.selected.clone(),
         },
         plans: if t.state == TaskState::Done { vec![] } else { t.plans.clone() },
         // Only a gate's own message is shown on the page; the others went to the manager.
@@ -738,6 +810,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         amended: t.amended.clone(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
         stalled: None,
+        discuss: discussable(state, &u.id, t),
     }
 }
 
@@ -760,7 +833,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         reviewer: None,
         result: None,
         inputs: vec![core::Input { from: "start".into(), primary: true }],
-        input: TaskIn { text: String::new(), causes: vec![], steps: None },
+        input: TaskIn { text: String::new(), causes: vec![], steps: None, choice: None },
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
         delivery: None,
@@ -774,6 +847,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         amended: None,
         dropped: None,
         stalled: None,
+        discuss: None,
     }
 }
 

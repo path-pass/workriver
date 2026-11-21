@@ -51,6 +51,9 @@ pub struct Question {
     pub asked: Option<String>,
     pub answered_by: Option<String>,
     pub failed: Option<(ReasonCode, String)>,
+    /// Part of the user's discussion of a delivered design or research with its own agent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discuss: bool,
 }
 
 impl Question {
@@ -71,6 +74,13 @@ pub struct Thread {
     pub name: Option<String>,
     pub ended: bool,
     pub conclusion: Option<String>,
+    /// The user's discussion of its task (one per task): see `Question::discuss`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discuss: bool,
+    /// A discussion: its task was amended after it began, in event order. Worked out as the
+    /// events are applied; never stored.
+    #[serde(skip)]
+    pub amended: bool,
 }
 
 impl State {
@@ -81,12 +91,65 @@ impl State {
         }
     }
 
+    /// The task's discussion thread, if it has been discussed.
+    pub fn discussion(&self, unit: &str, task: u32) -> Option<&Thread> {
+        self.threads.iter().find(|t| t.discuss && t.unit == unit && t.task == task)
+    }
+
+    /// Refused once the gate that asks about a design or research (`result_gate`) is
+    /// submitted: what the user confirmed there is what later work follows.
+    fn gate_open(&self, unit: &str, task: u32) -> Result<(), Rejected> {
+        match self.result_gate(unit, task).filter(|g| g.state == TaskState::Done) {
+            Some(g) => no(format!("its gate {unit}#{} was submitted: the discussion of {unit}#{task} is over; a change now is a new design or research task (write to the manager)", g.n)),
+            None => Ok(()),
+        }
+    }
+
+    /// The user's question in the discussion of a delivered design or research: it joins the
+    /// task's one discussion thread (or opens it), and its agent alone answers.
+    fn prepare_discussion(&self, user: bool, asked: Body) -> Result<Body, Rejected> {
+        let Body::QuestionAsked { thread, unit, task, text, context, conclude, .. } = asked else { unreachable!("a discussion is asked") };
+        if !user {
+            return no("only the user discusses a delivered design or research, in workriver's page; to ask about a task: workriver ask <unit>#<n> \"...\"");
+        }
+        let t = self.task(&unit, task)?;
+        if !matches!(t.kind, TaskKind::Design | TaskKind::Research) {
+            return no(format!("{unit}#{task} is not a design or research task: only a delivered research or design result is discussed with its agent; write to the manager about other work"));
+        }
+        if t.state != TaskState::Done {
+            return no(format!("{unit}#{task} is not delivered yet: a result is discussed once it is delivered"));
+        }
+        if t.agent.is_none() {
+            return no(format!("{unit}#{task} has no agent to discuss it with; write to the manager"));
+        }
+        self.gate_open(&unit, task)?;
+        if blank(&text) && !conclude {
+            return no("a question needs its text");
+        }
+        for c in context.iter().filter(|c| c.kind == "attachment") {
+            let a = c.id.as_deref().unwrap_or_default();
+            if !self.pointable(&unit, task, a, true) {
+                return no(format!("attachment {a:?} is not one of {unit}#{task}'s; a question points only at what is shown with its task, or at a file the user attached to it"));
+            }
+        }
+        let id = format!("q{}", self.questions.len() + 1);
+        let thread = match (thread.is_empty(), self.discussion(&unit, task).map(|d| d.id.clone())) {
+            (true, Some(d)) => d,
+            (true, None) if conclude => return no(format!("nothing to conclude: {unit}#{task} has not been discussed yet")),
+            (true, None) => id.clone(),
+            (false, Some(d)) if d == thread => d,
+            (false, _) => return no(format!("thread {thread} is not the discussion of {unit}#{task}; leave the thread out to write in it")),
+        };
+        Ok(Body::QuestionAsked { id, thread, unit, task, text, context, conclude, discuss: true })
+    }
+
     /// The rules of a question's events: `prepare`, for these kinds.
     pub(crate) fn prepare_questions(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
         use Body::*;
         let actor = who.actor();
         let user = *who == Principal::User;
         Ok(match body {
+            asked @ QuestionAsked { discuss: true, .. } => return self.prepare_discussion(user, asked),
             QuestionAsked { thread, unit, task, text, context, conclude, .. } => {
                 // Task 0 is the unit itself: the user's to ask about; an agent asks about a task.
                 let about = match task {
@@ -125,12 +188,13 @@ impl State {
                 } else {
                     match self.threads.iter().find(|t| t.id == thread) {
                         None => return no(format!("no thread {thread}")),
+                        Some(t) if t.discuss => return no(format!("thread {thread} is a discussion of {}#{}: only the user writes in it, from workriver's page", t.unit, t.task)),
                         Some(t) if t.unit != unit || t.task != task => return no(format!("thread {thread} is about another task")),
                         Some(t) if t.ended => return no(format!("thread {thread} has ended; start a new one")),
                         Some(_) => thread,
                     }
                 };
-                QuestionAsked { id, thread, unit, task, text, context, conclude }
+                QuestionAsked { id, thread, unit, task, text, context, conclude, discuss: false }
             }
             QuestionStarted { question, agent, name, temporary } => {
                 let q = self.question(&question)?;
@@ -143,6 +207,14 @@ impl State {
                 let q = self.question(&question)?;
                 if !q.open() {
                     return no(format!("question {question} is already {}", if q.answer.is_some() { "answered" } else { "closed" }));
+                }
+                // A discussion is answered by the task's own agent alone, while its gate waits.
+                if q.discuss {
+                    let t = self.task(&q.unit, q.task)?;
+                    if !self.is_agent_of(t, actor) {
+                        return no(format!("question {question} is part of the discussion of {}#{}: it is answered by the agent of {}#{} alone", q.unit, q.task, q.unit, q.task));
+                    }
+                    self.gate_open(&q.unit, q.task)?;
                 }
                 // Only the thread's temporary agent (known by session or by name), or the user.
                 let t = self.threads.iter().find(|t| t.id == q.thread);
@@ -165,9 +237,16 @@ impl State {
             }
             ThreadEnded { thread } => match self.threads.iter().find(|t| t.id == thread) {
                 None => return no(format!("no thread {thread}")),
+                Some(t) if t.discuss => return no(format!("thread {thread} is a discussion: it is not ended; it is over once its task's gate is submitted")),
                 Some(t) if t.ended => return no(format!("thread {thread} has already ended")),
                 Some(_) => ThreadEnded { thread },
             },
+            QuestionsRead { unit, task, at } => {
+                self.task(&unit, task)?;
+                // Stored as the service writes times, so that they compare as text.
+                let Ok(t) = humantime::parse_rfc3339_weak(&at) else { return no(format!("{at:?} is not a time")) };
+                QuestionsRead { unit, task, at: humantime::format_rfc3339_seconds(t).to_string() }
+            }
             QuestionFailed { question, reason_code, reason } => {
                 if !self.question(&question)?.open() {
                     return no(format!("question {question} is already closed"));
@@ -183,9 +262,9 @@ impl State {
         use Body::*;
         let at = &e.at;
         match &e.body {
-            QuestionAsked { id, thread, unit, task, text, context, conclude } => {
+            QuestionAsked { id, thread, unit, task, text, context, conclude, discuss } => {
                 if !self.threads.iter().any(|t| &t.id == thread) {
-                    self.threads.push(Thread { id: thread.clone(), unit: unit.clone(), task: *task, agent: None, name: None, ended: false, conclusion: None });
+                    self.threads.push(Thread { id: thread.clone(), unit: unit.clone(), task: *task, agent: None, name: None, ended: false, conclusion: None, discuss: *discuss, amended: false });
                 }
                 self.questions.push(Question {
                 id: id.clone(),
@@ -205,6 +284,7 @@ impl State {
                 failed: None,
                 by: e.actor.clone(),
                 temporary: true,
+                discuss: *discuss,
                 })
             }
             QuestionStarted { question, agent, name, temporary } => {
@@ -233,6 +313,12 @@ impl State {
             ThreadEnded { thread } => {
                 if let Some(t) = self.threads.iter_mut().find(|t| &t.id == thread) {
                     t.ended = true;
+                }
+            }
+            QuestionsRead { unit, task, at: upto } => {
+                let r = self.questions_read.entry(format!("{unit}#{task}")).or_default();
+                if *upto > *r {
+                    *r = upto.clone();
                 }
             }
             QuestionFailed { question, reason_code, reason } => {

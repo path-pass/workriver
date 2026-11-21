@@ -1,7 +1,7 @@
 // Projects, their intents and the units that serve them.
 import type { Thread } from '@/conversations/types'
 import type { RuntimeState } from '@/agents/types'
-import type { Commit } from '@/code/types'
+import type { Commit, Net } from '@/code/types'
 import type { Chore, Finding, Task } from '@/work/types'
 
 /** A folder holding one or more repositories; or a repository outside every registered one. */
@@ -139,6 +139,8 @@ export interface Unit {
   tasks: Task[];
   /** Oldest first. The last one may be uncommitted work (`live`). */
   commits: Commit[];
+  /** The branch's net change against its base (the code tree with nothing picked); absent where the service could not tell. */
+  net?: Net;
   /** Which texts its files have: their texts are read again (`loadCode`) only when it changes. */
   code?: string;
   /** Ready, and every change of it is already in its base (or the base's upstream): it looks

@@ -35,6 +35,9 @@ impl App {
 
     /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
     pub(in crate::server) fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
+        // A gate and what follows it (its hook fails the discussions it ends) in order with a
+        // discussion's last check and send (`App::hand`): no question it ends is typed in after.
+        let _order = matches!(body, Body::GateSubmitted { .. }).then(|| self.discussing.lock().unwrap());
         let (actor, machine) = (who.actor(), who.machine());
         if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&body, who) {
             self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?;
@@ -52,7 +55,13 @@ impl App {
         self.deliver(&e);
         match &e.body {
             Body::ManagerRegistered { agent, .. } => self.tell_of_update(agent, true),
-            Body::QuestionAnswered { question, .. } => self.answered(question),
+            Body::QuestionAnswered { question, .. } => {
+                self.answered(question);
+                self.tell_of_discussion(&e);
+            }
+            Body::QuestionAsked { id, discuss: true, .. } => self.discuss(id),
+            Body::GateSubmitted { unit, task, .. } => self.gate_submitted(unit, *task),
+            Body::TaskAmended { .. } => self.tell_of_discussion(&e),
             Body::ThreadEnded { thread } => self.end_thread(thread),
             Body::MessageSent { id, .. } => self.tell_manager(id),
             _ => {}
@@ -179,17 +188,17 @@ impl App {
             let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
             let to = {
                 match e.body {
-                    Body::FindingNoted { .. } => delivery::notes(&all, live.as_deref(), &self.home, e),
+                    Body::FindingNoted { .. } => delivery::notes(&all, e, &self.home),
                     Body::TaskDropped { .. } => delivery::dropped(&all, live.as_deref(), e),
-                    Body::ManagerTold { .. } => delivery::told(&all, live.as_deref(), e),
+                    Body::ManagerTold { .. } => delivery::told(&all, e),
                     _ => delivery::finished(&all, live.as_deref(), e),
                 }
             };
-            for (agent, message) in to {
-                if let Err(err) = self.send(&agent, &message) {
-                    let (_, unit, task) = e.body.refs();
-                    tracing::warn!("cannot tell {agent} of {}: {err}", task.or(unit).unwrap_or_default());
-                }
+            drop(all);
+            // What the receiver must act on: held while it is on a blind task, waits for a
+            // person, is not listed or cannot be sent to; given once it can take it.
+            for (agent, text) in to {
+                self.hand(Held { question: String::new(), kind: For::Duty, to: agent.clone(), name: agent, text, not_ready: None, about: None });
             }
             return;
         }

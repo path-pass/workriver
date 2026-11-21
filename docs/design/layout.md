@@ -44,6 +44,11 @@ workriver/
 │   │       │   ├── data.rs           # WorkStore: reads at a revision, checked record, history, status,
 │   │       │   │                     # an intent's events, errors.
 │   │       │   └── tests.rs          # What every store must answer (reads that fail say so).
+│   │       ├── choices/              # A question's options as recorded: a fixed A2UI v1.0 subset;
+│   │       │   │                     # its write rule (build, check, read the values). No UI.
+│   │       │   ├── mod.rs            # Choice, ChoiceOption; new/check/options/check_answer.
+│   │       │   ├── tests.rs          # The stored form, its rules, and the A2UI schema guard.
+│   │       │   └── __fixtures__/a2ui-v1_0/  # The A2UI v1.0 JSON Schemas (Apache-2.0), vendored.
 │   │       ├── planning/             # Projects, intents, units, workspaces and their transitions.
 │   │       │   ├── mod.rs            # Planning types/exports and transition entry points.
 │   │       │   ├── intents.rs        # Roadmap; intent create/update/start/close/merge; finding policy;
@@ -57,7 +62,7 @@ workriver/
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
 │   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
 │   │       │   ├── graph.rs          # Inputs, ancestors, follow-ups, progress, readiness, and design
-│   │       │   │                     # ancestry (decide gates, superseding designs).
+│   │       │   │                     # ancestry (decide gates, superseding designs); result_gate.
 │   │       │   ├── findings.rs       # Findings, suggestions, decisions, additions, deferred batches.
 │   │       │   ├── gates.rs          # Gate submission/opening and results.
 │   │       │   ├── chores.rs         # Non-blocking chores and their completion.
@@ -65,7 +70,8 @@ workriver/
 │   │       │   └── tests.rs
 │   │       ├── conversations/        # Durable communication records.
 │   │       │   ├── mod.rs            # Question/thread/message/delivery types and transitions.
-│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks.
+│   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks; the
+│   │       │   │                     # user's discussion of a delivered result, its read mark.
 │   │       │   ├── messages.rs       # Manager messages, replies, read position, agents seen.
 │   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
 │   │       │   └── tests.rs
@@ -97,7 +103,7 @@ workriver/
 │           ├── history/
 │           │   ├── mod.rs            # Repo/rev/ref discovery, names, history exports.
 │           │   ├── branches.rs       # Branch membership, fork/squash, patch ids.
-│           │   └── commits.rs        # Batched commit/blob reads, commit metadata.
+│           │   └── commits.rs        # Batched commit/blob reads, commit metadata, where a branch meets its base, diffs.
 │           ├── files/
 │           │   ├── mod.rs            # FileChange/counts, before/after, live/worktree reads.
 │           │   └── tree.rs           # Module tree and line counts.
@@ -137,7 +143,8 @@ Core defines `WorkStore` in `ports/data.rs`; it is all the service knows of stor
   (`/api/intent/{id}/history`) goes through `App::view` and refuses a reduced view first.
 
 Named reads of one record (`unit`, `task`, `question`, `agent`, `thread`, `run`, …, and what
-a previous run left: `delivered`, `open_questions`, `held_messages`, `thread_agents`) are
+a previous run left: `delivered`, `open_questions`, `open_discussions`, `held_messages`,
+`thread_agents`) are
 provided methods over `recorded()` that a store may answer without the whole state; add one
 when it is missing. `recorded()` is used only where a function of the whole state is called
 or several records of one revision are needed. Every read returns a `Result`.
@@ -221,10 +228,12 @@ crates/workriver/
 │   │   ├── planning/mod.rs           # Intent/project/workspace/start/merge handlers.
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── conversations/
-│   │   │   ├── mod.rs                # Ask/end/reply/message/read handlers, shared state.
+│   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
 │   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
+│   │   │   ├── discussions.rs        # A discussion's question to its task's agent: hand, gone,
+│   │   │   │                         # gate submitted, restart; what the manager hears of it.
 │   │   │   ├── messages.rs           # Manager conversation send/hold/delivery/failure.
-│   │   │   └── prompts.rs            # Ask, follow-up and answer-back prompts.
+│   │   │   └── prompts.rs            # Ask, follow-up, answer-back and discussion prompts.
 │   │   ├── commands/
 │   │   │   ├── mod.rs                # Prepare/run/read/focus handlers; the user check in each.
 │   │   │   ├── shell.rs              # Command checks, marker parsing, polling, safe close.
@@ -247,7 +256,7 @@ crates/workriver/
 │   │   │   ├── mod.rs                # Workspace build, project/group derivation.
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads; an intent's
 │   │   │   │                         # history (through App::view, a reduced view refused).
-│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads.
+│   │   │   ├── code.rs               # A unit's code, light snapshots, code keys, incremental reads, net change.
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
@@ -360,19 +369,20 @@ frontend/web/
     │   ├── types.ts  source.ts  edits.ts
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
     │                                 # Merge.tsx EditIntent.tsx IntentHistory.tsx
-    ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts
+    ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
-    ├── conversations/                # types.ts select.ts Ask.tsx Turns.tsx; never imports app/
+    ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
     ├── attachments/                  # types.ts Viewer.tsx Thumbs.tsx preview.ts; Viewer calls onAsk, never Ask
     ├── commands/                     # types.ts Run.tsx context.tsx
     ├── machines/                     # types.ts format.tsx Machines.tsx Settings.tsx
     ├── session/                      # Session.tsx
-    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid);
+    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid),
+    │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
-    ├── ui/                           # primitives/ (the shadcn files) Choice.tsx Icon.tsx
+    ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx among them) Choice.tsx Icon.tsx
     │                                 # CopyButton.tsx Tip.tsx; never feature/data/API imports
     ├── lib/                          # utils.ts useResize.ts isField.ts
     ├── config/defaults.ts            # Quiet/resize/cache/preview defaults and widths.

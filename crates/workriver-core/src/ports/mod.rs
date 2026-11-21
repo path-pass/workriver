@@ -4,4 +4,4 @@ mod data;
 #[cfg(test)]
 mod tests;
 
-pub use data::{Committed, DataError, DataStatus, Delivered, History, Recorded, Revision, WorkStore};
+pub use data::{Committed, DataError, DataStatus, Delivered, Discussed, History, Recorded, Revision, WorkStore};

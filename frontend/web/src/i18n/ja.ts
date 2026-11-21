@@ -400,6 +400,7 @@ export const ja: OneForm<typeof en> = {
     log: '会話',
     questions: '質問',
     step: {
+      held: '{{agent}} を待っています。空いたら質問が入ります。',
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
       asking: '{{agent}} に確認中…',
@@ -423,6 +424,21 @@ export const ja: OneForm<typeof en> = {
     },
     conversations_other: '会話 {{count, number}} 件',
     count_other: '質問 {{count, number}} 件'
+  },
+  discuss: {
+    tag: '議論',
+    label: '{{agent}} への質問',
+    placeholder: 'この結果について {{agent}} に質問…',
+    how: 'このタスクを担当した {{agent}} に直接届き、回答はここに表示されます。終わったら「結論を依頼」を押してください。',
+    gone: '{{agent}} はもう動いていません。続けるにはマネージャーに相談してください。',
+    over: 'ゲート {{gate}} が提出されたので、議論は終わりました。ここから変えるなら新しいタスクです。マネージャーに相談してください。',
+    conclude: '結論を依頼',
+    failed: '送れませんでした：{{error}}',
+    cannot: '回答は来ません：{{reason}}',
+    held: '{{agent}} を待っています。空いたら質問が入ります。',
+    sending: '{{agent}} に送っています…',
+    reading: '{{agent}} が回答しています…',
+    atGate: '{{task}} を {{agent}} と議論'
   },
   talk: {
     title: 'マネージャー',
@@ -512,6 +528,7 @@ export const ja: OneForm<typeof en> = {
     deploy: '手動デプロイ',
     test: '手動テスト',
     decide: '設計の確認',
+    choice: '質問',
     result: '結果',
     done: '完了',
     problem: '問題あり',
@@ -521,8 +538,19 @@ export const ja: OneForm<typeof en> = {
     where: '場所：ファイルパスをカンマか改行で区切って入力',
     addFinding: '指摘を追加',
     removeFinding: 'この指摘を削除',
+    answer: '回答',
     needFinding: '「問題あり」には、何が問題かを書いた指摘が少なくとも 1 件必要です。',
     submit: '送信'
+  },
+  choice: {
+    pick: '選択肢',
+    answer: '回答する',
+    withNote: '理由が必要',
+    chose: '選択：{{label}}',
+    note: 'メモ（任意）',
+    noteNeeded: '理由（この回答には必須）',
+    needNote: 'この回答には理由のメモが必要です。',
+    closed: 'このワークスペースの以前のマネージャーの質問なので、ここでは回答できません。マネージャーに直接書いてください。'
   },
   attach: {
     add: '添付',
@@ -565,6 +593,8 @@ export const ja: OneForm<typeof en> = {
       restarted: 'サービスが再起動しました',
       blocked: '担当のエージェントがその間ずっとターミナルで回答を待っていました',
       'not-ready': '新しいエージェントがプロンプトを受け付ける状態になりませんでした。そのターミナルは {{runtime}} に残してあります',
+      'agent-gone': 'このタスクを担当したエージェントはもう動いていません',
+      'gate-submitted': 'ゲートが提出されたので、議論は終わりました',
       unknown: '理由が不明です'
     },
     failed: '記録できませんでした：サービスが受け付けませんでした'

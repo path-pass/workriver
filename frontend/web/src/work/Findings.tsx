@@ -31,7 +31,9 @@ export function DeliveryLine({ id, sent, message }: { id: string; sent?: Sent; m
   const act = useAct()
   const local = act.delivery[id]
   const text = sent?.message ?? act.message[id]
-  if (sent && (!local || local.step === 'recorded')) {
+  // The service's receipt, once there is one: over this page's attempt, even one it did not
+  // take (another tab's result was recorded first).
+  if (sent && (!local || local.step === 'recorded' || local.step === 'failed')) {
     const to = sent.to ?? ''
     const steps: [Sent['step'], string][] = sent.step === 'not-delivered'
       ? [['not-delivered', t('deliver.notDelivered', { reason: sent.reasonCode ? t(`deliver.reason.${sent.reasonCode}`) : t('deliver.reason.unknown') })]]

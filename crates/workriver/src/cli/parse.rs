@@ -102,3 +102,36 @@ pub(super) fn parse_evidence(s: &str) -> anyhow::Result<Value> {
     }
     Ok(json!({ "command": cmd.trim(), "result": result, "summary": summary.trim() }))
 }
+
+/// `--option ID=LABEL` (repeated, in the order shown) and `--require-note ID`: the stored
+/// choice of a decide gate or a manager's message (core checks it), or none without options.
+pub(crate) fn parse_choice(options: &[String], require_note: &[String]) -> anyhow::Result<Option<Value>> {
+    if options.is_empty() {
+        if !require_note.is_empty() {
+            bail!("--require-note goes with --option: it names an option whose answer needs a note");
+        }
+        return Ok(None);
+    }
+    let options = options
+        .iter()
+        .map(|o| match o.split_once('=') {
+            Some((value, label)) => Ok(core::ChoiceOption { value: value.trim().to_string(), label: label.trim().to_string() }),
+            None => Err(anyhow!("--option takes ID=LABEL (e.g. --option 'review=Review again'): {o}")),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let notes: Vec<String> = require_note.iter().map(|n| n.trim().to_string()).collect();
+    Ok(Some(serde_json::to_value(core::Choice::new(&options, &notes))?))
+}
+
+/// Whether a question asked without options lists some in its words (then the command says
+/// how to give them; a hint, never a refusal).
+pub(crate) fn lists_options(texts: &[&str]) -> bool {
+    const WORDS: [&str; 7] = ["选一个", "选项", "还是", "choose", "pick", "one of", "option"];
+    texts.iter().any(|t| {
+        let t = t.to_lowercase();
+        WORDS.iter().any(|w| t.contains(w)) || t.contains('／') || t.matches(" / ").count() >= 2 || t.contains(" | ")
+    })
+}
+
+/// What `lists_options` makes a command print after it recorded.
+pub(crate) const OPTIONS_HINT: &str = "hint: this lists options; give them with --option ID=LABEL each so the user picks one, unless it confirms a design (workriver guide how ask-user)";

@@ -158,9 +158,31 @@ impl State {
         if !t.inputs.iter().any(|i| i.primary) {
             t.inputs[0].primary = true;
         }
+        self.check_choice(&owner, &t)?;
         t.n = count as u32 + 1;
         t.intent = intent;
         Ok(t)
+    }
+
+    /// A choice gate's place: a decide gate, after no design and blocking nothing; and no task
+    /// hangs after one not answered yet (an answer is not a go: the manager adds what follows).
+    fn check_choice(&self, owner: &str, t: &NewTask) -> Result<(), Rejected> {
+        let inputs = || t.inputs.iter().filter_map(|i| i.from.parse::<u32>().ok()).filter_map(|n| self.task(owner, n).ok());
+        if let Some(open) = inputs().find(|g| g.choice.is_some() && !g.state.over()) {
+            return no(format!("{owner}#{} asks the user to choose; add what follows once it is answered", open.n));
+        }
+        let Some(c) = &t.choice else { return Ok(()) };
+        if t.kind != TaskKind::Gate || t.gate != Some(GateKind::Decide) {
+            return no("options are for a decide gate: --kind gate --gate decide");
+        }
+        if t.blocks.is_some() {
+            return no("a blocker carries no choices; tell your manager: workriver manager tell <task> --text \"...\"");
+        }
+        // As `designs_asked` sees it: a design before it, directly or through reviews.
+        if inputs().any(|b| b.kind == TaskKind::Design || (b.kind == TaskKind::Review && !self.designs_asked(owner, b.n).is_empty())) {
+            return no("a design is confirmed with a decide gate without --option; put the choices in --text");
+        }
+        c.check()
     }
 
     pub(crate) fn task_mut(&mut self, unit: &str, n: u32) -> Option<&mut Task> {
@@ -187,6 +209,11 @@ impl State {
                 {
                     let r = format!("{}#{b}", t.unit);
                     return no(format!("a blocker before {r} is put by the agent of {r}, the manager of its intent, or the user; to tell the manager: workriver manager tell {r} --text \"...\""));
+                }
+                // Options to pick from are asked by the intent's manager or the user.
+                if t.choice.is_some() && !user && self.intent_of(&t.unit).and_then(|i| self.manager_of(i)) != Some(actor) {
+                    let intent = self.intent_of(&t.unit).unwrap_or_default();
+                    return no(format!("choices are asked by the manager of intent {intent} (or the user); tell your manager: workriver manager tell <task> --text \"...\""));
                 }
                 TaskCreated(self.prepare_task(t)?)
             }
@@ -296,6 +323,7 @@ impl State {
                         plans: t.plans.clone(),
                         blind: t.blind,
                         blocks: t.blocks,
+                        choice: t.choice.clone(),
                         // A gate opens (waits for the user) once what it follows is done.
                         state: TaskState::Todo,
                         by: e.actor.clone(),
@@ -306,8 +334,10 @@ impl State {
                         evidence: vec![],
                         findings: vec![],
                         result: None,
+                        selected: vec![],
                         delivery: None,
                         amended: None,
+                        read_before: vec![],
                         waiting_since: None,
                         attachments: vec![],
                         dropped: None,
@@ -371,7 +401,20 @@ impl State {
                 }
             }
             TaskAmended { unit, task, note, evidence, findings, attachments, add } => {
+                // The reviews of it under way or done read the text this replaces.
+                let started: Vec<u32> = self
+                    .tasks_of(unit)
+                    .map(|ts| ts.iter().filter(|r| r.kind == TaskKind::Review && r.state != TaskState::Todo && r.dropped.is_none() && self.before(unit, r.n).contains(task)).map(|r| r.n).collect())
+                    .unwrap_or_default();
+                if let Some(th) = self.threads.iter_mut().find(|th| th.discuss && &th.unit == unit && th.task == *task) {
+                    th.amended = true;
+                }
                 if let Some(t) = self.task_mut(unit, *task) {
+                    for r in started {
+                        if !t.read_before.contains(&r) {
+                            t.read_before.push(r);
+                        }
+                    }
                     t.findings.extend(add.iter().cloned().map(open));
                     t.attachments.extend(attachments.iter().cloned());
                     if let Some(n) = note {

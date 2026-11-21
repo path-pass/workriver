@@ -400,6 +400,7 @@ export const zhCN: OneForm<typeof en> = {
     log: '对话',
     questions: '提问',
     step: {
+      held: '等 {{agent}}：它空下来后问题会自动发进去。',
       starting: '正在启动 agent…',
       reading: '正在读记录和代码…',
       asking: '正在问 {{agent}}…',
@@ -423,6 +424,21 @@ export const zhCN: OneForm<typeof en> = {
     },
     conversations_other: '{{count, number}} 段对话',
     count_other: '{{count, number}} 个提问'
+  },
+  discuss: {
+    tag: '讨论',
+    label: '问 {{agent}} 的问题',
+    placeholder: '就这个结果问 {{agent}}…',
+    how: '直接发给做这个任务的 {{agent}}，回答显示在这里。讨论完了点「请它写结论」。',
+    gone: '{{agent}} 已经不在运行：请问 manager 怎么继续。',
+    over: 'gate {{gate}} 已经提交，讨论已结束。现在要改就是新任务，请问 manager。',
+    conclude: '请它写结论',
+    failed: '没有发出：{{error}}',
+    cannot: '不会有回答了：{{reason}}',
+    held: '等 {{agent}}：它空下来后问题会自动发进去。',
+    sending: '正在发给 {{agent}}…',
+    reading: '{{agent}} 正在回答…',
+    atGate: '和 {{agent}} 讨论 {{task}}'
   },
   talk: {
     title: '管理者',
@@ -512,6 +528,7 @@ export const zhCN: OneForm<typeof en> = {
     deploy: '手动部署',
     test: '手动试用',
     decide: '确认方案',
+    choice: '选择题',
     result: '结果',
     done: '做完了',
     problem: '有问题',
@@ -521,8 +538,19 @@ export const zhCN: OneForm<typeof en> = {
     where: '出处：文件路径，用逗号或换行分开',
     addFinding: '再加一个问题',
     removeFinding: '删掉这个问题',
+    answer: '回答',
     needFinding: '有问题时至少要写一个问题，说清哪里不对。',
     submit: '提交'
+  },
+  choice: {
+    pick: '选项',
+    answer: '回答',
+    withNote: '要写原因',
+    chose: '选了：{{label}}',
+    note: '备注（可不填）',
+    noteNeeded: '原因（选这一项要写）',
+    needNote: '选这一项要写明原因。',
+    closed: '这是本工作区之前的管理者问的，这里已经不能回答。请直接写给管理者。'
   },
   attach: {
     add: '添加图片',
@@ -565,6 +593,8 @@ export const zhCN: OneForm<typeof en> = {
       restarted: '服务重启了',
       blocked: '它的 agent 一直在终端里等人回答',
       'not-ready': '新启动的 agent 一直没准备好接收提问；它的终端还在 {{runtime}} 里留着',
+      'agent-gone': '做这个任务的 agent 已经不在运行',
+      'gate-submitted': '它的 gate 已经提交，讨论已结束',
       unknown: '没有说明原因'
     },
     failed: '没记下：服务没有收下'

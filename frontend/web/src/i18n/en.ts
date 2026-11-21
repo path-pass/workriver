@@ -411,6 +411,7 @@ export const en = {
     log: 'Conversation',
     questions: 'Questions',
     step: {
+      held: 'Waiting for {{agent}}: it goes in once {{agent}} is free.',
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
       asking: 'Asking {{agent}}…',
@@ -438,6 +439,21 @@ export const en = {
     conversations_other: '{{count, number}} conversations',
     count_one: '{{count, number}} question asked',
     count_other: '{{count, number}} questions asked'
+  },
+  discuss: {
+    tag: 'Discussion',
+    label: 'Question to {{agent}}',
+    placeholder: 'Ask {{agent}} about this result…',
+    how: 'Goes straight to {{agent}}, who did this task; the answer shows here. Draft conclusion when you are done.',
+    gone: '{{agent}} is no longer running: ask the manager to go on.',
+    over: 'The gate {{gate}} was submitted: the discussion is over. A change now is a new task; ask the manager.',
+    conclude: 'Draft conclusion',
+    failed: 'Not sent: {{error}}',
+    cannot: 'No answer will come: {{reason}}',
+    held: 'Waiting for {{agent}}: it goes in once {{agent}} is free.',
+    sending: 'Going to {{agent}}…',
+    reading: '{{agent}} is answering…',
+    atGate: 'Discuss {{task}} with {{agent}}'
   },
   talk: {
     title: 'Manager',
@@ -529,6 +545,7 @@ export const en = {
     deploy: 'Manual deploy',
     test: 'Manual test',
     decide: 'Confirm design',
+    choice: 'Question',
     result: 'Result',
     done: 'Done',
     problem: 'Problem',
@@ -538,8 +555,19 @@ export const en = {
     where: 'Where: file paths, comma or line separated',
     addFinding: 'Add a finding',
     removeFinding: 'Remove this finding',
+    answer: 'Answer',
     needFinding: 'A problem needs at least one finding with what is wrong.',
     submit: 'Submit'
+  },
+  choice: {
+    pick: 'Options',
+    answer: 'Answer',
+    withNote: 'say why',
+    chose: 'Chose: {{label}}',
+    note: 'Note (optional)',
+    noteNeeded: 'Why (needed for this answer)',
+    needNote: 'This answer needs a note saying why.',
+    closed: 'Asked by an earlier manager of this workspace: it can no longer be answered here. Write to the manager instead.'
   },
   attach: {
     add: 'Attach',
@@ -582,6 +610,8 @@ export const en = {
       restarted: 'the service restarted',
       blocked: 'its agent waited for an answer in its terminal the whole time',
       'not-ready': 'its new agent never got ready for a prompt; its terminal is left open in {{runtime}}',
+      'agent-gone': 'the agent that did the task is no longer running',
+      'gate-submitted': 'its gate was submitted, so the discussion is over',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'
