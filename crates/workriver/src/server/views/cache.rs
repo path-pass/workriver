@@ -37,7 +37,7 @@ pub(in crate::server) struct Cache {
     /// Each repository's refs and work trees, read once per build.
     pub(super) refs: HashMap<String, HashMap<String, String>>,
     pub(super) worktrees: HashMap<String, HashMap<String, std::path::PathBuf>>,
-    /// This build: the files each code unit changes (`changed_paths`), by unit.
+    /// This build: the files each open code unit changes (`changed_paths`, `open_work`), by unit.
     pub(super) changed: HashMap<String, BTreeSet<String>>,
     /// Units found merged in git and not yet recorded so: (unit, its commits).
     pub(in crate::server) merged_now: Vec<(String, Vec<String>)>,

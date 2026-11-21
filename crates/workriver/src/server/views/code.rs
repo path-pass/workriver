@@ -365,39 +365,32 @@ pub(super) fn earlier_commits(u: &core::Unit, now: &[scan::Commit], patch: &Hash
 }
 
 /// The files a unit changes, as its code tree shows them with nothing picked (the page's
-/// `fileDelta` over all its commits, uncommitted work last): a file whose git entry (mode and
-/// object id) before the first of them that touches it differs from its entry after the
-/// last. Uncommitted work's side has no object id (git has not hashed it): the one its text
-/// would get stands for it, so a file changed back to what it was is not there either.
-pub(super) fn changed_paths(commits: &[scan::Commit], files: &[scan::FileChange]) -> BTreeSet<String> {
-    let mut ends: HashMap<&str, (&scan::FileChange, &scan::FileChange)> = HashMap::new();
-    for f in commits.iter().flat_map(|c| &c.files).chain(files) {
+/// `wholeDelta`): its net change against its base (`net`) with its uncommitted work on top,
+/// a file whose entry where the first of them starts differs from its entry where the last
+/// ends; without a net change (git could not tell), its commits and uncommitted work taken
+/// together (the page's `fileDelta`), a file there at neither end left out. An empty net
+/// change is the unit's: its commits do not stand in for it. Texts must be there: uncommitted
+/// work's side has no object id (git has not hashed it), so its text is compared, as the
+/// page compares it.
+pub(super) fn changed_paths(commits: &[&scan::Commit], live: &[scan::FileChange], net: Option<&[scan::FileChange]>) -> BTreeSet<String> {
+    let mut ends: BTreeMap<&str, (&scan::FileChange, &scan::FileChange)> = BTreeMap::new();
+    let earlier: Vec<&scan::FileChange> = match net {
+        Some(net) => net.iter().collect(),
+        None => commits.iter().flat_map(|c| &c.files).collect(),
+    };
+    for f in earlier.into_iter().chain(live) {
         ends.entry(&f.path).and_modify(|e| e.1 = f).or_insert((f, f));
     }
-    ends.into_iter()
-        .filter(|(_, (first, last))| {
-            let unhashed = last.after_id.bytes().all(|b| b == b'0') && last.after_mode != GONE;
-            let after = if unhashed { last.after.as_deref().map(|t| blob_id(t, first.before_id.len())) } else { Some(last.after_id.clone()) };
-            first.before_mode != last.after_mode || after.as_deref() != Some(first.before_id.as_str())
-        })
-        .map(|(p, _)| p.to_string())
-        .collect()
+    let gone = |first: &scan::FileChange, last: &scan::FileChange| net.is_none() && first.before_mode == GONE && last.after_mode == GONE;
+    ends.into_iter().filter(|(_, (first, last))| !gone(first, last) && !same(first, last)).map(|(p, _)| p.to_string()).collect()
+}
+
+/// Whether a file is the same at two ends (the page's `same`): the same mode and object id;
+/// for a side git has not hashed (uncommitted work), the same text.
+fn same(first: &scan::FileChange, last: &scan::FileChange) -> bool {
+    let unhashed = last.after_mode != GONE && last.after_id.bytes().all(|b| b == b'0');
+    first.before_mode == last.after_mode && if unhashed { first.before == last.after } else { first.before_id == last.after_id }
 }
 
 /// git's mode for a side that does not exist.
 const GONE: &str = "000000";
-
-/// The object id git gives a file of text `text`, in a repository whose ids are `len`
-/// characters long (40: SHA-1; 64: SHA-256).
-fn blob_id(text: &str, len: usize) -> String {
-    use sha1::Digest;
-    fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
-    let head = format!("blob {}\0", text.len());
-    if len == 64 {
-        hex(&sha2::Sha256::new().chain_update(&head).chain_update(text).finalize())
-    } else {
-        hex(&sha1::Sha1::new().chain_update(&head).chain_update(text).finalize())
-    }
-}

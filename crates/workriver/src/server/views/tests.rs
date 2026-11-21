@@ -47,9 +47,10 @@ fn the_code_token_follows_uncommitted_entries() {
     }
 }
 
-/// A unit's changed files are what its code tree shows with nothing picked (the page's
-/// `fileDelta` over all its commits): git entries compared at the ends, uncommitted work's
-/// side by the object id its text would get.
+/// The files a unit changes are what its code tree shows with nothing picked (the page's
+/// `wholeDelta`): its net change with uncommitted work on top, each file's entry at the start
+/// against its entry at the end; uncommitted work's side, which git has not hashed, by its
+/// text. Without a net change, its commits taken together (the page's `fileDelta`).
 #[test]
 fn a_units_changed_files_are_its_net_change() {
     const GONE: &str = "000000";
@@ -68,25 +69,35 @@ fn a_units_changed_files_are_its_net_change() {
         after_id: after.1.into(),
     };
     let commit = |files: Vec<scan::FileChange>| scan::Commit { id: "c".into(), hash: "c".into(), subject: String::new(), date: String::new(), author: String::new(), task: None, merge: false, parents: vec![], base_merge: false, files };
+    // A merge of the base brought base.txt in: in the commits, not in the net change.
     let commits = [
-        commit(vec![
-            f("kept.txt", ("100644", one), ("100644", two), (None, None)),
-            f("back.txt", ("100644", one), ("100644", two), (None, None)),
-            f("gone.txt", (GONE, &zero), ("100644", one), (None, None)),
-            f("mode.sh", ("100644", one), ("100755", two), (None, None)),
-            f("undone.txt", ("100644", one), ("100644", two), (None, None)),
-        ]),
-        commit(vec![f("gone.txt", ("100644", one), (GONE, &zero), (None, None)), f("mode.sh", ("100755", two), ("100755", one), (None, None))]),
+        commit(vec![f("kept.txt", ("100644", one), ("100644", two), (Some("one\n"), Some("one\ntwo\n"))), f("back.txt", ("100644", one), ("100644", two), (Some("caf\u{fffd}\n"), Some("two\n")))]),
+        commit(vec![f("base.txt", (GONE, &zero), ("100644", one), (None, Some("one\n")))]),
+    ];
+    let net = [
+        f("kept.txt", ("100644", one), ("100644", two), (Some("one\n"), Some("one\ntwo\n"))),
+        f("back.txt", ("100644", one), ("100644", two), (Some("caf\u{fffd}\n"), Some("two\n"))),
+        f("mode.sh", ("100644", one), ("100755", one), (Some("one\n"), Some("one\n"))),
     ];
     let live = [
-        // Changed back to the base's text in the work tree: not a change any more.
-        f("back.txt", ("100644", two), ("100644", &zero), (Some("one\ntwo\n"), Some("one\n"))),
-        // Changed in the work tree alone.
+        // Changed back to the base's text (not UTF-8: read lossily on both sides alike).
+        f("back.txt", ("100644", two), ("100644", &zero), (Some("two\n"), Some("caf\u{fffd}\n"))),
+        // Changed in the work tree alone; and changed there and back.
         f("new.txt", (GONE, &zero), ("100644", &zero), (None, Some("one\n"))),
-        f("undone.txt", ("100644", two), ("100644", &zero), (Some("one\ntwo\n"), Some("one\ntwo\nthree\n"))),
+        f("same.txt", ("100644", one), ("100644", &zero), (Some("one\n"), Some("one\n"))),
+        // A file of the net change deleted in the work tree.
+        f("mode.sh", ("100755", one), (GONE, &zero), (Some("one\n"), None)),
     ];
-    let got: Vec<String> = changed_paths(&commits, &live).into_iter().collect();
-    assert_eq!(got, ["kept.txt", "mode.sh", "new.txt", "undone.txt"]);
+    let refs: Vec<&scan::Commit> = commits.iter().collect();
+    let got = |live: &[scan::FileChange], net: Option<&[scan::FileChange]>| changed_paths(&refs, live, net).into_iter().collect::<Vec<_>>();
+    assert_eq!(got(&live, Some(&net)), ["kept.txt", "mode.sh", "new.txt"]);
+    assert_eq!(got(&[], Some(&net)), ["back.txt", "kept.txt", "mode.sh"]);
+    assert!(got(&[], Some(&[])).is_empty(), "an empty net change is the unit's, whatever its commits hold");
+    // No net change: the commits (and uncommitted work) taken together, base.txt with them.
+    assert_eq!(got(&live, None), ["base.txt", "kept.txt", "mode.sh", "new.txt"]);
+    // A file the work added and deleted again is not there at either end.
+    let gone = [commit(vec![f("tmp.txt", (GONE, &zero), ("100644", one), (None, Some("one\n")))]), commit(vec![f("tmp.txt", ("100644", one), (GONE, &zero), (Some("one\n"), None))])];
+    assert!(changed_paths(&gone.iter().collect::<Vec<_>>(), &[], None).is_empty());
 }
 
 /// A unit `u1` working on `feature` from `main` in `repo`.
