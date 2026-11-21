@@ -385,6 +385,7 @@ frontend/web/
     │   ├── types.ts  source.ts  edits.ts
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
     │                                 # Merge.tsx EditIntent.tsx IntentHistory.tsx
+    │                                 # classify.ts (kind, size, tags, the rail's filter) Sort.tsx (their chips and fields)
     ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
@@ -398,7 +399,7 @@ frontend/web/
     ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid),
     │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
-    ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx among them) Choice.tsx Icon.tsx
+    ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx and popover.tsx among them) Choice.tsx Icon.tsx
     │                                 # CopyButton.tsx Tip.tsx; never feature/data/API imports
     ├── lib/                          # utils.ts useResize.ts isField.ts
     ├── config/defaults.ts            # Quiet/resize/cache/preview defaults and widths.

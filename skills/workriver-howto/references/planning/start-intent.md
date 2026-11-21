@@ -14,7 +14,8 @@ page ("Start" in the roadmap, picking your workspace) or sets its project; ask t
 (`ask-user`), then go on. Another project's intent the user starts, in a workspace of that
 project or, confirming it, in yours.
 
-Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>"`, then start it.
+Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>" [--kind K]
+[--size S] [--tag T]...`, then start it.
 Only for a goal the user named. A step or part of a goal you are already on is never an
 intent of its own: it goes into that intent, as a task of its unit or a line in a task's
 text (`units`).
@@ -40,6 +41,17 @@ research unit and a decide gate `--after start` asking the user whether to go on
 it in a workspace of that project (`ask-user`), and wait. `workriver intent start` of another
 project's intent than your workspace's (by the records) is refused; one the records allow is
 recorded with a `warning:` line when your pane's folder says another project.
+
+**Its kind, size and tags:** when you split it, set a kind it lacks and the size you judge,
+with `workriver intent set i3 [--kind feature|fix|chore|research] [--size s|m|l] [--tags
+a,b] --base N` (each replaces what is there; `none` clears it). S: one unit, one round of
+implement and review (hours); M: one or two units, a few review rounds (a day or two); L:
+three units or more, or a design first (days). Do not change a kind, size or tags the user
+set (`workriver intent history i3` shows who set what): if you think one is wrong, tell the
+user why. The first unit's branch prefix follows the kind (`units`). You set them only while
+the intent is active and yours; a planned, done or dropped intent's are the user's. When the
+user changes them you hear `kind fix; size M; tags «security, cli»` in the same notice as a
+title or goal.
 
 **You will see:** `i3 active`. New units here go to the intent started last, unless you
 name one. Research or design for the intent as a whole is a research unit (`units`), not a
@@ -76,7 +88,8 @@ delivered on the page: ask the user to paste it to you.
 **Refusals:** "only the manager of workspace … starts intents there" - run
 `workriver manager here` first, in your own pane. "intent i3 is done; it cannot become
 active" - add a new one. "the title and goal of i3 are the user's" - ask the user; write
-what you know in its note. "give --base N" - read `workriver intent history i3` first.
+what you know in its note. "i7 is planned: its kind, size and tags are the user's" - start it
+first, or ask the user; write what you think in its note. "give --base N" - read `workriver intent history i3` first.
 "i7 belongs to project …; your workspace's project is not known" - ask the user to set it
 (Settings, or `workriver workspace project`), or to start i7 in your workspace on the page.
 "i3 belongs to project Q; your workspace works on P" - not yours to start: ask the user.

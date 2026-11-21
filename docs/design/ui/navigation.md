@@ -82,12 +82,32 @@ its sections went.
   marks), everything else about the intent is on the line under it. The handle is a small hook of ours (`frontend/web/src/lib/useResize.ts`), written so the side
   panel could use it too: react-resizable-panels measured +15.3 kB gzip for this one
   handle, which is the case the "prefer a library" rule excepts.
+- **Kind, size and tags in the rail.** An intent's kind (feature, fix, chore, research: closed,
+  translated) and estimated size (S, M, L) show as one quiet chip, the kind's label and the
+  size (`Fix · S`), neutral (colour means the state of work, `presentation.md`; a kind has
+  none): on a planned row's second line, before its link chip, and at the start of an active
+  or done intent's status line; no chip when neither is set; the size's meaning on hover.
+  Tags (free words, content, never translated) are not in the rail; the row's tooltip lists
+  them. A quiet filter button in the rail's top row (left of the fold button; a number when
+  filters are on) opens a popover in the page's colours: kinds, sizes (each with what it
+  means) and the tags of the intents shown, the most used first, each a checkbox. Within a
+  group any one ticked passes, the groups together; an intent without the field is left out.
+  It narrows Active, Roadmap and Done alike; a line under the top row says "Filtered: 12 of
+  31" (of the intents shown, dropped ones not counted) with "Clear". It is remembered per
+  project (`workriver.filter.<folder>`, `*` for all), like the project switch. The roadmap is
+  never re-sorted by it: its order is the user's priority; drag and Alt+↑/↓ move a row
+  relative to the rows shown, recorded before or after that row as without a filter. Search
+  matches a tag too: an intent whose tag holds the text shows with all its units, a planned
+  one with its row. The inline "+" has a kind select under the goal (optional, "Kind" as
+  placeholder); size and tags are set on the page. Sorting or grouping by kind is not the
+  rail's (a board view of intents would do it, from the same fields).
 
 ## An intent's page
 
 - **An intent's page** (`/i3`, `workriver link i3`; its title in the rail opens it): its id
-  and title with "copy link" and a quiet pencil (edit), its state, "Ready to close", its link
-  chip; its goal under it, and under that, once it has more than one version, a quiet line
+  and title with "copy link" and a quiet pencil (edit), its state, its kind and size chip
+  (as in the rail), "Ready to close", its link chip; its tags as chips on a line under the
+  title; its goal under it, and under that, once it has more than one version, a quiet line
   "v5 · edited 2d ago by claude 1 · History" ("by you" for the user; the date on hover). Then a
   block with its note (short Markdown with links, as an agent's longer text; folded past six
   lines; `workriver intent set i3 --add-note` adds a paragraph) and where it runs: the
@@ -105,12 +125,17 @@ its sections went.
 - **Editing** is a dialog opened by the pencil, on every state (the page is the user's, who
   edits every field of every intent; who else may is in `docs/security.md`): Title (one line,
   required), Goal (two rows), Note (a textarea, Markdown, with a Write / Preview switch; the
-  preview renders as the note does). Save records only the fields that changed against the
+  preview renders as the note does), then Kind (a select, "Not set" first), Size (S / M / L /
+  Not set, a segmented control; what each means is read out) and Tags (a token input: Enter
+  or a comma adds one, × or Backspace in the empty field removes one, leaving the field adds
+  what is typed; the project's tags are offered as one types; at most eight, kept
+  lower-case). Save records only the fields that changed against the
   intent as the dialog opened it, with that version as `base`: the page reading the
   workspace again meanwhile changes neither (the same for a restore). The note is saved as
   written, its indentation and blank lines included (they are Markdown); spaces at the ends
-  of the title and goal are not kept. Save is disabled when nothing changed or the title is
-  blank. Cancel and Escape close it. Not inline: three fields, a conflict and a preview need
+  of the title and goal are not kept. A kind or size cleared is sent as null, tags cleared as
+  an empty list; one not changed is not sent at all, so it stays as it is. Save is disabled when nothing changed or the title is
+  blank. Cancel and Escape close it. Not inline: six fields, a conflict and a preview need
   one place.
 - **A conflict**: when a field it saves was changed meanwhile, the service refuses it; the
   dialog stays open with the user's text and, for every field it would save that changed
@@ -122,13 +147,15 @@ its sections went.
 - **The history** is a dialog opened by "History": the versions, the newest first, each with
   its number, who (an agent with its robot mark, as the manager's decisions are shown; "you"
   for the user), how long ago (the date on hover) and what it changed in words ("title, goal
-  and note", "added to the note", "created", "i7 merged in"); beside them (above them on a
+  and note", "added to the note", "created", "i7 merged in", "kind and size", "tags"); beside them (above them on a
   narrow screen) the one picked, the newest at first: title, goal and note against the
   version before it, word by word (removed struck through in the removed colour, added in the
   added colour; words as the language has them, so Chinese and Japanese are not split mid
-  word), only what changed; "Whole text" shows it whole, the note rendered. The first version
+  word), only what changed, kind, size and tags in words ("Not set" for none); "Whole text"
+  shows it whole, the note rendered, its kind and size chip and tags under the goal. The first version
   is shown whole. "Restore this version" (not on the newest) opens the edit dialog filled with
-  it, saying which version it restores; saving makes it a new version, nothing is removed.
+  it, saying which version it restores, its kind, size and tags included; saving makes it a
+  new version, nothing is removed.
   Its versions are read when it opens (`/api/intent/{id}/history`), not with the page.
 
 ## Merging planned intents
@@ -139,7 +166,11 @@ its sections went.
   holds something (tasks, units, backlog findings, chores) is shown but cannot be ticked, and
   says why. With two or more ticked: which one stays (a select among them), its title
   (prefilled from it and following it until the user writes one), and a line saying what
-  happens: the others are dropped and what they said goes into its note. Merge and Cancel;
+  happens: the others are dropped and what they said goes into its note. The one that stays
+  keeps its kind and size; the user's merge gives it the tags of all (its own first, at most
+  eight), each merged one's kind, size and tags going into its block of the note
+  (`fix · S · security, cli`). An agent's merge (`workriver backlog merge`, of intents agents
+  added) keeps the target's tags as they are and writes the merged ones' only into the note. Merge and Cancel;
   the service's refusal shows in the dialog. Escape closes it and focus goes back to "Merge…".
 
 ## The side panel

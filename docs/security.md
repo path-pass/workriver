@@ -117,6 +117,17 @@ to be, and you can restore any of them on the intent's page; when you change an 
 intent, its manager is told, your words quoted. Its history is read like the rest
 (`App::view`); an agent on a blind task cannot read it, since it holds the note.
 
+An intent's kind, size and tags follow the same rules, with less for agents: whoever adds an
+intent sets them in the same record (an agent's `backlog add`, an import); after that you
+change them on any intent, its manager while it is active, and nobody else: a planned, done
+or dropped intent's are yours alone (a manager that may add to a planned one's note sets
+none of them). They are versions like the title (a change from an older version is refused
+when that field changed since). A manager is asked by its instructions, not stopped by a
+rule, to leave what you set as it is; the history shows who set what. Merging intents never
+widens what an agent may change: an agent's merge of agents' intents keeps the target's
+tags as they are (the merged ones' are written into its note); only your merge adds them,
+as a new version of its tags.
+
 Since these rules go by the intent's state and by the project its workspace works on, who
 moves an intent and which project a workspace works on are held as well. An active intent is
 marked done, put back in the roadmap or dropped by you or its manager only. A manager starts

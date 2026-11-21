@@ -46,6 +46,11 @@ For each, keep:
 - **source** (findings): the heading of the section the item sits in, plus anything the
   item says about where it came from (task, reviewer, branch, date), e.g.
   `"## settings-sync 遗留 / Task 1 review, opus + Codex"`.
+- **kind, size, tags** (intents): `--kind` when the source says it (a bug list is `fix`, a
+  refactor or release list `chore`, an open question `research`, new behaviour `feature`);
+  leave it out when it does not. `--size` only when the source estimates it. A few `--tag`s
+  from its headings (the area or theme: `security`, `cli`), lower-case, no spaces; none
+  rather than one per item.
 - **external id**: a tracker key in the item (`ABC-123`, a Jira/Linear/GitHub link) as
   `--external <system>:<KEY>` and its link as `--url`.
 
@@ -61,7 +66,7 @@ the file. If you have many more intents than that, regroup.
 Show the user, before adding anything:
 
 - the target project (title and folder);
-- one table in file order: `# | kind (intent/finding/chore) | severity | title or problem | from (its source items: "L12-18, 5 bullets") | source | external`;
+- one table in file order: `# | kind (intent/finding/chore) | severity | title or problem | intent kind, size, tags | from (its source items: "L12-18, 5 bullets") | source | external`;
 - what you will skip and why, and any severity you mapped.
 
 Then stop and wait for an explicit yes. Apply the user's corrections and show the table
@@ -72,7 +77,7 @@ again if they changed much.
 One command per row, in the table's order (that order becomes the roadmap's order).
 Pass multi-line notes as one quoted argument.
 
-    workriver backlog add "<title>" --goal "<one sentence>" --project <P> [--note "<note>"] [--external <system>:<KEY> --url <link>]
+    workriver backlog add "<title>" --goal "<one sentence>" --project <P> [--kind feature|fix|chore|research] [--size s|m|l] [--tag <tag>]... [--note "<note>"] [--external <system>:<KEY> --url <link>]
     workriver backlog add-finding --project <P> --severity P1|P2|P3 --problem "<problem>" [--impact "<if left>"] [--where <path>]... [--source "<origin>"] [--note "<fix / context>"] [--external <system>:<KEY> --url <link>]
     workriver chore add --project <P> --title "<what the user should do>" [--step "<step>" | --step "<step> => <command>"]...
 
