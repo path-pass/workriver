@@ -9,10 +9,13 @@
 
 You start intents of the project your workspace works on by the records only: the one the
 user set (`workriver workspace list`), else that of its current intent, else that of the
-intents that ran in it. A new workspace has none: the user starts its first intent on the
+intents that ran in it. An intent's project is the one recorded on it when it was added,
+never where its units are. A new workspace has none: the user starts its first intent on the
 page ("Start" in the roadmap, picking your workspace) or sets its project; ask them
 (`ask-user`), then go on. Another project's intent the user starts, in a workspace of that
-project or, confirming it, in yours.
+project or, confirming it, in yours. `workriver manager here` and `workriver intent start`
+run from your own pane only: both are recorded for the workspace you run in, as the runtime
+names it.
 
 Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>" [--kind K]
 [--size S] [--tag T]...`, then start it.
@@ -99,3 +102,9 @@ starts it.
 in the roadmap: ask the user. "workspace … has a manager running: X" - a workspace has one
 manager; you are a worker there, not its manager: tell the user, who closes X first if you
 are to take over. "an agent manages the workspace it runs in" - run it in your own pane.
+"an agent starts intents in the workspace it runs in" - the same for `intent start`: run it
+in your own pane. "workspace docs is already recorded for another open workspace (…); two
+open workspaces have one name" - another open workspace has the same name as yours, and
+workriver tells workspaces apart by name: ask the user to rename one of them (`ask-user`),
+then run it again; nothing is recorded for your workspace until then. "a state change names
+a workspace only when it starts an intent" - `intent done` and `intent drop` name none.

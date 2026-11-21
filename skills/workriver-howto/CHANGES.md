@@ -4,6 +4,25 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-21
 
+- **Who sets an intent's project, workspace and manager** (managers): only the user, or a
+  start the rules checked. What changes for you:
+  - Units of an intent are added by its manager or the user (`workriver unit add` from
+    another agent is refused: "only the user or the manager of intent i3 (boss) adds its
+    units"); an intent in the roadmap, or running where nobody registered, has no manager
+    ("i7 has no manager: …"): start it first, or ask the user.
+  - An intent's project is the one recorded on it, never its units'. If your `intent start`
+    or `--add-note` is now refused with "your workspace's project is not known", ask the
+    user to set your workspace's project (Settings, or `workriver workspace project`).
+  - `workriver intent start`, like `manager here`, runs from your own pane only, and is
+    recorded for the workspace you run in as the runtime names it ("an agent starts intents
+    in the workspace it runs in").
+  - Both are refused in a workspace that has the name of another open workspace ("workspace
+    docs is already recorded for another open workspace (…)"): ask the user to rename one.
+  - `intent done` and `intent drop` name no workspace (the CLI never did; nothing to change).
+  - You manage the intents of the workspace you registered in. A registration for one intent
+    (`manager here --intent`, old prompts) no longer follows the intent into a workspace
+    where you are not registered.
+  (`start-intent`, `units`)
 - **An intent has a kind, a size and tags** (managers): `feature`, `fix`, `chore` or
   `research`; an estimated size `s`, `m` or `l`; up to 8 free tags (lower-case, no space or
   comma). All optional. Set them when you add one (`workriver backlog add … --kind fix

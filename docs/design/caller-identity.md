@@ -240,6 +240,22 @@ Agents run under the user's account, and this check does not change that.
     not open to this; a harness the runtime cannot tell from its screen would be.
   - **Two places showing a session at first sight** are both refused: a way to stop an
     agent's first calls.
+  - **A workspace's record is found by its label once its id is gone**, and the runtime's
+    socket renames and closes workspaces. The service records an agent's workspace as the
+    runtime names it (never as a request does), and refuses a group whose record is another
+    workspace still open (`not_another_open` in `App::record`: every event that names a
+    group, the user's too; an unreadable runtime refuses). So two open workspaces that share
+    a label are refused, not matched. What is left goes through the socket only:
+    - an agent gives its own workspace the label a link names: when that label is next
+      recorded, from the runtime, the link resolves to the first local record that has it,
+      and the linked workspace's intents are that record's manager's;
+    - an agent closes a workspace and gives its own that label: a group with no record of
+      its own is then matched to the closed one's record (the restart case, which is what
+      the label is for), with its manager's seat and its intents. Any local record is open
+      to this, not only one a link names.
+
+    workriver does not see either happen, and no request to workriver does it. The rules in
+    core take a workspace as an event names it; only the service knows the runtime.
 - **Typing into another terminal.** The runtime lets any agent type into any place: a
   command typed into agent B's place is B's, one typed into a place with no agent is the
   user's.

@@ -166,7 +166,13 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
   Every failure there is a refusal: no branch falls through to the user or to another
   agent. No harness is named in code or in a refusal; what a harness needs is in the
   `hand-off` recipe. Text written by agents or the user goes
-  into messages only through `quote.rs`. Reading is scoped the same way: a route that
+  into messages only through `quote.rs`. An intent's project, the workspace it runs in and
+  its manager are set only by the user or by a start the rules checked (`docs/security.md`):
+  a workspace an agent's event names is recorded as the runtime gives it
+  (`callers_workspace`), and every event that names a runtime group passes
+  `not_another_open`, both in `App::record`; a new kind that names a workspace joins them,
+  and the rules never read an intent's project from its units (`intent_project`). Reading is
+  scoped the same way: a route that
   returns records goes through `App::view` (the user sees all; an agent sees all unless it
   is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new
   read route that skips it breaks blind reviews.

@@ -57,7 +57,8 @@ workriver/
 │   │       │   ├── history.rs        # An intent's versions and a version's text, rebuilt from its events.
 │   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links.
 │   │       │   ├── projects.rs       # Projects, runtime workspace associations, links, current intent.
-│   │       │   └── tests.rs
+│   │       │   ├── tests.rs
+│   │       │   └── tests/ownership.rs  # Who sets an intent's project, workspace and manager.
 │   │       ├── work/                 # The task graph and its outcomes; no IO.
 │   │       │   ├── mod.rs            # Task/input/evidence types, task-ref parser, entry points.
 │   │       │   ├── tasks.rs          # Create/start/deliver/amend/drop, ownership, lookup.
@@ -156,11 +157,15 @@ conflict error, since one service writes. `DataError` is `Rejected` (a broken ru
 `Rejected` inside), `Unavailable` or `Corrupt`, the last two with the storage's own text;
 the service answers 422 for a broken rule and 500 otherwise.
 
-`App::record` keeps, outside the adapter, what surrounds a write: `may_manage` and
-`complete` before it, and after the commit, in this order, delivery, the kind's follow-up,
-the branch watch and the page's signal. `may_manage` also gives the caller's workspace as
-the runtime has it, and `record` puts that in place of the one a registration names: the
-label a request gives is never recorded. A requirement added to a task (`task.noted`) is
+`App::record` keeps, outside the adapter, what surrounds a write: `may_manage`, the
+workspace checks and `complete` before it, and after the commit, in this order, delivery,
+the kind's follow-up, the branch watch and the page's signal. `callers_workspace` gives the
+caller's workspace as the runtime has it, and `record` puts that in place of the one an
+agent's registration or start names: the label a request gives is never recorded.
+`not_another_open` refuses a group whose record is another workspace still open, for every
+event that names a group (a registration, a start, `intent.created` with a group,
+`intent.linked`, `workspace.project_set`), whoever sends it (`caller-identity.md`,
+section 6). A requirement added to a task (`task.noted`) is
 told apart: the append handler calls `App::noted` after the commit, which tells the task's
 agent (found in the runtime now, not the last poll) and gives how far that got, answered
 beside the recorded event. An agent not found while machines are followed may have started
@@ -221,7 +226,8 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/complete/may_manage/noted/give_notes, post-commit order.
+│   │   │   ├── record.rs             # App::record/complete/may_manage, the workspace checks, noted/give_notes,
+│   │   │   │                         # post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
 │   │   │   ├── mod.rs                # App::who/user/view/here, the Caller and the Reader.
@@ -289,7 +295,8 @@ crates/workriver/
 │   │       ├── guards.rs             # The service's guards (guards.md).
 │   │       ├── route-access.txt  page-json.txt   # What they pin.
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
-│   │       └── commands.rs  machines.rs  files.rs  views.rs
+│   │       ├── commands.rs  machines.rs  files.rs  views.rs
+│   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
 │   │   ├── mod.rs                    # Neutral construction/context/wording facade (connect,
 │   │   │                             # caller_place, words, remote_ref, Settings); picks the adapter.
