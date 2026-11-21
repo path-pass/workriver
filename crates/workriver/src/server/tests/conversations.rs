@@ -886,6 +886,107 @@ fn the_user_writes_to_every_manager() {
     assert!(message()["to"].as_array().unwrap().iter().flat_map(|c| c["replies"].as_array().unwrap()).all(|r| r["unread"] != true));
 }
 
+/// Three managers here (boss of chat, web, old) and one on machine box (far, in its chat),
+/// all registered, with the service following box: what the tests of a message to every
+/// manager start from. `link`: box's chat is linked to this local label before far
+/// registers (none: far registers first).
+struct EveryManager {
+    _tmp: tempfile::TempDir,
+    d: Daemon,
+    local: std::sync::Arc<Fake>,
+    far: std::sync::Arc<Fake>,
+    all: std::sync::Arc<crate::runtime::follow::Machines>,
+}
+
+fn every_manager(link: Option<&str>) -> EveryManager {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let mut web = live("s-web", "web", "w2", Idle);
+    web.group.as_mut().unwrap().label = "web".into();
+    let mut old = live("s-old", "old", "w3", Idle);
+    old.group.as_mut().unwrap().label = "old".into();
+    *local.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), web), ("p3".into(), old), ("p4".into(), live("s-w", "w", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
+    let options = crate::server::Options { machines: Some(all.clone()), allow_as: true, ..kernel.options() };
+    let runtime = all.clone();
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    manage(&d, "p1", "s-boss");
+    manage(&d, "p2", "s-web");
+    manage(&d, "p3", "s-old");
+    let remote = at_place(&kernel.daemon(all.local_port("box").unwrap(), None, None), "p1");
+    let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
+    if let Some(label) = link {
+        d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": label })).unwrap();
+    }
+    remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
+    EveryManager { _tmp: tmp, d, local, far, all }
+}
+
+impl EveryManager {
+    /// The copy of message m1 to the manager of this name, as the page reads it.
+    fn copy(&self, manager: &str) -> serde_json::Value {
+        self.d.get("/api/workspace").unwrap()["messages"][0]["to"].as_array().unwrap().iter().find(|c| c["manager"] == manager).cloned().unwrap_or_else(|| panic!("no copy to {manager}"))
+    }
+}
+
+/// A manager on record whose workspace was linked to another since (far, of box's chat, now
+/// one with the local chat that boss manages) is no manager now: the message goes to the
+/// current managers, as the page names them, and is not refused for it.
+#[test]
+fn every_manager_is_the_current_one_after_a_link() {
+    let t = every_manager(None);
+    t.d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
+    t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    let to = t.d.get("/api/workspace").unwrap()["messages"][0]["to"].clone();
+    let mut managers: Vec<&str> = to.as_array().unwrap().iter().map(|c| c["manager"].as_str().unwrap()).collect();
+    managers.sort();
+    assert_eq!(managers, ["boss", "old", "web"], "{to}");
+}
+
+/// A manager on another machine that registered in a workspace linked to a local one keeps
+/// where it runs: its copy is on its machine, and its terminal says so.
+#[test]
+fn a_far_manager_of_a_linked_workspace_keeps_its_machine() {
+    let t = every_manager(Some("linked-chat"));
+    t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    let copy = t.copy("far");
+    assert_eq!((copy["workspace"].as_str(), copy["machine"].as_str()), (Some("chat"), Some("box")), "{copy}");
+    let terminal = t.far.sent.lock().unwrap().iter().find(|(_, text)| text.contains("message m1")).unwrap().1.clone();
+    assert!(terminal.contains("answer for your own workspace, \"chat\" on machine box, only"), "{terminal}");
+}
+
+/// A copy whose manager cannot be reached for now (its machine's runtime does not answer as
+/// the copy is given) waits and is given once it can be: never not delivered for that.
+#[test]
+fn a_copy_not_reachable_for_now_waits() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let t = every_manager(None);
+    let far = t.far.clone();
+    *t.local.on_send.lock().unwrap() = Some(Box::new(move |to| {
+        if to == "s-boss" {
+            far.down.store(true, SeqCst);
+        }
+    }));
+    t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
+    wait_until("boss has its copy", || t.copy("boss")["step"] == "delivered");
+    let waiting = t.copy("far");
+    assert_eq!(waiting["step"], "sending", "{waiting}");
+    t.far.down.store(false, SeqCst);
+    t.all.poll_all();
+    wait_until("far has its copy", || t.copy("far")["step"] == "delivered");
+    assert_eq!(t.far.sent.lock().unwrap().iter().filter(|(_, text)| text.contains("message m1")).count(), 1);
+}
+
 /// A question's options, both ways it is asked: a decide gate and a manager's message. The user
 /// answers through the page's own routes; the page reads the options, the pick and whether a
 /// conversation's question is still open; the manager is told the option. `task show` prints

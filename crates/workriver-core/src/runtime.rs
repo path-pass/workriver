@@ -70,6 +70,9 @@ impl Root {
 pub enum RuntimeError {
     #[error("no agent runtime is connected")]
     None,
+    /// The runtime of the agent's machine cannot be reached now: nothing was given to it.
+    #[error("{0}")]
+    Unreachable(String),
     #[error("no live agent {0}")]
     NoAgent(String),
     #[error("{0}")]

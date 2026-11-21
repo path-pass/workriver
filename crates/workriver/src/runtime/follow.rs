@@ -322,11 +322,11 @@ impl Machines {
 }
 
 /// `f` on a machine's runtime; at once an error while its connection is down, so nothing
-/// waits on a socket that leads nowhere.
+/// waits on a socket that leads nowhere (`Unreachable`: nothing was given there).
 fn on<T>(e: &Entry, f: &impl Fn(&dyn Runtime) -> Result<T, RuntimeError>) -> Result<T, RuntimeError> {
     let t = e.tunnel.lock().unwrap().clone();
     if !t.up {
-        return Err(RuntimeError::Failed(format!("machine {} is disconnected{}; workriver connects again by itself", e.label, t.since.map(|s| format!(" since {s}")).unwrap_or_default())));
+        return Err(RuntimeError::Unreachable(format!("machine {} is disconnected{}; workriver connects again by itself", e.label, t.since.map(|s| format!(" since {s}")).unwrap_or_default())));
     }
     f(e.runtime.as_ref())
 }

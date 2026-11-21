@@ -51,8 +51,9 @@ pub struct Message {
     pub answer: Option<Answer>,
 }
 
-/// A manager a message to every manager goes to: the workspace it manages, as recorded, and
-/// where its copy is (`None`: not given yet; never in the event that sends it).
+/// A manager a message to every manager goes to: the group it runs in when it is sent (on its
+/// machine; its workspace is that group's), and where its copy is (`None`: not given yet;
+/// never in the event that sends it).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Recipient {
     pub workspace: RuntimeRef,
@@ -95,15 +96,18 @@ impl State {
         self.agents.iter().find(|a| a.session == session).map(|a| a.name.as_str())
     }
 
-    /// Every workspace's manager on record, here and on other machines, once each: whom a
-    /// message to every manager may go to (the service takes those running).
-    pub fn managers(&self) -> Vec<Recipient> {
+    /// The managers running now, here and on other machines, once each: whom a message to
+    /// every manager goes to. Each agent in `live` that manages its group's workspace now (a
+    /// linked group of another machine: the local workspace it is linked to), as the page
+    /// names a manager; with that group, so that its copy keeps where it runs.
+    pub fn managers_among(&self, live: &[crate::runtime::RuntimeAgent]) -> Vec<Recipient> {
         let mut out: Vec<Recipient> = vec![];
-        for w in &self.workspaces {
-            if let Some(m) = &w.manager
-                && !out.iter().any(|r| &r.manager == m)
+        for a in live {
+            if let Some(g) = &a.group
+                && self.workspace_of(g).and_then(|w| w.manager.as_deref()) == Some(a.session.as_str())
+                && !out.iter().any(|r| r.manager == a.session)
             {
-                out.push(Recipient { workspace: w.group.clone(), manager: m.clone(), delivery: None });
+                out.push(Recipient { workspace: g.clone(), manager: a.session.clone(), delivery: None });
             }
         }
         out
@@ -225,8 +229,9 @@ impl State {
                 if !intent.is_empty() || !unit.is_empty() || task != 0 {
                     return no("a message to every manager is about no intent or unit; only the user's own files go with it");
                 }
-                // Each the manager of its workspace on record, once; a blind one is not
-                // refused: its copy waits for that task (the service holds it).
+                // Each the manager now of the workspace of the group it runs in (a linked group:
+                // the local workspace), once; a blind one is not refused: its copy waits for
+                // that task (the service holds it).
                 let mut seen: Vec<&str> = vec![];
                 for r in &to {
                     if self.workspace_of(&r.workspace).and_then(|w| w.manager.as_deref()) != Some(r.manager.as_str()) {

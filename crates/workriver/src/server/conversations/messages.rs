@@ -2,12 +2,12 @@
 use super::*;
 
 impl App {
-    /// Whom a message to every manager goes to: each workspace's manager on record that runs
-    /// now, here or on a followed machine. Refused when none does, or the runtime cannot say.
+    /// Whom a message to every manager goes to: each workspace's manager now that runs, here
+    /// or on a followed machine, where it runs. Refused when none does, or the runtime cannot say.
     pub(super) fn running_managers(&self) -> Result<Vec<core::Recipient>, ApiError> {
         let all = self.store.lock().unwrap().recorded()?;
         let live = self.runtime.agents().map_err(|_| ApiError(axum::http::StatusCode::SERVICE_UNAVAILABLE, words::NOT_CONNECTED.into()))?;
-        let to: Vec<core::Recipient> = all.managers().into_iter().filter(|r| live.iter().any(|a| a.session == r.manager)).collect();
+        let to = all.managers_among(&live);
         if to.is_empty() {
             return Err(bad("no manager is running; a manager registers with `workriver manager here`".into()));
         }

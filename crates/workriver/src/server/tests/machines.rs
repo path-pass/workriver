@@ -330,7 +330,10 @@ fn units_on_another_machine() {
     assert!(shown.place.unwrap().disconnected_since.is_some());
     // A message for an agent there is refused at once, saying why.
     let started = std::time::Instant::now();
-    let e = workriver_core::runtime::Runtime::send(all.as_ref(), "s-worker", "hi").unwrap_err().to_string();
+    let e = workriver_core::runtime::Runtime::send(all.as_ref(), "s-worker", "hi").unwrap_err();
+    // Nothing was typed: the error says so, and what waits to be given waits on.
+    assert!(matches!(e, workriver_core::runtime::RuntimeError::Unreachable(_)), "{e:?}");
+    let e = e.to_string();
     assert!(started.elapsed() < std::time::Duration::from_millis(200) && e.contains("machine box is disconnected since "), "{e}");
     assert!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "y", "repo": path(&there), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
     std::fs::remove_file(&slow).unwrap();

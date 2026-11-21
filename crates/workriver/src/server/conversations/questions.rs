@@ -164,6 +164,10 @@ impl App {
                 Ok(()) => return,
                 Err(RuntimeError::Blocked(_)) => h.not_ready = None,
                 Err(RuntimeError::NotReady(_)) => not_ready(&mut h),
+                // The user's message to a manager whose runtime cannot be reached now: nothing
+                // was typed, so it waits and is tried again (`poll`) until the manager takes it
+                // or is gone. Not one that may have been typed: that is not given twice.
+                Err(RuntimeError::None | RuntimeError::Unreachable(_)) if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
                 Err(e) => {
                     return match h.kind {
                         For::Message | For::Broadcast => self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::RuntimeError, &format!("cannot give {} the message: {e}", h.name)),

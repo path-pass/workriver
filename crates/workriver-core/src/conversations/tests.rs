@@ -342,8 +342,20 @@ fn the_user_writes_to_every_manager() {
     s.append(&remote, crate::records::tests::body(json!({"kind": "manager.registered", "body": {"agent": "far", "workspace": far}}))).unwrap();
     add(&mut s, "user", json!({"kind": "attachment.added", "body": {"id": "00000000000000e1", "name": "shot.png", "type": "image/png", "size": 3}})).unwrap();
 
-    // Every manager on record, one copy each.
-    let every = s.state().managers();
+    // Every manager running, one copy each, in the group it runs in; an agent that manages
+    // nothing, or none in no group, gets none.
+    let runs = |session: &str, group: &serde_json::Value| crate::runtime::RuntimeAgent {
+        session: session.into(),
+        harness: "claude".into(),
+        state: crate::runtime::AgentState::Idle,
+        cwd: String::new(),
+        group: serde_json::from_value(group.clone()).ok(),
+        name: session.into(),
+        topic: None,
+        machine: group.get("machine").and_then(|m| m.as_str()).map(str::to_string),
+    };
+    let live = [runs("boss", &w1), runs("worker", &w1), runs("web", &w2), runs("far", &far), runs("lost", &json!(null))];
+    let every = s.state().managers_among(&live);
     let named: Vec<(&str, &str, Option<&str>)> = every.iter().map(|r| (r.manager.as_str(), r.workspace.label.as_str(), r.workspace.machine.as_deref())).collect();
     assert_eq!(named, [("boss", "chat", None), ("web", "web", None), ("far", "api", Some("box"))]);
     let to = |list: &[&crate::Recipient]| serde_json::to_value(list).unwrap();
@@ -413,6 +425,53 @@ fn the_user_writes_to_every_manager() {
     add(&mut s, "user", json!({"kind": "messages.read", "body": {"workspace": "", "at": "2026-11-21T10:00:00Z"}})).unwrap();
     assert_eq!(s.state().read[""], "2026-11-21T10:00:00Z");
     assert!(add(&mut s, "user", json!({"kind": "messages.read", "body": {"workspace": " ", "at": "2026-11-21T10:00:00Z"}})).unwrap_err().contains("which workspace's conversation"));
+    assert_eq!(replayed(&s), *s.state());
+}
+
+/// Who manages a workspace now, for a message to every manager, is read as the page reads
+/// it: a running agent whose group's workspace (a linked group: the local one) it manages.
+/// One that registered on another machine before its workspace was linked to a local one
+/// with a manager of its own manages nothing now: it gets no copy, and a copy to it is
+/// refused. One that registered on another machine after the link manages the local
+/// workspace, and its copy keeps where it runs.
+#[test]
+fn every_manager_is_the_current_one_where_it_runs() {
+    let mut s = Records::default();
+    let (chat, web) = (json!({"id": "w1", "label": "chat"}), json!({"id": "w2", "label": "web"}));
+    let (far_chat, far_api) = (json!({"id": "w1@box", "label": "chat", "machine": "box"}), json!({"id": "w2@box", "label": "api", "machine": "box"}));
+    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": chat}})).unwrap();
+    add(&mut s, "web", json!({"kind": "manager.registered", "body": {"agent": "web", "workspace": web}})).unwrap();
+    let on_box = |session: &str| Principal::Agent { session: session.into(), machine: Some("box".into()) };
+    let register = |s: &mut Records, session: &str, group: &serde_json::Value| s.append(&on_box(session), crate::records::tests::body(json!({"kind": "manager.registered", "body": {"agent": session, "workspace": group}}))).unwrap();
+    // far registered first, then its workspace was made one with the local chat.
+    register(&mut s, "far", &far_chat);
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "chat", "local": "chat"}})).unwrap();
+    // box's api was linked to the local web first; then api's manager registered: it
+    // manages web now.
+    add(&mut s, "user", json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "api", "local": "web"}})).unwrap();
+    register(&mut s, "api", &far_api);
+    let runs = |session: &str, group: &serde_json::Value| crate::runtime::RuntimeAgent {
+        session: session.into(),
+        harness: "claude".into(),
+        state: crate::runtime::AgentState::Idle,
+        cwd: String::new(),
+        group: serde_json::from_value(group.clone()).ok(),
+        name: session.into(),
+        topic: None,
+        machine: group.get("machine").and_then(|m| m.as_str()).map(str::to_string),
+    };
+    let live = [runs("boss", &chat), runs("web", &web), runs("far", &far_chat), runs("api", &far_api)];
+    let every = s.state().managers_among(&live);
+    let named: Vec<(&str, &str, Option<&str>)> = every.iter().map(|r| (r.manager.as_str(), r.workspace.label.as_str(), r.workspace.machine.as_deref())).collect();
+    assert_eq!(named, [("boss", "chat", None), ("api", "api", Some("box"))]);
+    let say = |to: &[&crate::Recipient]| json!({"kind": "message.sent", "body": {"text": "I shut down at six.", "to": to}});
+    let mut stale = every[0].clone();
+    stale.manager = "far".into();
+    stale.workspace = serde_json::from_value(far_chat.clone()).unwrap();
+    assert!(add(&mut s, "user", say(&[&stale])).unwrap_err().contains("far is not the manager of workspace \"chat\""));
+    let e = add(&mut s, "user", say(&every.iter().collect::<Vec<_>>())).unwrap();
+    let Body::MessageSent { to, .. } = &e.body else { panic!() };
+    assert_eq!(to[1].workspace.machine.as_deref(), Some("box"), "where it runs: {to:?}");
     assert_eq!(replayed(&s), *s.state());
 }
 
