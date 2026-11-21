@@ -760,7 +760,11 @@ export const en = {
   change: {
     A: 'Added',
     M: 'Modified',
-    D: 'Deleted'
+    D: 'Deleted',
+    binary: 'Binary files differ',
+    pointerMoved: 'Submodule commit {{from}} → {{to}}',
+    pointerAdded: 'Submodule at commit {{to}}',
+    pointerRemoved: 'Submodule was at commit {{from}}'
   },
   code: {
     none: 'No changes.',

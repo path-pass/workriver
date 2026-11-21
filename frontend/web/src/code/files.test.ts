@@ -110,22 +110,70 @@ describe('the code tree shows the net change', () => {
     expect(fileRows(u)).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
   })
 
-  // A submodule pointer: scan's text is the pointed-to commit's when the repository has it,
-  // empty when not; the pointer is the entry's id either way.
-  for (const [objects, a, b] of [['present', 'tree a\n', 'tree b\n'], ['missing', '', '']]) {
-    const pointer = (from: string, to: string, ids: [string, string]) => change('sub', from, to, ['160000', '160000'], ids)
-    const A = '1'.repeat(40), B = '2'.repeat(40)
+  // A submodule pointer: scan gives it no text (its commit is the entry's id), so no lines.
+  const pointer = (ids: [string | null, string | null]): FileChange => ({
+    path: 'sub', status: ids[0] === null ? 'A' : ids[1] === null ? 'D' : 'M', before: null, after: null, add: 0, del: 0, lines: [],
+    beforeMode: ids[0] === null ? GONE : '160000', afterMode: ids[1] === null ? GONE : '160000', beforeId: ids[0] ?? NULL, afterId: ids[1] ?? NULL,
+  })
+  const A = '1'.repeat(40), B = '2'.repeat(40)
 
-    it(`a submodule pointer moved stays (objects ${objects})`, () => {
-      const u = unit([commit('c1', [pointer(a, b, [A, B])])])
-      expect(scopes(u, 'sub').map(([, s]) => s)).toEqual(['M', 'M'])
-    })
+  it('a submodule pointer moved stays, as the pointer: its two commits, no lines', () => {
+    const u = unit([commit('c1', [pointer([A, B])])])
+    expect(scopes(u, 'sub')).toEqual([[{ status: 'M', add: 0, del: 0, inPick: true }, 'M'], [{ status: 'M', add: 0, del: 0, inPick: true }, 'M']])
+    for (const pick of [null, 't1']) {
+      const d = shownDelta(u, selectionOf(u, pick ? { kind: 'task', id: pick } : null), 'sub')!
+      expect(d.parts.map(p => p.pointer)).toEqual([{ from: A, to: B }])
+    }
+  })
 
-    it(`a submodule pointer moved and moved back is no change (objects ${objects})`, () => {
-      const u = unit([commit('c1', [pointer(a, b, [A, B])]), commit('c2', [pointer(b, a, [B, A])])])
-      expect(scopes(u, 'sub')).toEqual([[null, null], [null, null]])
-    })
-  }
+  it('a submodule added or removed: the pointer on its one side', () => {
+    expect(shownDelta(unit([commit('c1', [pointer([null, B])])]), selectionOf(unit([]), null), 'sub')?.parts[0].pointer).toEqual({ from: null, to: B })
+    const gone = unit([commit('c1', [pointer([A, null])])])
+    expect(shownDelta(gone, selectionOf(gone, null), 'sub')?.parts[0].pointer).toEqual({ from: A, to: null })
+  })
+
+  it('a submodule pointer moved and moved back is no change', () => {
+    const u = unit([commit('c1', [pointer([A, B])]), commit('c2', [pointer([B, A])])])
+    expect(scopes(u, 'sub')).toEqual([[null, null], [null, null]])
+  })
+
+  // A binary file: scan gives it no texts and no counts, as git says "Binary files differ".
+  const binary = (path: string, ids: [string | null, string | null]): FileChange => ({
+    path, status: ids[0] === null ? 'A' : ids[1] === null ? 'D' : 'M', before: null, after: null, add: 0, del: 0, lines: [], binary: true,
+    beforeMode: ids[0] === null ? GONE : '100644', afterMode: ids[1] === null ? GONE : '100644', beforeId: ids[0] ?? NULL, afterId: ids[1] ?? NULL,
+  })
+
+  it('a binary file added, changed or deleted is there, with no lines, picked or not', () => {
+    const u = unit([commit('c1', [binary('new.png', [null, A]), binary('keep.ts', ['k', A]), binary('old/base.ts', ['b', null])])])
+    for (const [path, status] of [['new.png', 'A'], ['keep.ts', 'M'], ['old/base.ts', 'D']]) {
+      expect(scopes(u, path)).toEqual([[{ status, add: 0, del: 0, inPick: true }, status], [{ status, add: 0, del: 0, inPick: true }, status]])
+      expect(shownDelta(u, selectionOf(u, null), path)?.parts.map(p => p.binary)).toEqual([true])
+    }
+  })
+
+  it('a binary file changed and changed back is no change', () => {
+    const u = unit([commit('c1', [binary('keep.ts', ['k', A])]), commit('c2', [binary('keep.ts', [A, 'k'])])])
+    expect(scopes(u, 'keep.ts')).toEqual([[null, null], [null, null]])
+  })
+
+  it('a text file made binary: binary, its old lines not counted as removed', () => {
+    const u = unit([commit('c1', [change('keep.ts', 'k\n', 'k2\n')]), commit('c2', [binary('keep.ts', ['k2\n', A])])])
+    expect(fileRows(u)).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+    expect(shownDelta(u, selectionOf(u, null), 'keep.ts')?.parts.map(p => p.binary)).toEqual([true])
+  })
+
+  it('a binary file changed in parts (other work between): each part changed, by its entries', () => {
+    const u = unit([commit('c1', [binary('keep.ts', ['k', A])]), commit('c2', [binary('keep.ts', [A, B])]), commit('c3', [binary('keep.ts', [B, 'k3'])])],
+      [task('t1', ['c1', 'c3']), task('t2', ['c2'])])
+    const d = shownDelta(u, selectionOf(u, { kind: 'task', id: 't1' }), 'keep.ts')!
+    expect(d.parts.map(p => [p.status, p.binary])).toEqual([['M', true], ['M', true]])
+  })
+
+  it('uncommitted binary work: its id (hashed by scan) says whether it changed', () => {
+    const live = (id: string) => ({ ...commit('live', [binary('keep.ts', [A, id])]), live: true })
+    expect(fileRows(unit([commit('c1', [binary('keep.ts', ['k', A])]), live('k')]))).toEqual({})
+    expect(fileRows(unit([commit('c1', [binary('keep.ts', ['k', A])]), live(B)]))).toEqual({ 'keep.ts': { status: 'M', add: 0, del: 0, inPick: true } })
+  })
 
   it('uncommitted work that undoes a commit is no change; git has not hashed it, so its text stands for its id', () => {
     const live = (after: string) => ({ ...commit('live', [{ ...change('keep.ts', 'k2\n', after), afterId: NULL }]), live: true })

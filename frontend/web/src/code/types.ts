@@ -51,7 +51,11 @@ export interface FileChange {
    * leaves the texts out (null here, `lines` empty): a unit's come with its code (`loadCode`).
    */
   before: string | null;
-  /** The whole file after this commit; null when the commit deletes it. */
+  /**
+   * The whole file after this commit; null when the commit deletes it. Null on both sides of
+   * a binary change and on a side that is a submodule's pointer (no text): see `binary` and
+   * the modes.
+   */
   after: string | null;
   /** Lines added and removed: from the service, or worked out from the texts. */
   add: number;
@@ -67,7 +71,15 @@ export interface FileChange {
   beforeId: string;
   afterMode: string;
   afterId: string;
+  /** Either side is binary (git: "Binary files differ"): no texts, no line counts. */
+  binary?: boolean;
 }
+
+/** A submodule's pointer at the ends of a change: its commits, null where an end is not one. */
+export interface Pointer { from: string | null; to: string | null }
+
+/** What a change is that has no lines: a binary file's, or a submodule pointer's. */
+export interface Kind { binary?: boolean; pointer?: Pointer }
 
 /**
  * A unit's net change against its base, as `git diff base...head` names it: from where the
@@ -136,7 +148,9 @@ export interface FileDelta {
   parts: FilePart[]
 }
 
-export interface FilePart { touched: number[]; upTo: number; before: string | null; after: string | null; add: number; del: number }
+/** One stretch of a file's change; how it changed is from its ends' entries (a binary file and a
+ *  submodule pointer have no texts to tell it by). */
+export interface FilePart extends Kind { touched: number[]; upTo: number; status: 'A' | 'M' | 'D'; before: string | null; after: string | null; add: number; del: number }
 
 /** A commit opened from the panel: the code block shows it. `at` changes with every request. */
 export type CommitFocus = { unit: string; id: string; at: number }

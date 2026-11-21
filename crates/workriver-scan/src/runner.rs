@@ -61,6 +61,26 @@ impl Runner {
         }
     }
 
+    /// A file there that git does not track yet, as `git add` would take it: a symlink
+    /// (true) with where it points, or the file's bytes. None if it cannot be read.
+    pub(crate) fn read_new(&self, path: &Path) -> Option<(bool, Vec<u8>)> {
+        match self {
+            Runner::Local => match std::fs::symlink_metadata(path).ok()?.is_symlink() {
+                true => self.read_link(path).map(|t| (true, t)),
+                false => self.read(path).map(|b| (false, b)),
+            },
+            // One process, as reading the file alone is: its first byte says which it is.
+            Runner::Ssh { .. } => {
+                let script = r#"if [ -L "$1" ]; then printf L && readlink -- "$1"; else printf F && cat -- "$1"; fi"#;
+                let out = self.command(&["sh", "-c", script, "sh", &path.to_string_lossy()]).output().ok().filter(|o| o.status.success())?.stdout;
+                match out.split_first()? {
+                    (b'L', t) => Some((true, t.strip_suffix(b"\n").unwrap_or(t).to_vec())),
+                    (_, b) => Some((false, b.to_vec())),
+                }
+            }
+        }
+    }
+
     /// Where a symlink there points; None if it is not one.
     pub(crate) fn read_link(&self, path: &Path) -> Option<Vec<u8>> {
         match self {

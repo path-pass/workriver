@@ -11,9 +11,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primit
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { Switch } from '@/ui/primitives/switch'
 import type { Selection } from '@/work/select'
-import { changeOf, fileTree, filterTree, ROOT, shownDelta } from './files'
+import { changeOf, fileTree, filterTree, kindOf, ROOT, shownDelta } from './files'
 import type { Pick } from '@/work/types'
-import type { Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus } from './types'
+import type { Lines, FileTree, TreeRow, FileChange, ModuleNode, CommitFocus, Kind } from './types'
 import { contentLang, useT } from '@/i18n'
 import type { Unit } from '@/planning/types'
 import { Who } from '@/agents/Mark'
@@ -29,7 +29,7 @@ const FOLDED = 'workriver.code.folded'
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 const remember = (key: string, v: string) => { try { localStorage.setItem(key, v) } catch { /* not remembered, still shown */ } }
 
-type Change = Omit<FileChange, 'before' | 'after'>
+type Change = Omit<FileChange, 'before' | 'after'> & Kind
 
 /** diff2html reads unified diffs, so give each file its header back. */
 function unified(f: Change): string {
@@ -71,9 +71,22 @@ function useNear() {
 // One row of diff2html's table, measured (13px mono): what a diff never drawn holds open.
 const ROW_PX = 20.7
 
-/** A file's diff; `keep` keeps it drawn away from the view (it has picked lines). */
-function FileDiff({ file, whole = false, keep = false }: { file: Change; whole?: boolean; keep?: boolean }) {
+/** A commit as a change names it: as short as the unit's commits are named. */
+const short = (id: string) => id.slice(0, 9)
+
+/**
+ * A file's diff; `keep` keeps it drawn away from the view (it has picked lines). A change with
+ * no lines says what it is instead, with no counts: a binary file's as git does, a submodule's
+ * by the commits its pointer moved between.
+ */
+export function FileDiff({ file, whole = false, keep = false }: { file: Change; whole?: boolean; keep?: boolean }) {
   const { t, num } = useT()
+  const { binary, pointer } = file.binary || file.pointer ? file : kindOf(file, file)
+  const note = binary ? t('change.binary')
+    : !pointer ? null
+    : pointer.from && pointer.to ? t('change.pointerMoved', { from: short(pointer.from), to: short(pointer.to) })
+    : pointer.to ? t('change.pointerAdded', { to: short(pointer.to) })
+    : t('change.pointerRemoved', { from: short(pointer.from ?? '') })
   const [spot, isNear, held] = useNear()
   const near = whole || keep || isNear
   // diff2html escapes the diff's text itself; its output is markup, not repository content.
@@ -86,11 +99,14 @@ function FileDiff({ file, whole = false, keep = false }: { file: Change; whole?:
     <>
       <span className="tag" data-tone={file.status === 'A' ? 'add' : file.status === 'D' ? 'del' : undefined}>{t(`change.${file.status}`)}</span>
       <span className="min-w-0 font-mono wrap-anywhere">{file.path}</span>
-      <span className="ml-auto font-mono whitespace-nowrap">
-        <span className="text-add">+{num(file.add)}</span> <span className="text-del">−{num(file.del)}</span>
-      </span>
+      {note === null && (
+        <span className="ml-auto font-mono whitespace-nowrap">
+          <span className="text-add">+{num(file.add)}</span> <span className="text-del">−{num(file.del)}</span>
+        </span>
+      )}
     </>
   )
+  if (note !== null) return <div className="fview"><div className="fhead">{head}</div><p className="px-2.5 py-1.5 font-mono text-xs text-ink-2 wrap-anywhere">{note}</p></div>
   // A diff's lines are worked out when first read: only for a diff drawn.
   const gutter = () => ({ '--ln': `${digits(file.lines)}ch` }) as CSSProperties
   if (!file.add && !file.del) return <div className="fview"><div className="fhead">{head}</div></div>
@@ -281,10 +297,10 @@ function WholeFile({ unit, sel, path, onPick, onBack, ...picking }: WholeProps) 
   const parts = delta?.parts
   const changes = useMemo(
     () => (parts ?? []).map(p => ({
-      path, status: parts!.length === 1 ? delta!.status : p.before === null ? 'A' : p.after === null ? 'D' : 'M',
-      ...changeOf(p.before, p.after, folded ? 3 : Number.MAX_SAFE_INTEGER),
+      path, status: p.status,
+      ...changeOf(p.before, p.after, folded ? 3 : Number.MAX_SAFE_INTEGER), binary: p.binary, pointer: p.pointer,
     }) as Change),
-    [path, parts, delta, folded],
+    [path, parts, folded],
   )
   // Which pieces of work the shown change comes from; a commit that names none, by its hash.
   const from = [...new Map(touched.map(k => {

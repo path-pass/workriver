@@ -50,7 +50,16 @@ its sections went.
      has not hashed, is compared by its text; a symlink's text is where it points): a file whose mode or type
      alone changed (made executable, made a symlink) is there, M with +0 −0, even when its
      text changed and changed back on the way; a mode or a submodule pointer changed and
-     changed back is not. A picked piece of
+     changed back is not. An untracked file is taken as `git add` would take it: a symlink
+     with mode 120000, its text where it points (never the file there), any other as a
+     regular file. A binary file (as git takes one by default: a NUL in the first 8000 bytes
+     of either side) is there like any file, A, M or D, with no texts and no line counts in
+     the tree or the diff, which says "Binary files differ" as git does; uncommitted, it is
+     compared by the object id git would give it. A submodule's pointer has no text either:
+     its change shows as the pointer, the commit it moved from and the one it moved to (only
+     one when it is added or removed), with no line counts, never as lines; uncommitted, the
+     pointer is the commit the submodule's checkout is at, and work inside the submodule that
+     leaves it there is no change. A picked piece of
      work's files show its own change, even one the branch later moved; a file it added
      and deleted itself is not there either. Where other commits touched a file between the
      work's own (a merge of the base, other work), the texts do not chain: the file's change
@@ -74,6 +83,10 @@ its sections went.
      lists both), and the tree may start from another one than `git diff base...head` does.
      The unit's change can then show the base's files instead of the branch's, and the merge
      that brought the base in can show as that work's change.
+
+     Also kept for now: a text file larger than 512 KiB is left out of the tree and the diff;
+     binary is told by content alone, not by `.gitattributes` (`binary`, `-diff`); an
+     untracked executable file is taken as 100644, not 100755.
 
 ## Commits
 
