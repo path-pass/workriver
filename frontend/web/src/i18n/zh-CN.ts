@@ -374,6 +374,8 @@ export const zhCN: OneForm<typeof en> = {
     movedOld: '任命时：{{machine}} 上的 {{folder}}（已不在）',
     movedNew: '现在出现在：{{machine}} 上的 {{folder}}',
     nobody: '现在没有在运行的 agent。先在 {{runtime}} 里启动一个，再到这里安排它。',
+    noneHere: '没有 agent 在这个项目的文件夹里运行；下面列出现在运行的所有 agent。',
+    showAll: '显示所有 agent（{{count, number}}）',
     pick: '要安排的 agent',
     managerOf: '{{workspace}} 的管理者',
     tasks_other: '{{count, number}} 个任务（{{first}} 等）',
@@ -690,6 +692,10 @@ export const zhCN: OneForm<typeof en> = {
     note: '备注（可不填）',
     noteNeeded: '原因（选这一项要写）',
     needNote: '选这一项要写明原因。',
+    other: '其他',
+    otherHint: '写明要怎么做',
+    otherNote: '要怎么做（选“其他”要写）',
+    otherNeedNote: '选“其他”要写明要怎么做。',
     closed: '这是本工作区之前的管理者问的，这里已经不能回答。请直接写给管理者。'
   },
   attach: {

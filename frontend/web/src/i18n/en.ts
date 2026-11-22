@@ -384,6 +384,8 @@ export const en = {
     movedOld: 'Seated in: {{folder}} on {{machine}} (gone)',
     movedNew: 'Shows now in: {{folder}} on {{machine}}',
     nobody: 'No agent is running now. Start one in {{runtime}}, then seat it here.',
+    noneHere: 'No agent runs in this project’s folder; all agents running now are listed.',
+    showAll: 'Show all agents ({{count, number}})',
     pick: 'The agent to seat',
     managerOf: 'manager of {{workspace}}',
     tasks_one: '{{count, number}} task ({{first}})',
@@ -708,6 +710,10 @@ export const en = {
     note: 'Note (optional)',
     noteNeeded: 'Why (needed for this answer)',
     needNote: 'This answer needs a note saying why.',
+    other: 'Other',
+    otherHint: 'say what instead',
+    otherNote: 'What to do instead (needed for Other)',
+    otherNeedNote: 'Other needs a note saying what to do instead.',
     closed: 'Asked by an earlier manager of this workspace: it can no longer be answered here. Write to the manager instead.'
   },
   attach: {

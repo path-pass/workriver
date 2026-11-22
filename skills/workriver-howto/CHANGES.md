@@ -4,6 +4,26 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-22
 
+- **Every choice ends with Other and a note** (managers and workers): a choice gate (`task
+  add --kind gate --gate decide --option …`) and a question (`say`/`reply --option …`) now
+  show Other last, added by workriver; picking it needs a note. Do not add an option for
+  it: an option with the ID `other` is refused ("an option's ID may not be other: workriver
+  adds Other with a note to every choice itself"). An answer may be Other: "[workriver] The
+  user answered gate u2#8 … with none of its options: Other (`other`), with a note saying
+  what to do instead" (or "… your question m3 …"), then `Other: «…»`, the user's note. The
+  note is the user's instruction in place of an option: do what it says, within the
+  question; nothing follows from it by itself. `task show` lists `other` after the options
+  and shows `Chose: other (Other: the note says what to do)`. A design's gate and a `--go`
+  gate are not choices: unchanged. (`ask-user`, `user-message`)
+- **A cut Other note says where it is whole** (managers): a note longer than the terminal's
+  quote (2,000 characters) arrives cut, and the message then says "the note is cut here;
+  read it whole first with `workriver task show u2#8`" (a gate) or "… with `workriver message
+  show m5`" (a question) instead of "do what the note says": read it whole before acting.
+  New: `workriver message show m5` prints one message whole with its replies (one of the
+  conversation of the workspace you manage, or your copy of one to every manager; another
+  workspace's, of the same name or not, is refused as not there). A note of only invisible characters (e.g. a pasted zero-width
+  space) is no note: refused like an empty one, for Other and for an option that asks a
+  note. (`ask-user`, `user-message`)
 - **Workspaces are workriver's own, and the user seats the manager** (managers: a big
   change; read `workriver guide how seat` and `workriver guide manager` again). What was a
   Herdr workspace with a registered manager is now a record of workriver's: `ws1`, a name

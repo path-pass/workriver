@@ -113,3 +113,34 @@ export function movedSeat(space: Space, c: Candidate | undefined): boolean {
   const m = space.manager
   return !!m && !!c && c.key === m.session && ((c.s.folder ?? '') !== m.folder || (c.s.machine ?? '') !== (m.machine ?? ''))
 }
+
+/** Whether `folder` is the folder `root` or inside it. */
+function within(folder: string, root: string): boolean {
+  const r = root.replace(/\/+$/, '')
+  return !!r && (folder === r || folder.startsWith(`${r}/`))
+}
+
+/** The manager select's list: `here`, the agents started in the workspace's project folder or
+ *  inside it, on this machine (a project's folder is on the machine workriver runs on), and
+ *  those in `keep` (the agent seated now, the one preset) wherever they run; `rest`, the
+ *  others. Each keeps the order of `list`. */
+export function seatList(list: Candidate[], project: string, keep: string[]): { here: Candidate[]; rest: Candidate[] } {
+  const near = (c: Candidate) => keep.includes(c.key) || (!c.s.machine && !!c.s.folder && within(c.s.folder, project))
+  return { here: list.filter(near), rest: list.filter(c => !near(c)) }
+}
+
+/** Home folders as the systems put them: `/Users/<name>`, `/home/<name>`, `/root`. */
+const HOME = /^(\/Users\/[^/]+|\/home\/[^/]+|\/root)(?=\/|$)/
+
+/** A folder said short: inside a registered project (on this machine) its name and the path
+ *  under it (the deepest project holding it; just the name at its root), else under a home
+ *  folder `~/…`, else whole. */
+export function shortFolder(folder: string, machine: string | undefined, projects: Project[]): string {
+  const p = machine ? undefined : projects.filter(p => within(folder, p.id)).sort((a, b) => b.id.length - a.id.length)[0]
+  if (p) {
+    const under = folder.slice(p.id.replace(/\/+$/, '').length + 1)
+    return under ? `${p.title}/${under}` : p.title
+  }
+  const home = HOME.exec(folder)
+  return home ? `~${folder.slice(home[0].length)}` : folder
+}

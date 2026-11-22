@@ -105,8 +105,20 @@ its sections went.
   dialog titled with the workspace's name and id, its project in the lead, then the seat as
   it is ("Manager now: … seated in <folder>", "Seated: … not running", "No manager is
   seated."), then the agents running now as radio rows (a question's temporary agent and the
-  command shells' reviewer are left out): the agent's mark and name, its harness, its machine
-  chip, its state; the folder it was started in (mono); what the records know of it ("manager
+  command shells' reviewer are left out). By default only those of the workspace's project:
+  started in its folder or inside it, on the machine workriver runs on (where a project's
+  folder is), and the agent seated now and the one preset wherever they run; below them, in
+  the list, a quiet switch, "Show all agents (5)" (every row's count), lists the others
+  under it, so they show where it was turned on. Hiding them again unpicks one picked among them. With none in the project the
+  dialog says so ("No agent runs in this project's folder; all agents running now are
+  listed.") and the switch shows open, and stays so. Who may be seated does not change with
+  the list. Each row: the agent's mark and name, its harness, its machine chip, its state;
+  the folder it was started in, short (inside a registered project on this machine as the
+  project's name and the path under it, "Web/crates/core", just the name at its root, the
+  deepest project holding it; else under a home folder, "~/code/x"; else whole), mono, on
+  one line, cut with an ellipsis and whole in its tooltip; every row, its highlight and its state word stay inside the dialog
+  at any window width (a dialog and a radio group are one column that may shrink below its
+  content, so no long line widens them); what the records know of it ("manager
   of ws2", "2 tasks (u1#3, …)", or "no task, no seat") and, quietly, where its terminal is in
   the runtime ("in Herdr: chat"), which is a hint and decides nothing. Those with no task
   come first. "Seat as manager" seats the one picked; picking one while another manager runs

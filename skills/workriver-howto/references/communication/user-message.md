@@ -89,7 +89,14 @@ where the answer needs a reason; the page shows radio buttons under it:
 The answer is a message of the user's, typed to you like any: "[workriver] The user answered
 your question m3 … : option `cursor`", the option's words and the user's note quoted. Reply
 if there is something to say; it starts nothing by itself. A question asked by an earlier
-manager of the workspace can no longer be answered; the page says so.
+manager of the workspace can no longer be answered; the page says so. Every question ends
+with workriver's Other (add no option for it; the ID `other` is refused): answered with it,
+you read "… with none of its options: Other (`other`), with a note saying what to do
+instead … Other: «…»": the quoted note is the user's own instruction; act on it within the
+question. A note too long for the terminal is quoted cut ("The note is cut here; read it
+whole first with `workriver message show m5`"): read it whole before acting, the end may
+hold a condition. `workriver message show m5` prints a message of the conversation of
+the workspace you manage (or your copy of one to every manager) whole, with its replies.
 
 **Refusals:** "a choice is stored as workriver's A2UI 1.0 subset; give it with --option" and
 the option rules of `ask-user`. "message m3 went to … only that manager replies to it" - it

@@ -56,6 +56,26 @@ impl From<&str> for Principal {
     }
 }
 
+impl crate::State {
+    /// One message as `who` may read it whole (`workriver message show`): the user, every
+    /// message with every reply; an agent, as `conversations_of` keeps it: one of the
+    /// conversation of the workspace whose seat it holds (by the workspace's id), or of one
+    /// to every manager its own copy, with its own replies only. Anything else is refused the
+    /// same way whether or not it exists.
+    pub fn message_for(&self, id: &str, who: &Principal) -> Result<crate::Message, Rejected> {
+        let session = match who {
+            Principal::User => return self.message(id).cloned(),
+            Principal::Agent { session, .. } => session,
+            Principal::Service => return no("workriver reads no message for itself"),
+        };
+        let seat = self.appointment_of(session);
+        match self.messages.iter().find(|m| m.id == id).and_then(|m| blind::copy_for(m.clone(), session, seat.as_ref())) {
+            Some(m) => Ok(m),
+            None => no(format!("no message {id} that you may read: one of the conversation of the workspace you manage, or your copy of one to every manager")),
+        }
+    }
+}
+
 impl Body {
     /// What only the person may record: their decisions and results, and what changes
     /// where workriver reaches or who manages (projects, workspaces, a manager's seat, the

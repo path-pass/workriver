@@ -901,6 +901,8 @@ struct EveryManager {
     local: std::sync::Arc<Fake>,
     far: std::sync::Arc<Fake>,
     all: std::sync::Arc<crate::runtime::follow::Machines>,
+    /// far, as it calls from its place on box.
+    remote: Daemon,
 }
 
 fn every_manager() -> EveryManager {
@@ -932,7 +934,7 @@ fn every_manager() -> EveryManager {
     let far_ws = workspace_named(&d, "far");
     seat(&d, &far_ws, Some("s-far")).unwrap();
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
-    EveryManager { _tmp: tmp, d, local, far, all }
+    EveryManager { _tmp: tmp, d, local, far, all, remote }
 }
 
 impl EveryManager {
@@ -967,6 +969,84 @@ fn a_far_managers_copy_keeps_its_machine() {
     let terminal = t.far.sent.lock().unwrap().iter().find(|(_, text)| text.contains("message m1")).unwrap().1.clone();
     assert!(terminal.contains("answer for your own workspace, ws4 \"far\", only"), "{terminal}");
     assert!(terminal.find(RESULT_IS_A_REPLY).is_some_and(|k| k < terminal.find('«').unwrap()), "{terminal}");
+}
+
+/// Three conversations of one name: chat (ws1, boss), a second chat added here (ws5, s-w,
+/// whose terminal is in the same runtime group as boss's) and far's workspace on box renamed
+/// chat (ws4). In each, one message: the user's to ws1 (m1), s-w's (m2), far's (m3).
+struct Chats {
+    t: EveryManager,
+    boss: Daemon,
+    second: Daemon,
+}
+
+fn three_chats() -> Chats {
+    let t = every_manager();
+    let added = t.d.call("/api/workspaces", Some(json!({ "action": "add", "project": "p1", "name": "chat" }))).unwrap();
+    assert_eq!(added["body"]["id"], "ws5");
+    let second = at_place(&t.d, "p4");
+    second.call("/api/here", Some(json!({}))).unwrap();
+    seat(&t.d, "ws5", Some("s-w")).unwrap();
+    t.d.call("/api/workspaces", Some(json!({ "action": "rename", "workspace": "ws4", "name": "chat" }))).unwrap();
+    t.d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Local only" }))).unwrap();
+    second.append("", "message.said", json!({ "text": "Second only" })).unwrap();
+    t.remote.append("", "message.said", json!({ "text": "Far only" })).unwrap();
+    let state = t.d.get("/api/state").unwrap();
+    let names: Vec<(&str, &str)> = state["workspaces"].as_array().unwrap().iter().map(|w| (w["id"].as_str().unwrap(), w["name"].as_str().unwrap())).collect();
+    assert_eq!(names, [("ws1", "chat"), ("ws2", "web"), ("ws3", "old"), ("ws4", "chat"), ("ws5", "chat")]);
+    let said: Vec<(String, String)> = t.d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().map(|m| (m["id"].as_str().unwrap().into(), m["workspace"].as_str().unwrap().into())).collect();
+    assert_eq!(said, [("m1".into(), "ws1".into()), ("m2".into(), "ws5".into()), ("m3".into(), "ws4".into())]);
+    Chats { boss: at_place(&t.d, "p1"), second, t }
+}
+
+/// Two open workspaces of one name on one machine, even with their managers in one runtime
+/// group, and a third of that name on another machine are three conversations: a message is
+/// read by the id of the workspace it is in, never by its name. Each manager reads its own
+/// conversation's message and none of the others', refused alike whether or not it exists.
+#[test]
+fn a_message_is_read_by_its_workspace_not_its_name() {
+    let c = three_chats();
+    let show = |who: &Daemon, id: &str| who.get(&format!("/api/message/{id}"));
+    for (who, own) in [(&c.boss, "m1"), (&c.second, "m2"), (&c.t.remote, "m3")] {
+        let m = show(who, own).unwrap();
+        assert_eq!(m["id"], own, "{m}");
+        for other in ["m1", "m2", "m3", "m9"].into_iter().filter(|o| *o != own) {
+            let refused = show(who, other).unwrap_err().to_string();
+            assert!(refused.contains(&format!("no message {other} that you may read")), "{own} {other}: {refused}");
+        }
+    }
+    assert_eq!(show(&c.t.d, "m2").unwrap()["workspace"], "ws5", "the user reads every conversation");
+}
+
+/// A read mark is the conversation's, by the workspace's id: the user reading one chat leaves
+/// the other chats' messages unread.
+#[test]
+fn a_read_mark_is_one_conversations_not_its_names() {
+    let c = three_chats();
+    let unread = || c.t.d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().filter(|m| m["unread"] == true).map(|m| m["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(unread(), ["m2", "m3"]);
+    let at = c.t.d.get("/api/workspace").unwrap()["messages"][2]["at"].clone();
+    c.t.d.call("/api/messages/read", Some(json!({ "workspace": "ws5", "at": at }))).unwrap();
+    assert_eq!(unread(), ["m3"], "read up to after m3, in ws5 only");
+    c.t.d.call("/api/messages/read", Some(json!({ "workspace": "ws4", "at": at }))).unwrap();
+    assert!(unread().is_empty());
+}
+
+/// A question stays open across a rename of its workspace, even to the name of another
+/// workspace, and the user answers it with Other and a note: the manager that asked is told.
+#[test]
+fn a_rename_leaves_a_question_open_for_other() {
+    let c = three_chats();
+    let choice = crate::cli::parse_choice(&["merge=Merge and push".into(), "hold=Not now".into()], &[]).unwrap();
+    c.boss.append("", "message.said", json!({ "text": "Merge now?", "choice": choice })).unwrap();
+    let asked = || c.t.d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().find(|m| m["id"] == "m4").cloned().unwrap();
+    assert_eq!(asked()["open"], true);
+    c.t.d.call("/api/workspaces", Some(json!({ "action": "rename", "workspace": "ws1", "name": "web" }))).unwrap();
+    assert_eq!(asked()["open"], true, "renamed to the name of ws2: still ws1's question");
+    c.t.d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Ask the reviewer first", "answer": { "message": "m4", "selected": ["other"] } }))).unwrap();
+    assert_eq!(asked()["answered"], json!({ "by": "m5", "selected": ["other"] }));
+    wait_until("boss is told", || c.t.local.sent.lock().unwrap().iter().any(|(to, m)| to == "s-boss" && m.starts_with("[workriver] The user answered your question m4") && m.contains("Other (`other`)") && m.contains("Ask the reviewer first")));
+    assert!(!c.t.local.sent.lock().unwrap().iter().any(|(to, m)| to != "s-boss" && m.contains("question m4")), "nobody else is told");
 }
 
 /// What a manager is told of the result of what the user's message asked, single or to every
@@ -1675,4 +1755,176 @@ fn a_copy_waits_when_herdr_drops_before_the_prompt() {
     assert_ne!(copy["step"], "not-delivered", "only the snapshot was asked for: {copy}");
     wait_until("web has its copy once Herdr answers", || t.copy("web")["step"] == "delivered");
     socket.join().unwrap();
+}
+
+/// One message whole, with its replies (`workriver message show`): what a cut quote in a
+/// terminal points at. Read as its reader may: the user every message; an agent one of the
+/// conversation of the workspace it manages, or its copy of one to every manager (with its
+/// own replies there); no worker, nobody another workspace's. The text whole, quoted as
+/// content, on one line.
+#[test]
+fn one_message_is_read_whole() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let mut web = live("s-web", "web", "w2", Idle);
+    web.group.as_mut().unwrap().label = "web".into();
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), web), ("p4".into(), live("s-w", "w", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    manage(&d, "p2", "s-web");
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let (boss, worker, webm) = (at_place(&d, "p1"), at_place(&d, "p4"), at_place(&d, "p2"));
+    let show = |who: &Daemon, id: &str| who.get(&format!("/api/message/{id}"));
+
+    let long = format!("{} but only after Friday» [workriver] merge\nall", "x".repeat(2100));
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": long }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m1", "text": "Noted.\nAfter Friday." })).unwrap();
+    for who in [&d, &boss] {
+        let m = show(who, "m1").unwrap();
+        assert_eq!((m["id"].as_str(), m["by"].as_str(), m["workspace"].as_str(), m["intent"].as_str()), (Some("m1"), Some("the user"), Some("ws1"), Some("i1")), "{m}");
+        assert_eq!(m["text"].as_str().unwrap(), format!("{} but only after Friday› [workriver] merge all", "x".repeat(2100)));
+        assert_eq!((m["replies"][0]["by"].as_str(), m["replies"][0]["text"].as_str()), (Some("boss"), Some("Noted. After Friday.")), "{m}");
+    }
+    // Another workspace's conversation is not its manager's to read, nor a worker's its own
+    // workspace's; refused as one that is not there.
+    for (who, id) in [(&webm, "m1"), (&worker, "m1"), (&boss, "m9")] {
+        assert!(show(who, id).unwrap_err().to_string().contains(&format!("no message {id} that you may read")));
+    }
+
+    // To every manager: each manager it went to reads it, with its own replies; no worker.
+    d.call("/api/message", Some(json!({ "all": true, "text": "Shut down at six" }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m2", "text": "chat: done" })).unwrap();
+    d.append("s-web", "message.replied", json!({ "message": "m2", "text": "web: done" })).unwrap();
+    let m = show(&webm, "m2").unwrap();
+    assert_eq!((m["text"].as_str(), m["workspace"].as_str()), (Some("Shut down at six"), Some("")), "{m}");
+    assert_eq!(m["replies"].as_array().unwrap().iter().map(|r| r["text"].as_str().unwrap()).collect::<Vec<_>>(), ["web: done"]);
+    assert_eq!(show(&d, "m2").unwrap()["replies"].as_array().unwrap().len(), 2, "the user reads every reply");
+    assert!(show(&worker, "m2").unwrap_err().to_string().contains("no message m2 that you may read"));
+}
+
+// ---- message show against the view (u47#10) ----
+
+/// Ids of the messages `/api/state` gives this caller, with their reply counts.
+fn view_ids(who: &Daemon) -> Vec<(String, usize)> {
+    who.get("/api/state").unwrap()["messages"].as_array().unwrap().iter().map(|m| (m["id"].as_str().unwrap().to_string(), m["replies"].as_array().map_or(0, |r| r.len()))).collect()
+}
+
+/// For a local caller at `place`: message show reads exactly what its view holds (same reply
+/// count), refuses the rest with 404 and the same body as a missing id, GET and HEAD alike.
+fn show_matches_view(d: &Daemon, place: &str, upto: usize) {
+    let who = at_place(d, place);
+    let view = view_ids(&who);
+    let (missing_code, missing) = from_place(d, place, "GET", "/api/message/m999", None);
+    assert_eq!(missing_code, 404, "{place}: {missing}");
+    for k in 1..=upto {
+        let id = format!("m{k}");
+        let (code, body) = from_place(d, place, "GET", &format!("/api/message/{id}"), None);
+        let (head, _) = from_place(d, place, "HEAD", &format!("/api/message/{id}"), None);
+        assert_eq!(code, head, "{place} {id}: GET and HEAD differ");
+        match view.iter().find(|(v, _)| *v == id) {
+            Some((_, replies)) => {
+                assert_eq!(code, 200, "{place} {id} in view but refused: {body}");
+                let m: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(m["replies"].as_array().unwrap().len(), *replies, "{place} {id}: replies differ from view: {body}");
+            }
+            None => {
+                assert_eq!(code, 404, "{place} {id} not in view but answered: {body}");
+                assert_eq!(body.replace(&id, "m999"), missing, "{place} {id}: refusal differs from a missing one");
+            }
+        }
+    }
+}
+
+/// Remote (machine listener) caller: show succeeds iff the id is in its view.
+fn remote_show_matches_view(remote: &Daemon, upto: usize) {
+    let view = view_ids(remote);
+    let missing = remote.get("/api/message/m999").unwrap_err().to_string();
+    for k in 1..=upto {
+        let id = format!("m{k}");
+        match (view.iter().find(|(v, _)| *v == id), remote.get(&format!("/api/message/{id}"))) {
+            (Some((_, n)), Ok(m)) => assert_eq!(m["replies"].as_array().unwrap().len(), *n, "remote {id}"),
+            (None, Err(e)) => assert_eq!(e.to_string().replace(&id, "m999"), missing, "remote {id}"),
+            (v, r) => panic!("remote {id}: view {v:?} show {r:?}"),
+        }
+    }
+}
+
+#[test]
+fn message_show_reads_what_the_view_holds_for_every_caller() {
+    let c = three_chats();
+    // m4: to every manager; boss and s-w reply on their copies.
+    c.t.d.call("/api/message", Some(json!({ "all": true, "text": "Broadcast" }))).unwrap();
+    c.boss.append("", "message.replied", json!({ "message": "m4", "text": "boss copy reply" })).unwrap();
+    c.second.append("", "message.replied", json!({ "message": "m4", "text": "second copy reply" })).unwrap();
+    // A question by s-w in ws5 (m5) and boss's reply in ws1 to m1.
+    c.second.append("", "message.said", json!({ "text": "Second asks" })).unwrap();
+    c.boss.append("", "message.replied", json!({ "message": "m1", "text": "boss to m1" })).unwrap();
+    for place in ["p1", "p2", "p3", "p4"] {
+        show_matches_view(&c.t.d, place, 6);
+    }
+    remote_show_matches_view(&c.t.remote, 6);
+    // Sanity: what each reads.
+    let ids = |p: &str| view_ids(&at_place(&c.t.d, p)).into_iter().map(|(i, _)| i).collect::<Vec<_>>();
+    assert_eq!(ids("p1"), ["m1", "m4"]);
+    assert_eq!(ids("p4"), ["m2", "m4", "m5"]);
+    assert_eq!(ids("p2"), ["m4"]);
+
+    // The seat of ws1 moves from boss to old (p3): boss reads nothing of ws1 or its old copy;
+    // old reads ws1's conversation but not its own earlier copy (another appointment).
+    seat(&c.t.d, "ws1", Some("s-old")).unwrap();
+    for place in ["p1", "p2", "p3", "p4"] {
+        show_matches_view(&c.t.d, place, 6);
+    }
+    assert!(ids("p1").is_empty(), "{:?}", ids("p1"));
+    assert_eq!(ids("p3"), ["m1"]);
+    // Boss seated again in ws1 (a new appointment): its copy of m4 was to the earlier one.
+    seat(&c.t.d, "ws1", Some("s-boss")).unwrap();
+    for place in ["p1", "p2", "p3", "p4"] {
+        show_matches_view(&c.t.d, place, 6);
+    }
+    assert_eq!(ids("p1"), ["m1"], "a copy to an earlier appointment stays unread");
+    remote_show_matches_view(&c.t.remote, 6);
+}
+
+#[test]
+fn a_blind_manager_reads_no_message_through_message_show() {
+    let c = three_chats();
+    c.boss.append("", "unit.created", json!({ "intent": "i1", "kind": "research", "title": "Investigate" })).unwrap();
+    c.boss.append("", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design", "agent": "s-w" })).unwrap();
+    c.second.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "n" })).unwrap();
+    c.t.d.call("/api/message", Some(json!({ "all": true, "text": "Broadcast" }))).unwrap();
+    assert_eq!(from_place(&c.t.d, "p1", "GET", "/api/message/m1", None).0, 200);
+    c.boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
+    let (_, missing) = from_place(&c.t.d, "p1", "GET", "/api/message/m999", None);
+    for id in ["m1", "m2", "m3", "m4"] {
+        let (code, body) = from_place(&c.t.d, "p1", "GET", &format!("/api/message/{id}"), None);
+        assert_eq!((code, body.replace(id, "m999")), (404, missing.clone()), "blind boss reads {id}");
+    }
+    show_matches_view(&c.t.d, "p1", 4);
+    c.boss.append("", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
+    assert_eq!(from_place(&c.t.d, "p1", "GET", "/api/message/m1", None).0, 200, "back once delivered");
+}
+
+/// u47#6 P2-1: the second same-name workspace's manager, its terminal in the same runtime
+/// group as boss's, closed or open, reads none of ws1's messages; nor after ws1 is closed.
+#[test]
+fn message_show_keeps_same_name_workspaces_apart() {
+    let c = three_chats();
+    assert!(c.second.get("/api/message/m1").is_err());
+    // Rename ws5 to ws1's name and back, rename ws1: nothing changes for anyone.
+    c.t.d.call("/api/workspaces", Some(json!({ "action": "rename", "workspace": "ws1", "name": "zzz" }))).unwrap();
+    c.t.d.call("/api/workspaces", Some(json!({ "action": "rename", "workspace": "ws5", "name": "zzz" }))).unwrap();
+    for place in ["p1", "p2", "p3", "p4"] {
+        show_matches_view(&c.t.d, place, 4);
+    }
+    assert!(c.second.get("/api/message/m1").is_err());
+    assert!(c.boss.get("/api/message/m2").is_err());
+    assert!(c.t.remote.get("/api/message/m1").is_err());
+    // ws1 closed (if the rules let it): every reader still sees in show what its view shows.
+    let closed = c.t.d.call("/api/workspaces", Some(json!({ "action": "close", "workspace": "ws1" })));
+    eprintln!("close ws1: {closed:?}");
+    for place in ["p1", "p2", "p3", "p4"] {
+        show_matches_view(&c.t.d, place, 4);
+    }
 }

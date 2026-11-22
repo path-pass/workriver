@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { Seat, Session, Space } from '@/agents/types'
 import type { Intent, Project, Unit } from './types'
 import type { Workspace } from '@/workspace/types'
-import { candidates, movedSeat, railOf, replaces, unmanaged } from './spaces'
+import { candidates, movedSeat, railOf, replaces, seatList, shortFolder, unmanaged } from './spaces'
 import { firstPlace, placesOf } from './Start'
 
 const seat = (name: string, state: Seat['state'] = 'idle', folder = '/web'): Seat => ({ session: `s-${name}`, name, folder, since: 7, state })
@@ -75,6 +75,31 @@ describe('who can be seated', () => {
     expect(movedSeat(spaces[0], { ...boss, s: { ...boss.s, folder: '/elsewhere' } })).toBe(true)
     expect(movedSeat(spaces[0], { ...boss, s: { ...boss.s, machine: 'box' } })).toBe(true)
     expect(movedSeat(spaces[0], candidates(ws)[1])).toBe(false)
+  })
+
+  it('lists the project’s agents first: started in its folder or inside it, on this machine; the seated one and the preset kept wherever they are', () => {
+    const near = { ...ws, sessions: [
+      live('root'), live('sub', { folder: '/web/app' }), live('twin', { folder: '/webby' }), live('far', { folder: '/notes' }),
+      live('remote', { machine: 'box' }), live('nowhere', { folder: undefined }), live('boss', { folder: '/notes' }), live('picked', { folder: '/elsewhere' }),
+    ] } as unknown as Workspace
+    const keys = (l: ReturnType<typeof candidates>) => l.map(c => c.key)
+    const { here, rest } = seatList(candidates(near), '/web/', ['s-boss', 's-picked'])
+    expect(keys(here)).toEqual(['s-boss', 's-picked', 's-root', 's-sub'])
+    expect(keys(rest)).toEqual(['s-far', 's-nowhere', 's-remote', 's-twin'])
+  })
+
+  it('shows a folder short: in a registered project as its name and the path under it, else under home as ~, the whole path otherwise', () => {
+    const nested: Project[] = [...projects, { id: '/web/packages/ui', title: 'UI', repos: [] }]
+    expect(shortFolder('/web', undefined, nested)).toBe('Web')
+    expect(shortFolder('/web/app/src', undefined, nested)).toBe('Web/app/src')
+    expect(shortFolder('/web/packages/ui/lib', undefined, nested)).toBe('UI/lib')
+    expect(shortFolder('/webby', undefined, nested)).toBe('/webby')
+    expect(shortFolder('/Users/someone/code/x', undefined, nested)).toBe('~/code/x')
+    expect(shortFolder('/home/someone', undefined, nested)).toBe('~')
+    // A project's folder is on this machine: the same path elsewhere is not it.
+    expect(shortFolder('/web/app', 'box', nested)).toBe('/web/app')
+    expect(shortFolder('/home/someone/web', 'box', nested)).toBe('~/web')
+    expect(shortFolder('/opt/x', undefined, nested)).toBe('/opt/x')
   })
 })
 
