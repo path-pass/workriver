@@ -151,9 +151,6 @@ pub(in crate::server) struct Fake {
     /// The agents are listed, but typing into one fails as when Herdr's socket drops before
     /// the prompt is written: nothing is typed.
     pub(super) prompt_down: std::sync::atomic::AtomicBool,
-    /// Typing into this session goes through this runtime instead: the real adapter behind
-    /// a socket of the test's own.
-    pub(super) through: std::sync::Mutex<Option<(String, std::sync::Arc<dyn workriver_core::runtime::Runtime>)>>,
     /// Lines typed into new shells: (machine, group, dir, line); what each place shows, by place.
     pub(super) shells: std::sync::Mutex<Vec<Typed>>,
     pub(super) screens: std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -271,6 +268,29 @@ impl Fake {
         let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
         workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent }
     }
+
+    /// What Herdr's prompt does once the place is known: typed, or refused as Herdr refuses.
+    fn take(&self, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        // As Herdr's socket that does not answer: nothing is typed.
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.prompt_down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        if self.strict.load(std::sync::atomic::Ordering::Relaxed) && !self.agents.lock().unwrap().iter().any(|(_, a)| a.session == session || a.name == session) {
+            return Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()));
+        }
+        if self.not_ready.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            return Err(workriver_core::runtime::RuntimeError::NotReady(format!("herdr agent.prompt: agent {session} is not an active named agent (agent_not_ready)")));
+        }
+        // As Herdr does: an agent waiting for a person takes no prompt.
+        if self.agents.lock().unwrap().iter().any(|(_, a)| (a.session == session || a.name == session) && a.state == workriver_core::runtime::AgentState::Blocked) {
+            return Err(workriver_core::runtime::RuntimeError::Blocked(format!("herdr agent.prompt: agent {session} is blocked (agent_blocked)")));
+        }
+        self.sent.lock().unwrap().push((session.into(), text.into()));
+        if let Some(look) = &*self.on_send.lock().unwrap() {
+            look(session);
+        }
+        Ok(())
+    }
 }
 
 impl workriver_core::runtime::Runtime for Fake {
@@ -316,36 +336,9 @@ impl workriver_core::runtime::Runtime for Fake {
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Ok(())
     }
-    fn send(&self, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        if let Some((to, runtime)) = &*self.through.lock().unwrap() && to == session {
-            return runtime.send_to(None, session, text);
-        }
-        // As Herdr's socket that does not answer: nothing is typed.
-        if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.prompt_down.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err(workriver_core::runtime::RuntimeError::None);
-        }
-        if self.strict.load(std::sync::atomic::Ordering::Relaxed) && !self.agents.lock().unwrap().iter().any(|(_, a)| a.session == session || a.name == session) {
-            return Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()));
-        }
-        if self.not_ready.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
-            return Err(workriver_core::runtime::RuntimeError::NotReady(format!("herdr agent.prompt: agent {session} is not an active named agent (agent_not_ready)")));
-        }
-        // As Herdr does: an agent waiting for a person takes no prompt.
-        if self.agents.lock().unwrap().iter().any(|(_, a)| (a.session == session || a.name == session) && a.state == workriver_core::runtime::AgentState::Blocked) {
-            return Err(workriver_core::runtime::RuntimeError::Blocked(format!("herdr agent.prompt: agent {session} is blocked (agent_blocked)")));
-        }
-        self.sent.lock().unwrap().push((session.into(), text.into()));
-        if let Some(look) = &*self.on_send.lock().unwrap() {
-            look(session);
-        }
-        Ok(())
-    }
     /// As Herdr's: only into the place named, while it shows the session, read from the same
-    /// list `resolve` reads (so it fails as `resolve` does); then as `send`.
+    /// list `resolve` reads (so it fails as `resolve` does); then as `take`.
     fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        if let Some((to, runtime)) = &*self.through.lock().unwrap() && to == session {
-            return runtime.send_at(None, place, session, text);
-        }
         if self.resolve_down.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(workriver_core::runtime::RuntimeError::None);
         }
@@ -353,7 +346,7 @@ impl workriver_core::runtime::Runtime for Fake {
         if !shown && !self.down.load(std::sync::atomic::Ordering::Relaxed) && !self.prompt_down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()));
         }
-        self.send(session, text)?;
+        self.take(session, text)?;
         self.typed_at.lock().unwrap().push((place.into(), text.into()));
         Ok(())
     }
@@ -374,14 +367,10 @@ impl workriver_core::runtime::Runtime for Fake {
         self.agents.lock().unwrap().retain(|(_, a)| a.name != agent && a.session != agent);
         Ok(())
     }
-    /// As Herdr's: the places that show the session now (its agent's, and any `also`); a session
-    /// typed into through `through` as a runtime that cannot resolve one; a runtime that does
-    /// not answer, as Herdr's socket that is not there.
+    /// As Herdr's: the places that show the session now (its agent's, and any `also`); a
+    /// runtime that does not answer, as Herdr's socket that is not there.
     fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
         use workriver_core::runtime::RuntimeError;
-        if self.through.lock().unwrap().as_ref().is_some_and(|(to, _)| to == session) {
-            return Err(RuntimeError::Unsupported);
-        }
         if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.resolve_down.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(RuntimeError::None);
         }
@@ -671,8 +660,10 @@ impl workriver_core::runtime::Runtime for Broken {
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)
     }
-    fn send(&self, _: &str, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        Err(workriver_core::runtime::RuntimeError::None)
+    /// As its agents are read: no place for any session.
+    fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
+        self.agents()?;
+        Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()))
     }
     fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)
@@ -699,8 +690,10 @@ impl workriver_core::runtime::Runtime for Slow {
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)
     }
-    fn send(&self, _: &str, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        Err(workriver_core::runtime::RuntimeError::None)
+    /// As its agents are read: no place for any session.
+    fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
+        self.agents()?;
+        Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()))
     }
     fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)

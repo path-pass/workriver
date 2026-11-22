@@ -192,9 +192,9 @@ on one since it was last read: the answer says it is not told yet, and a thread 
 tells it after the first read that shows it, so no request ever waits for a machine. One whose agent is
 on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
 each poll works it out again (`give_notes`), so it is given only while the task is still
-started and with that agent. It goes out by `App::send_to` (the runtime's `send_to`): to
-that session on that machine and no other (a seated manager: at its pinned place only,
-the runtime's `send_at`), files as that machine can get them. A held
+started and with that agent. It goes out by `App::send_to` (the runtime's `resolve`, then
+`send_at` there): to that session on that machine and no other (a seated manager: at its
+pinned place only), files as that machine can get them. A held
 notice (`For::Notice`) is matched and sent the same way, by session only. How a failed read is handled before and after the commit is in
 AGENTS.md (Layout).
 
@@ -273,7 +273,7 @@ crates/workriver/
 │   │   │   │                         # /api/agent/screen and /keys handlers, Refusal, ScreenView.
 │   │   │   ├── press.rs              # One press: resolve once, compare the digest, digit or a walk
 │   │   │   │                         # of arrows, the reads after it, agent.keys.
-│   │   │   ├── marks.rs              # type_in / type_at (every message: resolve, or a seated
+│   │   │   ├── marks.rs              # type_at (every message: resolve, or a seated
 │   │   │   │                         # manager's pin; read, type at that place); the poll's look
 │   │   │   │                         # at screens; waiting on its screen.
 │   │   │   └── view.rs               # /api/agent/view: the capped, bounded frame stream.

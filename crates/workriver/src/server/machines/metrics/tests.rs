@@ -640,9 +640,6 @@ impl Runtime for Pids {
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)
     }
-    fn send(&self, _: &str, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
-        Err(workriver_core::runtime::RuntimeError::None)
-    }
     fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<RuntimeAgent, workriver_core::runtime::RuntimeError> {
         Err(workriver_core::runtime::RuntimeError::None)
     }

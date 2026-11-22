@@ -36,12 +36,12 @@ fn machines_are_separate_and_need_no_link() {
     assert_eq!(all.locate(None, "w1:p1").unwrap().agent.unwrap().session, "s-boss");
     assert_eq!(all.locate(Some("box"), "w1:p1").unwrap().agent.unwrap().session, "s-far");
     // Messages and new agents go to the agent's own machine, with that machine's own ids.
-    all.send("s-far", "hi").unwrap();
-    all.send("s-boss", "ho").unwrap();
+    all.send_at(Some("box"), "w1:p1", "s-far", "hi").unwrap();
+    all.send_at(None, "w1:p1", "s-boss", "ho").unwrap();
     assert_eq!((far.sent.lock().unwrap().len(), local.sent.lock().unwrap().len()), (1, 1));
     all.start_temporary("w1@box", "claude", "why-q9", "/srv/x").unwrap();
     assert_eq!(far.started.lock().unwrap()[0].0, "w1");
-    all.send("why-q9", "by name, before the next read").unwrap();
+    all.send_at(Some("box"), "place-why-q9", "s-why-q9", "before the next read").unwrap();
     assert_eq!(far.sent.lock().unwrap().len(), 2);
     all.close("why-q9").unwrap();
     all.poll_all();
@@ -428,9 +428,9 @@ fn units_on_another_machine() {
     assert_eq!((worker["unreachable"].as_bool(), worker["state"].as_str()), (Some(true), Some("unknown")), "as last seen, in no state: {worker}");
     let shown: crate::common::wire::TaskShow = serde_json::from_value(boss.get("/api/task?task=u1%231").unwrap()).unwrap();
     assert!(shown.place.unwrap().disconnected_since.is_some());
-    // A message for an agent there is refused at once, saying why.
+    // A message for an agent there is refused at once, saying why: its place cannot be read.
     let started = std::time::Instant::now();
-    let e = workriver_core::runtime::Runtime::send(all.as_ref(), "s-worker", "hi").unwrap_err();
+    let e = workriver_core::runtime::Runtime::resolve(all.as_ref(), Some("box"), "s-worker").unwrap_err();
     // Nothing was typed: the error says so, and what waits to be given waits on.
     assert!(matches!(e, workriver_core::runtime::RuntimeError::Unreachable(_)), "{e:?}");
     let e = e.to_string();

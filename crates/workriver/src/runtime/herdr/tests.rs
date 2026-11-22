@@ -81,29 +81,16 @@ fn reads_agents_one_request_per_connection() {
 }
 
 #[test]
-fn sends_to_the_sessions_pane_and_reports_errors() {
+fn sends_at_the_sessions_pane_and_reports_errors() {
     let error = json!({ "error": { "code": "agent_blocked", "message": "agent is blocked" } });
-    let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), error]);
-    herdr.send("s-1", "hello").unwrap();
+    let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), snapshot(), error]);
+    herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap();
     // Blocked is its own error: the message waits rather than fails.
-    let err = herdr.send("s-1", "again").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "again").unwrap_err();
     assert!(matches!(&err, RuntimeError::Blocked(w) if w.contains("agent_blocked") && w.contains("agent is blocked")), "{err}");
     let seen = server.join().unwrap();
     assert_eq!(seen[1]["method"], "agent.prompt");
     assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
-}
-
-/// A message for a session goes to the pane that holds it, read fresh; a pane whose agent
-/// only goes by that as a name gets nothing: nothing is asked of Herdr but who is there.
-#[test]
-fn sends_to_a_session_never_to_a_name() {
-    let (_dir, herdr, server) = fake(vec![snapshot(), snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } })]);
-    let err = herdr.send_to(None, "reviewer", "hello").unwrap_err();
-    assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "reviewer"), "{err}");
-    herdr.send_to(None, "herdr:w5:p2", "hello").unwrap();
-    let seen = server.join().unwrap();
-    assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["session.snapshot", "session.snapshot", "agent.prompt"]);
-    assert_eq!(seen[2]["params"], json!({ "target": "w5:p2", "text": "hello" }));
 }
 
 /// A message for a seated session goes into the pane it is held to, read fresh, and only
@@ -209,20 +196,14 @@ fn dropping(answers: Vec<Option<Value>>) -> (tempfile::TempDir, Herdr, std::thre
 #[test]
 fn a_drop_before_the_prompt_is_unreachable_after_it_failed() {
     let (_dir, herdr, server) = dropping(vec![None]);
-    let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot"]);
 
     let (_dir, herdr, server) = dropping(vec![Some(snapshot()), None]);
-    let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Failed(w) if w.contains("agent.prompt")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot", "agent.prompt"]);
-
-    // The same typing at a place.
-    let (_dir, herdr, server) = dropping(vec![None]);
-    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
-    assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
-    assert_eq!(server.join().unwrap(), ["session.snapshot"]);
 }
 
 #[test]

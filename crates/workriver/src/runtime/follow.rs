@@ -517,15 +517,6 @@ impl Runtime for Machines {
         self.route(session, |r| r.focus(session))
     }
 
-    fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError> {
-        self.route(agent, |r| r.send(agent, text))
-    }
-
-    /// Asked of the machine named, whether or not the agent was seen there yet.
-    fn send_to(&self, machine: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
-        self.at(machine, |r| r.send_to(None, session, text))
-    }
-
     /// Asked of the machine named, at that machine's own place.
     fn send_at(&self, machine: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
         self.at(machine, |r| r.send_at(None, place, session, text))
