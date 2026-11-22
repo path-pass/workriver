@@ -88,8 +88,10 @@ export default function App() {
     const first = stays ? undefined : firstUnit(ws, p)
     // The Manager section follows to the project's manager (conversations/select's followProject).
     if (p && talk) {
-      const to = followProject(talk, { project: p, intent: stays ? talk.intent : first && intentOf(ws, first.id)?.id }, recall(TALK + p))
-      if (to !== undefined) setTalkTo(to ?? undefined)
+      const intent = stays ? talk.intent : first && intentOf(ws, first.id)?.id
+      const to = followProject(talk, { project: p, intent }, recall(TALK + p))
+      // Followed to: it holds while the intent opened now is on screen.
+      if (to !== undefined) setTalk(to === null ? {} : { to, at: intent ?? '' })
     }
     if (stays) return
     if (first) return pickUnit(ws, first.id)
@@ -170,8 +172,10 @@ export default function App() {
   // A request for the Manager box to take the cursor, with more chips for one task.
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
   // The workspace whose conversation the Manager section shows: picked there, asked for (Needs
-  // you, an intent's page) or followed to on a project switch; none: the one on screen.
-  const [talkTo, setTalkTo] = useState<string | undefined>()
+  // you, an intent's page) or followed to on a project switch (`at`: the intent then on
+  // screen); none: the one on screen.
+  const [talkTo, setTalk] = useState<{ to?: string; at?: string }>({})
+  const setTalkTo = (to?: string) => setTalk({ to })
   const showTalk = (workspace?: string) => { openAsk(false); setTalkTo(workspace) }
   // The project a workspace works on, as the rail knows it (Start's dialog, Settings).
   const projectOf = (label: string) => ws?.workspaces?.find(w => w.label === label)?.project
@@ -378,7 +382,7 @@ export default function App() {
   const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines,
-        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), to: talkTo, onPick: pickTalk, project: project ?? undefined, projectOf, onRead,
+        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), to: talkTo.to, followedAt: talkTo.at, onPick: pickTalk, project: project ?? undefined, projectOf, onRead,
         intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead, onAnswer,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },

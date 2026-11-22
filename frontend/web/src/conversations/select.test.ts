@@ -79,7 +79,7 @@ const projects: Record<string, string> = { api: 'web', site: 'web', old: 'web', 
 const said = (workspace: string, unread = false): ManagerMessage => ({ workspace, manager: 'm', text: 'hi', at: '2026-11-21T09:00:00Z', step: 'delivered', replies: [{ by: 'm', text: 'ok', at: '2026-11-21T09:01:00Z', unread }] })
 const active = (id: string, project: string, label: string) => ({ id, project, state: 'active', workspace: { id: label, label }, units: [{ id: `${id}-u` }] }) as unknown as Intent
 const intents = [active('i1', 'web', 'site'), active('i2', 'notes', 'notes'), active('i3', 'web', 'api')]
-type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'project' | 'projectOf'>
+type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'followedAt' | 'project' | 'projectOf'>
 const talk = (over: Partial<Shown> = {}): Shown => ({
   intents, sessions: [manager('a', 'api'), manager('s', 'site'), manager('n', 'notes'), manager('l', 'lab')],
   messages: [said('old')], projectOf: l => projects[l], ...over,
@@ -93,6 +93,22 @@ describe('the Manager section’s workspaces', () => {
     expect(placesOf(talk({ intent: 'i2', project: 'web', to: 'lab' })).label).toBe('lab')
     // Nothing on screen: the rail's project's first.
     expect(placesOf(talk({ project: 'notes' })).label).toBe('notes')
+  })
+
+  it('show one followed to on a switch only while the intent then on screen is: another’s own takes its place', () => {
+    // On notes, "api" has replies not read; the switch to web opens i1 (own "site") and follows to "api".
+    const from = { ...talk({ intent: 'i2', project: 'notes' }), messages: [said('old'), said('api', true)] }
+    expect(followProject(from, { project: 'web', intent: 'i1' }, null)).toBe('api')
+    // i4, another intent of web, runs in "old".
+    const followed = { ...from, intents: [...intents, active('i4', 'web', 'old')], project: 'web', to: 'api', followedAt: 'i1' }
+    expect(placesOf({ ...followed, intent: 'i1' }).label).toBe('api')
+    // Another intent of the project opened: its own workspace.
+    expect(placesOf({ ...followed, intent: 'i4' }).label).toBe('old')
+    // Followed with nothing on screen: holds until something opens.
+    expect(placesOf({ ...followed, followedAt: '', intent: undefined }).label).toBe('api')
+    expect(placesOf({ ...followed, followedAt: '', intent: 'i4' }).label).toBe('old')
+    // A hand pick stays whatever opens.
+    expect(placesOf({ ...followed, followedAt: undefined, intent: 'i4' }).label).toBe('api')
   })
 })
 
@@ -109,7 +125,7 @@ describe('a project switch', () => {
     const from = talk({ intent: 'i2', project: 'notes' })
     expect(followProject(from, { project: 'web' }, null)).toBe('api')
     expect(followProject({ ...from, messages: [said('old'), said('site', true)] }, { project: 'web' }, null)).toBe('site')
-    expect(followProject({ ...from, messages: [said('old'), said('site', true)] }, { project: 'web' }, 'old')).toBe('old')
+    expect(followProject({ ...from, messages: [said('old'), said('site', true)] }, { project: 'web' }, 'api')).toBe('api')
     // A pick remembered that is not there any more counts for nothing.
     expect(followProject(from, { project: 'web' }, 'gone')).toBe('api')
     // The first running is in the select's order: the unit opened's own first.
@@ -129,5 +145,13 @@ describe('a project switch', () => {
     expect(followProject(talk({ intent: 'i1', to: 'api' }), { project: 'web' }, null)).toBeUndefined()
     expect(followProject(talk({ intent: 'i1', project: 'web', to: 'lab' }), { project: 'notes' }, null)).toBeUndefined()
     expect(followProject(talk({ intent: 'i1', project: 'web' }), { project: 'empty' }, null)).toBeUndefined()
+  })
+
+  it('goes only to a workspace whose manager runs (the unit opened’s own aside)', () => {
+    // "arch" has a workspace with messages only: its manager has ended.
+    const withPast = (over: Partial<Shown>) => talk({ ...over, messages: [said('old'), said('past')], projectOf: l => (l === 'past' ? 'arch' : projects[l]) })
+    expect(followProject(withPast({ intent: 'i2', project: 'notes' }), { project: 'arch' }, null)).toBeUndefined()
+    // A pick remembered whose manager has ended is passed over for one running.
+    expect(followProject(talk({ intent: 'i2', project: 'notes' }), { project: 'web' }, 'old')).toBe('api')
   })
 })

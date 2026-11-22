@@ -173,6 +173,10 @@ export interface Talk {
    *  (Needs you, an intent's page) or followed to on a project switch; `EVERY`: every
    *  manager; none: the one on screen. */
   to?: string
+  /** Set when `to` was followed to on a project switch: the intent then on screen ('': none).
+   *  `to` holds only while that intent is on screen; a hand pick (unset) holds until the next
+   *  switch. */
+  followedAt?: string
   /** The user picks a workspace (or `EVERY`) in the select. */
   onPick: (workspace: string) => void
   /** The project the rail shows (its folder); none: all. */

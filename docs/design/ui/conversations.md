@@ -35,12 +35,15 @@ context; everything else still goes to the manager.
   shown is a workspace of another project, it shows the new project's manager: its only one;
   with several, the one the user last picked in that project (remembered per project,
   `workriver.talk.<folder>`, like the rail's filter), else one with replies not read, else
-  the first running in the select's order (the opened unit's own first). A workspace's
+  the first running in the select's order (the opened unit's own first). It goes only to a
+  workspace whose manager runs, or to the opened unit's own. A workspace's
   project is the one the rail knows (Start's dialog, Settings' "Workspaces' projects"). All
   managers stays (it spans projects); so does a workspace of no known project, one already of
-  the new project, and the conversation when the new project has no manager. A workspace the
-  user picks by hand stays until the next switch; a switch back returns to what was picked
-  there. "All projects" changes nothing.
+  the new project, and the conversation when the new project has no manager running. A
+  workspace the switch went to holds only while the intent then on screen is (or, with none,
+  until one opens): another intent's unit opened after it shows that unit's own workspace. A
+  workspace the user picks by hand stays until the next switch; a switch back returns to what
+  was picked there. "All projects" changes nothing.
 - **What the user writes** is typed into the manager's terminal ("The user writes to you
   from workriver's page (message m3) … Reply with `workriver reply m3 …`", what it points
   at in workriver's words, then the user's text quoted as theirs); a manager waiting for a

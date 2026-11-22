@@ -88,7 +88,7 @@ export function messageOf(chips: Chip[], files: Pick<Attachment, 'id' | 'name'>[
 }
 
 /** What the Manager section needs to know which workspaces it offers and which it shows. */
-export type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'project' | 'projectOf'>
+export type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'followedAt' | 'project' | 'projectOf'>
 
 /** The workspaces the Manager section offers and the conversation it shows. */
 export interface Places {
@@ -103,8 +103,9 @@ export interface Places {
   labels: string[]
   /** "All managers" is offered: more than one running, or once written to or picked. */
   every: boolean
-  /** The conversation shown: the one picked while it is offered, else the one on screen, else
-   *  the first; `EVERY`: every manager; none: no workspace has a manager. */
+  /** The conversation shown: the one picked while it is offered (one followed to on a switch
+   *  only while the intent then on screen is), else the one on screen, else the first;
+   *  `EVERY`: every manager; none: no workspace has a manager. */
   label: string | null
 }
 
@@ -116,7 +117,8 @@ export function placesOf(talk: Shown, unit?: string): Places {
   const all = [...new Set([...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter(l => !!l && l !== own))]
   const ours = (l: string) => !!talk.project && talk.projectOf(l) === talk.project
   const labels = [...(own ? [own] : []), ...all.filter(ours), ...all.filter(l => !ours(l))]
-  const chosen = talk.to ?? null
+  const held = talk.followedAt === undefined || talk.followedAt === (intent?.id ?? '')
+  const chosen = held ? talk.to ?? null : null
   const every = running.length > 1 || chosen === EVERY || talk.messages.some(m => m.workspace === EVERY)
   const label = (chosen !== null && (labels.includes(chosen) || (chosen === EVERY && every)) ? chosen : null) ?? own ?? labels[0] ?? null
   return { intent, own, running, labels, every, label }
@@ -126,8 +128,9 @@ export function placesOf(talk: Shown, unit?: string): Places {
  * Where the Manager section goes when the rail switches to `next.project` (`next.intent`: the
  * intent then on screen). A workspace of another project gives way to the project's manager:
  * its only one; with several, the one last picked there (`remembered`), else one with replies
- * not read, else the first running. All managers, a workspace already of the project, one of
- * no known project, and a project with no manager stay as they are.
+ * not read, else the first running. Only a workspace whose manager runs is gone to, besides
+ * the opened unit's own. All managers, a workspace already of the project, one of no known
+ * project, and a project with no manager stay as they are.
  * Returns the workspace to show; null: the one on screen; undefined: no change.
  */
 export function followProject(talk: Shown, next: { project: string; intent?: string }, remembered: string | null): string | null | undefined {
@@ -135,9 +138,9 @@ export function followProject(talk: Shown, next: { project: string; intent?: str
   const from = shown ? talk.projectOf(shown) : undefined
   if (!from || from === next.project) return undefined
   const after = placesOf({ ...talk, ...next })
-  const ours = after.labels.filter(l => talk.projectOf(l) === next.project)
-  const unread = (l: string) => talk.messages.some(m => m.workspace === l && ((m.byManager && m.unread) || repliesOf(m).some(r => r.unread)))
   const live = (l: string) => after.running.some(s => s.group!.label === l)
+  const ours = after.labels.filter(l => talk.projectOf(l) === next.project && (l === after.own || live(l)))
+  const unread = (l: string) => talk.messages.some(m => m.workspace === l && ((m.byManager && m.unread) || repliesOf(m).some(r => r.unread)))
   const to = ours.length > 1
     ? (remembered && ours.includes(remembered) ? remembered : ours.find(unread) ?? ours.find(live) ?? ours[0])
     : ours[0]
