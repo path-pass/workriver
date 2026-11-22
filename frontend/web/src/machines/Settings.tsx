@@ -15,6 +15,7 @@ import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
 import { Content, Slot, SLOT } from '@/content/Chips'
 import { Choice } from '@/ui/Choice'
+import { chime, soundMissed, soundWanted, wantSound } from '@/attention/sound'
 
 /** Not linked, in the link picker (Radix takes no empty value). */
 const NONE = '-'
@@ -282,6 +283,27 @@ function Stall() {
   )
 }
 
+/** The sound for a new row in Needs you. Turning it on plays it once, so the user hears it
+ *  (and the browser lets the page play it). Mounted when Settings opens, so what it says about
+ *  a sound that could not play is fresh. */
+function Sound() {
+  const { t } = useT()
+  const [on, setOn] = useState(soundWanted)
+  const [missed, setMissed] = useState(() => on && soundMissed())
+  return (
+    <>
+      <Row label={t('settings.sound')}>
+        <Switch
+          checked={on}
+          aria-label={t('settings.sound')}
+          onCheckedChange={next => { wantSound(next); setOn(next); if (next) chime().then(ok => setMissed(!ok)); else setMissed(false) }}
+        />
+      </Row>
+      {missed && <p className="text-xs text-ink-2">{t('settings.soundMissed')}</p>}
+    </>
+  )
+}
+
 /** `compact`: only the gear, for the folded rail. */
 export function Settings({ compact = false, ws = null }: { compact?: boolean; ws?: Workspace | null }) {
   const { t, lang, setLang } = useT()
@@ -330,6 +352,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
             />
           </Row>
           {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
+          <Sound />
           <Stall />
           <WorkspaceProjects ws={ws} />
           <MachineAlerts />
