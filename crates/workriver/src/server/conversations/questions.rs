@@ -198,14 +198,18 @@ impl App {
             None if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
             _ => {
                 // A discussion's question: the records are read again right before typing in, in
-                // order with a gate's record (`App::last_check`, held by both): one closed
+                // order with a gate's record (`App::discussing`, held by both): one closed
                 // meanwhile goes nowhere, one whose gate was submitted fails now, and with
                 // records that cannot be read it waits. A gate recorded later comes after the
                 // send, which then stands as asked before the user decided. The user's message
-                // alike with a seat change (the same lock): its appointment ended meanwhile,
+                // alike with a seat change (`App::appointing`): its appointment ended meanwhile,
                 // it is not delivered; a seat changed later comes after the send.
                 let message = matches!(h.kind, For::Message | For::Broadcast);
-                let _order = (h.kind == For::Discussion || message).then(|| self.last_check.lock().unwrap());
+                let _order = match h.kind {
+                    For::Discussion => Some(self.discussing.lock().unwrap()),
+                    _ if message => Some(self.appointing.lock().unwrap()),
+                    _ => None,
+                };
                 let asked = match h.kind {
                     For::Discussion => self.still_asked(&h.question),
                     _ if message => self.still_appointed(&h.question, &h.to),

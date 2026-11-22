@@ -391,7 +391,7 @@ Newest first. A manager that was already running reads this once after an update
   breaks; a long one is cut to a few lines with "show more". Write them as a line or two of
   what, then bullets; no wall of text. `workriver task show` still prints the raw text.
   (`units`, `hand-off`; worker guide)
-- **A later task says what it follows**: once a unit (or intent) has a task, `workriver task
+- **A later task says what it follows**: once a unit has a task, `workriver task
   add` without `--after` or a same-unit `--cause` is refused ("u1 already has tasks: say which
   one this follows with --after <n> (the latest is #N), or --after start to run beside the
   first"). It used to hang off the start beside the first task, away from the work it

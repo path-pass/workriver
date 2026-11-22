@@ -1579,6 +1579,41 @@ fn a_gate_submitted_during_the_send_stops_the_prompt() {
     assert!(prompts.iter().all(|m| !m.contains("Wait for gate race")), "the committed gate already failed the question before the blocked poll was released, but it sent: {prompts:?}");
 }
 
+/// Closing another workspace can finish while a discussion's prompt is still being sent.
+#[test]
+fn unrelated_workspace_close_can_commit_during_a_discussion_send() {
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    let other = workspace_named(&d, "other");
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    *fake.on_send.lock().unwrap() = Some(Box::new(move |session| {
+        if session == "s-r" {
+            paused_tx.send(()).unwrap();
+            resume_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+    }));
+
+    let d = &d;
+    std::thread::scope(|scope| {
+        let discussion = scope.spawn(|| d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why SQLite?" }))));
+        paused_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let close = scope.spawn(move || {
+            closed_tx.send(d.call("/api/workspaces", Some(json!({ "action": "close", "workspace": other })))).unwrap();
+        });
+        let closed = closed_rx.recv_timeout(Duration::from_secs(5));
+        resume_tx.send(()).unwrap();
+        discussion.join().unwrap().unwrap();
+        close.join().unwrap();
+        assert_eq!(closed.expect("workspace close waited for the discussion prompt").unwrap()["kind"], "workspace.closed");
+    });
+}
+
 /// A question's options, both ways it is asked: a decide gate and a manager's message. The user
 /// answers through the page's own routes; the page reads the options, the pick and whether a
 /// conversation's question is still open; the manager is told the option. `task show` prints

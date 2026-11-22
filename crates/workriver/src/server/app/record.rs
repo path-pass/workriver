@@ -26,7 +26,7 @@ impl App {
     pub(in crate::server) fn record(&self, who: &Principal, mut body: Body) -> Result<core::Event, ApiError> {
         // A gate and what follows it (its hook fails the discussions it ends) in order with a
         // discussion's last check and send (`App::hand`): no question it ends is typed in after.
-        let _order = matches!(body, Body::GateSubmitted { .. }).then(|| self.last_check.lock().unwrap());
+        let _order = matches!(body, Body::GateSubmitted { .. }).then(|| self.discussing.lock().unwrap());
         let (actor, machine) = (who.actor(), who.machine());
         // The user seats a session: where its machine's runtime shows it now is read here,
         // and it is pinned there once the seating is recorded. Anyone else's is the rules'
@@ -45,7 +45,7 @@ impl App {
         let committed = {
             // A seat change in order with a message's last check and send (`App::hand`): no
             // message of the appointment it ends is typed in after it is committed.
-            let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. }).then(|| self.last_check.lock().unwrap());
+            let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. }).then(|| self.appointing.lock().unwrap());
             let mut store = self.store.lock().unwrap();
             let committed = store.record(who, body)?;
             // A project comes with its first workspace, named as it: under the same lock.

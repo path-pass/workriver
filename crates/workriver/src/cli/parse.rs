@@ -15,7 +15,8 @@ pub(crate) fn link_path(s: &str) -> anyhow::Result<String> {
     let (at, finding) = s.split_once(':').map_or((s, None), |(a, f)| (a, Some(f)));
     let (id, n) = at.split_once('#').map_or((at, None), |(u, n)| (u, Some(n)));
     let digits = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit());
-    if !(id.strip_prefix('u').or_else(|| id.strip_prefix('i')).is_some_and(digits) && n.is_none_or(digits)) {
+    let id_digits = id.strip_prefix('u').or_else(|| id.strip_prefix('i').filter(|_| n.is_none()));
+    if !(id_digits.is_some_and(digits) && n.is_none_or(digits)) {
         return Err(bad());
     }
     let mut path = format!("/{id}");

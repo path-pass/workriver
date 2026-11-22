@@ -63,14 +63,14 @@ pub(super) struct App {
     /// When each live agent was first seen blocked, by session.
     // ponytail: in memory; a restart makes a blocked agent's wait start again.
     pub(super) blocked: Mutex<std::collections::HashMap<String, String>>,
-    /// Orders a last check and send against the record that would change what it checks:
-    /// a discussion's question against a gate's record, the user's message (its appointment)
-    /// against a seat change's. Whichever comes first, the other sees it (`App::hand`,
-    /// `App::record`). One lock for both: a gate's record and what follows it never give a
-    /// user's message, and a seat change holds it only while it is committed. Taken before
-    /// an agent's writer (`Terminals::writer`, held while a message is typed or a key
-    /// pressed), never while one is held.
-    pub(in crate::server) last_check: Mutex<()>,
+    /// Orders a discussion's last check and send against a gate's record: whichever comes
+    /// first, the other sees it (`App::hand`, `App::record`).
+    pub(in crate::server) discussing: Mutex<()>,
+    /// Orders the user's message's last check of its appointment and send against a seat
+    /// change's record: whichever comes first, the other sees it (`App::hand`, `App::record`).
+    /// Taken before an agent's writer (`Terminals::writer`, held while a message is typed or
+    /// a key pressed), never while one is held.
+    pub(in crate::server) appointing: Mutex<()>,
     /// The machine each session was last listed on (none: this one), and the sessions gone:
     /// last listed on a machine whose read now is complete without them. What a discussion's
     /// author being gone is judged on.

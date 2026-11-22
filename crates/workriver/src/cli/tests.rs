@@ -41,7 +41,7 @@ fn link_paths() {
     for (r, path) in [("u1", "/u1"), ("i3", "/i3"), ("u1#3", "/u1/3"), ("u12#4:P2-1", "/u12/4?finding=P2-1")] {
         assert_eq!(crate::cli::link_path(r).unwrap(), path, "{r}");
     }
-    for r in ["", "u", "x1", "u1#", "u1#a", "u1:P2-1", "u1#3:", "u1#3:P2 1", "u1/3", "../u1"] {
+    for r in ["", "u", "x1", "i3#1", "i3#1:P2-1", "u1#", "u1#a", "u1:P2-1", "u1#3:", "u1#3:P2 1", "u1/3", "../u1"] {
         assert!(crate::cli::link_path(r).is_err(), "{r}");
     }
 }
