@@ -38,7 +38,7 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 
 function show(to: string, messages: ManagerMessage[], live = sessions) {
   const talk: Talk = {
-    sessions: live, file: null, lines: null, managerAt: 1, to, onRead: () => {}, onFile: () => {}, focusAt: 0, onOpen: () => {}, extra: [],
+    sessions: live, file: null, lines: null, to, onPick: () => {}, projectOf: () => undefined, onRead: () => {}, onFile: () => {}, focusAt: 0, onOpen: () => {}, extra: [],
     intents: [], messages, onTell: (...a) => { told.push(a) }, onDiscuss: async () => {}, onDiscussRead: () => {}, onAnswer: () => {},
   }
   const unit = { id: 'u1', title: 'Search' } as unknown as Unit

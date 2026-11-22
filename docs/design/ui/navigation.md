@@ -12,7 +12,8 @@ its sections went.
 - A dark rail on the left picks units and nothing else: product name, the project switch
   (a select in the rail's colours, "All projects" first; remembered; switching it opens the
   project's first unit, or its empty state – the start guide naming the project – when it has
-  none, and sets the address; the unit on screen stays when it belongs to the project picked),
+  none, and sets the address; the unit on screen stays when it belongs to the project picked;
+  the Manager section follows to the project's manager, `conversations.md`),
   search (unit ids, titles and purposes, and intent ids: an intent's id shows it with all its
   units), then the intents in three
   groups under quiet headings: **Active** (with their units), **Roadmap** (planned intents
