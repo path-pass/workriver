@@ -78,13 +78,15 @@ impl crate::State {
 
 impl Body {
     /// What only the person may record: their decisions and results, and what changes
-    /// where workriver reaches or who manages (projects, workspaces, a manager's seat, the
-    /// workspace an intent runs in).
+    /// where workriver reaches or who manages (projects, workspaces, a manager's seat, a
+    /// manager's start, the workspace an intent runs in). A new kind that sets a seat, a
+    /// workspace or a project is one of these, or `service_only` under a rule of `prepare`
+    /// that ties it to one of these (a start's seating, `ManagerStartSeated`).
     pub fn user_only(&self) -> bool {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | WorkspaceManagerStarted { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. }
         )
     }
 
@@ -94,9 +96,11 @@ impl Body {
     /// question, in workriver's words, so no agent may close the user's. What an agent is
     /// seen as (its name, harness, working directory, machine) is the runtime's word, given
     /// by the service: nobody names another agent, or points at another session's file. That
-    /// a seated session has its seat back is what the service saw of its terminal.
+    /// a seated session has its seat back is what the service saw of its terminal. A start's
+    /// seating and its end are what the service found of the user's start: the rules accept
+    /// them only for that workspace's pending start.
     pub fn service_only(&self) -> bool {
-        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. })
+        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. } | Body::ManagerStartSeated { .. } | Body::ManagerStartEnded { .. })
     }
 }
 

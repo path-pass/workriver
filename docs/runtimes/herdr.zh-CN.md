@@ -57,8 +57,20 @@ Herdr 的 socket 是 `~/.config/herdr/herdr.sock`（或 `HERDR_SOCKET_PATH`）�
 Herdr 工作区看起来清楚，但不是要求）：workriver 只在 agent 旁边显示它的窗格在哪个 Herdr 工作区，并把
 临时 agent 的窗格开在它服务的那个 agent 旁边。
 
-工作区的管理者由你自己指定：在一个窗格里启动 coding agent，然后在页面上选它（该工作区那一行的
-"管理者"），或者在没有 agent 的窗格、或 Herdr 之外的终端里运行 `workriver workspace manager ws1 <agent>`。
+工作区的管理者由你自己给，有两种方式。从页面启动（该工作区那一行的"启动管理者"）：workriver 在与
+workriver 工作区同名的 Herdr 工作区里（取第一个同名的，没有就新建）新开一个标签页，不抢焦点，目录是项目
+目录；读出它的 shell（`pane.process_info`）；记下这次启动；然后在那里调用 Herdr 的 `agent.start`，带上
+harness 的类型和以 Herdr 列表形式给出的参数（只在你选了模型时带 `--model <模型>`），名字是 `<ws>-manager`。
+Herdr 报告这个窗格里出现了 harness 自己的会话后，workriver 就指定它为管理者。Herdr 的 `agent_not_ready`
+（harness 启动时被挡住，比如在新目录里问是否信任）会保留窗格：在窗格里或从"需要你"里回答。哪些 harness
+可选来自 Herdr 的 `integration.list`：命令找得到，且 Herdr 对它的集成是最新的（`herdr integration status`；
+`herdr integration install claude` 安装）。设置里的"试一下"在临时目录里做同样的事一次，放在名为
+`workriver-try` 的 Herdr 工作区，结束后关掉窗格。在 Herdr 0.9.5 上实测：通过 socket 调用的
+`agent.start` 会立刻返回，启动仍在进行；窗格里的 shell 还没到提示符时会被拒绝（`agent_pane_busy`），
+workriver 会再试一阵，然后像 `herdr agent start` 那样等待（就绪，或被挡住：未就绪）。Herdr 输入参数时会
+加引号。agent 的名字只能用小写字母、数字、`-` 和 `_`。或者自己在一个窗格里启动 coding agent，然后在页面上选它
+（该工作区那一行的"管理者"），或者在没有 agent 的窗格、或 Herdr 之外的终端里运行
+`workriver workspace manager ws1 <agent>`。
 Herdr 重启后所有窗格都是新的：在同一个文件夹里恢复的管理者会自己重新成为管理者；不是这样的，在
 "需要你"里等你点一下。
 

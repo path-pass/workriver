@@ -1,7 +1,8 @@
-// Seating a workspace's manager: the one act that makes an agent a manager, and it is the
-// user's. A list of the agents running now (who each is, where it runs, what the records
-// know of it); the change names the seat the user was shown, so one changed meanwhile is
-// never overwritten unseen.
+// Seating a workspace's manager: the user's act, and the only one that makes an agent a
+// manager (besides the end of a start the user made, below). A list of the agents running
+// now (who each is, where it runs, what the records know of it), and a second part that
+// starts a new one to be seated; each change names the seat the user was shown, so one
+// changed meanwhile is never overwritten unseen.
 import { useEffect, useId, useState } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/ui/primitives/dialog'
@@ -16,11 +17,13 @@ import { MachineChip } from '@/machines/format'
 import { Content, Slot, slot, SLOT } from '@/content/Chips'
 import { Icon } from '@/ui/Icon'
 import { candidates, movedSeat, replaces, runs, seatList, shortFolder, type Candidate } from './spaces'
+import { StartLine, StartPart } from './StartManager'
 
 /** Each seat dialog on the page, to be opened on a workspace. */
-const openers = new Set<(space: string, preset?: string) => void>()
-/** Opens the manager select of workspace `space`, preset to session `preset` when given. */
-export function openSeat(space: string, preset?: string) { openers.forEach(open => open(space, preset)) }
+const openers = new Set<(space: string, preset?: string, start?: boolean) => void>()
+/** Opens the manager select of workspace `space`, preset to session `preset` when given;
+ *  `start`: at its "Start a new one" part. */
+export function openSeat(space: string, preset?: string, start = false) { openers.forEach(open => open(space, preset, start)) }
 
 /** What the records know of an agent, in a line: the seat it holds, the tasks it has. */
 function Known({ c }: { c: Candidate }) {
@@ -64,10 +67,11 @@ function Row({ c, ws, id }: { c: Candidate; ws: Workspace; id: string }) {
  * in the project's folder come first (with the one seated now and the one preset); a switch
  * shows the others, open when none is in the project. It
  * asks once before seating over a manager that runs; "Empty the seat" takes the manager
- * away. `onDone`: seated or emptied. A seat that changed meanwhile says so and shows the
- * seat as it is now, to choose again.
+ * away. `onDone`: seated, emptied or a start recorded. A seat that changed meanwhile says so
+ * and shows the seat as it is now, to choose again. Under it, "Start a new one" (`start`:
+ * opened there).
  */
-export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space: Space; preset?: string; onDone?: () => void }) {
+export function SeatPicker({ ws, space, preset, start, onDone }: { ws: Workspace; space: Space; preset?: string; start?: boolean; onDone?: () => void }) {
   const { t } = useT()
   const id = useId()
   const list = candidates(ws)
@@ -112,6 +116,7 @@ export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space
           ? <Slot text={t(runs(seated) ? 'seat.now' : 'seat.nowGone', { name: SLOT, folder: seated.folder })}><Content text={seated.name} /></Slot>
           : t('seat.empty')}
       </p>
+      <StartLine ws={ws} space={space} />
       {moved && at && (
         <p role="note" className="rounded-sm border border-line bg-sunken px-2 py-1.5 text-xs wrap-anywhere">
           {t('seat.moved', { name: at.s.agent })}
@@ -145,6 +150,7 @@ export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space
           <Icon name="manager" className="size-3.5" />{over && asked ? t('seat.goOver', { name: at!.s.agent }) : moved ? t('seat.goNew') : t('seat.go')}
         </Button>
       </div>
+      <StartPart space={space} focus={start} onDone={onDone} />
     </div>
   )
 }
@@ -153,9 +159,9 @@ export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space
  *  Needs you row, Settings or the Start dialog (`openSeat`). */
 export function SeatDialog({ ws }: { ws: Workspace | null }) {
   const { t } = useT()
-  const [open, setOpen] = useState<{ space: string; preset?: string } | null>(null)
+  const [open, setOpen] = useState<{ space: string; preset?: string; start?: boolean } | null>(null)
   useEffect(() => {
-    const opener = (space: string, preset?: string) => setOpen({ space, preset })
+    const opener = (space: string, preset?: string, start?: boolean) => setOpen({ space, preset, start })
     openers.add(opener)
     return () => { openers.delete(opener) }
   }, [])
@@ -163,7 +169,8 @@ export function SeatDialog({ ws }: { ws: Workspace | null }) {
   const project = ws?.projects?.find(p => p.id === space?.project)?.title
   return (
     <Dialog open={!!open && !!space} onOpenChange={o => { if (!o) setOpen(null) }}>
-      <DialogContent closeLabel={t('settings.close')}>
+      {/* With the start part under the list it can be taller than a short window: it scrolls. */}
+      <DialogContent closeLabel={t('settings.close')} className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         {ws && space && (
           <>
             <DialogTitle>
@@ -171,7 +178,7 @@ export function SeatDialog({ ws }: { ws: Workspace | null }) {
               <span className="ml-2 font-mono text-xs font-normal text-ink-2">{space.id}</span>
             </DialogTitle>
             <DialogDescription>{project ? <Slot text={t('seat.lead', { project: SLOT })}><Content text={project} /></Slot> : t('seat.leadNone')}</DialogDescription>
-            <SeatPicker key={`${space.id}:${open?.preset ?? ''}`} ws={ws} space={space} preset={open?.preset} onDone={() => setOpen(null)} />
+            <SeatPicker key={`${space.id}:${open?.preset ?? ''}:${!!open?.start}`} ws={ws} space={space} preset={open?.preset} start={open?.start} onDone={() => setOpen(null)} />
             <DialogClose asChild><Button type="button" variant="ghost" size="sm" className="self-start">{t('rail.addCancel')}</Button></DialogClose>
           </>
         )}

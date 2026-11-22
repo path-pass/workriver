@@ -83,14 +83,18 @@ it); else none.
    time (the agent started a new conversation): that is a new agent.
 
    **A session that holds a manager's seat keeps its root** (`Workspace.manager`, a record
-   of workriver's own; the seat is set by the user alone, `docs/security.md`):
+   of workriver's own; the seat is set by the user's seating, or by the end of the user's
+   own start of a manager, `docs/security.md`):
    - *At the seating* the service reads the roots of the session's own machine, this one or
      another alike (`Runtime::agent_roots(machine)`; one that cannot be asked: 503), in
      `App::seating`. The seating is refused when the session is shown at no root there, at
      more than one, or at another root than the one it is pinned to while that one runs. A
      session with no pin, or whose pinned root is gone, is pinned at the seating to the one
      root it is shown at (after the event is recorded, `App::seated`). The seat keeps the
-     machine and the working directory the runtime showed for it there (`folder`).
+     machine and the working directory the runtime showed for it there (`folder`). A start's
+     seating (`workspace.manager_start_seated`) is read and pinned the same way, by the
+     same `App::seating`, and the rules accept it only at the root (place and shell) the
+     start was recorded with.
    - *Afterwards* its pin is not released when the root stops running, and no other root
      takes the session by reporting it, with one exception: a root on the seat's machine
      that shows the session in the seat's folder, as the one root showing it there, is
@@ -337,5 +341,8 @@ Agents run under the user's account, and this check does not change that.
 - Reading events of the form from before workriver's own workspaces: a store with them is
   refused (`Store::open`) and is converted once, outside the product
   (`scripts/migrate-virtual-workspaces/`, removed once the user's store is migrated).
-- workriver making or arranging the runtime's groups for a workspace, or starting agents.
+- workriver arranging the runtime's groups for a workspace, or starting agents other than
+  a manager the user starts from the page (one place in the group labelled as the
+  workspace, `docs/security.md`, "Starting a manager") and the temporary agents it starts
+  for a question or a command's review.
 - Machines known by anything but their label; agents outside the supported runtime.

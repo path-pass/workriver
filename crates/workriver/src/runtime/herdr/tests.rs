@@ -179,6 +179,79 @@ fn starts_a_temporary_agent() {
     assert_eq!((seen[2]["method"].as_str(), &seen[2]["params"]), (Some("pane.close"), &json!({ "pane_id": "w5:p7" })));
 }
 
+/// A manager's place is a tab of its own in the workspace labelled as asked, opened without
+/// taking the focus (a workspace is made, unfocused, when there is none with that label).
+#[test]
+fn opens_a_place_without_the_focus() {
+    let tab = json!({ "result": { "type": "tab_created", "root_pane": { "pane_id": "w5:p7" } } });
+    let (_dir, herdr, server) = fake(vec![snapshot(), tab.clone()]);
+    assert_eq!(herdr.open_place(None, "chat", "/p").unwrap(), "w5:p7");
+    let seen = server.join().unwrap();
+    assert_eq!((seen[1]["method"].as_str(), &seen[1]["params"]), (Some("tab.create"), &json!({ "workspace_id": "w5", "cwd": "/p", "label": "manager", "focus": false })));
+    let (_dir, herdr, server) = fake(vec![snapshot(), tab]);
+    herdr.open_place(None, "Docs", "/p").unwrap();
+    let seen = server.join().unwrap();
+    assert_eq!((seen[1]["method"].as_str(), &seen[1]["params"]), (Some("workspace.create"), &json!({ "label": "Docs", "cwd": "/p", "focus": false })));
+}
+
+/// The harness is started in the place given, its arguments as Herdr's list. Herdr answers
+/// at once with the launch pending (measured, 0.9.5), so the agent is waited for as `herdr
+/// agent start` does: ready once Herdr knows its harness and its launch is over; blocked
+/// during startup (a trust question) is `NotReady`, as is Herdr's own `agent_not_ready`;
+/// another refusal is the runtime's words. Nothing is ever closed here: that is the caller's.
+#[test]
+fn starts_a_harness_in_a_place_with_its_arguments() {
+    let started = json!({ "result": { "type": "agent_started", "agent": { "pane_id": "w5:p7", "name": "ws1-manager", "agent_status": "unknown", "launch_pending": true }, "argv": ["claude", "--model", "opus"] } });
+    let at = |agent: Value| {
+        let mut snap = snapshot();
+        snap["result"]["snapshot"]["agents"].as_array_mut().unwrap().push(agent);
+        snap
+    };
+    let launching = at(json!({ "pane_id": "w5:p7", "workspace_id": "w5", "name": "ws1-manager", "agent_status": "unknown", "launch_pending": true }));
+    let ready = at(json!({ "pane_id": "w5:p7", "workspace_id": "w5", "agent": "claude", "name": "ws1-manager", "agent_status": "idle", "launch_pending": false }));
+    // A pane just opened is not at its shell's prompt yet: asked again.
+    let busy = json!({ "error": { "code": "agent_pane_busy", "message": "agent target pane w5:p7 is not an available shell" } });
+    let (_dir, herdr, server) = fake(vec![busy, started.clone(), launching.clone(), ready]);
+    herdr.start_in(None, "w5:p7", "claude", "ws1-manager", &["--model".into(), "opus".into()]).unwrap();
+    let seen = server.join().unwrap();
+    assert_eq!((seen[1]["method"].as_str(), &seen[1]["params"]), (Some("agent.start"), &json!({ "name": "ws1-manager", "kind": "claude", "pane_id": "w5:p7", "args": ["--model", "opus"], "timeout_ms": 60000 })));
+    assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["agent.start", "agent.start", "session.snapshot", "session.snapshot"], "nothing closed");
+    // On the harness's own question at startup: not ready, the pane kept.
+    let blocked = at(json!({ "pane_id": "w5:p7", "workspace_id": "w5", "agent": "claude", "name": "ws1-manager", "agent_status": "blocked", "launch_pending": true }));
+    let (_dir, herdr, server) = fake(vec![started, launching, blocked]);
+    let e = herdr.start_in(None, "w5:p7", "claude", "ws1-manager", &[]).unwrap_err();
+    assert!(matches!(&e, RuntimeError::NotReady(w) if w.contains("blocked during startup")), "{e}");
+    assert_eq!(server.join().unwrap().len(), 3, "nothing closed");
+    let not_ready = json!({ "error": { "code": "agent_not_ready", "message": "agent ws1-manager was blocked during startup and is not ready for prompts" } });
+    let (_dir, herdr, server) = fake(vec![not_ready]);
+    assert!(matches!(herdr.start_in(None, "w5:p7", "claude", "ws1-manager", &[]), Err(RuntimeError::NotReady(_))));
+    assert_eq!(server.join().unwrap().len(), 1, "nothing closed");
+    let refused = json!({ "error": { "code": "agent_start_failed", "message": "no such harness" } });
+    let (_dir, herdr, server) = fake(vec![refused]);
+    assert!(matches!(herdr.start_in(None, "w5:p7", "nope", "x", &[]), Err(RuntimeError::Failed(w)) if w.contains("no such harness")));
+    assert_eq!(server.join().unwrap().len(), 1, "nothing closed");
+}
+
+/// An agent with no session of its own goes by its pane's name, which is no session; the
+/// harnesses are Herdr's integrations: command found, hook current.
+#[test]
+fn tells_a_session_from_a_panes_name_and_reads_the_harnesses() {
+    let (_dir, herdr, server) = fake(vec![snapshot()]);
+    let list = herdr.agents().unwrap();
+    server.join().unwrap();
+    assert!(herdr.has_session(&list[0]) && !herdr.has_session(&list[1]), "{list:?}");
+    let integrations = json!({ "result": { "type": "integration_list", "integrations": [
+        { "target": "claude", "label": "claude", "command": "claude", "available": true, "state": "current" },
+        { "target": "codex", "label": "codex", "command": "codex", "available": true, "state": "outdated" },
+        { "target": "pi", "label": "pi", "command": "pi", "available": false, "state": "not_installed" }
+    ] } });
+    let (_dir, herdr, server) = fake(vec![integrations]);
+    let h = herdr.harnesses(None).unwrap();
+    assert_eq!(server.join().unwrap()[0]["method"], "integration.list");
+    let h: Vec<(&str, bool, bool)> = h.iter().map(|h| (h.kind.as_str(), h.installed, h.integrated)).collect();
+    assert_eq!(h, [("claude", true, true), ("codex", true, false), ("pi", false, false)]);
+}
+
 /// A socket that reads each connection's one request and gives it the next answer, or
 /// closes it unanswered (None). Hands back the methods asked.
 fn dropping(answers: Vec<Option<Value>>) -> (tempfile::TempDir, Herdr, std::thread::JoinHandle<Vec<String>>) {

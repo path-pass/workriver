@@ -439,6 +439,14 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
                 state: live.iter().find(|a| a.session == m.session && a.machine == m.machine).filter(|_| !proposals.contains_key(&w.id)).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into()),
             }),
             proposal: proposals.get(&w.id).cloned().flatten(),
+            start: w.start.as_ref().map(|s| StartOut {
+                since: s.at.clone(),
+                harness: s.harness.clone(),
+                model: s.model.clone(),
+                name: s.name.clone(),
+                reason: s.ended.as_ref().map(|e| name(&e.reason)),
+                words: s.ended.as_ref().map(|e| e.words.clone()).filter(|w| !w.is_empty()),
+            }),
         })
         .collect();
     let chores = state

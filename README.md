@@ -25,8 +25,9 @@ have no easy answer:
   deciding them.
 
 workriver is where those answers live. It runs on your machine as one service, records the
-work as it happens and shows it in a browser. It records and shows; it does not start or
-schedule agents.
+work as it happens and shows it in a browser. It records and shows. It starts an agent only
+when you ask it to (a workspace's manager, from the page) and schedules none: which worker
+gets which task is the manager's.
 
 ## How it works
 
@@ -185,8 +186,9 @@ The page and the CLI act as you only with the user token on your machine; agents
 other machines cannot. What that does and does not protect: [Security model](docs/security.md).
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
-`workriver --help` explains the commands. You seat the manager of a workspace yourself (on
-the page, or `workriver workspace manager <ws> <agent>`), one per workspace, and `workriver guide
+`workriver --help` explains the commands. You give a workspace its manager yourself, one per
+workspace: start one on the page (the workspace's line, Start manager), or seat an agent
+you started (on the page, or `workriver workspace manager <ws> <agent>`); `workriver guide
 manager` / `workriver guide worker` print the instructions for agents. Where the service
 finds the runtime: [docs/runtimes/herdr.md](docs/runtimes/herdr.md); without it the service
 still records and shows, it just sees no agents.

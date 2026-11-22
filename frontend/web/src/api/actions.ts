@@ -9,6 +9,7 @@ import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machine
 import type { Answer, AskContext, Sent } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
+import type { StartSettings, Tried } from '@/agents/types'
 import { call, post, read, SIGNED_OUT } from './http'
 import { labelOf } from '@/content/choice/surface'
 
@@ -288,6 +289,30 @@ export async function setStallMinutes(minutes: number): Promise<number> {
   return (await res.json()).minutes
 }
 
+// The sample keeps the default of a start in memory, and offers Claude Code only.
+let mockStart: StartSettings = { harness: 'claude', model: '', harnesses: [{ kind: 'claude', aliases: ['opus', 'sonnet', 'fable'] }, { kind: 'codex', aliases: [], why: 'not_installed' }] }
+
+/** The harness and model a start of a manager takes by default, with every harness as offered here. */
+export async function startSettings(): Promise<StartSettings> {
+  if (MOCK) return mockStart
+  const res = await fetch('/api/settings/start')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** Sets them; answers what the service kept. A refusal is thrown in its words. */
+export async function setStartSettings(harness: string, model: string): Promise<StartSettings> {
+  if (MOCK) return (mockStart = { ...mockStart, harness, model })
+  return call('/api/settings/start', { harness, model })
+}
+
+/** Starts that harness and model once in a temporary folder, as a start would, and closes it
+ *  again: whether it got ready, and its screen. The service may take a minute or more. */
+export async function tryStart(harness: string, model: string): Promise<Tried> {
+  if (MOCK) return { ok: false, words: 'the sample starts no harness', screen: '' }
+  return call('/api/settings/start/try', { harness, model })
+}
+
 /** The machines the service knows, followed or not. */
 export async function machines(): Promise<Machine[]> {
   if (MOCK) return []
@@ -321,20 +346,50 @@ export async function startIntent(intent: string, workspace: string, manager?: s
   return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace })).delivery
 }
 
+/**
+ * Adds a project: a folder of the machine workriver runs on (whole, from `/` or `~/`) and a
+ * title (empty: the service takes the folder's name). It comes with its first workspace. A
+ * refusal is thrown in the service's words. The sample adds it to its own data.
+ */
+export async function addProject(path: string, title: string): Promise<void> {
+  if (MOCK) {
+    window.dispatchEvent(new CustomEvent(MOCK_CHANGED, { detail: (ws: Workspace) => mockProject(ws, path, title) }))
+    return
+  }
+  await call('/api/append', { kind: 'project.added', body: { path, title } })
+}
+
+/** The sample after a project is added, with its first workspace, as the service would leave it. */
+export function mockProject(ws: Workspace, path: string, title: string): Workspace {
+  const projects = ws.projects ?? [], spaces = ws.workspaces ?? []
+  const name = title.trim() || path.replace(/\/+$/, '').split('/').pop() || path
+  return {
+    ...ws,
+    projects: [...projects, { id: path, key: `p${projects.length + 1}`, title: name, repos: [] }],
+    workspaces: [...spaces, { id: `ws${spaces.length + 1}`, name, project: path }],
+  }
+}
+
+/** The seat a change names as the one it replaces: the seat the user was shown. */
+type Replaces = { session: string; since: number } | null
+
 /** What the user does to a workspace: make one in a project, rename it, close it, open it
- *  again, seat its manager (`replaces`: the seat the user was shown), move an intent into it. */
+ *  again, seat its manager (`replaces`: the seat the user was shown), start a manager to be
+ *  seated (a harness and a model; empty: the harness's default), move an intent into it. */
 export type SpaceAct =
   | { action: 'add'; project: string; name: string }
   | { action: 'rename'; workspace: string; name: string }
   | { action: 'close' | 'open'; workspace: string }
-  | { action: 'manager'; workspace: string; manager: string | null; replaces: { session: string; since: number } | null }
+  | { action: 'manager'; workspace: string; manager: string | null; replaces: Replaces }
+  | { action: 'start'; workspace: string; harness: string; model: string; replaces: Replaces }
   | { action: 'move'; intent: string; workspace: string }
 
-/** The seat changed since the user was shown it (the service's 409): look again and choose. */
+/** The seat changed since the user was shown it (the service's 409 that says so): look again and choose. */
 export class SeatChanged extends Error {}
 
 /** Records one of the user's acts on a workspace; a refusal is thrown in the service's words,
- *  a seat that changed meanwhile as `SeatChanged`. The sample changes its own data. */
+ *  a seat that changed meanwhile as `SeatChanged` (the other 409, a start already pending,
+ *  in its words). The sample changes its own data. */
 export async function setSpace(act: SpaceAct): Promise<void> {
   if (MOCK) {
     window.dispatchEvent(new CustomEvent(MOCK_CHANGED, { detail: (ws: Workspace) => mockSpace(ws, act) }))
@@ -342,8 +397,10 @@ export async function setSpace(act: SpaceAct): Promise<void> {
   }
   const res = await fetch('/api/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(act) })
   if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
-  if (res.status === 409) throw new SeatChanged(await res.text())
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) {
+    const words = await res.text()
+    throw res.status === 409 && words.startsWith('the seat changed') ? new SeatChanged(words) : new Error(words)
+  }
 }
 
 /** The sample after one of the user's acts on a workspace, as the service would leave it. */
@@ -353,15 +410,17 @@ export function mockSpace(ws: Workspace, act: SpaceAct): Workspace {
   switch (act.action) {
     case 'add': return { ...ws, workspaces: [...all, { id: `ws${all.length + 1}`, name: act.name.trim(), project: act.project }] }
     case 'rename': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, name: act.name.trim() })) }
-    case 'close': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, closed: true, manager: undefined, proposal: undefined })) }
-    case 'open': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, closed: false })) }
+    case 'close': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, closed: true, manager: undefined, proposal: undefined, start: undefined })) }
+    case 'open': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, closed: false, start: undefined })) }
+    // The sample starts no agent: the start stays pending until a seating drops it.
+    case 'start': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, start: { since: new Date().toISOString(), harness: act.harness, model: act.model || undefined, name: `${w.id}-manager` } })) }
     case 'move': return { ...ws, intents: ws.intents.map(i => (i.id === act.intent ? { ...i, workspace: act.workspace } : i)) }
     case 'manager': {
       const s = ws.sessions.find(x => !x.ended && (x.session ?? x.agent) === act.manager)
       const since = Math.max(0, ...all.map(w => w.manager?.since ?? 0)) + 1
       const seat = s && act.manager ? { session: act.manager, name: s.agent, machine: s.machine, folder: s.folder ?? '', since, state: s.state ?? ('unknown' as const) } : undefined
       // A session holds one seat: seated here, its old one is empty.
-      const workspaces = all.map(w => (w.id === act.workspace ? { ...w, manager: seat, proposal: undefined } : seat && w.manager?.session === seat.session ? { ...w, manager: undefined } : w))
+      const workspaces = all.map(w => (w.id === act.workspace ? { ...w, manager: seat, proposal: undefined, start: undefined } : seat && w.manager?.session === seat.session ? { ...w, manager: undefined, start: undefined } : w))
       const held = (x: Workspace['sessions'][number]) => workspaces.find(w => w.manager?.session === (x.session ?? x.agent))
       return {
         ...ws, workspaces,

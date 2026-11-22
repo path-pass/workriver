@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub mod defaults;
+pub mod harness;
 
 use defaults::{IDLE_MINUTES, READY_HOURS, STALL_MAX, STALL_MINUTES};
 
@@ -45,11 +46,37 @@ pub struct Settings<O> {
     /// Minutes a worker may sit idle with no task before its manager is told.
     #[serde(default = "idle_default", rename = "idleMinutes")]
     idle_minutes: u32,
+    /// What a manager started from the page runs, unless the start dialog changes it. Not
+    /// written while it is the default, so a file the user never set it in stays as it was.
+    #[serde(default, skip_serializing_if = "StartDefault::is_default")]
+    start: StartDefault,
+}
+
+/// The harness and model a start takes unless the user changes them in its dialog.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StartDefault {
+    /// A kind of the harness table.
+    pub harness: String,
+    /// Empty: the harness's own default.
+    #[serde(default)]
+    pub model: String,
+}
+
+impl StartDefault {
+    fn is_default(&self) -> bool {
+        *self == StartDefault::default()
+    }
+}
+
+impl Default for StartDefault {
+    fn default() -> Self {
+        StartDefault { harness: harness::HARNESSES[0].kind.to_string(), model: String::new() }
+    }
 }
 
 impl<O> Default for Settings<O> {
     fn default() -> Self {
-        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES }
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES, start: StartDefault::default() }
     }
 }
 
@@ -101,6 +128,22 @@ impl<O: Serialize + DeserializeOwned> Settings<O> {
         let _held = SETTINGS.lock().unwrap();
         let mut all = Self::read(home);
         all.alerts = alerts;
+        all.write(home)
+    }
+
+    /// The harness and model a start takes by default.
+    pub fn start_default(home: &Path) -> StartDefault {
+        Self::read(home).start
+    }
+
+    /// Saves them, once the caller has checked that the harness is offered; the model's form
+    /// is checked here. The rest of the file stays.
+    pub fn set_start_default(home: &Path, start: StartDefault) -> Result<(), String> {
+        let h = harness::harness(&start.harness).ok_or_else(|| format!("no harness {:?}", start.harness))?;
+        h.args(&start.model)?;
+        let _held = SETTINGS.lock().unwrap();
+        let mut all = Self::read(home);
+        all.start = start;
         all.write(home)
     }
 

@@ -214,6 +214,31 @@ pub(crate) struct WorkspaceOut {
     /// (the seated one in another terminal, or the agent now in the old terminal), if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) proposal: Option<String>,
+    /// The user's last start of a manager for it, until a seat event: pending (no `reason`),
+    /// or how it ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) start: Option<StartOut>,
+}
+
+/// A manager's start, as the page shows it on the workspace's line.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartOut {
+    /// When the user started it.
+    pub(crate) since: String,
+    pub(crate) harness: String,
+    /// Empty: the harness's own default.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub(crate) model: String,
+    /// The name its agent goes by in the runtime until it has a session.
+    pub(crate) name: String,
+    /// Why it ended with nobody seated (`runtime`, `no_agent`, `no_session`, `refused`,
+    /// `restarted`); none: pending.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+    /// The runtime's or the rules' words, when there are any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) words: Option<String>,
 }
 
 /// A manager's seat, as the page shows it.

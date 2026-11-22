@@ -409,7 +409,7 @@ impl App {
         }
         let folder = root.at.agent.as_ref().map(|x| x.cwd.clone()).unwrap_or_default();
         let pin = shell.map(|s| Pin { machine: machine.map(str::to_string), place: root.place.clone(), pid: s.pid, start: s.start });
-        Ok(Seating { session: a.session.clone(), machine: a.machine.clone(), folder, pin })
+        Ok(Seating { session: a.session.clone(), machine: a.machine.clone(), folder, harness: Some(a.harness.clone()), pin })
     }
 
     /// A seating was recorded: its session is its root's from now on (a place where the
@@ -490,7 +490,17 @@ pub(in crate::server) struct Seating {
     pub(in crate::server) session: String,
     pub(in crate::server) machine: Option<String>,
     pub(in crate::server) folder: String,
+    /// The harness the runtime shows it runs.
+    pub(in crate::server) harness: Option<String>,
     pin: Option<Pin>,
+}
+
+impl Seating {
+    /// The root it is pinned to once seated: its place, its shell's process id and start; none
+    /// where the runtime knows no shell.
+    pub(in crate::server) fn root(&self) -> Option<(String, u32, u64)> {
+        self.pin.as_ref().map(|p| (p.place.clone(), p.pid, p.start))
+    }
 }
 
 /// The CLI asks who and where it is: see `App::here`. Nothing it sends is read for that.

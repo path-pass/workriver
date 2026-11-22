@@ -23,6 +23,12 @@ impl App {
     /// event names is one of workriver's own, found by its id; nothing the runtime says of
     /// its groups is read for it. What only the service can read is filled in first
     /// (`complete`, and for a seating the root of the session being seated, `seating`).
+    ///
+    /// A seat is set by the user's seating, or by the end of the user's own start of a manager
+    /// (`ManagerStartSeated`, recorded here as workriver's): the service reads where that
+    /// session is as it does for the user's seating, and the rules accept it only for the
+    /// workspace's pending start. Both are recorded in the same order against a message's
+    /// send (`appointing`), the seat before read first, and told the same way.
     pub(in crate::server) fn record(&self, who: &Principal, mut body: Body) -> Result<core::Event, ApiError> {
         // A gate and what follows it (its hook fails the discussions it ends) in order with a
         // discussion's last check and send (`App::hand`): no question it ends is typed in after.
@@ -37,15 +43,29 @@ impl App {
             (*agent, *machine, *folder) = (seat.session.clone(), seat.machine.clone(), seat.folder.clone());
             pin = Some(seat);
         }
+        // What a start brought up, where its machine's runtime shows it now: the folder and the
+        // root (its place and shell) the rules compare with the start's.
+        if let (Body::ManagerStartSeated { session, harness, folder, place, shell, .. }, Principal::Service) = (&mut body, who) {
+            let seat = self.seating(session)?;
+            let Some((at, pid, start)) = seat.root() else { return Err(bad(format!("{session} is in a terminal whose shell is not known: it is not seated"))) };
+            if seat.machine.is_some() {
+                return Err(bad(format!("{session} runs on machine {}: a start seats only on this one", seat.machine.as_deref().unwrap_or_default())));
+            }
+            (*folder, *place, *shell) = (seat.folder.clone(), at, core::Shell { pid, start });
+            if let Some(h) = seat.harness.clone() {
+                *harness = h;
+            }
+            pin = Some(seat);
+        }
         let before = match &body {
-            Body::WorkspaceManagerSet { workspace, .. } | Body::WorkspaceClosed { workspace } => self.store.lock().unwrap().workspace(workspace).ok().and_then(|w| w.manager),
+            Body::WorkspaceManagerSet { workspace, .. } | Body::WorkspaceClosed { workspace } | Body::ManagerStartSeated { workspace, .. } => self.store.lock().unwrap().workspace(workspace).ok().and_then(|w| w.manager),
             _ => None,
         };
         let body = self.complete(actor, body, machine)?;
         let committed = {
             // A seat change in order with a message's last check and send (`App::hand`): no
             // message of the appointment it ends is typed in after it is committed.
-            let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. }).then(|| self.appointing.lock().unwrap());
+            let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. } | Body::ManagerStartSeated { .. }).then(|| self.appointing.lock().unwrap());
             let mut store = self.store.lock().unwrap();
             let committed = store.record(who, body)?;
             // A project comes with its first workspace, named as it: under the same lock.
@@ -70,6 +90,11 @@ impl App {
         self.deliver(&e);
         match &e.body {
             Body::WorkspaceManagerSet { workspace, .. } | Body::WorkspaceClosed { workspace } => self.tell_of_seat(&committed.recorded, workspace, before.as_ref()),
+            // Seated by a start: what the page proposed for the seat is moot.
+            Body::ManagerStartSeated { workspace, .. } => {
+                self.proposals.lock().unwrap().remove(workspace);
+                self.tell_of_seat(&committed.recorded, workspace, before.as_ref());
+            }
             Body::QuestionAnswered { question, .. } => {
                 self.answered(question);
                 self.tell_of_discussion(&e);
@@ -127,7 +152,17 @@ impl App {
             // that is not enough.
             Body::ProjectAdded { .. } if machine.is_some() => return Err(bad("register project folders on the machine workriver runs on".into())),
             Body::ProjectAdded { id, path, title } => {
+                // A whole path, from / or ~/ (the service's home): anything else would be read
+                // against the folder the service was started in.
+                let path = match path.strip_prefix("~/") {
+                    Some(rest) => std::env::home_dir().ok_or_else(|| bad("the service's home folder is not known: give the folder's whole path, from /".into()))?.join(rest).to_string_lossy().into_owned(),
+                    None if path.starts_with('/') => path,
+                    None => return Err(bad(format!("{path:?}: give the folder's whole path, from / or ~/"))),
+                };
                 let folder = std::fs::canonicalize(&path).map_err(|e| bad(format!("{path}: {e}")))?;
+                if !folder.is_dir() {
+                    return Err(bad(format!("{path} is a file: a project is a folder")));
+                }
                 let title = if title.trim().is_empty() { folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { title };
                 Body::ProjectAdded { id, path: folder.to_string_lossy().into_owned(), title }
             }

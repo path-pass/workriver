@@ -71,9 +71,25 @@ renames, creates and closes them through the socket. So arrange your panes as yo
 shows the Herdr workspace beside an agent as where its pane is, and opens a temporary
 agent's pane beside the one it serves.
 
-You seat a workspace's manager yourself: start a coding agent in a pane, then pick it on
-the page (the workspace's line, "Manager") or run `workriver workspace manager ws1 <agent>`
-in a pane with no agent or a terminal outside Herdr. After Herdr restarts, every pane is
+You give a workspace its manager yourself, one of two ways. Start one from the page (the
+workspace's line, "Start manager"): workriver opens a new tab, without taking the focus, in
+the Herdr workspace labelled as the workriver workspace (the first with that label, else one
+made now), in the project's folder; reads its shell (`pane.process_info`); records the
+start; then runs Herdr's `agent.start` there with the harness's kind and its arguments as
+Herdr's list (only `--model <model>` when you picked one), under the name `<ws>-manager`.
+It seats the agent once Herdr reports a session of the harness's own in that pane. Herdr's
+`agent_not_ready` (the harness blocked at startup, e.g. on its trust question in a new
+folder) keeps the pane: answer in it or from Needs you. Which harnesses are offered comes
+from Herdr's `integration.list`: the command found, and Herdr's integration for it current
+(`herdr integration status`; `herdr integration install claude` installs it). Settings' "Try
+it" does the same once in a temporary folder, in a Herdr workspace labelled
+`workriver-try`, and closes the pane. Measured with Herdr 0.9.5: over the socket
+`agent.start` answers at once with the launch still pending, and refuses a pane whose shell
+is not at its prompt yet (`agent_pane_busy`); workriver asks again for a while, then waits as
+`herdr agent start` does (ready, or blocked: not ready). Herdr quotes the arguments it
+types. An agent's name is lowercase letters, digits, `-` and `_`. Or start a coding agent in a pane yourself, then pick
+it on the page (the workspace's line, "Manager") or run `workriver workspace manager ws1
+<agent>` in a pane with no agent or a terminal outside Herdr. After Herdr restarts, every pane is
 new: a manager resumed in the same folder is the manager again by itself; one that is not
 waits for your click in Needs you.
 

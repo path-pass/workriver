@@ -87,6 +87,10 @@ pub(super) struct Append {
 /// Any event, as the CLI or the page records it, as whoever the caller is found to be.
 pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
+    // A start names the place the service opened for it: only the start action records one.
+    if matches!(body, Body::WorkspaceManagerStarted { .. }) {
+        return Err(bad("a manager is started only by the start action, which opens its terminal and records it: the page's Start manager (a workspace's line)".into()));
+    }
     blocking(move || {
         let who = app.who(&caller, a.named.as_deref())?;
         let e = app.record(&who, body)?;

@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use workriver_core::RuntimeRef;
-use workriver_core::runtime::{Change, Frames, Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Change, Frames, HarnessState, Place, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::screens::{Key, Screen};
 use workriver_scan as scan;
 
@@ -605,6 +605,23 @@ impl Runtime for Machines {
 
     fn read_place(&self, machine: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {
         self.at(machine, |r| r.read_place(None, place, lines))
+    }
+
+    fn open_place(&self, machine: Option<&str>, group: &str, dir: &str) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.open_place(None, group, dir))
+    }
+
+    fn start_in(&self, machine: Option<&str>, place: &str, harness: &str, name: &str, args: &[String]) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.start_in(None, place, harness, name, args))
+    }
+
+    /// Every machine runs the same runtime: this machine's says.
+    fn has_session(&self, agent: &RuntimeAgent) -> bool {
+        self.local.has_session(agent)
+    }
+
+    fn harnesses(&self, machine: Option<&str>) -> Result<Vec<HarnessState>, RuntimeError> {
+        self.at(machine, |r| r.harnesses(None))
     }
 
     fn focus_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {

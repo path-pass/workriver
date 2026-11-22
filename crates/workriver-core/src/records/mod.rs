@@ -132,7 +132,7 @@ impl State {
         match body {
             // Planning: planning/.
             IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentWorkspaceSet { .. } => self.prepare_intents(who, body),
-            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } => self.prepare_projects(who, body),
+            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } | WorkspaceManagerStarted { .. } | ManagerStartSeated { .. } | ManagerStartEnded { .. } => self.prepare_projects(who, body),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.prepare_units(who, body),
             // The work: work/.
             TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.prepare_tasks(who, body),
@@ -156,7 +156,7 @@ impl State {
         match &e.body {
             // Planning: planning/.
             IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentWorkspaceSet { .. } => self.apply_intents(e),
-            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } => self.apply_projects(e),
+            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } | WorkspaceManagerStarted { .. } | ManagerStartSeated { .. } | ManagerStartEnded { .. } => self.apply_projects(e),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.apply_units(e),
             // The work: work/.
             TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.apply_tasks(e),

@@ -12,6 +12,10 @@ use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
 
+mod start;
+
+pub(in crate::server) use start::{start_get, start_set, start_try};
+
 #[derive(Deserialize)]
 pub(super) struct Merge {
     into: String,
@@ -70,7 +74,8 @@ pub(super) async fn start_intent(State(app): State<Shared>, Extension(caller): E
 }
 
 /// What the user does to a workspace from the page or the CLI: make one in a project, rename
-/// it, close it, open it again, seat its manager, or move an active intent into it.
+/// it, close it, open it again, seat its manager, move an active intent into it, or start a
+/// manager for it (the page).
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "lowercase")]
 pub(super) enum WorkspaceSet {
@@ -102,11 +107,16 @@ pub(super) enum WorkspaceSet {
         intent: String,
         workspace: String,
     },
+    /// Start a manager for it: see `start::StartManager`.
+    Start(start::StartManager),
 }
 
 /// The user's own acts on workspaces: never an agent's, and not on a machine's listener.
 pub(super) async fn workspace_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(w): Json<WorkspaceSet>) -> Result<Json<core::Event>, ApiError> {
     let who = app.user(&caller)?;
+    if let WorkspaceSet::Start(s) = w {
+        return blocking(move || app.start_manager(&who, s).map(Json)).await;
+    }
     let body = move |app: &App| -> Result<Body, ApiError> {
         Ok(match w {
         // A project by its id, or by a folder inside it.
@@ -116,6 +126,7 @@ pub(super) async fn workspace_set(State(app): State<Shared>, Extension(caller): 
         WorkspaceSet::Open { workspace } => Body::WorkspaceOpened { workspace },
         WorkspaceSet::Manager { workspace, manager, replaces } => Body::WorkspaceManagerSet { workspace, manager, machine: None, folder: String::new(), replaces },
         WorkspaceSet::Move { intent, workspace } => Body::IntentWorkspaceSet { intent, workspace },
+        WorkspaceSet::Start(_) => unreachable!("started above"),
         })
     };
     blocking(move || app.record(&who, body(&app)?).map(Json)).await

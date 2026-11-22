@@ -33,7 +33,45 @@ export interface Space {
   /** Its manager does not run where it was seated: the session to offer for the seat (the
    *  seated one in another terminal, or the agent now in the old terminal). */
   proposal?: string;
+  /** The user's last start of a manager here, until the next start or seating: pending while
+   *  it has no `reason`, else how it ended. */
+  start?: ManagerStart;
 }
+
+/** Why a start of a manager ended unseated (a key; the page says it in words). */
+export type StartEnd = 'runtime' | 'no_agent' | 'no_session' | 'refused' | 'restarted'
+
+/** A manager started from the page: when, with what, under which name its agent runs until it
+ *  has a session; how it ended, with the runtime's or the rules' words. */
+export interface ManagerStart {
+  since: string;
+  harness: string;
+  /** Absent or empty: the harness's own default. */
+  model?: string;
+  name: string;
+  reason?: StartEnd;
+  words?: string;
+}
+
+/** A harness a manager can be started with, as this machine has it: offered (no `why`), or
+ *  why not (not installed; the runtime's hook for it missing or old; the runtime not answering). */
+export interface HarnessOffer {
+  kind: string;
+  /** The model names the harness resolves itself, offered as choices. */
+  aliases: string[];
+  why?: 'not_installed' | 'not_integrated' | 'runtime';
+}
+
+/** The default harness and model of a start, with every harness as offered here. */
+export interface StartSettings {
+  harness: string;
+  /** Empty: the harness's own default. */
+  model: string;
+  harnesses: HarnessOffer[];
+}
+
+/** How trying a harness and model once went: ready or not, in the service's words, and its screen. */
+export interface Tried { ok: boolean; words: string; screen: string }
 
 /** An agent's state as the runtime reports it. */
 export type RuntimeState = 'working' | 'idle' | 'done' | 'blocked' | 'unknown';

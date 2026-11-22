@@ -55,8 +55,10 @@ printed, since agents can read the runtime's terminals; on a machine without a b
 ## 3. Projects and the backlog
 
 A **project** is a folder with one or more repositories. Register one that holds several:
-`workriver project add ~/code/shop` (its repositories are its direct subfolders with a
-`.git`); a single repository is registered the same way. Only you register projects, and a
+on the page, "Add project" (at the foot of the left rail's projects), with the folder's
+whole path (from `/` or `~/`), or `workriver project add ~/code/shop` (its repositories are
+its direct subfolders with a `.git`); a single repository is registered the same way. A
+project is a folder, never a file, and is not inside another project nor holds one. Only you register projects, and a
 repository is part of a registered project or of none: an agent that adds an intent or a
 deferred finding names a project you registered (`p1`, or a folder inside it) and is
 refused otherwise, with the command for you to run.
@@ -95,7 +97,8 @@ import); intents you added only you merge.
 ## 4. Give each workspace a manager
 
 A workspace runs one or more intents of its project; its manager agent plans and hands out
-their work. Start a coding agent in the runtime, give it the skills, and seat it (below).
+their work. Give it the skills (below), then start one from the page, or start a coding agent
+in the runtime yourself and seat it.
 
 Install **stubs**, once: small skill files that send the agent to `workriver guide …`, which
 always matches the installed `workriver`. A copy of the real skill files goes stale with
@@ -119,7 +122,21 @@ each situation (`workriver guide how`, an index, and `workriver guide how <topic
 importing a backlog (`workriver guide import`). After an update, a manager that was already
 running is told once to read `workriver guide changes`.
 
-Then **seat it**: on the page, the workspace's line in the left rail, "Manager", and pick the
+**Start one from the page**: the workspace's line in the left rail, "Start manager" (or
+"Manager", then "Start a new one"). Pick the harness, Claude Code or Codex (offered when its
+command is on the machine and the runtime's integration for it is current; otherwise shown
+greyed with why), and the model: your default, an alias the harness knows (`opus`,
+`sonnet`, `fable` for Claude Code), or a model's full name. workriver opens a terminal in the
+project's folder (in the runtime's group named as the workspace), starts the harness there
+with only that model argument, and seats it once it has a session; it is told it manages the
+workspace, as below. It runs with your own configuration of the harness, as when you type
+its name in that folder. In a folder the harness has never seen it first asks whether you
+trust it: the workspace's line says it waits for you, and you answer in its terminal or from
+Needs you. If nothing gets a session within ten minutes, the line says why and the terminal
+stays; seat it by hand once it runs. Settings → Starting managers sets the default harness
+and model, and "Try it" starts them once in a temporary folder to show they work.
+
+Or **seat one yourself**: on the page, the workspace's line in the left rail, "Manager", and pick the
 agent among those running (the page shows each one's harness, machine and folder); or from
 your own terminal
 

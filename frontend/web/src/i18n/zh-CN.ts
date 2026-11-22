@@ -154,12 +154,12 @@ export const zhCN: OneForm<typeof en> = {
     }
   },
   start: {
-    seat: '把它安排为这个工作区的管理者：在左栏的工作区上点“管理者…”，或在你自己的终端里运行（它会在自己的终端里收到通知，以及该读的角色说明）：',
-    project: '在你自己的终端里、项目目录下添加项目。它会带上第一个工作区：',
+    seat: '或者安排一个你自己在 {{runtime}} 里启动的 agent：在左栏的工作区上点“管理者…”，或在你自己的终端里运行（它会在自己的终端里收到通知，以及该读的角色说明）：',
+    project: '添加你的项目：点“添加项目”，或在你自己的终端里、项目目录下运行。它会带上第一个工作区：',
     title: '从这里开始',
     lead: '还没有任何记录。agent 自己记录自己的工作；每个工作区有一个管理者 agent 负责规划，由你指定是谁。',
     leadProject: '{{project}} 里还没有任何记录。agent 自己记录自己的工作；每个工作区有一个管理者 agent 负责规划，由你指定是谁。',
-    agent: '在 {{runtime}} 里启动一个 coding agent 来当管理者。',
+    agent: '启动它的管理者：在左栏的工作区上点“启动管理者”，会在项目的文件夹里启动一个 coding agent 并把它安排为管理者。',
     begin: '开始一个目标：在左边路线图里的目标上点“开始”。之后这个项目的其他目标由管理者自己开始；它这样看路线图：',
     import: '已经有一份待办文件？让一个 agent 用导入 skill 把它导进来：',
     work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
@@ -192,6 +192,20 @@ export const zhCN: OneForm<typeof en> = {
       sentence: '运行中任务的 agent 空闲 <minutes/> 分钟后提醒它；再过一半时间仍空闲，就告诉它的 manager 并显示在这里。',
       minutes: '运行中任务的 agent 可以空闲的分钟数',
       failed: '没能保存：{{error}}'
+    },
+    start: {
+      title: '启动管理者',
+      lead: '管理者选择里“启动一个新的”默认用的 harness 和模型，在那里每次都可以改。',
+      save: '保存',
+      saved: '已保存。',
+      failed: '没有保存：{{error}}',
+      try: '试一下',
+      trying: '正在试…可能要一分钟或更久。',
+      tryHint: '在一个临时文件夹里用这个 harness 和模型启动一次，读它的屏幕，然后关掉。',
+      ok: '启动了：{{words}}',
+      notOk: '没有就绪：{{words}}',
+      tryFailed: '没能试：{{error}}',
+      screen: '它的屏幕'
     }
   },
   alerts: {
@@ -321,7 +335,7 @@ export const zhCN: OneForm<typeof en> = {
   },
   plan: {
     goAnyway: '不等管理者，直接开始',
-    noWorkspaceAny: '还没有打开的工作区。先添加一个项目（`workriver project add <folder>`）：它会带上第一个工作区。',
+    noWorkspaceAny: '还没有打开的工作区。先添加一个项目（“添加项目”，或 `workriver project add <folder>`）：它会带上第一个工作区。',
     optionProject: '{{label}} · {{project}}',
     title: '开始「{{title}}」',
     pickLabel: '在哪里开始',
@@ -363,6 +377,48 @@ export const zhCN: OneForm<typeof en> = {
     close: '收起面板',
     resize: '面板宽度（拖动，或用方向键；双击恢复默认）'
   },
+  project: {
+    add: '添加项目',
+    title: '添加项目',
+    lead: 'workriver 所在机器上的一个文件夹，里面有一个或多个仓库。它会带上第一个工作区。',
+    folder: '文件夹',
+    folderHint: '完整路径，从 / 或 ~/ 开始（~ 是运行 workriver 的账户的主目录）。',
+    folderPlaceholder: '~/code/my-project',
+    name: '标题',
+    titlePlaceholder: '可不填：用文件夹的名字',
+    whole: '请给出文件夹的完整路径，从 / 或 ~/ 开始。',
+    failed: '没有添加：{{error}}'
+  },
+  launch: {
+    section: '启动一个新的',
+    lead: '在项目的文件夹里开一个新终端启动这个 harness，等它有了会话就安排为管理者。',
+    harness: 'Harness',
+    model: '模型',
+    modelPlaceholder: '你的默认',
+    modelHint: '留空：用你的默认。或者 harness 认得的名字：',
+    alias: '模型 {{model}}',
+    modelBad: '模型是一个词：字母、数字和 . _ : / @ [ ] -，最多 100 个，不能以 - 开头。',
+    names: { claude: 'Claude Code', codex: 'Codex' },
+    why: { not_installed: '没有安装', not_integrated: '{{runtime}} 的 hook 没有安装或不是最新', runtime: '问不到运行时' },
+    unavailable: '{{harness}}：{{why}}',
+    none: '这里没有能启动的 harness。',
+    go: '启动并安排',
+    goOver: '是，启动并安排',
+    over: '{{old}} 正在运行，是现在的管理者。要启动一个新的，等它运行后接替吗？届时被替换的那个会被告知它不再管理这个工作区。',
+    pending: '这里正在启动一个管理者：等它，或在上面安排一个。',
+    failed: '没有启动：{{error}}',
+    startNow: '启动管理者',
+    starting: '正在启动管理者…',
+    waiting: '正在启动管理者…在它的终端里等你',
+    ended: '管理者没有启动：{{reason}}',
+    reason: {
+      runtime: '运行时拒绝启动它',
+      no_agent: '它的终端里什么也没启动起来（harness 装了吗？），或者它在有会话之前就退出了',
+      no_session: '10 分钟内没有可以安排的会话；它的终端还开着：等它运行后在这里安排它',
+      refused: '启动起来的会话不能被安排',
+      restarted: '启动期间 workriver 重启了'
+    }
+  },
   seat: {
     title: '{{workspace}} 的管理者',
     lead: '{{project}} 的一个工作区。管理者负责拆分在这里运行的意图并分派出去。只有你能安排管理者；被安排的 agent 会在自己的终端里收到通知。',
@@ -373,7 +429,7 @@ export const zhCN: OneForm<typeof en> = {
     moved: '一个新终端报告了 {{name}} 的会话；会话 id 谁都可以报告。它不在当初任命的位置，所以确认它是一次新的任命：之前那次任命提出的问题会关闭，排队给它的消息不会送达。',
     movedOld: '任命时：{{machine}} 上的 {{folder}}（已不在）',
     movedNew: '现在出现在：{{machine}} 上的 {{folder}}',
-    nobody: '现在没有在运行的 agent。先在 {{runtime}} 里启动一个，再到这里安排它。',
+    nobody: '现在没有在运行的 agent。在下面启动一个新的，或者自己在 {{runtime}} 里启动一个，再到这里安排它。',
     noneHere: '没有 agent 在这个项目的文件夹里运行；下面列出现在运行的所有 agent。',
     showAll: '显示所有 agent（{{count, number}}）',
     pick: '要安排的 agent',

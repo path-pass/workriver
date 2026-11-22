@@ -26,7 +26,21 @@ its sections went.
   amber while the workspace has an active intent and no manager running (its findings reach
   no one). A "…" button at the end of its line opens its menu: Rename (a dialog with the
   name), Manager… (the manager select, below), Close (the service refuses it while an intent
-  is active there; its words show in the rail). Under the workspace its **active intents**
+  is active there; its words show in the rail). Under that line, while no manager runs there
+  and no start is pending, a quiet "Start manager", which opens the manager select at its
+  "Start a new one" (below). **While a manager starts** (the workspace's `start` in
+  `/api/workspace`, pending: no `reason`) the line under it says "starting a manager…"; when
+  its agent waits for a person in its terminal (found in the sessions by the name the start
+  gave it, `start.name`, on this machine, not ended, blocked: it has no session of its own
+  yet) it says "starting a manager… waiting for you in its terminal" in the Blocking row's
+  orange, and a click opens the same gate a Blocking row opens ("Answering a stuck agent",
+  below). **After a failure** it says why in words, from `start.reason` (the runtime refused
+  to start it; nothing started in its terminal, or it left before it had a session; no
+  session to seat within 10 minutes, its terminal left open, to seat from the select once it
+  runs; what it brought up could not be seated; workriver restarted while it was starting),
+  with `start.words` (the runtime's or the rules' own) under it quietly in mono, cut at two
+  lines, whole in its tooltip. It stays until the next start or seating (the service drops
+  `start` on a seating); "Start manager" is offered again beside it. Under the workspace its **active intents**
   with their units. A workspace shows with nothing active in it too (a search or a filter
   leaves out the ones with no match); a project with no open workspace says so and keeps its
   "+". A closed workspace is not in the rail (Settings → Workspaces lists them,
@@ -48,8 +62,11 @@ its sections went.
   language). A workspace whose manager does not run shows the manager select right in the
   dialog (seat one, then start), and "Start without a manager" beside it: a workspace needs
   no running terminal, and the start is the user's either way. A project with no open
-  workspace offers only a new one (a name and "New workspace") – workriver
-  never starts an agent; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
+  workspace offers only a new one (a name and "New workspace"), and with no open workspace
+  anywhere, "Add project" – workriver starts a working agent (one that takes a seat) only on
+  the user's own act, never on an agent's, and schedules none: which worker gets which task
+  stays the manager's; the temporary agents that answer a question or review a command are
+  as before; a row is moved by dragging its grip, or Alt+↑/↓ on it, within its project; a quiet
   "+" adds one inline, title and one-sentence goal, to that project; a quiet "Merge…"
   in the heading, when the project has two planned intents or more, opens a dialog to merge
   them), and **Done**,
@@ -57,7 +74,19 @@ its sections went.
   dropped intents are not shown. After the projects, **No project** holds the planned
   intents that name no registered project (a repository is part of a registered project or
   of none), with "Start" and no "+"; it is not drawn when it is empty, nor with one project
-  picked. Settings at the bottom. It is the only large field
+  picked. After the projects, a quiet **"Add project"** (not during a search): a dialog with
+  two fields, the folder (typed, an absolute path on the machine workriver runs on, `~/`
+  being the service's home; no folder browser: a browser gives a page no real path) and a
+  title (optional: the service takes the folder's name). A path that starts with neither `/`
+  nor `~/` is refused before it is sent ("Give the folder's whole path, from / or ~/"), as a
+  convenience: the service holds the rule. It records `project.added` through `/api/append`,
+  as `workriver project add` does; a refusal shows in the dialog in the service's words (a
+  file, a folder inside a project or holding one, a project already, a folder that does not
+  exist). Added, the dialog closes and the project shows, as the page reads it again, with
+  its first workspace, whose line offers "Start manager". The same dialog opens from the
+  start guide (the main area's empty state, `DESIGN.md`) and from Start's
+  dialog when there is no open workspace; both keep the CLI line beside it.
+  Settings at the bottom. It is the only large field
   of colour in the interface. Each active or done intent is a group that folds (its chevron),
   on two lines only: its id quietly in mono before its title (as units show `u1`), the title
   cut to one line – a click opens the intent's page, a tooltip shows the title and the
@@ -99,7 +128,8 @@ its sections went.
   panel (and the Activity graph's height, `activity.md`) could use it too: react-resizable-panels measured +15.3 kB gzip for this one
   handle, which is the case the "prefer a library" rule excepts.
 - **The manager select** is how a workspace gets its manager, and the only way: the user
-  seats one; no agent makes itself or another a manager (`docs/security.md`). It opens from a
+  seats one, or starts one that is seated once it runs ("Start a new one", below); no agent
+  makes itself or another a manager (`docs/security.md`). It opens from a
   workspace's menu in the rail, its Needs you row, Settings → Workspaces, an intent's page,
   the Manager section of a workspace nobody would read, and it is part of Start's dialog. A
   dialog titled with the workspace's name and id, its project in the lead, then the seat as
@@ -137,7 +167,28 @@ its sections went.
   confirming is a new appointment (the earlier one's questions close, what was queued for it
   is not delivered); the button reads "Seat it: a new appointment". (The same session
   showing again where it was seated needs no click: it has its seat back by itself, and the
-  conversation says so in one line, `conversations.md`.)
+  conversation says so in one line, `conversations.md`.) While a start is pending or after it
+  failed, the line under the seat says so, as the workspace's line in the rail does.
+- **Start a new one**, the manager select's second part, under the list (so also in Start's
+  dialog), opened there by "Start manager" (scrolled to, its button focused): the harness (a
+  select of the service's table, `/api/settings/start`: Claude Code and Codex; one not
+  offered here is greyed and says why: "not installed", "<runtime>'s hook is not installed or
+  not current", the runtime's name from `/api/workspace`, or "the runtime cannot be asked";
+  the default when it is offered, else the first offered; none offered says so), the model
+  (prefilled with the default from Settings, `operations.md`, for the default harness, empty
+  for another; empty is "your default", the harness's own; the harness's names for models
+  as quick picks, Claude Code's opus, sonnet and fable, Codex none; or typed, one word: up to
+  100 ASCII letters, digits and `. _ : / @ [ ] -`, not starting with `-`, checked before it
+  is sent as a convenience, the service checks the same), and "Start and seat". Where a
+  manager runs it asks once, in a line ("… runs and is the manager now. Start a new one to
+  take its seat once it runs? The one replaced is then told it no longer manages this
+  workspace."), and the button then reads "Yes, start and seat". It sends
+  the start (`/api/workspaces`, `start`, with the seat shown as `replaces`, as seating does);
+  the request answers once the start is recorded, not when the agent runs, and the dialog
+  closes; the workspace's line follows it. A seat that changed meanwhile (409) is said as for
+  seating; any other refusal in the service's words (one already pending, 409: "a manager is
+  being started for ws1: wait for it, or seat one yourself"). While one is pending the
+  button waits and says so.
 - **Kind, size and tags in the rail.** An intent's kind (feature, fix, chore, research: closed,
   translated) and estimated size (S, M, L) show as one quiet chip, the kind's label and the
   size (`Fix · S`), neutral (colour means the state of work, `presentation.md`; a kind has

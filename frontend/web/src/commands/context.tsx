@@ -6,20 +6,22 @@ import type { Step } from '@/work/types'
 import { Tip } from '@/ui/Tip'
 import { Icon } from '@/ui/Icon'
 import { CopyButton } from '@/ui/CopyButton'
-import { createContext, useContext } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import type { RunAsk } from './types'
 
 /**
  * What an agent prepared for the user to do by hand: the same for a gate and for a chore.
- * With `onRun`, each command also has "Run", which asks to run it as the user.
+ * With `onRun`, each command also has "Run", which asks to run it as the user. A step of the
+ * page's own (the start guide) may carry a button of the page's (`action`) before its command.
  */
-export function Steps({ steps, onRun }: { steps: Step[]; onRun?: (command: string, step: number) => void }) {
+export function Steps({ steps, onRun }: { steps: (Step & { action?: ReactNode })[]; onRun?: (command: string, step: number) => void }) {
   const { t } = useT()
   return (
     <ol className="steps">
       {steps.map((s, k) => (
         <li key={k}>
           <span className="whitespace-pre-line" lang={contentLang(s.text)}>{s.text}</span>
+          {s.action && <div className="mt-1.5">{s.action}</div>}
           {s.command && (
             <div className="cmd">
               <code>{s.command}</code>

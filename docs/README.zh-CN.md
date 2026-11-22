@@ -15,7 +15,7 @@
 - **它动了哪些代码？** 分支和提交只说改了什么，不说是哪个任务要求的，也不说回应的是哪次审查。
 - **什么在等你？** 某个 agent 在你没在看的终端里等你批准；一次没人做的手动试用卡住了整条分支；发现越积越多，没人决定。
 
-workriver 就是放这些答案的地方。它作为一个服务跑在你自己的机器上，在工作发生的时候把它记下来，在浏览器里给你看。它只记录和展示，不启动 agent，也不排期。
+workriver 就是放这些答案的地方。它作为一个服务跑在你自己的机器上，在工作发生的时候把它记下来，在浏览器里给你看。它只记录和展示；只有你要求时（从页面为一个工作区启动 manager）才启动 agent，也不排期：哪个 worker 做哪个任务由 manager 决定。
 
 ## 它怎么工作
 
@@ -80,7 +80,7 @@ cargo build --release
 
 页面和命令行只有带着你机器上的用户令牌才算是你；agent 和其他机器不行。它能防什么、防不住什么：[安全模型](security.zh-CN.md)。
 
-数据在 `~/workriver-data/workriver.db`（用 `WORKRIVER_HOME` 换位置）。`workriver --help` 说明各个命令。每个工作区的管理者由你指定（在页面上，或用 `workriver workspace manager <ws> <agent>`），每个工作区一个，`workriver guide manager` / `workriver guide worker` 打印给 agent 的说明。服务在哪里找运行时：[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)；没有运行时，服务照常记录和显示，只是看不到 agent。
+数据在 `~/workriver-data/workriver.db`（用 `WORKRIVER_HOME` 换位置）。`workriver --help` 说明各个命令。每个工作区的管理者由你给，每个工作区一个：在页面上启动一个（该工作区那一行的"启动管理者"），或者指定一个你自己启动的 agent（在页面上，或用 `workriver workspace manager <ws> <agent>`）；`workriver guide manager` / `workriver guide worker` 打印给 agent 的说明。服务在哪里找运行时：[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)；没有运行时，服务照常记录和显示，只是看不到 agent。
 
 改界面时：在 `frontend/web` 里 `pnpm dev` 连正在运行的 `workriver serve`；`pnpm dev:mock` 改用示例数据。代码的各部分在哪里：[architecture.zh-CN.md](architecture.zh-CN.md)。
 

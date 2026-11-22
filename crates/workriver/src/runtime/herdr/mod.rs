@@ -14,7 +14,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use workriver_core::runtime::{Change, Frames, Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Change, Frames, HarnessState, Place, Root, Runtime, RuntimeAgent, RuntimeError};
 use workriver_core::screens::{Key, Screen};
 
 mod agents;
@@ -178,6 +178,52 @@ impl Runtime for Herdr {
         self.run_pane(group, place)?;
         self.call("pane.close", json!({ "pane_id": place }))?;
         Ok(())
+    }
+
+    /// A tab of its own in the workspace labelled `group`, as a run's shell gets: its root pane.
+    fn open_place(&self, _: Option<&str>, group: &str, dir: &str) -> Result<String, RuntimeError> {
+        let made = self.tab_in(group, dir, "manager")?;
+        made["root_pane"]["pane_id"].as_str().map(str::to_string).ok_or_else(|| RuntimeError::Failed("herdr: no pane in the answer".into()))
+    }
+
+    /// `agent.start` with the arguments as Herdr's list, then waited for as `herdr agent
+    /// start` does: over the socket Herdr answers at once, with the launch still pending.
+    /// Blocked during startup (e.g. on the harness's trust question), or Herdr's own
+    /// `agent_not_ready`, is `NotReady`, and the pane is left either way.
+    /// A pane just opened is refused (`agent_pane_busy`) until its shell is at its prompt:
+    /// asked again for a while.
+    fn start_in(&self, _: Option<&str>, place: &str, harness: &str, name: &str, args: &[String]) -> Result<(), RuntimeError> {
+        let ask = || self.call_within("agent.start", json!({ "name": name, "kind": harness, "pane_id": place, "args": args, "timeout_ms": 60_000 }), std::time::Duration::from_secs(75));
+        let mut tries = 0;
+        loop {
+            match ask() {
+                Err(RuntimeError::Failed(w)) if w.ends_with("(agent_pane_busy)") && tries < 40 => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                answer => {
+                    answer?;
+                    break;
+                }
+            }
+        }
+        self.launched(place, name)
+    }
+
+    /// The pane's name (`herdr:<pane>`) is given to an agent that reported no session.
+    fn has_session(&self, agent: &RuntimeAgent) -> bool {
+        !agent.session.starts_with("herdr:")
+    }
+
+    /// Herdr's integrations: its command found, and its hook installed and current.
+    fn harnesses(&self, _: Option<&str>) -> Result<Vec<HarnessState>, RuntimeError> {
+        let r = self.call("integration.list", json!({}))?;
+        Ok(r["integrations"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|i| Some(HarnessState { kind: i["target"].as_str()?.to_string(), installed: i["available"].as_bool() == Some(true), integrated: i["state"].as_str() == Some("current") }))
+            .collect())
     }
 
     fn read_place(&self, _: Option<&str>, place: &str, lines: u32) -> Result<String, RuntimeError> {

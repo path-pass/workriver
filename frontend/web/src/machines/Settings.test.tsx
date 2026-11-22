@@ -1,18 +1,30 @@
 // Settings, mounted: one group shows at a time, as a tab; the tab picked is kept in this
 // browser; a link to a setting opens Settings on its group's tab; a group whose setting has
-// not come says it is loading or why it cannot be read.
+// not come says it is loading or why it cannot be read. The default of a manager's start:
+// saved, and tried once, with what came of it.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Workspace } from '@/workspace/types'
 
 /** The service's reads, each test's own: by default the stall minutes come; the rest never arrive. */
-const reads = vi.hoisted(() => ({ stall: (): Promise<number> => Promise.resolve(10), metrics: (): Promise<unknown> => new Promise(() => {}) }))
+const reads = vi.hoisted(() => ({
+  stall: (): Promise<number> => Promise.resolve(10),
+  metrics: (): Promise<unknown> => new Promise(() => {}),
+  start: (): Promise<unknown> => new Promise(() => {}),
+  saved: [] as [string, string][],
+  save: (h: string, m: string): Promise<unknown> => Promise.resolve({ harness: h, model: m, harnesses: [] }),
+  tried: [] as [string, string][],
+  try: (): Promise<unknown> => new Promise(() => {}),
+}))
 vi.mock('@/api/actions', async original => ({
   ...(await original<typeof import('@/api/actions')>()),
   stallMinutes: () => reads.stall(),
   metrics: () => reads.metrics(),
   machines: () => new Promise(() => {}),
+  startSettings: () => reads.start(),
+  setStartSettings: (h: string, m: string) => { reads.saved.push([h, m]); return reads.save(h, m) },
+  tryStart: (h: string, m: string) => { reads.tried.push([h, m]); return reads.try() },
 }))
 const { openSettings, Settings } = await import('./Settings')
 
@@ -27,6 +39,9 @@ let host: HTMLDivElement
 beforeEach(() => {
   reads.stall = () => Promise.resolve(10)
   reads.metrics = () => new Promise(() => {})
+  reads.start = () => new Promise(() => {})
+  reads.saved = []; reads.tried = []
+  reads.try = () => new Promise(() => {})
   localStorage.clear()
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
@@ -48,7 +63,7 @@ describe('Settings in tabs', () => {
   it('shows one group at a time, the general one first', async () => {
     await mount()
     await open()
-    expect(tabs().map(b => b.textContent)).toEqual(['General', 'Stopped workers', 'Workspaces', 'Machine alerts', 'Other machines'])
+    expect(tabs().map(b => b.textContent)).toEqual(['General', 'Stopped workers', 'Workspaces', 'Starting managers', 'Machine alerts', 'Other machines'])
     expect(selected()).toBe('General')
     expect(panels()).toHaveLength(1)
     expect(text()).toContain('Language')
@@ -137,5 +152,60 @@ describe('Settings in tabs', () => {
     await settle()
     expect(document.activeElement).toBe(tab('Stopped workers'))
     expect(selected()).toBe('Stopped workers')
+  })
+})
+
+describe('the default of a manager’s start', () => {
+  const offers = [{ kind: 'claude', aliases: ['opus', 'sonnet', 'fable'] }, { kind: 'codex', aliases: [], why: 'not_installed' }]
+  const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('[role=dialog] button')].find(b => b.textContent === name)!
+  const press = async (name: string) => { await act(async () => { button(name).click() }); await settle() }
+
+  it('saves the harness and model picked, and says so', async () => {
+    reads.start = () => Promise.resolve({ harness: 'claude', model: '', harnesses: offers })
+    reads.save = (h, m) => Promise.resolve({ harness: h, model: m, harnesses: offers })
+    await mount()
+    await open()
+    await pick('Starting managers')
+    expect(document.querySelector('[role=dialog] [role=combobox]')!.textContent).toBe('Claude Code')
+    expect(button('Save').disabled).toBe(true)
+    await press('fable')
+    await press('Save')
+    expect(reads.saved).toEqual([['claude', 'fable']])
+    expect(text()).toContain('Saved.')
+    expect(button('Save').disabled).toBe(true)
+  })
+
+  it('shows a refusal in the service’s words', async () => {
+    reads.start = () => Promise.resolve({ harness: 'claude', model: '', harnesses: offers })
+    reads.save = () => Promise.reject(new Error('claude is not installed here'))
+    await mount()
+    await open()
+    await pick('Starting managers')
+    await press('opus')
+    await press('Save')
+    expect(document.querySelector('[role=dialog] [role=alert]')?.textContent).toBe('Not saved: claude is not installed here')
+  })
+
+  it('tries the harness and model once: busy meanwhile, then the result in words and its screen', async () => {
+    reads.start = () => Promise.resolve({ harness: 'claude', model: 'opus', harnesses: offers })
+    let done: (v: unknown) => void = () => {}
+    reads.try = () => new Promise(r => { done = r })
+    await mount()
+    await open()
+    await pick('Starting managers')
+    await press('Try it')
+    expect(reads.tried).toEqual([['claude', 'opus']])
+    expect(text()).toContain('Trying… this can take a minute or more.')
+    expect(button('Try it').disabled).toBe(true)
+    await act(async () => { done({ ok: false, words: 'claude started but waits for you in its terminal (blocked)', screen: 'Is this a project you trust?\n❯ 1. Yes' }) })
+    await settle()
+    expect(text()).not.toContain('Trying…')
+    expect(text()).toContain('It did not get ready: claude started but waits for you in its terminal (blocked)')
+    expect(document.querySelector('[role=dialog] pre')!.textContent).toBe('Is this a project you trust?\n❯ 1. Yes')
+    await act(async () => { button('Try it').click() })
+    await act(async () => { done({ ok: true, words: 'claude started and was ready for a prompt', screen: '' }) })
+    await settle()
+    expect(text()).toContain('It started: claude started and was ready for a prompt')
+    expect(document.querySelector('[role=dialog] pre')).toBeNull()
   })
 })

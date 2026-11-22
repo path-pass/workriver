@@ -10,7 +10,8 @@ import type { Workspace } from '@/workspace/types'
 const sent = vi.hoisted(() => ({ acts: [] as unknown[], answer: (): Promise<void> => Promise.resolve() }))
 vi.mock('@/api/actions', async original => {
   const real = await original<typeof import('@/api/actions')>()
-  return { ...real, setSpace: (a: unknown) => { sent.acts.push(a); return sent.answer() } }
+  const settings = { harness: 'claude', model: '', harnesses: [{ kind: 'claude', aliases: ['opus'] }] }
+  return { ...real, setSpace: (a: unknown) => { sent.acts.push(a); return sent.answer() }, startSettings: () => Promise.resolve(settings) }
 })
 const { SeatChanged } = await import('@/api/actions')
 const { SeatDialog, SeatPicker, openSeat } = await import('./Seat')
@@ -37,7 +38,7 @@ describe('the manager select', () => {
     const space: Space = { id: 'ws2', name: 'chat', project: '/web' }
     await show(space, [live('boss', { group: { id: 'g1', label: 'group-row' }, folder: '/web/app' }), live('gone', { ended: true })])
     expect(host.textContent).toContain('No manager is seated.')
-    const rows = [...host.querySelectorAll('label')].map(l => l.textContent)
+    const rows = [...host.querySelectorAll('[role=radiogroup] label')].map(l => l.textContent)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toContain('boss')
     expect(rows[0]).toContain('claude')
@@ -162,5 +163,14 @@ describe('the manager select', () => {
     await show(space, [live('root', { folder: '/web' }), live('sub', { folder: '/web/crates/core' })])
     const folders = [...host.querySelectorAll('label span[title]')].map(e => [e.textContent, e.getAttribute('title')])
     expect(folders).toEqual([['Web', '/web'], ['Web/crates/core', '/web/crates/core']])
+  })
+
+  it('has a second part that starts a new one, and says a start is pending', async () => {
+    const space: Space = { id: 'ws2', name: 'chat', project: '/web', start: { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws2-manager' } }
+    await show(space, [live('boss')])
+    await act(async () => { await new Promise(r => setTimeout(r)) })
+    expect(host.querySelector('section h3')?.textContent).toBe('Start a new one')
+    expect(host.querySelector('[role=status]')?.textContent).toBe('starting a manager…')
+    expect(button('Start and seat').disabled).toBe(true)
   })
 })

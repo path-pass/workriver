@@ -5,7 +5,8 @@ was refused from a new terminal, or you take over from another manager.
 
 A workspace is workriver's own (`ws1`: an id, a name that is only shown, one project). It
 has one seat. **Only the user seats a manager**; no agent does, itself included, and
-`workriver manager here` is gone. Give the user one of:
+`workriver manager here` is gone. workriver starts a working agent only on the user's own
+act, never on an agent's, and schedules none. Give the user one of:
 
 - on the page: the workspace's line in the left rail, "Manager", then your name;
 - from the user's own terminal (a new window, or a Herdr pane with no agent; `!` in your
@@ -13,6 +14,11 @@ has one seat. **Only the user seats a manager**; no agent does, itself included,
 
       workriver workspace list
       workriver workspace manager ws1 <your name or session>
+
+If the user wants a new manager rather than you, they start one on the page: the
+workspace's line, "Start manager" (a harness and a model; workriver opens a terminal in the
+project's folder, starts it there and seats it once it has a session). You do not start one
+for them and there is no command for it.
 
 Once seated you read in your pane `[workriver] The user made you the manager of workspace
 ws1 «…» of project «…» … Active there: i3 «…»`. Then `workriver guide manager` and
@@ -46,7 +52,13 @@ questions of every workspace stay readable.
 seat of; for a worker, the one workspace of the tasks it has running. A worker with tasks
 in two workspaces names the intent.
 
-**Refusals:** "only the user does this (workspace.manager_set)" - ask the user. "the seat
+**Started from the page.** A manager the user started from the page reads the same
+`[workriver] The user made you the manager of workspace ws1 …` once seated; before that it
+is an agent with no seat (refused what a manager does). Its first prompt may be the
+harness's own question (trust this folder?): that is the user's to answer.
+
+**Refusals:** "only the user does this (workspace.manager_set)" - ask the user. "a manager
+is started only by the start action …" - starting a manager is the user's, on the page. "the seat
 changed: ws1's manager is … now" - the user looks again and chooses. "session … holds a
 manager's seat, given to it in …; pane … shows it in …" - a new terminal is the manager
 only once the user confirms it. "no running agent …" / "several running agents are …" -
