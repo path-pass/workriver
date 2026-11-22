@@ -250,7 +250,10 @@ its sections went.
   waited, the runtime's reason quietly ("bash_permission_prompt: …"), or for one waiting on
   its screen one quiet line ("The runtime reports it idle; its screen shows a question.");
   the dialog's region as quoted agent text (mono, plain text, never Markdown, links inert):
-  its options, its hints, and above them the lines up to the dialog's rule, at most twelve;
+  its options, its hints, and above them the lines up to the harness's own rule, at most
+  twelve (its rule is a solid line drawn from column 0 across the screen; a rule-like line
+  anywhere else, as in a command the dialog indents, is text the agent may have written and
+  ends nothing, so the agent never decides where the region starts);
   "Whole screen" shows every visible line (shown from the start, with a line why, when the
   twelve lines cut the region: a long command is seen whole before it is approved); the
   options as buttons in their order, each its own words and, as a small key cap, what will

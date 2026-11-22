@@ -100,7 +100,7 @@ pub struct Dialog {
     /// The rows to show: from `top` to `bottom`, both in.
     pub top: usize,
     pub bottom: usize,
-    /// The twelve lines above the first option ended before a solid rule did: there is more
+    /// The twelve lines above the first option ended before the harness's rule did: there is more
     /// of the dialog above `top`, and it must be seen whole before it is answered.
     pub cut: bool,
 }
@@ -155,6 +155,14 @@ fn blank(l: &str) -> bool {
 fn rule(l: &str, c: char) -> bool {
     let t = l.trim();
     t.chars().count() >= 3 && t.chars().all(|x| x == c)
+}
+
+/// A harness's own rule, the top of its dialog: a solid line drawn from column 0 across the
+/// screen (one column short of its widest line at most). A rule-like line anywhere else (a
+/// command's line, which a dialog indents, or one that stops short) is text an agent may
+/// have written, and ends nothing.
+fn frame_rule(l: &str, width: usize) -> bool {
+    !l.starts_with(char::is_whitespace) && (rule(l, '─') || rule(l, '━')) && l.chars().count() + 1 >= width
 }
 
 fn any_rule(l: &str) -> bool {
@@ -221,7 +229,7 @@ fn hints_of(l: &str) -> Vec<Hint> {
 /// numbered (`[marker] N. words` counting down to 1, with the lines indented under each, and
 /// blank lines and rules between them passed over) or, with no numbers, a run of two or more
 /// lines at one indent with one of them marked; above the first option, the lines up to the
-/// nearest solid rule, at most twelve.
+/// harness's own rule (`frame_rule`), at most twelve.
 pub fn parse(text: &str) -> Option<Dialog> {
     let lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
     let mut i = lines.len();
@@ -245,6 +253,12 @@ pub fn parse(text: &str) -> Option<Dialog> {
         }
         hints_top -= 1;
     }
+    // Rows under a marked row, at its column and naming no key, are the rest of its list.
+    if let Some(m) = hints_top.checked_sub(1).map(|k| read_line(lines[k])).filter(|r| r.marked && r.number.is_none()) {
+        while hints_top < i && read_line(lines[hints_top]).at == m.at && hints_of(lines[hints_top]).is_empty() {
+            hints_top += 1;
+        }
+    }
     // An option line right at the bottom: no hints.
     let mut hints: Vec<Hint> = vec![];
     for l in &lines[hints_top..i] {
@@ -256,14 +270,15 @@ pub fn parse(text: &str) -> Option<Dialog> {
     }
     let (options, numbered) = numbered_above(&lines, hints_top).map(|o| (o, true)).or_else(|| marked_above(&lines, hints_top).map(|o| (o, false)))?;
     let first = options[0].row;
-    // The region: up to the nearest solid rule above the first option, at most twelve lines.
+    // The region: up to the harness's rule above the first option, at most twelve lines.
+    let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let mut top = first;
     let mut cut = false;
     loop {
         if top == 0 {
             break;
         }
-        if rule(lines[top - 1], '─') || rule(lines[top - 1], '━') {
+        if frame_rule(lines[top - 1], width) {
             break;
         }
         if first - top == REGION {

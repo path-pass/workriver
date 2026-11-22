@@ -220,3 +220,47 @@ fn a_question_line_is_kept_only_when_it_asks() {
     assert_eq!(question_line(Some("`rm -rf /`?")), None);
     assert_eq!(question_line(None), None);
 }
+
+/// The rows the gate shows by default, as text.
+fn region(text: &str, d: &Dialog) -> String {
+    text.split('\n').collect::<Vec<_>>()[d.top..=d.bottom].join("\n")
+}
+
+#[test]
+fn a_rule_the_agent_wrote_never_ends_the_region() {
+    // A real Codex screen: a command with a rule-like line in it, drawn bare under `$ `. Only
+    // a harness's own rule (at column 0, across the screen) ends the region; else the twelve
+    // lines run out and the region says it is cut.
+    let text = fixture("codex-rule-in-command.txt");
+    let d = dialog("codex-rule-in-command.txt");
+    assert_eq!(words(&d), ["Yes, proceed (y)", "No, and tell Codex what to do differently (esc)"]);
+    assert!(region(&text, &d).contains("$ touch HIDDEN-TOP.txt") || d.cut, "the command's start is hidden: top={} cut={}", d.top, d.cut);
+    // Claude, a rule-like line indented as the dialog indents its text: text, not the top.
+    for name in ["claude-rule-indented.txt", "claude-rule-in-command.txt"] {
+        let text = fixture(name);
+        let d = dialog(name);
+        assert_eq!(line(&text, d.top).trim(), "Bash command", "{name}");
+        assert!(region(&text, &d).contains("cat <<'EOF'"), "{name}");
+        assert!(!d.cut, "{name}");
+    }
+}
+
+#[test]
+fn a_list_with_its_hint_right_under_it() {
+    // No blank line between the last option and the hint: the rows under the marked one are
+    // options, whichever row is marked.
+    for at in 0..3 {
+        let words_of = ["Keep it", "Throw it away", "Ask me later"];
+        let rows: Vec<String> = words_of.iter().enumerate().map(|(k, w)| if k == at { format!(" ❯ {w}") } else { format!("   {w}") }).collect();
+        let text = format!("{}\n What now?\n{}\n Enter to confirm · Esc to cancel\n", "─".repeat(40), rows.join("\n"));
+        let d = parse(&text).unwrap_or_else(|| panic!("marker on {at}: no dialog"));
+        assert_eq!(words(&d), words_of, "marker on {at}");
+        assert_eq!(d.selected(), Some(at));
+        assert_eq!(keys(&d), [Key::Enter, Key::Escape], "marker on {at}");
+    }
+    // A hint at the options' own column is still a hint, not an option.
+    let text = format!("{}\n What now?\n ❯ Keep it\n   Throw it away\n   Enter to confirm · Esc to cancel\n", "─".repeat(40));
+    let d = parse(&text).unwrap();
+    assert_eq!(words(&d), ["Keep it", "Throw it away"]);
+    assert_eq!(keys(&d), [Key::Enter, Key::Escape]);
+}

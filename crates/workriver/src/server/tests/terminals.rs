@@ -12,7 +12,8 @@ use workriver_core::screens::Key;
 use super::support::*;
 use crate::cli::Daemon;
 
-const RULE: &str = "────────────────────────────────────────";
+/// A harness's own rule: from column 0, across the screen (wider than any line drawn here).
+const RULE: &str = "────────────────────────────────────────────────────────────────────────────────";
 
 /// A numbered dialog, as Claude draws one (the command above it, a long option).
 fn bash(first: &str) -> String {
