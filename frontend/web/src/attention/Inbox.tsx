@@ -13,6 +13,8 @@ import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/workspace/types'
 import { AgentContext } from '@/agents/context'
 import { TerminalButton, Who } from '@/agents/Mark'
+import { taskSession } from '@/agents/select'
+import type { Session } from '@/agents/types'
 import { Content, Slot, SLOT } from '@/content/Chips'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
@@ -21,7 +23,7 @@ import { alertLimit, alertValue, topLine } from '@/machines/format'
 
 const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
 
-function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
+function Row({ r, sessions, onOpen, onMachines, onTalk }: { r: InboxRow; sessions: Session[]; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, lang, num, waited, when, date } = useT()
   const act = useAct()
   const agents = useContext(AgentContext)
@@ -86,7 +88,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
     const a = r.agent
     return (
       <div className="irow-pair hold flex items-center gap-1 pr-1">
-        <button type="button" className="irow min-w-0" data-kind="agent" onClick={() => agents.answer({ name: a.name, session: a.session })}>
+        <button type="button" className="irow min-w-0" data-kind="agent" onClick={() => agents.answer({ name: a.name, session: a.session, machine: a.machine })}>
           <Icon name="terminal" />
           <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{t('inbox.blockedAgent', { agent: a.name })}</span></span>
           <span className="meta">
@@ -95,7 +97,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
           </span>
           <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
         </button>
-        <TerminalButton agent={a.name} session={a.session} className="text-hold-ink" />
+        <TerminalButton agent={a.name} session={a.session} machine={a.machine} className="text-hold-ink" />
       </div>
     )
   }
@@ -116,7 +118,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
           </span>
           <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
         </button>
-        {!s.gone && agent && <TerminalButton agent={agent} session={n.agentSession} />}
+        {!s.gone && agent && <TerminalButton agent={agent} session={n.agentSession} machine={taskSession(sessions, n)?.machine} />}
       </div>
     )
   }
@@ -211,7 +213,7 @@ export function InboxList({ ws, onOpen, onMachines, onTalk }: { ws: Workspace; o
           </CollapsibleTrigger>
         </h3>
         <CollapsibleContent asChild>
-          <ul className="flex flex-col gap-0.5">{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
+          <ul className="flex flex-col gap-0.5">{box[g].map(r => <li key={r.key}><Row r={r} sessions={ws.sessions} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
         </CollapsibleContent>
       </section>
     </Collapsible>

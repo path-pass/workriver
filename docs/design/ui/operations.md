@@ -173,7 +173,9 @@ its sections went.
   graph nodes. It opens the agent's **terminal view** in the page; "Open terminal view" in a
   gate does the same. Bringing the terminal app to the front (`focusAgent` in
   `frontend/web/src/api/actions.ts`, the one function for it) is "Open in terminal app" in
-  the view's header.
+  the view's header. A view, like a gate, names its agent by session and machine together
+  (the same resumed session can live on two machines): every line, row, button and
+  notification passes both, and the view stays on that one across refreshes.
 - **Where.** A dock at the bottom of the main area, absent until a view is opened: the
   agent's mark and name, its state, "Open in terminal app", fold, close; its height dragged
   with `useResize` (remembered). One view per page: opening another agent's replaces it. On
@@ -183,7 +185,10 @@ its sections went.
   a new one, whose first frame is the whole screen (5–10 KB). So a page holds at most one
   stream, and the runtime pays for a working terminal only while it is looked at. A stream
   that ends for another reason (the connection, a reader too slow) is reopened once, from a
-  whole frame. The service caps open views at four across every page.
+  whole frame. Within one stream a frame is drawn only after a whole frame came on it, and
+  only if its `seq` is above the last drawn: a delta before any whole frame, or one out of
+  order, ends that stream as an end does (never drawn on a blank or old screen). The service
+  caps open views at four across every page.
 - **Drawing.** xterm.js (`@xterm/xterm`), loaded only when a view first opens, with its DOM
   renderer (one terminal shown; no WebGL addon, no context limit to meet). Columns and rows
   are the pane's (from the frames); the font scales so the width fits, down to 9 px, then
@@ -191,8 +196,12 @@ its sections went.
   reaches it; no clipboard write (OSC 52 ignored). No links: no link addon, and since xterm.js
   makes OSC 8 hyperlinks in its core, the Terminal is created with
   `linkHandler: { activate: () => {}, allowNonHttpProtocols: false }`, so a click on one does
-  nothing and shows nothing. While its agent waits, the gate's buttons sit under the view
-  (the same component, the same request), for when only the terminal shows what to press.
+  nothing and shows nothing. While its agent waits, the gate sits under the view (the same
+  component, the same request), for when only the terminal shows what to press: the buttons
+  with the screen they are bound to, as in the gate (the region; the whole screen folded, open
+  with the cut line when the region was cut or nothing was parsed), since the stream is not
+  that screen (it may be blank, late, or show another dialog). It scrolls within its share of
+  the dock.
 - **Gone.** An agent that leaves, a machine that cannot be reached, or a view that cannot be
   had (another machine without its runtime's terminal stream brought here, a stream that
   fails): the view keeps its last frame, greyed, or shows nothing, with one line why. The

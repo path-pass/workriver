@@ -106,6 +106,58 @@ describe('the terminal view', () => {
     expect(host.textContent).toContain('The view ended: reader too slow')
   })
 
+  it('draws nothing before a whole frame: a stream that starts with a delta is ended and opened again', async () => {
+    await show()
+    const t = xterm.made[0]
+    act(() => FakeSource.all[0].emit('frame', { full: false, cols: 80, rows: 24, seq: 2, bytes: btoa('stale') }))
+    expect(t.written).toEqual([])
+    expect(FakeSource.all[0].closed).toBe(true)
+    expect(open()).toHaveLength(1)
+    expect(FakeSource.all).toHaveLength(2)
+  })
+
+  it('draws a whole frame and the deltas after it; a delta whose seq is not above the last ends the stream', async () => {
+    await show()
+    const t = xterm.made[0]
+    const s0 = FakeSource.all[0]
+    act(() => s0.emit('frame', { full: true, cols: 80, rows: 24, seq: 5, bytes: btoa('whole') }))
+    act(() => s0.emit('frame', { full: false, cols: 80, rows: 24, seq: 6, bytes: btoa('delta') }))
+    expect(t.written.map(b => new TextDecoder().decode(b))).toEqual(['whole', 'delta'])
+    act(() => s0.emit('frame', { full: false, cols: 80, rows: 24, seq: 6, bytes: btoa('again') }))
+    expect(t.written).toHaveLength(2)
+    expect(s0.closed).toBe(true)
+    expect(open()).toHaveLength(1)
+    // The new stream starts from its own whole frame; a delta before it ends this one too, for good.
+    act(() => FakeSource.all[1].emit('frame', { full: false, cols: 80, rows: 24, seq: 7, bytes: btoa('late') }))
+    expect(t.written).toHaveLength(2)
+    expect(open()).toEqual([])
+    expect(host.textContent).toContain('The view ended.')
+  })
+
+  it('shows, under the view of an agent that waits, the screen its buttons answer: the region, and the whole screen when it was cut', async () => {
+    const lines = ['$ make', ' Bash command', '   rm -rf build', ' Do you want to proceed?', ' ❯ 1. Yes', '   2. No']
+    const view = (cut: boolean) => ({
+      text: lines.join('\n'), cols: 80, rows: lines.length, digest: cut ? 'd2' : 'd1',
+      dialog: { options: [{ number: 1, words: 'Yes', more: [], marked: true, row: 4 }, { number: 2, words: 'No', more: [], marked: false, row: 5 }], numbered: true, hints: [], above: null, question: null, top: 1, bottom: 5, cut },
+    })
+    let answer = view(false)
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(answer), { status: 200 }))))
+    const waiting = { ...s, state: 'blocked' as const, blockedSince: new Date().toISOString() }
+    act(() => root.render(<TooltipProvider><TerminalDock s={waiting} gone={false} onClose={() => {}} /></TooltipProvider>))
+    await settle()
+    const shown = () => [...host.querySelectorAll<HTMLElement>('[data-terminal-text]')].map(e => e.textContent)
+    expect(shown()).toContain(lines.slice(1).join('\n'))
+    expect(host.querySelectorAll('ul[aria-label=Answers] button')).toHaveLength(2)
+    expect(host.textContent).not.toContain('The question is longer')
+    expect(shown()).not.toContain(lines.join('\n'))
+    // Cut: the warning, and the whole screen open.
+    answer = view(true)
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Read its screen again')!.click())
+    await settle()
+    expect(host.textContent).toContain('The question is longer than the lines shown above')
+    expect(shown()).toContain(lines.join('\n'))
+  })
+
   it('opens no stream for an agent that is gone, and says so', async () => {
     await show(true)
     expect(FakeSource.all).toEqual([])

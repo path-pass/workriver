@@ -118,10 +118,10 @@ function SaidLine({ said }: { said: Said }) {
 }
 
 /**
- * The screen and the buttons to answer it. `compact` (under the terminal view): the buttons
- * only, the view shows the screen. Every press goes with the digest of the screen shown.
+ * The screen and the buttons to answer it, in the gate and under the terminal view alike: the
+ * buttons are shown with the screen they are bound to. Every press goes with its digest.
  */
-export function Answer({ screen, compact = false, onView }: { screen: Screen; compact?: boolean; onView?: () => void }) {
+export function Answer({ screen, onView }: { screen: Screen; onView?: () => void }) {
   const { t } = useT()
   const { view, failed, reading, busy, said, load, press } = screen
   const d = view?.dialog ?? null
@@ -138,10 +138,10 @@ export function Answer({ screen, compact = false, onView }: { screen: Screen; co
           <Button variant="outline" size="xs" className="rounded-sm" disabled={reading} onClick={load}>{t('screen.retry')}</Button>
         </div>
       )}
-      {!compact && view && d && (
+      {view && d && (
         <TerminalText block text={lines.slice(d.top, d.bottom + 1).join('\n')} className="quote-screen" />
       )}
-      {!compact && view && (
+      {view && (
         <Collapsible key={view.digest} defaultOpen={!d || d.cut}>
           <CollapsibleTrigger className="group/whole flex items-center gap-1 rounded-sm text-xs text-ink-2 hover:text-ink">
             <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/whole:rotate-90" />{t('screen.whole')}

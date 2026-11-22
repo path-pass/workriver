@@ -11,6 +11,7 @@ import { AgentContext, type AgentActions } from '@/agents/context'
 import { Gate } from '@/agents/Gate'
 import { TerminalDock } from '@/agents/TerminalView'
 import type { AgentRef, Session } from '@/agents/types'
+import { liveSession, refOf } from '@/agents/select'
 import { MachineChip, alertLimit, alertValue, topLine } from '@/machines/format'
 import { CopyButton } from '@/ui/CopyButton'
 import { Start, StartIntent } from '@/planning/Start'
@@ -131,14 +132,15 @@ export default function App() {
   // A remembered project that is no longer there (another data folder) shows all.
   const project = data?.projects?.some(p => p.id === picked) ? picked : null
   // An agent's gate (its question answered here) and the one terminal view of the page: the
-  // session as it was when opened; shown as it is now while it lives.
+  // session as it was when opened; shown as it is now while it lives. A session is found by
+  // its session and machine together: the same session can live on two machines.
   const [gate, setGate] = useState<Session | null>(null)
   const [term, setTerm] = useState<Session | null>(null)
-  const liveOf = (s: Session | null) => (s && data?.sessions.find(x => !x.ended && (s.session ? x.session === s.session : x.agent === s.agent))) || null
+  const liveOf = (s: Session | null) => (s && data && liveSession(data.sessions, refOf(s))) || null
   const sessions = useRef<Session[]>([])
   sessions.current = data?.sessions ?? []
   const agentActions = useMemo<AgentActions>(() => {
-    const find = (r: AgentRef): Session => sessions.current.find(x => !x.ended && (r.session ? x.session === r.session : x.agent === r.name)) ?? { agent: r.name, session: r.session ?? undefined, ended: true }
+    const find = (r: AgentRef): Session => liveSession(sessions.current, r) ?? { agent: r.name, session: r.session ?? undefined, machine: r.machine, ended: true }
     return { answer: r => setGate(find(r)), view: r => setTerm(find(r)) }
   }, [])
   // Agents newly waiting in their terminal: a notification (if wanted) that opens its gate,
@@ -148,9 +150,10 @@ export default function App() {
     if (!data) return
     const now = blockedAgents(data)
     const before = seen.current
-    seen.current = new Set(now.map(s => s.session ?? s.agent))
+    const key = (s: Session) => `${s.session ?? s.agent}${s.machine ? `@${s.machine}` : ''}`
+    seen.current = new Set(now.map(key))
     // The first data only sets what is known; it is not news.
-    if (before) for (const s of now) if (!before.has(s.session ?? s.agent)) notify(t('agents.notice', { agent: s.agent }), s.topic, s.session ?? s.agent, () => setGate(s))
+    if (before) for (const s of now) if (!before.has(key(s))) notify(t('agents.notice', { agent: s.agent }), s.topic, key(s), () => setGate(s))
   }, [data, t])
   // A machine alert: a notification when it rises, and again only when it becomes critical;
   // never again while it stays (nor when it steps back to a warning).

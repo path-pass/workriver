@@ -242,7 +242,9 @@ its sections went.
   unit at the node (a review at its first open finding). With nothing to show, one short line says so.
 - **Answering a stuck agent.** The gate of an agent waiting in its terminal opens from its
   Blocking row, from its running task's detail ("Waiting for you in its terminal · Answer"),
-  from its blocked line in Agents, and from the browser notification. The terminal is not
+  from its blocked line in Agents, and from the browser notification; each names the agent
+  by session and machine together (the same resumed session can live on two machines), and
+  the gate stays on that one across refreshes. The terminal is not
   shown by default: the gate shows the dialog's text and buttons to answer it. A dialog
   (Radix, modal, up to 960 px wide so 120 columns fit); opening it reads the agent's screen
   (`/api/agent/screen`); a failed read says why, with the keys disabled and "Try again". Top

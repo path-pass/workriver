@@ -391,7 +391,7 @@ export const zhCN: OneForm<typeof en> = {
       answered: '已回答。',
       open: '已发送；问题仍然开着。需要输入文字的回答请在它的终端里给出。',
       new: '已发送；现在出现了一个新问题。',
-      sent: '已发送；问题已消失，但运行时仍报告它在等待。',
+      sent: '已发送；问题已消失，但运行时没有确认它已继续（仍报告在等待，或读不到它的状态）。',
       changed: '移动选择时屏幕上别的地方变了；没有发送回车。请再看一遍。',
       unsure: '可能已经发送；按任何键之前请再看一遍。'
     },
@@ -418,7 +418,7 @@ export const zhCN: OneForm<typeof en> = {
     outcome: {
       open: '问题仍然开着',
       new: '之后出现了新问题',
-      sent: '仍报告在等待',
+      sent: '运行时未确认',
       changed: '未发送：屏幕变了',
       unsure: '可能已发送'
     }

@@ -8,7 +8,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
 import { Gate, sends } from './Gate'
-import type { Dialog, ScreenView, Session } from './types'
+import { AgentContext } from './context'
+import { liveSession, refOf } from './select'
+import { InboxList } from '@/attention/Inbox'
+import type { AgentRef, Dialog, ScreenView, Session } from './types'
 import type { Workspace } from '@/workspace/types'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -156,5 +159,34 @@ describe('the gate', () => {
     await settle()
     expect(sent.at(-1)!.body).toMatchObject({ shown: 'd2', press: { option: 1 } })
     expect(d.textContent).toContain('The screen changed; look again.')
+  })
+})
+
+describe('an agent by its session and machine', () => {
+  // The same resumed session lives on this machine and on "box": each row reaches its own.
+  const here: Session = { ...s, group: { id: 'w1', label: 'here-ws' } }
+  const box: Session = { ...s, machine: 'box', group: { id: 'w2', label: 'box-ws', machine: 'box' } }
+  const two = { ...ws, sessions: [here, box] } as Workspace
+
+  it('opens the gate and the terminal view of the one picked, and keeps it after a refresh', async () => {
+    const asked: AgentRef[] = []
+    const actions = { answer: (r: AgentRef) => asked.push(r), view: (r: AgentRef) => asked.push(r) }
+    act(() => root.render(
+      <TooltipProvider><AgentContext.Provider value={actions}><InboxList ws={two} onOpen={() => {}} onMachines={() => {}} onTalk={() => {}} /></AgentContext.Provider></TooltipProvider>,
+    ))
+    const row = [...host.querySelectorAll<HTMLElement>('.irow-pair')].find(e => e.textContent!.includes('box-ws'))!
+    act(() => row.querySelector<HTMLButtonElement>('button[data-kind=agent]')!.click())
+    act(() => row.querySelector<HTMLButtonElement>('button[aria-label^="Open the terminal"]')!.click())
+    expect(asked.map(r => r.machine)).toEqual(['box', 'box'])
+    const picked = liveSession(two.sessions, asked[0])!
+    expect(picked.machine).toBe('box')
+    answers.screen.push(json(proceed))
+    act(() => root.render(<TooltipProvider><Gate ws={two} s={picked} onClose={() => {}} onOpen={() => {}} onView={() => {}} /></TooltipProvider>))
+    await settle()
+    expect(sent[0].url).toBe('/api/agent/screen?agent=s-1&machine=box')
+    // A refresh brings new objects, this machine's first: still the one on "box".
+    const again = [{ ...here }, { ...box }]
+    expect(liveSession(again, refOf(picked))?.machine).toBe('box')
+    expect(liveSession(again, refOf(here))?.machine).toBeUndefined()
   })
 })

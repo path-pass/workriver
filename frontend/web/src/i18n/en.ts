@@ -402,7 +402,7 @@ export const en = {
       answered: 'Answered.',
       open: 'Sent; the question is still open. An answer that takes text is given in its terminal.',
       new: 'Sent; a new question is there now.',
-      sent: 'Sent; the question is gone, but the runtime still reports it waiting.',
+      sent: 'Sent; the question is gone, but the runtime does not confirm it went on (it still reports it waiting, or could not say).',
       changed: 'Something else changed while the selection moved; Enter was not sent. Look again.',
       unsure: 'It may have been sent; look again before you press anything.'
     },
@@ -429,7 +429,7 @@ export const en = {
     outcome: {
       open: 'the question stayed open',
       new: 'a new question followed',
-      sent: 'still reported waiting',
+      sent: 'not confirmed by the runtime',
       changed: 'not sent: the screen changed',
       unsure: 'may have been sent'
     }

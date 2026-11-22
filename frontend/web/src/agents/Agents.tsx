@@ -1,7 +1,7 @@
 // The side panel's Agents section: the agents as a tree, by the workspace they run in.
 import { useContext } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
-import { agentTree, type TreeAgent } from './select'
+import { agentTree, refOf, type TreeAgent } from './select'
 import { contentLang, useT } from '@/i18n'
 import { NodeName } from '@/work/Nodes'
 import { TerminalButton, Who } from './Mark'
@@ -44,7 +44,7 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
           aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
           onClick={() => {
             if (at) onOpen(at.unit.id, { kind: 'task', id: at.node.id })
-            if (state === 'blocked') agents.answer({ name: s.agent, session: s.session })
+            if (state === 'blocked') agents.answer(refOf(s))
           }}
         >
           <Who name={s.agent} topic={s.topic} live={state === 'working' && !!at?.node.writing} />
@@ -59,9 +59,9 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
           {/* Under the name and the word: it takes the whole width left of the terminal button. */}
           {sub.length > 0 && <span className="sub">{sub.flatMap((x, k) => (k ? [<span key={`d${k}`} aria-hidden className="flex-none">·</span>, x] : [x]))}</span>}
         </button>
-        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} />}
+        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} machine={s.machine} />}
       </div>
-      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={k.s.session ?? k.s.agent} a={k} here={here} onOpen={onOpen} />)}</ul>}
+      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={`${k.s.session ?? k.s.agent}\n${k.s.machine ?? ''}`} a={k} here={here} onOpen={onOpen} />)}</ul>}
     </li>
   )
 }

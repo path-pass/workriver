@@ -66,6 +66,9 @@ export interface Ended { reason?: string; framed: boolean }
 /**
  * The view's frames while `active`, each handed to `onFrame`. A stream that ends (the
  * connection, a reader too slow) is reopened once, from a whole frame; after that, `ended`.
+ * Within one stream a frame is drawn only after a whole one came on it, and only if its seq is
+ * above the last drawn: a delta before any whole frame, or out of order, ends that stream as
+ * an 'end' does (never drawn on a blank or old screen).
  */
 export function useStream(place: Place, active: boolean, onFrame: (f: Frame) => void) {
   const [ended, setEnded] = useState<Ended | null>(null)
@@ -90,10 +93,15 @@ export function useStream(place: Place, active: boolean, onFrame: (f: Frame) => 
     const open = () => {
       const s = viewTerminal(at.current)
       es = s
+      // The seq last drawn from this stream; none until a whole frame came.
+      let last: number | null = null
       s.addEventListener('frame', e => {
         if (es !== s) return
+        const f: Frame = JSON.parse((e as MessageEvent<string>).data)
+        if ((last === null && !f.full) || (last !== null && !(f.seq > last))) return stop()
+        last = f.seq
         framed = true
-        frame.current(JSON.parse((e as MessageEvent<string>).data))
+        frame.current(f)
       })
       s.addEventListener('end', e => {
         if (es !== s) return
@@ -159,10 +167,14 @@ function useXterm() {
   return { host, write }
 }
 
-/** The gate's buttons under the view, while its agent waits. */
+/**
+ * The gate under the view, while its agent waits: the screen its buttons are bound to and the
+ * buttons, as in the gate (the stream above is not that screen: it may be blank, late or show
+ * another dialog). It scrolls within its share of the dock.
+ */
 function DockAnswer({ s }: { s: Session }) {
   const screen = useScreen(placeOf(s))
-  return <div className="max-h-[45%] flex-none overflow-y-auto border-t border-line p-3"><Answer screen={screen} compact /></div>
+  return <div className="max-h-[45%] flex-none overflow-y-auto border-t border-line p-3"><Answer screen={screen} /></div>
 }
 
 /** The terminal, the line why it is gone, and the gate's buttons while its agent waits. */

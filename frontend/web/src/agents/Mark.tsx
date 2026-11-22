@@ -37,7 +37,7 @@ export function Who({ name, live = false, topic: given }: { name: string; live?:
 }
 
 /** Opens the agent's terminal view on the page. A click target of its own, so it never also picks a row. */
-export function TerminalButton({ agent, session, className }: { agent: string; session?: string | null; className?: string }) {
+export function TerminalButton({ agent, session, machine, className }: { agent: string; session?: string | null; machine?: string; className?: string }) {
   const { t } = useT()
   const { view } = useContext(AgentContext)
   return (
@@ -47,7 +47,7 @@ export function TerminalButton({ agent, session, className }: { agent: string; s
         size="icon-xs"
         className={cn('flex-none', className)}
         aria-label={t('terminal.openFor', { agent })}
-        onClick={e => { e.stopPropagation(); view({ name: agent, session }) }}
+        onClick={e => { e.stopPropagation(); view({ name: agent, session, machine }) }}
       >
         <Icon name="terminal" className="size-3.5" />
       </Button>

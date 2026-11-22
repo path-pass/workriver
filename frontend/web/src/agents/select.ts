@@ -1,9 +1,23 @@
 // Where every agent is, worked out over the whole workspace (agents cross units).
 import type { Task } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
-import type { Session } from './types'
+import type { AgentRef, Session } from './types'
 import type { Workspace } from '@/workspace/types'
 import { unitsOf, ms } from '@/planning/select'
+
+/** The ref of a session: its session and machine together. */
+export const refOf = (s: Session): AgentRef => ({ name: s.agent, session: s.session, machine: s.machine })
+
+/** Whether a session is the one a ref names: its session (or, with none, its name) on its
+ *  machine; an absent machine is this one and matches only an absent machine. */
+export const isRef = (r: AgentRef, x: Session) => (r.session ? x.session === r.session : x.agent === r.name) && (x.machine ?? '') === (r.machine ?? '')
+
+/** The live session a ref names. */
+export const liveSession = (sessions: Session[], r: AgentRef) => sessions.find(x => !x.ended && isRef(r, x))
+
+/** The live session a task's agent runs in (a task names no machine: the first that fits). */
+export const taskSession = (sessions: Session[], n: { agent?: string | null; agentSession?: string | null }) =>
+  n.agent ? sessions.find(x => !x.ended && (n.agentSession && x.session ? x.session === n.agentSession : x.agent === n.agent)) : undefined
 
 /**
  * Where a live agent is, in the order the rail lists them. Agents cross units, so this is

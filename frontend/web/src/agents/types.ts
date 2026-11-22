@@ -110,5 +110,6 @@ export interface Pressed { outcome: Outcome; keys: string[]; screen?: ScreenView
 /** A refusal of the screen, keys or view routes, with the service's words. */
 export interface Refusal { code: string; reason: string; screen?: ScreenView }
 
-/** An agent as the page asks for its gate or terminal view. */
-export interface AgentRef { name: string; session?: string | null }
+/** An agent as the page asks for its gate or terminal view: its session and its machine are
+ *  one pair (the same session can live on two machines); absent machine: this one. */
+export interface AgentRef { name: string; session?: string | null; machine?: string }

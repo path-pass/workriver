@@ -139,7 +139,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
               <Row label={t('intent.manager')}>
                 {intent.manager && <span className="font-[550]">{intent.manager}</span>}
                 <span className="text-ink-2"><ManagerState intent={intent} /></span>
-                {session && <TerminalButton agent={session.agent} session={session.session} className="text-ink-2" />}
+                {session && <TerminalButton agent={session.agent} session={session.session} machine={session.machine} className="text-ink-2" />}
                 {state === 'active' && intent.workspace && intent.manager && (
                   <Button variant="outline" size="sm" className="h-7 gap-1.5" onClick={onTalk}><Icon name="manager" className="size-3.5" />{t('intent.talk')}</Button>
                 )}

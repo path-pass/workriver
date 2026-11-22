@@ -23,6 +23,7 @@ import { Thumbs } from '@/attachments/Thumbs'
 import { gateKey } from './actions'
 import { TerminalButton, Who } from '@/agents/Mark'
 import { AgentContext } from '@/agents/context'
+import { refOf, taskSession } from '@/agents/select'
 import { cap } from '@/agents/Gate'
 import { TerminalText } from '@/content/TerminalText'
 import { Prose } from '@/content/Prose'
@@ -132,7 +133,7 @@ function Waiting({ n, talk }: { n: Task; talk: Talk }) {
     <div className="flex items-center gap-2 border-b border-line bg-hold-bg px-3 py-1.5 text-xs font-semibold text-hold-ink">
       <Icon name="blocked" className="size-3.5" />
       <span className="min-w-0 flex-1">{t('agents.blocked')}</span>
-      <Button variant="outline" size="xs" className="rounded-sm" onClick={() => agents.answer({ name: s.agent, session: s.session })}>{t('screen.answer')}</Button>
+      <Button variant="outline" size="xs" className="rounded-sm" onClick={() => agents.answer(refOf(s))}>{t('screen.answer')}</Button>
     </div>
   )
 }
@@ -254,7 +255,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
         <span className="ml-auto flex items-center gap-1">
           {/* The agent on work that is running or still to do, while its session lives: to its terminal view. */}
           {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
-            <TerminalButton agent={n.agent} session={n.agentSession} className="text-you-ink hover:bg-surface/60" />
+            <TerminalButton agent={n.agent} session={n.agentSession} machine={taskSession(talk.sessions, n)?.machine} className="text-you-ink hover:bg-surface/60" />
           )}
           {/* Its own link: to send someone straight here. */}
           <CopyButton text={linkTo(pathOf(unit.id, { kind: 'task', id: n.id }))} aria={t('link.copy')} className="text-you-ink hover:bg-surface/60" />
