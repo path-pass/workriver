@@ -163,6 +163,7 @@ export const ja: OneForm<typeof en> = {
   },
   settings: {
     title: '設定',
+    general: '一般',
     close: '閉じる',
     language: '言語',
     theme: 'テーマ',
@@ -171,6 +172,8 @@ export const ja: OneForm<typeof en> = {
     notifyDenied: 'このページの通知はブラウザで許可されていません。',
     sound: '「要対応」に新しい項目が来たら音を鳴らす',
     soundMissed: 'ブラウザがこのページの音を止めました。ページを一度クリックすると鳴るようになります。',
+    loading: '読み込み中…',
+    readFailed: '読み取れません：{{error}}',
     stall: {
       title: '止まったワーカー',
       sentence: '進行中のタスクでエージェントが <minutes/> 分間待機していたら知らせます。さらにその半分の時間たっても待機中なら、マネージャーに伝えてここに表示します。',
