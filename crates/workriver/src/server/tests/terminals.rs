@@ -642,6 +642,24 @@ fn a_slow_machine_never_holds_the_poll() {
     wait_until("far waits on its screen", || session_on(&t, "s-far", Some("box")).is_some_and(|s| s["onScreen"] == true));
 }
 
+/// The code review's reproduction: another machine's agent first seen idle with a clear
+/// screen draws its dialog 500 ms later. The read a tick later still comes (the first read's
+/// end does not use it up at once) and finds the dialog.
+#[test]
+fn a_dialog_drawn_after_the_first_read_on_another_machine() {
+    let (t, far) = two_machines(vec![], vec![("w9:p1", live("s-far", "far", "w9", Idle))], Duration::from_secs(2));
+    let reads = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::time::Instant>::new()));
+    let seen = reads.clone();
+    *far.on_read.lock().unwrap() = Some(Box::new(move |_| seen.lock().unwrap().push(std::time::Instant::now())));
+    wait_until("the first read", || !reads.lock().unwrap().is_empty());
+    let first = reads.lock().unwrap()[0];
+    std::thread::sleep(Duration::from_millis(500));
+    far.shown.lock().unwrap().insert("w9:p1".into(), bash(""));
+    wait_until("far waits on its screen", || session_on(&t, "s-far", Some("box")).is_some_and(|s| s["onScreen"] == true));
+    let reads = reads.lock().unwrap();
+    assert!(reads[1] - first >= Duration::from_millis(800), "the second read came {:?} after the first", reads[1] - first);
+}
+
 /// The code review's reproduction: a whole frame too large to pass on is not followed by the
 /// changes after it, drawn on nothing: the stream ends there.
 #[test]

@@ -32,9 +32,9 @@ Herdr 的 socket 是 `~/.config/herdr/herdr.sock`（或 `HERDR_SOCKET_PATH`）�
   `pane.agent_detected`、`pane.closed`，以及每个 agent 窗格的 `pane.agent_status_changed`——Herdr 只接受
   逐个窗格订阅）让状态一变就立刻读一次；检测到新窗格或窗格关闭时，用当时的窗格列表重新连接。
 - **Herdr 漏掉的确认框。** Herdr 0.9.5 把 Codex 的 "Hooks need review" 报成 idle，把 "Implement this
-  plan?" 报成 done。agent 变成 idle 或 done 时（以及下一个周期），以及往任何窗格输入消息之前，服务都会读
+  plan?" 报成 done。agent 变成 idle 或 done 时（以及至少半个周期后的第一次轮询再读一次，中间被状态变化或读屏结果提前唤醒的轮询不算），以及往任何窗格输入消息之前，服务都会读
   窗格的屏幕：有选项、下方又提示了按键的，agent 就算"屏幕上在等"，和 blocked 的一样计数、消息一样先留着。
-  其他机器上的窗格在轮询之外读，每个 agent 同时只读一次，所以慢的机器不会拖住本机的状态；读到的结果在读完时显示。
+  其他机器上的窗格在轮询之外读，每个 agent 同时只读一次，所以慢的机器不会拖住本机的状态；读到的结果在读完时显示，只有改变了标记的读屏才会唤醒轮询。
 - **门。** `agent.list`（通过 session 快照）把一个会话解析到它唯一的窗格；`pane.read`（source
   `visible`，纯文本）就是屏幕；`agent.explain` 给出 Herdr 判定 blocked 的原因，workriver 只保留命中规则的 id 和这条规则自己的固定
   短语（`bash_permission_prompt: …`），是 Herdr 的话，不是屏幕上的：Herdr 从屏幕上读出的

@@ -38,11 +38,12 @@ What workriver uses of Herdr for this, all through the same socket:
   connection again with the panes there are then.
 - **Dialogs Herdr misses.** Herdr 0.9.5 reports Codex's "Hooks need review" as idle and
   "Implement this plan?" as done. The service reads the pane's screen when an agent becomes
-  idle or done (and a tick later), and before typing any message into a pane: options with
+  idle or done (and again at the first poll half a tick or more later, however many polls a
+  change or a read woke between), and before typing any message into a pane: options with
   a key named under them make the agent waiting on its screen, counted and held like a
   blocked one. Another machine's panes are read beside the poll, one read per agent at a
   time, so a slow machine never holds this one's states back; what such a read finds shows
-  when it ends.
+  when it ends, and only a read that changed the mark wakes the poll.
 - **The gate.** `agent.list` (through the session snapshot) turns a session into its one
   pane; `pane.read` (source `visible`, plain text) is the screen; `agent.explain` gives the
   reason Herdr calls it blocked, of which workriver keeps the id of the rule that matched and
