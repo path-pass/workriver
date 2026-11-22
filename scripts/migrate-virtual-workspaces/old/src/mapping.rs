@@ -8,7 +8,9 @@
 //   message <id> = <project>
 //   intent <id> = <project>
 //
-// A project is named by its id as the old store has it (`p2`) or by its folder.
+// A project is named by its id as the old store has it (`p2`) or by its folder. Each key (a
+// folder, a record or label with its project, a message, an intent) is given once: a key
+// given twice is refused, naming both lines, so no line decides in place of another.
 use std::collections::BTreeMap;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -40,6 +42,8 @@ pub struct Mapping {
     pub settled: BTreeMap<String, String>,
     /// Lines still holding `?`.
     pub open: Vec<String>,
+    /// The line (from 1) each workspace is given on.
+    pub lines: BTreeMap<(Key, String), usize>,
 }
 
 fn tokens(line: &str) -> Result<Vec<String>, String> {
@@ -94,12 +98,22 @@ fn text(t: &str) -> &str {
 
 pub fn parse(src: &str) -> Result<Mapping, String> {
     let mut m = Mapping::default();
+    let mut given: BTreeMap<String, usize> = BTreeMap::new();
     for (n, line) in src.lines().enumerate() {
         let t = tokens(line).map_err(|e| format!("mapping line {}: {e}", n + 1))?;
         if t.is_empty() {
             continue;
         }
         let bad = |why: &str| format!("mapping line {}: {why}: {}", n + 1, line.trim());
+        // The key, as written, before anything else: a line still open counts too.
+        if let Some(eq) = t.iter().position(|x| x == "=")
+            && !t[..eq].iter().any(|x| x == "?")
+        {
+            let key = t[..eq].iter().map(|x| if x.starts_with('"') { quoted(text(x)) } else { x.clone() }).collect::<Vec<_>>().join(" ");
+            if let Some(first) = given.insert(key.clone(), n + 1) {
+                return Err(format!("mapping lines {first} and {} both give {key}: give it once", n + 1));
+            }
+        }
         if t.iter().any(|x| x == "?") {
             m.open.push(line.trim().to_string());
             continue;
@@ -134,7 +148,9 @@ pub fn parse(src: &str) -> Result<Mapping, String> {
                 if !named || ws.name.trim().is_empty() {
                     return Err(bad("a workspace needs a name"));
                 }
-                m.workspaces.insert((key, text(&lhs[2]).to_string()), ws);
+                let key = (key, text(&lhs[2]).to_string());
+                m.lines.insert(key.clone(), n + 1);
+                m.workspaces.insert(key, ws);
             }
             Some(w @ ("message" | "intent")) if lhs.len() == 2 && rhs.len() == 1 => {
                 m.settled.insert(format!("{w} {}", lhs[1]), text(&rhs[0]).to_string());

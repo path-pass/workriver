@@ -75,7 +75,8 @@ pub struct Analysis {
     /// Labels that found no record: the messages that went to them.
     pub orphans: BTreeMap<String, Vec<String>>,
     /// The record each intent was last put in, as it resolved then (a start in a linked
-    /// group: the record it was linked into, whatever the link is later).
+    /// group: the record it was linked into, whatever the link is later). A link of an
+    /// intent that is not active puts it nowhere: it is dropped.
     pub placed: BTreeMap<String, usize>,
 }
 
@@ -175,7 +176,9 @@ pub fn analyse(events: Vec<Old>) -> Analysis {
         match &step {
             Step::Created { record: Some(r) } | Step::Start { record: r } | Step::Linked { record: r, .. } => {
                 let id = o.event.body.refs().0.unwrap_or_default();
-                placed.insert(id.clone(), *r);
+                if !matches!(step, Step::Linked { active: false, .. }) {
+                    placed.insert(id.clone(), *r);
+                }
                 if !records[*r].intents.contains(&id) {
                     records[*r].intents.push(id);
                 }

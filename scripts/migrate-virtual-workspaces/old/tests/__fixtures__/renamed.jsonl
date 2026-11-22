@@ -1,0 +1,9 @@
+{"seq": 1, "at": "2026-01-01T00:01:00Z", "actor": "workriver", "kind": "agent.seen", "body": {"session": "s-m1", "name": "app-mgr", "harness": "claude", "cwd": "/r/app"}}
+{"seq": 2, "at": "2026-01-01T00:02:00Z", "actor": "user", "kind": "project.added", "body": {"id": "p1", "path": "/r/app", "title": "App"}}
+{"seq": 3, "at": "2026-01-01T00:03:00Z", "actor": "user", "kind": "intent.created", "body": {"id": "i1", "title": "Login", "project": "/r/app", "state": "planned"}}
+{"seq": 4, "at": "2026-01-01T00:04:00Z", "actor": "s-m1", "kind": "manager.registered", "body": {"agent": "s-m1", "workspace": {"id": "w1", "label": "app"}}}
+{"seq": 5, "at": "2026-01-01T00:05:00Z", "actor": "user", "kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": {"id": "w1", "label": "app"}}}
+{"seq": 6, "at": "2026-01-01T00:06:00Z", "actor": "s-m1", "kind": "message.said", "body": {"id": "m1", "intent": "i1", "workspace": "app", "text": "Before the rename."}}
+{"seq": 7, "at": "2026-01-01T00:07:00Z", "actor": "s-m1", "kind": "manager.registered", "body": {"agent": "s-m1", "workspace": {"id": "w1", "label": "app2"}}}
+{"seq": 8, "at": "2026-01-01T00:08:00Z", "actor": "s-m1", "kind": "message.said", "body": {"id": "m2", "intent": "i1", "workspace": "app2", "text": "After it."}}
+{"seq": 9, "at": "2026-01-01T00:09:00Z", "actor": "user", "kind": "messages.read", "body": {"workspace": "app2", "at": "2026-01-01T00:08:00Z"}}

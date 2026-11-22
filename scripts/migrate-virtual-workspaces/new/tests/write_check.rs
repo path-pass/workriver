@@ -27,7 +27,7 @@ fn find(ev: &[Value], kind: &str, field: &str, value: &str) -> usize {
 
 #[test]
 fn the_fixtures_migrate_and_pass_the_check() {
-    for name in ["rows", "replay"] {
+    for name in ["rows", "replay", "answered", "shelved", "unlinked"] {
         let out = tempfile::tempdir().unwrap();
         let db = out.path().join("workriver.db");
         let said = write(&fixture(name), &db).unwrap();

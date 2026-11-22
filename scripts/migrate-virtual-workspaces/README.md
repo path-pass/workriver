@@ -52,7 +52,10 @@ old plan .local/migrate/copy.db .local/migrate/mapping
 `plan` prints and writes the mapping: what each old workspace record becomes, and a line
 with `?` for each point it cannot tell. Fill in every `?`; change a name, or `open` /
 `closed`, where you want it otherwise. Lines starting with `#` say where each point comes
-from.
+from: every text from the store in them (labels, names, folders) is a JSON string, so none
+makes a line of its own. Give each key once: a folder, a record's or label's workspace (by
+the project's id or its folder), a message or an intent given on two lines is refused,
+naming both.
 
 | Line | What you write |
 | --- | --- |
@@ -72,7 +75,11 @@ new check .local/migrate/out .local/migrate/new.db
 ```
 
 - `apply` refuses while a `?` is left, or when the mapping does not settle something (it
-  says which line to add), and writes nothing then. It prints the workspaces it made and
+  says which line to add), and writes nothing then. It refuses, saying what to do, two
+  histories the store it was written for does not have: an intent started before its
+  project was registered, and read marks one workspace's mark cannot keep (a conversation
+  the runtime renamed, read under one label and not the other: read it to its end in the
+  old version first). It prints the workspaces it made and
   what it dropped. In `out/`: `events.jsonl` (the new events in order), `seats.jsonl` (the
   old registrations, used by the check only) and `old-state.json` (the old state, with
   where the mapping puts each record and message).

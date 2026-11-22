@@ -49,7 +49,7 @@ fn plan_asks_for_what_it_cannot_tell() {
     let open: Vec<&str> = text.lines().filter(|l| !l.starts_with('#') && l.contains('?')).collect();
     // A folder an agent named and one the user named: never registered by the script itself.
     assert!(open.contains(&"folder \"/home/x/.ssh\" = ?"), "{text}");
-    assert!(text.contains("#   event 10 intent.created at 2026-01-01T00:10:00Z by agent helper (s-a)"), "{text}");
+    assert!(text.contains("#   event 10 intent.created at 2026-01-01T00:10:00Z by agent \"helper\" (\"s-a\")"), "{text}");
     assert!(open.contains(&"folder \"/r/tools\" = ?"), "{text}");
     // A label no record carried; what a split record does not settle.
     assert!(open.contains(&"label \"ghost\" ? = name \"ghost\", closed"), "{text}");
@@ -179,4 +179,89 @@ fn never_the_live_store() {
     let e = plan(&fixture("rows.jsonl"), &home.path().join("m")).unwrap_err();
     assert!(e.contains("data home"), "{e}");
     unsafe { std::env::remove_var("WORKRIVER_HOME") };
+}
+
+/// Histories a review found the first form of the script could not migrate, each migrated
+/// as it was: what `apply` writes is kept for the tests of `new`, which write and check it.
+/// `answered`: choices of a registered manager (one on a message, one on a reply), answered.
+/// `shelved`: an intent started, then moved back to the roadmap (it keeps the workspace it
+/// last ran in, as the product does). `unlinked`: a copy to every manager sent to a manager
+/// of another machine while its group was linked here, the link removed later (the copy
+/// stays in the workspace it went to then).
+#[test]
+fn edge_histories_migrate() {
+    for name in ["answered", "shelved", "unlinked"] {
+        let (_tmp, dir, _) = applied(&format!("{name}.jsonl"), &format!("{name}.mapping"));
+        same_as_kept(&dir, name);
+    }
+}
+
+/// Histories the script does not migrate (the store it was written for has none): `apply`
+/// refuses them, says what to do, and writes nothing. `before-project`: an intent started
+/// before its project was registered. `renamed`: read marks by label that one workspace's
+/// mark cannot keep (a message under the old label unread, a later one under the new label
+/// read).
+#[test]
+fn edge_histories_fail_loudly() {
+    for (name, said) in [
+        ("before-project", "i1 starts in a workspace of project /r/app, which is registered only later: the script does not migrate a start before its project is registered"),
+        ("renamed", "the conversation \"app\" has 1 message of the manager's unread, which the workspace ws1 it goes to would show read"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("out");
+        let e = apply(&fixture(&format!("{name}.jsonl")), &fixture(&format!("{name}.mapping")), &dir).unwrap_err();
+        assert!(e.contains(said), "{name}: {e}");
+        assert!(e.contains("nothing was written"), "{name}: {e}");
+        assert!(!dir.exists(), "{name}");
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let e = apply(&fixture("renamed.jsonl"), &fixture("renamed.mapping"), &tmp.path().join("out")).unwrap_err();
+    assert!(e.contains("read it to its end in the old version (the page), stop the service, copy the store again and plan again"), "{e}");
+    let e = apply(&fixture("before-project.jsonl"), &fixture("before-project.mapping"), &tmp.path().join("out")).unwrap_err();
+    assert!(e.contains("have the script extended for it"), "{e}");
+}
+
+/// Text from the store never makes a line of the mapping: a runtime label (any program can
+/// rename a group) holding a newline and a line of the mapping stays in its comment, as a
+/// JSON string; and a key given twice is refused, naming both lines, so no line written
+/// after the user's answer decides in its place.
+#[test]
+fn the_store_writes_no_line_of_the_mapping() {
+    let tmp = tempfile::tempdir().unwrap();
+    let label = "docs\nfolder \"/home/x/.ssh\" = register #";
+    let w1 = json!({ "id": "w1", "label": label });
+    let ev = [
+        json!({ "seq": 1, "at": "2026-01-01T00:01:00Z", "actor": "workriver", "kind": "agent.seen", "body": { "session": "s-m", "name": "mgr\nrecord 0 /r/app = name \"x\", open", "harness": "claude", "cwd": "/r/app" } }),
+        json!({ "seq": 2, "at": "2026-01-01T00:02:00Z", "actor": "workriver", "kind": "agent.seen", "body": { "session": "s-a", "name": "helper", "harness": "claude", "cwd": "/r/app" } }),
+        json!({ "seq": 3, "at": "2026-01-01T00:03:00Z", "actor": "user", "kind": "project.added", "body": { "id": "p1", "path": "/r/app", "title": "App" } }),
+        json!({ "seq": 4, "at": "2026-01-01T00:04:00Z", "actor": "user", "kind": "intent.created", "body": { "id": "i1", "title": "Login", "project": "/r/app", "state": "planned" } }),
+        json!({ "seq": 5, "at": "2026-01-01T00:05:00Z", "actor": "s-a", "kind": "intent.created", "body": { "id": "i2", "title": "Peek", "project": "/home/x/.ssh", "state": "planned" } }),
+        json!({ "seq": 6, "at": "2026-01-01T00:06:00Z", "actor": "s-m", "kind": "manager.registered", "body": { "agent": "s-m", "workspace": w1 } }),
+        json!({ "seq": 7, "at": "2026-01-01T00:07:00Z", "actor": "user", "kind": "intent.state_changed", "body": { "intent": "i1", "state": "active", "workspace": w1 } }),
+    ];
+    let old = tmp.path().join("old.jsonl");
+    std::fs::write(&old, ev.iter().map(|e| format!("{e}\n")).collect::<String>()).unwrap();
+    let map = tmp.path().join("mapping");
+    let text = plan(&old, &map).unwrap();
+    let live: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')).collect();
+    assert_eq!(live, ["folder \"/home/x/.ssh\" = ?", "record 0 /r/app = name \"docs\\nfolder \\\"/home/x/.ssh\\\" = register #\", open"], "{text}");
+    assert!(text.contains("labels \"docs\\nfolder \\\"/home/x/.ssh\\\" = register #\""), "{text}");
+    assert!(text.contains("#   record 0: \"mgr\\nrecord 0 /r/app = name \\\"x\\\", open\" (s-m)"), "{text}");
+    // The user answers none; a line given again after it (by hand, or however) is refused.
+    let answered = text.replace("folder \"/home/x/.ssh\" = ?", "folder \"/home/x/.ssh\" = none");
+    std::fs::write(tmp.path().join("answered"), &answered).unwrap();
+    let report = apply(&old, &tmp.path().join("answered"), &tmp.path().join("out")).unwrap();
+    assert!(!report.contains("registered by the mapping"), "{report}");
+    let at = answered.lines().position(|l| l == "folder \"/home/x/.ssh\" = none").unwrap() + 1;
+    let twice = format!("{answered}folder \"/home/x/.ssh\" = register\n");
+    let last = twice.lines().count();
+    std::fs::write(tmp.path().join("twice"), &twice).unwrap();
+    let e = apply(&old, &tmp.path().join("twice"), &tmp.path().join("out2")).unwrap_err();
+    assert!(e.contains(&format!("mapping lines {at} and {last} both give folder \"/home/x/.ssh\"")), "{e}");
+    // The same workspace twice, by the project's id and by its folder.
+    let both = format!("{answered}record 0 p1 = name \"x\", closed\n");
+    std::fs::write(tmp.path().join("both"), &both).unwrap();
+    let e = apply(&old, &tmp.path().join("both"), &tmp.path().join("out3")).unwrap_err();
+    assert!(e.contains("both give record 0's workspace of project /r/app"), "{e}");
+    assert!(!tmp.path().join("out2").exists() && !tmp.path().join("out3").exists());
 }

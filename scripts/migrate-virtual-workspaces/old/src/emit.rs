@@ -36,8 +36,20 @@ impl<'a> Resolver<'a> {
                 r.folders.insert(f.clone(), Folder::Into(to));
             }
         }
+        // A project is named by its id or by its folder: one workspace given both ways is
+        // given twice.
+        let mut at: BTreeMap<WsKey, usize> = BTreeMap::new();
         for ((k, p), ws) in &m.workspaces {
-            r.workspaces.insert((k.clone(), r.project(p)?), ws.clone());
+            let key = (k.clone(), r.project(p)?);
+            let line = m.lines.get(&(k.clone(), p.clone())).copied().unwrap_or(0);
+            if let Some(first) = at.insert(key.clone(), line) {
+                let what = match k {
+                    Key::Record(n) => format!("record {n}'s"),
+                    Key::Label(l) => format!("label {}'s", crate::mapping::quoted(l)),
+                };
+                return Err(format!("mapping lines {} and {} both give {what} workspace of project {}: give it once", first.min(line), first.max(line), key.1));
+            }
+            r.workspaces.insert(key, ws.clone());
         }
         for (k, p) in &m.settled {
             r.settled.insert(k.clone(), r.project(p)?);
@@ -181,6 +193,8 @@ struct Emit<'r, 'a> {
     pending: Vec<(WsKey, String, String)>,
     placed: BTreeMap<String, String>,
     seat_now: BTreeMap<usize, (String, Option<String>, usize)>,
+    /// Each workspace's read mark as the new store keeps it: the latest written for it.
+    marks: BTreeMap<String, String>,
 }
 
 impl Emit<'_, '_> {
@@ -260,7 +274,7 @@ impl Emit<'_, '_> {
 
 pub fn emit(r: &Resolver) -> Result<Out, String> {
     let a = r.a;
-    let mut e = Emit { r, lines: vec![], projects: vec![], ws: vec![], names: BTreeMap::new(), label_seats: vec![], pending: vec![], placed: BTreeMap::new(), seat_now: BTreeMap::new() };
+    let mut e = Emit { r, lines: vec![], projects: vec![], ws: vec![], names: BTreeMap::new(), label_seats: vec![], pending: vec![], placed: BTreeMap::new(), seat_now: BTreeMap::new(), marks: BTreeMap::new() };
     let mut errors: Vec<String> = vec![];
     let mut dropped: BTreeMap<String, usize> = BTreeMap::new();
     let mut seat_log: Vec<(usize, usize, String, Option<String>)> = vec![];
@@ -350,7 +364,7 @@ pub fn emit(r: &Resolver) -> Result<Out, String> {
                         e.lines.push(line(at, actor, &o.kind, &body.to_string(), seq, true));
                         e.placed.insert(intent.clone(), id);
                     }
-                    None => fail(format!("{intent} starts in a workspace of project {}, which is registered only later", key.1)),
+                    None => fail(format!("{intent} starts in a workspace of project {}, which is registered only later: the script does not migrate a start before its project is registered (the store it was written for has none); have the script extended for it", key.1)),
                 },
                 Ok(None) => {}
                 Err(x) => fail(x),
@@ -446,6 +460,11 @@ pub fn emit(r: &Resolver) -> Result<Out, String> {
                     *dropped.entry(format!("{} (of no conversation)", o.kind)).or_default() += 1;
                 }
                 for w in ids {
+                    let upto = body["at"].as_str().unwrap_or_default().to_string();
+                    let mark = e.marks.entry(w.clone()).or_default();
+                    if upto > *mark {
+                        *mark = upto;
+                    }
                     body["workspace"] = json!(w);
                     e.lines.push(line(at, actor, &o.kind, &body.to_string(), seq, true));
                 }
@@ -456,6 +475,7 @@ pub fn emit(r: &Resolver) -> Result<Out, String> {
             seat_log.push((e.lines.len(), s.record, s.session.clone(), s.machine.clone()));
         }
     }
+    errors.extend(unread_kept(r, &e));
     for (k, intent, at) in &e.pending {
         errors.push(format!("{intent}, placed at {at}: the project of its workspace ({}) is never registered", k.1));
     }
@@ -526,10 +546,44 @@ pub fn emit(r: &Resolver) -> Result<Out, String> {
     Ok(Out { events: e.lines, seats, expected, report })
 }
 
+/// The manager's words in a message the user has not read, under read mark `read`.
+fn unread(m: &workriver_core::Message, read: Option<&String>) -> usize {
+    let after = |at: &String| read.is_none_or(|r| at > r);
+    usize::from(m.by_manager && after(&m.at)) + m.replies.iter().filter(|x| after(&x.at)).count()
+}
+
+/// What the old read marks, one per label, leave unread must stay unread under the new
+/// ones, one per workspace (the latest written for it). Where it does not (a conversation
+/// renamed by the runtime, read under one label and not the other), the script stops: the
+/// store it was written for has no such case; reading the conversation to its end first
+/// removes it.
+fn unread_kept(r: &Resolver, e: &Emit) -> Vec<String> {
+    let st = &r.a.state;
+    let mut by_label: BTreeMap<&str, (usize, usize, BTreeSet<String>)> = BTreeMap::new();
+    for m in st.messages.iter().filter(|m| m.to.is_empty() && !m.workspace.is_empty()) {
+        let place = r.a.messages.get(&m.id).cloned().unwrap_or(Place::Every);
+        let Some(ws) = r.ws_for(&place, &m.intent, &format!("message {}", m.id)).ok().flatten().and_then(|k| e.id_of(&k)) else { continue };
+        let x = by_label.entry(&m.workspace).or_default();
+        x.0 += unread(m, st.read.get(&m.workspace));
+        x.1 += unread(m, e.marks.get(&ws));
+        x.2.insert(ws);
+    }
+    by_label
+        .into_iter()
+        .filter(|(_, (before, after, _))| before != after)
+        .map(|(label, (before, after, ws))| {
+            let ws = ws.into_iter().collect::<Vec<_>>().join(", ");
+            let now = if after < before { "would show read".to_string() } else { format!("would show as {after} unread") };
+            format!("the conversation {} has {before} message{} of the manager's unread, which the workspace {ws} it goes to {now} (one read mark per workspace, not per label): the script does not migrate that; read it to its end in the old version (the page), stop the service, copy the store again and plan again", crate::mapping::quoted(label), if before == 1 { "" } else { "s" })
+        })
+        .collect()
+}
+
 /// A record as the plan shows it: machine, the runtime's id, its labels.
 pub fn describe(s: &State, r: usize) -> String {
     let g = &s.workspaces[r].group;
-    format!("{}, runtime id {}, last label {:?}", g.machine.as_deref().map_or("this machine".to_string(), |m| format!("machine {m}")), g.id, g.label)
+    let q = crate::mapping::quoted;
+    format!("{}, runtime id {}, last label {}", g.machine.as_deref().map_or("this machine".to_string(), |m| format!("machine {}", q(m))), q(&g.id), q(&g.label))
 }
 
 /// What the check compares the new store's state with.
@@ -541,9 +595,11 @@ fn expect(r: &Resolver, e: &Emit, registered: &[String], renumbered: &BTreeMap<S
     let mut intents = serde_json::Map::new();
     let mut projects = serde_json::Map::new();
     for i in &st.intents {
-        let ws = match (i.state, a.placed.get(&i.id).copied()) {
-            (IntentState::Planned, _) | (_, None) => None,
-            (_, Some(n)) => id_of(r.ws_for(&Place::Record(n), &i.id, &format!("intent {}", i.id))?),
+        // Where it was last put, in any state: one moved back to the roadmap keeps the
+        // workspace it ran in, as the product keeps it.
+        let ws = match a.placed.get(&i.id).copied() {
+            None => None,
+            Some(n) => id_of(r.ws_for(&Place::Record(n), &i.id, &format!("intent {}", i.id))?),
         };
         let mut p = r.intent_project(&i.id)?;
         if p.is_empty()
@@ -560,12 +616,17 @@ fn expect(r: &Resolver, e: &Emit, registered: &[String], renumbered: &BTreeMap<S
         let place = a.messages.get(&m.id).cloned().unwrap_or(Place::Every);
         messages.insert(m.id.clone(), json!(id_of(r.ws_for(&place, &m.intent, &format!("message {}", m.id))?).unwrap_or_default()));
         if !m.to.is_empty() {
+            // Each copy where it went when the message was sent (a link removed later
+            // changes nothing of it).
+            let sent = a.steps.iter().zip(&a.events).find_map(|(step, o)| match step {
+                Step::Sent { copies, .. } if serde_json::from_str::<Value>(&o.body).ok()?["id"] == json!(m.id) => Some(copies.clone()),
+                _ => None,
+            });
             let mut c = serde_json::Map::new();
             for x in &m.to {
-                let rec = st.workspace_of(&x.workspace).and_then(|w| st.workspaces.iter().position(|y| std::ptr::eq(y, w)));
-                let w = match rec {
-                    Some(n) => id_of(r.ws_for(&Place::Record(n), "", &format!("message {}", m.id))?),
-                    None => None,
+                let w = match sent.as_ref().and_then(|cs| cs.iter().find(|(s, _)| *s == x.manager)) {
+                    Some((_, p @ Place::Record(_))) => id_of(r.ws_for(p, "", &format!("message {}", m.id))?),
+                    _ => None,
                 };
                 c.insert(x.manager.clone(), json!(w));
             }

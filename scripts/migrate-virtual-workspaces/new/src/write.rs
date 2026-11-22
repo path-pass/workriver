@@ -44,17 +44,37 @@ fn principal(actor: &str, s: &State) -> Principal {
     }
 }
 
-/// The state before line `n` (from 1) with the seats the old registrations gave by then. A
-/// registration covered every workspace its record became: a session seated in several
-/// holds, for line `l`, the seat of the workspace `l` names.
-fn seated(s: &State, seats: &[Value], n: usize, l: &Line) -> State {
-    let mut s = s.clone();
-    for x in seats.iter().filter(|x| (x["line"].as_u64().unwrap_or(0) as usize) < n) {
-        if let Some(w) = s.workspaces.iter_mut().find(|w| x["workspace"] == json!(w.id)) {
-            let since = x["line"].as_u64().unwrap_or(0);
-            w.manager = Some(Seat { session: x["session"].as_str().unwrap_or_default().into(), machine: x["machine"].as_str().map(String::from), folder: x["folder"].as_str().unwrap_or_default().into(), since });
+/// The seats the old registrations gave, by the line they hold from: in the order they
+/// were given, a later one over an earlier one.
+fn seats_by_line(seats: &[Value]) -> Vec<(usize, Seat, String)> {
+    let mut out: Vec<(usize, Seat, String)> = seats
+        .iter()
+        .map(|x| {
+            let line = x["line"].as_u64().unwrap_or(0);
+            let seat = Seat { session: x["session"].as_str().unwrap_or_default().into(), machine: x["machine"].as_str().map(String::from), folder: x["folder"].as_str().unwrap_or_default().into(), since: line };
+            (line as usize, seat, x["workspace"].as_str().unwrap_or_default().to_string())
+        })
+        .collect();
+    out.sort_by_key(|(line, ..)| *line);
+    out
+}
+
+/// The validation state `v` for line `l` (from 1): the seats given before it put in (kept
+/// there, so that what was asked under one appointment is answered under it), and a session
+/// seated in several workspaces (a registration covered every workspace its record became)
+/// holding, for `l`, the seat of the workspace `l` names.
+fn seated(v: &mut State, seats: &[(usize, Seat, String)], n: usize, l: &Line) -> State {
+    // The last seat given before `l` of each workspace (one made later takes it once made).
+    let mut last: std::collections::BTreeMap<&str, &Seat> = std::collections::BTreeMap::new();
+    for (_, seat, ws) in seats.iter().take_while(|(line, ..)| *line < n) {
+        last.insert(ws, seat);
+    }
+    for w in v.workspaces.iter_mut() {
+        if let Some(seat) = last.get(w.id.as_str()) {
+            w.manager = Some((*seat).clone());
         }
     }
+    let mut s = v.clone();
     let mine = |w: &workriver_core::Workspace| w.manager.as_ref().is_some_and(|m| m.session == l.actor);
     if let Some(named) = l.body["workspace"].as_str().filter(|w| s.workspaces.iter().any(|x| x.id == *w && mine(x))) {
         for w in s.workspaces.iter_mut().filter(|w| w.id != named && mine(w)) {
@@ -75,8 +95,12 @@ pub type Checked = (Vec<(Line, Body)>, State, usize);
 /// Checks every line. Every failure is listed.
 pub fn checked(dir: &Path) -> Result<Checked, String> {
     let all = events(dir)?;
-    let seats = lines(&dir.join("seats.jsonl"))?;
+    let seats = seats_by_line(&lines(&dir.join("seats.jsonl"))?);
+    // `s`: what the product replays (no seats: they start empty). `v`: the same with the
+    // old registrations as seats, given at their lines and kept, which the rules are asked
+    // on; a message said or sent then belongs to that appointment there, as it did.
     let mut s = State::default();
+    let mut v = State::default();
     let mut out = vec![];
     let mut failed = vec![];
     let mut n_checked = 0;
@@ -90,15 +114,18 @@ pub fn checked(dir: &Path) -> Result<Checked, String> {
                 continue;
             }
         };
+        let asked = seated(&mut v, &seats, n, &l);
         if l.check {
             n_checked += 1;
-            match seated(&s, &seats, n, &l).prepare(&principal(&l.actor, &s), body.clone()) {
+            match asked.prepare(&principal(&l.actor, &s), body.clone()) {
                 Err(r) => failed.push(format!("{}: refused: {r}", what())),
                 Ok(b) if b != body => failed.push(format!("{}: comes out different:\n  written:  {}\n  prepared: {}", what(), body_json(&body), body_json(&b))),
                 Ok(_) => {}
             }
         }
-        s.apply(&Event { seq: n as i64, at: l.at.clone(), actor: l.actor.clone(), body: body.clone() });
+        let e = Event { seq: n as i64, at: l.at.clone(), actor: l.actor.clone(), body: body.clone() };
+        s.apply(&e);
+        v.apply(&e);
         out.push((l, body));
     }
     if !failed.is_empty() {

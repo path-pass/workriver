@@ -20,7 +20,7 @@ use mapping::{Key, Mapping, quoted, word};
 pub fn plan(copy: &Path, map: &Path) -> Result<String, String> {
     read::new_path(map)?;
     let a = analyse(read::events(copy)?);
-    let text = proposal(&a, copy);
+    let text = proposal(&a, copy)?;
     std::fs::write(map, &text).map_err(|e| format!("{}: {e}", map.display()))?;
     Ok(text)
 }
@@ -50,23 +50,25 @@ fn who(s: &State, actor: &str) -> String {
     match actor {
         "user" => "the user".into(),
         "workriver" => "workriver".into(),
-        a => format!("agent {} ({a})", s.name_of(a).unwrap_or("?")),
+        a => format!("agent {} ({})", quoted(s.name_of(a).unwrap_or("?")), quoted(a)),
     }
 }
 
-/// The mapping `plan` proposes: every decision, the ones it cannot make as `?`.
-fn proposal(a: &Analysis, copy: &Path) -> String {
+/// The mapping `plan` proposes: every decision, the ones it cannot make as `?`. Every text
+/// from the store in it is a JSON string (`quoted`): a label or a name any program may have
+/// given never makes a line of its own. That a line is one line is checked at the end.
+fn proposal(a: &Analysis, copy: &Path) -> Result<String, String> {
     let s = &a.state;
     let r = Resolver::new(a, &Mapping::default()).unwrap();
     let mut out = vec![
-        format!("# The mapping of {} to virtual workspaces, proposed by `old plan`.", copy.display()),
+        format!("# The mapping of {} to virtual workspaces, proposed by `old plan`.", quoted(&copy.display().to_string())),
         "# Fill in each ?; change a name or open/closed where you want it otherwise. Then".into(),
         "# `old apply` with this file (it says what is still missing, if anything).".into(),
         "# A project is named by its id below or by its folder. Lines: see old/src/mapping.rs.".into(),
         "#".into(),
         "# Registered projects:".into(),
     ];
-    out.extend(s.projects.iter().map(|p| format!("#   {} {} {}", p.id, p.path, quoted(&p.title))));
+    out.extend(s.projects.iter().map(|p| format!("#   {} {} {}", word(&p.id), word(&p.path), quoted(&p.title))));
     if !a.folders.is_empty() {
         out.push(String::new());
         out.push("# Folders that no registered project holds, as intents or `workspace project` named them.".into());
@@ -91,11 +93,11 @@ fn proposal(a: &Analysis, copy: &Path) -> String {
             nothing.push(n);
             continue;
         }
-        out.push(format!("# record {n}: {}; labels {}; intents {}; messages {}", describe(s, n), rec.labels.join(", "), list(&rec.intents), list(&a.messages.iter().filter(|(_, p)| **p == Place::Record(n)).map(|(m, _)| m.clone()).collect::<Vec<_>>())));
+        out.push(format!("# record {n}: {}; labels {}; intents {}; messages {}", describe(s, n), rec.labels.iter().map(|l| quoted(l)).collect::<Vec<_>>().join(", "), list(&rec.intents), list(&a.messages.iter().filter(|(_, p)| **p == Place::Record(n)).map(|(m, _)| m.clone()).collect::<Vec<_>>())));
         let name = quoted(&r.name(&Key::Record(n)));
         match r.projects(&Key::Record(n)) {
             Ok(ps) if ps.is_empty() => {
-                let units: Vec<String> = rec.intents.iter().flat_map(|i| s.units.iter().filter(move |u| &u.intent == i).map(|u| u.repo.clone())).collect();
+                let units: Vec<String> = rec.intents.iter().flat_map(|i| s.units.iter().filter(move |u| &u.intent == i).map(|u| quoted(&u.repo))).collect();
                 out.push(format!("#   nothing tells its project (its units' repositories: {})", list(&units)));
                 out.push(format!("record {n} ? = name {name}, {}", if active(s, a, n) { "open" } else { "closed" }));
             }
@@ -147,7 +149,7 @@ fn proposal(a: &Analysis, copy: &Path) -> String {
         out.push("# Records that hold nothing (made by a registration or `workspace project` only): no workspace.".into());
         out.extend(nothing.iter().map(|n| format!("#   record {n}: {}", describe(s, *n))));
     }
-    let seats: Vec<String> = a.records.iter().enumerate().filter_map(|(n, _)| s.workspaces[n].manager.as_ref().map(|m| format!("#   record {n}: {} ({m})", s.name_of(m).unwrap_or("?")))).collect();
+    let seats: Vec<String> = a.records.iter().enumerate().filter_map(|(n, _)| s.workspaces[n].manager.as_ref().map(|m| format!("#   record {n}: {} ({})", quoted(s.name_of(m).unwrap_or("?")), word(m)))).collect();
     if !seats.is_empty() {
         out.push(String::new());
         out.push("# The managers registered last: the seats start empty; you seat each manager again".into());
@@ -171,11 +173,15 @@ fn proposal(a: &Analysis, copy: &Path) -> String {
         out.push("# Answer these before migrating:".into());
         out.extend(pending);
     }
-    out.iter().map(|l| format!("{l}\n")).collect()
+    if let Some(l) = out.iter().find(|l| l.contains(['\n', '\r'])) {
+        return Err(format!("plan: a line of the mapping would break in two, nothing was written: {}", quoted(l)));
+    }
+    Ok(out.iter().map(|l| format!("{l}\n")).collect())
 }
 
+/// Ids from the store, each as a word of the mapping.
 fn list(v: &[String]) -> String {
-    if v.is_empty() { "none".into() } else { v.join(" ") }
+    if v.is_empty() { "none".into() } else { v.iter().map(|x| word(x)).collect::<Vec<_>>().join(" ") }
 }
 
 /// The record an intent runs or ran in at the end.
