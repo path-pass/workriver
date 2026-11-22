@@ -34,7 +34,12 @@ const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
 /** The last request for the cursor that a box took, so a box shown later does not take it again. */
 let tookFocus = 0
 
-/** The box fixed at the bottom: chips and actions above it, a line under it. Enter sends, Shift+Enter breaks the line.
+/** Whether the keyboard has a Cmd key (a Mac, an iPad's), so a shortcut is named the Mac's way. */
+const hasCmd = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+
+/** The box fixed at the bottom: chips and actions above it, a line under it, which ends with
+ *  the keys that send. Cmd+Enter sends (Ctrl+Enter too, the key where there is no Cmd);
+ *  Enter and Shift+Enter break the line; nothing sends while an input method composes.
  *  With `onFiles` it takes files too: pasted into it (a screenshot), or picked with its button.
  *  (A task's discussion uses it too, under its Questions block.) */
 export function Box({ label, placeholder, focusAt, above, below, disabled, closed, onSend, onFiles }: {
@@ -81,7 +86,7 @@ export function Box({ label, placeholder, focusAt, above, below, disabled, close
           disabled={closed}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
           }}
           onPaste={e => {
             // A text box first. Rich text (a spreadsheet's cells, a document's paragraph) comes
@@ -109,7 +114,10 @@ export function Box({ label, placeholder, focusAt, above, below, disabled, close
         )}
         <Button size="icon-xs" aria-label={t('talk.send')} disabled={!text.trim() || disabled} onClick={send}><Icon name="send" className="size-3.5" /></Button>
       </div>
-      <p className="mt-1.5 text-xs text-ink-2">{below}</p>
+      <div className="mt-1.5 flex items-start gap-2 text-xs text-ink-2">
+        <div className="min-w-0 flex-1">{below}</div>
+        <span className="flex-none">{t('talk.keys', { keys: hasCmd() ? '⌘↵' : 'Ctrl+Enter' })}</span>
+      </div>
     </div>
   )
 }

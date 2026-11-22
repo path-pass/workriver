@@ -476,6 +476,7 @@ export const zhCN: OneForm<typeof en> = {
     dismiss: '知道了',
     remove: '不带上 {{label}}',
     send: '发送',
+    keys: '{{keys}} 发送',
     how: '连同上面的标签和文件一起输入到 {{agent}} 的终端里；它在这里回复。',
     workspace: '工作区',
     label: '给管理者的消息',

@@ -78,7 +78,11 @@ context; everything else still goes to the manager.
   unit's chip (the task is unpicked). `?` with lines picked does the same; otherwise it only
   brings the cursor. A single file shows the whole file, or with "Only the changes" just its
   changes with three lines around each (remembered); the line-number gutter widens to the
-  file's longest number. Enter sends, Shift+Enter breaks the line.
+  file's longest number. Cmd+Enter sends (Ctrl+Enter where there is no Cmd key; either
+  works on any keyboard); Enter and Shift+Enter break the line; nothing sends while an
+  input method composes. The line under the box ends with the keys that send, named the
+  way the keyboard does: "⌘↵" with a Cmd key, "Ctrl+Enter" without. Other single-line
+  fields keep Enter.
 - **Files** go with a message too, any kind (a screenshot, a log, Markdown, a PDF), several
   at once: dropped anywhere on the Manager panel, pasted into the box, or picked with the
   small attach button in the box, before Send; to any workspace's manager (they need no
@@ -147,7 +151,7 @@ waits on is already a node, the decide gate.
 - **Where.** In the task's detail, its **Questions** block opens on the discussion (a
   thread with a small neutral "Discussion" tag, never folded behind "N earlier"), the
   discussion's box under it: the Manager
-  box (Enter sends, Shift+Enter breaks the line, the user's files pasted, picked or dropped
+  box (Cmd+Enter sends, Enter breaks the line, the user's files pasted, picked or dropped
   on it, as there; no chips: the task is the discussion's), a line saying where it goes, and
   "Draft conclusion" once the result has been discussed (before, there is nothing to
   conclude, and the service refuses it). In **Needs you**, one row per discussion with an unread answer, with

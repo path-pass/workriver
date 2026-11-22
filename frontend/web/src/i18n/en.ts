@@ -491,6 +491,7 @@ export const en = {
     dismiss: 'Dismiss',
     remove: 'Leave {{label}} out',
     send: 'Send',
+    keys: '{{keys}} sends',
     how: 'Typed into {{agent}}’s terminal, with the chips and files above; it replies here.',
     workspace: 'Workspace',
     label: 'Message to the manager',
