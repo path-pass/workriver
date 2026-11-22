@@ -14,7 +14,7 @@ use crate::server::http::*;
 
 mod start;
 
-pub(in crate::server) use start::{start_get, start_set, start_try};
+pub(in crate::server) use start::{start_get, start_set};
 
 #[derive(Deserialize)]
 pub(super) struct Merge {

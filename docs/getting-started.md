@@ -128,13 +128,14 @@ command is on the machine and the runtime's integration for it is current; other
 greyed with why), and the model: your default, an alias the harness knows (`opus`,
 `sonnet`, `fable` for Claude Code), or a model's full name. workriver opens a terminal in the
 project's folder (in the runtime's group named as the workspace), starts the harness there
-with only that model argument, and seats it once it has a session; it is told it manages the
+with only that model argument, and seats it once it is ready with a session; it is told it manages the
 workspace, as below. It runs with your own configuration of the harness, as when you type
 its name in that folder. In a folder the harness has never seen it first asks whether you
 trust it: the workspace's line says it waits for you, and you answer in its terminal or from
-Needs you. If nothing gets a session within ten minutes, the line says why and the terminal
-stays; seat it by hand once it runs. Settings → Starting managers sets the default harness
-and model, and "Try it" starts them once in a temporary folder to show they work.
+Needs you. If the harness reports a problem as it starts (a model it does not know), it is
+not seated: the line shows the harness's own words and its terminal stays. If nothing gets a
+session within ten minutes, the line says why and the terminal stays; seat it by hand once it
+runs. Settings → Starting managers sets the default harness and model.
 
 Or **seat one yourself**: on the page, the workspace's line in the left rail, "Manager", and pick the
 agent among those running (the page shows each one's harness, machine and folder); or from

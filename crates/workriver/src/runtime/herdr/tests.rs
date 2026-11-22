@@ -351,6 +351,9 @@ fn reads_the_root_of_a_place() {
     assert_eq!(server.join().unwrap().len(), 1);
     let (_dir, herdr, _server) = fake(vec![snapshot(), refused()]);
     assert!(herdr.roots(None, Some("w5:p3")).unwrap().is_empty());
+    // A pane Herdr lists whose processes cannot be read now is not gone: the read fails.
+    let (_dir, herdr, _server) = fake(vec![snapshot(), json!({ "error": { "code": "internal_error", "message": "busy" } })]);
+    assert!(matches!(herdr.roots(None, Some("w5:p3")), Err(RuntimeError::Failed(w)) if w.contains("busy")));
     // Every place: plain panes too, and one where Herdr knows no shell.
     let replies = vec![snapshot(), info(json!(100), json!([])), info(Value::Null, json!([{ "pid": 200 }, { "pid": 201 }])), info(json!(300), json!([])), refused(), info(json!(500), json!([]))];
     let (_dir, herdr, _server) = fake(replies);

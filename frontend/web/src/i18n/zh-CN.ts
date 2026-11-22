@@ -198,14 +198,7 @@ export const zhCN: OneForm<typeof en> = {
       lead: '管理者选择里“启动一个新的”默认用的 harness 和模型，在那里每次都可以改。',
       save: '保存',
       saved: '已保存。',
-      failed: '没有保存：{{error}}',
-      try: '试一下',
-      trying: '正在试…可能要一分钟或更久。',
-      tryHint: '在一个临时文件夹里用这个 harness 和模型启动一次，读它的屏幕，然后关掉。',
-      ok: '启动了：{{words}}',
-      notOk: '没有就绪：{{words}}',
-      tryFailed: '没能试：{{error}}',
-      screen: '它的屏幕'
+      failed: '没有保存：{{error}}'
     }
   },
   alerts: {
@@ -416,7 +409,8 @@ export const zhCN: OneForm<typeof en> = {
       no_agent: '它的终端里什么也没启动起来（harness 装了吗？），或者它在有会话之前就退出了',
       no_session: '10 分钟内没有可以安排的会话；它的终端还开着：等它运行后在这里安排它',
       refused: '启动起来的会话不能被安排',
-      restarted: '启动期间 workriver 重启了'
+      restarted: '启动期间 workriver 重启了',
+      startup_error: '它启动时报告了问题（见下）；它还在终端里运行，没有安排它'
     }
   },
   seat: {

@@ -55,6 +55,7 @@ pub struct ManagerStart {
     pub harness: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
+    /// The name its agent goes by in the runtime (`name_of`).
     pub name: String,
     pub folder: String,
     pub place: String,
@@ -87,6 +88,17 @@ pub enum StartEnd {
     Refused,
     /// The service restarted while it was pending.
     Restarted,
+    /// What showed up reported a problem as it started (a model it does not know): its
+    /// screen's words. It is left running, unseated.
+    StartupError,
+}
+
+impl ManagerStart {
+    /// The name the agent of a start goes by in the runtime: the workspace's and the start's
+    /// sequence, so no earlier start's agent, which may still run, holds it.
+    pub fn name_of(workspace: &str, seq: u64) -> String {
+        format!("{workspace}-manager-{seq}")
+    }
 }
 
 /// A manager's seat: the session the user seated, with what reaches its terminal. `since` is
@@ -310,7 +322,7 @@ impl State {
                     return no("a start names its harness and the place it was opened at");
                 }
                 let Some(p) = self.workspace_project(w) else { return no(format!("{workspace}'s project is not registered")) };
-                WorkspaceManagerStarted { name: format!("{workspace}-manager"), folder: p.path.clone(), workspace, harness, model, place, shell, replaces }
+                WorkspaceManagerStarted { folder: p.path.clone(), workspace, harness, model, place, shell, replaces }
             }
             // What the start brought up, at its place: only for the start pending now (so no seat
             // event came after it, by sequence), and only a session the records did not know
@@ -407,9 +419,9 @@ impl State {
             WorkspaceManagerSet { workspace, manager, machine, folder, .. } => self.seat(workspace, manager.as_deref(), machine, folder, e.seq as u64),
             ManagerStartSeated { workspace, session, folder, .. } => self.seat(workspace, Some(session), &None, folder, e.seq as u64),
             ManagerBack { id, workspace, session } => self.messages.push(Message::notice(id, workspace, session, &e.at, Notice::ManagerBack)),
-            WorkspaceManagerStarted { workspace, harness, model, name, folder, place, shell, .. } => {
+            WorkspaceManagerStarted { workspace, harness, model, folder, place, shell, .. } => {
                 if let Some(k) = found(&mut self.workspaces, workspace) {
-                    let (harness, model, name, folder, place) = (harness.clone(), model.clone(), name.clone(), folder.clone(), place.clone());
+                    let (harness, model, name, folder, place) = (harness.clone(), model.clone(), ManagerStart::name_of(workspace, e.seq as u64), folder.clone(), place.clone());
                     self.workspaces[k].start = Some(ManagerStart { seq: e.seq as u64, at: e.at.clone(), harness, model, name, folder, place, shell: *shell, ended: None });
                 }
             }

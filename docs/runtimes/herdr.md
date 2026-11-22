@@ -76,14 +76,19 @@ workspace's line, "Start manager"): workriver opens a new tab, without taking th
 the Herdr workspace labelled as the workriver workspace (the first with that label, else one
 made now), in the project's folder; reads its shell (`pane.process_info`); records the
 start; then runs Herdr's `agent.start` there with the harness's kind and its arguments as
-Herdr's list (only `--model <model>` when you picked one), under the name `<ws>-manager`.
-It seats the agent once Herdr reports a session of the harness's own in that pane. Herdr's
+Herdr's list (only `--model <model>` when you picked one), under a name of that start's own,
+`<ws>-manager-<n>` (`n` the start's number in workriver's records): Herdr takes a live name
+once across its server (`agent_name_taken`), and an earlier start's agent may still run. It
+seats the agent once Herdr reports it ready (idle or done) with a session of the harness's
+own in that pane, and its screen shows no line that starts with `⚠`, which is how Claude Code
+and Codex report a model they do not know as they start (both still start, ready). A start
+whose screen shows one ends unseated, the agent left running in its pane, and the page shows
+that line. Herdr's
 `agent_not_ready` (the harness blocked at startup, e.g. on its trust question in a new
 folder) keeps the pane: answer in it or from Needs you. Which harnesses are offered comes
 from Herdr's `integration.list`: the command found, and Herdr's integration for it current
-(`herdr integration status`; `herdr integration install claude` installs it). Settings' "Try
-it" does the same once in a temporary folder, in a Herdr workspace labelled
-`workriver-try`, and closes the pane. Measured with Herdr 0.9.5: over the socket
+(`herdr integration status`; `herdr integration install claude` installs it). Measured with
+Herdr 0.9.5: over the socket
 `agent.start` answers at once with the launch still pending, and refuses a pane whose shell
 is not at its prompt yet (`agent_pane_busy`); workriver asks again for a while, then waits as
 `herdr agent start` does (ready, or blocked: not ready). Herdr quotes the arguments it

@@ -201,14 +201,7 @@ export const en = {
       lead: 'What “Start a new one” in the manager select takes unless you change it there.',
       save: 'Save',
       saved: 'Saved.',
-      failed: 'Not saved: {{error}}',
-      try: 'Try it',
-      trying: 'Trying… this can take a minute or more.',
-      tryHint: 'Starts this harness and model once in a temporary folder, reads its screen, and closes it again.',
-      ok: 'It started: {{words}}',
-      notOk: 'It did not get ready: {{words}}',
-      tryFailed: 'Not tried: {{error}}',
-      screen: 'Its screen'
+      failed: 'Not saved: {{error}}'
     }
   },
   alerts: {
@@ -426,7 +419,8 @@ export const en = {
       no_agent: 'nothing started in its terminal (is the harness installed?), or it left before it had a session',
       no_session: 'no session to seat within 10 minutes; its terminal is left open: seat it here once it runs',
       refused: 'what it brought up could not be seated',
-      restarted: 'workriver restarted while it was starting'
+      restarted: 'workriver restarted while it was starting',
+      startup_error: 'it reported a problem as it started (below); it is left running in its terminal, not seated'
     }
   },
   seat: {

@@ -91,17 +91,20 @@ fn a_start_is_the_users_and_its_seating_and_end_are_workrivers() {
     assert!(pending(&s, "ws1"));
 }
 
-/// The rules fill in the folder of the workspace's project and the agent's name, whatever the
-/// body says; a closed workspace, a seat changed since the user looked and a start still
-/// pending are refused, the last two as conflicts.
+/// The rules fill in the folder of the workspace's project, whatever the body says, and the
+/// start's agent goes by a name of its own, the workspace's and the start's sequence; a closed
+/// workspace, a seat changed since the user looked and a start still pending are refused, the
+/// last two as conflicts.
 #[test]
 fn a_start_takes_the_projects_folder_and_one_at_a_time() {
     let mut s = setup();
     let e = add(&mut s, "user", started("ws1", "pl")).unwrap();
-    let Body::WorkspaceManagerStarted { folder, name, .. } = &e.body else { panic!() };
-    assert_eq!((folder.as_str(), name.as_str()), ("/p", "ws1-manager"));
+    let Body::WorkspaceManagerStarted { folder, .. } = &e.body else { panic!() };
+    assert_eq!(folder, "/p");
     let w = s.state().workspace("ws1").unwrap().start.clone().unwrap();
     assert_eq!((w.seq, w.harness.as_str(), w.model.as_str(), w.place.as_str(), w.shell.pid, w.folder.as_str()), (e.seq as u64, "claude", "opus", "pl", 41, "/p"));
+    assert_eq!(w.name, format!("ws1-manager-{}", e.seq), "not the body's");
+    assert_eq!(w.name, ManagerStart::name_of("ws1", e.seq as u64));
     let e = add(&mut s, "user", started("ws1", "pl2")).unwrap_err();
     assert!(e.starts_with(START_PENDING), "{e}");
     assert_eq!(e, "a manager is being started for ws1: wait for it, or seat one yourself");
@@ -201,6 +204,13 @@ fn an_ended_start_or_another_one_seats_nobody() {
     // The reason stays until the next start, which a pending one no longer blocks.
     let next = add(&mut s, "user", started("ws1", "pl2")).unwrap().seq as u64;
     assert!(s.state().workspace("ws1").unwrap().start.as_ref().is_some_and(|x| x.seq == next && x.ended.is_none()));
+    // Its agent goes by another name than the first start's, which may still run.
+    assert_eq!(s.state().workspace("ws1").unwrap().start.as_ref().unwrap().name, format!("ws1-manager-{next}"));
+    assert_ne!(ManagerStart::name_of("ws1", seq), ManagerStart::name_of("ws1", next));
+    // What showed up reported a problem as it started: ended so, unseated.
+    add(&mut s, "workriver", ended("ws1", next, "startup_error")).unwrap();
+    assert_eq!(s.state().workspace("ws1").unwrap().start.as_ref().unwrap().ended.as_ref().unwrap().reason, StartEnd::StartupError);
+    assert!(seat_of(&s, "ws1").is_none());
 }
 
 /// Only at the recorded place and shell, in the project's folder, with the start's harness.

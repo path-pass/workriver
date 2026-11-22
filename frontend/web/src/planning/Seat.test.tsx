@@ -166,7 +166,7 @@ describe('the manager select', () => {
   })
 
   it('has a second part that starts a new one, and says a start is pending', async () => {
-    const space: Space = { id: 'ws2', name: 'chat', project: '/web', start: { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws2-manager' } }
+    const space: Space = { id: 'ws2', name: 'chat', project: '/web', start: { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws2-manager-9' } }
     await show(space, [live('boss')])
     await act(async () => { await new Promise(r => setTimeout(r)) })
     expect(host.querySelector('section h3')?.textContent).toBe('Start a new one')

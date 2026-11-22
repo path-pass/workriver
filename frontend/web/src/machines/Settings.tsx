@@ -7,11 +7,9 @@ import { Switch } from '@/ui/primitives/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/primitives/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { MOCK } from '@/workspace/source'
-import { machines as loadMachines, metrics as loadMetrics, notifyWanted, setMachine, setSpace, setStallMinutes, setStartSettings, setThresholds, stallMinutes, tryStart, wantNotify, type SpaceAct } from '@/api/actions'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, setMachine, setSpace, setStallMinutes, setStartSettings, setThresholds, stallMinutes, wantNotify, type SpaceAct } from '@/api/actions'
 import { openSeat } from '@/planning/Seat'
 import { HarnessFields, modelOk, useStartSettings } from '@/planning/StartManager'
-import type { Tried } from '@/agents/types'
-import { Icon } from '@/ui/Icon'
 import type { Levels, Machine, Thresholds } from './types'
 import type { Workspace } from '@/workspace/types'
 import { Trans } from 'react-i18next'
@@ -267,9 +265,8 @@ function Stall() {
 
 /**
  * The harness and model a start of a manager takes unless the user changes them there: the
- * same controls and greying as the start, Save; and "Try it", which starts them once in a
- * temporary folder (the service may take a minute or more) and shows what came of it, in its
- * words, with its screen.
+ * same controls and greying as the start, and Save. Whether a model works shows on a start
+ * (its harness's own words when it reports a problem).
  */
 function StartDefault() {
   const { t } = useT()
@@ -278,9 +275,6 @@ function StartDefault() {
   const [model, setModel] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  const [trying, setTrying] = useState(false)
-  const [tried, setTried] = useState<Tried | null>(null)
-  const [tryError, setTryError] = useState('')
   useEffect(() => { if (settings) { setHarness(settings.harness); setModel(settings.model) } }, [settings])
   if (!settings) return <Unread error={unread} />
   const words = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -289,10 +283,6 @@ function StartDefault() {
   const ready = offered && modelOk(model)
   const edit = (f: () => void) => { f(); setSaved(false); setError('') }
   const save = () => setStartSettings(harness, model).then(s => { setSettings(s); setSaved(true); setError('') }, e => setError(t('settings.start.failed', { error: words(e) })))
-  const run = () => {
-    setTrying(true); setTried(null); setTryError('')
-    tryStart(harness, model).then(setTried, e => setTryError(t('settings.start.tryFailed', { error: words(e) }))).finally(() => setTrying(false))
-  }
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-ink-2">{t('settings.start.lead')}</p>
@@ -303,20 +293,8 @@ function StartDefault() {
       {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {saved && !changed && <span role="status" className="text-xs text-ink-2">{t('settings.start.saved')}</span>}
-        <Button type="button" size="sm" variant="outline" disabled={!ready || trying} onClick={run}><Icon name="play" className="size-3.5" />{t('settings.start.try')}</Button>
         <Button type="button" size="sm" disabled={!ready || !changed} onClick={save}>{t('settings.start.save')}</Button>
       </div>
-      <p className="text-xs text-ink-2">{t('settings.start.tryHint')}</p>
-      {trying && <p aria-live="polite" className="text-xs text-ink-2">{t('settings.start.trying')}</p>}
-      {tryError && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{tryError}</p>}
-      {tried && (
-        <div role="status" className="flex flex-col gap-1.5">
-          <p className={tried.ok ? 'text-sm' : 'text-sm text-del'}>{t(tried.ok ? 'settings.start.ok' : 'settings.start.notOk', { words: tried.words })}</p>
-          {tried.screen && (
-            <pre aria-label={t('settings.start.screen')} className="max-h-60 overflow-auto rounded-sm bg-sunken p-2 font-mono text-xs leading-snug whitespace-pre">{tried.screen}</pre>
-          )}
-        </div>
-      )}
     </div>
   )
 }

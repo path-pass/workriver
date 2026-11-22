@@ -57,16 +57,18 @@ impl App {
             }
             pin = Some(seat);
         }
-        let before = match &body {
-            Body::WorkspaceManagerSet { workspace, .. } | Body::WorkspaceClosed { workspace } | Body::ManagerStartSeated { workspace, .. } => self.store.lock().unwrap().workspace(workspace).ok().and_then(|w| w.manager),
-            _ => None,
-        };
         let body = self.complete(actor, body, machine)?;
-        let committed = {
+        let (committed, before) = {
             // A seat change in order with a message's last check and send (`App::hand`): no
             // message of the appointment it ends is typed in after it is committed.
             let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. } | Body::ManagerStartSeated { .. }).then(|| self.appointing.lock().unwrap());
             let mut store = self.store.lock().unwrap();
+            // The seat it changes, read in the same order and under the same lock: the one told
+            // it no longer manages. Not read: nothing is recorded (no workspace: the rules say).
+            let before = match &body {
+                Body::WorkspaceManagerSet { workspace, .. } | Body::WorkspaceClosed { workspace } | Body::ManagerStartSeated { workspace, .. } => got(store.workspace(workspace)).map_err(|Unread(why)| ApiError(StatusCode::INTERNAL_SERVER_ERROR, why))?.and_then(|w| w.manager),
+                _ => None,
+            };
             let committed = store.record(who, body)?;
             // A project comes with its first workspace, named as it: under the same lock.
             if let Body::ProjectAdded { id, title, .. } = &committed.event.body
@@ -74,7 +76,7 @@ impl App {
             {
                 tracing::warn!("cannot record the first workspace of project {id}: {e}");
             }
-            committed
+            (committed, before)
         };
         let e = committed.event;
         if let Some(seat) = pin {

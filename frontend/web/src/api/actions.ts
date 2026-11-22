@@ -9,7 +9,7 @@ import type { Machine, MetricSample, MetricsReport, Thresholds } from '@/machine
 import type { Answer, AskContext, Sent } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import type { RunView, RunReview, RunAsk } from '@/commands/types'
-import type { StartSettings, Tried } from '@/agents/types'
+import type { StartSettings } from '@/agents/types'
 import { call, post, read, SIGNED_OUT } from './http'
 import { labelOf } from '@/content/choice/surface'
 
@@ -304,13 +304,6 @@ export async function startSettings(): Promise<StartSettings> {
 export async function setStartSettings(harness: string, model: string): Promise<StartSettings> {
   if (MOCK) return (mockStart = { ...mockStart, harness, model })
   return call('/api/settings/start', { harness, model })
-}
-
-/** Starts that harness and model once in a temporary folder, as a start would, and closes it
- *  again: whether it got ready, and its screen. The service may take a minute or more. */
-export async function tryStart(harness: string, model: string): Promise<Tried> {
-  if (MOCK) return { ok: false, words: 'the sample starts no harness', screen: '' }
-  return call('/api/settings/start/try', { harness, model })
 }
 
 /** The machines the service knows, followed or not. */

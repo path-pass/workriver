@@ -31,14 +31,18 @@ its sections went.
   "Start a new one" (below). **While a manager starts** (the workspace's `start` in
   `/api/workspace`, pending: no `reason`) the line under it says "starting a manager…"; when
   its agent waits for a person in its terminal (found in the sessions by the name the start
-  gave it, `start.name`, on this machine, not ended, blocked: it has no session of its own
+  gave it, `start.name`, its own for each start, `<ws>-manager-<n>`, so an earlier start's
+  agent that still runs is never it; on this machine, not ended, blocked: it has no session of its own
   yet) it says "starting a manager… waiting for you in its terminal" in the Blocking row's
   orange, and a click opens the same gate a Blocking row opens ("Answering a stuck agent",
   below). **After a failure** it says why in words, from `start.reason` (the runtime refused
   to start it; nothing started in its terminal, or it left before it had a session; no
   session to seat within 10 minutes, its terminal left open, to seat from the select once it
-  runs; what it brought up could not be seated; workriver restarted while it was starting),
-  with `start.words` (the runtime's or the rules' own) under it quietly in mono, cut at two
+  runs; what it brought up could not be seated; workriver restarted while it was starting;
+  it reported a problem as it started, left running in its terminal, not seated: the service
+  seats only an agent that is ready, with a session, whose screen shows no such problem, a
+  model the harness does not know), with `start.words` (the runtime's, the rules' or, for a
+  problem it reported, the harness's own line from its screen) under it quietly in mono, cut at two
   lines, whole in its tooltip. It stays until the next start or seating (the service drops
   `start` on a seating); "Start manager" is offered again beside it. Under the workspace its **active intents**
   with their units. A workspace shows with nothing active in it too (a search or a filter

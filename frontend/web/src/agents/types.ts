@@ -39,7 +39,7 @@ export interface Space {
 }
 
 /** Why a start of a manager ended unseated (a key; the page says it in words). */
-export type StartEnd = 'runtime' | 'no_agent' | 'no_session' | 'refused' | 'restarted'
+export type StartEnd = 'runtime' | 'no_agent' | 'no_session' | 'refused' | 'restarted' | 'startup_error'
 
 /** A manager started from the page: when, with what, under which name its agent runs until it
  *  has a session; how it ended, with the runtime's or the rules' words. */
@@ -69,9 +69,6 @@ export interface StartSettings {
   model: string;
   harnesses: HarnessOffer[];
 }
-
-/** How trying a harness and model once went: ready or not, in the service's words, and its screen. */
-export interface Tried { ok: boolean; words: string; screen: string }
 
 /** An agent's state as the runtime reports it. */
 export type RuntimeState = 'working' | 'idle' | 'done' | 'blocked' | 'unknown';

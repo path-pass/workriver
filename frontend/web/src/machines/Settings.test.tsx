@@ -14,8 +14,6 @@ const reads = vi.hoisted(() => ({
   start: (): Promise<unknown> => new Promise(() => {}),
   saved: [] as [string, string][],
   save: (h: string, m: string): Promise<unknown> => Promise.resolve({ harness: h, model: m, harnesses: [] }),
-  tried: [] as [string, string][],
-  try: (): Promise<unknown> => new Promise(() => {}),
 }))
 vi.mock('@/api/actions', async original => ({
   ...(await original<typeof import('@/api/actions')>()),
@@ -24,7 +22,6 @@ vi.mock('@/api/actions', async original => ({
   machines: () => new Promise(() => {}),
   startSettings: () => reads.start(),
   setStartSettings: (h: string, m: string) => { reads.saved.push([h, m]); return reads.save(h, m) },
-  tryStart: (h: string, m: string) => { reads.tried.push([h, m]); return reads.try() },
 }))
 const { openSettings, Settings } = await import('./Settings')
 
@@ -40,8 +37,7 @@ beforeEach(() => {
   reads.stall = () => Promise.resolve(10)
   reads.metrics = () => new Promise(() => {})
   reads.start = () => new Promise(() => {})
-  reads.saved = []; reads.tried = []
-  reads.try = () => new Promise(() => {})
+  reads.saved = []
   localStorage.clear()
   host = document.createElement('div'); document.body.append(host); root = createRoot(host)
 })
@@ -186,26 +182,13 @@ describe('the default of a manager’s start', () => {
     expect(document.querySelector('[role=dialog] [role=alert]')?.textContent).toBe('Not saved: claude is not installed here')
   })
 
-  it('tries the harness and model once: busy meanwhile, then the result in words and its screen', async () => {
+  it('offers no try: whether a model works shows on a start', async () => {
     reads.start = () => Promise.resolve({ harness: 'claude', model: 'opus', harnesses: offers })
-    let done: (v: unknown) => void = () => {}
-    reads.try = () => new Promise(r => { done = r })
     await mount()
     await open()
     await pick('Starting managers')
-    await press('Try it')
-    expect(reads.tried).toEqual([['claude', 'opus']])
-    expect(text()).toContain('Trying… this can take a minute or more.')
-    expect(button('Try it').disabled).toBe(true)
-    await act(async () => { done({ ok: false, words: 'claude started but waits for you in its terminal (blocked)', screen: 'Is this a project you trust?\n❯ 1. Yes' }) })
-    await settle()
-    expect(text()).not.toContain('Trying…')
-    expect(text()).toContain('It did not get ready: claude started but waits for you in its terminal (blocked)')
-    expect(document.querySelector('[role=dialog] pre')!.textContent).toBe('Is this a project you trust?\n❯ 1. Yes')
-    await act(async () => { button('Try it').click() })
-    await act(async () => { done({ ok: true, words: 'claude started and was ready for a prompt', screen: '' }) })
-    await settle()
-    expect(text()).toContain('It started: claude started and was ready for a prompt')
-    expect(document.querySelector('[role=dialog] pre')).toBeNull()
+    const labels = [...document.querySelectorAll<HTMLButtonElement>('[role=dialog] [role=tabpanel] button')].map(b => b.textContent)
+    expect(labels).toContain('Save')
+    expect(labels).not.toContain('Try it')
   })
 })

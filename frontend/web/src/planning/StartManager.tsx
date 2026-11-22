@@ -25,7 +25,7 @@ const NAMES = ['claude', 'codex'] as const
 /** A harness's name for people; one the page does not know, by its kind. */
 export const harnessName = (t: T, kind: string) => ((NAMES as readonly string[]).includes(kind) ? t(`launch.names.${kind as (typeof NAMES)[number]}`) : kind)
 
-const REASONS: StartEnd[] = ['runtime', 'no_agent', 'no_session', 'refused', 'restarted']
+const REASONS: StartEnd[] = ['runtime', 'no_agent', 'no_session', 'refused', 'restarted', 'startup_error']
 
 /** The harness a start takes first: the default when it is offered, else the first offered. */
 export function firstHarness(s: StartSettings): string {

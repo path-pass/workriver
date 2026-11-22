@@ -172,7 +172,8 @@ pub trait Runtime: Send + Sync {
         Ok(vec![])
     }
     /// The root of `place` on `machine` (none: this one), or of every place there when no
-    /// place is named, read fresh; a place that is not there is not in the answer. This is
+    /// place is named, read fresh; a place that is not there is not in the answer, and a named
+    /// place whose root cannot be read now is an error, never an empty answer. This is
     /// how the service finds the place a calling process really runs at. By default, no
     /// place has a root the runtime knows.
     fn roots(&self, _machine: Option<&str>, _place: Option<&str>) -> Result<Vec<Root>, RuntimeError> {

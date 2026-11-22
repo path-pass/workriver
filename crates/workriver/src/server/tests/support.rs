@@ -220,6 +220,11 @@ pub(in crate::server) struct Fake {
     pub(super) bring: std::sync::Mutex<Bring>,
     /// The harnesses this runtime has; none set: claude and codex, installed and integrated.
     pub(super) harness_states: std::sync::Mutex<Option<Vec<workriver_core::runtime::HarnessState>>>,
+    /// What a place shows once a harness was started in it (none: nothing).
+    pub(super) start_screen: std::sync::Mutex<Option<String>>,
+    /// This many reads of what is at one named place fail, as when the runtime cannot read a
+    /// pane's processes for a moment.
+    pub(super) place_fails: std::sync::atomic::AtomicUsize,
 }
 
 /// What a start in a place brings up.
@@ -233,6 +238,9 @@ pub(super) enum Bring {
     Pending,
     /// Nothing shows up; the start is answered as if it went well.
     Nothing,
+    /// An agent with its own session `s-<name>` that is still launching (not ready); the test
+    /// makes it ready.
+    Launching,
     /// The runtime refuses the start, in these words.
     Refuse(String),
 }
@@ -338,6 +346,9 @@ impl workriver_core::runtime::Runtime for Fake {
     fn roots(&self, _: Option<&str>, place: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
         if self.down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        if place.is_some() && self.place_fails.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            return Err(workriver_core::runtime::RuntimeError::Failed("herdr pane.process_info: the connection ended".into()));
         }
         let mut places: Vec<String> = self.agents.lock().unwrap().iter().map(|(p, _)| p.clone()).chain(self.plain.lock().unwrap().clone()).collect();
         if let Some(p) = place.filter(|p| !places.iter().any(|x| x == p) && !self.gone.lock().unwrap().iter().any(|x| x == p)) {
@@ -518,13 +529,21 @@ impl workriver_core::runtime::Runtime for Fake {
         use workriver_core::runtime::{AgentState, RuntimeError};
         self.started_in.lock().unwrap().push((place.into(), harness.into(), name.into(), args.to_vec()));
         let dir = self.opened.lock().unwrap().iter().find(|(_, _, p)| p == place).map(|(_, d, _)| d.clone()).unwrap_or_default();
+        // As Herdr: a live agent's name is unique across the runtime.
+        if self.agents.lock().unwrap().iter().any(|(_, a)| a.name == name) {
+            return Err(RuntimeError::Failed(format!("herdr agent.start: agent name {name} is already used (agent_name_taken)")));
+        }
         let bring = self.bring.lock().unwrap().clone();
         let (session, state) = match bring {
             Bring::Refuse(words) => return Err(RuntimeError::Failed(words)),
             Bring::Nothing => return Ok(()),
             Bring::Session => (format!("s-{name}"), AgentState::Idle),
+            Bring::Launching => (format!("s-{name}"), AgentState::Unknown),
             Bring::Pending => (format!("pending:{place}"), AgentState::Blocked),
         };
+        if let Some(screen) = self.start_screen.lock().unwrap().clone() {
+            self.screens.lock().unwrap().insert(place.into(), screen);
+        }
         let agent = workriver_core::runtime::RuntimeAgent { harness: harness.into(), cwd: dir, ..live(&session, name, "w1", state) };
         self.plain.lock().unwrap().retain(|p| p != place);
         self.agents.lock().unwrap().push((place.into(), agent));

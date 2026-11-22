@@ -79,13 +79,11 @@ pub(super) struct Waits {
     rewatch: Duration,
     /// How long a manager's start waits for a session to seat (ten minutes; less in tests).
     start: Duration,
-    /// How long a try waits, once its harness started, before its screen is read.
-    settle: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600), settle: Duration::from_secs(2) }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5), start: Duration::from_secs(600) }
     }
 }
 

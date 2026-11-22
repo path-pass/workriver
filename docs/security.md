@@ -101,7 +101,7 @@ workspace from the page (`/api/intent/start`), run a command (below), add projec
 rename, close and open workspaces, seat a workspace's manager or empty its seat, start a
 manager for a workspace (below, "Starting a manager"), move an intent to another workspace
 (`/api/workspaces`), add or enable machines, set when the machines alert
-(`/api/metrics/thresholds`), set the default harness and model of a start and try them
+(`/api/metrics/thresholds`), set the default harness and model of a start
 (`/api/settings/start`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
 `workriver machine load`) the user and an agent of this machine may; an agent on another
@@ -236,7 +236,7 @@ agents that answer a question or review a command are workriver's own, as before
   the harness and how a model is given to it are workriver's own table (Claude Code and
   Codex; a model is your default, the harness's own alias, or one name of letters, digits
   and `. _ : / @ [ ] -`, never starting with `-`); the agent's name comes from the
-  workspace's id; the place is the one the service just opened. No path, command, argument,
+  workspace's id and the start's number; the place is the one the service just opened. No path, command, argument,
   environment, machine or place is taken from the request, and the arguments go to the
   runtime as a list, never as a line of shell. A harness is offered only when its command is
   on the machine and the runtime's integration for it is current.
@@ -249,10 +249,14 @@ agents that answer a question or review a command are workriver's own, as before
   started, and for a session the records did not know before the start (one seen before,
   one that holds a seat, one that has a task is refused). So no other workspace loses its
   manager by a start. One start per workspace is pending at a time (a second is refused,
-  409). A start ends by a seat event, by a failure, after ten minutes with no session, or
-  when the service restarts (recorded before it serves): an ended start seats nobody.
-  Anything refused is not seated and waits for a click in the select. The seating takes the
-  same order as every seat change: the seat before is read, the one replaced is told it no
+  409). What shows up is seated only once it is ready, with a session, and its screen shows
+  no problem the harness reported as it started (a model it does not know). A start ends by
+  a seat event, by a failure, by such a problem (the agent is left running, unseated, and
+  the page shows the screen's words), after ten minutes with no session, or when the service
+  restarts (recorded before it serves): an ended start seats nobody. Anything refused is not
+  seated and waits for a click in the select. The seating takes the same order as every seat
+  change: the seat before is read under the same lock as the seating is written (when it
+  cannot be read, nothing is seated and the start ends), the one replaced is told it no
   longer manages, and what was queued for its appointment is not delivered.
 - **What stays the service's word.** That the session was read at the recorded place and
   shell, and the ten minutes: the rules have no clock and do not see the runtime. Both are
@@ -270,9 +274,6 @@ agents that answer a question or review a command are workriver's own, as before
   started in), a folder (not a file), not a project already, not inside a project and
   holding none (a project added inside another would change the project of intents already
   recorded there). Projects already nested in an older store stay as they were.
-- **Trying a harness** (Settings, Try it) starts it once in a temporary folder of its own,
-  with no prompt, seats nobody, records nothing, then closes its terminal and removes the
-  folder. Yours only.
 
 What these do not hold, since the runtime's own interface is your account's, is under
 [What this does not protect against](#what-this-does-not-protect-against): the bait for

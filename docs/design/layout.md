@@ -275,8 +275,8 @@ crates/workriver/
 │   │   │   │                         # (/api/workspaces: add, rename, close, open, manager, move, start).
 │   │   │   └── start.rs              # A manager started from the page: the place opened, the start
 │   │   │                             # recorded, the harness started, the wait and its one end, the
-│   │   │                             # starts a previous run left; the default harness and Try it
-│   │   │                             # (/api/settings/start, /try).
+│   │   │                             # starts a previous run left; the default harness and model
+│   │   │                             # (/api/settings/start).
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── terminals/                # An agent's terminal from the page; all three routes App::user.
 │   │   │   ├── mod.rs                # Terminals (digest key, presses, writers, marks, views),

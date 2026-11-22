@@ -3,7 +3,7 @@
 // harness started there, and, off the request, a wait for what it brings up, which is seated
 // (`workspace.manager_start_seated`, workriver's) or not, with why
 // (`workspace.manager_start_ended`). The rules tie the seating to the start by sequence
-// (core's planning/projects.rs). Also the default harness and model, and trying them once.
+// (core's planning/projects.rs). Also the default harness and model.
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
-use workriver_core::runtime::{RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{AgentState, RuntimeAgent, RuntimeError};
 use workriver_core::{self as core, Body, Principal, StartEnd};
 
 use crate::common::config::StartDefault;
@@ -23,8 +23,8 @@ use crate::server::http::*;
 /// How often a pending start's place is looked at.
 const STEP: Duration = Duration::from_millis(500);
 
-/// The runtime's group a Try is opened in.
-const TRY_GROUP: &str = "workriver-try";
+/// How many of the last lines of a start's place are read for a problem its harness reported.
+const SCREEN: u32 = 200;
 
 /// The user's start of a manager for a workspace: the harness (a kind of the table) and the
 /// model, over the seat they were shown. Nothing else is taken from the request.
@@ -94,7 +94,7 @@ impl App {
         let all = self.store.lock().unwrap().recorded()?;
         let w = all.workspace(&s.workspace)?.clone();
         let shell = core::Shell { pid: 0, start: 0 };
-        let probe = Body::WorkspaceManagerStarted { workspace: s.workspace.clone(), harness: h.kind.into(), model: s.model.clone(), name: String::new(), folder: String::new(), place: "?".into(), shell, replaces: s.replaces.clone() };
+        let probe = Body::WorkspaceManagerStarted { workspace: s.workspace.clone(), harness: h.kind.into(), model: s.model.clone(), folder: String::new(), place: "?".into(), shell, replaces: s.replaces.clone() };
         let Body::WorkspaceManagerStarted { folder, .. } = all.prepare(who, probe)? else { unreachable!() };
         drop(all);
         if !std::path::Path::new(&folder).is_dir() {
@@ -111,7 +111,7 @@ impl App {
             return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("the shell of the terminal opened for the manager ({place}) cannot be read; nothing was started")));
         };
         let shell = core::Shell { pid, start };
-        let body = Body::WorkspaceManagerStarted { workspace: s.workspace.clone(), harness: h.kind.into(), model: s.model, name: String::new(), folder: String::new(), place: place.clone(), shell, replaces: s.replaces };
+        let body = Body::WorkspaceManagerStarted { workspace: s.workspace.clone(), harness: h.kind.into(), model: s.model, folder: String::new(), place: place.clone(), shell, replaces: s.replaces };
         let e = match self.record(who, body) {
             Ok(e) => e,
             Err(err) => {
@@ -119,8 +119,9 @@ impl App {
                 return Err(err);
             }
         };
-        let Body::WorkspaceManagerStarted { name, .. } = &e.body else { unreachable!() };
-        let up = Up { workspace: s.workspace, seq: e.seq as u64, group, place, shell, kind: h.kind, name: name.clone(), args };
+        // A name of this start's own: an earlier start's agent may still run under its name.
+        let name = core::ManagerStart::name_of(&s.workspace, e.seq as u64);
+        let up = Up { workspace: s.workspace, seq: e.seq as u64, group, place, shell, harness: h, name, args };
         let app = self.clone();
         std::thread::spawn(move || app.bring_up(up));
         Ok(e)
@@ -150,7 +151,7 @@ impl App {
 
     /// None: seated, or its start dropped by a seat event; else why it ended.
     fn wait_up(&self, up: &Up) -> Option<(StartEnd, String)> {
-        match self.runtime.start_in(None, &up.place, up.kind, &up.name, &up.args) {
+        match self.runtime.start_in(None, &up.place, up.harness.kind, &up.name, &up.args) {
             // Waiting for a person (the harness's own first-run question) or still launching:
             // its place is kept and the wait goes on.
             Ok(()) | Err(RuntimeError::NotReady(_)) => {}
@@ -177,14 +178,23 @@ impl App {
                     Some(r) => match r.at.agent {
                         None if first => {
                             self.close_empty(&up.group, &up.place);
-                            return Some((StartEnd::NoAgent, format!("{} did not show up in its terminal", up.kind)));
+                            return Some((StartEnd::NoAgent, format!("{} did not show up in its terminal", up.harness.kind)));
                         }
-                        None => return Some((StartEnd::NoAgent, format!("{} left its terminal before it had a session", up.kind))),
-                        Some(a) if self.runtime.has_session(&a) => return self.seat_start(up, &a),
+                        None => return Some((StartEnd::NoAgent, format!("{} left its terminal before it had a session", up.harness.kind))),
+                        // Ready, with a session: seated unless its screen shows a problem it
+                        // reported as it started (a model it does not know), which ends it.
+                        Some(a) if self.runtime.has_session(&a) && matches!(a.state, AgentState::Idle | AgentState::Done) => match self.runtime.read_place(None, &up.place, SCREEN) {
+                            Ok(screen) => match up.harness.startup_error(&screen) {
+                                Some(words) => return Some((StartEnd::StartupError, words)),
+                                None => return self.seat_start(up, &a),
+                            },
+                            Err(e) => tracing::debug!("cannot read the terminal of a manager's start now: {e}"),
+                        },
                         // Blocked on a question, or still launching: waited for.
                         Some(_) => {}
                     },
                 },
+                // Not read now (not the same as gone): read again.
                 Err(e) => tracing::debug!("cannot look at the terminal of a manager's start now: {e}"),
             }
             first = false;
@@ -220,39 +230,6 @@ impl App {
             }
         }
     }
-
-    /// Starts `harness` with `model` once, as a start does, in a temporary folder and a place
-    /// of its own, without a prompt and without seating it: whether it gets ready, and what
-    /// its screen says. Its place is closed and the folder removed either way.
-    fn try_start(&self, kind: &str, model: &str) -> Result<Tried, ApiError> {
-        let (h, args) = self.offered(kind, model)?;
-        let dir = tempfile::Builder::new().prefix("workriver-try-").tempdir().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make a temporary folder: {e}")))?;
-        let folder = dir.path().to_string_lossy().into_owned();
-        let place = self.runtime.open_place(None, TRY_GROUP, &folder).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("cannot open a terminal to try it: {e}")))?;
-        // A runtime may take only lowercase letters, digits and '-' in a name.
-        let name = format!("{TRY_GROUP}-{}", dir.path().file_name().map(|n| n.to_string_lossy().trim_start_matches("workriver-try-").to_ascii_lowercase()).unwrap_or_default());
-        let started = self.runtime.start_in(None, &place, h.kind, &name, &args);
-        // What it shows once it settled: its own words when something went wrong.
-        std::thread::sleep(self.waits.settle);
-        let screen = self.runtime.read_place(None, &place, 40).map(|s| s.trim_end().to_string()).unwrap_or_default();
-        let (ok, words) = match started {
-            // Ready for the runtime, though its screen may still ask something it does not report.
-            Ok(()) if core::screens::parse(&screen).is_some() => (true, format!("{kind} started; its screen asks a question that waits for you (below)")),
-            Ok(()) => (true, format!("{kind} started and was ready for a prompt")),
-            Err(RuntimeError::NotReady(w)) => (false, format!("{kind} started but waits for you in its terminal ({w})")),
-            Err(e) => (false, e.to_string()),
-        };
-        let here = self.runtime.roots(None, Some(&place)).ok().and_then(|r| r.into_iter().find(|r| r.place == place));
-        let closed = match here.and_then(|r| r.at.agent) {
-            Some(a) => self.runtime.close(&a.session),
-            None => self.runtime.close_shell(None, TRY_GROUP, &place),
-        };
-        if let Err(e) = closed {
-            tracing::warn!("cannot close the terminal {place} a try opened: {e}");
-        }
-        drop(dir);
-        Ok(Tried { ok, words, screen })
-    }
 }
 
 /// A start the service waits on: where it was opened, and what it starts there.
@@ -262,17 +239,9 @@ struct Up {
     group: String,
     place: String,
     shell: core::Shell,
-    kind: &'static str,
+    harness: &'static Harness,
     name: String,
     args: Vec<String>,
-}
-
-/// How a try went: ready or not, in the service's words, and what its screen showed.
-#[derive(Serialize)]
-pub(in crate::server) struct Tried {
-    ok: bool,
-    words: String,
-    screen: String,
 }
 
 /// The default harness and model, with each harness as offered here.
@@ -304,10 +273,4 @@ pub(in crate::server) async fn start_set(State(app): State<Shared>, Extension(ca
         Ok(Json(start_settings(&app)))
     })
     .await
-}
-
-/// Tries a harness and model once (Settings, Try it); the user's alone.
-pub(in crate::server) async fn start_try(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(d): Json<StartDefault>) -> Result<Json<Tried>, ApiError> {
-    app.user(&caller)?;
-    blocking(move || app.try_start(&d.harness, &d.model).map(Json)).await
 }

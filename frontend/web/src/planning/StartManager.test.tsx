@@ -119,14 +119,14 @@ describe('starting a manager', () => {
   })
 
   it('waits while a start is pending here', async () => {
-    await show(space({ start: { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws1-manager' } }))
+    await show(space({ start: { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws1-manager-7' } }))
     expect(host.textContent).toContain('A manager is being started here')
     expect(button('Start and seat').disabled).toBe(true)
   })
 })
 
 describe('the workspace’s line while it starts', () => {
-  const start: ManagerStart = { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws1-manager' }
+  const start: ManagerStart = { since: '2026-11-23T10:00:00Z', harness: 'claude', name: 'ws1-manager-7' }
   const asked: AgentRef[] = []
   const line = (s: Space, sessions: Session[] = []) => act(() => root.render(
     <TooltipProvider>
@@ -145,13 +145,13 @@ describe('the workspace’s line while it starts', () => {
 
   it('opens the gate of its agent waiting in its terminal, found by the name it runs under', async () => {
     asked.length = 0
-    const waiting: Session = { agent: 'ws1-manager', session: 'ws1-manager', ended: false, state: 'blocked', blockedSince: '2026-11-23T10:00:05Z' }
+    const waiting: Session = { agent: 'ws1-manager-7', session: 'ws1-manager-7', ended: false, state: 'blocked', blockedSince: '2026-11-23T10:00:05Z' }
     line(space({ start }), [{ ...waiting, agent: 'other' }, { ...waiting, ended: true }, { ...waiting, machine: 'box' }])
     expect(host.textContent).toBe('starting a manager…')
     line(space({ start }), [waiting])
     expect(host.textContent).toBe('starting a manager… waiting for you in its terminal')
     await act(async () => { host.querySelector('button')!.click() })
-    expect(asked).toEqual([{ name: 'ws1-manager', session: 'ws1-manager', machine: undefined }])
+    expect(asked).toEqual([{ name: 'ws1-manager-7', session: 'ws1-manager-7', machine: undefined }])
   })
 
   it('says why a start ended, with the runtime’s or the rules’ own words', () => {
@@ -161,5 +161,6 @@ describe('the workspace’s line while it starts', () => {
     expect(said('no_session')).toBe('Manager not started: no session to seat within 10 minutes; its terminal is left open: seat it here once it runs')
     expect(said('refused', 'a session known before the start')).toBe('Manager not started: what it brought up could not be seateda session known before the start')
     expect(said('restarted')).toBe('Manager not started: workriver restarted while it was starting')
+    expect(said('startup_error', 'Model "opsu" isn\'t recognized · did you mean "opus"?')).toBe('Manager not started: it reported a problem as it started (below); it is left running in its terminal, not seatedModel "opsu" isn\'t recognized · did you mean "opus"?')
   })
 })

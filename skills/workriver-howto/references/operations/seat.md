@@ -17,7 +17,8 @@ act, never on an agent's, and schedules none. Give the user one of:
 
 If the user wants a new manager rather than you, they start one on the page: the
 workspace's line, "Start manager" (a harness and a model; workriver opens a terminal in the
-project's folder, starts it there and seats it once it has a session). You do not start one
+project's folder, starts it there and seats it once it is ready with a session and its
+screen shows no problem it reported as it started). You do not start one
 for them and there is no command for it.
 
 Once seated you read in your pane `[workriver] The user made you the manager of workspace

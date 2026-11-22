@@ -6,7 +6,9 @@ Newest first. A manager that was already running reads this once after an update
 
 - **The user can start a manager from the page** (managers): the workspace's line, "Start
   manager": workriver opens a terminal in the project's folder, starts the harness the user
-  picked (Claude Code or Codex, with a model) and seats it once it has a session; it is told
+  picked (Claude Code or Codex, with a model) and seats it once it is ready with a session
+  and its screen shows no problem it reported as it started (a model it does not know: then
+  it is left running, unseated, and the page shows why); it is told
   `[workriver] The user made you the manager of workspace ws1 …` as for any seating, and the
   one it replaces is told it no longer manages. workriver starts a working agent only on the
   user's own act, never on an agent's: when the user asks you for a manager for another

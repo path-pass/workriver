@@ -144,7 +144,8 @@ pub enum Body {
     },
     /// The user starts a manager for a workspace (the page's Start manager): the harness and
     /// model they chose, and the place the service has just opened for it with its shell.
-    /// `folder` and `name` are filled in by the rules (the project's folder; `<ws>-manager`).
+    /// `folder` is filled in by the rules (the project's folder); the agent goes by a name of
+    /// the start's own (`ManagerStart::name_of`).
     /// What it brings up is seated by `ManagerStartSeated`, which names it by its sequence.
     /// Recorded only by the start action, never through `/api/append`.
     #[serde(rename = "workspace.manager_started")]
@@ -154,8 +155,6 @@ pub enum Body {
         /// Empty: the harness's own default.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         model: String,
-        #[serde(default)]
-        name: String,
         #[serde(default)]
         folder: String,
         place: String,

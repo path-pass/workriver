@@ -134,13 +134,10 @@ its sections went.
   word typed, checked before it is sent). Save (enabled once something changed and the
   harness is offered and the model is of the form) records it (`/api/settings/start`, kept
   in the service's settings with the alert thresholds; the user's alone), then says "Saved."
-  quietly; a refusal shows in the service's words. **Try it** starts that harness and model
-  once in a temporary folder, as a start would but seating nothing, and closes it again
-  (`/api/settings/start/try`): the service may take a minute or more, so the button waits
-  and a quiet line says it is trying; then the result in the service's words ("It started:
-  …", or "It did not get ready: …" in the removed colour) and, when it is not empty, the
-  screen it read, preformatted, mono, scrolling within a fixed height. A refusal shows in
-  the service's words.
+  quietly; a refusal shows in the service's words. There is no trial run: a harness started
+  in a fresh folder meets its own first-run questions before it uses a model, so only a
+  start shows whether a model works (its harness's own words on the workspace's line,
+  `navigation.md`).
 
 ## Machine alerts
 
