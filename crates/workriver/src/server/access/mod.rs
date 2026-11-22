@@ -80,7 +80,7 @@ impl App {
             if machine.is_none() && caller.chain.is_none() {
                 return Err(self.no_process(caller));
             }
-            return Ok(Principal::Agent { session: self.session_of(name, None), machine: machine.map(str::to_string) });
+            return Ok(Principal::Agent { session: self.session_of(name), machine: machine.map(str::to_string) });
         }
         let user = Principal::User;
         if caller.session {
@@ -380,10 +380,7 @@ impl App {
         let a = match named[..] {
             [one] => one,
             [] => return Err(bad(format!("no running agent {agent}: a manager is seated while it runs (`workriver agents` lists them)"))),
-            _ => {
-                let list = named.iter().map(|a| format!("{} ({}{})", a.session, a.name, a.machine.as_ref().map(|m| format!(", on {m}")).unwrap_or_default())).collect::<Vec<_>>().join(", ");
-                return Err(bad(format!("several running agents are {agent}: name one by its session: {list}")));
-            }
+            _ => return Err(several(agent, &named)),
         };
         let machine = a.machine.as_deref();
         let roots = self.runtime.agent_roots(machine).map_err(cannot)?;
