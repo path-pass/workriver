@@ -106,7 +106,10 @@ its sections went.
   it is ("Manager now: … seated in <folder>", "Seated: … not running", "No manager is
   seated."), then the agents running now as radio rows (a question's temporary agent and the
   command shells' reviewer are left out): the agent's mark and name, its harness, its machine
-  chip, its state; the folder it was started in (mono); what the records know of it ("manager
+  chip, its state; the folder it was started in (mono, on one line, cut with an ellipsis and
+  whole in its tooltip); every row, its highlight and its state word stay inside the dialog
+  at any window width (a dialog and a radio group are one column that may shrink below its
+  content, so no long line widens them); what the records know of it ("manager
   of ws2", "2 tasks (u1#3, …)", or "no task, no seat") and, quietly, where its terminal is in
   the runtime ("in Herdr: chat"), which is a hint and decides nothing. Those with no task
   come first. "Seat as manager" seats the one picked; picking one while another manager runs

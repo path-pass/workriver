@@ -67,13 +67,13 @@ export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space
   }
   return (
     <div className="flex flex-col gap-2.5 text-sm">
-      <p className="text-xs text-ink-2">
+      <p className="text-xs wrap-anywhere text-ink-2">
         {seated
           ? <Slot text={t(runs(seated) ? 'seat.now' : 'seat.nowGone', { name: SLOT, folder: seated.folder })}><Content text={seated.name} /></Slot>
           : t('seat.empty')}
       </p>
       {moved && at && (
-        <p role="note" className="rounded-sm border border-line bg-sunken px-2 py-1.5 text-xs">
+        <p role="note" className="rounded-sm border border-line bg-sunken px-2 py-1.5 text-xs wrap-anywhere">
           {t('seat.moved', { name: at.s.agent })}
           <span className="mt-1 block font-mono text-ink-2">{t('seat.movedOld', { folder: seated!.folder, machine: seated!.machine ?? t('metrics.here') })}</span>
           <span className="block font-mono">{t('seat.movedNew', { folder: at.s.folder ?? '', machine: at.s.machine ?? t('metrics.here') })}</span>

@@ -13,7 +13,7 @@ vi.mock('@/api/actions', async original => {
   return { ...real, setSpace: (a: unknown) => { sent.acts.push(a); return sent.answer() } }
 })
 const { SeatChanged } = await import('@/api/actions')
-const { SeatPicker } = await import('./Seat')
+const { SeatDialog, SeatPicker, openSeat } = await import('./Seat')
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -100,5 +100,22 @@ describe('the manager select', () => {
     expect(note).toContain('Shows now in: /elsewhere on This machine')
     await press('Seat it: a new appointment')
     expect(sent.acts).toEqual([{ action: 'manager', workspace: 'ws1', manager: 's-boss', replaces: { session: 's-boss', since: 7 } }])
+  })
+  // A grid's implicit column is sized by its items' min-content: one long folder (no space
+  // to break at) widened the column, and every row, past the dialog's edge. Measured in a
+  // browser; here the cause is held: the dialog and the list each have one column that may
+  // shrink below its content, and the long folder is cut with the whole of it in a tooltip.
+  it('keeps every row inside the dialog: one column that shrinks, the folder cut with the whole in a tooltip', async () => {
+    const folder = '/Users/someone/code/a-folder-name-long-enough-to-be-wider-than-the-dialog/and/deeper'
+    const space: Space = { id: 'ws2', name: 'chat', project: '/web' }
+    const ws = data(space, [live('boss', { folder })])
+    await act(() => root.render(<TooltipProvider><SeatDialog ws={ws} /></TooltipProvider>))
+    await act(async () => openSeat('ws2'))
+    const dialog = document.querySelector('[data-slot=dialog-content]')!
+    expect(dialog.classList).toContain('grid-cols-1')
+    expect(dialog.querySelector('[role=radiogroup]')!.classList).toContain('grid-cols-1')
+    const path = [...dialog.querySelectorAll('label span')].find(e => e.textContent === folder)!
+    expect(path.getAttribute('title')).toBe(folder)
+    expect(path.classList).toContain('truncate')
   })
 })

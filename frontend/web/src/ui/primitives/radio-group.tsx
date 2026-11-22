@@ -7,9 +7,11 @@ function RadioGroup({
   ...props
 }: React.ComponentProps<typeof RadioGroupPrimitive.Root>) {
   return (
+    // One column that may shrink below its content, as the dialog's: a long option stays
+    // inside the group.
     <RadioGroupPrimitive.Root
       data-slot="radio-group"
-      className={cn("grid w-full gap-2", className)}
+      className={cn("grid w-full grid-cols-1 gap-2", className)}
       {...props}
     />
   )
