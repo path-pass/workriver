@@ -374,6 +374,8 @@ export const ja: OneForm<typeof en> = {
     movedOld: '任命時：{{machine}} の {{folder}}（なくなりました）',
     movedNew: '現在：{{machine}} の {{folder}}',
     nobody: '今動いているエージェントがいません。{{runtime}} で起動してから、ここで任命します。',
+    noneHere: 'このプロジェクトのフォルダーで動いているエージェントはいません。今動いているすべてのエージェントを表示しています。',
+    showAll: 'すべてのエージェントを表示（{{count, number}}）',
     pick: '任命するエージェント',
     managerOf: '{{workspace}} のマネージャー',
     tasks_other: 'タスク {{count, number}} 件（{{first}} ほか）',

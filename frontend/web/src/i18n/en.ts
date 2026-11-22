@@ -384,6 +384,8 @@ export const en = {
     movedOld: 'Seated in: {{folder}} on {{machine}} (gone)',
     movedNew: 'Shows now in: {{folder}} on {{machine}}',
     nobody: 'No agent is running now. Start one in {{runtime}}, then seat it here.',
+    noneHere: 'No agent runs in this project’s folder; all agents running now are listed.',
+    showAll: 'Show all agents ({{count, number}})',
     pick: 'The agent to seat',
     managerOf: 'manager of {{workspace}}',
     tasks_one: '{{count, number}} task ({{first}})',
