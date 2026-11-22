@@ -198,6 +198,7 @@ agent，其他 agent 也不能问它；关于其他工作的内容不会被打�
 - **冒充别的 agent。** 报上别的 agent 的终端会被拒绝。剩下的办法代价更高：见下面"终端已经没了
   的会话"。
 - **文件。** agent 用的是你的账户：`~/workriver-data` 里的数据库和附件可以直接从磁盘读，各个 harness 的会话文件也一样（workriver 只显示它们在哪里，从不读取）。
+- **工作区在哪台机器上。** 工作区的机器属于工作区本身（记录里的工作区、会话的 group），所以盲审 agent 能看到另一个 agent 的工作区在哪台机器上；只有 agent 自己的机器（会话上显示的那个）对别人是清掉的。
 - **别的终端。** 运行时允许任何 agent 读别的终端时（Herdr 允许：
   [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#herdr-下的安全)），别的 agent 终端上显示的内容，
   workriver 藏不了。

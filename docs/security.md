@@ -272,6 +272,9 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Files.** Agents run as you: the database and the attachments in `~/workriver-data`
   can be read from disk, and so can every harness's session files (workriver only shows
   where they are; it never reads them).
+- **Where workspaces run.** A workspace's machine belongs to the workspace (the records'
+  workspaces, a session's group), so a blind agent sees which machine another agent's
+  workspace is on; only an agent's own machine, as its session shows it, is cleared for others.
 - **Other terminals.** Where the runtime lets any agent read another's terminal (Herdr does:
   [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr)), what another
   agent's terminal shows is not workriver's to hide.
