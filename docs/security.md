@@ -301,9 +301,10 @@ agent reads
 The same cut is made for every route that returns records, on this machine's listener and
 on another machine's (`App::view`: the records, the page's snapshot, a task, an intent's
 history, a stored file). For a stored file the cut is only this: a file that nothing but the
-parts cut away names is not served to that agent; a file anything else names too (a task, a
-finding, a question, a message it does read), or that the agent stored itself, is served as
-before. You read everything.
+parts cut away names is not served to that agent; a file another record holds as a file too
+(a task's or a finding's files, a check's report, what a question or a message it does read
+points at), or that the agent stored itself, is served as before. A file's id written in
+words (a title, a note) holds nothing. You read everything.
 
 What stays readable by every agent, by design: everything that is not a conversation with
 you. Intents (planned and active, every workspace's and project's), units, tasks, findings,
@@ -388,7 +389,9 @@ determined program on your machine:
     not such terminals: [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr).)
   - On another machine a worker's session goes to the first terminal that *calls* with it;
     a manager's is held, from its seating, to the one terminal that machine's runtime
-    shows it in. What that machine's processes and runtime say comes through that machine's
+    shows it in: while that terminal is gone or holds another agent, nothing is typed to the
+    manager there, as on this machine, and the same session showing again in the seat's
+    folder there has its seat back by itself. What that machine's processes and runtime say comes through that machine's
     account, so it holds as far as that account does. A
     terminal where the runtime knows no shell is not remembered: its session shown by
     another terminal gets both refused.

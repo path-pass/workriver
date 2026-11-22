@@ -43,6 +43,9 @@ impl App {
         };
         let body = self.complete(actor, body, machine)?;
         let committed = {
+            // A seat change in order with a message's last check and send (`App::hand`): no
+            // message of the appointment it ends is typed in after it is committed.
+            let _order = matches!(body, Body::WorkspaceManagerSet { .. } | Body::WorkspaceClosed { .. }).then(|| self.appointing.lock().unwrap());
             let mut store = self.store.lock().unwrap();
             let committed = store.record(who, body)?;
             // A project comes with its first workspace, named as it: under the same lock.

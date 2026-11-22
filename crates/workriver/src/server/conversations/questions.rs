@@ -196,10 +196,22 @@ impl App {
                 // order with a gate's record (`App::discussing`, held by both): one closed
                 // meanwhile goes nowhere, one whose gate was submitted fails now, and with
                 // records that cannot be read it waits. A gate recorded later comes after the
-                // send, which then stands as asked before the user decided.
-                let _order = (h.kind == For::Discussion).then(|| self.discussing.lock().unwrap());
-                let asked = if h.kind == For::Discussion { self.still_asked(&h.question) } else { Some(true) };
+                // send, which then stands as asked before the user decided. The user's message
+                // alike with a seat change (`App::appointing`): its appointment ended meanwhile,
+                // it is not delivered; a seat changed later comes after the send.
+                let message = matches!(h.kind, For::Message | For::Broadcast);
+                let _order = match h.kind {
+                    For::Discussion => Some(self.discussing.lock().unwrap()),
+                    _ if message => Some(self.appointing.lock().unwrap()),
+                    _ => None,
+                };
+                let asked = match h.kind {
+                    For::Discussion => self.still_asked(&h.question),
+                    _ if message => self.still_appointed(&h.question, &h.to),
+                    _ => Some(true),
+                };
                 match asked {
+                    Some(false) if message => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
                     Some(false) => return,
                     None => h.not_ready = None,
                     Some(true) => match sent(&h) {

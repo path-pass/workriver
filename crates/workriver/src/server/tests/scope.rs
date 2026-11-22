@@ -159,3 +159,27 @@ fn an_attachment_only_another_conversation_names_is_not_served() {
     let (code, _) = as_user(&d, "GET", &format!("/api/attachments/{}", only["id"].as_str().unwrap()), None);
     assert_eq!(code, 200, "the user reads all");
 }
+
+/// Only a record that holds an attachment as one (a task's or a finding's files, a check's
+/// report, what a question or a kept message points at) keeps it in an agent's view: an id
+/// written in free text (a unit's title, a note) grants nothing.
+#[test]
+fn an_attachment_id_in_free_text_grants_no_access() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (_fake, d) = service(tmp.path());
+    two_workspaces(&d, "docs", "web");
+    let p = tmp.path().join("only.png");
+    std::fs::write(&p, b"\x89PNG only for b").unwrap();
+    let only = d.upload(&p, "user", None).unwrap();
+    let id = only["id"].as_str().unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "ws2", "text": "See this", "context": [{ "kind": "attachment", "label": "f.png", "id": id }] }))).unwrap();
+    // An agent writes the id in words, where anyone reads it.
+    d.append("s-a", "unit.created", json!({ "intent": "i1", "title": format!("Look at {id}"), "kind": "research" })).unwrap();
+    d.append("s-a", "task.created", json!({ "unit": "u1", "kind": "research", "title": format!("Fetch /api/attachments/{id}"), "agent": "s-w" })).unwrap();
+    for place in ["p1", "p3"] {
+        assert_eq!(from_place(&d, place, "GET", &format!("/api/attachments/{id}"), None).0, 404, "{place}");
+        let listed = at_place(&d, place).get("/api/state").unwrap()["attachments"].to_string();
+        assert!(!listed.contains(id), "{place}: {listed}");
+    }
+    assert_eq!(from_place(&d, "p2", "GET", &format!("/api/attachments/{id}"), None).0, 200, "the manager it went to");
+}

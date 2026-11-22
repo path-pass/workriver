@@ -63,8 +63,9 @@ impl State {
     ///   message, its own copy and its own replies. Nothing of the other copies (their
     ///   workspace, manager, delivery) or their replies;
     /// - the read marks of that workspace, none other;
-    /// - every attachment but one that only the parts cut away name: one that anything kept
-    ///   names too, or that the agent stored itself, stays.
+    /// - every attachment but one that only the parts cut away name: one that a kept record
+    ///   holds as an attachment too (`held_attachments`), or that the agent stored itself,
+    ///   stays. An id written in words (a title, a note) holds nothing.
     ///
     /// Intents, units, tasks, findings, gates, chores, questions, threads and agents stay as
     /// they are: only the conversations are scoped by workspace.
@@ -91,11 +92,25 @@ impl State {
         self.messages = kept;
         self.read.retain(|w, _| mine(w));
         if !cut.is_empty() {
-            // Whatever else names one keeps it: looked for in everything kept, as it is
-            // written, so that no kind of record is forgotten here.
-            let rest = serde_json::to_string(&State { attachments: vec![], ..self.clone() }).unwrap_or_default();
-            self.attachments.retain(|a| a.by == session || !cut.contains(&a.id) || rest.contains(&a.id));
+            let held = self.held_attachments();
+            self.attachments.retain(|a| a.by == session || !cut.contains(&a.id) || held.contains(&a.id));
         }
         self
+    }
+
+    /// The attachments the records hold as attachments: a task's files, its checks' reports,
+    /// its findings' files and the notes added to them or to what it asks (of units and
+    /// intents), the backlog's findings', and what a question or a message points at (an
+    /// "attachment" of its context). Never an id that only appears in words.
+    fn held_attachments(&self) -> std::collections::HashSet<String> {
+        fn finding(f: &Finding) -> impl Iterator<Item = &String> {
+            f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))
+        }
+        let tasks = self.units.iter().flat_map(|u| &u.tasks).chain(self.intents.iter().flat_map(|i| &i.tasks));
+        let of_tasks = tasks.flat_map(|t| t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(t.notes.iter().flat_map(|n| &n.attachments)).chain(t.findings.iter().flat_map(finding)));
+        let of_backlog = self.backlog.iter().flat_map(|b| finding(&b.finding));
+        let contexts = self.questions.iter().flat_map(|q| &q.context).chain(self.messages.iter().flat_map(|m| &m.context));
+        let pointed = contexts.filter(|c| c.kind == "attachment").filter_map(|c| c.id.as_ref());
+        of_tasks.chain(of_backlog).chain(pointed).cloned().collect()
     }
 }

@@ -23,7 +23,7 @@ fn message(d: &Daemon, text: &str) -> Value {
 
 /// The lines workriver put in a conversation saying a manager has its seat back.
 fn back(d: &Daemon) -> Vec<Value> {
-    d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().filter(|m| m["notice"] == "manager-back").cloned().collect()
+    d.get("/api/workspace").unwrap()["messages"].as_array().into_iter().flatten().filter(|m| m["notice"] == "manager-back").cloned().collect()
 }
 
 fn told(fake: &Fake, to: &str, what: &str) -> usize {
@@ -315,4 +315,110 @@ fn a_manager_on_another_machine_is_seated_at_the_root_its_runtime_shows() {
     let e = at_place(&there, "p3").append("", "workspace.manager_set", json!({ "workspace": ws, "manager": null, "replaces": seat_of(&user, &ws) })).unwrap_err().to_string();
     assert!(e.contains("only the user does this (workspace.manager_set)"), "{e}");
     assert_eq!(seat_of(&user, &ws)["session"], "s-new");
+}
+
+/// A manager seated on another machine, at p3 there. Its terminal p3 still runs but holds
+/// another agent now, and another terminal there (p4, another folder) reports the seated
+/// session: that terminal is refused as the manager, the workspace shows its manager not
+/// running and proposes the session where it shows now, and the user's message is typed
+/// into nothing there (not delivered, as on this machine).
+#[test]
+fn a_remote_seat_whose_terminal_holds_another_agent_is_lost() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    let set = |agents: Vec<(&str, RuntimeAgent)>| *far.agents.lock().unwrap() = agents.into_iter().map(|(p, a)| (p.to_string(), a)).collect();
+    set(vec![("p3", started_in("s-new", "new", "/srv/n"))]);
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    let ws = workspace_named(&user, "chat");
+    all.poll_all();
+    seat(&user, &ws, Some("s-new")).unwrap();
+    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    set(vec![("p3", started_in("s-other", "other", "/srv/n")), ("p4", started_in("s-new", "new", "/srv/x"))]);
+    all.poll_all();
+    let e = here(&there, "p4").unwrap_err().to_string();
+    assert!(e.contains("session s-new was first seen in") && e.contains(" p3 on machine box, whose shell still runs"), "{e}");
+    wait_until("the page proposes it for the seat", || workspace(&user, &ws)["proposal"] == "s-new");
+    assert_eq!(workspace(&user, &ws)["manager"]["state"], "gone");
+    user.call("/api/message", Some(json!({ "workspace": ws, "text": "For the manager only" }))).unwrap();
+    wait_until("not delivered", || message(&user, "For the manager only")["step"] == "not-delivered");
+    assert_eq!(message(&user, "For the manager only")["reasonCode"], "manager-gone");
+    assert_eq!(far.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("For the manager only")).count(), 0, "typed into nothing there");
+}
+
+/// The same session of a manager on another machine shows again there, in the same folder,
+/// after its terminal is gone: it has its seat back by itself at the regular read, with no
+/// call of its own: the conversation says so, the page shows it running, and the user's
+/// message is given to it.
+#[test]
+fn a_remote_seat_comes_back_by_itself_where_it_was() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    let set = |agents: Vec<(&str, RuntimeAgent)>| *far.agents.lock().unwrap() = agents.into_iter().map(|(p, a)| (p.to_string(), a)).collect();
+    set(vec![("p3", started_in("s-new", "new", "/srv/n"))]);
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let ws = workspace_named(&user, "chat");
+    all.poll_all();
+    seat(&user, &ws, Some("s-new")).unwrap();
+    let since = seat_of(&user, &ws);
+    // Its terminal is gone; the same session shows in another one there, in the same folder.
+    kernel.procs.kill(root("p3"));
+    set(vec![("p5", started_in("s-new", "new", "/srv/n"))]);
+    all.poll_all();
+    wait_until("back at the regular read", || back(&user).len() == 1);
+    assert_eq!(seat_of(&user, &ws), since, "the same appointment");
+    wait_until("shown running", || workspace(&user, &ws)["manager"]["state"] == "idle" && workspace(&user, &ws).get("proposal").is_none());
+    user.call("/api/message", Some(json!({ "workspace": ws, "text": "Welcome back" }))).unwrap();
+    wait_until("delivered", || message(&user, "Welcome back")["step"] == "delivered");
+    assert_eq!(told(&far, "s-new", "Welcome back"), 1);
+}
+
+/// A queued message's last check of its appointment and its typing are one step in order
+/// with a seat change: the user seats another manager right before the message would be
+/// typed in (after the service took the message up again); it is recorded not delivered,
+/// and typed into neither terminal.
+#[test]
+fn a_seat_change_during_a_queued_send_stops_it() {
+    use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering::SeqCst}, mpsc};
+    use std::time::Duration;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss")), ("p2".into(), started_in("s-rev", "rev", "/w/rev"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    fake.agents.lock().unwrap()[0].1.state = Blocked;
+    d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Queued for boss" }))).unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(message(&d, "Queued for boss")["step"] != "delivered");
+
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (continue_tx, continue_rx) = mpsc::channel::<()>();
+    let continue_rx = Mutex::new(continue_rx);
+    let calls = AtomicUsize::new(0);
+    let stand_in = Arc::downgrade(&fake);
+    *fake.on_agents.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, SeqCst) {
+        // The poll's read: boss is free, the message is taken up again.
+        0 => stand_in.upgrade().unwrap().agents.lock().unwrap()[0].1.state = Idle,
+        // Inside `hand`, after its first check of the appointment, before typing.
+        1 => {
+            paused_tx.send(()).unwrap();
+            let _ = continue_rx.lock().unwrap().recv_timeout(Duration::from_secs(10));
+        }
+        _ => {}
+    }));
+    paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    seat(&d, "ws1", Some("s-rev")).unwrap();
+    continue_tx.send(()).unwrap();
+    wait_until("not delivered", || message(&d, "Queued for boss")["step"] == "not-delivered");
+    assert_eq!(message(&d, "Queued for boss")["reasonCode"], "seat-changed");
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!((told(&fake, "s-boss", "Queued for boss"), told(&fake, "s-rev", "Queued for boss")), (0, 0));
 }

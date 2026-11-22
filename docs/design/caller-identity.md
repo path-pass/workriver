@@ -94,8 +94,8 @@ it); else none.
    - *Afterwards* its pin is not released when the root stops running, and no other root
      takes the session by reporting it, with one exception: a root on the seat's machine
      that shows the session in the seat's folder, as the one root showing it there, is
-     pinned in the gone root's place, on the regular read (this machine) or when it calls
-     (any machine, whose roots are read then). The session has its seat back by itself,
+     pinned in the gone root's place, on the regular read (this machine, and each machine a
+     manager is seated on) or when it calls (any machine, whose roots are read then). The session has its seat back by itself,
      with its appointment (`since`), and the service records `workspace.manager_back`: a
      line of the workspace's conversation. A root in another folder or on another machine
      is refused (`words::seat_elsewhere`), saying the user confirms the manager's new
@@ -119,7 +119,11 @@ it); else none.
      the session shows at another place, the call is refused (503, `cannot_ask`) and nothing
      is pinned.
    - **The regular read** (every tick of the poll) asks the runtime for the roots of places
-     that hold an agent only (`Runtime::agent_roots`), on this machine only (section 4).
+     that hold an agent only (`Runtime::agent_roots`), on this machine and on each machine a
+     manager is seated on (section 4). A seat whose session is not at its pinned root (gone,
+     or holding another agent) is lost from the same read, on any machine, and so is it
+     before anything is typed to a manager on another machine (`App::seat_lost` reads that
+     machine's roots then).
 
 `App::user`'s "a caller whose place holds an agent is not the user" uses `place(P)` too.
 
@@ -200,8 +204,9 @@ machine). The terminal fallback (`( cmd & )`) is looked for on this machine only
 conditions, because the pid is the caller's word: the process must be alive and be named
 `workriver`. A caller there that shows no process is answered 401. Anything else is refused.
 
-Rule 5 there costs no call of its own: the service does not read that machine's roots on
-its tick. A session of that machine is pinned when its first call arrives, with the root
+Rule 5 there costs no call of its own for a worker: the service reads that machine's roots
+on its tick only while a manager is seated there (for the seat alone: lost, or back by
+itself, as on this machine). A session of that machine is pinned when its first call arrives, with the root
 taken from the caller's own chain; whether a pinned root still runs is asked only when
 another root there claims the same session. So there a worker's pin goes to the first place
 that *calls* with a session, not the first that shows it. A manager's does not: at its

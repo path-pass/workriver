@@ -66,6 +66,9 @@ pub(super) struct App {
     /// Orders a discussion's last check and send against a gate's record: whichever comes
     /// first, the other sees it (`App::hand`, `App::record`).
     pub(in crate::server) discussing: Mutex<()>,
+    /// Orders the user's message's last check of its appointment and send against a seat
+    /// change's record: whichever comes first, the other sees it (`App::hand`, `App::record`).
+    pub(in crate::server) appointing: Mutex<()>,
     /// The machine each session was last listed on (none: this one), and the sessions gone:
     /// last listed on a machine whose read now is complete without them. What a discussion's
     /// author being gone is judged on.
