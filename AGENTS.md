@@ -157,7 +157,7 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
 - Do not commit or push unless the user says so.
 - Security rule (see `docs/security.md`): the service never takes anyone's word for who
   they are. Whatever acts as the user, or changes where workriver reaches (machines,
-  links, projects), asks for the user in its handler (`App::user`, or `App::who` for what
+  projects), asks for the user in its handler (`App::user`, or `App::who` for what
   agents may record too) and is refused by the event rules for anyone else
   (`Body::user_only`). Never add a route that acts as the user without that; never serve
   such a route on a machine's listener (`machine_router` is an allow-list; add to it only

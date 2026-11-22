@@ -215,8 +215,8 @@ worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可
 任务和发现都留着，提交从新分支读，页面上写"之前在 feat/queue"，提交留在旧分支上的任务会如实标出来。
 没写 `Task:` 尾注的提交可以事后关联到任务，由做这个任务的 agent、管理者或你来做：
 `workriver commit link <hash> u1#3`，或者在未登记节点上的"它属于任务"里选；变基之后关联仍然有效。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
-每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
-（`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`）。终端按钮会在那台机器的运行时里聚焦到 agent 的终端；
+每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是把每个文件取到
+agent 当前文件夹的命令（`workriver attach fetch <id>.<ext>`；用 `curl` 访问服务会被拒绝）。终端按钮会在那台机器的运行时里聚焦到 agent 的终端；
 还要你自己做什么，见 [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#其他机器)。
 
 ## 7. 更新

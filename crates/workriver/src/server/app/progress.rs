@@ -220,7 +220,7 @@ impl App {
 
     /// A manager that was at work before this build of the service is told, once, to read
     /// what changed: the skill it follows was read from an older workriver, and nothing else
-    /// would tell it. `fresh`: it registers now, having just read this build's guide.
+    /// would tell it. `fresh`: it is seated now, and the seating message has it read this build's guide.
     // Which manager was told of which build is kept in a small file next to the database.
     pub(in crate::server) fn tell_of_update(&self, session: &str, fresh: bool) {
         if !fresh && !got(self.store.lock().unwrap().manages(session)).ok().flatten().unwrap_or(false) {

@@ -49,7 +49,7 @@ pub(super) struct Ask {
 
 #[derive(Deserialize)]
 pub(super) struct Say {
-    /// The intent whose workspace's manager it goes to; or, without one, the workspace's label.
+    /// The intent whose workspace's manager it goes to; or, without one, `workspace` (its id).
     #[serde(default)]
     intent: String,
     #[serde(default)]

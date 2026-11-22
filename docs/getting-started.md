@@ -255,8 +255,9 @@ made without its `Task:` trailer is linked to its task afterwards, by its agent,
 manager or you: `workriver commit link <hash> u1#3`, or the "It belongs to task" select on
 the unregistered node; the link follows the commit through a rebase. For a unit over there,
 workriver reads its commits with git over ssh, every 15 seconds. Screenshots attached
-there are uploaded through the connection; messages to agents there link to them
-(`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`). The terminal button focuses the agent's terminal in that
+there are uploaded through the connection; messages to agents there give the command that
+fetches each one into the folder the agent is in (`workriver attach fetch <id>.<ext>`; a
+`curl` to the service is refused). The terminal button focuses the agent's terminal in that
 machine's runtime ([runtimes/herdr.md](runtimes/herdr.md#other-machines) says what is left
 to you).
 

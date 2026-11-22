@@ -436,7 +436,7 @@ pub(crate) struct Unit {
     /// Ready for longer than the user's `readyHours` without a merge: since when.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) overdue: Option<String>,
-    /// Conversations about the unit as a whole ("ask why" with no task picked), oldest first.
+    /// Conversations about the unit as a whole (a question with no task picked), oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) threads: Vec<ThreadOut>,
     /// Open, the files it changes that another open unit of its project, in the same
@@ -513,7 +513,7 @@ pub(crate) struct Task {
     /// A research task (shown like implement work; its output is its note and attachments).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) research: bool,
-    /// Conversations about it ("ask why"), oldest first.
+    /// Conversations about it (questions asked of it), oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) threads: Vec<ThreadOut>,
     /// Waiting gates: the latest conclusion reached about it or the work it follows, to start
@@ -633,8 +633,8 @@ pub(crate) struct Finding {
     /// running); absent: it waits for the user.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) decider: Option<&'static str>,
-    /// While open: it would be the manager's, but none is registered or running, so it
-    /// falls to the user.
+    /// While open: it would be the manager's, but the seat is empty or its agent is not
+    /// running, so it falls to the user.
     #[serde(rename = "noManager", skip_serializing_if = "std::ops::Not::not")]
     pub(crate) no_manager: bool,
     /// What was added to it since it was reported, oldest first.

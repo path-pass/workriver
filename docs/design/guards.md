@@ -141,7 +141,7 @@ noise baseline (relative times move with the clock, live marks animate):
 4. Task detail: input/output, "Show more", evidence, findings with Accept/Revise/Reject/Defer
    and the optimistic update with Undo, a waiting gate's form, chore steps with copy and Run.
 5. Code layer: tree with only the changed files by default, filter, a diff per pick, a
-   single file with "Only the changes", picking lines and the floating "Ask why".
+   single file with "Only the changes", picking lines and the floating "Ask the manager".
 6. Ask: chips, a conversation opened and folded, the manager switch; a pasted image and a
    dropped file become chips; a stray drop does not open the file.
 7. Viewer: ←/→, zoom, Escape returns focus; a Markdown attachment renders without its raw

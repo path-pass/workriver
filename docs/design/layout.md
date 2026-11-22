@@ -480,8 +480,8 @@ skills/
         ├── workers/         hand-off, closing-workers, stalled, branch-moved, commit-link
         ├── decisions/       design-gate, ask-user, gates-chores, deciding-findings, deferred-batches, push-pr-merge
         ├── reviews/         architecture-review, blind-review, contract, finding-additions
-        ├── communication/   ask, user-message, not-delivered, blocked, attachments
-        └── operations/      machines, updating
+        ├── communication/   ask, user-message, discussion, not-delivered, blocked, attachments
+        └── operations/      seat, machines, updating
 docs/
 ├── README.zh-CN.md, getting-started(.zh-CN).md, security(.zh-CN).md, images/
 ├── architecture.md / architecture.zh-CN.md   # A short code map for people.

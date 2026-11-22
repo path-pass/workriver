@@ -1,6 +1,6 @@
 // The Herdr runtime: Herdr's socket API in workriver's terms. The only place that knows
 // Herdr's names (workspace, pane), its socket and its environment variables. Elsewhere an
-// agent is its session id and a workspace is a runtime group.
+// agent is its session id and Herdr's workspace is a runtime group, shown as a hint only.
 //
 // Protocol: newline-delimited JSON over a Unix socket, one request per connection
 // (`{"id","method","params"}` -> `{"id","result"}` or `{"id","error":{"code","message"}}`).
