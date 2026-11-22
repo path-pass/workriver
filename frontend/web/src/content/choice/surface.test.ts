@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { labelOf, needsNote, optionsOf, type Choice } from './surface'
+import { isOther, labelOf, needsNote, OTHER, optionsOf, type Choice } from './surface'
 
 // The stored form, as core builds it (`choices/mod.rs`).
 const stored: Choice = {
@@ -21,6 +21,13 @@ describe('a stored choice', () => {
     expect(optionsOf(stored)).toEqual([{ value: 'merge', label: '核对通过后合并并推送' }, { value: 'hold', label: '先不合并' }])
     expect([labelOf(stored, 'hold'), labelOf(stored, 'nope')]).toEqual(['先不合并', undefined])
     expect([needsNote(stored, 'hold'), needsNote(stored, 'merge'), needsNote({ ...stored, needs_note: undefined }, 'hold')]).toEqual([true, false, false])
+  })
+  it('takes workriver’s Other, never stored, always with a note; an asker’s option of that value stays theirs', () => {
+    expect(OTHER).toBe('other')
+    expect(optionsOf(stored).map(o => o.value)).not.toContain(OTHER)
+    expect([isOther(stored, OTHER), isOther(stored, 'hold'), needsNote(stored, OTHER)]).toEqual([true, false, true])
+    const before: Choice = { surface: { version: '1.0', createSurface: { components: [{}, { component: 'ChoicePicker', options: [{ label: 'A', value: 'a' }, { label: 'Else', value: 'other' }] }] } } }
+    expect([isOther(before, OTHER), needsNote(before, OTHER), labelOf(before, OTHER)]).toEqual([false, false, 'Else'])
   })
   it('draws nothing it does not know: only the subset’s picker, only literal words', () => {
     const odd = (options: unknown): Choice => ({ surface: { version: '1.0', createSurface: { components: [{}, { component: 'ChoicePicker', options }] } } })

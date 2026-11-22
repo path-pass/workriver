@@ -152,3 +152,23 @@ fn a_choice_takes_no_other_field() {
     // As recorded with no note required: `needs_note` left out.
     assert!(said(serde_json::to_value(Choice::new(&[opt("a", "A"), opt("b", "B")], &[])).unwrap()).is_ok());
 }
+
+/// Every choice ends with Other, which workriver adds: not stored in the surface, answered as the
+/// reserved value `other` with a note (the user's instruction instead of an option). An asker
+/// cannot define it; a choice recorded with an option of that value before keeps it as theirs.
+#[test]
+fn every_choice_takes_other_with_a_note() {
+    let c = three();
+    assert!(!c.options().iter().any(|o| o.value == OTHER) && c.label(OTHER).is_none());
+    assert!(c.needs_note(OTHER));
+    assert!(c.check_answer(&[OTHER.into()], "split it into two gates").is_ok());
+    let refused = c.check_answer(&[OTHER.into()], " \n").unwrap_err().0;
+    assert!(refused.contains("Other") && refused.contains("note"), "{refused}");
+    // The value is workriver's: an option of an asker's may not take it.
+    let refused = Choice::new(&[opt("other", "Something else"), opt("b", "B")], &[]).check().unwrap_err().0;
+    assert!(refused.contains("other") && refused.contains("workriver"), "{refused}");
+    // Recorded before the rule: the asker's own option, as it was (here: no note asked).
+    let old = Choice::new(&[opt("a", "A"), opt("other", "Something else")], &[]);
+    assert_eq!(old.label(OTHER).as_deref(), Some("Something else"));
+    assert!(!old.needs_note(OTHER) && old.check_answer(&[OTHER.into()], "").is_ok());
+}

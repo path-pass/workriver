@@ -197,12 +197,13 @@ records it and delivers it to the agents through Herdr.
   not started until they are decided. The pictures stay with the gate's output and with
   each finding, wherever it shows, including as the cause of the work it led to.
 - **A waiting choice gate's form** reads Answer | Problem (Answer first). Under Answer, its
-  options as radio buttons (Choices), none picked at first; then the note and its pictures;
-  then "Answer", inactive until an option is picked. An option marked "say why" makes the
-  note required ("Why (needed for this answer)"), with the error in place when it is empty.
-  Problem is the form above (the question itself is wrong, no option fits). The undo window
-  and the delivery line are as for any gate. Submitted, the output shows "Chose: <the
-  option's words>", then the note and pictures.
+  options as radio buttons (Choices), Other last, none picked at first; then the note and
+  its pictures; then "Answer", inactive until an option is picked. An option marked "say
+  why" makes the note required ("Why (needed for this answer)"), Other too ("What to do
+  instead (needed for Other)"), with the error in place when it is empty.
+  Problem is the form above (the question itself is wrong). The undo window and the
+  delivery line are as for any gate. Submitted, the output shows "Chose: <the option's
+  words>" ("Chose: Other"), then the note and pictures.
 
 - **An open finding** takes one of four decisions, Accept, Revise, Reject or Defer, with an
   optional one-line note; the agent's suggestion, if any, is the filled button. The row
@@ -280,9 +281,20 @@ stored form, one renderer, the same rules.
   path, any choice that is not exactly the form it builds from its own options (another
   component, property, binding, function, catalog or version). A test validates every form
   core builds against the A2UI v1.0 JSON Schemas (`docs/design/guards.md`).
+- **Other, on every choice.** workriver ends every choice with Other, so the user can
+  always answer outside the options; agents do not add it. It is not in the stored form:
+  its value is the reserved `other` (`OTHER` in core and `surface.ts`), which core refuses
+  as an asker's option ("workriver adds Other with a note to every choice itself") and
+  accepts as the answer to any choice, with a note, which is the user's instruction to the
+  agent in place of an option. Its words are the page's (Other, "say what instead"), never
+  the asker's. The agent reads the answer as Other with the note quoted after `Other:` (the
+  gate's outcome, the answer to a question), and acts on the note within the question. A
+  choice recorded before this rule with an option of value `other` keeps it as the asker's
+  option (shown once, its own words and note rule): records replay as they were. A design's
+  gate and a `--go` gate are not choices and have no Other.
 - **The answer** is the chosen values, `selected` (one now; a list so that multiple choice
-  needs no new shape), checked by core against the stored values, with a note where the
-  option needs one. The page sends the value only, never the label; the label is the
+  needs no new shape), checked by core against the stored values and Other, with a note
+  where the option needs one. The page sends the value only, never the label; the label is the
   asker's text, shown plain (no Markdown, no links), and quoted as the asker's in messages.
 - **Not on every gate.** A design's gate (after a design, directly or through its reviews)
   takes no options: it is a go, its choices stay in its text, and done confirms the design.
@@ -299,10 +311,12 @@ stored form, one renderer, the same rules.
   `reply` only: a gate says what it asks.
 - **The renderer** is one component, `frontend/web/src/content/choice/Choice.tsx`
   (`ChoiceSurface`, and `Chose` for a pick shown), over the installed Radix (shadcn's
-  `radio-group`, no other package): the ChoicePicker as radio buttons, then what the carrier
+  `radio-group`, no other package): the ChoicePicker as radio buttons and Other last, then what the carrier
   puts before the action (a note, pictures), then the Button, its words the page's
   ("Answer"), inactive with nothing picked. Nothing else of a surface is drawn; one that is
-  not the subset's shape shows no options (`surface.ts`).
+  not the subset's shape shows no options, and no Other (`surface.ts`). The note's words
+  follow the pick (`noteWords`): why, for an option that needs it; what to do instead, for
+  Other.
 - **A2UI's own renderer later.** Turned down for now: `@a2ui/react` with `@a2ui/web_core`
   0.15.0, about 128,588 B gzip for these four components against 10,408 B for the Radix
   radio group, and it rejects the 1.0 spec's `@checks`. When a published package accepts the
@@ -313,4 +327,6 @@ stored form, one renderer, the same rules.
   carrier (the gate's form, the conversation): the official Column draws the picker and the
   button together, so nothing can go between them; the carrier's note moves after the
   surface, and the carrier holds the `answer` action until a required note is there, showing
-  the error in place. The stored form, core's checks and the routes stay as they are.
+  the error in place. Other is then an item the carrier adds last to the surface it hands
+  the renderer, in the page's words, never to the stored one. The stored form, core's checks
+  and the routes stay as they are.

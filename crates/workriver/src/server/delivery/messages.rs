@@ -162,6 +162,15 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
             0 => (a.message.clone(), asked.and_then(|q| q.choice.as_ref())),
             k => (format!("in reply {k} to {}", a.message), asked.and_then(|q| q.replies.get(k as usize - 1)).and_then(|r| r.choice.as_ref())),
         };
+        // Other: none of the options; the user's note (the message's text) says what to do.
+        if choice.is_some_and(|c| c.is_other(&value)) {
+            return format!(
+                "[workriver] The user answered your question {question} in workriver's page (message {}{about}) {OTHER_PICKED} Reply with `workriver reply {} --text \"...\"` if there is something to say; the answer starts nothing by itself: do what the note says, within the question. {}",
+                m.id,
+                m.id,
+                users("Other", &m.text)
+            );
+        }
         let mut said = format!(
             "[workriver] The user answered your question {question} in workriver's page (message {}{about}): option `{}`. Reply with `workriver reply {} --text \"...\"` if there is something to say; the answer starts nothing by itself: do what the option says, within the question.",
             m.id,
@@ -333,12 +342,25 @@ pub(super) fn decision_message(state: &State, unit: &str, n: u32, finding: &str,
     Some(m)
 }
 
+/// How a choice answered with Other reads, after what was answered.
+const OTHER_PICKED: &str = "with none of its options: Other (`other`), with a note saying what to do instead.";
+
 pub(super) fn gate_message(state: &State, unit: &str, n: u32) -> Option<Msg> {
     let t = state.task(unit, n).ok()?;
     // A choice gate answered: the option picked, which is no go by itself.
     if t.result == Some(GateResult::Answered) {
         let value = t.selected.first().cloned().unwrap_or_default();
         let mut m = Msg::default();
+        // Other: none of the options; the user's note says what to do.
+        if t.choice.as_ref().is_some_and(|c| c.is_other(&value)) {
+            m.own.push(format!("[workriver] The user answered gate {} {OTHER_PICKED}", label(state, unit, t)));
+            m.own.push(format!(
+                "Next: do what the note says, within the question (push, pull request and merge stay one task each); add its task with `--after {n}`. Nothing follows from the answer by itself."
+            ));
+            m.own.push(details(unit, n));
+            m.quotes.push(users("Other", &t.note));
+            return Some(m);
+        }
         m.own.push(format!("[workriver] The user answered gate {}: option `{}`.", label(state, unit, t), quote::name(&value)));
         m.own.push(format!(
             "Next: do what that option says, within the question (push, pull request and merge stay one task each); add its task with `--after {n}`. Nothing follows from the answer by itself."

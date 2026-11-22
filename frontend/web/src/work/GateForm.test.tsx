@@ -71,3 +71,26 @@ describe('a failed gate’s picture', () => {
     expect([step, calls]).toEqual(['recorded', ['upload', 'gate']])
   }, 10000)
 })
+
+describe('a choice gate answered with Other', () => {
+  it('needs the note, then sends other with it', () => {
+    const sent: GateResult[] = []
+    show(act0({ submitGate: (_u, _g, r) => { sent.push(r) } }), <GateForm unit={unit} gate={gate} />)
+    const other = el.querySelector<HTMLButtonElement>('[data-slot=radio-group-item][value=other]')!
+    act(() => other.click())
+    const note = el.querySelector('textarea')!
+    expect(note.getAttribute('aria-required')).toBe('true')
+    expect(note.getAttribute('placeholder')).toBe(en.choice.otherNote)
+    // The form's own Answer, after the options (the result toggle reads Answer too).
+    const answer = () => act(() => [...el.querySelectorAll('button')].filter(b => b.textContent === en.choice.answer).at(-1)!.click())
+    answer()
+    expect(sent).toEqual([])
+    expect(el.querySelector('[role=alert]')?.textContent).toBe(en.choice.otherNeedNote)
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(note, 'Ask the reviewer first')
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    answer()
+    expect(sent.map(r => [r.result, r.selected, r.note])).toEqual([['answered', ['other'], 'Ask the reviewer first']])
+  })
+})

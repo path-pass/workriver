@@ -46,7 +46,7 @@ workriver/
 │   │       │   └── tests.rs          # What every store must answer (reads that fail say so).
 │   │       ├── choices/              # A question's options as recorded: a fixed A2UI v1.0 subset;
 │   │       │   │                     # its write rule (build, check, read the values). No UI.
-│   │       │   ├── mod.rs            # Choice, ChoiceOption; new/check/options/check_answer.
+│   │       │   ├── mod.rs            # Choice, ChoiceOption, OTHER; new/check/options/check_answer.
 │   │       │   ├── tests.rs          # The stored form, its rules, and the A2UI schema guard.
 │   │       │   └── __fixtures__/a2ui-v1_0/  # The A2UI v1.0 JSON Schemas (Apache-2.0), vendored.
 │   │       ├── planning/             # Projects, intents, units, workspaces and their transitions.

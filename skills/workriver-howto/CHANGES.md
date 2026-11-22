@@ -2,6 +2,20 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-22
+
+- **Every choice ends with Other and a note** (managers and workers): a choice gate (`task
+  add --kind gate --gate decide --option …`) and a question (`say`/`reply --option …`) now
+  show Other last, added by workriver; picking it needs a note. Do not add an option for
+  it: an option with the ID `other` is refused ("an option's ID may not be other: workriver
+  adds Other with a note to every choice itself"). An answer may be Other: "[workriver] The
+  user answered gate u2#8 … with none of its options: Other (`other`), with a note saying
+  what to do instead" (or "… your question m3 …"), then `Other: «…»`, the user's note. The
+  note is the user's instruction in place of an option: do what it says, within the
+  question; nothing follows from it by itself. `task show` lists `other` after the options
+  and shows `Chose: other (Other: the note says what to do)`. A design's gate and a `--go`
+  gate are not choices: unchanged. (`ask-user`, `user-message`)
+
 ## 2026-11-21
 
 - **Who sets an intent's project, workspace and manager** (managers): only the user, or a

@@ -1,7 +1,8 @@
 // A question's options as the service stores them: a fixed subset of A2UI v1.0 (a
 // `createSurface` message holding a Column, a single-choice ChoicePicker and a Button with its
 // Text), and the values whose answer needs a note. Core builds and checks it
-// (`workriver-core/src/choices/`); the page only reads the options out of it. Anything that is
+// (`workriver-core/src/choices/`); the page only reads the options out of it, and ends them with
+// workriver's Other. Anything that is
 // not the subset's shape reads as no options at all: nothing of it is drawn.
 
 /** The stored form: the A2UI surface, and the values that need the user's note. */
@@ -30,5 +31,21 @@ export function optionsOf(c: Choice): ChoiceOption[] {
 /** The words of the option with this value. */
 export const labelOf = (c: Choice, value: string) => optionsOf(c).find(o => o.value === value)?.label
 
-/** Whether picking this value needs a note saying why. */
-export const needsNote = (c: Choice, value: string) => (c.needs_note ?? []).includes(value)
+/**
+ * The answer outside the options: every choice ends with Other, which workriver adds (core's
+ * `OTHER`; the surface does not hold it). Picked with a note, the user's instruction in place
+ * of an option.
+ */
+export const OTHER = 'other'
+
+/** Whether this value is workriver's Other (an asker's option of that value, recorded before the rule, stays theirs). */
+export const isOther = (c: Choice, value: string) => value === OTHER && labelOf(c, value) === undefined
+
+/** Whether picking this value needs a note: an option the asker marked, and Other. */
+export const needsNote = (c: Choice, value: string) => (c.needs_note ?? []).includes(value) || isOther(c, value)
+
+/** The note's words for the value picked: what to do for Other, why for an option that needs it, else the carrier's own. */
+export function noteWords(choice: Choice, picked: string | undefined) {
+  if (!picked || !needsNote(choice, picked)) return undefined
+  return isOther(choice, picked) ? { prompt: 'choice.otherNote', missing: 'choice.otherNeedNote' } as const : { prompt: 'choice.noteNeeded', missing: 'choice.needNote' } as const
+}
