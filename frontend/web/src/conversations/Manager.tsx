@@ -86,7 +86,8 @@ export function Box({ label, placeholder, focusAt, above, below, disabled, close
           disabled={closed}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
+            // keyCode 229: Safari ends composition before the key that confirms it (isComposing false).
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); send() }
           }}
           onPaste={e => {
             // A text box first. Rich text (a spreadsheet's cells, a document's paragraph) comes

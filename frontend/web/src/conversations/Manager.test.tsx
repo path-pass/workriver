@@ -148,6 +148,14 @@ describe('the box', () => {
     expect(told).toEqual([])
   })
 
+  it('never sends on the key that confirms an input method in Safari (keyCode 229, not composing)', () => {
+    show('chat', [])
+    const box = type('にほんご')
+    expect(enter(box, { metaKey: true, keyCode: 229 })).toBe(true)
+    expect(enter(box, { ctrlKey: true, keyCode: 229 })).toBe(true)
+    expect(told).toEqual([])
+  })
+
   it('says under the box which keys send, as the platform names them', () => {
     platform('MacIntel')
     show('chat', [])
