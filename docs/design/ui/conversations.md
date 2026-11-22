@@ -29,7 +29,18 @@ context; everything else still goes to the manager.
   several; Needs you's unread messages and an intent's "Write to the manager" open the
   section on a workspace), or **All managers**, the select's first option (below). Its
   messages read as a chat, at the bottom, fixed: the chips, the box, and the line saying where
-  it goes.
+  it goes. The select lists the open unit's workspace first, then those of the rail's project,
+  then the rest. A workspace picked there, or asked for, stays while other sections are open.
+- **It follows the rail's project.** When the rail switches to a project and the conversation
+  shown is a workspace of another project, it shows the new project's manager: its only one;
+  with several, the one the user last picked in that project (remembered per project,
+  `workriver.talk.<folder>`, like the rail's filter), else one with replies not read, else
+  the first running in the select's order (the opened unit's own first). A workspace's
+  project is the one the rail knows (Start's dialog, Settings' "Workspaces' projects"). All
+  managers stays (it spans projects); so does a workspace of no known project, one already of
+  the new project, and the conversation when the new project has no manager. A workspace the
+  user picks by hand stays until the next switch; a switch back returns to what was picked
+  there. "All projects" changes nothing.
 - **What the user writes** is typed into the manager's terminal ("The user writes to you
   from workriver's page (message m3) … Reply with `workriver reply m3 …`", what it points
   at in workriver's words, then the user's text quoted as theirs); a manager waiting for a

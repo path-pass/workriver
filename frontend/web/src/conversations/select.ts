@@ -1,11 +1,13 @@
 // A task's past conversations and how far one has got; what the user picked as the chips of
-// a message to the manager, and the message they make.
+// a message to the manager, and the message they make; which workspace's conversation the
+// Manager section shows, and where it goes on a project switch.
 import { baseName } from '@/code/files'
 import type { Attachment } from '@/attachments/types'
 import type { Lines } from '@/code/types'
-import type { Unit } from '@/planning/types'
 import type { Task } from '@/work/types'
-import type { AskContext, ManagerMessage, Thread } from './types'
+import type { Session } from '@/agents/types'
+import type { Intent, Unit } from '@/planning/types'
+import type { AskContext, ManagerMessage, Talk, Thread } from './types'
 
 /** The conversation with every manager, as the service names it: under no workspace's label. */
 export const EVERY = ''
@@ -83,4 +85,61 @@ export function messageOf(chips: Chip[], files: Pick<Attachment, 'id' | 'name'>[
       ...files.map(a => ({ kind: 'attachment' as const, label: a.name, id: a.id })),
     ],
   }
+}
+
+/** What the Manager section needs to know which workspaces it offers and which it shows. */
+export type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'project' | 'projectOf'>
+
+/** The workspaces the Manager section offers and the conversation it shows. */
+export interface Places {
+  /** The intent on screen: its page, or the open unit's. */
+  intent?: Intent
+  /** Its workspace, while it is active. */
+  own?: string
+  /** The managers running, each in a workspace. */
+  running: Session[]
+  /** Every workspace with a manager running or with messages: the one on screen first, then
+   *  those of the rail's project, then the rest. */
+  labels: string[]
+  /** "All managers" is offered: more than one running, or once written to or picked. */
+  every: boolean
+  /** The conversation shown: the one picked while it is offered, else the one on screen, else
+   *  the first; `EVERY`: every manager; none: no workspace has a manager. */
+  label: string | null
+}
+
+/** The workspaces offered and the one shown; `unit`: the open unit, when no intent is named. */
+export function placesOf(talk: Shown, unit?: string): Places {
+  const intent = talk.intents.find(i => i.id === talk.intent) ?? (unit ? talk.intents.find(i => i.units.some(u => u.id === unit)) : undefined)
+  const own = intent?.state === 'active' ? intent.workspace?.label : undefined
+  const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
+  const all = [...new Set([...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter(l => !!l && l !== own))]
+  const ours = (l: string) => !!talk.project && talk.projectOf(l) === talk.project
+  const labels = [...(own ? [own] : []), ...all.filter(ours), ...all.filter(l => !ours(l))]
+  const chosen = talk.to ?? null
+  const every = running.length > 1 || chosen === EVERY || talk.messages.some(m => m.workspace === EVERY)
+  const label = (chosen !== null && (labels.includes(chosen) || (chosen === EVERY && every)) ? chosen : null) ?? own ?? labels[0] ?? null
+  return { intent, own, running, labels, every, label }
+}
+
+/**
+ * Where the Manager section goes when the rail switches to `next.project` (`next.intent`: the
+ * intent then on screen). A workspace of another project gives way to the project's manager:
+ * its only one; with several, the one last picked there (`remembered`), else one with replies
+ * not read, else the first running. All managers, a workspace already of the project, one of
+ * no known project, and a project with no manager stay as they are.
+ * Returns the workspace to show; null: the one on screen; undefined: no change.
+ */
+export function followProject(talk: Shown, next: { project: string; intent?: string }, remembered: string | null): string | null | undefined {
+  const shown = placesOf(talk).label
+  const from = shown ? talk.projectOf(shown) : undefined
+  if (!from || from === next.project) return undefined
+  const after = placesOf({ ...talk, ...next })
+  const ours = after.labels.filter(l => talk.projectOf(l) === next.project)
+  const unread = (l: string) => talk.messages.some(m => m.workspace === l && ((m.byManager && m.unread) || repliesOf(m).some(r => r.unread)))
+  const live = (l: string) => after.running.some(s => s.group!.label === l)
+  const to = ours.length > 1
+    ? (remembered && ours.includes(remembered) ? remembered : ours.find(unread) ?? ours.find(live) ?? ours[0])
+    : ours[0]
+  return to === undefined ? undefined : to === after.own ? null : to
 }
