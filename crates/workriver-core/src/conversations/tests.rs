@@ -613,7 +613,7 @@ fn the_user_answers_a_managers_choice_with_a_message() {
     seat(&mut s, &w1, "boss");
     add(&mut s, "user", start("i1", &w1)).unwrap();
     let opt = |v: &str, l: &str| ChoiceOption { value: v.into(), label: l.into() };
-    let choice = serde_json::to_value(Choice::new(&[opt("cursor", "By cursor"), opt("page", "By page"), opt("other", "Something else")], &["other".into()])).unwrap();
+    let choice = serde_json::to_value(Choice::new(&[opt("cursor", "By cursor"), opt("page", "By page")], &[])).unwrap();
     // Asked with `say` (m1) and in a reply to the user's message (m2, its first reply).
     let mut bad = choice.clone();
     bad["surface"]["version"] = json!("0.9");

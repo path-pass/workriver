@@ -152,3 +152,41 @@ fn a_choice_takes_no_other_field() {
     // As recorded with no note required: `needs_note` left out.
     assert!(said(serde_json::to_value(Choice::new(&[opt("a", "A"), opt("b", "B")], &[])).unwrap()).is_ok());
 }
+
+/// Every choice ends with Other, which workriver adds: not stored in the surface, answered as the
+/// reserved value `other` with a note (the user's instruction instead of an option). An asker
+/// cannot define it; a choice recorded with an option of that value before keeps it as theirs.
+#[test]
+fn every_choice_takes_other_with_a_note() {
+    let c = three();
+    assert!(!c.options().iter().any(|o| o.value == OTHER) && c.label(OTHER).is_none());
+    assert!(c.needs_note(OTHER));
+    assert!(c.check_answer(&[OTHER.into()], "split it into two gates").is_ok());
+    let refused = c.check_answer(&[OTHER.into()], " \n").unwrap_err().0;
+    assert!(refused.contains("Other") && refused.contains("note"), "{refused}");
+    // The value is workriver's: an option of an asker's may not take it.
+    let refused = Choice::new(&[opt("other", "Something else"), opt("b", "B")], &[]).check().unwrap_err().0;
+    assert!(refused.contains("other") && refused.contains("workriver"), "{refused}");
+    // Recorded before the rule: the asker's own option, as it was (here: no note asked).
+    let old = Choice::new(&[opt("a", "A"), opt("other", "Something else")], &[]);
+    assert_eq!(old.label(OTHER).as_deref(), Some("Something else"));
+    assert!(!old.needs_note(OTHER) && old.check_answer(&[OTHER.into()], "").is_ok());
+}
+
+/// A note that shows nothing once cleaned for a terminal (only spaces, control characters and
+/// the marks that hide or reorder text, e.g. a pasted zero-width space) is no note: it would
+/// reach the agent as «». The same for Other and for an option that asks a note.
+#[test]
+fn a_note_of_only_invisible_marks_is_no_note() {
+    let c = three();
+    for note in ["\u{200b}", " \u{200b}\u{feff}\n", "\u{202e}\u{2066}\t", "\u{0}\u{1b}"] {
+        let refused = c.check_answer(&[OTHER.into()], note).unwrap_err().0;
+        assert!(refused.contains("Other") && refused.contains("note"), "{note:?}: {refused}");
+        assert!(c.check_answer(&["hold".into()], note).unwrap_err().0.contains("needs a note"), "{note:?}");
+    }
+    // A visible character among them is a note.
+    assert!(c.check_answer(&[OTHER.into()], "\u{200b}x").is_ok());
+    // What a terminal quote drops is this rule's own.
+    assert!(crate::shows_nothing("\u{200b}\u{200f}\u{202a}\u{202e}\u{2066}\u{2069}\u{feff} \n"));
+    assert!(!crate::shows_nothing("‹›"));
+}

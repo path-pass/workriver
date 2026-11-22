@@ -11,6 +11,10 @@ use crate::*;
 
 pub const MIN_OPTIONS: usize = 2;
 pub const MAX_OPTIONS: usize = 8;
+/// The answer outside a choice's options: every choice ends with Other, which workriver adds
+/// (the surface does not hold it). Picked with a note, which is the user's instruction to the
+/// agent in place of an option. No asker may define an option with this value.
+pub const OTHER: &str = "other";
 const MAX_LABEL: usize = 200;
 const VERSION: &str = "1.0";
 const CATALOG: &str = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json";
@@ -67,13 +71,20 @@ impl Choice {
             .collect()
     }
 
-    /// The words of the option with this value.
+    /// The words of the asker's option with this value (Other has none: its words are the page's).
     pub fn label(&self, value: &str) -> Option<String> {
         self.options().into_iter().find(|o| o.value == value).map(|o| o.label)
     }
 
+    /// Whether picking this value needs a note: an option the asker marked, and workriver's Other.
     pub fn needs_note(&self, value: &str) -> bool {
-        self.needs_note.iter().any(|v| v == value)
+        self.needs_note.iter().any(|v| v == value) || self.is_other(value)
+    }
+
+    /// Whether this value is workriver's Other, not an option of the asker's (one a choice
+    /// recorded before the rule defined with that value stays the asker's).
+    pub fn is_other(&self, value: &str) -> bool {
+        value == OTHER && self.label(value).is_none()
     }
 
     /// Whether it may be recorded: good options, and exactly the form `new` makes of them.
@@ -89,6 +100,9 @@ impl Choice {
             if !good_value(&o.value) {
                 return no(format!("an option's ID is 1 to 32 of [a-z0-9-], not {:?}", o.value));
             }
+            if o.value == OTHER {
+                return no(format!("an option's ID may not be {OTHER}: workriver adds Other with a note to every choice itself"));
+            }
             if options[..k].iter().any(|p| p.value == o.value) {
                 return no(format!("option {} is given twice", o.value));
             }
@@ -102,14 +116,18 @@ impl Choice {
         Ok(())
     }
 
-    /// Whether this is an answer to it: one of its values, with a note where that one asks one.
+    /// Whether this is an answer to it: one of its values, or Other, with a note where that one
+    /// asks one.
     pub(crate) fn check_answer(&self, selected: &[String], note: &str) -> Result<(), Rejected> {
         let [value] = selected else { return no("pick one option to answer") };
+        if self.is_other(value) {
+            return if shows_nothing(note) { no(format!("Other ({OTHER}) needs a note: what to do instead of the options")) } else { Ok(()) };
+        }
         if self.label(value).is_none() {
             let values: Vec<_> = self.options().into_iter().map(|o| o.value).collect();
-            return no(format!("{value:?} is not one of the options ({})", values.join(", ")));
+            return no(format!("{value:?} is not one of the options ({}), nor {OTHER} with a note", values.join(", ")));
         }
-        if self.needs_note(value) && blank(note) {
+        if self.needs_note(value) && shows_nothing(note) {
             return no(format!("option {value} needs a note saying why"));
         }
         Ok(())

@@ -54,7 +54,7 @@ workriver/
 │   │       │   └── tests.rs          # What every store must answer (reads that fail say so).
 │   │       ├── choices/              # A question's options as recorded: a fixed A2UI v1.0 subset;
 │   │       │   │                     # its write rule (build, check, read the values). No UI.
-│   │       │   ├── mod.rs            # Choice, ChoiceOption; new/check/options/check_answer.
+│   │       │   ├── mod.rs            # Choice, ChoiceOption, OTHER; new/check/options/check_answer.
 │   │       │   ├── tests.rs          # The stored form, its rules, and the A2UI schema guard.
 │   │       │   └── __fixtures__/a2ui-v1_0/  # The A2UI v1.0 JSON Schemas (Apache-2.0), vendored.
 │   │       ├── planning/             # Projects, intents, units, workspaces and their transitions.
@@ -88,12 +88,14 @@ workriver/
 │   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
 │   │       │   └── tests.rs
 │   │       ├── access/               # Authority and visibility.
-│   │       │   ├── mod.rs            # Principal/Rejected, reserved actors, Body::user_only, Body::service_only.
+│   │       │   ├── mod.rs            # Principal/Rejected, reserved actors, Body::user_only, Body::service_only,
+│   │       │   │                     # message_for (who reads one message whole: as conversations_of cuts it).
 │   │       │   ├── blind.rs          # blind_tasks/blind_view; conversations_of (an agent reads only its
 │   │       │   │                     # own workspace's conversation, and its own copy of a broadcast).
 │   │       │   └── tests.rs
 │   │       └── records/              # The aggregate and its history; every core domain.
-│   │           ├── mod.rs            # Event, State, prepare/apply orchestration, the name helper; no domain bodies.
+│   │           ├── mod.rs            # Event, State, prepare/apply orchestration, the name helper, what a terminal
+│   │           │                     # quote drops (hidden_mark, shows_nothing); no domain bodies.
 │   │           ├── body.rs           # The Body enum, serde defaults/tags, refs().
 │   │           ├── tests.rs          # Shared test fixtures and general rule tests.
 │   │           ├── tests/replay.rs   # The replay guard (guards.md).
@@ -230,7 +232,7 @@ crates/workriver/
 │   │   ├── planning.rs               # Intent/unit/project/workspace/backlog commands (a seating included).
 │   │   ├── work.rs                   # Task/finding/commit/gate/chore/attach/run-review commands;
 │   │   │                             # delivery staging, task show.
-│   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits.
+│   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits; message show.
 │   │   ├── machines.rs               # Machine/load commands.
 │   │   ├── display.rs                # Board, an intent's history, a machine's history and load text,
 │   │   │                             # and a task or finding in full.
@@ -278,7 +280,8 @@ crates/workriver/
 │   │   │   │                         # at screens; waiting on its screen.
 │   │   │   └── view.rs               # /api/agent/view: the capped, bounded frame stream.
 │   │   ├── conversations/
-│   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
+│   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, one message
+│   │   │   │                         # whole (App::view, then core's message_for), shared state.
 │   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
 │   │   │   ├── discussions.rs        # A discussion's question to its task's agent: hand, gone,
 │   │   │   │                         # gate submitted, restart; what the manager hears of it.
@@ -367,6 +370,7 @@ crates/workriver/
 │                                     # constants both sides use; no logic.
 │           ├── mod.rs                # Shared values: EXPIRED (the proof header), MAX_ATTACHMENT.
 │           ├── task.rs               # The task view's shape (TaskShow and its parts), Stall and Trace.
+│           ├── message.rs            # One message whole with its replies (MessageShow).
 │           ├── machines.rs           # A followed machine as the service reports it (MachineState).
 │           ├── workspace.rs          # The snapshot shapes (not re-exported at wire's root).
 │           └── metrics.rs            # The metrics report types.

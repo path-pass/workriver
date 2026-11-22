@@ -692,6 +692,10 @@ export const zhCN: OneForm<typeof en> = {
     note: '备注（可不填）',
     noteNeeded: '原因（选这一项要写）',
     needNote: '选这一项要写明原因。',
+    other: '其他',
+    otherHint: '写明要怎么做',
+    otherNote: '要怎么做（选“其他”要写）',
+    otherNeedNote: '选“其他”要写明要怎么做。',
     closed: '这是本工作区之前的管理者问的，这里已经不能回答。请直接写给管理者。'
   },
   attach: {

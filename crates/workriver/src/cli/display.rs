@@ -482,9 +482,12 @@ pub(crate) fn text(s: &TaskShow) -> String {
     if let Some(c) = &s.choice {
         let _ = writeln!(out, "Choices (the user picks one):");
         let options = c.options();
-        let wide = options.iter().map(|o| o.value.chars().count()).max().unwrap_or(0);
+        let wide = options.iter().map(|o| o.value.chars().count()).chain([core::OTHER.len()]).max().unwrap_or(0);
         for o in &options {
             let _ = writeln!(out, "  {:wide$}  {}{}", o.value, o.label, if c.needs_note(&o.value) { " (a note required)" } else { "" });
+        }
+        if c.is_other(core::OTHER) {
+            let _ = writeln!(out, "  {:wide$}  Other: what the note says instead (added by workriver; a note required)", core::OTHER);
         }
     }
     match &s.output {
@@ -494,6 +497,10 @@ pub(crate) fn text(s: &TaskShow) -> String {
         Some(o) => {
             let _ = writeln!(out, "Output (delivered {} by {}){}:", o.at.as_deref().unwrap_or("?"), o.delivered_by, o.result.as_deref().map(|r| format!(", result: {r}")).unwrap_or_default());
             for v in &o.selected {
+                if s.choice.as_ref().is_some_and(|c| c.is_other(v)) {
+                    let _ = writeln!(out, "  Chose: {v} (Other: the note says what to do)");
+                    continue;
+                }
                 let label = s.choice.as_ref().and_then(|c| c.label(v)).unwrap_or_default();
                 let _ = writeln!(out, "  Chose: {v} \"{label}\"");
             }
