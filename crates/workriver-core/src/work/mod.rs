@@ -69,7 +69,7 @@ pub struct Input {
 /// Findings of a review, tests task or gate (by task number) that a task answers.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Cause {
-    /// The unit (or intent) of that task, when it is not this task's own.
+    /// The unit of that task, when it is not this task's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     pub task: u32,
