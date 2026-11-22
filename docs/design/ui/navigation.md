@@ -250,10 +250,11 @@ its sections went.
   they passed with a problem, whose findings come into Decisions), and not again within five
   seconds, however many come. All open tabs of the page share what was played: a row plays
   once, not once per tab, even in a tab that sees it later (a coming of a row is remembered
-  for ten minutes; the same agent asking again, or a gate waiting again, is a new coming), and
+  for ten minutes; the same agent asking again, or a gate waiting again, is a new coming, even
+  when no read saw the agent working between), and
   the five seconds hold for every tab. A tab decides right before it plays, and only a tab
   that can play takes the sound, so a tab the browser holds back does not silence one that
-  can. Two words written in the same second are two words. Rows that come while it is off are not played later. Turning it on plays it once. The browser
+  can. Two words written in the same second are two words, whichever messages they answer. Rows that come while it is off are not played later. Turning it on plays it once. The browser
   lets a page play only after a click or a key on it; a sound that cannot play is dropped,
   not played late, and Settings then says so in one quiet line under the switch. Browser
   notifications are separate; they share only the hidden tab's reading.

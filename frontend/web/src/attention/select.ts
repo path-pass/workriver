@@ -52,9 +52,9 @@ export interface InboxRow {
   chore: Chore | null
   /** Since when it has waited, in milliseconds. */
   since: number
-  /** message, discussion: which word is the newest unread, by its place (times are whole
-   *  seconds, so two words can share one). */
-  word?: string
+  /** message, discussion: every unread word, by its place (times are whole seconds, so two
+   *  words can share one; a place is the word's own, whatever the order of the rest). */
+  words?: string[]
 }
 
 /** Live agents waiting for a person in their terminal (a question, an approval). */
@@ -93,7 +93,7 @@ export function inbox(ws: Workspace): Inbox {
       const said = (n.threads ?? []).flatMap((th, i) => th.discuss ? th.turns.map((x, k) => ({ ...x, word: `${i}.${k}` })) : []).filter(x => x.unread && x.answer !== null && x.answeredAt)
       if (!said.length) continue
       const last = said.reduce((a, b) => (ms(b.answeredAt) >= ms(a.answeredAt) ? b : a))
-      discussions.push({ ...row('discussion', unit, n, ms(last.answeredAt)), word: last.word, discussion: { agent: last.answerBy ?? n.agent ?? '', count: said.length, text: last.answer!.trim().split('\n')[0].replace(/`/g, '') } })
+      discussions.push({ ...row('discussion', unit, n, ms(last.answeredAt)), words: said.map(x => x.word), discussion: { agent: last.answerBy ?? n.agent ?? '', count: said.length, text: last.answer!.trim().split('\n')[0].replace(/`/g, '') } })
     }
     for (const n of a.loose) box.gaps.push(row('loose', unit, n, Math.min(...unit.commits.filter(c => n.output.commits?.includes(c.id)).map(c => ms(c.date)))))
     // Ready and maybe merged where git cannot see it (a squash), or ready for long: with no
@@ -135,7 +135,7 @@ export function inbox(ws: Workspace): Inbox {
   box.messages = [...unread].map(([workspace, said]): InboxRow => {
     const last = said.reduce((a, b) => (ms(b.at) >= ms(a.at) ? b : a))
     return {
-      key: `message:${workspace}`, kind: 'message', intent: ws.intents.find(i => i.id === last.m.intent) ?? null, unit: null, node: null, pick: null, chore: null, since: ms(last.at), word: last.word,
+      key: `message:${workspace}`, kind: 'message', intent: ws.intents.find(i => i.id === last.m.intent) ?? null, unit: null, node: null, pick: null, chore: null, since: ms(last.at), words: said.map(x => x.word),
       talk: { workspace, manager: last.by, count: said.length, text: last.text.trim().split('\n')[0].replace(/`/g, '') },
     }
   }).concat(discussions).sort((a, b) => b.since - a.since)

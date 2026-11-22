@@ -71,7 +71,8 @@ describe('when Needs you plays', () => {
     const box = inbox(ws)
     expect(box.gaps).toHaveLength(1)
     expect(box.later).toHaveLength(1)
-    expect(soundingRows(box).map(r => r.key).sort()).toEqual(['agent:s1', 'gate:u1:2', 'machine:here:swap'])
+    // An agent's row is its wait.
+    expect(soundingRows(box).map(r => r.key).sort()).toEqual([`agent:s1@${Date.parse('2026-11-21T10:00:00Z')}`, 'gate:u1:2', 'machine:here:swap'])
   })
 })
 
@@ -114,6 +115,43 @@ describe('what plays', () => {
     const two = inbox(said([one, { ...one }]))
     expect(two.messages[0].talk?.count).toBe(2)
     expect(play(soundingRows(two), true)).toBe(true)
+  })
+
+  // Two messages in one workspace, the older first, each with its replies.
+  const two = (older: { at: string; unread: boolean }[], newer: { at: string; unread: boolean }[]) => base({
+    messages: [
+      { id: 'm1', workspace: 'w1', manager: 'mg', text: 'one', at: '2026-11-22T00:00:00Z', byManager: false, unread: false, replies: older.map(r => ({ by: 'mg', text: 'a', ...r })) },
+      { id: 'm2', workspace: 'w1', manager: 'mg', text: 'two', at: '2026-11-22T00:00:30Z', byManager: false, unread: false, replies: newer.map(r => ({ by: 'mg', text: 'b', ...r })) },
+    ],
+  })
+
+  it('plays for a reply under an older message in the same second as an unread reply under a newer one', () => {
+    let t = 10_000_000
+    const play = tab(() => t)
+    const at = '2026-11-22T00:01:00Z'
+    play(soundingRows(inbox(two([], [{ at, unread: true }]))), true)
+    const both = inbox(two([{ at, unread: true }], [{ at, unread: true }]))
+    expect(both.messages[0].talk?.count).toBe(2)
+    expect(play(soundingRows(both), true)).toBe(true)
+    // Reading one, then the other, is not news.
+    t += 60_000
+    expect(play(soundingRows(inbox(two([{ at, unread: false }], [{ at, unread: true }]))), true)).toBe(false)
+    expect(play(soundingRows(inbox(two([{ at, unread: false }], [{ at, unread: false }]))), true)).toBe(false)
+  })
+
+  const blocked = (since: string | null) => base({ sessions: since ? [{ agent: 'impl', session: 's1', blockedSince: since }] : [] })
+
+  it('plays for an agent that waits again, even when no read saw it working between', () => {
+    let t = 10_000_000
+    const play = tab(() => t)
+    play(soundingRows(inbox(blocked(null))), true)
+    expect(play(soundingRows(inbox(blocked('2026-11-22T00:00:05Z'))), true)).toBe(true)
+    // The same wait read again: nothing new.
+    t += QUIET_MS + 100
+    expect(play(soundingRows(inbox(blocked('2026-11-22T00:00:05Z'))), true)).toBe(false)
+    // It went on and waits on something else; the hidden tab did not read in between.
+    t += QUIET_MS + 100
+    expect(play(soundingRows(inbox(blocked('2026-11-22T00:00:13Z'))), true)).toBe(true)
   })
 
   const talked = (turns: { at: string; answeredAt: string }[]) => {

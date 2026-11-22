@@ -15,13 +15,16 @@ export interface Sounding { key: string; once: string }
 /** The groups whose new rows make the sound: what waits on the user. Gaps and Not urgent
  *  block nobody, so they stay quiet. A decision on a gate holds only what the user wrote
  *  there: their own act, not news. A conversation's row stays while it has unread words, so
- *  its key carries the newest one: a new word is a new row, reading one is not. */
+ *  it sounds as each of them: a new word is a new row, reading one is not. An agent's row is
+ *  its wait (since when it waits): the same agent waiting again is a new row, even when no
+ *  read saw it working between. */
 const SOUNDING = ['blocking', 'machines', 'decisions', 'messages'] as const
 export const soundingRows = (box: Inbox): Sounding[] => SOUNDING.flatMap(g => box[g]
   .filter(r => !(r.kind === 'decision' && r.node?.kind === 'gate'))
-  .map(r => {
-    const key = r.kind === 'message' || r.kind === 'discussion' ? `${r.key}:${r.word}` : r.key
-    return { key, once: `${key}@${r.since}` }
+  .flatMap((r): Sounding[] => {
+    if (r.words) return r.words.map(w => ({ key: `${r.key}:${w}`, once: `${r.key}:${w}` }))
+    const once = `${r.key}@${r.since}`
+    return [{ key: r.kind === 'agent' ? once : r.key, once }]
   }))
 
 /** Rows that come within this long of a sound make no second one. */
