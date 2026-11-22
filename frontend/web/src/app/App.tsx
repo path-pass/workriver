@@ -21,7 +21,7 @@ import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
-import { useRowSound } from '@/attention/sound'
+import { soundWanted, useRowSound } from '@/attention/sound'
 import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
@@ -30,7 +30,7 @@ import { answerOptimistically, NO_EDITS, withEdits, type Edits } from '@/workspa
 import type { GateResult, Pick, Task } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf, placeOf, resolve } from './link'
-import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
+import { answerManager, choreDone, discuss, notify, decideFinding, detach, MANAGER, notifyWanted, mergeIntents, mockAnswer, mockReply, readDiscussion, readMessages, submitGate, tellManager, type Delivery, NOTE, type Remote } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Intent } from '@/planning/types'
 import type { MachineAlert } from '@/machines/types'
@@ -233,7 +233,7 @@ export default function App() {
     setDown(false)
     latest.current = w
     if (!followed.current) followed.current = follow(w)
-  }, () => setDown(true)), [follow])
+  }, () => setDown(true), () => soundWanted() || notifyWanted()), [follow])
 
   // Picking the same thing again clears it.
   const onPick = useCallback((next: Pick) => {

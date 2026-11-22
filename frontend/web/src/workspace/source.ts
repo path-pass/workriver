@@ -10,6 +10,7 @@ import { unitsOf, noCode } from '@/planning/select'
 import { selectionOf } from '@/work/select'
 import { changes, read } from '@/api/http'
 import { setRuntime } from '@/i18n'
+import { HIDDEN_READ } from '@/config/defaults'
 
 /** Sample data instead of the service, with `VITE_MOCK=1`. */
 export const MOCK = import.meta.env.VITE_MOCK === '1'
@@ -54,19 +55,29 @@ async function loadWorkspace(): Promise<Workspace> {
 
 /**
  * The one place data comes from: the workspace now, and again whenever the service says it
- * changed. `onDown` is called while the service cannot be reached. Returns a stop function.
+ * changed. `onDown` is called while the service cannot be reached. `awake` says whether a
+ * hidden tab still reads (the user asked to hear or be told of what comes). Returns a stop
+ * function.
  */
-export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => void): () => void {
+export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => void, awake: () => boolean): () => void {
   let stopped = false
   // At most one read at a time: changes told meanwhile make one more read after it. A hidden
-  // tab reads nothing; it reads once when shown again, if anything changed meanwhile.
+  // tab reads nothing unless `awake`, and then at most once every HIDDEN_READ; it reads once
+  // when shown again, if anything changed meanwhile.
   let reading = false, again = false, missed = true
+  let lastRead = -Infinity, later: ReturnType<typeof setTimeout> | undefined
   let shown: Workspace | null = null
   const get = () => {
     if (stopped) return
-    if (document.hidden) { missed = true; return }
+    if (document.hidden) {
+      missed = true
+      if (!awake()) return
+      const wait = lastRead + HIDDEN_READ - Date.now()
+      if (wait > 0) { later ??= setTimeout(() => { later = undefined; if (missed) get() }, wait); return }
+    }
     if (reading) { again = true; return }
     reading = true
+    lastRead = Date.now()
     missed = again = false
     loadWorkspace()
       .then(ws => { if (!stopped) onData((shown = ws)) }, () => { if (!stopped) onDown() })
@@ -78,7 +89,7 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
   if (MOCK) {
     const changed = (e: Event) => { if (shown && !stopped) onData((shown = (e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown))) }
     window.addEventListener(MOCK_CHANGED, changed)
-    return () => { stopped = true; document.removeEventListener('visibilitychange', visible); window.removeEventListener(MOCK_CHANGED, changed) }
+    return () => { stopped = true; clearTimeout(later); document.removeEventListener('visibilitychange', visible); window.removeEventListener(MOCK_CHANGED, changed) }
   }
   const events = changes()
   events.addEventListener('changed', get)
@@ -86,7 +97,7 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
   let opened = false
   events.onopen = () => { if (opened) get(); opened = true }
   events.onerror = () => { if (!stopped) onDown() }
-  return () => { stopped = true; events.close(); document.removeEventListener('visibilitychange', visible) }
+  return () => { stopped = true; clearTimeout(later); events.close(); document.removeEventListener('visibilitychange', visible) }
 }
 
 /**

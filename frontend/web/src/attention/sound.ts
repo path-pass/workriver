@@ -9,18 +9,28 @@ export function soundWanted() { try { return localStorage.getItem(SOUND) === '1'
 export function wantSound(on: boolean) { try { localStorage.setItem(SOUND, on ? '1' : '0') } catch { /* not remembered; still applies now */ } }
 
 /** The groups whose new rows make the sound: what waits on the user. Gaps and Not urgent
- *  block nobody, so they stay quiet. */
+ *  block nobody, so they stay quiet. A decision on a gate holds only what the user wrote
+ *  there: their own act, not news. A conversation's row stays while it has unread words, so
+ *  its key carries the newest one's time: a new word is a new row, reading one is not. */
 const SOUNDING = ['blocking', 'machines', 'decisions', 'messages'] as const
-export const soundingRows = (box: Inbox) => SOUNDING.flatMap(g => box[g].map(r => r.key))
+export const soundingRows = (box: Inbox) => SOUNDING.flatMap(g => box[g]
+  .filter(r => !(r.kind === 'decision' && r.node?.kind === 'gate'))
+  .map(r => (r.kind === 'message' || r.kind === 'discussion' ? `${r.key}:${r.since}` : r.key)))
 
 /** Rows that come within this long of a sound make no second one. */
 export const QUIET_MS = 5000
+
+// The time of the last sound, shared by all open tabs: each reads the same change, one plays.
+const LAST = 'workriver.sound.last'
+const lastSound = () => { try { return Number(localStorage.getItem(LAST) ?? -Infinity) } catch { return -Infinity } }
+const soundAt = (at: number) => { try { localStorage.setItem(LAST, String(at)) } catch { /* this tab still keeps it */ } }
 
 /**
  * Says, for each list of rows in turn, whether it plays: only when a row is there that was not
  * in the list before. The first list is what was there when the page loaded: not news. A row
  * that only changes keeps its key, so it is not new. Rows seen while the sound is off are
- * still seen, so turning it on later does not play for them.
+ * still seen, so turning it on later does not play for them. Within QUIET_MS of a sound in
+ * any tab, nothing plays.
  */
 export function rowSound(now: () => number = Date.now) {
   let seen: Set<string> | null = null
@@ -30,8 +40,8 @@ export function rowSound(now: () => number = Date.now) {
     seen = new Set(keys)
     if (!wanted || !before || keys.every(k => before.has(k))) return false
     const at = now()
-    if (at - last < QUIET_MS) return false
-    last = at
+    if (Math.abs(at - Math.max(last, lastSound())) < QUIET_MS) return false
+    soundAt((last = at))
     return true
   }
 }

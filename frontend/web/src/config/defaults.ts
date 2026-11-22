@@ -20,3 +20,7 @@ export const CODE_TREE_WIDTH = { def: 280, min: 220 }
 /** The least height the Activity graph's canvas can be dragged to, in px; the most is the
  *  window's height. With none set, the canvas takes the graph's own height (Activity.tsx). */
 export const FLOW_HEIGHT = { min: 160 }
+
+/** A hidden tab reads the workspace at most this often, in ms, when the service says it
+ *  changed, and only while the sound or notifications is on (workspace/source.ts). */
+export const HIDDEN_READ = 5000

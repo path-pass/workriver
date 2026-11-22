@@ -417,7 +417,7 @@ frontend/web/
     ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx and popover.tsx among them) Choice.tsx Icon.tsx
     │                                 # CopyButton.tsx Tip.tsx; never feature/data/API imports
     ├── lib/                          # utils.ts useResize.ts isField.ts
-    ├── config/defaults.ts            # Quiet/resize/cache/preview defaults, widths, the graph's height.
+    ├── config/defaults.ts            # Quiet/resize/cache/preview defaults, widths, the graph's height, a hidden tab's reads.
     ├── theme.ts
     ├── i18n/                         # en, zh-CN, ja, index, the i18next declaration.
     └── mock/                         # demo.json, lockscreen.svg, metrics.ts, history.ts (intent
