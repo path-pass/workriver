@@ -80,8 +80,12 @@ fn machines_are_separate_until_linked() {
     d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     assert_eq!(at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
 
-    // A unit recorded from the other machine has its repository there.
-    let unit = via_box.append("s-far", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    // A unit is its intent's manager's to add, not any agent's over there; one the manager
+    // puts on the other machine has its repository there.
+    let far_unit = json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" });
+    let refused = via_box.append("s-far", "unit.created", far_unit.clone()).unwrap_err().to_string();
+    assert!(refused.contains("only the user or the manager of intent i1 (boss) adds its units"), "{refused}");
+    let unit = d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap();
     assert_eq!(unit["body"]["machine"], "box");
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     // A review delivered there reaches the manager here; a file it attached is, for an agent

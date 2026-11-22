@@ -67,6 +67,14 @@ impl App {
     /// Every failure is a refusal; none falls through to the user or to another agent.
     /// The one exception, where the daemon was started to allow it: an agent named with `--as`.
     pub(super) fn who(&self, caller: &Caller, named: Option<&str>) -> Result<Principal, ApiError> {
+        Ok(self.who_in(caller, named)?.0)
+    }
+
+    /// `who`, with the workspace the caller's place is in, as its machine's runtime gave it
+    /// when the caller was found there: the one an agent's own event may name
+    /// (`App::record_in`). None for a place in no workspace, for the user, and for an agent
+    /// named with `--as`, which was found at no place.
+    pub(super) fn who_in(&self, caller: &Caller, named: Option<&str>) -> Result<(Principal, Option<core::RuntimeRef>), ApiError> {
         let machine = caller.machine.as_deref();
         if let Some(name) = named.filter(|n| !n.is_empty()) {
             if !self.allow_as {
@@ -78,10 +86,11 @@ impl App {
             if machine.is_none() && caller.chain.is_none() {
                 return Err(self.no_process(caller));
             }
-            return Ok(Principal::Agent { session: self.session_of(name, None), machine: machine.map(str::to_string) });
+            return Ok((Principal::Agent { session: self.session_of(name, None), machine: machine.map(str::to_string) }, None));
         }
+        let user = (Principal::User, None);
         if caller.session {
-            return Ok(Principal::User);
+            return Ok(user);
         }
         let chain = self.chain_of(caller)?;
         match self.place(caller, &chain)? {
@@ -90,9 +99,9 @@ impl App {
                     self.one_place(machine, &root, a, &chain)?;
                     self.seen(a)?;
                     self.tell_of_update(&a.session, false);
-                    Ok(Principal::Agent { session: a.session.clone(), machine: a.machine.clone() })
+                    Ok((Principal::Agent { session: a.session.clone(), machine: a.machine.clone() }, root.at.group.clone()))
                 }
-                None if machine.is_none() && caller.token => Ok(Principal::User),
+                None if machine.is_none() && caller.token => Ok(user),
                 None => Err(ApiError(StatusCode::UNAUTHORIZED, words::no_agent_at(&root.place))),
             },
             None => match machine {
@@ -100,7 +109,7 @@ impl App {
                 None if !caller.token => Err(ApiError(StatusCode::UNAUTHORIZED, words::NOT_THE_USER.into())),
                 // A helper of a harness, or a background job, has no terminal; the user at
                 // a terminal window has one.
-                None if self.allow_as || chain.first().is_some_and(|p| p.tty.is_some()) => Ok(Principal::User),
+                None if self.allow_as || chain.first().is_some_and(|p| p.tty.is_some()) => Ok(user),
                 None => Err(ApiError(StatusCode::FORBIDDEN, words::no_terminal(&process::show(&chain)))),
             },
         }

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::access::{Principal, Rejected};
 use crate::records::{Body, Event, State};
-use crate::{Agent, CommandRun, Delivery, DeliveryStep, Intent, Project, Question, RuntimeRef, Task, Thread, Unit};
+use crate::{Agent, CommandRun, Delivery, DeliveryStep, Intent, Project, Question, RuntimeRef, Task, Thread, Unit, Workspace};
 
 /// How far the record has got: the number of its last committed change (that event's
 /// `seq`), 0 before the first. History is read by it too: it is the cursor.
@@ -190,6 +190,12 @@ pub trait WorkStore: Send {
     /// The intent a runtime group works on now, if any.
     fn intent_in(&self, group: &RuntimeRef) -> Result<Option<Intent>, DataError> {
         Ok(self.recorded()?.intent_for(group).cloned())
+    }
+
+    /// The record a runtime group is matched to (by its id, else its label, or its link),
+    /// if any.
+    fn workspace_in(&self, group: &RuntimeRef) -> Result<Option<Workspace>, DataError> {
+        Ok(self.recorded()?.workspace_of(group).cloned())
     }
 
     /// Whether `session` is the manager of any workspace.

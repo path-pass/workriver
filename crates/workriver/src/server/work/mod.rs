@@ -85,8 +85,9 @@ pub(super) struct Append {
 pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
     blocking(move || {
-        let who = app.who(&caller, a.named.as_deref())?;
-        let e = app.record(&who, body)?;
+        // With the workspace its place is in: the one an agent's own event may name.
+        let (who, at) = app.who_in(&caller, a.named.as_deref())?;
+        let e = app.record_in(&who, at.as_ref(), body)?;
         let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         // A requirement added to a task: whether its agent was told, apart from the note.
         if let Body::TaskNoted { .. } = &e.body {

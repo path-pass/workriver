@@ -53,8 +53,9 @@ pub(crate) fn seed() -> Vec<Body> {
 
 pub(crate) fn seeded(s: &mut Records) {
     for b in seed() {
-        // An active intent is made by the user (an agent's starts in the roadmap).
-        let who = if matches!(b, Body::IntentCreated { .. }) { "user" } else { "agent-a" };
+        // An active intent is made by the user (an agent's starts in the roadmap), and so
+        // is the unit of an intent that has no manager.
+        let who = if matches!(b, Body::IntentCreated { .. } | Body::UnitCreated { .. }) { "user" } else { "agent-a" };
         s.append(&who.into(), b).unwrap();
     }
 }

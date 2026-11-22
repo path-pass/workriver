@@ -12,6 +12,12 @@
 - **Task**: one complete outcome for one agent ("implement mentions with their unit
   tests"), not one per step. Reviews and tests are tasks of their own.
 
+Units are added by the intent's manager (you, for an intent that runs in the workspace you
+manage) or by the user, by nobody else: a worker that finds work for another unit tells
+you. An intent that is planned and never ran, or runs where no manager registered, has no
+manager: start it first (`start-intent`), or the user adds the unit. One put back in the
+roadmap keeps the manager of the workspace it last ran in, who still adds its units.
+
 A unit is built, reviewed and merged on its own, on its own branch. The branch is the
 unit's own, never its base, and says what it holds: `feat/<name>` for new work,
 `fix/<name>` for a fix, `chore/<name>` for the rest; the first unit's prefix follows the
@@ -70,4 +76,8 @@ implementing goes in a code unit. "u2 is a research unit: …" - it has no branc
 move or link commits to; close it with `unit done`. "u1 already has tasks: say which one this
 follows with --after <n> …" - add `--after`, as above. "a unit's branch starts
 with feat/, chore/ or fix/" / "a unit's branch must not be its base" - name the unit's own
-branch so, as the message says.
+branch so, as the message says. "only the user or the manager of intent i3 (boss) adds its
+units" - not your intent: tell its manager (`workriver manager tell <your task> --text "…"`).
+"i7 has no manager: units are added by the manager of the workspace it runs in, once it is
+started, or by the user" - it never ran, or runs where nobody registered: start it first
+(`start-intent`), or ask the user.

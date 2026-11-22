@@ -130,19 +130,56 @@ as a new version of its tags. The check of the tags a request gives is bounded: 
 32 are refused before any is read, and an edit is refused for who sends it before its tags
 are read, so that no request holds workriver up while it is checked.
 
-Since these rules go by the intent's state and by the project its workspace works on, who
-moves an intent and which project a workspace works on are held as well. An active intent is
-marked done, put back in the roadmap or dropped by you or its manager only. A manager starts
-only intents of the project its workspace works on by the records (what you set, else its
-current intent's, else the one project of the intents that ran in it); while nothing
-recorded says, it starts none of a known project: you start a workspace's first intent (or
-set its project), so no agent makes its workspace another project's, or becomes the manager
-of another project's intent, by starting it. You may start any intent anywhere (the page
-asks you to confirm another project's). An intent of no project (from before projects) only
-you start. And where an intent runs is set by nothing else: an agent adds intents to the
-roadmap only (planned, in no workspace), and linking an intent to a workspace is yours alone,
-so no agent becomes another intent's manager, or gives its workspace a project, by writing
-where an intent runs.
+Since these rules go by the intent's state and by the project its workspace works on, three
+facts are held as well: the **project** an intent belongs to, the **workspace** it runs in,
+and its **manager**. Each is set only by you, or by a start the rules checked. No other
+event sets them, and no name a request carries.
+
+- **Its project** is the one recorded when the intent was added; nothing changes it
+  afterwards. Its units never make it: an intent added with no project has none for the
+  rules, whatever repositories its units are in (the page still shows the first unit's), so
+  only you start it, and no manager adds to its note while it is planned. A unit is added by
+  the intent's manager or by you, by no other agent.
+- **Where it runs** is set by a start, or by you when you make an intent in a workspace or
+  link one to it. An agent adds intents to the roadmap only (planned, in no workspace). An
+  active intent is marked done, put back in the roadmap or dropped by you or its manager
+  only, and none of the three names a workspace: an intent stays recorded where it last ran.
+- **A manager starts only intents of the project its workspace works on** by the records:
+  what you set, else its current intent's project, else the one project of the intents that
+  ran in it. While nothing recorded says, it starts none of a known project: you start a
+  workspace's first intent (or set its project). So no agent makes its workspace another
+  project's, or becomes the manager of another project's intent, by starting it. You may
+  start any intent anywhere (the page asks you to confirm another project's).
+- **A workspace is what the runtime says it is.** An agent registers as manager
+  (`workriver manager here`) and starts intents only in the workspace it runs in, and the
+  event is recorded with the id and name the runtime gives for it when the request comes
+  (on another machine too), never the ones the request carries.
+- **Its manager** is the manager of the workspace it runs in, or last ran in: an agent
+  running there that registered, which takes over only from a manager no longer running. An
+  intent in a workspace where nobody registered has no manager, and you act for it. (A
+  manager registered for one intent, as before 0.2, counts only for an intent that has no
+  workspace at all.)
+- **An intent stays with its workspace, not with a name.** When the runtime restarts and
+  gives the workspace a new id, or you rename it, workriver's record of the workspace
+  follows it the next time it is recorded (its manager runs `workriver manager here`, an
+  intent is started there, you set its project), and the intents that run or ran there
+  follow the record. A workspace you open later under the old name is a new workspace: its
+  manager is nobody to those intents.
+- **Two open workspaces with one name are refused, never taken for one.** workriver finds a
+  workspace's record by its id, and by its name only once that id is gone (a runtime may
+  give its workspaces new ids when it restarts). While the recorded workspace is still
+  open, another one with the same name is refused wherever it would be recorded, for agents
+  and for you alike: `workriver manager here` and `workriver intent start` there, starting
+  an intent in it from the page, setting its project. The refusal names both ("workspace
+  docs is already recorded for another open workspace (…)"): rename one of them. Which
+  workspaces are open is asked of the runtime of the workspace's machine at each such
+  request, and the request is checked and recorded in one step. While that runtime cannot
+  be asked, the request is refused too: a list that could not be read never counts as "that
+  workspace is closed".
+
+What these do not hold, since the runtime's own interface is your account's, is under
+[What this does not protect against](#what-this-does-not-protect-against): a workspace
+closed or renamed there.
 
 Findings are the exception by design: by default the intent's **manager decides them**, so
 that work does not wait for you. The trade-off, plainly: a manager that is compromised or
@@ -270,6 +307,16 @@ determined program on your machine:
     report its session. It cannot do that unseen: the agent's terminal disappears.
   - **An agent can be given another name** by a report for its terminal: its next commands
     are a new agent's and its own tasks refuse it. Nobody is impersonated; work stops.
+  - **A workspace can be renamed or closed there, and its name is how workriver finds its
+    record once its id is gone.** A program can close a workspace and give another one its
+    name: that one is then taken for the closed workspace (as after a restart of the
+    runtime), with its manager's place to register in and its intents. It can also give a
+    workspace the name a link to another machine's workspace names. workriver does not see
+    either happen, and no request to workriver does it; you would see a workspace gone or
+    renamed. Two workspaces that are both open under one name are refused instead (above).
+    A workspace that gets a new id and a new name with nothing recorded in between (the
+    runtime restarts and it is renamed before anything names it again) is not found again:
+    it is a new workspace to workriver, and its old record is a closed one's, as here.
   - **A terminal the runtime knows as an agent's only by report can be released** and is
     then a plain terminal: yours, with the token. (Under Herdr, which agents are
     not such terminals: [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr).)

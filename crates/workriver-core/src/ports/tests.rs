@@ -47,6 +47,7 @@ fn every_read_of_an_unavailable_store_says_so() {
     said("run", s.run("r1").err());
     said("project", s.project("p1").err());
     said("intent_in", s.intent_in(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).err());
+    said("workspace_in", s.workspace_in(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).err());
     said("manages", s.manages("a").err());
     said("units", s.units().err());
     said("delivered", s.delivered().err());

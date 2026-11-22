@@ -289,6 +289,11 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!(at_place(&there, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-far");
     // `workriver link` over there: the address the user opens here, not the tunnel's.
     assert_eq!(crate::cli::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
+    // A unit is its intent's manager's to add: the agent over there manages its workspace,
+    // and the user starts the intent in it.
+    let group = at_place(&there, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["group"].clone();
+    there.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     // Research over there: a unit with no branch, so nothing of that machine to check.
     let e = there.append("", "unit.created", json!({ "intent": "i1", "title": "Look around", "kind": "research" })).unwrap();
     assert_eq!(e["actor"], "s-far");

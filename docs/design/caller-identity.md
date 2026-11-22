@@ -240,6 +240,41 @@ Agents run under the user's account, and this check does not change that.
     not open to this; a harness the runtime cannot tell from its screen would be.
   - **Two places showing a session at first sight** are both refused: a way to stop an
     agent's first calls.
+  - **A workspace's record is found by its label once its id is gone**, and the runtime's
+    socket renames and closes workspaces. The service records an agent's workspace as the
+    runtime names it (never as a request does): the group of the place the caller was
+    found at, read with that place (`App::who_in`), on a followed machine too, never the
+    one a regular read of the agents last had. It refuses a group whose record is another
+    workspace still open (`not_another_open` in `App::record_in`: every event that names a
+    group, the user's too). Which workspaces are open is asked of the group's own machine
+    at the request (`Runtime::groups_on`): a list that cannot be read is no proof that a
+    workspace closed, so the request is refused (503), on this machine while others are
+    followed as well, and a followed machine's last regular read is never asked. The check
+    and the record are one step under the store's lock, on what is recorded then: two
+    requests cannot both pass against a state that has neither's record, and a
+    registration that names only an intent is for the workspace the intent is in when it
+    is recorded. So two open workspaces that share a label are refused, not matched.
+
+    An intent is in its workspace's record, not under the id or label it was started
+    with: when an event that names the workspace moves its record to a new id (the runtime
+    restarted) or a new label (it was renamed), the intents that run or ran there are
+    rewritten with it (`workspace_mut`; one in a linked group of another machine keeps that
+    group). A workspace opened later under the old label is then a workspace of its own,
+    and its manager is nobody to those intents. A workspace that got a new id and a new
+    label with nothing recorded in between is found by neither: it is a new workspace to
+    workriver, and its old record is a closed workspace's (below).
+
+    What is left goes through the socket only:
+    - an agent gives its own workspace the label a link names: when that label is next
+      recorded, from the runtime, the link resolves to the first local record that has it,
+      and the linked workspace's intents are that record's manager's;
+    - an agent closes a workspace and gives its own that label: a group with no record of
+      its own is then matched to the closed one's record (the restart case, which is what
+      the label is for), with its manager's seat and its intents. Any local record is open
+      to this, not only one a link names.
+
+    workriver does not see either happen, and no request to workriver does it. The rules in
+    core take a workspace as an event names it; only the service knows the runtime.
 - **Typing into another terminal.** The runtime lets any agent type into any place: a
   command typed into agent B's place is B's, one typed into a place with no agent is the
   user's.

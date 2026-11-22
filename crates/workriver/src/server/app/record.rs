@@ -2,6 +2,9 @@
 // record once it is committed: who is told.
 use super::*;
 
+/// Said to an agent whose start names a workspace it does not run in.
+const START_IN_YOUR_OWN: &str = "an agent starts intents in the workspace it runs in: run `workriver intent start <i>` from your own terminal";
+
 impl App {
     /// Records the name a live agent goes by, the first time and when it changes.
     pub(in crate::server) fn seen(&self, a: &RuntimeAgent) -> Result<(), ApiError> {
@@ -12,44 +15,137 @@ impl App {
         Ok(())
     }
 
+    /// The workspace the runtime has an agent in, for an event of its own that names one: the
+    /// event must name that one (by id and machine), and it is recorded as the runtime has it.
+    /// `mine`: the group of the place the caller was found at, as its machine's runtime gave
+    /// it then (`App::who_in`), never as a regular read of the agents last had it. What a
+    /// workspace is called is the runtime's to say, since a label is what finds a
+    /// workspace's record (and a link), so the one a request gives is never recorded nor
+    /// checked against. A caller in no workspace, or naming another, is refused with `why`.
+    fn callers_workspace(mine: Option<&core::RuntimeRef>, named: &core::RuntimeRef, why: &str) -> Result<core::RuntimeRef, ApiError> {
+        mine.filter(|m| m.id == named.id && m.machine == named.machine).cloned().ok_or_else(|| ApiError(StatusCode::FORBIDDEN, why.into()))
+    }
+
+    /// Refuses a runtime group whose record is another open workspace's. A group is matched
+    /// by its label only to stand for the same workspace under a new id (the runtime
+    /// restarted); a record whose own id the runtime still lists is another open workspace
+    /// that has the same label, and recording this group would give it that one's record:
+    /// its manager, its intents, its project. The rules cannot tell the two apart (they know
+    /// no runtime), so this is checked here, for every event that names a group, whoever
+    /// sends it. A group of another machine matched through a link is not checked: the link
+    /// is the user's, made by label. `open`: the groups of `g`'s machine as its runtime gave
+    /// them for this request (`Runtime::groups_on`), or why it could not: then this refuses,
+    /// since a list that was not read does not say that the record's workspace closed.
+    fn not_another_open(record: Option<&core::Workspace>, g: &core::RuntimeRef, open: &Result<Vec<core::RuntimeRef>, RuntimeError>) -> Result<(), ApiError> {
+        let Some(w) = record.filter(|w| w.group.id != g.id && w.group.machine == g.machine) else { return Ok(()) };
+        let groups = open.as_ref().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
+        if groups.iter().any(|x| x.id == w.group.id && x.machine == w.group.machine) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                format!(
+                    "workspace {} is already recorded for another open workspace ({}); two open workspaces have one name, and workriver tells workspaces apart by name: ask the user to rename one of them",
+                    g.label, w.group.id
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     /// One workspace, one manager: an agent manages the workspace it runs in (not the one its
-    /// CLI names), and takes it over only from a manager no longer running. Gives that
-    /// workspace as the runtime has it, for a registration that names one: what it is called
-    /// is the runtime's to say, since a label is what finds a workspace's record (and a
-    /// link), so the one a request gives is never recorded nor checked against.
-    fn may_manage(&self, session: &str, machine: Option<&str>, intent: Option<&str>, workspace: Option<&core::RuntimeRef>) -> Result<Option<core::RuntimeRef>, ApiError> {
-        let state = self.store.lock().unwrap().recorded()?;
-        // Before 0.2 a manager named its intent; it manages that intent's workspace.
-        let Some(g) = workspace.cloned().or_else(|| intent.and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone())) else { return Ok(None) };
-        let live = self.runtime.agents().map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
-        let me = live.iter().find(|a| a.session == session && a.machine.as_deref() == machine);
-        let Some(mine) = me.and_then(|a| a.group.as_ref()).filter(|m| m.id == g.id && m.machine == g.machine) else {
-            return Err(ApiError(StatusCode::FORBIDDEN, words::MANAGE_YOUR_OWN.into()));
-        };
-        let g = if workspace.is_some() { mine.clone() } else { g };
-        let current = state.workspace_of(&g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
+    /// CLI names), and takes it over only from a manager no longer running. Checked on
+    /// `state`, what is recorded as the registration is: `g` is the workspace it sets the
+    /// manager of, `live` the agents running.
+    fn may_manage(state: &core::State, session: &str, g: &core::RuntimeRef, live: &[RuntimeAgent]) -> Result<(), ApiError> {
+        let current = state.workspace_of(g).and_then(|w| w.manager.as_deref()).filter(|m| *m != session);
         if let Some(other) = current.and_then(|m| live.iter().find(|a| a.session == m)) {
             return Err(ApiError(
                 StatusCode::CONFLICT,
                 format!("workspace {} has a manager running: {}. A workspace has one manager; tell the user, who closes that agent first if you are to take over", g.label, other.name),
             ));
         }
-        Ok(workspace.map(|_| g))
+        Ok(())
     }
 
     /// Records an event as `who`, found by `App::who`, never taken from the caller's word.
-    pub(in crate::server) fn record(&self, who: &Principal, mut body: Body) -> Result<core::Event, ApiError> {
+    /// An agent's own registration or start goes through `record_in`, with its workspace.
+    pub(in crate::server) fn record(&self, who: &Principal, body: Body) -> Result<core::Event, ApiError> {
+        self.record_in(who, None, body)
+    }
+
+    /// `record`, for a request whose caller was found in workspace `mine` (`App::who_in`).
+    ///
+    /// Who decides where an intent runs (docs/security.md) is held here in two steps. First
+    /// what the runtime says is read, with nothing locked: the workspace of an agent's own
+    /// registration or start is set to the one it runs in, and the groups open on the named
+    /// group's machine are asked of that machine now. Then, with the store locked, the group
+    /// is checked against what is recorded and the event is recorded: one step, so nothing
+    /// recorded in between (another workspace of the same name, the intent moved) is missed.
+    pub(in crate::server) fn record_in(&self, who: &Principal, mine: Option<&core::RuntimeRef>, mut body: Body) -> Result<core::Event, ApiError> {
         // A gate and what follows it (its hook fails the discussions it ends) in order with a
         // discussion's last check and send (`App::hand`): no question it ends is typed in after.
         let _order = matches!(body, Body::GateSubmitted { .. }).then(|| self.discussing.lock().unwrap());
         let (actor, machine) = (who.actor(), who.machine());
-        if let (Body::ManagerRegistered { intent, workspace, .. }, Principal::Agent { session, machine }) = (&mut body, who)
-            && let Some(mine) = self.may_manage(session, machine.as_deref(), intent.as_deref(), workspace.as_ref())?
-        {
-            *workspace = Some(mine);
+        let cannot = |e: RuntimeError| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string());
+        let own = match (&body, who) {
+            (Body::ManagerRegistered { .. } | Body::IntentStateChanged { state: core::IntentState::Active, workspace: Some(_), .. }, Principal::Agent { session, machine }) => Some((session, machine)),
+            _ => None,
+        };
+        // An agent named with `--as` (tests and development, where the service was started to
+        // allow it) was found at no place: its workspace is where the runtime lists it now.
+        let listed = match own {
+            Some((session, machine)) if mine.is_none() && self.allow_as => self.runtime.agents().map_err(cannot)?.into_iter().find(|a| &a.session == session && &a.machine == machine).and_then(|a| a.group),
+            _ => None,
+        };
+        let mine = mine.or(listed.as_ref());
+        // The agents running, for a registration: a manager that still runs keeps its seat.
+        let mut live = None;
+        match &mut body {
+            Body::ManagerRegistered { workspace, .. } if own.is_some() => {
+                if let Some(g) = workspace {
+                    *g = Self::callers_workspace(mine, g, words::MANAGE_YOUR_OWN)?;
+                }
+                live = Some(self.runtime.agents().map_err(cannot)?);
+            }
+            // An agent starts intents in the workspace the runtime has it in, recorded as the
+            // runtime has it: a start with its own id and another label would relabel its record.
+            Body::IntentStateChanged { workspace: Some(g), .. } if own.is_some() => *g = Self::callers_workspace(mine, g, START_IN_YOUR_OWN)?,
+            _ => {}
         }
+        // The group the event names to record, with the groups open on its machine now. A
+        // registration that names only an intent: the caller's own, which the intent's
+        // workspace must be (checked below, on what is recorded then).
+        let named = match &body {
+            Body::IntentStateChanged { state: core::IntentState::Active, workspace: g, .. } | Body::IntentCreated { runtime_ref: g, .. } => g.clone(),
+            Body::IntentLinked { runtime_ref: g, .. } | Body::WorkspaceProjectSet { workspace: g, .. } => Some(g.clone()),
+            Body::ManagerRegistered { workspace, .. } if own.is_some() => workspace.clone().or_else(|| mine.cloned()),
+            _ => None,
+        };
+        let named = named.map(|g| {
+            let open = self.runtime.groups_on(g.machine.as_deref());
+            (g, open)
+        });
         let body = self.complete(actor, body, machine)?;
-        let committed = self.store.lock().unwrap().record(who, body)?;
+        let committed = {
+            let mut store = self.store.lock().unwrap();
+            match (&body, &live, &named) {
+                (Body::ManagerRegistered { intent, workspace, .. }, Some(live), _) => {
+                    let state = store.recorded()?;
+                    // Before 0.2 a manager named its intent; it manages that intent's workspace,
+                    // which is the record this then writes: it must be the caller's own.
+                    let theirs = || intent.as_deref().and_then(|i| state.intents.iter().find(|x| x.id == i)?.workspace.clone());
+                    if let Some(g) = workspace.clone().or_else(theirs) {
+                        Self::callers_workspace(mine, &g, words::MANAGE_YOUR_OWN)?;
+                        // The caller's own machine's groups were asked: there is no other case.
+                        let (_, open) = named.as_ref().ok_or_else(|| ApiError(StatusCode::FORBIDDEN, words::MANAGE_YOUR_OWN.into()))?;
+                        Self::not_another_open(state.workspace_of(&g), &g, open)?;
+                        Self::may_manage(&state, actor, &g, live)?;
+                    }
+                }
+                (_, _, Some((g, open))) => Self::not_another_open(store.workspace_in(g)?.as_ref(), g, open)?,
+                _ => {}
+            }
+            store.record(who, body)?
+        };
         let e = committed.event;
         // The user changed an active intent: its manager hears of it as committed (its version
         // then), now or once its blind task is delivered (`tell`).

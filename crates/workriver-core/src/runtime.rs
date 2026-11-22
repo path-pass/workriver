@@ -173,6 +173,13 @@ pub trait Runtime: Send + Sync {
         }
         Ok(all)
     }
+    /// Every group on `machine` (none: this one), asked of that machine's runtime now: an
+    /// error while it cannot be asked, never what was last read of it. Whether a workspace
+    /// is still open is judged on this alone, since a list that could not be read does not
+    /// say that it closed. By default, those of `groups` that are on that machine.
+    fn groups_on(&self, machine: Option<&str>) -> Result<Vec<RuntimeRef>, RuntimeError> {
+        Ok(self.groups()?.into_iter().filter(|g| g.machine.as_deref() == machine).collect())
+    }
 }
 
 /// Used when no runtime is configured: no agents are known and none can be reached.

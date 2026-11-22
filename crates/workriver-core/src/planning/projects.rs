@@ -86,14 +86,24 @@ impl State {
         self.intents.iter().find(|i| i.id == id)
     }
 
-    /// A runtime group's record, made when first needed; it follows the group's latest id and label.
+    /// A runtime group's record, made when first needed; it follows the group's latest id and
+    /// label, and the intents that run or ran in it follow the record: an intent is in its
+    /// workspace's record, not under the id or label it was started with, or the next
+    /// workspace to carry that label would be found as where it runs.
     pub(super) fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
         // A linked group's record is the local workspace's, which keeps its own id and label.
         let local = self.link_of(g).map(|l| RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None });
         match self.workspace_at(g) {
             Some(k) => {
-                if local.is_none() {
+                if local.is_none() && self.workspaces[k].group != *g {
+                    // Those of the record's own groups; one in a linked group of another
+                    // machine stays in that group, which the link finds by its own label.
+                    let there = |i: &Intent| i.workspace.as_ref().is_some_and(|x| self.link_of(x).is_none() && self.workspace_at(x) == Some(k));
+                    let ran: Vec<usize> = (0..self.intents.len()).filter(|n| there(&self.intents[*n])).collect();
                     self.workspaces[k].group = g.clone();
+                    for n in ran {
+                        self.intents[n].workspace = Some(g.clone());
+                    }
                 }
                 &mut self.workspaces[k]
             }
@@ -101,6 +111,17 @@ impl State {
                 self.workspaces.push(Workspace { group: local.unwrap_or_else(|| g.clone()), manager: None, current: None, project: None });
                 self.workspaces.last_mut().unwrap()
             }
+        }
+    }
+
+    /// A group's record, found and never renamed: for an event that does not name a workspace
+    /// itself (an intent closed, a manager registered for an intent), which must not set a
+    /// record's id and label back to the ones its intent was started with. Made when there
+    /// is none.
+    pub(super) fn workspace_found_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
+        match self.workspace_at(g) {
+            Some(k) => &mut self.workspaces[k],
+            None => self.workspace_mut(g),
         }
     }
 
@@ -196,13 +217,17 @@ impl State {
             WorkspaceProjectSet { workspace, project } => self.workspace_mut(workspace).project = project.clone(),
             ManagerRegistered { intent, agent, workspace } => {
                 // Before 0.2: the intent's manager, which is the manager of its runtime group.
-                let mut group = workspace.clone();
+                let mut ran = None;
                 if let Some(i) = intent.as_ref().and_then(|id| self.intents.iter_mut().find(|i| &i.id == id)) {
                     i.manager = Some(agent.clone());
-                    group = group.or(i.workspace.clone());
+                    ran = i.workspace.clone();
                 }
-                if let Some(g) = group {
-                    self.workspace_mut(&g).manager = Some(agent.clone());
+                // Only a workspace the event names is followed (its id and label); the
+                // intent's is found as it is recorded now.
+                if let Some(g) = workspace {
+                    self.workspace_mut(g).manager = Some(agent.clone());
+                } else if let Some(g) = ran {
+                    self.workspace_found_mut(&g).manager = Some(agent.clone());
                 }
             }
             other => unreachable!("{} is not one of a project's or a workspace's kinds", name_of_kind(other)),

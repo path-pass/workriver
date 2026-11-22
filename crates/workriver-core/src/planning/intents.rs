@@ -252,11 +252,16 @@ impl State {
         self.units.iter().find(|u| u.id == owner).map(|u| u.intent.as_str()).or_else(|| self.intents.iter().find(|i| i.id == owner).map(|i| i.id.as_str()))
     }
 
-    /// The manager of an intent: the manager of the runtime group it runs in (before 0.2,
-    /// the one registered for the intent itself).
+    /// The manager of an intent: the manager of the workspace record it runs in, or last ran
+    /// in. One whose workspace has no manager, or no record, has none: the manager registered
+    /// for the intent itself (before 0.2) counts only for an intent with no workspace at all,
+    /// or it would follow the intent into a workspace where nobody registered.
     pub fn manager_of(&self, intent: &str) -> Option<&str> {
         let i = self.intents.iter().find(|i| i.id == intent)?;
-        i.workspace.as_ref().and_then(|g| self.workspace_of(g)).and_then(|w| w.manager.as_deref()).or(i.manager.as_deref())
+        match &i.workspace {
+            Some(g) => self.workspace_of(g).and_then(|w| w.manager.as_deref()),
+            None => i.manager.as_deref(),
+        }
     }
 
     /// Whether every unit of `intent` is merged or done (and it has one).
@@ -293,6 +298,11 @@ impl State {
             IntentStateChanged { intent, state, reason, workspace } => {
                 let i = self.intent(&intent)?;
                 use IntentState::*;
+                // Where an intent runs is set by a start: a close that named a workspace would
+                // move the intent there, and with it that workspace's project.
+                if state != Active && workspace.is_some() {
+                    return no("a state change names a workspace only when it starts an intent: leave the workspace out (an intent stays recorded where it last ran)");
+                }
                 match (i.state, state) {
                     (Planned, Active) => {
                         let Some(g) = &workspace else { return no(format!("start {intent} from its manager's terminal: workriver intent start {intent}")) };
@@ -305,7 +315,7 @@ impl State {
                         // project's). The user may start any, anywhere.
                         // Where its workspace's project is not known by the records, its start would
                         // make it that project's: the user starts the first one, or sets it.
-                        let theirs = self.project_folder(i);
+                        let theirs = self.intent_project(i);
                         // One of no known project (records from before projects) is the user's to start.
                         if !user && theirs.is_empty() {
                             return no(format!("{intent} has no project: ask the user to start it (in the roadmap, in a workspace of the project it belongs to)"));
@@ -513,7 +523,8 @@ impl State {
                         if let Some(g) = before {
                             let at = self.workspace_at(&g);
                             let next = self.intents.iter().rev().find(|i| i.state == IntentState::Active && &i.id != intent && i.workspace.as_ref().is_some_and(|x| self.workspace_at(x) == at && at.is_some())).map(|i| i.id.clone());
-                            let w = self.workspace_mut(&g);
+                            // Found, never renamed to what the intent was started with.
+                            let w = self.workspace_found_mut(&g);
                             if w.current.as_deref() == Some(intent.as_str()) {
                                 w.current = next;
                             }
@@ -644,13 +655,18 @@ impl State {
                 if replace {
                     return no(format!("{id} is planned: a manager adds to its note (--add-note), nothing more; the rest is the user's"));
                 }
-                let theirs = self.project_folder(i);
+                let theirs = self.intent_project(i);
+                // Of no project (a record from before projects): no workspace's, whatever
+                // the manager's own works on, so no setting of its workspace would help.
+                if theirs.is_empty() {
+                    return no(format!("{id} is planned and has no project: only the user adds to its note; ask the user to add yours"));
+                }
                 let name = self.project_of(&theirs).map_or(theirs.clone(), |p| p.title.clone());
                 let known: Vec<String> = mine.iter().filter_map(|w| self.workspace_project(w)).collect();
-                if !theirs.is_empty() && known.contains(&theirs) {
+                if known.contains(&theirs) {
                     return Ok(());
                 }
-                if known.is_empty() || theirs.is_empty() {
+                if known.is_empty() {
                     return no(format!("{id} belongs to project {name}; your workspace's project is not known: ask the user to set it (Settings, or `workriver workspace project`)"));
                 }
                 no(format!("{id} belongs to project {name}; no workspace you manage works on it, so its note is not yours to add to"))
@@ -686,13 +702,13 @@ impl State {
         if let Some(p) = &w.project {
             return Some(p.clone());
         }
-        let current = w.current.as_deref().and_then(|c| self.intents.iter().find(|i| i.id == c)).map(|i| self.project_folder(i)).filter(|p| !p.is_empty());
+        let current = w.current.as_deref().and_then(|c| self.intents.iter().find(|i| i.id == c)).map(|i| self.intent_project(i)).filter(|p| !p.is_empty());
         current.or_else(|| {
             let ran: std::collections::BTreeSet<String> = self
                 .intents
                 .iter()
                 .filter(|i| i.workspace.as_ref().and_then(|g| self.workspace_of(g)).is_some_and(|x| x.group == w.group))
-                .map(|i| self.project_folder(i))
+                .map(|i| self.intent_project(i))
                 .filter(|p| !p.is_empty())
                 .collect();
             (ran.len() == 1).then(|| ran.into_iter().next()).flatten()
@@ -704,8 +720,19 @@ impl State {
         self.projects.iter().filter(|p| std::path::Path::new(path).starts_with(&p.path)).max_by_key(|p| p.path.len())
     }
 
-    /// An intent's project folder: as recorded, else where its first unit's repository is;
-    /// the registered project holding it when there is one. Empty: not known.
+    /// An intent's project for the rules: the one recorded on it (the registered project
+    /// holding that folder when there is one), never its units'. Empty: not known, whatever
+    /// its units are, so that no agent picks an intent's project by adding a unit.
+    pub fn intent_project(&self, i: &Intent) -> String {
+        if i.project.is_empty() {
+            return String::new();
+        }
+        self.project_of(&i.project).map_or_else(|| i.project.clone(), |p| p.path.clone())
+    }
+
+    /// An intent's project folder to show (the page, a notice, the start warning): as
+    /// recorded, else where its first unit's repository is; the registered project holding it
+    /// when there is one. Empty: not known. The rules read `intent_project`.
     pub fn project_folder(&self, i: &Intent) -> String {
         let path = if i.project.is_empty() { self.units.iter().find(|u| u.intent == i.id).map(|u| u.repo.clone()).unwrap_or_default() } else { i.project.clone() };
         if path.is_empty() {

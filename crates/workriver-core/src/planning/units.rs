@@ -328,6 +328,18 @@ impl State {
                 if matches!(i.state, IntentState::Done | IntentState::Dropped) {
                     return no(format!("intent {intent} is {}; it takes no new units", name(&i.state)));
                 }
+                // A unit is part of the intent's plan: its manager's, or the user's.
+                match self.manager_of(&intent) {
+                    _ if user => {}
+                    Some(m) if m == actor => {}
+                    Some(m) => {
+                        return no(format!(
+                            "only the user or the manager of intent {intent} ({}) adds its units; tell the manager (`workriver manager tell <your task> --text \"…\"`)",
+                            self.name_of(m).unwrap_or(m)
+                        ));
+                    }
+                    None => return no(format!("{intent} has no manager: units are added by the manager of the workspace it runs in, once it is started, or by the user")),
+                }
                 let id = format!("u{}", self.units.len() + 1);
                 // Research and design: no repository, branch or machine of its own; it reads
                 // in its intent's project folder.
