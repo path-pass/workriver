@@ -657,3 +657,43 @@ fn a_model_is_said_only_by_the_agent_that_starts_its_own_task() {
     let state = s.state();
     assert_eq!([1, 2, 3].map(|n| state.task("u1", n).unwrap().model.clone()), [None, Some("claude-opus-5-5".into()), Some("claude-opus-5-5".into())]);
 }
+
+/// An answer given from the page in an agent's terminal: the user's alone; what is kept of the
+/// screen is cut by the rule itself, whatever the request says; the task its agent holds
+/// shows it.
+#[test]
+fn an_answer_in_an_agents_terminal() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    let answer = |more: serde_json::Value| {
+        let mut b = json!({"agent": "s-1", "unit": "u1", "task": 1, "keys": ["2"], "outcome": "answered"});
+        b.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+        body(json!({"kind": "agent.keys", "body": b}))
+    };
+    let long = format!("Yes, and don't ask again for `curl -H x` commands in /p {}", "a".repeat(80));
+    let a = answer(json!({"question": "Do you want to proceed?", "option": {"number": 2, "words": long}}));
+    assert!(a.user_only());
+    for who in ["agent-a", "workriver"] {
+        assert!(s.append(&who.into(), a.clone()).is_err(), "{who}");
+    }
+    s.append(&"user".into(), a).unwrap();
+    // A line that asks nothing, and one that only asks after a path: neither kept.
+    s.append(&"user".into(), answer(json!({"question": "$ touch b.txt", "option": {"words": "Yes, proceed (y)"}, "outcome": "open"}))).unwrap();
+    s.append(&"user".into(), answer(json!({"question": "/etc/passwd?", "keys": ["down", "enter"]}))).unwrap();
+    for bad in [json!({"keys": []}), json!({"keys": ["2", "2", "2", "2", "2", "2", "2", "2", "2", "2", "2"]}), json!({"task": 9}), json!({"agent": " "})] {
+        assert!(s.append(&"user".into(), answer(bad.clone())).is_err(), "{bad}");
+    }
+    assert!(serde_json::from_value::<Body>(json!({"kind": "agent.keys", "body": {"agent": "s-1", "keys": ["x"], "outcome": "answered"}})).is_err());
+    let st = replayed(&s);
+    let t = st.task("u1", 1).unwrap();
+    assert_eq!(t.answers.len(), 3);
+    assert_eq!(t.answers[0].question.as_deref(), Some("Do you want to proceed?"));
+    assert_eq!(t.answers[0].option.as_ref().map(|o| (o.number, o.words.as_str())), Some((Some(2), "Yes, and don't ask again for")));
+    assert_eq!(t.answers[0].outcome, crate::screens::Outcome::Answered);
+    assert_eq!(t.answers[1].question, None);
+    assert_eq!(t.answers[2].question, None);
+    assert_eq!(t.answers[2].keys, [crate::screens::Key::Down, crate::screens::Key::Enter]);
+    assert_eq!(serde_json::to_value(&st).unwrap()["units"][0]["tasks"][0]["answers"][0]["option"]["words"], "Yes, and don't ask again for");
+    // An agent with no task: recorded, on no task.
+    s.append(&"user".into(), body(json!({"kind": "agent.keys", "body": {"agent": "s-boss", "keys": ["escape"], "outcome": "answered"}}))).unwrap();
+}

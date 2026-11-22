@@ -584,6 +584,27 @@ pub enum Body {
     /// typed into the manager's terminal, quoted. The way a worker reaches its manager.
     #[serde(rename = "manager.told")]
     ManagerTold { unit: String, task: u32, text: String },
+    /// The user answered a dialog in an agent's terminal from the page: the keys sent, what
+    /// came of them, and of the screen only its question line and the option's number and
+    /// words, cut where a command, a value or a path begins (`screens::kept`).
+    #[serde(rename = "agent.keys")]
+    AgentKeys {
+        /// The agent's session.
+        agent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+        /// The task it held, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task: Option<u32>,
+        keys: Vec<crate::screens::Key>,
+        outcome: crate::screens::Outcome,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        option: Option<crate::screens::KeptOption>,
+    },
 }
 
 impl Body {
@@ -626,6 +647,7 @@ impl Body {
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
             CommandRan { unit, .. } => (None, unit.clone(), None),
             CommandEnded { .. } | CommandReviewed { .. } => (None, None, None),
+            AgentKeys { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
         }
     }
 }

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
+mod answers;
 mod chores;
 mod commands;
 mod findings;
@@ -11,6 +12,7 @@ mod gates;
 mod graph;
 mod tasks;
 
+pub use answers::*;
 pub use chores::*;
 pub use commands::*;
 pub use findings::*;
@@ -201,6 +203,9 @@ pub struct Task {
     /// Requirements added to what it asks after it was recorded (`task.noted`), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<FindingNote>,
+    /// What the user answered from the page in its agent's terminal (`agent.keys`), oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<TerminalAnswer>,
 }
 
 /// `u1#3` -> ("u1", 3).

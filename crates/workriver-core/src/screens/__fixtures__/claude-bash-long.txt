@@ -1,0 +1,27 @@
+
+⏺ Bash(for f in *.txt; do …)
+  ⎿  Waiting…
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ echo line 1 >> out.txt
+ echo line 2 >> out.txt
+ echo line 3 >> out.txt
+ echo line 4 >> out.txt
+ echo line 5 >> out.txt
+ echo line 6 >> out.txt
+ echo line 7 >> out.txt
+ echo line 8 >> out.txt
+ echo line 9 >> out.txt
+ echo line 10 >> out.txt
+ echo line 11 >> out.txt
+ echo line 12 >> out.txt
+ echo line 13 >> out.txt
+ echo line 14 >> out.txt
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

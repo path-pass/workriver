@@ -130,6 +130,7 @@ impl State {
             GateSubmitted { .. } => self.prepare_gates(who, body),
             ChoreCreated { .. } | ChoreDone { .. } => self.prepare_chores(who, body),
             CommandRan { .. } | CommandEnded { .. } | CommandReviewed { .. } => self.prepare_commands(who, body),
+            AgentKeys { .. } => self.prepare_answers(who, body),
             // Conversations: conversations/.
             QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } | QuestionsRead { .. } => self.prepare_questions(who, body),
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.prepare_messages(who, body),
@@ -153,6 +154,7 @@ impl State {
             GateSubmitted { .. } => self.apply_gates(e),
             ChoreCreated { .. } | ChoreDone { .. } => self.apply_chores(e),
             CommandRan { .. } | CommandEnded { .. } | CommandReviewed { .. } => self.apply_commands(e),
+            AgentKeys { .. } => self.apply_answers(e),
             // Conversations: conversations/.
             QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } | QuestionsRead { .. } => self.apply_questions(e),
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.apply_messages(e),
