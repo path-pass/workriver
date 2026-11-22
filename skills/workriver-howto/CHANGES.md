@@ -19,6 +19,11 @@ Newest first. A manager that was already running reads this once after an update
   whole path (from `/` or `~/`), a folder (not a file), and not inside a registered project
   nor hold one: such a `workriver project add` is refused now ("… is inside project p1 …: a
   project holds no other"). Ask the user to add a project; an agent cannot. (`seat`)
+- **A worker named by two running agents is refused** (managers): `task add --agent impl`
+  and `task start --agent impl`, when two running agents are named `impl`, used to take
+  the one in your own Herdr workspace (or the first one) and now are refused with "several
+  running agents are impl: name one by its session: …". Give the session it lists for the
+  one you mean (`workriver guide how units`).
 
 ## 2026-11-22
 

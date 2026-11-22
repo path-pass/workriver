@@ -397,7 +397,7 @@ impl State {
                     if x.state != IntentState::Planned {
                         return no(format!("intent {f} is {}; only planned intents are merged", name(&x.state)));
                     }
-                    if x.project != i.project {
+                    if self.intent_project(x) != self.intent_project(i) {
                         return no(format!("{f} is in another project than {intent}"));
                     }
                     // Work, findings or chores of its own would be lost with it.

@@ -137,6 +137,7 @@ type StartedIn = (String, String, String, Vec<String>);
 #[derive(Default)]
 pub(in crate::server) struct Fake {
     pub(super) agents: std::sync::Mutex<Vec<(String, workriver_core::runtime::RuntimeAgent)>>,
+    pub(super) focused: std::sync::Mutex<Vec<String>>,
     pub(super) sent: std::sync::Mutex<Vec<(String, String)>>,
     /// Sends typed at a place (`send_at`), also kept in `sent`: (place, text).
     pub(super) typed_at: std::sync::Mutex<Vec<(String, String)>>,
@@ -364,7 +365,8 @@ impl workriver_core::runtime::Runtime for Fake {
             })
             .collect())
     }
-    fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+    fn focus(&self, session: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        self.focused.lock().unwrap().push(session.into());
         Ok(())
     }
     fn send(&self, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
