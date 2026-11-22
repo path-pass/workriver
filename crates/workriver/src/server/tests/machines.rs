@@ -62,7 +62,7 @@ fn machines_are_separate_and_need_no_link() {
     manage(&d, "w1:p1", "s-boss");
     assert_eq!(at_place(&d, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-boss");
     let there = at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), Some("w1@box"), None, true), "the same group name over there is no workspace");
+    assert_eq!((there["actor"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), None, true), "the same group name over there is no workspace");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
 
     // The user makes a second workspace and seats the agent over there in it: a manager on
@@ -322,7 +322,7 @@ fn a_machines_connection_is_kept_up() {
     // (through the stand-in): up with its port; down at once, since when, the next attempt.
     std::fs::remove_file(tmp.path().join("connections")).ok();
     let all = crate::runtime::follow::Machines::with_ssh(std::sync::Arc::new(Fake::default()), tmp.path().to_path_buf(), &ssh.display().to_string(), Pace { min: Duration::from_millis(300), ..pace });
-    let setting = crate::runtime::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), port: 0, enabled: true };
+    let setting = crate::runtime::Setting { ssh: "box".into(), options: crate::runtime::socket_option(Some("/run/herdr.sock".into())), enabled: true };
     all.start("box", setting, 1);
     let state = || all.states().into_iter().next().unwrap();
     wait_until("connected", || state().tunnel);

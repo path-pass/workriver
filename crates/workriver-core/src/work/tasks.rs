@@ -371,10 +371,8 @@ impl State {
                     })
                 }
                 // More work for a unit closed as done: it is open again, its state from its tasks.
-                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit)
-                    && let Some(was) = u.done.take()
-                {
-                    u.reopened = Some(was);
+                if let Some(u) = self.units.iter_mut().find(|u| u.id == t.unit) {
+                    u.done = None;
                 }
                 // The task it blocks follows it from now on.
                 if let Some(b) = t.blocks

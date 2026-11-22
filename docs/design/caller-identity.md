@@ -139,9 +139,8 @@ it); else none.
 applied); its workspace, which the records give and nothing of the place does (the workspace
 whose seat its session holds, else the one workspace of the intents of the tasks it has
 running, else none: `State::workspace_of_agent`), with whether it holds the seat and that
-workspace's current intent; and the runtime's group of the place, which is only shown. A
-caller that names another place gets rule 1's refusal; a caller in no place gets `actor`,
-`name`, `group`, `workspace` and `intent` as null.
+workspace's current intent. A caller that names another place gets rule 1's refusal; a
+caller in no place gets `actor`, `name`, `workspace` and `intent` as null.
 It is answerable without the token, but not without a proof.
 
 **The cases** (held by the tests in `server/tests/access.rs`):

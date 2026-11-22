@@ -458,7 +458,7 @@ impl App {
         }
         let chain = self.chain_of(caller)?;
         let Some(root) = self.place(caller, &chain)? else {
-            return Ok(json!({ "actor": null, "name": null, "group": null, "workspace": null, "manager": false, "intent": null }));
+            return Ok(json!({ "actor": null, "name": null, "workspace": null, "manager": false, "intent": null }));
         };
         let at = &root.at;
         let mut workspace = None;
@@ -471,7 +471,6 @@ impl App {
         Ok(json!({
             "actor": at.agent.as_ref().map(|a| &a.session),
             "name": at.agent.as_ref().map(|a| &a.name),
-            "group": at.group,
             "workspace": workspace.as_ref().map(|(id, name, ..)| json!({ "id": id, "name": name })),
             "manager": workspace.as_ref().is_some_and(|w| w.3),
             "intent": workspace.and_then(|w| w.2),

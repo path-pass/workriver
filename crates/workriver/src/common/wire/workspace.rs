@@ -22,9 +22,6 @@ pub struct Workspace {
     /// The other machines followed, with whether each can be reached.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) machines: Vec<super::MachineState>,
-    /// A part only: what an agent on a blind task may see.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) reduced: bool,
     /// Chores that belong to no intent: a project's, or (no project) nobody's.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) chores: Vec<Chore>,

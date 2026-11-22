@@ -61,9 +61,6 @@ pub struct Unit {
     /// Finished without a merge (research, abandoned, superseded): when, by whom, why.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done: Option<Closed>,
-    /// Closed as done before, then given a new task, which opened it again: that closing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reopened: Option<Closed>,
     #[serde(default, skip_serializing_if = "UnitKind::is_default")]
     pub kind: UnitKind,
 }
@@ -394,7 +391,6 @@ impl State {
                 earlier: vec![],
                 links: vec![],
                 done: None,
-                reopened: None,
             }),
             UnitMerged { unit, commits } => {
                 if let Some(u) = self.units.iter_mut().find(|u| &u.id == unit) {

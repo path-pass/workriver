@@ -54,7 +54,6 @@ pub struct RuntimeAgent {
 pub struct Place {
     /// The agent running there, if any (a plain shell has none).
     pub agent: Option<RuntimeAgent>,
-    pub group: Option<RuntimeRef>,
 }
 
 /// A place with the processes at its root, as the ids its operating system gives them:

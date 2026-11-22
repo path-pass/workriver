@@ -266,7 +266,7 @@ impl Fake {
     /// What is at a place: its agent, if one.
     fn at(&self, place: &str) -> workriver_core::runtime::Place {
         let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
-        workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent }
+        workriver_core::runtime::Place { agent }
     }
 
     /// What Herdr's prompt does once the place is known: typed, or refused as Herdr refuses.
@@ -508,13 +508,19 @@ pub(super) fn seat(d: &Daemon, ws: &str, agent: Option<&str>) -> anyhow::Result<
 
 /// The agent at `place` becomes the manager of a workspace, by the user's act, and the user
 /// starts a new intent there (the next id, i1 for the first). The workspace is the one named
-/// as the runtime group of the agent's place is labelled (made when there is none; `live`
-/// labels every group "chat"), so that agents a test puts in groups of two labels manage
-/// two workspaces: only a way for the tests to say which, nothing the product reads.
-/// `d`: the user's client.
+/// as the agent's runtime group is labelled, as the page lists the agent (made when there is
+/// none; `live` labels every group "chat"), so that agents a test puts in groups of two
+/// labels manage two workspaces: only a way for the tests to say which, nothing the product
+/// reads. `d`: the user's client.
 pub(super) fn manage(d: &Daemon, place: &str, agent: &str) -> String {
-    let here = at_place(d, place).call("/api/here", Some(json!({}))).unwrap();
-    let ws = workspace_named(d, here["group"]["label"].as_str().unwrap_or("chat"));
+    at_place(d, place).call("/api/here", Some(json!({}))).unwrap();
+    let mut label = None;
+    wait_until("the agent is listed", || {
+        let sessions = d.get("/api/workspace").unwrap()["sessions"].clone();
+        label = sessions.as_array().into_iter().flatten().find(|s| s["session"] == agent && s["ended"] != true).map(|s| s["group"]["label"].as_str().unwrap_or("chat").to_string());
+        label.is_some()
+    });
+    let ws = workspace_named(d, label.as_deref().unwrap_or("chat"));
     seat(d, &ws, Some(agent)).unwrap();
     let made = d.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     let id = made["body"]["id"].as_str().unwrap().to_string();

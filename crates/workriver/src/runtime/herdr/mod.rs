@@ -25,7 +25,6 @@ mod terminals;
 mod watch;
 pub mod words;
 
-use agents::group;
 
 /// This machine's Herdr, and a line on what is wrong with the connection when it does not
 /// answer with our protocol.
@@ -64,10 +63,9 @@ impl Runtime for Herdr {
     }
 
     fn locate(&self, _: Option<&str>, place: &str) -> Result<Place, RuntimeError> {
-        let (snap, list) = self.read()?;
+        let (_, list) = self.read()?;
         let agent = list.into_iter().find(|(p, _)| p == place).map(|(_, a)| a);
-        let group = snap.panes.iter().find(|p| p.pane_id == place).and_then(|p| group(&snap, &p.workspace_id, self.label()));
-        Ok(Place { agent, group })
+        Ok(Place { agent })
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {

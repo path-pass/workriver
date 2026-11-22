@@ -118,7 +118,6 @@ fn where_is(state: &core::State, live: &[RuntimeAgent], names: &Names, manager: 
 /// commits, uncommitted work, what other sessions are about and the machine each runs on
 /// (a workspace's own machine stays: it is the workspace's, kept in the records too).
 fn hide(ws: &mut Workspace, state: &core::State) {
-    ws.reduced = true;
     for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
         hide_unit(u);
     }
@@ -444,7 +443,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_default())))
         .collect();
     let messages = messages(state, live, &names);
-    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
+    Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, chores, alerts: vec![], messages, runs: vec![] }
 }
 
 /// Whether a unit is work to coordinate with: not merged, not closed, and its intent neither

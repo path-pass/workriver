@@ -110,7 +110,7 @@ fn unit_in(repo: &std::path::Path) -> core::Unit {
         id: "u1".into(), intent: "i1".into(), title: String::new(), purpose: String::new(),
         repo: repo.to_str().unwrap().into(), branch: "feature".into(), base: "main".into(),
         at: String::new(), merged: None, machine: None, merged_commits: vec![], tasks: vec![],
-        earlier: vec![], links: vec![], done: None, reopened: None, kind: core::UnitKind::Code,
+        earlier: vec![], links: vec![], done: None, kind: core::UnitKind::Code,
     }
 }
 
