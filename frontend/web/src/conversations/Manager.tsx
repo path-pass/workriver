@@ -16,7 +16,7 @@ import type { Talk, Answer } from './types'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { chipKey, chipsOf, EVERY, leaveOut, messageOf, repliesOf } from './select'
+import { chipKey, chipsOf, EVERY, leaveOut, messageOf, placesOf, repliesOf } from './select'
 import { Chips, Log, MessageView } from './Turns'
 
 /** Whether pasted html holds text of its own (tags, styles and scripts left out). Parsed
@@ -116,15 +116,14 @@ export function Box({ label, placeholder, focusAt, above, below, disabled, close
 
 /** How long a conversation is on screen before its new messages count as read, in ms. */
 const READ_AFTER = 1500
-/** The last request to show a workspace's conversation that was followed. */
-let managerSeen = 0
 
 /** The select's value for the conversation with every manager (a workspace's is `w:` and its label). */
 const ALL = 'all'
 
 /**
  * The conversation with a workspace's manager: the picked unit's intent's workspace, or one
- * picked from those with a manager, or every manager at once. What the user writes is typed
+ * picked from those with a manager (the page holds the pick: `talk.to`; a project switch may
+ * change it), or every manager at once. What the user writes is typed
  * into the manager's terminal (held while it waits for a person there); it replies with
  * `workriver reply`. To every manager: each running one gets its copy, and replies under it.
  */
@@ -146,24 +145,9 @@ export function Manager({ unit, n, finding, talk }: { unit: Unit | null; n: Task
 
 function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk; takeFiles: { current: ((files: File[]) => void) | null } }) {
   const { t } = useT()
-  const intent = talk.intents.find(i => i.id === talk.intent) ?? (unit ? talk.intents.find(i => i.units.some(u => u.id === unit.id)) : undefined)
-  const own = intent?.state === 'active' ? intent.workspace?.label : undefined
-  const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
-  const labels = [...new Set([own, ...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter((l): l is string => !!l))]
-  const [chosen, setChosen] = useState<string | null>(talk.to ?? null)
   // Every manager at once: offered with more than one running, or once written to; once
   // picked it stays picked, however many run (none: the draft stays and nothing is sent).
-  const every = running.length > 1 || chosen === EVERY || talk.messages.some(m => m.workspace === EVERY)
-  // Asked for again (Needs you, an intent's page): the workspace named, or the one on screen.
-  // (Kept outside the component: the section may mount with the request already made.)
-  useEffect(() => {
-    if ((talk.managerAt ?? 0) > managerSeen) { managerSeen = talk.managerAt!; setChosen(talk.to ?? null) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [talk.managerAt])
-  // Asked about something on screen ("Ask the manager", `?`): the unit's own workspace.
-  const focusSeen = useRef(talk.focusAt)
-  useEffect(() => { if (talk.focusAt !== focusSeen.current) { focusSeen.current = talk.focusAt; setChosen(null) } }, [talk.focusAt])
-  const label = (chosen !== null && (labels.includes(chosen) || (chosen === EVERY && every)) ? chosen : null) ?? own ?? labels[0] ?? null
+  const { intent, own, running, labels, every, label } = placesOf(talk, unit?.id)
   const all = label === EVERY
   const manager = all ? undefined : running.find(s => s.group!.label === label)
   const list = talk.messages.filter(m => m.workspace === label)
@@ -231,7 +215,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   return (
     <>
       <div ref={shown} className="flex min-h-0 flex-1 flex-col px-4 pb-3 text-sm">
-        {options.length > 1 && <Choice value={label === null ? '' : all ? ALL : `w:${label}`} onChange={v => setChosen(v === ALL ? EVERY : v.slice(2))} options={options} label={t('talk.workspace')} className="mb-2 flex-none" />}
+        {options.length > 1 && <Choice value={label === null ? '' : all ? ALL : `w:${label}`} onChange={v => talk.onPick(v === ALL ? EVERY : v.slice(2))} options={options} label={t('talk.workspace')} className="mb-2 flex-none" />}
         {label === null
           ? <p className="text-ink-2">{t('talk.noWorkspace')}</p>
           : !list.length

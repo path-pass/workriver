@@ -14,6 +14,7 @@ import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
 import { Manager } from '@/conversations/Manager'
+import { EVERY, followProject } from '@/conversations/select'
 import type { Talk, AskContext, Copy, ManagerMessage, Turn } from '@/conversations/types'
 import { isField } from '@/lib/isField'
 import { CodeLayer } from '@/code/CodeLayer'
@@ -40,6 +41,8 @@ import { useCode } from '@/code/useCode'
 const SIDE = 'workriver.side'
 const RAIL = 'workriver.rail'
 const PROJECT = 'workriver.project'
+/** Per project (its folder): the workspace last picked in the Manager section among the project's. */
+const TALK = 'workriver.talk.'
 
 /**
  * The same object as long as its content is the same: a new snapshot that did not change the
@@ -81,8 +84,17 @@ export default function App() {
   const pickProject = (p: string | null) => {
     setProject(p)
     remember(PROJECT, p ?? '')
-    if (!ws || (unitId && (!p || intentOf(ws, unitId)?.project === p))) return
-    const first = firstUnit(ws, p)
+    if (!ws) return
+    const stays = !!unitId && (!p || intentOf(ws, unitId)?.project === p)
+    const first = stays ? undefined : firstUnit(ws, p)
+    // The Manager section follows to the project's manager (conversations/select's followProject).
+    if (p && talk) {
+      const intent = stays ? talk.intent : first && intentOf(ws, first.id)?.id
+      const to = followProject(talk, { project: p, intent }, recall(TALK + p))
+      // Followed to: it holds while the intent opened now is on screen.
+      if (to !== undefined) setTalk(to === null ? {} : { to, at: intent ?? '' })
+    }
+    if (stays) return
     if (first) return pickUnit(ws, first.id)
     setUnitId(null)
     setPick(null)
@@ -163,11 +175,20 @@ export default function App() {
   useEffect(() => setLines(l => (l && l.commit === undefined && l.path === file ? l : null)), [file])
   // A request for the Manager box to take the cursor, with more chips for one task.
   const [askReq, setAskReq] = useState<{ at: number; task: string | null; extra: AskContext[] }>({ at: 0, task: null, extra: [] })
-  // A request for the Manager section to show a workspace's conversation (Needs you, an intent's page).
-  const [managerAt, setManagerAt] = useState(0)
-  // The workspace whose conversation it shows (from Needs you); none: the one on screen.
-  const [talkTo, setTalkTo] = useState<string | undefined>()
-  const showTalk = (workspace?: string) => { openAsk(false); setTalkTo(workspace); setManagerAt(Date.now()) }
+  // The workspace whose conversation the Manager section shows: picked there, asked for (Needs
+  // you, an intent's page) or followed to on a project switch (`at`: the intent then on
+  // screen); none: the one on screen.
+  const [talkTo, setTalk] = useState<{ to?: string; at?: string }>({})
+  const setTalkTo = (to?: string) => setTalk({ to })
+  const showTalk = (workspace?: string) => { openAsk(false); setTalkTo(workspace) }
+  // The project a workspace works on, as the rail knows it (Start's dialog, Settings).
+  const projectOf = (label: string) => ws?.workspaces?.find(w => w.label === label)?.project
+  // Picked by hand: shown until the next switch, and remembered for its project.
+  const pickTalk = (workspace: string) => {
+    setTalkTo(workspace)
+    const p = workspace === EVERY ? undefined : projectOf(workspace)
+    if (p) remember(TALK + p, workspace)
+  }
   useEffect(() => setAskReq(r => (r.extra.length ? { ...r, extra: [] } : r)), [lines])
   // The stored attachment the viewer shows, if any: a message can point at it.
   const [viewing, setViewing] = useState<Attachment | null>(null)
@@ -365,7 +386,7 @@ export default function App() {
   const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines,
-        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), managerAt, to: talkTo, onRead,
+        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), to: talkTo.to, followedAt: talkTo.at, onPick: pickTalk, project: project ?? undefined, projectOf, onRead,
         intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead, onAnswer,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
