@@ -180,7 +180,58 @@ pub(in crate::server) struct Fake {
     /// Called as the agents are listed, before the list is read: a test pauses the service
     /// there.
     pub(super) on_agents: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
+    /// What each agent's place shows now (its visible text), by place; none: an empty screen.
+    pub(super) shown: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    /// What each press at a place brings, in order: the screen then, and its agent's state then.
+    pub(super) then: std::sync::Mutex<std::collections::HashMap<String, std::collections::VecDeque<Next>>>,
+    /// Keys pressed, one entry per press, with the place.
+    pub(super) pressed: std::sync::Mutex<Vec<(String, Vec<workriver_core::screens::Key>)>>,
+    /// Pressing fails as when the runtime's answer is lost: the keys may have gone.
+    pub(super) press_fails: std::sync::atomic::AtomicBool,
+    /// Screens read, by place, in order; messages typed at a place, (place, text).
+    pub(super) reads: std::sync::Mutex<Vec<String>>,
+    pub(super) typed_at: std::sync::Mutex<Vec<(String, String)>>,
+    /// Other places that show a session too, (place, session): as a resumed session does.
+    pub(super) also: std::sync::Mutex<Vec<(String, String)>>,
+    /// Called with the place as a screen is read, before it is given.
+    pub(super) on_read: std::sync::Mutex<Option<Look>>,
+    /// The changes `watch` tells, as the test sends them; how often `watch` was called.
+    pub(super) changes: std::sync::Mutex<Option<std::sync::mpsc::Receiver<workriver_core::runtime::Change>>>,
+    pub(super) watched: std::sync::atomic::AtomicUsize,
+    /// Why the runtime calls an agent blocked.
+    pub(super) why: std::sync::Mutex<Option<String>>,
+    /// The frames a view gives, then nothing but quiet; how many views are open now.
+    pub(super) frames: std::sync::Mutex<Vec<workriver_core::screens::Frame>>,
+    pub(super) observing: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
+
+/// An open view of the fake runtime: counted while it lives.
+struct Viewing {
+    frames: std::collections::VecDeque<workriver_core::screens::Frame>,
+    open: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Iterator for Viewing {
+    type Item = Result<Option<workriver_core::screens::Frame>, workriver_core::runtime::RuntimeError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.frames.pop_front() {
+            Some(f) => Some(Ok(Some(f))),
+            None => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                Some(Ok(None))
+            }
+        }
+    }
+}
+
+impl Drop for Viewing {
+    fn drop(&mut self) {
+        self.open.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// What a press brings: the screen then, and its agent's state then (none: as it was).
+type Next = (String, Option<workriver_core::runtime::AgentState>);
 
 /// What a test does as a message is taken, given its receiver.
 type Look = Box<dyn Fn(&str) + Send>;
@@ -302,6 +353,74 @@ impl workriver_core::runtime::Runtime for Fake {
         self.closed.lock().unwrap().push(agent.into());
         self.agents.lock().unwrap().retain(|(_, a)| a.name != agent && a.session != agent);
         Ok(())
+    }
+    /// As Herdr's: the places that show the session now (its agent's, and any `also`); a session
+    /// typed into through `through`, or a runtime that does not answer, as one that cannot.
+    fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
+        use workriver_core::runtime::RuntimeError;
+        if self.through.lock().unwrap().as_ref().is_some_and(|(to, _)| to == session) || self.down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(RuntimeError::None);
+        }
+        let mut places: Vec<String> = self.agents.lock().unwrap().iter().filter(|(_, a)| a.session == session).map(|(p, _)| p.clone()).collect();
+        places.extend(self.also.lock().unwrap().iter().filter(|(_, s)| s == session).map(|(p, _)| p.clone()));
+        match places.as_slice() {
+            [] => Err(RuntimeError::NoAgent(session.into())),
+            [one] => Ok(one.clone()),
+            _ => Err(RuntimeError::Ambiguous(format!("{session} shows in {}", places.join(", ")))),
+        }
+    }
+    fn screen(&self, _: Option<&str>, place: &str) -> Result<workriver_core::screens::Screen, workriver_core::runtime::RuntimeError> {
+        self.reads.lock().unwrap().push(place.into());
+        if let Some(look) = &*self.on_read.lock().unwrap() {
+            look(place);
+        }
+        Ok(workriver_core::screens::Screen::of(self.shown.lock().unwrap().get(place).cloned().unwrap_or_default()))
+    }
+    fn press(&self, _: Option<&str>, place: &str, keys: &[workriver_core::screens::Key]) -> Result<(), workriver_core::runtime::RuntimeError> {
+        self.pressed.lock().unwrap().push((place.into(), keys.to_vec()));
+        if self.press_fails.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(workriver_core::runtime::RuntimeError::Failed("herdr pane.send_keys: the answer was lost".into()));
+        }
+        let next = self.then.lock().unwrap().get_mut(place).and_then(|q| q.pop_front());
+        if let Some((screen, state)) = next {
+            self.shown.lock().unwrap().insert(place.into(), screen);
+            if let Some(state) = state {
+                self.agents.lock().unwrap().iter_mut().filter(|(p, _)| p == place).for_each(|(_, a)| a.state = state);
+            }
+        }
+        Ok(())
+    }
+    /// To the agent at that place, as `send` takes it.
+    fn send_at(&self, _: Option<&str>, place: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        self.typed_at.lock().unwrap().push((place.into(), text.into()));
+        let at = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.session.clone());
+        let at = at.or_else(|| self.also.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, s)| s.clone()));
+        let session = at.ok_or_else(|| workriver_core::runtime::RuntimeError::NoAgent(place.into()))?;
+        self.send(&session, text)
+    }
+    fn watch(&self, _: Option<&str>, to: &mut dyn FnMut(workriver_core::runtime::Change) -> bool) -> Result<(), workriver_core::runtime::RuntimeError> {
+        use std::sync::mpsc::RecvTimeoutError;
+        self.watched.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let changes = self.changes.lock().unwrap();
+        let Some(rx) = changes.as_ref() else { return Err(workriver_core::runtime::RuntimeError::None) };
+        loop {
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(c) => {
+                    if !to(c) {
+                        return Ok(());
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => return Err(workriver_core::runtime::RuntimeError::Failed("the change stream ended".into())),
+            }
+        }
+    }
+    fn observe(&self, _: Option<&str>, _: &str) -> Result<workriver_core::runtime::Frames, workriver_core::runtime::RuntimeError> {
+        self.observing.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Box::new(Viewing { frames: self.frames.lock().unwrap().clone().into(), open: self.observing.clone() }))
+    }
+    fn why_blocked(&self, _: Option<&str>, _: &str) -> Result<Option<String>, workriver_core::runtime::RuntimeError> {
+        Ok(self.why.lock().unwrap().clone())
     }
     fn run_shell(&self, machine: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
         let mut shells = self.shells.lock().unwrap();

@@ -367,6 +367,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
                 topic: a.topic.clone(),
                 // An agent that cannot be seen now is not known to wait.
                 blocked_since: (a.state == AgentState::Blocked && !away).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
+                on_screen: false,
                 idle_since: idle.get(&a.session).filter(|_| !away && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned(),
                 harness: (!a.harness.is_empty()).then(|| a.harness.clone()),
                 group,
@@ -382,7 +383,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
             let harness = state.agents.iter().find(|a| a.session == session).map(|a| a.harness.clone()).filter(|h| !h.is_empty());
-            sessions.push(Session { agent, session, topic: None, blocked_since: None, idle_since: None, harness, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
+            sessions.push(Session { agent, session, topic: None, blocked_since: None, on_screen: false, idle_since: None, harness, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
         }
     }
     let backlog = state
@@ -854,6 +855,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
             steps: (t.kind == TaskKind::Gate).then(|| t.steps.clone()),
             notes: notes_of(state, names, &t.notes),
             choice: t.choice.clone(),
+            answers: t.answers.clone(),
         },
         output: TaskOut {
             commits: Some(commits),
@@ -915,7 +917,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         reviewer: None,
         result: None,
         inputs: vec![core::Input { from: "start".into(), primary: true }],
-        input: TaskIn { text: String::new(), causes: vec![], steps: None, notes: vec![], choice: None },
+        input: TaskIn { text: String::new(), causes: vec![], steps: None, notes: vec![], choice: None, answers: vec![] },
         output: TaskOut { commits: Some(vec![c.id.clone()]), ..Default::default() },
         plans: vec![],
         delivery: None,

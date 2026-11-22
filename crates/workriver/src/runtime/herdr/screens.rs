@@ -89,9 +89,8 @@ impl Herdr {
         if !client.exists() {
             return Err(RuntimeError::Failed(format!("no terminal stream: Herdr's client socket {} is not there", client.display())));
         }
-        let mut child = observe_command(&self.socket, pane).spawn().map_err(|e| RuntimeError::Failed(format!("cannot run herdr terminal session observe: {e}")))?;
-        let out = child.stdout.take().ok_or_else(|| RuntimeError::Failed("herdr terminal session observe: no output".into()))?;
-        Ok(Box::new(Observed { child, lines: BufReader::new(out), done: false }))
+        let child = observe_command(&self.socket, pane).spawn().map_err(|e| RuntimeError::Failed(format!("cannot run herdr terminal session observe: {e}")))?;
+        Ok(Box::new(read_frames(child)?))
     }
 }
 
@@ -110,45 +109,64 @@ fn explained(v: &Value) -> Option<String> {
     }
 }
 
-/// An observe child's frames; dropping it kills and reaps the child.
+/// An observe child's frames, read on a thread of their own so that a quiet terminal still
+/// gives a `None` every second; dropping it kills and reaps the child, which ends that thread.
 struct Observed {
     child: Child,
-    lines: BufReader<std::process::ChildStdout>,
+    frames: std::sync::mpsc::Receiver<Result<Frame, RuntimeError>>,
     done: bool,
 }
 
+/// How long a quiet terminal goes before its reader is asked whether it is still wanted.
+const QUIET: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The child's frames as they come, then why it ended (its last line on stderr), if it said.
+fn read_frames(mut child: Child) -> Result<Observed, RuntimeError> {
+    let out = child.stdout.take().ok_or_else(|| RuntimeError::Failed("herdr terminal session observe: no output".into()))?;
+    let err = child.stderr.take();
+    let (tx, frames) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines() {
+            let Ok(line) = line else { break };
+            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            if v["type"] != "terminal.frame" {
+                continue;
+            }
+            let n = |k: &str| v[k].as_u64().unwrap_or(0);
+            let frame = Frame { full: v["full"].as_bool().unwrap_or(false), cols: n("width") as u16, rows: n("height") as u16, seq: n("seq"), bytes: v["bytes"].as_str().unwrap_or_default().to_string() };
+            if tx.send(Ok(frame)).is_err() {
+                return;
+            }
+        }
+        let mut why = String::new();
+        if let Some(mut e) = err {
+            let _ = std::io::Read::read_to_string(&mut e, &mut why);
+        }
+        let why = why.lines().last().unwrap_or("").trim().to_string();
+        if !why.is_empty() {
+            let _ = tx.send(Err(RuntimeError::Failed(format!("herdr terminal session observe: {why}"))));
+        }
+    });
+    Ok(Observed { child, frames, done: false })
+}
+
 impl Iterator for Observed {
-    type Item = Result<Frame, RuntimeError>;
+    type Item = Result<Option<Frame>, RuntimeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             return None;
         }
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match self.lines.read_line(&mut line) {
-                Ok(0) => {
-                    self.done = true;
-                    let mut why = String::new();
-                    if let Some(mut e) = self.child.stderr.take() {
-                        let _ = std::io::Read::read_to_string(&mut e, &mut why);
-                    }
-                    let why = why.lines().last().unwrap_or("").trim().to_string();
-                    return (!why.is_empty()).then(|| Err(RuntimeError::Failed(format!("herdr terminal session observe: {why}"))));
-                }
-                Err(e) => {
-                    self.done = true;
-                    return Some(Err(RuntimeError::Failed(format!("herdr terminal session observe: {e}"))));
-                }
-                Ok(_) => {
-                    let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-                    if v["type"] != "terminal.frame" {
-                        continue;
-                    }
-                    let n = |k: &str| v[k].as_u64().unwrap_or(0);
-                    return Some(Ok(Frame { full: v["full"].as_bool().unwrap_or(false), cols: n("width") as u16, rows: n("height") as u16, seq: n("seq"), bytes: v["bytes"].as_str().unwrap_or_default().to_string() }));
-                }
+        match self.frames.recv_timeout(QUIET) {
+            Ok(Ok(f)) => Some(Ok(Some(f))),
+            Ok(Err(e)) => {
+                self.done = true;
+                Some(Err(e))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Some(Ok(None)),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                self.done = true;
+                None
             }
         }
     }

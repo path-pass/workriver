@@ -101,8 +101,10 @@ pub struct Change {
     pub state: AgentState,
 }
 
-/// A place's terminal as frames, the first one whole; dropping it stops it.
-pub type Frames = Box<dyn Iterator<Item = Result<Frame, RuntimeError>> + Send>;
+/// A place's terminal as frames, the first one whole; dropping it stops it. An item of `None`
+/// says nothing was drawn for a while (about a second), so that whoever reads it can see
+/// whether it is still wanted, and drop it, even while the terminal is quiet.
+pub type Frames = Box<dyn Iterator<Item = Result<Option<Frame>, RuntimeError>> + Send>;
 
 /// Sync on purpose: the daemon calls it from a blocking task.
 pub trait Runtime: Send + Sync {

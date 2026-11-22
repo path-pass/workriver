@@ -30,3 +30,13 @@ pub const SESSION_RECHECK_SECS: u64 = 300;
 /// reading all of it (a refusal from the headers alone): as long as the CLI waits for an
 /// upload, the slowest request it sends. A client still sending after that has given up.
 pub const LEFT_BODY_SECS: u64 = 120;
+
+/// How many terminal views may be open at once, across every page: one observe process each
+/// (about 9 MB), and a working terminal costs its runtime about 3 % of a core to stream; a
+/// page shows one at a time.
+pub const VIEWS_MAX: usize = 4;
+/// How many frames of a terminal view wait for a slow page before its stream is ended (it is
+/// opened again from a whole frame).
+pub const VIEW_QUEUE: usize = 256;
+/// A frame larger than this (base64) is not passed on: a whole 120×40 screen is 5–10 KB.
+pub const VIEW_FRAME_MAX: usize = 1024 * 1024;

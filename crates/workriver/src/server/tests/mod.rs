@@ -10,5 +10,6 @@ mod machines;
 mod ownership;
 mod planning;
 pub(super) mod support;
+mod terminals;
 mod views;
 mod work;

@@ -59,6 +59,8 @@ pub struct Machines {
     entries: Mutex<Vec<Arc<Entry>>>,
     /// Each machine's listener port on this machine.
     ports: Mutex<BTreeMap<String, u16>>,
+    /// Told when a machine's runtime tells of a change and its agents were read again.
+    waker: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// How long between reads of a machine's agents: `OK` while it answers, doubling up to
@@ -68,13 +70,18 @@ const MAX: Duration = Duration::from_secs(120);
 
 impl Machines {
     pub fn new(local: Arc<dyn Runtime>, home: PathBuf, terminal_app: String) -> Arc<Machines> {
-        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app, ssh: "ssh".into(), pace: Pace::default(), entries: Mutex::default(), ports: Mutex::default() })
+        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app, ssh: "ssh".into(), pace: Pace::default(), entries: Mutex::default(), ports: Mutex::default(), waker: Mutex::default() })
     }
 
     /// For tests: ssh is `program` (a stand-in), with these waits.
     #[cfg(test)]
     pub fn with_ssh(local: Arc<dyn Runtime>, home: PathBuf, program: &str, pace: Pace) -> Arc<Machines> {
-        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default() })
+        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default(), waker: Mutex::default() })
+    }
+
+    /// What to call when a machine's runtime tells of a change, once its agents were read again.
+    pub fn on_change(&self, f: Arc<dyn Fn() + Send + Sync>) {
+        *self.waker.lock().unwrap() = Some(f);
     }
 
     fn settings(&self) -> Settings {
@@ -200,6 +207,27 @@ impl Machines {
                     (delay * 2).min(MAX)
                 };
                 nap(delay, &e.stop);
+            }
+        });
+        // Its changes as they happen, while its connection is up: each reads its agents again
+        // at once and wakes the service's poll. Opened again a while after it ends.
+        let w = entry.clone();
+        let waker = self.waker.lock().unwrap().clone();
+        std::thread::spawn(move || {
+            while !w.stop.load(Ordering::Relaxed) {
+                if w.tunnel.lock().unwrap().up {
+                    let _ = w.runtime.watch(None, &mut |_| {
+                        if w.stop.load(Ordering::Relaxed) {
+                            return false;
+                        }
+                        poll_once(&w, false);
+                        if let Some(f) = &waker {
+                            f();
+                        }
+                        true
+                    });
+                }
+                nap(Duration::from_secs(5), &w.stop);
             }
         });
         let (ssh, pace, host, home) = (self.ssh.clone(), self.pace, this_host(), self.home.clone());

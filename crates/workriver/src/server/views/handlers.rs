@@ -174,6 +174,10 @@ impl App {
         cache.ready_after = Some(self.waits.hour * self.ready_hours);
         let mut ws = views::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &groups);
         views::mark_gone(&mut ws, &self.gone.lock().unwrap());
+        let on_screen = self.on_screen();
+        for s in ws.sessions.iter_mut().filter(|s| s.blocked_since.is_some()) {
+            s.on_screen = on_screen.contains(&s.session);
+        }
         cache.save();
         // Each task an agent started or delivered: that agent's harness and model (where the
         // harness keeps the session is `task show`'s). One still to do has none: its agent's

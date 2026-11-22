@@ -290,7 +290,8 @@ fn a_command_is_reviewed_before_it_runs() {
     assert_eq!(shown["review"]["state"], "pending", "{shown}");
     let id = shown["id"].as_str().unwrap().to_string();
     let name = format!("review-{id}");
-    let prompt_of = |name: &str| fake.sent.lock().unwrap().iter().find(|(to, _)| to == name).map(|(_, m)| m.clone());
+    // Typed into by its session (`s-<name>` in the fake).
+    let prompt_of = |name: &str| fake.sent.lock().unwrap().iter().find(|(to, _)| *to == format!("s-{name}")).map(|(_, m)| m.clone());
     wait_until("the review agent is asked", || prompt_of(&name).is_some());
     let started = fake.started.lock().unwrap()[0].clone();
     assert_eq!(started, ("workriver-commands".into(), "claude".into(), name.clone(), shown["dir"].as_str().unwrap().into()), "workriver's group, where it would run");

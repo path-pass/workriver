@@ -56,6 +56,10 @@ impl App {
                 }
             }
         }
+        // What the runtime misses, the screen may show: such an agent is counted as blocked.
+        if let Some(now) = now.as_mut() {
+            self.look_at_screens(now);
+        }
         let groups = self.runtime.groups().unwrap_or_default();
         let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
         {

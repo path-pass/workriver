@@ -144,7 +144,7 @@ fn rows_and_the_marker() {
     let moved = text.replace(" ❯ Yes, I trust", "   Yes, I trust").replace("   No, exit", " ❯ No, exit");
     assert_ne!(moved, text);
     assert_eq!(unmarked(&moved), unmarked(&text));
-    assert_eq!(parse(&moved).unwrap().options[0].marked, true);
+    assert!(parse(&moved).unwrap().options[0].marked);
     // Any other change is not hidden by it.
     assert_ne!(unmarked(&moved.replace("No, exit", "No, quit")), unmarked(&text));
 }
