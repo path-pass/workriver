@@ -39,7 +39,7 @@ export interface InboxRow {
   /** A chore of no intent: its project's name, if it has a project. */
   project?: string
   /** agent: the agent waiting in its terminal, and where it runs. */
-  agent?: { name: string; session?: string; topic?: string; place: string }
+  agent?: { name: string; session?: string; machine?: string; topic?: string; place: string }
   /** seat: an open workspace with an active intent and no manager running: whom to offer. */
   seat?: { space: Space; proposal?: string; moved: boolean }
   /** machine: a machine past an alert threshold. */
@@ -120,8 +120,8 @@ export function inbox(ws: Workspace): Inbox {
   const waiting = blockedAgents(ws).map((s): InboxRow => {
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     return {
-      key: `agent:${s.session ?? s.agent}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, since: ms(s.blockedSince),
-      agent: { name: s.agent, session: s.session, topic: s.topic, place: intent?.title ?? ws.workspaces?.find(w => w.id === s.workspace)?.name ?? s.group?.label ?? '' },
+      key: `agent:${s.session ?? s.agent}${s.machine ? `:${s.machine}` : ''}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, since: ms(s.blockedSince),
+      agent: { name: s.agent, session: s.session, machine: s.machine, topic: s.topic, place: intent?.title ?? ws.workspaces?.find(w => w.id === s.workspace)?.name ?? s.group?.label ?? '' },
     }
   }).sort(oldest)
   box.blocking.sort(oldest)

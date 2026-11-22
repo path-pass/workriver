@@ -7,6 +7,11 @@ import { SECTIONS, SideButtons, SidePanel, SideSheet, type Section } from './Sid
 import type { Also, CommitFocus, Lines } from '@/code/types'
 import { Progress, Squashed, Rail } from '@/planning/Rail'
 import { Topics } from '@/agents/Mark'
+import { AgentContext, type AgentActions } from '@/agents/context'
+import { Gate } from '@/agents/Gate'
+import { TerminalDock } from '@/agents/TerminalView'
+import type { AgentRef, Session } from '@/agents/types'
+import { liveSession, refOf } from '@/agents/select'
 import { MachineChip, alertLimit, alertValue, topLine } from '@/machines/format'
 import { CopyButton } from '@/ui/CopyButton'
 import { Start, StartIntent } from '@/planning/Start'
@@ -130,16 +135,29 @@ export default function App() {
   const ws = useMemo(() => data && withEdits(data, edits), [data, edits])
   // A remembered project that is no longer there (another data folder) shows all.
   const project = data?.projects?.some(p => p.id === picked) ? picked : null
-  // Agents newly waiting in their terminal: a notification (if wanted), and the count in the
-  // tab's title with the gates waiting.
+  // An agent's gate (its question answered here) and the one terminal view of the page: the
+  // session as it was when opened; shown as it is now while it lives. A session is found by
+  // its session and machine together: the same session can live on two machines.
+  const [gate, setGate] = useState<Session | null>(null)
+  const [term, setTerm] = useState<Session | null>(null)
+  const liveOf = (s: Session | null) => (s && data && liveSession(data.sessions, refOf(s))) || null
+  const sessions = useRef<Session[]>([])
+  sessions.current = data?.sessions ?? []
+  const agentActions = useMemo<AgentActions>(() => {
+    const find = (r: AgentRef): Session => liveSession(sessions.current, r) ?? { agent: r.name, session: r.session ?? undefined, machine: r.machine, ended: true }
+    return { answer: r => setGate(find(r)), view: r => setTerm(find(r)) }
+  }, [])
+  // Agents newly waiting in their terminal: a notification (if wanted) that opens its gate,
+  // and the count in the tab's title with the gates waiting.
   const seen = useRef<Set<string> | null>(null)
   useEffect(() => {
     if (!data) return
     const now = blockedAgents(data)
     const before = seen.current
-    seen.current = new Set(now.map(s => s.session ?? s.agent))
+    const key = (s: Session) => `${s.session ?? s.agent}${s.machine ? `@${s.machine}` : ''}`
+    seen.current = new Set(now.map(key))
     // The first data only sets what is known; it is not news.
-    if (before) for (const s of now) if (!before.has(s.session ?? s.agent)) notify(t('agents.notice', { agent: s.agent }), s.topic, s.session ?? s.agent)
+    if (before) for (const s of now) if (!before.has(key(s))) notify(t('agents.notice', { agent: s.agent }), s.topic, key(s), () => setGate(s))
   }, [data, t])
   // A machine alert: a notification when it rises, and again only when it becomes critical;
   // never again while it stays (nor when it steps back to a warning).
@@ -154,7 +172,7 @@ export default function App() {
     if (before)
       for (const a of now.filter(a => keys(a).some(k => !before.has(k)))) {
         const body = [`${t(`metrics.level.${a.level}`)}: ${alertLimit(t, a)}`, topLine(t, lang, a)].filter(Boolean).join('\n')
-        notify(t('metrics.notice', { machine: a.here ? t('metrics.here') : a.machine, metric: t(`metrics.${a.metric}`), value: alertValue(t, lang, a) }), body, `alert:${key(a)}:${a.level}`, false)
+        notify(t('metrics.notice', { machine: a.here ? t('metrics.here') : a.machine, metric: t(`metrics.${a.metric}`), value: alertValue(t, lang, a) }), body, `alert:${key(a)}:${a.level}`)
       }
   }, [data, t, lang])
   const box = useMemo(() => ws && inbox(ws), [ws])
@@ -477,6 +495,7 @@ export default function App() {
     <ViewerContext.Provider value={viewer}>
     <Topics.Provider value={topics}>
     <Spaces.Provider value={ws?.workspaces ?? NO_SPACES}>
+    <AgentContext.Provider value={agentActions}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
       <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
@@ -518,7 +537,7 @@ export default function App() {
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
-            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
+            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} workspace={intentOf(ws, unit.id)?.workspace} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
             {tree && coded && codeSel && <CodeLayer
               root={tree}
               unit={coded}
@@ -537,6 +556,7 @@ export default function App() {
             />}
           </>
         )}
+        {term && <TerminalDock s={liveOf(term) ?? term} gone={!liveOf(term)} onClose={() => setTerm(null)} />}
       </main>
       {ws && (
         <>
@@ -547,8 +567,10 @@ export default function App() {
       <StartIntent ws={ws} intent={starting} onClose={() => setStarting(null)} onStarted={(i, w) => setEdits(e => ({ ...e, starts: { ...e.starts, [i]: w } }))} />
       <SeatDialog ws={ws} />
       <RunDialog ask={running} onClose={() => setRunning(null)} />
+      {ws && <Gate ws={ws} s={gate && (liveOf(gate) ?? gate)} onClose={() => setGate(null)} onOpen={open} onView={setTerm} />}
       <Notes />
     </div>
+    </AgentContext.Provider>
     </Spaces.Provider>
     </Topics.Provider>
     </ViewerContext.Provider>

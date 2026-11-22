@@ -1,19 +1,23 @@
 // The side panel's Agents section: the agents as a tree, by the workspace the records put
 // them in (its seat, else its tasks'); the rest under "In no workspace".
+import { useContext } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
-import { agentTree, type TreeAgent } from './select'
+import { agentTree, refOf, type TreeAgent } from './select'
 import { contentLang, useT } from '@/i18n'
 import { NodeName } from '@/work/Nodes'
 import { TerminalButton, Who } from './Mark'
+import { AgentContext } from './context'
 import { MachineChip } from '@/machines/format'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import type { Pick } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
 
-/** One agent of the tree: the line opens its work, the icon at its end its terminal; under it, its question agents. */
+/** One agent of the tree: the line opens its work (and, blocked, its gate), the icon at its
+ *  end its terminal view; under it, its question agents. */
 function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pick: Pick } | null; onOpen: (unit: string, pick: Pick) => void }) {
   const { t, waited } = useT()
+  const agents = useContext(AgentContext)
   const { s, state, at } = a
   const ago = Number.isFinite(a.since) ? waited(a.since) : ''
   const word = a.closable
@@ -40,9 +44,12 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
           type="button"
           className="agent"
           data-state={state}
-          disabled={!at}
+          disabled={!at && state !== 'blocked'}
           aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
-          onClick={() => at && onOpen(at.unit.id, { kind: 'task', id: at.node.id })}
+          onClick={() => {
+            if (at) onOpen(at.unit.id, { kind: 'task', id: at.node.id })
+            if (state === 'blocked') agents.answer(refOf(s))
+          }}
         >
           <Who name={s.agent} topic={s.topic} live={state === 'working' && !!at?.node.writing} />
           <span className="agent-name">
@@ -56,9 +63,9 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
           {/* Under the name and the word: it takes the whole width left of the terminal button. */}
           {sub.length > 0 && <span className="sub">{sub.flatMap((x, k) => (k ? [<span key={`d${k}`} aria-hidden className="flex-none">·</span>, x] : [x]))}</span>}
         </button>
-        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} />}
+        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} machine={s.machine} />}
       </div>
-      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={k.s.session ?? k.s.agent} a={k} here={here} onOpen={onOpen} />)}</ul>}
+      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={`${k.s.session ?? k.s.agent}\n${k.s.machine ?? ''}`} a={k} here={here} onOpen={onOpen} />)}</ul>}
     </li>
   )
 }

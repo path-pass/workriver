@@ -56,6 +56,10 @@ impl App {
                 }
             }
         }
+        // What the runtime misses, the screen may show: such an agent is counted as blocked.
+        if let Some(now) = now.as_mut() {
+            self.look_at_screens(now);
+        }
         {
             let mut blocked = self.blocked.lock().unwrap();
             let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();

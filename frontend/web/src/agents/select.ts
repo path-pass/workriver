@@ -1,9 +1,36 @@
 // Where every agent is, worked out over the whole workspace (agents cross units).
 import type { Task } from '@/work/types'
 import type { Intent, Unit } from '@/planning/types'
-import type { Session } from './types'
+import type { AgentRef, Session } from './types'
 import type { Workspace } from '@/workspace/types'
 import { unitsOf, ms } from '@/planning/select'
+
+/** The ref of a session: its session and machine together. */
+export const refOf = (s: Session): AgentRef => ({ name: s.agent, session: s.session, machine: s.machine })
+
+/** Whether a session is the one a ref names: its session (or, with none, its name) on its
+ *  machine; an absent machine is this one and matches only an absent machine. */
+export const isRef = (r: AgentRef, x: Session) => (r.session ? x.session === r.session : x.agent === r.name) && (x.machine ?? '') === (r.machine ?? '')
+
+/** The live session a ref names. */
+export const liveSession = (sessions: Session[], r: AgentRef) => sessions.find(x => !x.ended && isRef(r, x))
+
+/**
+ * The live session a task's agent runs in: its session (or, with none, its name), in the
+ * task's workspace when it is known (a `Space.id`: the records put an agent there, by its
+ * seat or its tasks), and, when the task's unit has a repository, on that repository's machine
+ * (absent: this one). A unit with none (research, an intent's own work) names no machine, so
+ * its agent may be on any. Only when exactly one fits: the same session may show on two
+ * machines and a name in several workspaces, and keys must never go to another instance.
+ */
+export function taskSession(sessions: Session[], n: { agent?: string | null; agentSession?: string | null }, unit: { repo: string; machine?: string }, workspace?: string) {
+  if (!n.agent) return undefined
+  const fit = sessions.filter(x => !x.ended
+    && (n.agentSession && x.session ? x.session === n.agentSession : x.agent === n.agent)
+    && (!unit.repo || (x.machine ?? '') === (unit.machine ?? ''))
+    && (!workspace || x.workspace === workspace))
+  return fit.length === 1 ? fit[0] : undefined
+}
 
 /**
  * Where a live agent is, in the order the rail lists them. Agents cross units, so this is
@@ -63,7 +90,7 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
     const space = ws.workspaces?.find(w => w.id === s.workspace)
     const key = space?.id ?? ''
     if (!groups.has(key)) groups.set(key, { key, label: space?.name ?? '', intent, agents: [] })
-    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
+    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked' || !!s.onScreen, manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
   }
   const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
   const list = [...groups.values()]
@@ -120,7 +147,8 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
     const own = held.filter((a): a is NonNullable<TreeAgent['at']> => !!a)
     const live = own.find(a => a.node.state === 'running') ?? own.find(a => a.node.state === 'todo')
     const last = own.filter(a => a.node.state === 'done').sort((a, b) => (ms(a.node.delivered) || 0) - (ms(b.node.delivered) || 0)).at(-1) ?? null
-    const state = s.ended ? 'gone' : s.state === 'blocked' ? 'blocked' : s.state === 'working' ? 'working' : 'idle'
+    // One waiting on its screen (the runtime missed the dialog) is shown exactly as blocked.
+    const state = s.ended ? 'gone' : s.state === 'blocked' || s.onScreen ? 'blocked' : s.state === 'working' ? 'working' : 'idle'
     const since = state === 'blocked' ? ms(s.blockedSince) : ms(s.idleSince) || ms(last?.node.delivered)
     return { s, state, since, at: live ?? last, current: !!live, closable: state === 'idle' && !live && own.length > 0, kids: [] }
   }

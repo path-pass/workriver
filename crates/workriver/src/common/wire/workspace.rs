@@ -253,6 +253,10 @@ pub(crate) struct Session {
     /// Waiting for a person in its terminal since then (a question, an approval).
     #[serde(rename = "blockedSince", skip_serializing_if = "Option::is_none")]
     pub(crate) blocked_since: Option<String>,
+    /// It waits because its screen shows a question the runtime does not report (it calls it
+    /// idle or done): counted as blocked all the same. Never what the screen says.
+    #[serde(rename = "onScreen", skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) on_screen: bool,
     /// Idle (or done) in its terminal since then, while it lives.
     #[serde(rename = "idleSince", skip_serializing_if = "Option::is_none")]
     pub(crate) idle_since: Option<String>,
@@ -547,6 +551,10 @@ pub(crate) struct TaskIn {
     /// A decide gate's options, as stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) choice: Option<core::Choice>,
+    /// What the user answered from the page in its agent's terminal, oldest first: the keys,
+    /// what came of them, the question line and the option as recorded (already cut).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) answers: Vec<core::TerminalAnswer>,
 }
 
 #[derive(Serialize)]

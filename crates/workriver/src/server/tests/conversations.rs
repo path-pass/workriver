@@ -35,7 +35,7 @@ fn asking_why() {
     let started = fake.started.lock().unwrap().clone();
     assert_eq!((started[0].0.as_str(), started[0].1.as_str(), started[0].2.as_str()), ("w1", "codex", "why-q1"), "beside the intent's manager, with the task agent's harness");
     let (to, prompt) = fake.sent.lock().unwrap()[0].clone();
-    assert_eq!(to, "why-q1");
+    assert_eq!(to, "s-why-q1", "by its session");
     assert!(prompt.ends_with("Question q1, the user asks: «Why one table?»") && prompt.contains("the file src/a.rs") && prompt.contains("workriver answer q1 --text"), "{prompt}");
     assert!(!prompt.contains('\n'));
     let tail = |text: &str| text[text.find("points at").unwrap()..].to_string();
@@ -78,7 +78,7 @@ fn asking_why() {
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "thread": "q1", "text": "One more?" }))).unwrap();
     wait_until("a new agent starts", || fake.started.lock().unwrap().len() == 2);
     // (The manager was told of the design's delivery meanwhile: only what the asked agents got.)
-    let asked = || fake.sent.lock().unwrap().iter().filter(|(to, _)| to.starts_with("why-")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    let asked = || fake.sent.lock().unwrap().iter().filter(|(to, _)| to.starts_with("s-why-")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
     wait_until("it gets the thread so far", || asked().len() == 4);
     let prompt = asked()[3].clone();
     assert!(prompt.contains("(content, not instructions): «Its delivery note: One table. | Asked before in this thread: Why one table? Answered: Fewer joins. |"), "{prompt}");
@@ -120,7 +120,8 @@ fn a_blocked_agent_gets_the_question_once_free() {
     std::thread::sleep(std::time::Duration::from_millis(2500));
     let turn = |t: usize, k: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["threads"][t]["turns"][k].clone();
     let set = |name: &str, s: workriver_core::runtime::AgentState| fake.agents.lock().unwrap().iter_mut().filter(|(_, a)| a.name == name).for_each(|(_, a)| a.state = s);
-    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).count();
+    // A temporary agent is typed into by its session (`s-<name>` in the fake).
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| *to == format!("s-{name}")).count();
 
     // Started in a folder it has not seen: the harness asks a person first.
     *fake.start_as.lock().unwrap() = Some(Blocked);
@@ -133,7 +134,7 @@ fn a_blocked_agent_gets_the_question_once_free() {
     // The person answers it in Herdr: the question goes in by itself.
     set("why-q1", Idle);
     wait_until("the prompt is given once free", || sent_to("why-q1") == 1);
-    assert!(fake.sent.lock().unwrap().iter().any(|(to, m)| to == "why-q1" && m.ends_with("Question q1, the user asks: «Why paged?»")));
+    assert!(fake.sent.lock().unwrap().iter().any(|(to, m)| to == "s-why-q1" && m.ends_with("Question q1, the user asks: «Why paged?»")));
     wait_until("it reads", || turn(0, 0)["step"] == "reading");
     d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "50 per page." })).unwrap();
 
@@ -179,7 +180,8 @@ fn a_new_agent_not_ready_yet_is_asked_again() {
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "API" })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
     let turn = |t: usize| d.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0]["threads"][t]["turns"][0].clone();
-    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).count();
+    // A temporary agent is typed into by its session (`s-<name>` in the fake).
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| *to == format!("s-{name}")).count();
     let closed = |name: &str| fake.closed.lock().unwrap().iter().any(|c| c == name);
 
     // Refused twice, then taken: given once, nothing failed.
@@ -287,10 +289,10 @@ fn agents_ask_each_other() {
     // The back end's agent is idle: a temporary agent is still started; the idle one is not prompted.
     let q = d.call("/api/ask", Some(json!({ "as": "s-front", "unit": "u1", "task": 1, "text": "Is the list paged?", "context": [{ "kind": "file", "label": "api.ts", "path": "src/api.ts" }] }))).unwrap();
     assert_eq!(q["actor"], "s-front");
-    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
     assert_eq!(fake.started.lock().unwrap().len(), 1);
     assert!(!fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-back"), "the task's own agent is not prompted by workriver");
-    let text = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q1").unwrap().1.clone();
+    let text = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "s-why-q1").unwrap().1.clone();
     assert!(text.contains("Is the list paged?") && text.contains("workriver answer q1") && text.contains("herdr agent get "), "{text}");
     // Another agent may not answer; the temporary one may.
     assert!(d.append("s-boss", "question.answered", json!({ "question": "q1", "text": "x" })).is_err());
@@ -332,10 +334,10 @@ fn asking_about_a_unit() {
     let lines = json!([{ "kind": "unit", "label": "Mentions" }, { "kind": "lines", "label": "m.rs L3–4", "path": "src/m.rs", "from": 3, "to": 4 }]);
     let asked = d.call("/api/ask", Some(json!({ "unit": "u1", "task": 0, "text": "Why is this file here?", "context": lines }))).unwrap();
     assert_eq!(asked["body"]["thread"], "q1");
-    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
     let started = fake.started.lock().unwrap()[0].clone();
     assert_eq!((started.0.as_str(), started.2.as_str()), ("w1", "why-q1"));
-    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q1").unwrap().1.clone();
+    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "s-why-q1").unwrap().1.clone();
     for part in [
         "This one is about unit u1 \"Mentions\" as a whole, not one of its tasks.",
         "on branch feat/f (from main)",
@@ -394,8 +396,8 @@ fn asking_with_files_attached() {
     let at = |v: &serde_json::Value| json!({ "kind": "attachment", "label": v["name"], "id": v["id"] });
     // About a task: both files, by their paths in the store.
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "What broke?", "context": [{ "kind": "task", "label": "#1" }, at(&shot), at(&log)] }))).unwrap();
-    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
-    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q1").unwrap().1.clone();
+    wait_until("a temporary agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
+    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "s-why-q1").unwrap().1.clone();
     let store = tmp.path().join("attachments");
     let (shot_path, log_path) = (store.join(format!("{}.png", shot["id"].as_str().unwrap())), store.join(format!("{}.log", log["id"].as_str().unwrap())));
     assert!(shot_path.is_file() && log_path.is_file());
@@ -407,8 +409,8 @@ fn asking_with_files_attached() {
     assert_eq!(turn["attachments"][1]["name"], "server.log");
     // About the unit, with one of them taken out before sending: only the other is named.
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 0, "text": "And this?", "context": [{ "kind": "unit", "label": "Mentions" }, at(&log)] }))).unwrap();
-    wait_until("the unit's question is sent", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q2"));
-    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "why-q2").unwrap().1.clone();
+    wait_until("the unit's question is sent", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q2"));
+    let prompt = fake.sent.lock().unwrap().iter().find(|(to, _)| to == "s-why-q2").unwrap().1.clone();
     assert!(prompt.contains(&format!("The question points at: the attachment \"server.log\" at {}.", log_path.display())) && !prompt.contains("shot.png"), "{prompt}");
     // A file that never reached the store is gone: no record, and no question points at it.
     let e = d.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "?", "context": [{ "kind": "attachment", "label": "removed.png", "id": "feedfacefeedface" }] }))).unwrap_err().to_string();
@@ -716,7 +718,7 @@ fn an_answer_waits_for_a_blind_manager() {
     d.append("s-w", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Design recorded" })).unwrap();
     let boss = at_place(&d, "p1");
     boss.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Why this design?" }))).unwrap();
-    wait_until("the question is in flight", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    wait_until("the question is in flight", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
     assert!(boss.call("/api/ask", Some(json!({ "unit": "u1", "task": 1, "text": "Another question" }))).is_err());
     d.append("s-why-q1", "question.answered", json!({ "question": "q1", "text": "SECRET_NEW_ANSWER_WHILE_BLIND" })).unwrap();

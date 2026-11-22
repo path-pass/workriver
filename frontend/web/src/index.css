@@ -145,6 +145,9 @@
   --color-you-bg: var(--you-bg);
   --color-you-ink: var(--you-ink);
   --color-on-you: var(--on-you);
+  --color-hold: var(--hold);
+  --color-hold-bg: var(--hold-bg);
+  --color-hold-ink: var(--hold-ink);
   --color-add: var(--add);
   --color-del: var(--del);
   --color-del-row: var(--del-row);
@@ -236,6 +239,14 @@
   /* At a panel's bottom (the Activity graph's canvas): the same, turned on its side. */
   .edge[data-edge="bottom"] { top: auto; bottom: -3px; left: 0; right: 0; width: auto; height: 6px; cursor: row-resize; }
   .edge[data-edge="bottom"]::after { top: 2px; bottom: auto; left: 0; right: 0; width: auto; height: 2px; }
+  /* At a panel's top (the terminal view's dock): the same, at the other end. */
+  .edge[data-edge="top"] { top: -3px; bottom: auto; left: 0; right: 0; width: auto; height: 6px; cursor: row-resize; }
+  .edge[data-edge="top"]::after { top: 2px; bottom: auto; left: 0; right: 0; width: auto; height: 2px; }
+  /* Text off an agent's screen in the gate: quoted, as the agent's, in its own columns. */
+  .quote-screen { overflow: auto; padding: 6px 10px; border-left: 3px solid var(--hold); border-radius: 0 6px 6px 0; background: var(--sunken); font-size: 12px; line-height: 1.4; }
+  /* The terminal view: what it draws keeps its own colours; gone, its last frame greyed. */
+  .term-view { overflow: auto; background: var(--sunken); }
+  .term-view[data-gone] { opacity: .5; filter: grayscale(1); }
   /* A planned intent in the rail; while dragged over, a line shows where it lands. */
   .plan { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; padding: 6px 6px 6px 2px; border-radius: 6px; }
   .plan:hover { background: var(--rail-2); }
@@ -313,6 +324,10 @@
   .irow-pair { border-radius: 6px; transition: background .15s; }
   .irow-pair:hover { background: var(--sunken); }
   .irow-pair .irow:hover { background: transparent; }
+  /* An agent waiting in its terminal with its terminal button: the pair takes the row's ground. */
+  .irow-pair.hold, .irow-pair.hold:hover { background: var(--hold-bg); }
+  .irow-pair.hold:hover { box-shadow: var(--shadow); }
+  .irow-pair.hold .irow[data-kind="agent"]:hover { box-shadow: none; }
   .irow[data-kind="loose"] .ic { color: var(--del); }
   .irow[data-kind="far"] .ic { color: var(--amber); }
   .irow[data-kind="machine"][data-level=warn] :is(.ic, .level) { color: var(--amber-ink); }

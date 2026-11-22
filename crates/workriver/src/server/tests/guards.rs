@@ -35,6 +35,9 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/chore-done", &["POST"]),
     ("/api/backlog/merge", &["POST"]),
     ("/api/focus", &["POST"]),
+    ("/api/agent/screen", &["GET"]),
+    ("/api/agent/keys", &["POST"]),
+    ("/api/agent/view", &["GET"]),
     ("/api/intent/start", &["POST"]),
     ("/api/workspaces", &["POST"]),
     ("/api/run/prepare", &["POST"]),
@@ -196,6 +199,9 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/chore-done", r#"{"chore":"c9"}"#),
     ("POST", "/api/backlog/merge", r#"{"into":"i8","from":["i9"]}"#),
     ("POST", "/api/focus", r#"{"agent":"nobody-here"}"#),
+    ("GET", "/api/agent/screen?agent=s-boss", ""),
+    ("POST", "/api/agent/keys", r#"{"agent":"s-boss","shown":"0","press":{"key":"escape"}}"#),
+    ("GET", "/api/agent/view?agent=nobody-here", ""),
     ("POST", "/api/intent/start", r#"{"intent":"i9","workspace":"ws1"}"#),
     ("POST", "/api/workspaces", r#"{"action":"rename","workspace":"ws9","name":"probe"}"#),
     ("POST", "/api/run/prepare", r#"{"command":"true","unit":"u9"}"#),
@@ -422,7 +428,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "task.noted", json!({ "unit": "u2", "task": 1, "text": "Include the cost", "attachments": [shot["id"]] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
-    wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
     // A delivered research discussed with its agent, which is at work: one answer unread, one
     // question held; the gate that asks about it.
     d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "research", "title": "Compare stores", "agent": "impl", "inputs": [{ "from": "start" }] })).unwrap();

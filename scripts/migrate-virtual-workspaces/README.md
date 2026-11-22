@@ -31,12 +31,15 @@ file or folder, and any path inside your data home (`$WORKRIVER_HOME`, else
 Stop `workriver serve` (Ctrl-C), then:
 
 ```sh
-git worktree add --detach .local/migrate-old 40ae634   # the last commit before the change
+git worktree add --detach .local/migrate-old 1a6a6a4   # the last commit before the change
 mkdir -p .local/migrate
 cp ~/workriver-data/workriver.db .local/migrate/copy.db
 ```
 
-Copy only while the service is stopped. If `workriver.db-wal` is there and not empty, copy
+That commit is the main this change was last brought up to: the code your service runs
+until you switch, so it reads every kind of event your store has (an earlier one does not
+know `agent.keys`, which answering a stuck agent from the page records, and stops there).
+If your service runs a later main, take that commit instead. Copy only while the service is stopped. If `workriver.db-wal` is there and not empty, copy
 it too, as `copy.db-wal`. Keep the original as it is: it is how you go back. The service
 may run again meanwhile; what it records after the copy is not in the migration, so copy
 again (and plan again) right before you switch.

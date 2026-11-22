@@ -13,5 +13,6 @@ mod planning;
 mod scope;
 mod seats;
 pub(super) mod support;
+mod terminals;
 mod views;
 mod work;

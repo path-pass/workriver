@@ -1,9 +1,9 @@
-// An agent as a small coloured mark, and the button that opens its terminal.
+// An agent as a small coloured mark, and the button that opens its terminal view.
 import { createContext, useContext } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { focusAgent } from '@/api/actions'
+import { AgentContext } from './context'
 import { Tip } from '@/ui/Tip'
 import { Icon } from '@/ui/Icon'
 
@@ -36,9 +36,10 @@ export function Who({ name, live = false, topic: given }: { name: string; live?:
   )
 }
 
-/** Opens the agent's terminal. A click target of its own, so it never also picks a row. */
-export function TerminalButton({ agent, session, className }: { agent: string; session?: string | null; className?: string }) {
+/** Opens the agent's terminal view on the page. A click target of its own, so it never also picks a row. */
+export function TerminalButton({ agent, session, machine, className }: { agent: string; session?: string | null; machine?: string; className?: string }) {
   const { t } = useT()
+  const { view } = useContext(AgentContext)
   return (
     <Tip text={t('terminal.open')}>
       <Button
@@ -46,7 +47,7 @@ export function TerminalButton({ agent, session, className }: { agent: string; s
         size="icon-xs"
         className={cn('flex-none', className)}
         aria-label={t('terminal.openFor', { agent })}
-        onClick={e => { e.stopPropagation(); focusAgent(session ?? agent) }}
+        onClick={e => { e.stopPropagation(); view({ name: agent, session, machine }) }}
       >
         <Icon name="terminal" className="size-3.5" />
       </Button>

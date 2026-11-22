@@ -68,6 +68,8 @@ pub(super) struct App {
     pub(in crate::server) discussing: Mutex<()>,
     /// Orders the user's message's last check of its appointment and send against a seat
     /// change's record: whichever comes first, the other sees it (`App::hand`, `App::record`).
+    /// Taken before an agent's writer (`Terminals::writer`, held while a message is typed or
+    /// a key pressed), never while one is held.
     pub(in crate::server) appointing: Mutex<()>,
     /// The machine each session was last listed on (none: this one), and the sessions gone:
     /// last listed on a machine whose read now is complete without them. What a discussion's
@@ -135,6 +137,10 @@ pub(super) struct App {
     /// by id, with what their place last showed.
     // ponytail: in memory; a restart forgets them (what ran stays in the record).
     pub(super) runs: Mutex<std::collections::HashMap<String, Run>>,
+    /// Agents' terminals: digests, presses, writers, the screens that show a question, views.
+    pub(in crate::server) terminals: crate::server::terminals::Terminals,
+    /// Wakes the poll before its tick: the runtime told of a change (`Runtime::watch`).
+    pub(in crate::server) wake: Arc<tokio::sync::Notify>,
 }
 
 pub(super) type Shared = Arc<App>;
@@ -194,33 +200,42 @@ impl App {
         Ok(top.to_string_lossy().into_owned())
     }
 
-    /// Sends a message to an agent. One on another machine cannot open files of this
-    /// machine: paths into the attachment store become links through its tunnel.
+    /// Sends a message to an agent, given by its session or by its name. One on another
+    /// machine cannot open files of this machine: paths into the attachment store become
+    /// links through its tunnel.
     ///
     /// A seated session is decided by `to` itself, before any name: an agent that takes the
-    /// session id as its name is not it. A name goes to the agent of that session, and to
-    /// its pin if that one is seated.
+    /// session id as its name is not it. A name is turned into its session in a fresh read,
+    /// exactly one live agent by it; then as `send_to`, which types a seated one at its pin.
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         if let Some(sent) = self.send_seated(to, text) {
             return sent;
         }
-        let live = self.live().unwrap_or_default();
-        let found = live.iter().find(|a| a.session == to).or_else(|| live.iter().find(|a| a.name == to));
-        if let Some(sent) = found.filter(|a| a.session != to).and_then(|a| self.send_seated(&a.session, text)) {
-            return sent;
-        }
-        let machine = found.and_then(|a| a.machine.as_deref());
-        self.runtime.send(to, &self.readable_on(machine, text))
+        let live = self.runtime.agents().map_err(|e| match e {
+            RuntimeError::Failed(why) => RuntimeError::Unreachable(why),
+            e => e,
+        })?;
+        let named: Vec<&RuntimeAgent> = match live.iter().find(|a| a.session == to) {
+            Some(a) => vec![a],
+            None => live.iter().filter(|a| a.name == to).collect(),
+        };
+        let a = match named.as_slice() {
+            [a] => *a,
+            [] => return Err(RuntimeError::NoAgent(to.into())),
+            more => return Err(RuntimeError::Ambiguous(format!("{} live agents are named {to}", more.len()))),
+        };
+        self.send_to(&a.session, a.machine.as_deref(), text)
     }
 
     /// Sends a message to the agent that has this session on `machine` (none: this one), as
     /// the caller found it in the runtime, and to no other: one that is gone is not replaced
-    /// by an agent going by its name. Files as `send` gives them, for that machine.
+    /// by an agent going by its name. Its place is resolved once and its screen read there
+    /// first (`type_in`). Files as `send` gives them, for that machine.
     pub(super) fn send_to(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
         if let Some(sent) = self.send_seated(session, text) {
             return sent;
         }
-        self.runtime.send_to(machine, session, &self.readable_on(machine, text))
+        self.type_in(session, machine, &self.readable_on(machine, text))
     }
 
     /// A seated manager is typed into at the root its session is pinned to, on that root's
@@ -235,7 +250,7 @@ impl App {
         match self.held_at(session) {
             Err(Unread(why)) => Some(Err(RuntimeError::Unreachable(why))),
             Ok(None) => None,
-            Ok(Some((machine, place))) => Some(self.runtime.send_at(machine.as_deref(), &place, session, &self.readable_on(machine.as_deref(), text))),
+            Ok(Some((machine, place))) => Some(self.type_at(session, machine.as_deref(), Some(&place), &self.readable_on(machine.as_deref(), text))),
         }
     }
 

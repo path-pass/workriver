@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use workriver_core::RuntimeRef;
-use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Change, Frames, Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::screens::{Key, Screen};
 use workriver_scan as scan;
 
 use super::ssh::{Pace, Tunnel, hint, nap, publish, supervise, this_host, tunnel_words};
@@ -57,6 +58,8 @@ pub struct Machines {
     entries: Mutex<Vec<Arc<Entry>>>,
     /// Each machine's listener port on this machine.
     ports: Mutex<BTreeMap<String, u16>>,
+    /// Told when a machine's runtime tells of a change and its agents were read again.
+    waker: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// How long between reads of a machine's agents: `OK` while it answers, doubling up to
@@ -66,13 +69,18 @@ const MAX: Duration = Duration::from_secs(120);
 
 impl Machines {
     pub fn new(local: Arc<dyn Runtime>, home: PathBuf, terminal_app: String) -> Arc<Machines> {
-        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app, ssh: "ssh".into(), pace: Pace::default(), entries: Mutex::default(), ports: Mutex::default() })
+        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app, ssh: "ssh".into(), pace: Pace::default(), entries: Mutex::default(), ports: Mutex::default(), waker: Mutex::default() })
     }
 
     /// For tests: ssh is `program` (a stand-in), with these waits.
     #[cfg(test)]
     pub fn with_ssh(local: Arc<dyn Runtime>, home: PathBuf, program: &str, pace: Pace) -> Arc<Machines> {
-        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default() })
+        Arc::new(Machines { local, here: Mutex::default(), home, terminal_app: String::new(), ssh: program.into(), pace, entries: Mutex::default(), ports: Mutex::default(), waker: Mutex::default() })
+    }
+
+    /// What to call when a machine's runtime tells of a change, once its agents were read again.
+    pub fn on_change(&self, f: Arc<dyn Fn() + Send + Sync>) {
+        *self.waker.lock().unwrap() = Some(f);
     }
 
     fn settings(&self) -> Settings {
@@ -200,7 +208,28 @@ impl Machines {
                 nap(delay, &e.stop);
             }
         });
-        let (ssh, pace, host) = (self.ssh.clone(), self.pace, this_host());
+        // Its changes as they happen, while its connection is up: each reads its agents again
+        // at once and wakes the service's poll. Opened again a while after it ends.
+        let w = entry.clone();
+        let waker = self.waker.lock().unwrap().clone();
+        std::thread::spawn(move || {
+            while !w.stop.load(Ordering::Relaxed) {
+                if w.tunnel.lock().unwrap().up {
+                    let _ = w.runtime.watch(None, &mut |_| {
+                        if w.stop.load(Ordering::Relaxed) {
+                            return false;
+                        }
+                        poll_once(&w, false);
+                        if let Some(f) = &waker {
+                            f();
+                        }
+                        true
+                    });
+                }
+                nap(Duration::from_secs(5), &w.stop);
+            }
+        });
+        let (ssh, pace, host, home) = (self.ssh.clone(), self.pace, this_host(), self.home.clone());
         std::thread::spawn(move || {
             let e = entry;
             // Where the runtime's socket is over there: as given, else asked of the machine.
@@ -219,10 +248,13 @@ impl Machines {
                     }
                 }
             };
-            let mut words = tunnel_words(&e.setting.ssh, &socket.to_string_lossy(), &remote, local_port);
+            let sockets = super::forwards(&home, &e.label, &remote);
+            let mut words = tunnel_words(&e.setting.ssh, &sockets, local_port);
             words[0] = ssh.clone();
             supervise(&words, &e.tunnel, &e.stop, pace, &|port| publish(&ssh, &e.setting.ssh, port, &host));
-            let _ = std::fs::remove_file(&socket);
+            for (here, _) in sockets {
+                let _ = std::fs::remove_file(here);
+            }
         });
     }
 
@@ -577,5 +609,40 @@ impl Runtime for Machines {
 
     fn focus_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {
         self.at(machine, |r| r.focus_place(None, place))
+    }
+
+    /// That machine's own runtime's changes; another machine's only while its connection is up.
+    fn watch(&self, machine: Option<&str>, to: &mut dyn FnMut(Change) -> bool) -> Result<(), RuntimeError> {
+        match machine {
+            None => self.local.watch(None, to),
+            Some(m) => {
+                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
+                if !e.tunnel.lock().unwrap().up {
+                    return Err(RuntimeError::Unreachable(format!("machine {m} is disconnected")));
+                }
+                e.runtime.watch(None, to)
+            }
+        }
+    }
+
+    /// Asked of the machine named, read fresh there.
+    fn resolve(&self, machine: Option<&str>, session: &str) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.resolve(None, session))
+    }
+
+    fn screen(&self, machine: Option<&str>, place: &str) -> Result<Screen, RuntimeError> {
+        self.at(machine, |r| r.screen(None, place))
+    }
+
+    fn press(&self, machine: Option<&str>, place: &str, keys: &[Key]) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.press(None, place, keys))
+    }
+
+    fn observe(&self, machine: Option<&str>, place: &str) -> Result<Frames, RuntimeError> {
+        self.at(machine, |r| r.observe(None, place))
+    }
+
+    fn why_blocked(&self, machine: Option<&str>, place: &str) -> Result<Option<String>, RuntimeError> {
+        self.at(machine, |r| r.why_blocked(None, place))
     }
 }

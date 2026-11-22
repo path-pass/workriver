@@ -12,8 +12,8 @@ let seen = 0
 // renders without one.
 let viewport = 800
 
-function Panel({ auto = 300 }: { auto?: number }) {
-  const size = useResize({ key: KEY, variable: VAR, min: 160, max: () => viewport, edge: 'bottom' })
+function Panel({ auto = 300, edge = 'bottom' }: { auto?: number; edge?: 'bottom' | 'top' }) {
+  const size = useResize({ key: KEY, variable: VAR, min: 160, max: () => viewport, edge })
   seen = size.size
   return (
     <div id="panel" ref={el => { if (el) Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => auto }) }}>
@@ -25,7 +25,7 @@ function Panel({ auto = 300 }: { auto?: number }) {
 let root: Root, host: HTMLDivElement
 const edge = () => host.querySelector<HTMLElement>('#edge')!
 const shown = () => document.documentElement.style.getPropertyValue(VAR)
-const show = (auto?: number) => act(() => root.render(<Panel auto={auto} />))
+const show = (auto?: number, at?: 'bottom' | 'top') => act(() => root.render(<Panel auto={auto} edge={at} />))
 const pointer = (type: string, y: number) => act(() => { edge().dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, clientY: y, pointerId: 1 })) })
 const key = (k: string) => act(() => { edge().dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: k })) })
 
@@ -153,5 +153,21 @@ describe('a height the user drags', () => {
     expect(seen).toBe(584)
     key('End')
     expect(seen).toBe(600)
+  })
+
+  it('at the top (the dock of the terminal view): dragging up and ArrowUp make it taller', () => {
+    show(300, 'top')
+    expect(edge().getAttribute('aria-orientation')).toBe('horizontal')
+    pointer('pointerdown', 500)
+    pointer('pointermove', 380)
+    expect(shown()).toBe('420px')
+    pointer('pointerup', 380)
+    expect(seen).toBe(420)
+    // The panel now shows the height set; the keys step from it.
+    show(420, 'top')
+    key('ArrowUp')
+    expect(seen).toBe(436)
+    key('ArrowDown')
+    expect(seen).toBe(404)
   })
 })

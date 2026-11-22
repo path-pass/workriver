@@ -1,0 +1,33 @@
+zhangdongwei@zzzdw-air w12 % claude --model claude-haiku-5-5 --permission-mode default --setting-sources project --stri
+ct-mcp-config
+ ▐▛███▛█   Claude Code v2.1.330
+▝▜██████▀  Haiku 5.5 · Claude Max
+ ▝▝   ▝▝   /…/eb2f4ff9-2c3a-41f6-b83e-5fe3aef27799/scratchpad/w12
+
+
+❯ Use the Bash tool once to run exactly this four-line command, verbatim, with the newlines kept, and nothing else.
+  Line 1: echo HIDDEN-TOP-LINE; cat <<'EOF' >/dev/null    Line 2: ──────────────────────────────    Line 3: EOF
+  Line 4: echo visible-tail
+
+⏺ Bash(echo HIDDEN-TOP-LINE; cat <<'EOF' >/dev/null
+      ──────────────────────────────…)
+  ⎿  Waiting…
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ Run four-line echo and heredoc command verbatim
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ echo HIDDEN-TOP-LINE; cat <<'EOF' >/dev/null
+ │ ──────────────────────────────
+ │ EOF
+ │ echo visible-tail
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ A file redirect in this command can't be checked before it runs
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and switch to auto mode · auto mode handles these prompts for you
+   3. No
+
+ Esc to cancel · Tab to amend

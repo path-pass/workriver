@@ -275,8 +275,9 @@ function Legend() {
   )
 }
 
-/** `title` and `hint`: another heading than "Activity", with a quiet line under it. */
-export function Activity({ unit, pick, onPick, talk, fitKey, title, hint }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; title?: string; hint?: string }) {
+/** `title` and `hint`: another heading than "Activity", with a quiet line under it.
+ *  `workspace`: the workspace of the unit's intent (a `Space.id`), when known. */
+export function Activity({ unit, pick, onPick, talk, fitKey, title, hint, workspace }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; title?: string; hint?: string; workspace?: string }) {
   const { t } = useT()
   const pickedId = pick?.kind === 'task' ? pick.id : null
   const picked = unit.tasks.find(n => n.id === pickedId)
@@ -288,7 +289,7 @@ export function Activity({ unit, pick, onPick, talk, fitKey, title, hint }: { un
       {unit.tasks.length ? (
         <>
           <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} fitKey={fitKey} />
-          {picked && <Detail unit={unit} n={picked} finding={pick?.finding} onPick={onPick} talk={talk} />}
+          {picked && <Detail unit={unit} n={picked} finding={pick?.finding} onPick={onPick} talk={talk} workspace={workspace} />}
           {/* Past questions about the unit as a whole, with no task picked. */}
           {!picked && (unit.threads?.length ?? 0) > 0 && (
             <div className="mt-2"><Questions id={`questions-${unit.id}`} key={unit.id} threads={unit.threads!} agent={null} onFile={talk.onFile} /></div>

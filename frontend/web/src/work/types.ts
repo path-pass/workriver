@@ -109,6 +109,16 @@ export interface Note {
   attachments?: Attachment[];
 }
 
+/** An answer the user gave from the page in an agent's terminal: the keys sent, what came of
+ *  it, and the question line and option's words as the service cut them. */
+export interface TerminalAnswer {
+  at: string;
+  keys: string[];
+  outcome: string;
+  question?: string;
+  option?: { number?: number; words: string };
+}
+
 /** A check run on a piece of work: the command and its result, e.g. "12 passed". */
 export interface Evidence {
   command: string;
@@ -199,6 +209,8 @@ export interface Task {
     notes?: Note[];
     /** A decide gate's options (the manager's), which the user picks from. */
     choice?: Choice;
+    /** What the user answered from the page in its agent's terminal, oldest first. */
+    answers?: TerminalAnswer[];
   };
   output: {
     /** Implement nodes: ids of the commits that carry the work out. */

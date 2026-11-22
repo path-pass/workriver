@@ -14,12 +14,15 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Change, Frames, Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::screens::{Key, Screen};
 
 mod agents;
 mod protocol;
 pub mod remote;
+mod screens;
 mod terminals;
+mod watch;
 pub mod words;
 
 use agents::group;
@@ -105,8 +108,7 @@ impl Runtime for Herdr {
         if !list.iter().any(|(p, a)| p == place && a.session == session) {
             return Err(RuntimeError::NoAgent(session.into()));
         }
-        self.call("agent.prompt", json!({ "target": place, "text": text }))?;
-        Ok(())
+        self.prompt_at(place, text)
     }
 
     /// A new tab in the workspace, so nobody's pane is split; the agent starts in its shell.
@@ -187,6 +189,30 @@ impl Runtime for Herdr {
         self.call("pane.focus", json!({ "pane_id": place }))?;
         self.activate();
         Ok(())
+    }
+
+    fn watch(&self, _: Option<&str>, to: &mut dyn FnMut(Change) -> bool) -> Result<(), RuntimeError> {
+        self.watch_changes(to)
+    }
+
+    fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, RuntimeError> {
+        self.resolve_pane(session)
+    }
+
+    fn screen(&self, _: Option<&str>, place: &str) -> Result<Screen, RuntimeError> {
+        self.screen_of(place)
+    }
+
+    fn press(&self, _: Option<&str>, place: &str, keys: &[Key]) -> Result<(), RuntimeError> {
+        self.press_at(place, keys)
+    }
+
+    fn observe(&self, _: Option<&str>, place: &str) -> Result<Frames, RuntimeError> {
+        self.frames(place)
+    }
+
+    fn why_blocked(&self, _: Option<&str>, place: &str) -> Result<Option<String>, RuntimeError> {
+        self.explain(place)
     }
 }
 

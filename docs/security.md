@@ -96,7 +96,7 @@ in none of the runtime's terminals needs no tty to be yours. Everything else sta
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
 drop them, end a conversation, discuss a delivered research or design result with the agent
-that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, start a planned intent in a
+that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, read, answer or watch an agent's terminal from the page (below), start a planned intent in a
 workspace from the page (`/api/intent/start`), run a command (below), add projects, make,
 rename, close and open workspaces, seat a workspace's manager or empty its seat, move an
 intent to another workspace (`/api/workspaces`), add or
@@ -192,7 +192,9 @@ are checked by the event rules against what is recorded, when the event is recor
   once, on this machine or another: neither is the manager, and nothing is typed to it
   until only its own terminal shows it again or you seat it. What goes to a manager is
   typed into the terminal it is held to, never into whichever terminal reports its session,
-  nor into an agent that takes the manager's session id as its name.
+  nor into an agent that takes the manager's session id as its name; its screen is read
+  there first, as for every message (below, "A dialog the runtime misses"), and a message
+  you sent holds the order of seat changes, then the agent's one writer, never the reverse.
 - **What belongs to an appointment never reaches the next.** A message you sent, a question
   a manager asked you with options, a reply: each belongs to the appointment it was sent to
   or asked under. A message still waiting when the seat is given anew is recorded as not
@@ -260,6 +262,68 @@ you. That is the most powerful thing the page does, so:
   as text and never typed into any terminal; "Run" never waits for it. It is recorded, as
   workriver's, as `command.reviewed` with the run; the agent is closed once it answered, or
   after ten minutes.
+
+## Answering an agent's terminal from the page
+
+When an agent waits for you in its terminal (a permission prompt, a question, a trust
+dialog), the page shows its dialog and lets you answer it, and opens its terminal read-only
+when you ask. Typing into an agent's terminal is acting as you, so:
+
+- **Only you.** The three routes (`/api/agent/screen`, `/api/agent/keys`,
+  `/api/agent/view`) ask for you (`App::user`) and are not served on another machine's
+  listener; an agent's proof is refused there whatever it names, so no agent reads another
+  agent's screen through workriver (a blind reviewer could otherwise read the work it must
+  not see). A POST must come from the page's own origin (as every POST). The two GETs do
+  something (`/view` starts a stream and takes one of four slots, `/screen` reads the
+  terminal), and a page on another port of this host is the same site, so its requests
+  carry the session cookie: a request with the cookie is refused unless the browser says it
+  comes from the page itself (`Sec-Fetch-Site: same-origin`; a missing header is refused
+  too). The CLI's token is not a page's to add. No CORS headers: no other origin reads the
+  answers. Every answer is `Cache-Control: no-store`.
+- **Only keys, only these.** What may be sent is Up, Down, Enter, Escape, Tab or a digit 1–9:
+  the page names an option by its number or one key by its name, never text, a sequence, a
+  size or a paste. A screen can say anything; the page has no other way to type.
+- **Only to the screen you saw, at one place, once.** The service, never the page, reads the
+  screen, parses it and sends the keys. The page sends what you pressed with the digest the
+  service gave for the screen it showed: SHA-256 of a key drawn at random when the service
+  starts, the agent, the number of presses sent to it before the screen was read, and the
+  whole visible screen; the count and the read are taken together under the agent's one
+  writer, so a press under way ends (its keys taken effect) before the screen is read, and a
+  screen read before a press never signs the count after it. One request resolves the agent's session to exactly one place (two places that
+  show it: refused, "answer it in its terminal") and reads and presses only there; it sends
+  only when the whole screen it reads there matches the digest, so a second click, a retried
+  request or a stale dialog that looks the same never goes; a list is walked one arrow at a
+  time with the whole screen read again after each, and Enter goes only when the marked line
+  is the option you chose. A send that failed or whose answer was lost is never repeated by
+  itself. One writer per agent: a press and a message workriver types never interleave. A
+  few milliseconds between the last read and the key remain and cannot be closed (the
+  runtime has no send-if-unchanged); they are kept to one read followed at once by one key.
+- **What is kept.** Screen text and frames stay out of the snapshot, the logs and browser
+  storage. The event store keeps, for each answer, `agent.keys` (yours alone to record): the
+  agent, its task, the keys, the outcome, and two pieces of the screen: the question line
+  (the nearest line above the first option, only when it ends with `?`) and the option's
+  number and words, each cut at the first backtick, `"`, `'` not between two letters, `$`,
+  `=`, `/`, `~` or `\` (where a command's arguments, an assignment, a quoted value or a path
+  begin) and capped (120 and 40 characters), on one line; the event rules cut them again,
+  whatever a request says. It is kept for good, and agents can read it (task detail goes
+  through `App::view` like every record): the cut keeps out where a secret usually sits, but
+  a secret with none of those characters before it, inside the cap, would be kept.
+- **Shown as text, in terminal order.** The screen's text and an option's words are another's
+  writing: the page shows them as plain text (quoted agent text, never Markdown, links
+  inert), drawn left to right in the order written as a terminal draws them (a browser would
+  reorder them by the Unicode bidi algorithm, so a command could read one way and run
+  another), with every invisible or reordering character (Unicode's Default_Ignorable_Code_Point,
+  which holds every Bidi_Control one) shown as its code point, `⟨U+202E⟩`, never dropped.
+  ANSI only inside the terminal view, which is read-only (no key reaches the terminal, it is
+  never resized), writes no clipboard and opens no link (an OSC 8 link does nothing).
+  Screen text never goes into a message to an agent.
+- **Bounded.** Four terminal views at most across every page, one stream each (today a
+  child process of the runtime's own CLI, given no more environment than it needs), killed
+  with its stream; a stream whose reader falls behind is ended.
+- **A dialog the runtime misses.** The service reads the screen of an agent the runtime calls
+  idle or done when that state begins, and before every message it types into any agent (at
+  the same place, under the same writer); a screen with options and a key named under them
+  holds the message and shows the agent waiting, so a prompt is never typed into a dialog.
 
 ## What agents are told
 

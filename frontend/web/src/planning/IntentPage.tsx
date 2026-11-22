@@ -155,7 +155,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
               <Row label={t('intent.manager')}>
                 {intent.manager && <span className="font-[550]">{intent.manager}</span>}
                 <span className="text-ink-2"><ManagerState intent={intent} /></span>
-                {session && <TerminalButton agent={session.agent} session={session.session} className="text-ink-2" />}
+                {session && <TerminalButton agent={session.agent} session={session.session} machine={session.machine} className="text-ink-2" />}
                 {state === 'active' && space && !runs(space.manager) && <Button variant="outline" size="sm" className="h-7 gap-1.5" onClick={() => openSeat(space.id, space.proposal)}><Icon name="manager" className="size-3.5" />{t('rail.spaceManager')}</Button>}
                 {state === 'active' && intent.workspace && intent.manager && (
                   <Button variant="outline" size="sm" className="h-7 gap-1.5" onClick={onTalk}><Icon name="manager" className="size-3.5" />{t('intent.talk')}</Button>
@@ -188,7 +188,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
       {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} offered={tagsOf(ws.intents.filter(i => i.project === intent.project))} onClose={() => setEditing(null)} />}
       {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: draftOf(text), restoring: n }) }} />}
 
-      {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
+      {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} workspace={intent.workspace} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
     </>
   )
 }

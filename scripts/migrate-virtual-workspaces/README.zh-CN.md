@@ -19,12 +19,12 @@
 先停掉 `workriver serve`（Ctrl-C），然后：
 
 ```sh
-git worktree add --detach .local/migrate-old 40ae634   # 改动前的最后一个提交
+git worktree add --detach .local/migrate-old 1a6a6a4   # 改动前的最后一个提交
 mkdir -p .local/migrate
 cp ~/workriver-data/workriver.db .local/migrate/copy.db
 ```
 
-只在服务停着的时候复制。如果有 `workriver.db-wal` 且不是空的，也一起复制，命名为 `copy.db-wal`。原库保持原样：回退就靠它。这期间服务可以再开起来；但复制之后它记录的内容不在迁移里，所以正式切换前要重新复制一次（并重新 plan）。
+这个提交是这次改动最后一次合入的 main，也就是切换之前你的服务在跑的代码，所以它认得你的库里的每一种事件（更早的提交不认得 `agent.keys`，即在页面上回应卡住的 agent 时记下的事件，读到它就停下）。如果你的服务跑的是更新的 main，就换成那个提交。只在服务停着的时候复制。如果有 `workriver.db-wal` 且不是空的，也一起复制，命名为 `copy.db-wal`。原库保持原样：回退就靠它。这期间服务可以再开起来；但复制之后它记录的内容不在迁移里，所以正式切换前要重新复制一次（并重新 plan）。
 
 ## 2. Plan
 

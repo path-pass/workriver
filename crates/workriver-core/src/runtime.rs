@@ -2,6 +2,8 @@
 // The one implementation is in the outer crate's runtime/; nothing here names it.
 use serde::{Deserialize, Serialize};
 
+use crate::screens::{Frame, Key, Screen};
+
 /// A group of the runtime's that an agent's terminal is in: its id and label there. Shown as
 /// where a terminal is, and used to open a temporary agent beside the one it serves; no
 /// record holds it and no rule reads it.
@@ -80,8 +82,13 @@ impl Root {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    /// No runtime answers: none is configured, or its socket is not there now.
     #[error("no agent runtime is connected")]
     None,
+    /// This runtime cannot do that at all, whether it answers or not: not a failure, and not
+    /// one to retry.
+    #[error("the agent runtime cannot do this")]
+    Unsupported,
     /// The runtime of the agent's machine cannot be reached now: nothing was given to it.
     #[error("{0}")]
     Unreachable(String),
@@ -98,7 +105,23 @@ pub enum RuntimeError {
     /// A run's shell is no longer there, or its place is no longer a run's shell.
     #[error("{0}")]
     NoPlace(String),
+    /// More than one place shows the session: which one is meant cannot be told, so nothing
+    /// is read or sent there.
+    #[error("{0}")]
+    Ambiguous(String),
 }
+
+/// A change of an agent's state, as the runtime tells it when it happens.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Change {
+    pub place: String,
+    pub state: AgentState,
+}
+
+/// A place's terminal as frames, the first one whole; dropping it stops it. An item of `None`
+/// says nothing was drawn for a while (about a second), so that whoever reads it can see
+/// whether it is still wanted, and drop it, even while the terminal is quiet.
+pub type Frames = Box<dyn Iterator<Item = Result<Option<Frame>, RuntimeError>> + Send>;
 
 /// Sync on purpose: the daemon calls it from a blocking task.
 pub trait Runtime: Send + Sync {
@@ -120,11 +143,12 @@ pub trait Runtime: Send + Sync {
         self.send(session, text)
     }
     /// As `send`, into `place` on `machine` (none: this one), and only while that place shows
-    /// exactly this session: `NoAgent` otherwise, whatever other place shows it. How a seated
-    /// manager is reached: at the place it is held to, never wherever its session shows. By
-    /// default, no runtime can.
+    /// exactly this session, read fresh: `NoAgent` otherwise, whatever other place shows it.
+    /// Every message workriver types goes this way, once its place is known: the one place
+    /// `resolve` gave, or the place a seated manager is held to, never wherever its session
+    /// shows. By default, no runtime can (`Unsupported`).
     fn send_at(&self, _machine: Option<&str>, _place: &str, _session: &str, _text: &str) -> Result<(), RuntimeError> {
-        Err(RuntimeError::None)
+        Err(RuntimeError::Unsupported)
     }
     /// Start a temporary agent of `harness`, named `name`, in a place of its own inside
     /// `group`, working in `cwd`; returns it once it is ready for a prompt.
@@ -181,6 +205,41 @@ pub trait Runtime: Send + Sync {
     /// Brings a place on `machine` to the front.
     fn focus_place(&self, _machine: Option<&str>, _place: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::None)
+    }
+    // What follows reads, answers and watches an agent's terminal. Everything that reads or
+    // presses takes a place, never a session: a request resolves its session once (`resolve`)
+    // and then works on that one place, so its reads and its keys cannot reach two places.
+    // By default, no runtime can (`Unsupported`); one that can but does not answer now says
+    // `None` or another error, never `Unsupported`.
+    /// Blocks, telling `to` each change of an agent's state on `machine` (none: this one) as it
+    /// happens, until `to` returns false (Ok) or the connection ends (the error). Only a
+    /// wake-up: states are still read with `agents`; a change missed before it started or
+    /// while it reconnects is seen by the next read.
+    fn watch(&self, _machine: Option<&str>, _to: &mut dyn FnMut(Change) -> bool) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+    /// The one place on `machine` that shows this session now, read fresh: `NoAgent` when none
+    /// does, `Ambiguous` when more than one does; never an agent by its name, never a place
+    /// kept from an earlier read.
+    fn resolve(&self, _machine: Option<&str>, _session: &str) -> Result<String, RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+    /// What that place shows now, as plain text, one line per row, with its size.
+    fn screen(&self, _machine: Option<&str>, _place: &str) -> Result<Screen, RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+    /// Presses keys at that place, in order; no text.
+    fn press(&self, _machine: Option<&str>, _place: &str, _keys: &[Key]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+    /// That place's terminal as frames, the first one whole; dropping it stops it.
+    fn observe(&self, _machine: Option<&str>, _place: &str) -> Result<Frames, RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+    /// Why the runtime calls the agent at that place blocked, in its words (a rule and its
+    /// evidence).
+    fn why_blocked(&self, _machine: Option<&str>, _place: &str) -> Result<Option<String>, RuntimeError> {
+        Err(RuntimeError::Unsupported)
     }
 }
 

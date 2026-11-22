@@ -1,4 +1,4 @@
-// A draggable edge that sets a panel's width, or its height when the edge is at the bottom.
+// A draggable edge that sets a panel's width, or its height when the edge is at its bottom or top.
 // The size lives in a CSS variable while the pointer moves, so nothing re-renders per frame;
 // it becomes state (and is remembered) when the drag ends, which is when anything that
 // depends on it (a graph that refits) hears of it.
@@ -20,7 +20,7 @@ interface Options {
    *  time the size is bounded. */
   max: number | (() => number)
   /** Which edge of the panel the handle is on: dragging away from the panel enlarges it. */
-  edge: 'right' | 'left' | 'bottom'
+  edge: 'right' | 'left' | 'bottom' | 'top'
   /** One step with the arrow keys. */
   step?: number
 }
@@ -41,8 +41,8 @@ export function useResize({ key, variable, def, min, max, edge, step = 16 }: Opt
   }, [variable])
   useEffect(() => apply(size), [apply, size])
   const commit = (w: number) => { const c = w ? clamp(w) : 0; apply(c); setSize(c); remember(key, c) }
-  const down = edge === 'bottom'
-  const sign = edge === 'left' ? -1 : 1
+  const down = edge === 'bottom' || edge === 'top'
+  const sign = edge === 'left' || edge === 'top' ? -1 : 1
   const along = (e: { clientX: number; clientY: number }) => (down ? e.clientY : e.clientX)
   // The size to start from: what the panel (the handle's parent) has now, which is the one set
   // unless CSS caps it (a window grown smaller), else the one set.

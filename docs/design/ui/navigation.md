@@ -244,9 +244,11 @@ its sections went.
   row takes two lines. Groups, each behind a small header with its count, in this order,
   an empty one not drawn:
   1. **Blocking** – first, agents waiting for a person in their terminal (an approval, a
-     question; the runtime says "blocked"), wherever they run, in orange (`--hold`: the gates'
-     lightness and chroma, another hue): the agent's mark and "ja-impl is waiting for you in its terminal", its topic, its intent or workspace, how long it has waited; a click brings its
-     terminal to the front, and the row leaves by itself once it is no longer waiting. Then
+     question; the runtime says "blocked", or only its screen shows a question the runtime
+     missed: "waiting on its screen", the same row), wherever they run, in orange (`--hold`: the gates'
+     lightness and chroma, another hue): the agent's mark and "ja-impl is waiting for you in its terminal", its topic, its intent or workspace, how long it has waited; a click opens
+     its gate (below, "Answering a stuck agent"), its terminal button opens the terminal view
+     (`operations.md`, Opening a terminal), and the row leaves by itself once it is no longer waiting. Then
      workers that stopped without delivering: a running task whose agent sat idle past the
      threshold in Settings (10 min by default), was reminded of its task in its terminal, and
      is still idle half that again later, or whose agent is gone: "u1#3: ja-impl stopped
@@ -256,7 +258,7 @@ its sections went.
      gates waiting for the user; an agent cannot go on. Violet. Rows with a background stand 2 px apart. Both
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
-     Settings, a newly waiting agent raises a browser notification that opens its terminal.
+     Settings, a newly waiting agent raises a browser notification that opens its gate.
   2. **Managers** – one row per open workspace that has an active intent and no manager
      running: an amber crown, "<workspace>: no manager" or "<workspace>: its manager is not
      running" with the workspace's id in mono, the seated manager's mark and name when there
@@ -293,6 +295,52 @@ its sections went.
      long ("u2 looks squash-merged into main"); the row opens the unit.
   Within a group the oldest comes first. A row of Blocking, Decisions or Gaps opens the
   unit at the node (a review at its first open finding). With nothing to show, one short line says so.
+- **Answering a stuck agent.** The gate of an agent waiting in its terminal opens from its
+  Blocking row, from its running task's detail ("Waiting for you in its terminal · Answer"),
+  from its blocked line in Agents, and from the browser notification; each names the agent
+  by session and machine together (the same resumed session can live on two machines), and
+  the gate stays on that one across refreshes. A task's entries (its detail's waiting line
+  and terminal button, a stalled worker's row) find its agent by its session (by its name
+  when it has none) in its intent's workspace (workriver's id: the records put an agent
+  there by its seat or its tasks, never by the runtime's group) and, when the task's unit
+  has a repository, on that repository's machine; a unit with none (research, an intent's
+  own work) names no machine. When no instance or more than one fits (the same session on
+  two machines, a name in two workspaces), they are not shown: never a guess at another. The terminal is not
+  shown by default: the gate shows the dialog's text and buttons to answer it. A dialog
+  (Radix, modal, up to 960 px wide so 120 columns fit); opening it reads the agent's screen
+  (`/api/agent/screen`); a failed read says why, with the keys disabled and "Try again". Top
+  to bottom: the agent (mark, name), its task as a link or its workspace, how long it has
+  waited, the runtime's reason quietly ("bash_permission_prompt: …"), or for one waiting on
+  its screen one quiet line ("The runtime reports it idle; its screen shows a question.");
+  the dialog's region as quoted agent text (mono, plain text, never Markdown, links inert):
+  its options, its hints, and above them the lines up to the harness's own rule, at most
+  twelve (its rule is a solid line drawn from column 0 across the screen; a rule-like line
+  anywhere else, as in a command the dialog indents, is text the agent may have written and
+  ends nothing, so the agent never decides where the region starts);
+  "Whole screen" shows every visible line (shown from the start, with a line why, when the
+  twelve lines cut the region: a long command is seen whole before it is approved); the
+  options as buttons in their order, each its own words and, as a small key cap, what will
+  be sent ("2" for a numbered option, its digit whatever is selected; "↓ ↓ ↵" for a marked
+  list, which the service walks one arrow at a time, reading the screen after each, and ends
+  with Enter only on the option's words); the hint keys ("Esc · cancel"); last, the generic
+  keys ↑ ↓ ↵ Esc Tab 1–9, one key each, for doing it by hand: folded under "Other keys" when
+  options were read, open when none could be, and then "Open terminal view" stands out.
+  Nothing else can be sent: no text, never a key outside these (an option that is a text
+  field is a button like any other; after it the dialog is still there with the selection
+  on the field, the gate says so, and such an answer is given in the terminal).
+  The region, the whole screen, the option buttons and the recorded line are drawn in the
+  order a terminal draws them (`direction: ltr; unicode-bidi: bidi-override`; one shared
+  component in `content/`), with the marks that reorder or hide text shown as their code
+  point (`⟨U+202E⟩`, the service's). Buttons wait while a press runs. Answered: the gate
+  closes and the row leaves by itself. Still open, a new question, sent while the runtime
+  still reports it waiting, or something else changed (Enter not sent), or the key may have
+  gone (its answer lost; never sent again by itself): the gate shows the new screen and its
+  new buttons with one line saying which. Refused or failed: the reason in the user's
+  language, the service's words in a tooltip ("The screen changed; look again" with the new
+  screen; "It shows in two places; answer it in its terminal"; "It is no longer waiting").
+  A press is bound to the screen shown: the service sends nothing unless the whole screen
+  still reads the same, and a second click never goes. The dialog the runtime missed
+  (Codex's "Hooks need review", "Implement this plan?") shows and counts the same.
 - **A sound.** If the user turned it on in Settings ("Play a sound when something new comes
   into Needs you", under the notifications switch, off by default), the page plays one short,
   quiet sound (two soft notes, made with Web Audio; no file) when a row comes into Blocking,
@@ -338,7 +386,8 @@ its sections went.
   workriver's (N)" group at the end, with their topic. The amber ring around the mark means
   it is writing, as on a node. A line opens its task (a question agent's: the task asked
   about); the line that led to what is open shows as picked; the terminal button at its
-  end opens its terminal. An agent Herdr knows by no name is called by its harness and a
+  end opens its terminal view (`operations.md`, Opening a terminal); a blocked line also
+  offers its gate. An agent Herdr knows by no name is called by its harness and a
   number within its Herdr workspace ("claude 2"); its mark reads "C2". How long an agent has been
   idle is the service's: when the runtime first showed it idle (kept in memory, so a
   restart of the service starts it again); without that, since it last delivered.

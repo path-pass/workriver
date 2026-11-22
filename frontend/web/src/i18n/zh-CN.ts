@@ -393,9 +393,75 @@ export const zhCN: OneForm<typeof en> = {
     closed: '已关闭',
     open: '重新打开'
   },
+  screen: {
+    answer: '回答',
+    waited: '已等 {{time}}',
+    onScreen: '运行时报告它空闲；它的屏幕上有一个问题。',
+    reading: '正在读取它的屏幕…',
+    readFailed: '读不到它的屏幕：{{reason}}',
+    retry: '重试',
+    again: '重新读取屏幕',
+    whole: '整个屏幕',
+    cut: '这个问题比上面显示的行更长：回答前请读完整个屏幕。',
+    noDialog: '没能从它的屏幕上读出问题：用下面的按键回答，或打开它的终端视图。',
+    options: '回答',
+    hints: '问题里提到的按键',
+    other: '其他按键',
+    press: '按 {{key}}',
+    openView: '打开终端视图',
+    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab' },
+    keyName: { up: '上', down: '下', enter: '回车', escape: 'Esc', tab: 'Tab' },
+    outcome: {
+      answered: '已回答。',
+      open: '已发送；问题仍然开着。需要输入文字的回答请在它的终端里给出。',
+      new: '已发送；现在出现了一个新问题。',
+      sent: '已发送；问题已消失，但运行时没有确认它已继续（仍报告在等待，或读不到它的状态）。',
+      changed: '移动选择时屏幕上别的地方变了；没有发送回车。请再看一遍。',
+      unsure: '可能已经发送；按任何键之前请再看一遍。'
+    },
+    refused: {
+      gone: '它已不在：那里没有持有这个会话的 agent。',
+      two: '它同时出现在两个地方；请在它的终端里回答。',
+      'not-waiting': '它已经不在等待了。',
+      busy: '现在正有内容发给它；稍后再试。',
+      changed: '屏幕变了；请再看一遍。',
+      'no-dialog': '它的屏幕上没有可回答的问题。',
+      invalid: '服务没有接受这个请求。',
+      runtime: '运行时现在读不了它，也答不了它。',
+      origin: '被拒绝：请求不是来自这个页面。',
+      views: '打开的终端视图太多了；先关掉一个。',
+      refused: '被拒绝：这个页面没有以你的身份登录。',
+      failed: '失败了。',
+      unsure: '没有收到答复；可能已经发送。按任何键之前请再看一遍。'
+    }
+  },
+  answer: {
+    list: '在它的终端里的回答',
+    answered: '你在它的终端里回答了',
+    pressed: '你在它的终端里按了',
+    outcome: {
+      open: '问题仍然开着',
+      new: '之后出现了新问题',
+      sent: '运行时未确认',
+      changed: '未发送：屏幕变了',
+      unsure: '可能已发送'
+    }
+  },
+  view: {
+    title: '{{agent}} 的终端视图',
+    app: '在终端应用里打开',
+    fold: '收起终端视图',
+    unfold: '展开终端视图',
+    close: '关闭终端视图',
+    resize: '终端视图高度（拖动，或用方向键；双击恢复默认）',
+    gone: '这个 agent 已不在；这是它最后的屏幕。',
+    ended: '视图已结束：{{reason}}',
+    endedQuietly: '视图已结束。',
+    failed: '打不开终端视图：agent 可能已不在、它的机器连不上，或打开的视图太多。'
+  },
   terminal: {
-    open: '在终端里打开',
-    openFor: '在终端里打开 {{agent}}',
+    open: '打开终端视图',
+    openFor: '打开 {{agent}} 的终端视图',
     note: '将把 {{agent}} 的终端切到前台（还没有接上）',
     remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于 {{runtime}} 的“{{group}}”。在 {{runtime}} 里切到 {{machine}} 就能看到。',
     command: '这条命令'

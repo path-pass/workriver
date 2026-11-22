@@ -39,6 +39,14 @@ workriver/
 │   │   └── src/
 │   │       ├── lib.rs                # Crate-root re-exports of the domains; now().
 │   │       ├── runtime.rs            # R: the runtime port in workriver's words.
+│   │       ├── screens/              # R: what an agent's terminal shows, in workriver's words; pure.
+│   │       │   ├── mod.rs            # Key (the only keys ever pressed), Screen, Frame; parse: a
+│   │       │   │                     # dialog read bottom up (hints, options, region, cut); marked:
+│   │       │   │                     # every Default_Ignorable_Code_Point made visible; kept and
+│   │       │   │                     # question_line: what the record keeps of a screen; Outcome.
+│   │       │   ├── tests.rs          # The parser against the measured dialogs; marked; kept.
+│   │       │   └── __fixtures__/     # The dialogs as captured (Claude, Codex), two idle screens
+│   │       │                         # quoting one, a cut region, Unicode's DICP table.
 │   │       ├── ports/                # Contracts in workriver terms; C/std, no adapter types.
 │   │       │   ├── mod.rs            # Narrow port exports.
 │   │       │   ├── data.rs           # WorkStore: reads at a revision, checked record, history, status,
@@ -69,6 +77,8 @@ workriver/
 │   │       │   ├── gates.rs          # Gate submission/opening and results.
 │   │       │   ├── chores.rs         # Non-blocking chores and their completion.
 │   │       │   ├── commands.rs       # The user's recorded command runs/reviews/ends and Verdict.
+│   │       │   ├── answers.rs        # agent.keys: the user's answer in an agent's terminal, cut
+│   │       │   │                     # by its rule; on the task the agent held.
 │   │       │   └── tests.rs
 │   │       ├── conversations/        # Durable communication records.
 │   │       │   ├── mod.rs            # Question/thread/message/delivery types and transitions.
@@ -258,6 +268,15 @@ crates/workriver/
 │   │   ├── planning/mod.rs           # Start and merge handlers; the user's acts on workspaces
 │   │   │                             # (/api/workspaces: add, rename, close, open, manager, move).
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
+│   │   ├── terminals/                # An agent's terminal from the page; all three routes App::user.
+│   │   │   ├── mod.rs                # Terminals (digest key, presses, writers, marks, views),
+│   │   │   │                         # /api/agent/screen and /keys handlers, Refusal, ScreenView.
+│   │   │   ├── press.rs              # One press: resolve once, compare the digest, digit or a walk
+│   │   │   │                         # of arrows, the reads after it, agent.keys.
+│   │   │   ├── marks.rs              # type_in / type_at (every message: resolve, or a seated
+│   │   │   │                         # manager's pin; read, type at that place); the poll's look
+│   │   │   │                         # at screens; waiting on its screen.
+│   │   │   └── view.rs               # /api/agent/view: the capped, bounded frame stream.
 │   │   ├── conversations/
 │   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
 │   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
@@ -309,17 +328,22 @@ crates/workriver/
 │   │       ├── route-access.txt  page-json.txt   # What they pin.
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
+│   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
 │   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
 │   │   ├── mod.rs                    # Neutral construction/context/wording facade (connect,
 │   │   │                             # caller_place, words, remote_ref, Settings); picks the adapter.
-│   │   ├── follow.rs                 # Several machines as one Runtime; routing by machine.
+│   │   ├── follow.rs                 # Several machines as one Runtime; routing by machine; each
+│   │   │                             # machine's change stream (watch) beside its reads.
 │   │   ├── ssh.rs                    # Tunnel supervision, publication, reconnect timing.
 │   │   └── herdr/                    # Private to runtime/. Another runtime goes beside it.
 │   │       ├── mod.rs                # Herdr implements Runtime; protocol values to workriver values.
 │   │       ├── protocol.rs           # Socket discovery, protocol version, framing, checked RPC.
 │   │       ├── agents.rs             # Snapshot normalization, roots, states, names, ids.
 │   │       ├── terminals.rs          # Send/focus/temporary agents/shells, ownership checks.
+│   │       ├── screens.rs            # resolve, pane.read, send_keys, prompt at a pane, explain, the
+│   │       │                         # observe child and its frames; the client socket's path.
+│   │       ├── watch.rs              # events.subscribe as wake-ups (per agent pane).
 │   │       ├── remote.rs             # Remote socket discovery/construction, its machine options.
 │   │       ├── words.rs              # Every sentence that names Herdr or a pane: refusals,
 │   │       │                         # errors, the CLI's help that names the runtime, hints.
@@ -400,7 +424,8 @@ frontend/web/
     │                                 # (an <img src>, the viewer's text preview).
     │   ├── http.ts                   # GET (read), POST (post, call), the change stream, errors, SIGNED_OUT.
     │   ├── session.ts                # One-time code exchange, the remembered deep link.
-    │   └── actions.ts                # The page's actions, focus included.
+    │   ├── actions.ts                # The page's actions, focus included.
+    │   └── terminal.ts               # An agent's terminal: its screen, the keys pressed, its view's stream.
     ├── workspace/                    # Snapshot loading and the optimistic overlay; no components.
     │   ├── types.ts  source.ts  edits.ts
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
@@ -410,13 +435,16 @@ frontend/web/
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
+    │                                 # Gate.tsx (a stuck agent answered: its screen, options, keys)
+    │                                 # TerminalView.tsx (the dock, xterm.js loaded on first use) context.tsx
     ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
     ├── attachments/                  # types.ts Viewer.tsx Thumbs.tsx preview.ts; Viewer calls onAsk, never Ask
     ├── commands/                     # types.ts Run.tsx context.tsx
     ├── machines/                     # types.ts format.tsx Machines.tsx Settings.tsx
     ├── session/                      # Session.tsx
-    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid),
+    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx TerminalText.tsx (screen text in the
+    │                                 # order a terminal draws it), diagram/ (mermaid),
     │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
     ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx and popover.tsx among them) Choice.tsx Icon.tsx

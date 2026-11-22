@@ -228,7 +228,10 @@ fn a_machines_connection_is_kept_up() {
     use crate::runtime::ssh::{Pace, Tunnel, allocated, publish, slept, supervise, tunnel_words};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
-    let w = tunnel_words("me@box", "/data/herdr-box.sock", "/home/me/.config/herdr/herdr.sock", 51234);
+    // The runtime's sockets as its adapter names them: its API, and next to it the socket of
+    // its terminal stream (the page's terminal view of an agent over there).
+    let sockets = crate::runtime::forwards(std::path::Path::new("/data"), "box", "/home/me/.config/herdr/herdr.sock");
+    let w = tunnel_words("me@box", &sockets, 51234);
     assert_eq!(&w[..2], ["ssh", "-N"]);
     for o in ["BatchMode=yes", "ForwardAgent=no", "StrictHostKeyChecking=yes", "ExitOnForwardFailure=yes", "ConnectTimeout=5", "ServerAliveInterval=10", "ServerAliveCountMax=3", "StreamLocalBindUnlink=yes", "LogLevel=INFO"] {
         assert!(w.windows(2).any(|p| p == ["-o", o]), "{o} in {w:?}");
@@ -236,7 +239,7 @@ fn a_machines_connection_is_kept_up() {
     // Clearing forwards would clear its own: the tunnel is the one ssh of ours that cannot.
     assert!(!w.iter().any(|o| o.starts_with("ClearAllForwardings")));
     let n = w.len();
-    assert_eq!(&w[n - 6..], ["-L", "/data/herdr-box.sock:/home/me/.config/herdr/herdr.sock", "-R", "127.0.0.1:0:127.0.0.1:51234", "--", "me@box"]);
+    assert_eq!(&w[n - 8..], ["-L", "/data/herdr-box.sock:/home/me/.config/herdr/herdr.sock", "-L", "/data/herdr-box-client.sock:/home/me/.config/herdr/herdr-client.sock", "-R", "127.0.0.1:0:127.0.0.1:51234", "--", "me@box"]);
     // As OpenSSH says it (checked against a real sshd).
     assert_eq!(allocated("Allocated port 57793 for remote forward to 127.0.0.1:9"), Some(57793));
     assert_eq!(allocated("Warning: Permanently added"), None);

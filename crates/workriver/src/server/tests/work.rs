@@ -359,7 +359,8 @@ fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
     // How question `q` ended, if it failed: its reason.
     let failed = |q: &str| stored(&db).iter().map(|e| serde_json::to_value(e).unwrap()).find(|v| v["kind"] == "question.failed" && v["body"]["question"] == q).map(|v| (v["body"]["reason_code"].clone(), v["body"]["reason"].clone()));
     let unread = Some((json!("runtime-error"), json!("cannot read the records: the disk is gone")));
-    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    // A temporary agent is typed into by its session (`s-<name>` in the fake).
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| *to == format!("s-{name}")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
 
     // A new question: the records cannot be read once its agent is recorded as started.
     *faults.down_after.lock().unwrap() = Some("question.started".into());
