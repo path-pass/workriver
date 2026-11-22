@@ -263,17 +263,25 @@ impl App {
         }
     }
 
-    /// A live agent's session by its name; anything else as it is.
-    /// A live agent's session, given as a session or by its name; anything else as it is.
-    /// Names may repeat across runtime groups: then the one in `near`'s group wins.
-    pub(super) fn session_of(&self, agent: &str, near: Option<&str>) -> String {
+    /// A live agent's session, given as a session or by a name exactly one live agent has;
+    /// anything no live agent goes by, as it is. A name several live agents have is refused,
+    /// naming their sessions: nothing of the runtime's groups decides which one it is.
+    pub(super) fn session_of(&self, agent: &str) -> Result<String, ApiError> {
         let live = self.live().unwrap_or_default();
         if live.iter().any(|a| a.session == agent) {
-            return agent.to_string();
+            return Ok(agent.to_string());
         }
-        let group_of = |s: &str| live.iter().find(|a| a.session == s).and_then(|a| a.group.clone());
-        let here = near.and_then(group_of);
-        let named: Vec<_> = live.iter().filter(|a| a.name == agent).collect();
-        named.iter().find(|a| here.is_some() && a.group == here).or(named.first()).map(|a| a.session.clone()).unwrap_or_else(|| agent.to_string())
+        let named: Vec<&RuntimeAgent> = live.iter().filter(|a| a.name == agent).collect();
+        match named[..] {
+            [] => Ok(agent.to_string()),
+            [one] => Ok(one.session.clone()),
+            _ => Err(several(agent, &named)),
+        }
     }
+}
+
+/// Refuses a name several running agents have, listing them by session.
+pub(in crate::server) fn several(agent: &str, named: &[&RuntimeAgent]) -> ApiError {
+    let list = named.iter().map(|a| format!("{} ({}{})", a.session, a.name, a.machine.as_ref().map(|m| format!(", on {m}")).unwrap_or_default())).collect::<Vec<_>>().join(", ");
+    bad(format!("several running agents are {agent}: name one by its session: {list}"))
 }

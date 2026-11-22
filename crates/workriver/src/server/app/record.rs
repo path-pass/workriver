@@ -214,10 +214,10 @@ impl App {
             }
             // An agent given by its name is recorded by its session.
             Body::TaskCreated(mut t) => {
-                t.agent = t.agent.map(|a| self.session_of(&a, Some(actor)));
+                t.agent = t.agent.map(|a| self.session_of(&a)).transpose()?;
                 Body::TaskCreated(t)
             }
-            Body::TaskStarted { unit, task, agent, model } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a, Some(actor))), model },
+            Body::TaskStarted { unit, task, agent, model } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a)).transpose()?, model },
             other => other,
         })
     }

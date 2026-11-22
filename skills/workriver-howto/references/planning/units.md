@@ -37,6 +37,9 @@ never a worktree directly in the project folder (it would read as another reposi
     workriver unit add --title "Mentions" --purpose "Let people @ each other" --branch feat/mention [--base main] [--repo PATH]
     workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder [--plan src/notify] [--text "…"]
 
+`--agent` is the worker's name or its session. A name two running agents have is refused
+("several running agents are …", listing them): give the session of the one you mean.
+
 `--text` is what the worker and the user read in the task's detail. Write it as short
 Markdown: a line or two of what is wanted, then bullets (requirements, constraints, where to
 start); no wall of text.

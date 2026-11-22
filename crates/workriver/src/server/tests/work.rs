@@ -1165,3 +1165,38 @@ fn a_held_notice_is_recorded_and_survives_a_restart() {
         }
     }
 }
+
+/// A task's agent given by its name is recorded by the session of the one running agent of
+/// that name. Two of that name are refused, naming their sessions, whichever runtime group
+/// the caller or either of them is in: nothing of the runtime's groups is read for a record.
+#[test]
+fn an_agent_named_by_two_running_agents_is_refused() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    let mut far = live("s-far", "impl", "w2", Idle);
+    far.group.as_mut().unwrap().label = "search".into();
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), far), ("p3".into(), live("s-near", "impl", "w1", Idle)), ("p4".into(), live("s-rev", "rev", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    let boss = Daemon { place: Some("p1".into()), home: None, ..d.clone() };
+    manage(&d, "p1", "s-boss");
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    let task = |agent: &str| json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "inputs": [{ "from": "start" }], "agent": agent });
+
+    // Two running agents are impl, one in the manager's own group: refused all the same.
+    let e = boss.append("", "task.created", task("impl")).unwrap_err().to_string();
+    assert!(e.contains("several running agents are impl: name one by its session") && e.contains("s-far") && e.contains("s-near"), "{e}");
+    // By its session; and a name only one has, by that one's session.
+    boss.append("", "task.created", task("s-near")).unwrap();
+    boss.append("", "task.created", task("rev")).unwrap();
+    let e = boss.append("", "task.started", json!({ "unit": "u1", "task": 1, "agent": "impl" })).unwrap_err().to_string();
+    assert!(e.contains("several running agents are impl"), "{e}");
+    let tasks = d.get("/api/state").unwrap()["units"][0]["tasks"].clone();
+    let agents: Vec<_> = tasks.as_array().unwrap().iter().map(|t| t["agent"].clone()).collect();
+    assert_eq!(agents, [json!("s-near"), json!("s-rev")], "{tasks}");
+}

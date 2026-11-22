@@ -190,7 +190,7 @@ pub(super) async fn focus(State(app): State<Shared>, Extension(caller): Extensio
     app.user(&caller)?;
     blocking(move || {
         // The page knows agents by name.
-        let session = app.session_of(&f.agent, None);
+        let session = app.session_of(&f.agent)?;
         app.runtime.focus(&session).map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
         // On another machine it comes to the front there, in that machine's runtime: the user's own
         // client stays where it is (the runtime has no way to switch it), so the page says where.
