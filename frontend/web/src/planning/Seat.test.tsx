@@ -20,7 +20,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const seat = (name: string, state: Seat['state'] = 'idle'): Seat => ({ session: `s-${name}`, name, folder: '/web', since: 7, state })
 const live = (agent: string, over: Partial<Session> = {}): Session => ({ agent, session: `s-${agent}`, ended: false, state: 'idle', folder: '/web', harness: 'claude', ...over })
-const data = (space: Space, sessions: Session[]) => ({ intents: [], projects: [], workspaces: [space], sessions }) as unknown as Workspace
+const data = (space: Space, sessions: Session[]) => ({ intents: [], projects: [{ id: '/web', key: 'p1', title: 'Web', repos: [] }], workspaces: [space], sessions }) as unknown as Workspace
 
 let root: Root
 let host: HTMLDivElement
@@ -41,7 +41,7 @@ describe('the manager select', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toContain('boss')
     expect(rows[0]).toContain('claude')
-    expect(rows[0]).toContain('/web/app')
+    expect(rows[0]).toContain('Web/app')
     expect(rows[0]).toContain('group-row')
     expect(rows[0]).toContain('no task, no seat')
     expect(button('Seat as manager').disabled).toBe(true)
@@ -114,8 +114,53 @@ describe('the manager select', () => {
     const dialog = document.querySelector('[data-slot=dialog-content]')!
     expect(dialog.classList).toContain('grid-cols-1')
     expect(dialog.querySelector('[role=radiogroup]')!.classList).toContain('grid-cols-1')
-    const path = [...dialog.querySelectorAll('label span')].find(e => e.textContent === folder)!
-    expect(path.getAttribute('title')).toBe(folder)
+    const path = dialog.querySelector(`label span[title="${folder}"]`)!
+    expect(path.textContent).toBe('~/code/a-folder-name-long-enough-to-be-wider-than-the-dialog/and/deeper')
     expect(path.classList).toContain('truncate')
+  })
+
+  const names = () => [...host.querySelectorAll('[role=radiogroup] label')].filter(l => l.querySelector('[role=radio]')).map(l => l.querySelector('.font-\\[550\\]')!.textContent)
+  const allSwitch = () => host.querySelector('[role=switch]') as HTMLButtonElement | null
+
+  it('lists the agents in the project’s folder first; a quiet switch shows all of them', async () => {
+    const space: Space = { id: 'ws2', name: 'chat', project: '/web' }
+    await show(space, [live('here', { folder: '/web/app' }), live('away', { folder: '/Users/someone/notes' }), live('there', { folder: '/web', machine: 'box' })])
+    expect(names()).toEqual(['here'])
+    expect(allSwitch()!.getAttribute('aria-checked')).toBe('false')
+    expect(allSwitch()!.closest('label')!.textContent).toBe('Show all agents (3)')
+    await act(async () => allSwitch()!.click())
+    expect(names()).toEqual(['here', 'away', 'there'])
+    // The others come under the switch, where it was turned on.
+    const order = [...host.querySelectorAll('[role=radiogroup] [role=radio], [role=radiogroup] [role=switch]')].map(e => e.getAttribute('role'))
+    expect(order).toEqual(['radio', 'switch', 'radio', 'radio'])
+    await pick('s-away')
+    await act(async () => allSwitch()!.click())
+    // An agent picked among the others is not seated unseen once they are hidden again.
+    expect(names()).toEqual(['here'])
+    expect(button('Seat as manager').disabled).toBe(true)
+  })
+
+  it('keeps the agent seated now and the one preset in the list wherever they run', async () => {
+    const space: Space = { id: 'ws1', name: 'chat', project: '/web', manager: seat('boss') }
+    await show(space, [live('boss', { folder: '/elsewhere', manager: true }), live('next', { folder: '/notes' }), live('other', { folder: '/opt' })], 's-next')
+    expect(names()).toEqual(['boss', 'next'])
+    expect(allSwitch()!.closest('label')!.textContent).toBe('Show all agents (3)')
+  })
+
+  it('says when no agent runs in the project’s folder, and shows all of them', async () => {
+    const space: Space = { id: 'ws2', name: 'chat', project: '/web' }
+    await show(space, [live('away', { folder: '/Users/someone/notes' })])
+    expect(host.textContent).toContain('No agent runs in this project’s folder; all agents running now are listed.')
+    expect(names()).toEqual(['away'])
+    // The switch shows open, and stays so: hiding the others would leave nothing to pick.
+    expect(allSwitch()!.getAttribute('aria-checked')).toBe('true')
+    expect(allSwitch()!.disabled).toBe(true)
+  })
+
+  it('shows each folder short, the whole path in its tooltip', async () => {
+    const space: Space = { id: 'ws2', name: 'chat', project: '/web' }
+    await show(space, [live('root', { folder: '/web' }), live('sub', { folder: '/web/crates/core' })])
+    const folders = [...host.querySelectorAll('label span[title]')].map(e => [e.textContent, e.getAttribute('title')])
+    expect(folders).toEqual([['Web', '/web'], ['Web/crates/core', '/web/crates/core']])
   })
 })

@@ -6,6 +6,7 @@ import { useEffect, useId, useState } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/ui/primitives/dialog'
 import { RadioGroup, RadioGroupItem } from '@/ui/primitives/radio-group'
+import { Switch } from '@/ui/primitives/switch'
 import { contentLang, useT } from '@/i18n'
 import { SeatChanged, setSpace } from '@/api/actions'
 import type { Space } from '@/agents/types'
@@ -14,7 +15,7 @@ import { Who } from '@/agents/Mark'
 import { MachineChip } from '@/machines/format'
 import { Content, Slot, slot, SLOT } from '@/content/Chips'
 import { Icon } from '@/ui/Icon'
-import { candidates, movedSeat, replaces, runs, type Candidate } from './spaces'
+import { candidates, movedSeat, replaces, runs, seatList, shortFolder, type Candidate } from './spaces'
 
 /** Each seat dialog on the page, to be opened on a workspace. */
 const openers = new Set<(space: string, preset?: string) => void>()
@@ -31,8 +32,37 @@ function Known({ c }: { c: Candidate }) {
   return <span className="text-ink-2">{parts.length ? parts.join(' · ') : t('seat.nothing')}</span>
 }
 
+/** One agent of the manager select, as a radio row: who it is, where it runs (its folder
+ *  short, whole in the tooltip), what the records know of it. */
+function Row({ c, ws, id }: { c: Candidate; ws: Workspace; id: string }) {
+  const { t } = useT()
+  const folder = c.s.folder && shortFolder(c.s.folder, c.s.machine, ws.projects ?? [])
+  return (
+    <label htmlFor={`${id}-${c.key}`} className="flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1.5 hover:bg-sunken has-data-[state=checked]:bg-sunken">
+      <RadioGroupItem id={`${id}-${c.key}`} value={c.key} className="mt-1" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Who name={c.s.agent} topic={c.s.topic} />
+          <span className="min-w-0 truncate font-[550]">{c.s.agent}</span>
+          {c.s.harness && <span className="flex-none font-mono text-xs text-ink-2">{c.s.harness}</span>}
+          <MachineChip machine={c.s.machine} away={c.s.unreachable} />
+          {c.s.state && <span className="ml-auto flex-none text-xs text-ink-2">{t(`manager.state.${c.s.state}`)}</span>}
+        </span>
+        {folder && <span className="truncate font-mono text-xs text-ink-2" title={c.s.folder} lang={contentLang(folder)}>{folder}</span>}
+        <span className="flex min-w-0 flex-wrap gap-x-2 text-xs">
+          <Known c={c} />
+          {/* Where its terminal is in the runtime: a hint only, quietly. */}
+          {c.s.group && <span className="text-ink-2 opacity-70"><Slot text={t('seat.group', { group: SLOT })}><span lang={contentLang(c.s.group.label)}>{c.s.group.label}</span></Slot></span>}
+        </span>
+      </span>
+    </label>
+  )
+}
+
 /**
- * The manager select of one workspace: the agents running now, one picked, and "Seat". It
+ * The manager select of one workspace: the agents running now, one picked, and "Seat". Those
+ * in the project's folder come first (with the one seated now and the one preset); a switch
+ * shows the others, open when none is in the project. It
  * asks once before seating over a manager that runs; "Empty the seat" takes the manager
  * away. `onDone`: seated or emptied. A seat that changed meanwhile says so and shows the
  * seat as it is now, to choose again.
@@ -43,13 +73,23 @@ export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space
   const list = candidates(ws)
   const seated = space.manager
   const [picked, setPicked] = useState(preset ?? space.proposal ?? '')
+  // Kept in the first list wherever they run: the one seated now and the one preset.
+  const [keep] = useState(() => [seated?.session, preset ?? space.proposal].filter((k): k is string => !!k))
+  const { here, rest } = seatList(list, space.project, keep)
+  const [all, setAll] = useState(false)
+  const showAll = all || here.length === 0
+  const showAllAt = (on: boolean) => {
+    setAll(on)
+    // One picked among the others is not seated unseen once they are hidden.
+    if (!on && rest.some(c => c.key === picked)) setPicked('')
+  }
   const [asked, setAsked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   // The seat shown changed (someone seated meanwhile, or this did): nothing is confirmed yet.
   const shown = `${seated?.session ?? ''}:${seated?.since ?? 0}`
   useEffect(() => setAsked(false), [shown, picked])
-  const at = list.find(c => c.key === picked)
+  const at = [...here, ...(showAll ? rest : [])].find(c => c.key === picked)
   const moved = movedSeat(space, at)
   // Over a manager that runs: asked once, in a line, and the button says what it does.
   const over = runs(seated) && !!at && at.key !== seated.session
@@ -82,28 +122,20 @@ export function SeatPicker({ ws, space, preset, onDone }: { ws: Workspace; space
       {list.length === 0
         ? <p className="text-ink-2">{t('seat.nobody')}</p>
         : (
-          <RadioGroup value={picked} onValueChange={setPicked} aria-label={t('seat.pick')} className="max-h-[40vh] gap-0.5 overflow-y-auto">
-            {list.map((c, k) => (
-              <label key={c.key} htmlFor={`${id}-${k}`} className="flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1.5 hover:bg-sunken has-data-[state=checked]:bg-sunken">
-                <RadioGroupItem id={`${id}-${k}`} value={c.key} className="mt-1" />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <Who name={c.s.agent} topic={c.s.topic} />
-                    <span className="min-w-0 truncate font-[550]">{c.s.agent}</span>
-                    {c.s.harness && <span className="flex-none font-mono text-xs text-ink-2">{c.s.harness}</span>}
-                    <MachineChip machine={c.s.machine} away={c.s.unreachable} />
-                    {c.s.state && <span className="ml-auto flex-none text-xs text-ink-2">{t(`manager.state.${c.s.state}`)}</span>}
-                  </span>
-                  {c.s.folder && <span className="truncate font-mono text-xs text-ink-2" title={c.s.folder}>{c.s.folder}</span>}
-                  <span className="flex min-w-0 flex-wrap gap-x-2 text-xs">
-                    <Known c={c} />
-                    {/* Where its terminal is in the runtime: a hint only, quietly. */}
-                    {c.s.group && <span className="text-ink-2 opacity-70"><Slot text={t('seat.group', { group: SLOT })}><span lang={contentLang(c.s.group.label)}>{c.s.group.label}</span></Slot></span>}
-                  </span>
-                </span>
-              </label>
-            ))}
-          </RadioGroup>
+          <>
+            {here.length === 0 && <p className="text-xs text-ink-2">{t('seat.noneHere')}</p>}
+            <RadioGroup value={picked} onValueChange={setPicked} aria-label={t('seat.pick')} className="max-h-[40vh] gap-0.5 overflow-y-auto">
+              {here.map(c => <Row key={c.key} c={c} ws={ws} id={id} />)}
+              {/* The others are listed under the switch, so they show where it was turned on. */}
+              {rest.length > 0 && (
+                <label className="flex cursor-pointer items-center gap-1.5 self-start px-1.5 py-1 text-xs text-ink-2">
+                  <Switch size="sm" checked={showAll} disabled={here.length === 0} onCheckedChange={showAllAt} />
+                  {t('seat.showAll', { count: list.length })}
+                </label>
+              )}
+              {showAll && rest.map(c => <Row key={c.key} c={c} ws={ws} id={id} />)}
+            </RadioGroup>
+          </>
         )}
       {over && asked && at && <p role="alert" className="text-xs"><Slot text={t('seat.over', { old: slot(0), next: slot(1) })}>{[<Content key="o" text={seated.name} />, <Content key="n" text={at.s.agent} />]}</Slot></p>}
       {error && <p role="alert" className="text-xs wrap-anywhere text-del">{error}</p>}

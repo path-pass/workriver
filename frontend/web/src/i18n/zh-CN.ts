@@ -374,6 +374,8 @@ export const zhCN: OneForm<typeof en> = {
     movedOld: '任命时：{{machine}} 上的 {{folder}}（已不在）',
     movedNew: '现在出现在：{{machine}} 上的 {{folder}}',
     nobody: '现在没有在运行的 agent。先在 {{runtime}} 里启动一个，再到这里安排它。',
+    noneHere: '没有 agent 在这个项目的文件夹里运行；下面列出现在运行的所有 agent。',
+    showAll: '显示所有 agent（{{count, number}}）',
     pick: '要安排的 agent',
     managerOf: '{{workspace}} 的管理者',
     tasks_other: '{{count, number}} 个任务（{{first}} 等）',
