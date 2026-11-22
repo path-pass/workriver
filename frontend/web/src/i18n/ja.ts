@@ -701,6 +701,7 @@ export const ja: OneForm<typeof en> = {
     noHarness: 'ハーネス不明',
     noModel: 'モデル未申告',
     onMachine: '{{machine}} 上',
+    unconfirmed: '推定したパス、ここでは見当たらない',
     noFile: {
       harness: 'このハーネスがセッションをどこに保存するかは不明です',
       id: 'ハーネスが独自のセッション ID を出していません',

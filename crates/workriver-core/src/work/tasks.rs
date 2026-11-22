@@ -234,6 +234,10 @@ impl State {
                     Some(m) if m.chars().count() > MAX_MODEL || m.chars().any(char::is_control) => return no(format!("a model is a name of at most {MAX_MODEL} characters on one line")),
                     m => m,
                 };
+                // The model is the starting agent's own word, never another's for it.
+                if model.is_some() && (user || agent.as_deref().is_some_and(|a| a != actor && Some(a) != self.name_of(actor))) {
+                    return no("--model is said by the agent that starts its own task, from its own terminal; leave it out when you start a task for another agent");
+                }
                 TaskStarted { unit, task, agent, model }
             }
             TaskDelivered { unit, task, note, evidence, findings, attachments } => {

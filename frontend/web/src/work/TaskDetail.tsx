@@ -55,7 +55,8 @@ function Checks({ n }: { n: Task }) {
 
 /**
  * Who did the work, as its harness knows it: the harness, the model its agent said, the
- * session id and where the harness keeps the session (on another machine: which one).
+ * session id and where the harness keeps the session (on another machine: which one; here,
+ * when the path is only worked out and no file is there by that name: so).
  */
 export function Traced({ trace }: { trace: Trace }) {
   const { t } = useT()
@@ -63,7 +64,9 @@ export function Traced({ trace }: { trace: Trace }) {
     <div className="flex flex-col gap-0.5 border-b border-line px-3 py-1.5 text-xs text-ink-2 wrap-anywhere" aria-label={t('task.trace')}>
       <span>{[trace.harness ?? t('task.noHarness'), trace.model ?? t('task.noModel')].join(' · ')} · <code>{trace.session}</code></span>
       {trace.file
-        ? <span className="flex items-center gap-1"><code className="min-w-0">{trace.file}</code><CopyButton text={trace.file} />{trace.machine && <span className="flex-none">{t('task.onMachine', { machine: trace.machine })}</span>}</span>
+        ? <span className="flex items-center gap-1"><code className="min-w-0">{trace.file}</code><CopyButton text={trace.file} />{trace.machine
+          ? <span className="flex-none">{t('task.onMachine', { machine: trace.machine })}</span>
+          : trace.unconfirmed && <span className="flex-none">{t('task.unconfirmed')}</span>}</span>
         : <span>{t(`task.noFile.${trace.unknown ?? 'harness'}`)}</span>}
     </div>
   )

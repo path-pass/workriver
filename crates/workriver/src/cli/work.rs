@@ -24,6 +24,10 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                     println!("{f}");
                     eprintln!("on machine {m}: workriver does not look there");
                 }
+                (Some(f), None) if t.unconfirmed => {
+                    println!("{f}");
+                    eprintln!("worked out, not seen there: the session may have begun in another directory, or the file is gone");
+                }
                 (Some(f), None) => println!("{f}"),
                 (None, _) => bail!("{}: session file {}", shown.reference, display::session_file(&t)),
             }
@@ -296,14 +300,15 @@ pub(crate) enum TaskCmd {
         #[arg(long)]
         agent: Option<String>,
         /// The model you work with (e.g. claude-opus-5-5), as your harness names it; shown
-        /// with the task. Leave it out if you do not know it.
+        /// with the task. Leave it out if you do not know it, and when you start the task
+        /// for another agent (--agent): only an agent says its own model.
         #[arg(long)]
         model: Option<String>,
     },
-    /// Print where the harness keeps the session of a task's agent: its session file, on the
-    /// machine the agent ran on (default: the task you are on). Only the path: workriver
-    /// never reads the file. A `*` stands where the file is found by its id and that machine
-    /// was not looked at.
+    /// Print where the harness keeps the session of the agent that started a task: its
+    /// session file, on the machine the agent ran on (default: the task you are on). Only
+    /// the path: workriver never reads the file. A `*` stands where the file is found by its
+    /// id and that machine was not looked at; a path only worked out says so.
     Session {
         /// The task (u1#3).
         task: Option<String>,

@@ -1,31 +1,43 @@
 //! A task's trace, the light part: which harness and model did it, and where the harness
 //! keeps the session on the machine the agent ran on. Where each harness keeps it is known
 //! here and nowhere else. A session file is never opened: its path is worked out, or, where
-//! the harness names it by more than the id, a folder's names are listed to find it.
+//! the harness names it by more than the id, folders' names are listed to find it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use workriver_core as core;
 
+use crate::common::config::defaults::SESSION_RECHECK_SECS;
 use crate::common::wire::{NoFile, Trace};
 
 /// The longest folder name Claude Code makes of a working directory; a longer one is cut
 /// there and gets a suffix of its own, which is not worked out here (a `*` stands for it).
 const CLAUDE_FOLDER: usize = 200;
 
+/// What a look for a session's file by its id came to.
+enum Looked {
+    /// There, when last looked (checked again before it is shown).
+    At(PathBuf),
+    /// Not found then.
+    Not(Instant),
+}
+
 /// Where harnesses keep sessions on this machine.
 pub(in crate::server) struct Sessions {
     /// The user's home here; none: nothing is looked for, paths are shown from `~`.
     home: Option<PathBuf>,
-    /// Files found by their id, by session: a session's file does not move.
-    found: Mutex<HashMap<String, String>>,
+    /// Files looked for by their id, by session.
+    looked: Mutex<HashMap<String, Looked>>,
+    /// How long a session not found is not looked for again.
+    recheck: Duration,
 }
 
 impl Sessions {
     pub(in crate::server) fn new(home: Option<PathBuf>) -> Sessions {
-        Sessions { home, found: Mutex::default() }
+        Sessions { home, looked: Mutex::default(), recheck: Duration::from_secs(SESSION_RECHECK_SECS) }
     }
 
     /// The trace of work done by the agent of `session`, as `state` records that agent;
@@ -35,15 +47,16 @@ impl Sessions {
         let harness = a.map(|a| a.harness.clone()).filter(|h| !h.is_empty());
         let machine = a.and_then(|a| a.machine.clone());
         let cwd = a.map(|a| a.cwd.as_str()).unwrap_or_default();
-        let (file, unknown) = match self.file(harness.as_deref(), session, cwd, machine.is_some()) {
-            Ok(f) => (Some(f), None),
-            Err(why) => (None, Some(why)),
+        let (file, unconfirmed, unknown) = match self.file(harness.as_deref(), session, cwd, machine.is_some()) {
+            Ok((f, seen)) => (Some(f), !seen, None),
+            Err(why) => (None, false, Some(why)),
         };
-        Trace { session: session.to_string(), harness, model: model.map(str::to_string), machine, file, unknown }
+        Trace { session: session.to_string(), harness, model: model.map(str::to_string), machine, file, unconfirmed, unknown }
     }
 
-    /// Where `harness` keeps `session`; `remote`: on another machine, where nothing is looked for.
-    fn file(&self, harness: Option<&str>, session: &str, cwd: &str, remote: bool) -> Result<String, NoFile> {
+    /// Where `harness` keeps `session`, and whether it was seen there; `remote`: on another
+    /// machine, where nothing is looked for.
+    fn file(&self, harness: Option<&str>, session: &str, cwd: &str, remote: bool) -> Result<(String, bool), NoFile> {
         let home = self.home.as_deref().filter(|_| !remote);
         let under = |rel: &str| match home {
             Some(h) => h.join(rel).display().to_string(),
@@ -51,34 +64,64 @@ impl Sessions {
         };
         match harness {
             Some("claude") | Some("codex") if !own_id(session) => Err(NoFile::Id),
-            // ~/.claude/projects/<the working directory, each character but a-z, A-Z and 0-9 a ->/<id>.jsonl
-            Some("claude") if cwd.is_empty() => Err(NoFile::Cwd),
-            Some("claude") => Ok(under(&format!(".claude/projects/{}/{session}.jsonl", claude_folder(cwd)))),
+            // ~/.claude/projects/<the directory the session was begun in, each character but
+            // a-z, A-Z and 0-9 a ->/<id>.jsonl. That is the one the agent was started in
+            // unless it was resumed elsewhere: if not there, it is found by its id.
+            Some("claude") => {
+                let worked = (!cwd.is_empty()).then(|| format!(".claude/projects/{}/{session}.jsonl", claude_folder(cwd)));
+                let Some(h) = home else { return worked.map(|w| (under(&w), false)).ok_or(NoFile::Cwd) };
+                if let Some(w) = worked.as_deref().filter(|w| h.join(w).exists()) {
+                    return Ok((under(w), true));
+                }
+                match self.find(session, || claude(h, session)) {
+                    Some(f) => Ok((f, true)),
+                    None => worked.map(|w| (under(&w), false)).ok_or(NoFile::Cwd),
+                }
+            }
             // ~/.codex/sessions/YYYY/MM/DD/rollout-<when it began>-<id>.jsonl, maybe compressed
-            // (.jsonl.zst): the day and the time are not in the records, so it is found by its id.
+            // (.jsonl.zst), or archived to ~/.codex/archived_sessions/: the day and the time
+            // are not in the records, so it is found by its id.
             Some("codex") => match home {
-                None => Ok(under(&format!(".codex/sessions/*/*/*/rollout-*-{session}.jsonl*"))),
-                Some(h) => self.codex(h, session).ok_or(NoFile::Missing),
+                None => Ok((under(&format!(".codex/sessions/*/*/*/rollout-*-{session}.jsonl*")), false)),
+                Some(h) => self.find(session, || codex(h, session)).map(|f| (f, true)).ok_or(NoFile::Missing),
             },
             _ => Err(NoFile::Harness),
         }
     }
 
-    /// Codex's file of `session` under `home`, by the names of its folders.
-    fn codex(&self, home: &Path, session: &str) -> Option<String> {
-        if let Some(f) = self.found.lock().unwrap().get(session) {
-            return Some(f.clone());
+    /// `session`'s file by `look`, which lists folders: where it was found, while it is still
+    /// there; a session not found is looked for again only after `recheck`, so a snapshot
+    /// lists nothing for a session it found missing a moment ago (once per session, not
+    /// per task).
+    fn find(&self, session: &str, look: impl FnOnce() -> Option<PathBuf>) -> Option<String> {
+        match self.looked.lock().unwrap().get(session) {
+            Some(Looked::At(f)) if f.exists() => return Some(f.display().to_string()),
+            Some(Looked::Not(at)) if at.elapsed() < self.recheck => return None,
+            _ => {}
         }
-        let names = |p: &Path| -> Vec<PathBuf> { std::fs::read_dir(p).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default() };
-        let tail = format!("-{session}.jsonl");
-        let root = home.join(".codex/sessions");
-        let f = names(&root).iter().flat_map(|y| names(y)).flat_map(|m| names(&m)).flat_map(|d| names(&d)).find(|f| {
-            f.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && (n.ends_with(&tail) || n.contains(&format!("{tail}."))))
-        })?;
-        let f = f.display().to_string();
-        self.found.lock().unwrap().insert(session.to_string(), f.clone());
-        Some(f)
+        let f = look();
+        self.looked.lock().unwrap().insert(session.to_string(), f.clone().map_or_else(|| Looked::Not(Instant::now()), Looked::At));
+        f.map(|f| f.display().to_string())
     }
+}
+
+/// The entries of folder `p`, by name; none if it cannot be listed.
+fn names(p: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(p).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default()
+}
+
+/// Claude Code's file of `session` under `home`: in whichever of its folders has that name.
+fn claude(home: &Path, session: &str) -> Option<PathBuf> {
+    let name = format!("{session}.jsonl");
+    names(&home.join(".claude/projects")).into_iter().map(|d| d.join(&name)).find(|f| f.exists())
+}
+
+/// Codex's file of `session` under `home`, by the names of its folders: dated, or archived.
+fn codex(home: &Path, session: &str) -> Option<PathBuf> {
+    let tail = format!("-{session}.jsonl");
+    let dated = names(&home.join(".codex/sessions")).into_iter().flat_map(|y| names(&y)).flat_map(|m| names(&m)).flat_map(|d| names(&d));
+    let archived = names(&home.join(".codex/archived_sessions"));
+    dated.chain(archived).find(|f| f.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("rollout-") && (n.ends_with(&tail) || n.contains(&format!("{tail}.")))))
 }
 
 /// A harness's own session id, safe as a part of a path: a runtime that has none names the
@@ -110,9 +153,17 @@ mod tests {
     #[test]
     fn claude_keeps_a_session_by_its_working_directory() {
         let s = state(json!([{"session": "5d2e41a0-7c3b", "name": "impl", "harness": "claude", "cwd": "/Users/me/99_git/app.worktrees/u7"}]));
-        let t = Sessions::new(Some("/Users/me".into())).trace(&s, "5d2e41a0-7c3b", Some("claude-opus-5-5"));
-        assert_eq!(t.file.as_deref(), Some("/Users/me/.claude/projects/-Users-me-99-git-app-worktrees-u7/5d2e41a0-7c3b.jsonl"));
+        let home = tempfile::tempdir().unwrap();
+        let folder = home.path().join(".claude/projects/-Users-me-99-git-app-worktrees-u7");
+        let here = Sessions::new(Some(home.path().to_path_buf()));
+        // Not there (yet): the path it would have, said to be worked out only.
+        let t = here.trace(&s, "5d2e41a0-7c3b", Some("claude-opus-5-5"));
+        assert_eq!((t.file, t.unconfirmed), (Some(folder.join("5d2e41a0-7c3b.jsonl").display().to_string()), true));
         assert_eq!((t.harness.as_deref(), t.model.as_deref(), t.machine, t.unknown), (Some("claude"), Some("claude-opus-5-5"), None, None));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("5d2e41a0-7c3b.jsonl"), "").unwrap();
+        let t = here.trace(&s, "5d2e41a0-7c3b", None);
+        assert_eq!((t.file, t.unconfirmed), (Some(folder.join("5d2e41a0-7c3b.jsonl").display().to_string()), false));
         // With no home to show it under, from `~`.
         assert_eq!(Sessions::new(None).trace(&s, "5d2e41a0-7c3b", None).file.as_deref(), Some("~/.claude/projects/-Users-me-99-git-app-worktrees-u7/5d2e41a0-7c3b.jsonl"));
     }
@@ -132,8 +183,9 @@ mod tests {
         ]));
         let here = Sessions::new(Some("/Users/me".into()));
         let t = here.trace(&s, "s-1", None);
-        assert_eq!((t.file.as_deref(), t.machine.as_deref()), (Some("~/.claude/projects/-home-u-repo/s-1.jsonl"), Some("box")));
-        assert_eq!(here.trace(&s, "019c8360-2e86", None).file.as_deref(), Some("~/.codex/sessions/*/*/*/rollout-*-019c8360-2e86.jsonl*"));
+        assert_eq!((t.file.as_deref(), t.machine.as_deref(), t.unconfirmed), (Some("~/.claude/projects/-home-u-repo/s-1.jsonl"), Some("box"), true));
+        let t = here.trace(&s, "019c8360-2e86", None);
+        assert_eq!((t.file.as_deref(), t.unconfirmed), (Some("~/.codex/sessions/*/*/*/rollout-*-019c8360-2e86.jsonl*"), true));
     }
 
     #[test]
@@ -154,9 +206,74 @@ mod tests {
         assert_eq!(here.trace(&s, "019c8360-aaaa", None).file, Some(day.join("rollout-2026-02-22T12-24-04-019c8360-aaaa.jsonl.zst").display().to_string()));
         assert_eq!(here.trace(&s, "019c8360-bbbb", None).file, Some(day.join("rollout-2026-02-22T13-00-00-019c8360-bbbb.jsonl").display().to_string()));
         assert_eq!(here.trace(&s, "8360-cccc", None).unknown, Some(NoFile::Missing));
-        // Found once, it is kept: the file does not move.
-        std::fs::remove_dir_all(home.path().join(".codex")).unwrap();
-        assert!(here.trace(&s, "019c8360-aaaa", None).file.is_some());
+        assert!(!here.trace(&s, "019c8360-bbbb", None).unconfirmed);
+    }
+
+    /// Codex moves a session it archives out of the dated folders into one of its own: it is
+    /// found there, at first and after it moved; a path kept from before is checked first.
+    #[test]
+    fn an_archived_codex_session_is_found_where_it_went() {
+        let home = tempfile::tempdir().unwrap();
+        let day = home.path().join(".codex/sessions/2026/02/22");
+        let archive = home.path().join(".codex/archived_sessions");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::create_dir_all(&archive).unwrap();
+        let name = "rollout-2026-02-22T12-24-04-019c8360-aaaa.jsonl";
+        std::fs::write(archive.join("rollout-2026-02-01T00-00-00-019c8360-old.jsonl.zst"), "").unwrap();
+        std::fs::write(day.join(name), "").unwrap();
+        let s = state(json!([{"session": "019c8360-aaaa", "name": "a", "harness": "codex"}, {"session": "019c8360-old", "name": "o", "harness": "codex"}]));
+        let here = Sessions::new(Some(home.path().to_path_buf()));
+        assert_eq!(here.trace(&s, "019c8360-old", None).file, Some(archive.join("rollout-2026-02-01T00-00-00-019c8360-old.jsonl.zst").display().to_string()));
+        assert_eq!(here.trace(&s, "019c8360-aaaa", None).file, Some(day.join(name).display().to_string()));
+        std::fs::rename(day.join(name), archive.join(name)).unwrap();
+        let t = here.trace(&s, "019c8360-aaaa", None);
+        assert_eq!((t.file, t.unknown), (Some(archive.join(name).display().to_string()), None));
+        // Gone altogether: not found, never the old path.
+        std::fs::remove_file(archive.join(name)).unwrap();
+        let t = here.trace(&s, "019c8360-aaaa", None);
+        assert_eq!((t.file, t.unknown), (None, Some(NoFile::Missing)));
+    }
+
+    /// Claude Code keeps a session by the directory it was begun in, which need not be the
+    /// one the agent was seen in: the session is then found by its id among its folders.
+    #[test]
+    fn a_claude_session_begun_elsewhere_is_found_by_its_id() {
+        let home = tempfile::tempdir().unwrap();
+        let projects = home.path().join(".claude/projects");
+        for (folder, id) in [("-r", "s-1"), ("-other", "s-1x"), ("-other", "x-s-1")] {
+            std::fs::create_dir_all(projects.join(folder)).unwrap();
+            std::fs::write(projects.join(folder).join(format!("{id}.jsonl")), "").unwrap();
+        }
+        let s = state(json!([
+            {"session": "s-1", "name": "sub", "harness": "claude", "cwd": "/r/sub"},
+            {"session": "s-2", "name": "gone", "harness": "claude", "cwd": "/r/sub"},
+        ]));
+        let here = Sessions::new(Some(home.path().to_path_buf()));
+        let t = here.trace(&s, "s-1", None);
+        assert_eq!((t.file, t.unconfirmed), (Some(projects.join("-r/s-1.jsonl").display().to_string()), false));
+        // Nowhere: the path it would have, as worked out only.
+        let t = here.trace(&s, "s-2", None);
+        assert_eq!((t.file, t.unconfirmed), (Some(projects.join("-r-sub/s-2.jsonl").display().to_string()), true));
+        // Seen before its directory was kept: found by its id all the same.
+        let old = state(json!([{"session": "s-1", "name": "sub", "harness": "claude"}, {"session": "s-2", "name": "gone", "harness": "claude"}]));
+        assert_eq!(here.trace(&old, "s-1", None).file, Some(projects.join("-r/s-1.jsonl").display().to_string()));
+        assert_eq!(here.trace(&old, "s-2", None).unknown, Some(NoFile::Cwd));
+    }
+
+    /// A session not found is not looked for again for a while (every snapshot would list
+    /// the folders again, once per task): once per session, then after `recheck`.
+    #[test]
+    fn a_session_not_found_is_looked_for_again_only_after_a_while() {
+        let home = tempfile::tempdir().unwrap();
+        let day = home.path().join(".codex/sessions/2026/02/22");
+        std::fs::create_dir_all(&day).unwrap();
+        let s = state(json!([{"session": "019c8360-late", "name": "l", "harness": "codex"}]));
+        let mut here = Sessions::new(Some(home.path().to_path_buf()));
+        assert_eq!(here.trace(&s, "019c8360-late", None).unknown, Some(NoFile::Missing));
+        std::fs::write(day.join("rollout-2026-02-22T12-24-04-019c8360-late.jsonl"), "").unwrap();
+        assert_eq!(here.trace(&s, "019c8360-late", None).unknown, Some(NoFile::Missing), "remembered, not looked for again");
+        here.recheck = std::time::Duration::ZERO;
+        assert!(here.trace(&s, "019c8360-late", None).file.is_some());
     }
 
     #[test]

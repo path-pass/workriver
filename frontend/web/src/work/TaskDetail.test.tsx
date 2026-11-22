@@ -89,6 +89,14 @@ describe('a task’s trace', () => {
     expect(trace()).toBe('harness not known · model not given · s-1Where this harness keeps its sessions is not known')
   })
 
+  it('says when the path is only worked out, not seen there', () => {
+    show(unit({ ...work, trace: { session: 's-1', harness: 'claude', file: '/Users/me/.claude/projects/-r-sub/s-1.jsonl', unconfirmed: true } }))
+    expect(trace()).toBe('claude · model not given · s-1/Users/me/.claude/projects/-r-sub/s-1.jsonlworked out, not seen there')
+    // A far one says its machine: nothing is looked at there.
+    show(unit({ ...work, trace: { session: 's-1', harness: 'claude', machine: 'box', file: '~/.claude/projects/-r/s-1.jsonl', unconfirmed: true } }))
+    expect(trace()).toBe('claude · model not given · s-1~/.claude/projects/-r/s-1.jsonlon box')
+  })
+
   it('is not there for work no agent did', () => {
     show(unit(gate))
     expect(trace()).toBeUndefined()

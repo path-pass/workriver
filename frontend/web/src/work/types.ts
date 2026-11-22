@@ -267,6 +267,8 @@ export interface Trace {
   machine?: string;
   /** The session file there; a `*` where it is found by its id and could not be looked for. */
   file?: string;
+  /** `file` is worked out, not seen: on another machine, or not there under that name here. */
+  unconfirmed?: boolean;
   /** Why there is no file. */
   unknown?: 'harness' | 'id' | 'cwd' | 'missing';
 }

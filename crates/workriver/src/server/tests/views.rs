@@ -492,6 +492,7 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
         ("p2".into(), at_dir("s-fix", "fix", "claude", "")),
         ("p3".into(), at_dir("0c0d-ex", "cx", "codex", "/w/cx")),
         ("p4".into(), at_dir("s-sec", "sec", "claude", "/w/sec")),
+        ("p5".into(), { let mut a = at_dir("s-far", "far", "claude", "/far/repo"); a.machine = Some("box".into()); a }),
     ];
     let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -513,10 +514,15 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": agent, "inputs": [{ "from": "start" }] })).unwrap();
     }
 
+    // Assigned and not started: no trace (its agent's session is still other work's).
+    let shown = |who: &crate::cli::Daemon, n: u32| serde_json::from_value::<crate::common::wire::TaskShow>(who.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
+    assert_eq!(shown(&user, 1).trace, None);
+    assert!(user.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0].get("trace").is_none());
+
     // Seen first with no directory: its file is not known until one is seen, and the first
     // one seen is kept (a harness keeps the session by the directory it began in).
     fix.append("", "task.started", json!({ "unit": "u1", "task": 1, "model": "claude-opus-5-5" })).unwrap();
-    let trace = |who: &crate::cli::Daemon, n: u32| serde_json::from_value::<crate::common::wire::TaskShow>(who.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap().trace.unwrap();
+    let trace = |who: &crate::cli::Daemon, n: u32| shown(who, n).trace.unwrap();
     assert_eq!(trace(&user, 1).unknown, Some(crate::common::wire::NoFile::Cwd));
     for cwd in ["/w/fix_1.x", "/w/elsewhere"] {
         fake.agents.lock().unwrap()[1].1.cwd = cwd.into();
@@ -528,9 +534,13 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
     let state: workriver_core::State = serde_json::from_value(user.get("/api/state").unwrap()).unwrap();
     assert_eq!(state.agents.iter().filter(|a| a.session == "s-fix").map(|a| a.cwd.as_str()).collect::<Vec<_>>(), ["/w/fix_1.x"]);
     let text = crate::cli::text(&serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap());
-    assert!(text.contains(&format!("Agent: fix\n  harness claude, model claude-opus-5-5, session s-fix\n  session file: {file}\n")), "{text}");
+    assert!(t.unconfirmed, "no such file in this home: worked out only");
+    assert!(text.contains(&format!("Agent: fix\n  harness claude, model claude-opus-5-5, session s-fix\n  session file: {file} (worked out, not seen there)\n")), "{text}");
 
     // Codex's file is found by its id; a start that says no model has none.
+    // Nobody says another agent's model for it: a start recorded for it carries none.
+    let e = user.append("", "task.started", json!({ "unit": "u1", "task": 2, "agent": "cx", "model": "gpt-x" })).unwrap_err().to_string();
+    assert!(e.contains("--model"), "{e}");
     cx.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
     let t = trace(&user, 2);
     assert_eq!((t.harness.as_deref(), t.model, t.file), (Some("codex"), None, Some(day.join("rollout-2026-11-22T10-00-00-0c0d-ex.jsonl").display().to_string())));
@@ -552,7 +562,11 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
     assert_eq!(trace(&sec, 3).file, Some(home.join(".claude/projects/-w-sec/s-sec.jsonl").display().to_string()));
     assert!(sec.get("/api/task?task=u1%231").is_err());
     let seen = sec.get("/api/workspace").unwrap().to_string() + &sec.get("/api/state").unwrap().to_string();
-    for hidden in ["/w/fix", "/w/cx", "-w-fix", "0c0d-ex.jsonl"] {
+    for hidden in ["/w/fix", "/w/cx", "-w-fix", "0c0d-ex.jsonl", "/far/repo", "\"box\""] {
         assert!(!seen.contains(hidden), "{hidden} is hidden from a blind agent");
     }
+    // Others by name only: the far agent is listed, not where it runs.
+    let far = sec.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().find(|x| x["session"] == "s-far").cloned().unwrap();
+    assert_eq!((far["agent"].as_str(), far.get("machine")), (Some("far"), None));
+    assert_eq!(user.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().find(|x| x["session"] == "s-far").unwrap()["machine"], "box");
 }

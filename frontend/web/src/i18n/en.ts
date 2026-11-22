@@ -722,6 +722,7 @@ export const en = {
     noHarness: 'harness not known',
     noModel: 'model not given',
     onMachine: 'on {{machine}}',
+    unconfirmed: 'worked out, not seen there',
     noFile: {
       harness: 'Where this harness keeps its sessions is not known',
       id: 'The harness gave no session id of its own',

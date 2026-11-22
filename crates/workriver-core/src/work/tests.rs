@@ -633,3 +633,27 @@ fn a_task_keeps_the_model_its_agent_started_it_with() {
     let stored: Vec<String> = s.events().iter().filter(|e| matches!(e.body, Body::TaskStarted { .. })).map(|e| serde_json::to_string(&e.body).unwrap()).collect();
     assert_eq!(stored, [r#"{"kind":"task.started","body":{"unit":"u1","task":1,"agent":null,"model":"claude-opus-5-5"}}"#, r#"{"kind":"task.started","body":{"unit":"u1","task":2,"agent":null}}"#]);
 }
+
+/// A model is the starting agent's own word: a start recorded for another agent (the user's
+/// or a manager's `--agent`) carries none, so no one's model is paired with someone else.
+#[test]
+fn a_model_is_said_only_by_the_agent_that_starts_its_own_task() {
+    let mut s = Records::default();
+    add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "A"}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "U", "repo": "/r", "branch": "feat/f", "base": "main"}})).unwrap();
+    for title in ["Build", "Check", "Ship"] {
+        add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": title, "agent": "w", "inputs": [{"from": "start"}]}})).unwrap();
+    }
+    let start = |n: u32, agent: Option<&str>, model: Option<&str>| json!({"kind": "task.started", "body": {"unit": "u1", "task": n, "agent": agent, "model": model}});
+    for who in ["user", "boss"] {
+        let e = add(&mut s, who, start(1, Some("w"), Some("gpt-x"))).unwrap_err();
+        assert!(e.contains("--model"), "{who}: {e}");
+    }
+    // Without a model either may start it for the agent.
+    add(&mut s, "user", start(1, Some("w"), None)).unwrap();
+    // The agent itself, named or not, says its own.
+    add(&mut s, "w", start(2, Some("w"), Some("claude-opus-5-5"))).unwrap();
+    add(&mut s, "w", start(3, None, Some("claude-opus-5-5"))).unwrap();
+    let state = s.state();
+    assert_eq!([1, 2, 3].map(|n| state.task("u1", n).unwrap().model.clone()), [None, Some("claude-opus-5-5".into()), Some("claude-opus-5-5".into())]);
+}

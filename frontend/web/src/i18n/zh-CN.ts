@@ -701,6 +701,7 @@ export const zhCN: OneForm<typeof en> = {
     noHarness: 'harness 未知',
     noModel: '没有报模型',
     onMachine: '在 {{machine}} 上',
+    unconfirmed: '推算的路径，未在此处见到',
     noFile: {
       harness: '不知道这个 harness 把会话存在哪里',
       id: 'harness 没有给出自己的会话 id',

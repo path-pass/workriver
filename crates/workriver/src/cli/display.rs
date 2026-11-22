@@ -619,7 +619,11 @@ pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>
 /// Where a task's session file is, on which machine, or why that is not known.
 pub(crate) fn session_file(t: &crate::common::wire::Trace) -> String {
     use crate::common::wire::NoFile;
-    let on = t.machine.as_deref().map(|m| format!(" (on machine {m})")).unwrap_or_default();
+    let on = match (t.machine.as_deref(), t.unconfirmed) {
+        (Some(m), _) => format!(" (on machine {m}, not looked at there)"),
+        (None, true) => " (worked out, not seen there)".into(),
+        (None, false) => String::new(),
+    };
     match (&t.file, t.unknown) {
         (Some(f), _) => format!("{f}{on}"),
         (None, Some(NoFile::Id)) => "not known: the harness gave no session id of its own".into(),

@@ -81,6 +81,11 @@ pub struct Trace {
     /// not be looked for from here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// `file` is worked out, not seen: on another machine, or not there under the name the
+    /// harness would give it (the directory the agent was started in may not be the one the
+    /// session was begun in).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unconfirmed: bool,
     /// Why there is no file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unknown: Option<NoFile>,

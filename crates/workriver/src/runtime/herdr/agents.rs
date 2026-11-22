@@ -167,7 +167,9 @@ pub(super) fn agents_of(snap: &Snap, machine: Option<&str>) -> Vec<(String, Runt
                     "blocked" => AgentState::Blocked,
                     _ => AgentState::Unknown,
                 },
-                cwd: set(&a.foreground_cwd).or_else(|| set(&a.cwd)).unwrap_or_default(),
+                // The pane's directory, where the agent was started; its foreground's may
+                // have moved since, and a harness keeps the session by the first.
+                cwd: set(&a.cwd).or_else(|| set(&a.foreground_cwd)).unwrap_or_default(),
                 group: group(snap, &a.workspace_id, machine),
                 topic: set(&a.terminal_title_stripped),
                 harness,

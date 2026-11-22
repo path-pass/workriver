@@ -11,8 +11,12 @@ Newest first. A manager that was already running reads this once after an update
   session; `workriver task session u1#3` prints only that path, on the machine the agent ran
   on (workriver never reads the file; it shows the path to whoever may read the task). For
   managers: the worker instructions (`workriver guide worker`) ask for `--model`; paste them
-  as before. `agent.seen` is workriver's own record now: an agent or the user appending it
-  is refused. (`hand-off`)
+  as before. `--model` is the starting agent's own word: `task start u1#3 --agent impl
+  --model …` (a start for another) is refused; start it for another without `--model`. Only
+  a task that was started or delivered shows this; one still to do shows no session. A
+  path marked "worked out, not seen there" is where the file would be, not one found.
+  `agent.seen` is workriver's own record now: an agent or the user appending it is
+  refused. (`hand-off`)
 
 ## 2026-11-21
 
