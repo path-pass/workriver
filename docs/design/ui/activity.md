@@ -87,6 +87,13 @@ its sections went.
   author's mark, "<name> added to what it asks" ("You added …" for the user's own, as the
   service marks it from who recorded it, never from the name) and the time, then its text as Markdown like the input's, and its files. A task with none shows
   nothing there.
+  What the user answered from the page in the task's agent's terminal (a gate,
+  `navigation.md`, Answering a stuck agent) shows there too, with the other things the user
+  put in: "You answered in its terminal: Do you want to proceed? — 2. Yes, and don't ask
+  again for", the time; the question line and the option's words as recorded (cut where a
+  command, a value or a path begins), drawn in the order a terminal draws them. A running
+  task whose agent waits in its terminal says so in its header ("Waiting for you in its
+  terminal · Answer"), which opens the gate.
 
 ## Findings
 

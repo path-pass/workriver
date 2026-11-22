@@ -21,7 +21,28 @@ workriver serve              # http://127.0.0.1:47820
 Herdr 的 socket 是 `~/.config/herdr/herdr.sock`（或 `HERDR_SOCKET_PATH`）；没有 Herdr 时服务
 照常记录和显示，只是看不到 agent。`workriver status` 应该显示 `agent runtime: connected`。
 
-页面上的终端按钮会在 Herdr 里把 agent 的窗格切到前面，再把终端应用切到前台。
+页面上的终端按钮会在页面里以只读方式打开 agent 的终端；终端视图里的"在终端应用中打开"会在 Herdr 里
+把 agent 的窗格切到前面，再把终端应用切到前台。
+
+## 在页面上回应卡住的 agent
+
+这件事用到 Herdr 的以下部分，都经过同一个 socket：
+
+- **发现。** 服务仍然每 2 秒读一次所有 agent 的状态。一条长连接 `events.subscribe`（订阅
+  `pane.agent_detected`、`pane.closed`，以及每个 agent 窗格的 `pane.agent_status_changed`——Herdr 只接受
+  逐个窗格订阅）让状态一变就立刻读一次；检测到新窗格或窗格关闭时，用当时的窗格列表重新连接。
+- **Herdr 漏掉的确认框。** Herdr 0.9.5 把 Codex 的 "Hooks need review" 报成 idle，把 "Implement this
+  plan?" 报成 done。agent 变成 idle 或 done 时（以及下一个周期），以及往任何窗格输入消息之前，服务都会读
+  窗格的屏幕：有选项、下方又提示了按键的，agent 就算"屏幕上在等"，和 blocked 的一样计数、消息一样先留着。
+- **门。** `agent.list`（通过 session 快照）把一个会话解析到它唯一的窗格；`pane.read`（source
+  `visible`，纯文本）就是屏幕；`agent.explain` 给出 Herdr 判定 blocked 的原因（规则和证据）；
+  `pane.send_keys` 发键，用 Herdr 的键名（`up`、`down`、`enter`、`esc`、`tab`、数字）；消息用
+  `agent.prompt` 发到那个窗格。
+- **终端视图。** Herdr 在它的 client socket 上推送窗格的终端画面：`herdr.sock` 旁边的
+  `herdr-client.sock`（socket 是 `X.sock` 时就是 `X-client.sock`），协议是它自己的；workriver 为此运行
+  Herdr 自己的命令行 `herdr terminal session observe <窗格>`，每个打开的视图一个，`HERDR_SOCKET_PATH` 设为它
+  所用的 socket，并清掉它自己终端里的窗格变量。所以服务 `PATH` 上的 `herdr` 必须和 Herdr 服务端同一版本。
+  视图是只读的，从不改变窗格的尺寸。
 
 ## 工作区和管理者
 
@@ -45,7 +66,11 @@ herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运
 如果那边 Herdr 的 socket 不在 `~/.config/herdr/herdr.sock`（用了命名 session），用
 `--herdr-socket <路径>` 指明。
 
-终端按钮会在那台机器的 Herdr 里聚焦到对应窗格；在 Herdr 侧栏里切到那台机器要你自己来。
+这条连接也把那台机器的 client socket 带到这边（数据目录里的 `herdr-<名字>-client.sock`，来自那边 Herdr
+socket 旁边的 `-client.sock`），所以页面上对那台机器上 agent 的终端视图和本机一样能用；没有它时视图会说明，
+门照样能回应（它只需要读屏和按键）。只测过本机回环的 ssh，没有测过经网络的第二台机器。
+
+"在终端应用中打开"会在那台机器的 Herdr 里聚焦到对应窗格；在 Herdr 侧栏里切到那台机器要你自己来。
 
 ## Herdr 下的安全
 
@@ -60,7 +85,8 @@ herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运
   一个窗格。程序可以通过 Herdr 关掉一个会话最早出现的窗格，再报上它的会话。用 `herdr agent start`
   启动的 agent 不是 Herdr 只凭上报才认作 agent 的窗格。
 - **别的终端。** Herdr 允许任何 agent 读任何窗格的屏幕、往里面打字；别的 agent 终端上显示的内容，
-  workriver 藏不了。
+  workriver 藏不了。workriver 自己读窗格屏幕、推送终端画面、在窗格里按键的路由只有你能用（见
+  [安全模型](../security.zh-CN.md)）。
 
 ## 排错
 
@@ -69,6 +95,8 @@ herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运
   `HERDR_SOCKET_PATH`。协议警告表示 Herdr 不是 0.9；可能还能用，但没测过。
 - **某台机器显示 *connected, but its Herdr does not answer***：那边没有运行 Herdr，或者 socket
   在别处（`--herdr-socket`）。
+- **终端视图说打不开**：client socket 不在（Herdr 不提供终端画面流，或者这台机器在这个版本之前就连上了：停用再
+  启用它），或者服务 `PATH` 上没有 `herdr`、版本和服务端不同。
 - 页面上显示 **"没送出：…"**：
   - *连不上 Herdr*：见第一条；
   - *Herdr 没有接收*：通常是 `agent_not_ready`（agent 还在启动，或者不是窗格的前台程序）或

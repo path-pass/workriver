@@ -4,6 +4,15 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-22
 
+- **A message waits while a dialog is on your screen** (workers, managers): before workriver
+  types anything into your terminal (a delivery, a reminder, an answer, a question's first
+  message), it reads your screen there. A dialog waiting on it (options, and a key named under
+  them: a permission prompt, a question, a trust or hooks review, also one the runtime reports
+  as idle or done) holds the message until it is answered, so a message never lands inside a
+  dialog; you then count as waiting for the user. The user can answer such a dialog from the
+  page; what was pressed is recorded on the task you hold (`agent.keys`: the keys, the
+  question line and the option's words, cut where a command or a path begins). Nothing to do
+  differently. (`blocked`)
 - **A task shows its harness and model** (workers, managers): start a task with the model
   you work with, `workriver task start u1#3 --model claude-opus-5-5` (as your harness names
   it; optional: leave it out if you do not know it). `task show` now prints under `Agent:`

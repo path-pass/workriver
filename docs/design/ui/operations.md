@@ -169,6 +169,31 @@ its sections went.
 
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
-  terminal) and in the header of running or waiting work. It is not on graph nodes. All
-  of it goes through one function in the UI (`focusAgent` in `frontend/web/src/api/actions.ts`); until the daemon is
-  there it only says what it would do.
+  terminal), in a Blocking row, and in the header of running or waiting work. It is not on
+  graph nodes. It opens the agent's **terminal view** in the page; "Open terminal view" in a
+  gate does the same. Bringing the terminal app to the front (`focusAgent` in
+  `frontend/web/src/api/actions.ts`, the one function for it) is "Open in terminal app" in
+  the view's header.
+- **Where.** A dock at the bottom of the main area, absent until a view is opened: the
+  agent's mark and name, its state, "Open in terminal app", fold, close; its height dragged
+  with `useResize` (remembered). One view per page: opening another agent's replaces it. On
+  a narrow screen it is a sheet.
+- **One stream, while shown.** The dock folded, the page hidden (`visibilitychange`) or the
+  view closed ends its stream (`/api/agent/view`, Server-Sent Events); showing it again opens
+  a new one, whose first frame is the whole screen (5–10 KB). So a page holds at most one
+  stream, and the runtime pays for a working terminal only while it is looked at. A stream
+  that ends for another reason (the connection, a reader too slow) is reopened once, from a
+  whole frame. The service caps open views at four across every page.
+- **Drawing.** xterm.js (`@xterm/xterm`), loaded only when a view first opens, with its DOM
+  renderer (one terminal shown; no WebGL addon, no context limit to meet). Columns and rows
+  are the pane's (from the frames); the font scales so the width fits, down to 9 px, then
+  the view scrolls sideways. The terminal is never resized. Read-only: `disableStdin`, no key
+  reaches it; no clipboard write (OSC 52 ignored). No links: no link addon, and since xterm.js
+  makes OSC 8 hyperlinks in its core, the Terminal is created with
+  `linkHandler: { activate: () => {}, allowNonHttpProtocols: false }`, so a click on one does
+  nothing and shows nothing. While its agent waits, the gate's buttons sit under the view
+  (the same component, the same request), for when only the terminal shows what to press.
+- **Gone.** An agent that leaves, a machine that cannot be reached, or a view that cannot be
+  had (another machine without its runtime's terminal stream brought here, a stream that
+  fails): the view keeps its last frame, greyed, or shows nothing, with one line why. The
+  gate still works: it needs only reads and keys.

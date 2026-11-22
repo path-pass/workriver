@@ -371,14 +371,23 @@ fn a_panes_screen_keys_and_reason() {
         json!({ "result": { "type": "pane_read", "read": { "pane_id": "w5:p1", "text": "a\n❯ 1. Yes\n  2. No\n", "revision": 3, "truncated": false } } }),
         json!({ "result": { "type": "ok" } }),
         json!({ "result": { "type": "ok" } }),
-        json!({ "result": { "type": "agent_explain", "explain": { "rule": "bash_permission_prompt", "evidence": "Do you want to proceed?" } } }),
-        json!({ "result": { "type": "agent_explain", "explain": null } }),
+        // As Herdr 0.9.5 answers (cut down): the rule that matched, and every rule evaluated.
+        json!({ "result": { "type": "agent_explain", "explain": {
+            "matched_rule": { "id": "live_blocked_form", "priority": 980, "region": "after_last_horizontal_rule", "state": "blocked" },
+            "evaluated_rules": [
+                { "id": "osc_title_working", "matched": false, "evidence": { "contains": [] } },
+                { "id": "live_blocked_form", "matched": true, "evidence": { "contains": ["esc to cancel"], "region_preview": " Accessing workspace:\n /private/secret" } }
+            ],
+            "state": "blocked"
+        } } }),
+        json!({ "result": { "type": "agent_explain", "explain": { "matched_rule": null, "evaluated_rules": [], "state": "idle" } } }),
     ]);
     let s = herdr.screen(None, "w5:p1").unwrap();
     assert_eq!((s.text.as_str(), s.rows, s.cols), ("a\n❯ 1. Yes\n  2. No\n", 3, 8));
     herdr.press(None, "w5:p1", &[Key::Down, Key::Escape, Key::Digit(2), Key::Enter, Key::Tab, Key::Up]).unwrap();
     herdr.send_at(None, "w5:p1", "hello").unwrap();
-    assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap().as_deref(), Some("bash_permission_prompt: Do you want to proceed?"));
+    // The rule and the words it matched on; never the screen's text in its evidence.
+    assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap().as_deref(), Some("live_blocked_form: esc to cancel"));
     assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap(), None);
     let seen = server.join().unwrap();
     assert_eq!(seen[0]["method"], "pane.read");

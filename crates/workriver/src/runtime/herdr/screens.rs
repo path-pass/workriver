@@ -94,19 +94,13 @@ impl Herdr {
     }
 }
 
-/// What `agent.explain` says, kept to a line: `rule: evidence` when it names them.
+/// What `agent.explain` says, kept to a line: the rule that matched and the words of the
+/// rule it matched on (Herdr's words, not the screen's: its evidence preview is left out).
 fn explained(v: &Value) -> Option<String> {
-    let text = |v: &Value| v.as_str().map(str::to_string).filter(|s| !s.trim().is_empty());
-    let found = |keys: &[&str]| keys.iter().find_map(|k| text(&v[*k]));
-    let rule = found(&["rule", "matched_rule", "rule_name"]);
-    let evidence = found(&["evidence", "matched_text", "reason"]);
-    match (rule, evidence) {
-        (Some(r), Some(e)) => Some(format!("{r}: {e}")),
-        (Some(r), None) => Some(r),
-        (None, Some(e)) => Some(e),
-        (None, None) if v.is_null() => None,
-        (None, None) => text(v).or_else(|| Some(v.to_string())),
-    }
+    let rule = v["matched_rule"]["id"].as_str().filter(|r| !r.is_empty())?;
+    let matched = v["evaluated_rules"].as_array().into_iter().flatten().find(|r| r["id"] == rule && r["matched"] == true);
+    let words: Vec<&str> = matched.and_then(|r| r["evidence"]["contains"].as_array()).into_iter().flatten().filter_map(|w| w.as_str()).collect();
+    Some(if words.is_empty() { rule.to_string() } else { format!("{rule}: {}", words.join(", ")) })
 }
 
 /// An observe child's frames, read on a thread of their own so that a quiet terminal still
