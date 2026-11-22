@@ -290,6 +290,8 @@ crates/workriver/
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
+│   │   │   ├── trace.rs              # A task's trace: harness, model, and where each harness keeps the
+│   │   │   │                         # session (the one place that knows; never reads the file).
 │   │   │   └── tests.rs
 │   │   ├── delivery/                 # Pure delivery plans and text.
 │   │   │   ├── mod.rs                # Plan, event-to-recipient planning.
@@ -337,7 +339,7 @@ crates/workriver/
 │       └── wire/                     # What service, CLI and page agree on: JSON shapes and the
 │                                     # constants both sides use; no logic.
 │           ├── mod.rs                # Shared values: EXPIRED (the proof header), MAX_ATTACHMENT.
-│           ├── task.rs               # The task view's shape (TaskShow and its parts) and Stall.
+│           ├── task.rs               # The task view's shape (TaskShow and its parts), Stall and Trace.
 │           ├── machines.rs           # A followed machine as the service reports it (MachineState).
 │           ├── workspace.rs          # The snapshot shapes (not re-exported at wire's root).
 │           └── metrics.rs            # The metrics report types.

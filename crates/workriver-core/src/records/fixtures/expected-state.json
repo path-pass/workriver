@@ -6,6 +6,18 @@
           "harness": "claude",
           "name": "impl-a",
           "session": "s-a"
+        },
+        {
+          "cwd": "/home/b/chat",
+          "harness": "codex",
+          "machine": "box",
+          "name": "tester",
+          "session": "s-blind"
+        },
+        {
+          "harness": "claude",
+          "name": "impl-i",
+          "session": "s-i"
         }
       ],
       "attachments": [],
@@ -1424,6 +1436,57 @@
         "reason_code": "agent-gone"
       },
       "kind": "question.failed"
+    },
+    {
+      "body": {
+        "cwd": "/home/b/chat",
+        "harness": "codex",
+        "machine": "box",
+        "name": "tester",
+        "session": "s-blind"
+      },
+      "kind": "agent.seen"
+    },
+    {
+      "body": {
+        "cwd": "/r/chat",
+        "harness": "claude",
+        "name": "impl-i",
+        "session": "s-i"
+      },
+      "kind": "agent.seen"
+    },
+    {
+      "body": {
+        "agent": "s-i",
+        "causes": [],
+        "gate": null,
+        "inputs": [
+          {
+            "from": "4",
+            "primary": true
+          }
+        ],
+        "intent": "i2",
+        "kind": "implement",
+        "n": 6,
+        "plans": [],
+        "reviewer": null,
+        "steps": [],
+        "text": "",
+        "title": "Tidy",
+        "unit": "u2"
+      },
+      "kind": "task.created"
+    },
+    {
+      "body": {
+        "agent": null,
+        "model": "claude-opus-5-5",
+        "task": 6,
+        "unit": "u2"
+      },
+      "kind": "task.started"
     }
   ],
   "managers": {
@@ -1586,6 +1649,19 @@
         "harness": "claude",
         "name": "impl-a",
         "session": "s-a"
+      },
+      {
+        "cwd": "/home/b/chat",
+        "harness": "codex",
+        "machine": "box",
+        "name": "tester",
+        "session": "s-blind"
+      },
+      {
+        "cwd": "/r/chat",
+        "harness": "claude",
+        "name": "impl-i",
+        "session": "s-i"
       }
     ],
     "attachments": [
@@ -2441,6 +2517,38 @@
             "steps": [],
             "text": "",
             "title": "Tests"
+          },
+          {
+            "agent": "s-i",
+            "amended": null,
+            "at": "2025-12-03T15:02:00Z",
+            "attachments": [],
+            "by": "s-boss2",
+            "causes": [],
+            "delivery": null,
+            "done": null,
+            "evidence": [],
+            "findings": [],
+            "gate": null,
+            "inputs": [
+              {
+                "from": "4",
+                "primary": true
+              }
+            ],
+            "intent": "i2",
+            "kind": "implement",
+            "model": "claude-opus-5-5",
+            "n": 6,
+            "note": "",
+            "plans": [],
+            "result": null,
+            "reviewer": null,
+            "started": "2025-12-03T15:03:00Z",
+            "state": "running",
+            "steps": [],
+            "text": "",
+            "title": "Tidy"
           }
         ],
         "title": "Index"

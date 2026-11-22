@@ -16,9 +16,17 @@ the unit's worktree and branch (`units`: "work in <repo>.worktrees/u1 on feat/x"
 repository's own folder), "run `workriver task show
 u1#3` and read it fully before you start", and the worker instructions.
 
-**You will see:** the worker records `task start`, commits with `Task: u1#3` (in the
-message's last paragraph, with any other trailers and no blank line between them), and
-`task deliver`; you are told when it delivers.
+**You will see:** the worker records `task start` (with `--model`: the model it works
+with), commits with `Task: u1#3` (in the message's last paragraph, with any other trailers
+and no blank line between them), and `task deliver`; you are told when it delivers.
+
+Which harness and model did a task, and where the harness keeps the session, is in
+`task show` (under `Agent:`) and in the task's detail on the page; `workriver task session
+u1#3` prints only the path of the session file, on the machine the agent ran on, for you
+or the user to open with the harness's own tools. workriver never reads that file, and it
+reads only what the task is open to (a blind task's agent: its own). A worker that did not
+say its model shows "model (not given)"; a session whose working directory was never seen,
+or a harness workriver does not know, says why instead of a path.
 
 For a blind task leave out everyone else's account: see `blind-review`.
 

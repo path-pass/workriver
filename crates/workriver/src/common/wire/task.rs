@@ -56,6 +56,48 @@ pub struct TaskShow {
     /// Running, and its agent stopped without delivering: since when, or it is gone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled: Option<Stall>,
+    /// Which harness and model its agent is, and where the harness keeps the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<Trace>,
+}
+
+/// Which harness and model did a task, and where the harness keeps the session, on the
+/// machine the agent ran on (`server::views::trace`). Nothing reads that file.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Trace {
+    /// The agent's session: the harness's own id.
+    pub session: String,
+    /// The harness, as the runtime named it (claude, codex), once the agent was seen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    /// The model, as the agent said when it started the task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The machine the agent ran on; none: the one workriver runs on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    /// The session file on that machine; with `*` in it where it is found by its id and could
+    /// not be looked for from here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// Why there is no file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown: Option<NoFile>,
+}
+
+/// Why a task's trace names no session file.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NoFile {
+    /// workriver does not know where this harness keeps its sessions (or which harness it is).
+    Harness,
+    /// The harness gave no session id of its own.
+    Id,
+    /// The working directory the harness keeps it by was not recorded (seen before it was).
+    Cwd,
+    /// Looked for by its id on this machine, and not there.
+    Missing,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

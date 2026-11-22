@@ -100,6 +100,8 @@ pub(super) struct App {
     pub(super) port: u16,
     /// The data directory: the database's folder, which holds the attachment store too.
     pub(super) home: PathBuf,
+    /// Where harnesses keep their sessions on this machine (a task's trace).
+    pub(super) sessions: views::trace::Sessions,
     pub(super) watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
     pub(super) watched: Mutex<HashSet<PathBuf>>,
     /// The other machines, when the runtime follows any.

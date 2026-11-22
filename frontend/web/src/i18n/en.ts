@@ -717,7 +717,17 @@ export const en = {
     dropReasonHint: 'e.g. superseded by #17; the agent on it and the manager are told',
     dropConfirm: 'Mark no longer needed',
     dropCancel: 'Cancel',
-    dropFailed: 'Not recorded: {{error}}'
+    dropFailed: 'Not recorded: {{error}}',
+    trace: 'Its agent: harness, model, session',
+    noHarness: 'harness not known',
+    noModel: 'model not given',
+    onMachine: 'on {{machine}}',
+    noFile: {
+      harness: 'Where this harness keeps its sessions is not known',
+      id: 'The harness gave no session id of its own',
+      cwd: 'Session file not known: its working directory was not recorded',
+      missing: 'Session file not found on this machine'
+    }
   },
   who: {
     writing: '{{name}}, writing now'

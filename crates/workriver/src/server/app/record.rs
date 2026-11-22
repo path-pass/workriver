@@ -6,11 +6,15 @@ use super::*;
 const START_IN_YOUR_OWN: &str = "an agent starts intents in the workspace it runs in: run `workriver intent start <i>` from your own terminal";
 
 impl App {
-    /// Records the name a live agent goes by, the first time and when it changes.
+    /// Records the name a live agent goes by, the first time and when it changes; with the
+    /// working directory it was first seen in (a harness may keep the session by it, so a
+    /// later one does not replace it) and its machine.
     pub(in crate::server) fn seen(&self, a: &RuntimeAgent) -> Result<(), ApiError> {
-        let known = self.store.lock().unwrap().agent_name(&a.session)?.as_deref() == Some(a.name.as_str());
+        let was = self.store.lock().unwrap().agent(&a.session)?;
+        let cwd = was.as_ref().map(|w| w.cwd.clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| a.cwd.clone());
+        let known = was.is_some_and(|w| w.name == a.name && w.cwd == cwd && w.machine == a.machine);
         if !known {
-            self.record(&Principal::Service, Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone() })?;
+            self.record(&Principal::Service, Body::AgentSeen { session: a.session.clone(), name: a.name.clone(), harness: a.harness.clone(), cwd, machine: a.machine.clone() })?;
         }
         Ok(())
     }
@@ -269,7 +273,7 @@ impl App {
                 t.agent = t.agent.map(|a| self.session_of(&a, Some(actor)));
                 Body::TaskCreated(t)
             }
-            Body::TaskStarted { unit, task, agent } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a, Some(actor))) },
+            Body::TaskStarted { unit, task, agent, model } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a, Some(actor))), model },
             other => other,
         })
     }

@@ -252,7 +252,8 @@ A review, tests, research or design task can be handed out blind
 account or by other reviews. Until that agent delivers, the service shows it only its own
 task (with what the manager or you added to it, and that addition's files), the unit and
 the intent, and its own attachments: not other tasks' notes, evidence,
-findings or decisions, no questions, no backlog. It cannot ask other agents and they cannot
+findings or decisions, no questions, no backlog, and of other agents only their names, not
+where they work (the path of their session files is shown with their tasks only). It cannot ask other agents and they cannot
 ask it; nothing is typed into its terminal about other work. Afterwards it sees everything
 again, and the task keeps a "blind" mark so you can weigh its findings as an independent
 view.
@@ -269,7 +270,8 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Being another agent.** Naming another agent's terminal is refused. What is left takes
   more: see "A session whose terminal is gone" below.
 - **Files.** Agents run as you: the database and the attachments in `~/workriver-data`
-  can be read from disk.
+  can be read from disk, and so can every harness's session files (workriver only shows
+  where they are; it never reads them).
 - **Other terminals.** Where the runtime lets any agent read another's terminal (Herdr does:
   [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr)), what another
   agent's terminal shows is not workriver's to hide.

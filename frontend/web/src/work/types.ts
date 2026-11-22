@@ -175,6 +175,8 @@ export interface Task {
    * was reminded, and whether that did not help (then it is the user's and the manager's).
    */
   stalled?: { since: string; gone?: boolean; reminded?: string; escalated?: boolean };
+  /** Its agent: the harness, the model it said, and where the harness keeps the session. */
+  trace?: Trace;
   /** A delivered design or research with its agent: the user may discuss it with that agent
    *  now (open); its agent is no longer running (gone); the gate that asks about it was
    *  submitted (over). */
@@ -250,4 +252,21 @@ export interface GateResult {
   attachments: Attachment[]
   findings: NewFinding[]
   at: string
+}
+
+/**
+ * Which harness and model did a task, and where the harness keeps the session on the machine
+ * the agent ran on (the service works the path out; nothing reads the file).
+ */
+export interface Trace {
+  /** The harness's own session id. */
+  session: string;
+  harness?: string;
+  model?: string;
+  /** The machine the agent ran on; absent: the one workriver runs on. */
+  machine?: string;
+  /** The session file there; a `*` where it is found by its id and could not be looked for. */
+  file?: string;
+  /** Why there is no file. */
+  unknown?: 'harness' | 'id' | 'cwd' | 'missing';
 }

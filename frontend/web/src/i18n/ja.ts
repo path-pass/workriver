@@ -696,7 +696,17 @@ export const ja: OneForm<typeof en> = {
     dropReasonHint: '例：#17 に置き換え。担当のエージェントとマネージャーに伝わります',
     dropConfirm: '不要にする',
     dropCancel: 'キャンセル',
-    dropFailed: '記録できませんでした：{{error}}'
+    dropFailed: '記録できませんでした：{{error}}',
+    trace: '担当エージェント：ハーネス、モデル、セッション',
+    noHarness: 'ハーネス不明',
+    noModel: 'モデル未申告',
+    onMachine: '{{machine}} 上',
+    noFile: {
+      harness: 'このハーネスがセッションをどこに保存するかは不明です',
+      id: 'ハーネスが独自のセッション ID を出していません',
+      cwd: 'セッションファイル不明：作業ディレクトリが記録されていません',
+      missing: 'このマシンにセッションファイルが見つかりません'
+    }
   },
   who: {
     writing: '{{name}}、作成中'

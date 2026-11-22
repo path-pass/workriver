@@ -16,6 +16,19 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             }
             return Ok(None);
         }
+        Cmd::Task(TaskCmd::Session { task }) => {
+            let shown = task_show(d, task.as_deref())?;
+            let t = shown.trace.ok_or_else(|| anyhow!("{} has no agent yet: nobody started it", shown.reference))?;
+            match (&t.file, &t.machine) {
+                (Some(f), Some(m)) => {
+                    println!("{f}");
+                    eprintln!("on machine {m}: workriver does not look there");
+                }
+                (Some(f), None) => println!("{f}"),
+                (None, _) => bail!("{}: session file {}", shown.reference, display::session_file(&t)),
+            }
+            return Ok(None);
+        }
         Cmd::Finding(FindingCmd::Show { task, finding }) => {
             let shown = task_show(d, Some(&task))?;
             let f = shown.output.iter().flat_map(|o| &o.findings).find(|f| f.id == finding).ok_or_else(|| anyhow!("{task} has no finding {finding}"))?;
@@ -53,9 +66,9 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
                 "agent": agent, "reviewer": reviewer, "gate": gate, "steps": steps, "plans": plan, "blind": blind, "blocks": blocks, "choice": choice,
             }))?
         }
-        Cmd::Task(TaskCmd::Start { task, agent }) => {
+        Cmd::Task(TaskCmd::Start { task, agent, model }) => {
             let (unit, n) = task_ref(&task)?;
-            d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent }))?
+            d.append(actor, "task.started", json!({ "unit": unit, "task": n, "agent": agent, "model": model }))?
         }
         Cmd::Task(TaskCmd::Note { task, text, attach }) => {
             let (unit, n) = task_ref(&task)?;
@@ -282,6 +295,18 @@ pub(crate) enum TaskCmd {
         task: String,
         #[arg(long)]
         agent: Option<String>,
+        /// The model you work with (e.g. claude-opus-5-5), as your harness names it; shown
+        /// with the task. Leave it out if you do not know it.
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Print where the harness keeps the session of a task's agent: its session file, on the
+    /// machine the agent ran on (default: the task you are on). Only the path: workriver
+    /// never reads the file. A `*` stands where the file is found by its id and that machine
+    /// was not looked at.
+    Session {
+        /// The task (u1#3).
+        task: Option<String>,
     },
     /// Hand a task in: a note, the checks run, and (reviews, tests) the findings.
     ///

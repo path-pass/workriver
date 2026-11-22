@@ -95,6 +95,13 @@ fn a_blind_task_sees_only_its_own() {
     for hidden in ["Find mentions", "npm test", "6 passed", "Duplicates", "Emoji names", "Two notices", "Yes, fix", "Other unit", "Rotate the key", "Why a regex", "Old leak"] {
         assert!(!text.contains(hidden), "{hidden} is hidden: {text}");
     }
+    // Where agents work: its own as seen, others by name only.
+    for (session, cwd) in [("sec", "/w/sec"), ("agent-a", "/w/secret-unit")] {
+        add(&mut s, "workriver", json!({"kind": "agent.seen", "body": {"session": session, "name": session, "harness": "claude", "cwd": cwd, "machine": "box"}})).unwrap();
+    }
+    let v = s.state().blind_view("sec").unwrap();
+    let seen = |who: &str| v.agents.iter().find(|a| a.session == who).map(|a| (a.name.as_str(), a.cwd.as_str(), a.machine.as_deref())).unwrap();
+    assert_eq!((seen("sec"), seen("agent-a")), (("sec", "/w/sec", Some("box")), ("agent-a", "", None)));
     // It neither asks, nor is asked by another agent; the user may ask.
     assert!(add(&mut s, "sec", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "What did the author intend?"}})).unwrap_err().contains("tell your manager"));
     assert!(add(&mut s, "agent-a", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 3, "text": "Seen my note?"}})).unwrap_err().contains("blind task in progress"));
@@ -123,4 +130,20 @@ fn only_workriver_says_who_answers_a_question() {
     add(&mut s, "workriver", started("s-why")).unwrap();
     assert!(add(&mut s, "boss", json!({"kind": "question.answered", "body": {"question": "q1", "text": "Because."}})).is_err(), "an agent that could not name itself the answerer does not answer");
     add(&mut s, "s-why", json!({"kind": "question.answered", "body": {"question": "q1", "text": "It predates the parser."}})).unwrap();
+}
+
+/// What an agent is seen as is the runtime's word, through the service: no agent or user
+/// names an agent, its harness, or where its session is kept.
+#[test]
+fn only_workriver_says_what_an_agent_is_seen_as() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    let seen = json!({"kind": "agent.seen", "body": {"session": "agent-a", "name": "boss", "harness": "claude", "cwd": "/elsewhere"}});
+    for who in ["agent-a", "boss", "user"] {
+        let e = add(&mut s, who, seen.clone()).unwrap_err();
+        assert!(e.contains("only workriver records this (agent.seen)"), "{who}: {e}");
+    }
+    add(&mut s, "workriver", seen).unwrap();
+    let a = s.state().agents.iter().find(|a| a.session == "agent-a").cloned().unwrap();
+    assert_eq!((a.name.as_str(), a.cwd.as_str(), a.machine), ("boss", "/elsewhere", None));
 }

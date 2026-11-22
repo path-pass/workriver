@@ -484,6 +484,9 @@ pub(crate) struct Task {
     /// Running, and its agent stopped without delivering (idle too long, or gone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stalled: Option<super::Stall>,
+    /// Its agent's harness and model, and where the harness keeps the session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) trace: Option<super::Trace>,
     /// A delivered design or research with its agent: whether the user may discuss it now
     /// ("open"), its agent is gone ("gone"), or its gate was submitted ("over").
     #[serde(skip_serializing_if = "Option::is_none")]

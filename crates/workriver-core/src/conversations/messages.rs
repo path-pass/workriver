@@ -3,12 +3,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// An agent session as last seen: the name shown for it, and its harness.
+/// An agent session as last seen: the name shown for it, its harness, the working
+/// directory it was first seen in and its machine.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Agent {
     pub session: String,
     pub name: String,
     pub harness: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// The user's message to a workspace's manager (or to every manager), and what it answered.
@@ -213,11 +218,11 @@ impl State {
         let actor = who.actor();
         let user = *who == Principal::User;
         Ok(match body {
-            AgentSeen { session, name, harness } => {
+            AgentSeen { session, name, harness, cwd, machine } => {
                 if blank(&session) || blank(&name) {
                     return no("an agent needs a session and a name");
                 }
-                AgentSeen { session, name, harness }
+                AgentSeen { session, name, harness, cwd, machine }
             }
             MessageSent { intent, text, unit, task, context, to, answer, .. } if !to.is_empty() => {
                 if blank(&text) {
@@ -367,8 +372,8 @@ impl State {
         use Body::*;
         let at = &e.at;
         match &e.body {
-            AgentSeen { session, name, harness } => {
-                let seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone() };
+            AgentSeen { session, name, harness, cwd, machine } => {
+                let seen = Agent { session: session.clone(), name: name.clone(), harness: harness.clone(), cwd: cwd.clone(), machine: machine.clone() };
                 match self.agents.iter_mut().find(|a| &a.session == session) {
                     Some(a) => *a = seen,
                     None => self.agents.push(seen),

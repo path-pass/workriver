@@ -14,6 +14,7 @@ mod cache;
 mod code;
 mod handlers;
 pub(super) mod task;
+pub(super) mod trace;
 
 pub(super) use cache::*;
 pub(super) use code::*;
@@ -886,6 +887,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         amended: t.amended.clone(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
         stalled: None,
+        trace: None,
         discuss: discussable(state, &u.id, t),
     }
 }
@@ -923,6 +925,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         amended: None,
         dropped: None,
         stalled: None,
+        trace: None,
         discuss: None,
     }
 }

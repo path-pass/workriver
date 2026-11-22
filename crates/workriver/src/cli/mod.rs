@@ -305,7 +305,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks where it is
     // for the commands that need the workspace or its current intent.
     let here = if records && needs_place { Some(d.call("/api/here", Some(json!({})))?) } else { None };

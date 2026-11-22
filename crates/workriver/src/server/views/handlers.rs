@@ -174,6 +174,13 @@ impl App {
         cache.ready_after = Some(self.waits.hour * self.ready_hours);
         let mut ws = views::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &groups);
         views::mark_gone(&mut ws, &self.gone.lock().unwrap());
+        // Each task's agent: its harness and model, and where the harness keeps the session.
+        for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
+            for t in &mut u.tasks {
+                let model = |n: &str| n.parse().ok().and_then(|n| state.task(&u.id, n).ok()).and_then(|x| x.model.as_deref());
+                t.trace = t.agent_session.as_deref().map(|s| self.sessions.trace(state, s, model(&t.id)));
+            }
+        }
         cache.save();
         if state.reduced {
             views::hide(&mut ws);
