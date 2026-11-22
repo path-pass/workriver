@@ -123,7 +123,7 @@ fn a_session_is_seated_only_where_the_runtime_shows_it_once() {
 }
 
 /// A seated session keeps its root. While that root runs, another terminal that reports the
-/// session is refused (rule 5). Once it is gone, the same session showing again on the same
+/// session is refused (rule 5), and neither is the manager meanwhile. Once it is gone, the same session showing again on the same
 /// machine in the same folder has its seat back by itself, at its own call or at the
 /// regular read: one line of the workspace's conversation says so (not the manager's
 /// message, not unread), and the appointment is as it was (its question stays open and is
@@ -148,8 +148,9 @@ fn a_seat_comes_back_by_itself_only_where_it_was() {
     fake.agents.lock().unwrap().push(("p2".into(), boss()));
     let e = here(&d, "p2").unwrap_err().to_string();
     assert!(e.contains("session s-boss was first seen in") && e.contains(" p1, whose shell still runs"), "{e}");
-    std::thread::sleep(std::time::Duration::from_millis(2500)); // a regular read changes nothing either
-    assert!(back(&d).is_empty() && workspace(&d, "ws1")["manager"]["state"] == "idle");
+    // Shown at two terminals, neither is the manager: the regular read shows it not running.
+    wait_until("the page proposes it for the seat", || workspace(&d, "ws1")["proposal"] == "s-boss");
+    assert!(back(&d).is_empty() && workspace(&d, "ws1")["manager"]["state"] == "gone");
 
     // Its terminal is gone; the session shows again in another one, in the same folder.
     kernel.procs.kill(root("p1"));
@@ -421,4 +422,126 @@ fn a_seat_change_during_a_queued_send_stops_it() {
     assert_eq!(message(&d, "Queued for boss")["reasonCode"], "seat-changed");
     std::thread::sleep(Duration::from_millis(1500));
     assert_eq!((told(&fake, "s-boss", "Queued for boss"), told(&fake, "s-rev", "Queued for boss")), (0, 0));
+}
+
+/// What the user wrote, typed into the place the fake runtime was asked to type it at, by
+/// place.
+fn typed_at(fake: &Fake, what: &str) -> Vec<String> {
+    fake.typed_at.lock().unwrap().iter().filter(|(_, m)| m.contains(what)).map(|(p, _)| p.clone()).collect()
+}
+
+/// A message, then one to every manager: each recorded not delivered as to a manager that
+/// does not run (its copy too), typed into nothing.
+fn neither_delivered(user: &Daemon, ws: &str, fakes: &[&Fake]) {
+    user.call("/api/message", Some(json!({ "workspace": ws, "text": "SECRET_TO_ONE" }))).unwrap();
+    wait_until("not delivered", || message(user, "SECRET_TO_ONE")["step"] == "not-delivered");
+    assert_eq!(message(user, "SECRET_TO_ONE")["reasonCode"], "manager-gone");
+    user.call("/api/message", Some(json!({ "all": true, "text": "SECRET_TO_ALL" }))).unwrap();
+    let copy = || message(user, "SECRET_TO_ALL")["to"][0].clone();
+    wait_until("its copy not delivered", || copy()["step"] == "not-delivered");
+    assert_eq!(copy()["reasonCode"], "manager-gone", "{}", copy());
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    for fake in fakes {
+        assert!(fake.sent.lock().unwrap().iter().all(|(_, m)| !m.contains("SECRET_TO")), "typed into nothing");
+    }
+}
+
+/// A seated manager's message is typed into the terminal its session is pinned to, by
+/// that place. Then a second terminal on this machine (another folder, listed first)
+/// reports the seated session while its own still shows it: neither is the manager (rule 5
+/// refuses the second), the workspace shows its manager not running and proposes the
+/// session, and the user's message and a copy of one to every manager are typed into
+/// neither terminal (not delivered).
+#[test]
+fn a_seat_shown_at_its_root_and_at_another_is_lost() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Hello boss" }))).unwrap();
+    wait_until("delivered", || message(&d, "Hello boss")["step"] == "delivered");
+    assert_eq!(typed_at(&fake, "Hello boss"), ["p1"]);
+    *fake.agents.lock().unwrap() = vec![("p2".into(), started_in("s-boss", "boss", "/w/x")), ("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    let e = here(&d, "p2").unwrap_err().to_string();
+    assert!(e.contains("session s-boss was first seen in") && e.contains("p1"), "{e}");
+    neither_delivered(&d, "ws1", &[&fake]);
+    wait_until("the page proposes it for the seat", || workspace(&d, "ws1")["proposal"] == "s-boss");
+    assert_eq!(workspace(&d, "ws1")["manager"]["state"], "gone");
+}
+
+/// The same on another machine: the seated session shown at its pinned terminal there and
+/// at another one there (listed first). Nothing is typed there.
+#[test]
+fn a_remote_seat_shown_at_its_root_and_at_another_is_lost() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    let set = |agents: Vec<(&str, RuntimeAgent)>| *far.agents.lock().unwrap() = agents.into_iter().map(|(p, a)| (p.to_string(), a)).collect();
+    set(vec![("p3", started_in("s-new", "new", "/srv/n"))]);
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    let ws = workspace_named(&user, "chat");
+    all.poll_all();
+    seat(&user, &ws, Some("s-new")).unwrap();
+    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    user.call("/api/message", Some(json!({ "workspace": ws, "text": "Hello far" }))).unwrap();
+    wait_until("delivered", || message(&user, "Hello far")["step"] == "delivered");
+    assert_eq!(typed_at(&far, "Hello far"), ["p3"]);
+    set(vec![("p4", started_in("s-new", "new", "/srv/x")), ("p3", started_in("s-new", "new", "/srv/n"))]);
+    all.poll_all();
+    let e = here(&there, "p4").unwrap_err().to_string();
+    assert!(e.contains("session s-new was first seen in") && e.contains(" p3 on machine box, whose shell still runs"), "{e}");
+    neither_delivered(&user, &ws, &[&local, &far]);
+    wait_until("the page proposes it for the seat", || workspace(&user, &ws)["proposal"] == "s-new");
+    assert_eq!(workspace(&user, &ws)["manager"]["state"], "gone");
+}
+
+/// A manager seated on another machine, whose terminal there still shows it, and a
+/// terminal on this machine reports the same session: neither is the manager, and nothing
+/// goes to either machine; not this one's, which the runtime lists first for the session.
+#[test]
+fn a_remote_seat_shown_on_this_machine_too_is_lost() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p3".into(), started_in("s-new", "new", "/srv/n"))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    let ws = workspace_named(&user, "chat");
+    all.poll_all();
+    seat(&user, &ws, Some("s-new")).unwrap();
+    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    *local.agents.lock().unwrap() = vec![("p4".into(), started_in("s-new", "new", "/srv/x"))];
+    let e = here(&user, "p4").unwrap_err().to_string();
+    assert!(e.contains("s-new"), "{e}");
+    neither_delivered(&user, &ws, &[&local, &far]);
+    wait_until("the page proposes it for the seat", || workspace(&user, &ws)["proposal"] == "s-new");
+    assert_eq!(workspace(&user, &ws)["manager"]["state"], "gone");
+}
+
+/// A manager seated on this machine, whose terminal here still shows it, and a terminal on
+/// another machine reports the same session: neither is the manager, nothing goes to either.
+#[test]
+fn a_seat_shown_on_another_machine_too_is_lost() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    manage(&user, "p1", "s-boss");
+    *far.agents.lock().unwrap() = vec![("p4".into(), started_in("s-boss", "boss", "/srv/x"))];
+    all.poll_all();
+    wait_until("the page proposes it for the seat", || workspace(&user, "ws1")["proposal"] == "s-boss");
+    assert_eq!(workspace(&user, "ws1")["manager"]["state"], "gone");
+    neither_delivered(&user, "ws1", &[&local, &far]);
 }

@@ -188,6 +188,10 @@ are checked by the event rules against what is recorded, when the event is recor
   so. Anything else needs you: another session in the old terminal, or the seated session
   reported from another folder or machine, is not the manager until you seat it (Needs you
   shows the workspace, with that agent proposed), and that seating is a new appointment.
+  The same while the seated session is shown in its own terminal and in another one at
+  once, on this machine or another: neither is the manager, and nothing is typed to it
+  until only its own terminal shows it again or you seat it. What goes to a manager is
+  typed into the terminal it is held to, never into whichever terminal reports its session.
 - **What belongs to an appointment never reaches the next.** A message you sent, a question
   a manager asked you with options, a reply: each belongs to the appointment it was sent to
   or asked under. A message still waiting when the seat is given anew is recorded as not
@@ -389,8 +393,9 @@ determined program on your machine:
     not such terminals: [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr).)
   - On another machine a worker's session goes to the first terminal that *calls* with it;
     a manager's is held, from its seating, to the one terminal that machine's runtime
-    shows it in: while that terminal is gone or holds another agent, nothing is typed to the
-    manager there, as on this machine, and the same session showing again in the seat's
+    shows it in: while that terminal is gone or holds another agent, or another terminal
+    (there or on any other machine) shows the session too, nothing is typed to the manager,
+    as on this machine, and the same session showing again in the seat's
     folder there has its seat back by itself. What that machine's processes and runtime say comes through that machine's
     account, so it holds as far as that account does. A
     terminal where the runtime knows no shell is not remembered: its session shown by

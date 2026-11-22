@@ -494,6 +494,11 @@ impl Runtime for Machines {
         self.at(machine, |r| r.send_to(None, session, text))
     }
 
+    /// Asked of the machine named, at that machine's own place.
+    fn send_at(&self, machine: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.send_at(None, place, session, text))
+    }
+
     /// A group of a machine is `<id>@<machine>`: the agent starts there.
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
         let remote = group.split_once('@').and_then(|(id, m)| Some((id, self.entry(m)?)));

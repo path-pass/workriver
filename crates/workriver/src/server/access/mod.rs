@@ -297,18 +297,28 @@ impl App {
             self.back(&w, &session);
         }
         // Each open workspace seated on this machine whose seated session is not at the root
-        // it is pinned to (the root is gone, or it runs and shows another agent now): its
-        // manager does not run, whatever terminal reports its session. With whom to propose
-        // for the seat: the seated session where it shows now (another folder, or beside its
-        // old root: the user confirms), else the agent now in the terminal the old session
-        // was pinned to. A session never pinned (a place with no known shell) has no root to
-        // have lost.
+        // it is pinned to (the root is gone, or it runs and shows another agent now), or is
+        // shown at another root as well, on this machine or another (rule 5 refuses a caller
+        // from either): its manager does not run, whatever terminal reports its session.
+        // With whom to propose for the seat: the seated session where it shows now (another
+        // folder, or beside its old root: the user confirms), else the agent now in the
+        // terminal the old session was pinned to. A session never pinned (a place with no
+        // known shell) has no root to have lost. The other machines' agents as last seen: for
+        // this machine's seats, the service's last read of every machine; for another's,
+        // read now (this machine's fresh). Not read, the proposals stay as they were.
+        let everywhere = match machine {
+            None => self.live(),
+            Some(_) => self.runtime.agents().ok(),
+        };
+        let Some(everywhere) = everywhere else { return };
         let mut found = std::collections::HashMap::new();
         for w in all.workspaces.iter().filter(|w| !w.closed) {
             let Some(m) = w.manager.as_ref().filter(|m| m.machine.as_deref() == machine) else { continue };
             let Some(pin) = self.pins.get(&m.session) else { continue };
             let there = shown.iter().find(|(r, _)| r.place == pin.place).filter(|_| pin.machine.as_deref() == machine && self.runs(&pin));
-            if there.is_some_and(|(_, a)| a.session == m.session) {
+            let beside = shown.iter().any(|(r, a)| a.session == m.session && r.place != pin.place);
+            let elsewhere = everywhere.iter().any(|a| a.session == m.session && a.machine.as_deref() != machine);
+            if there.is_some_and(|(_, a)| a.session == m.session) && !beside && !elsewhere {
                 continue;
             }
             let moved = shown.iter().find(|(_, a)| a.session == m.session);
@@ -329,21 +339,29 @@ impl App {
         }
     }
 
-    /// Whether `session` holds a seat and is not at the root it is pinned to: its terminal
-    /// is gone (or holds another agent now), and whichever terminal reports the session is
+    /// Whether `session` holds a seat and is not at the root it is pinned to alone: its
+    /// terminal is gone (or holds another agent now), or another terminal reports the
+    /// session too, here or on another machine; whichever terminal reports the session is
     /// not the manager until it has the seat back (`one_place`, `see_roots`) or the user
     /// confirms it. Nothing is typed into it meanwhile: what goes to the manager is not
-    /// delivered, as to one that does not run. A root just gone is looked at once more
-    /// first: the session may show again where it was. A seat on another machine is looked
-    /// at there now, every time: that machine is not read on the service's tick alone.
+    /// delivered, as to one that does not run. The seat's machine is looked at now, every
+    /// time: the session may show again where it was, or somewhere else too since the
+    /// service's tick, and another machine is not read on that tick alone.
     pub(in crate::server) fn seat_lost(&self, session: &str) -> bool {
-        let Some(pin) = self.pins.get(session) else { return false };
+        let Some(_) = self.pins.get(session) else { return false };
         let Ok(Some(Some(w))) = got(self.store.lock().unwrap().seat_of(session)) else { return false };
         let machine = w.manager.as_ref().and_then(|m| m.machine.clone());
-        if machine.is_some() || !self.runs(&pin) {
-            self.see_roots_on(machine.as_deref());
-        }
+        self.see_roots_on(machine.as_deref());
         self.pins.get(session).is_some_and(|pin| !self.runs(&pin)) || self.proposals.lock().unwrap().contains_key(&w.id)
+    }
+
+    /// Where a seated session is typed into: the root it is pinned to, on that root's
+    /// machine, and nowhere else (`seat_lost` says whether it is still there alone). None:
+    /// it holds no seat, or was never pinned (a place with no known shell), and goes by its
+    /// session. Records that cannot be read say neither.
+    pub(in crate::server) fn held_at(&self, session: &str) -> Result<Option<(Option<String>, String)>, Unread> {
+        let seated = got(self.store.lock().unwrap().seat_of(session))?.flatten().is_some();
+        Ok(self.pins.get(session).filter(|_| seated).map(|p| (p.machine, p.place)))
     }
 
     /// Where a session the user seats is, read now on its own machine (this one or another

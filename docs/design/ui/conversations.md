@@ -423,7 +423,9 @@ then the user's text quoted. For example:
   waits and is tried again at each poll until the manager takes it, or is gone (not
   delivered). That holds from the first try: a runtime whose agents cannot be read as the
   message is first given (`App::tell_manager`) holds it too. It is typed into the session
-  found, on its machine (`send_to`), never re-routed by name, so a send connection that
+  found, on its machine (`send_to`; a seated manager only at the place it is pinned to,
+  `send_at`, and not while another place shows its session too: not delivered, as gone),
+  never re-routed by name, so a send connection that
   drops before the prompt is written stays `None` and the message waits. Gone is said only
   by a complete read of the manager's machine: while a
   machine's runtime does not answer (another machine disconnected, or this machine's Herdr

@@ -106,6 +106,22 @@ fn sends_to_a_session_never_to_a_name() {
     assert_eq!(seen[2]["params"], json!({ "target": "w5:p2", "text": "hello" }));
 }
 
+/// A message for a seated session goes into the pane it is held to, read fresh, and only
+/// while that pane shows the session: a pane that shows another session, or no pane, gets
+/// nothing, and nothing is asked of Herdr but who is there.
+#[test]
+fn sends_at_a_pane_only_while_it_shows_the_session() {
+    let (_dir, herdr, server) = fake(vec![snapshot(), snapshot(), snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } })]);
+    let err = herdr.send_at(None, "w5:p2", "s-1", "hello").unwrap_err();
+    assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "s-1"), "{err}");
+    let err = herdr.send_at(None, "w5:p9", "s-1", "hello").unwrap_err();
+    assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "s-1"), "{err}");
+    herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap();
+    let seen = server.join().unwrap();
+    assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["session.snapshot", "session.snapshot", "session.snapshot", "agent.prompt"]);
+    assert_eq!(seen[3]["params"], json!({ "target": "w5:p1", "text": "hello" }));
+}
+
 /// A run's shell is closed by its pane, the place `run_shell` gave, and only while that
 /// pane is still a plain shell in the runs' workspace: one that is gone, sits in another
 /// workspace or holds an agent by now is refused, and nothing is closed.
@@ -201,6 +217,12 @@ fn a_drop_before_the_prompt_is_unreachable_after_it_failed() {
     let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Failed(w) if w.contains("agent.prompt")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot", "agent.prompt"]);
+
+    // The same typing at a place.
+    let (_dir, herdr, server) = dropping(vec![None]);
+    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
+    assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
+    assert_eq!(server.join().unwrap(), ["session.snapshot"]);
 }
 
 #[test]

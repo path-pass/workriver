@@ -135,6 +135,8 @@ type Typed = (Option<String>, String, String, String);
 pub(in crate::server) struct Fake {
     pub(super) agents: std::sync::Mutex<Vec<(String, workriver_core::runtime::RuntimeAgent)>>,
     pub(super) sent: std::sync::Mutex<Vec<(String, String)>>,
+    /// Sends typed at a place (`send_at`), also kept in `sent`: (place, text).
+    pub(super) typed_at: std::sync::Mutex<Vec<(String, String)>>,
     /// Temporary agents started: (group, harness, name, cwd); and those closed.
     pub(super) started: std::sync::Mutex<Vec<(String, String, String, String)>>,
     pub(super) closed: std::sync::Mutex<Vec<String>>,
@@ -269,6 +271,19 @@ impl workriver_core::runtime::Runtime for Fake {
         if let Some(look) = &*self.on_send.lock().unwrap() {
             look(session);
         }
+        Ok(())
+    }
+    /// As Herdr's: only into the place named, while it shows the session; then as `send`.
+    fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
+        if let Some((to, runtime)) = &*self.through.lock().unwrap() && to == session {
+            return runtime.send_at(None, place, session, text);
+        }
+        let shown = self.agents.lock().unwrap().iter().any(|(p, a)| p == place && a.session == session);
+        if !shown && !self.down.load(std::sync::atomic::Ordering::Relaxed) && !self.prompt_down.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(workriver_core::runtime::RuntimeError::NoAgent(session.into()));
+        }
+        self.send(session, text)?;
+        self.typed_at.lock().unwrap().push((place.into(), text.into()));
         Ok(())
     }
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<workriver_core::runtime::RuntimeAgent, workriver_core::runtime::RuntimeError> {

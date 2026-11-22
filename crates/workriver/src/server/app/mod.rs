@@ -198,8 +198,9 @@ impl App {
     /// machine: paths into the attachment store become links through its tunnel.
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
         let found = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to);
-        if self.seat_lost(found.as_ref().map_or(to, |a| a.session.as_str())) {
-            return Err(RuntimeError::NoAgent(to.into()));
+        let session = found.as_ref().map_or(to, |a| a.session.as_str());
+        if let Some(sent) = self.send_seated(session, text) {
+            return sent;
         }
         let machine = found.and_then(|a| a.machine);
         self.runtime.send(to, &self.readable_on(machine.as_deref(), text))
@@ -209,11 +210,26 @@ impl App {
     /// the caller found it in the runtime, and to no other: one that is gone is not replaced
     /// by an agent going by its name. Files as `send` gives them, for that machine.
     pub(super) fn send_to(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
-        // A manager whose terminal is gone is not the terminal that reports its session now.
-        if self.seat_lost(session) {
-            return Err(RuntimeError::NoAgent(session.into()));
+        if let Some(sent) = self.send_seated(session, text) {
+            return sent;
         }
         self.runtime.send_to(machine, session, &self.readable_on(machine, text))
+    }
+
+    /// A seated manager is typed into at the root its session is pinned to, on that root's
+    /// machine, and never by its session alone: a terminal that only reports the session is
+    /// not it. While its seat is lost (that root gone, or the session shown elsewhere too)
+    /// nothing is typed, as to a manager that does not run. None: not a seated session with
+    /// a root, which goes by its session. Records that cannot be read: nothing is typed now.
+    fn send_seated(&self, session: &str, text: &str) -> Option<Result<(), RuntimeError>> {
+        if self.seat_lost(session) {
+            return Some(Err(RuntimeError::NoAgent(session.into())));
+        }
+        match self.held_at(session) {
+            Err(Unread(why)) => Some(Err(RuntimeError::Unreachable(why))),
+            Ok(None) => None,
+            Ok(Some((machine, place))) => Some(self.runtime.send_at(machine.as_deref(), &place, session, &self.readable_on(machine.as_deref(), text))),
+        }
     }
 
     /// A message as an agent on `machine` can use it: paths into the attachment store are,

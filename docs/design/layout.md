@@ -183,7 +183,8 @@ tells it after the first read that shows it, so no request ever waits for a mach
 on a blind task is kept as the event and the agent it is for (`App.notes`), not as text:
 each poll works it out again (`give_notes`), so it is given only while the task is still
 started and with that agent. It goes out by `App::send_to` (the runtime's `send_to`): to
-that session on that machine and no other, files as that machine can get them. A held
+that session on that machine and no other (a seated manager: at its pinned place only,
+the runtime's `send_at`), files as that machine can get them. A held
 notice (`For::Notice`) is matched and sent the same way, by session only. How a failed read is handled before and after the commit is in
 AGENTS.md (Layout).
 

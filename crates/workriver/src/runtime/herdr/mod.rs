@@ -96,6 +96,19 @@ impl Runtime for Herdr {
         Ok(())
     }
 
+    /// Into this pane only, while it holds this session, read fresh as for `send_to`.
+    fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
+        let (_, list) = self.read().map_err(|e| match e {
+            RuntimeError::Failed(words) => RuntimeError::Unreachable(words),
+            e => e,
+        })?;
+        if !list.iter().any(|(p, a)| p == place && a.session == session) {
+            return Err(RuntimeError::NoAgent(session.into()));
+        }
+        self.call("agent.prompt", json!({ "target": place, "text": text }))?;
+        Ok(())
+    }
+
     /// A new tab in the workspace, so nobody's pane is split; the agent starts in its shell.
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
         let tab = self.call("tab.create", json!({ "workspace_id": group, "cwd": cwd, "label": name, "focus": false }))?;

@@ -121,9 +121,17 @@ it); else none.
    - **The regular read** (every tick of the poll) asks the runtime for the roots of places
      that hold an agent only (`Runtime::agent_roots`), on this machine and on each machine a
      manager is seated on (section 4). A seat whose session is not at its pinned root (gone,
-     or holding another agent) is lost from the same read, on any machine, and so is it
-     before anything is typed to a manager on another machine (`App::seat_lost` reads that
-     machine's roots then).
+     or holding another agent), or is shown at another root as well (on the seat's machine,
+     or among the agents of any other machine: as the last poll read them for a seat on
+     this machine, read now for a seat on another), is lost from the same read, on any
+     machine: rule 5 refuses a caller from either root. It is read again before anything is
+     typed to a manager (`App::seat_lost` reads the seat's machine's roots then).
+   - **A seated session is typed into at its pinned root only** (`App::send_seated`, the
+     runtime's `send_at`: that place on that machine, while it shows the session), never by
+     its session, which the runtime would look up wherever it shows first. While the seat
+     is lost nothing is typed (`NoAgent`: not delivered); records that cannot be read type
+     nothing (`Unreachable`: it waits). A seated session never pinned (no known shell) goes
+     by its session.
 
 `App::user`'s "a caller whose place holds an agent is not the user" uses `place(P)` too.
 

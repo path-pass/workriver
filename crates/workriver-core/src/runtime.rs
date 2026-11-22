@@ -119,6 +119,13 @@ pub trait Runtime: Send + Sync {
         }
         self.send(session, text)
     }
+    /// As `send`, into `place` on `machine` (none: this one), and only while that place shows
+    /// exactly this session: `NoAgent` otherwise, whatever other place shows it. How a seated
+    /// manager is reached: at the place it is held to, never wherever its session shows. By
+    /// default, no runtime can.
+    fn send_at(&self, _machine: Option<&str>, _place: &str, _session: &str, _text: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
     /// Start a temporary agent of `harness`, named `name`, in a place of its own inside
     /// `group`, working in `cwd`; returns it once it is ready for a prompt.
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError>;
