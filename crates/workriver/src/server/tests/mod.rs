@@ -9,6 +9,10 @@ mod guards;
 mod machines;
 mod ownership;
 mod planning;
+// Conversations read by their workspace only; a manager's seat (docs/security.md).
+mod scope;
+mod seats;
 pub(super) mod support;
+mod terminals;
 mod views;
 mod work;

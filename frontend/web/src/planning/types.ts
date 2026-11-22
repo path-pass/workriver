@@ -5,12 +5,13 @@ import type { Commit, Net } from '@/code/types'
 import type { Chore, Finding, Task } from '@/work/types'
 import type { Kind, Size } from './classify'
 
-/** A folder holding one or more repositories; or a repository outside every registered one. */
+/** A registered folder holding one or more repositories. */
 export interface Project {
   /** Its folder, which is what intents and backlog findings name. */
   id: string;
+  /** Its short id (`p1`). */
+  key?: string;
   title: string;
-  registered: boolean;
   repos: string[];
 }
 
@@ -34,14 +35,14 @@ export interface BacklogFinding {
 
 /**
  * planned  in its project's roadmap, not started
- * active   started in a runtime workspace, whose manager runs it
+ * active   started in a workspace of its project, whose manager runs it
  * done / dropped
  */
 export type IntentState = 'planned' | 'active' | 'done' | 'dropped';
 
 /**
- * A goal in a project and the units that serve it. It runs in a runtime workspace
- * once its manager starts it; a workspace may run several.
+ * A goal in a project and the units that serve it. It runs in a workspace of its project
+ * once it is started; a workspace may run several.
  */
 export type UnitProgress = 'working' | 'waiting' | 'ready' | 'merged' | 'done'
 
@@ -56,13 +57,13 @@ export interface Intent {
   state?: IntentState;
   /** Who decides its open findings: its manager (the default), or only the user. */
   findings?: 'user' | 'manager';
-  /** Its project's folder (a `Project.id`); empty when nothing says. */
+  /** Its project's folder (a `Project.id`); empty: of no project. */
   project?: string;
   /** More about it; may hold links. */
   note?: string;
   external?: External;
-  /** The runtime workspace it runs (or last ran) in. */
-  workspace?: { id: string; label: string };
+  /** The workspace it runs (or last ran) in, by its id (a `Space.id`); a planned one is in none. */
+  workspace?: string;
   /** Planned: its place in its project's roadmap, from 0. */
   order?: number;
   /** Dropped: why. */
@@ -74,7 +75,7 @@ export interface Intent {
   units: Unit[];
   /** Things agents left for the user that block nobody. Never on a graph. */
   chores: Chore[];
-  /** The agent that splits the intent's work and hands it out; absent when none registered. */
+  /** The agent that splits the intent's work and hands it out; absent when its workspace's seat is empty. */
   manager?: string;
   /** The manager's state in the runtime, or 'gone' when it is not running. */
   managerState?: RuntimeState | 'gone';

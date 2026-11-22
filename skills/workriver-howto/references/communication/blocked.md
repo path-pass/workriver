@@ -29,7 +29,11 @@ refused: tell the manager instead,
 branch, a contract that seems wrong, being stuck on a blind task): the text is typed into the
 manager's terminal, quoted, while it runs. Never type into another agent's terminal.
 
-**Not a blocker:** something the user should do sometime that holds nobody up is a chore
+**Not a blocker:** a dialog your harness shows in your terminal (a permission prompt, a
+question, a trust or hooks review). The user sees it in Needs you and answers it from the
+page, or in your terminal; you need do nothing. Meanwhile workriver types nothing into your
+terminal: it reads your screen first, and a message waits until the dialog is answered.
+Something the user should do sometime that holds nobody up is a chore
 (`gates-chores`). A question about another task is `workriver ask` (`ask`).
 
 **Managers:** a worker's blocker comes as "… is stuck on u2#5 …: it put gate u2#7 …", with

@@ -68,7 +68,6 @@ fn the_user_runs_a_command() {
 
     // A unit on another machine: the shell is that machine's, through its runtime.
     // (In tests a machine's git runs here, so its repository is a folder here.)
-    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     let made = boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
     let shown = user.call("/api/run/prepare", Some(json!({ "command": "make deploy", "unit": made["body"]["id"] }))).unwrap();
     assert_eq!((shown["machine"].as_str(), shown["by"].as_str()), (Some("box"), Some("user")), "{shown}");
@@ -122,7 +121,6 @@ fn a_runs_shell_closes() {
     manage_here(&user, &boss);
     let repo_s = repo.to_string_lossy().to_string();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
-    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
     // Runs `command` in `unit`'s folder; its id.
     let run = |unit: &str, command: &str| {
@@ -290,7 +288,8 @@ fn a_command_is_reviewed_before_it_runs() {
     assert_eq!(shown["review"]["state"], "pending", "{shown}");
     let id = shown["id"].as_str().unwrap().to_string();
     let name = format!("review-{id}");
-    let prompt_of = |name: &str| fake.sent.lock().unwrap().iter().find(|(to, _)| to == name).map(|(_, m)| m.clone());
+    // Typed into by its session (`s-<name>` in the fake).
+    let prompt_of = |name: &str| fake.sent.lock().unwrap().iter().find(|(to, _)| *to == format!("s-{name}")).map(|(_, m)| m.clone());
     wait_until("the review agent is asked", || prompt_of(&name).is_some());
     let started = fake.started.lock().unwrap()[0].clone();
     assert_eq!(started, ("workriver-commands".into(), "claude".into(), name.clone(), shown["dir"].as_str().unwrap().into()), "workriver's group, where it would run");

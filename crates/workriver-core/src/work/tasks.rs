@@ -376,6 +376,7 @@ impl State {
                         attachments: vec![],
                         dropped: None,
                         notes: vec![],
+                        answers: vec![],
                     })
                 }
                 // More work for a unit closed as done: it is open again, its state from its tasks.

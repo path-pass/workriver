@@ -22,7 +22,11 @@ local POST /api/gate  anonymous 401  agent 403  user 422
 local POST /api/chore-done  anonymous 401  agent 403  user 422
 local POST /api/backlog/merge  anonymous 401  agent 422  user 422
 local POST /api/focus  anonymous 401  agent 403  user 204
+local GET /api/agent/screen?agent=s-boss  anonymous 401  agent 403  user 200
+local POST /api/agent/keys  anonymous 401  agent 403  user 409
+local GET /api/agent/view?agent=nobody-here  anonymous 401  agent 403  user 404
 local POST /api/intent/start  anonymous 401  agent 403  user 422
+local POST /api/workspaces  anonymous 401  agent 403  user 422
 local POST /api/run/prepare  anonymous 401  agent 403  user 422
 local POST /api/run  anonymous 401  agent 403  user 422
 local GET /api/run/r9  anonymous 401  agent 403  user 404
@@ -50,6 +54,8 @@ local HEAD /api/state  anonymous 401  agent 200  user 200
 local HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 200
 local HEAD /api/status  anonymous 200  agent 200  user 200
 local HEAD /api/events  anonymous 401  agent 403  user 200
+local HEAD /api/agent/screen?agent=s-boss  anonymous 401  agent 403  user 200
+local HEAD /api/agent/view?agent=nobody-here  anonymous 401  agent 403  user 404
 local HEAD /api/run/r9  anonymous 401  agent 403  user 404
 local HEAD /api/message/m1  anonymous 401  agent 200  user 200
 local HEAD /api/attachments/x1  anonymous 401  agent 404  user 404
@@ -64,7 +70,7 @@ machine POST /api/append  anonymous 401  agent 200  user 401
 machine POST /api/run/r9/review  anonymous 401  agent 404  user 401
 machine POST /api/here  anonymous 401  agent 200  user 200
 machine POST /api/ask  anonymous 401  agent 422  user 401
-machine GET /api/message/m1  anonymous 401  agent 403  user 401
+machine GET /api/message/m1  anonymous 401  agent 404  user 401
 machine POST /api/attachments?name=probe.txt  anonymous 401  agent 200  user 401
 machine POST /api/attachments/inbox  anonymous 401  agent 200  user 401
 machine GET /api/attachments/x1  anonymous 401  agent 404  user 401
@@ -75,5 +81,5 @@ machine HEAD /api/intent/i1/history  anonymous 401  agent 200  user 401
 machine HEAD /api/state  anonymous 401  agent 200  user 401
 machine HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 401
 machine HEAD /api/status  anonymous 200  agent 200  user 200
-machine HEAD /api/message/m1  anonymous 401  agent 403  user 401
+machine HEAD /api/message/m1  anonymous 401  agent 404  user 401
 machine HEAD /api/attachments/x1  anonymous 401  agent 404  user 401

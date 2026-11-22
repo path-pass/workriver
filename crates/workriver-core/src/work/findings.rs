@@ -244,6 +244,11 @@ impl State {
                 if blank(&project) {
                     return no("a backlog finding needs its project (--project)");
                 }
+                // A backlog is a registered project's: as for an intent, the folder is one a
+                // registered project holds, whoever records it.
+                if self.project_of(&project).is_none() {
+                    return no(format!("{project} is in no registered project: name a project by its id (`workriver project list`), or ask the user to add it first (`workriver project add <folder>`, from the user's terminal)"));
+                }
                 if blank(&finding.problem) {
                     return no("a finding needs its problem");
                 }

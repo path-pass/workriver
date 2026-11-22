@@ -68,8 +68,8 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
 #[derive(Subcommand)]
 pub(crate) enum MessageCmd {
     /// Print one message whole, with its replies: the user's message (m3) workriver typed
-    /// into your terminal, whose quote there was cut. Of your own workspace's conversation,
-    /// or one to every manager that went to you.
+    /// into your terminal, whose quote there was cut. Of the conversation of the workspace
+    /// you manage, or your copy of one to every manager.
     Show {
         /// The message (m3).
         message: String,
@@ -81,7 +81,7 @@ pub(crate) enum MessageCmd {
 pub(crate) fn message_text(m: &crate::common::wire::MessageShow) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
-    let place = if m.workspace.is_empty() { "to every manager".to_string() } else { format!("in the conversation of workspace \"{}\"", m.workspace) };
+    let place = if m.workspace.is_empty() { "to every manager".to_string() } else { format!("in the conversation of workspace {}", m.workspace) };
     let about = if m.intent.is_empty() { String::new() } else { format!(", about intent {}", m.intent) };
     let _ = writeln!(out, "{}  {}  by {}, {place}{about}", m.id, m.at, m.by);
     if !m.answers.is_empty() {

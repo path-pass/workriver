@@ -56,8 +56,10 @@ impl App {
                 }
             }
         }
-        let groups = self.runtime.groups().unwrap_or_default();
-        let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
+        // What the runtime misses, the screen may show: such an agent is counted as blocked.
+        if let Some(now) = now.as_mut() {
+            self.look_at_screens(now);
+        }
         {
             let mut blocked = self.blocked.lock().unwrap();
             let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();
@@ -114,8 +116,9 @@ impl App {
         }
         // Held questions whose agent is free now are given to it; one whose agent is gone fails.
         if let Some(agents) = &now {
-            // A notice is for a session: an agent that only goes by it as a name is not it.
-            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (h.kind != For::Notice && a.name == h.to)).map(|a| a.state);
+            // A notice, a user's message and a copy of one to every manager are for a session:
+            // an agent that only goes by it as a name is not it (as `hand` finds them).
+            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (!matches!(h.kind, For::Notice | For::Message | For::Broadcast) && a.name == h.to)).map(|a| a.state);
             let ready: Vec<Held> = {
                 let mut held = self.held.lock().unwrap();
                 let at = std::time::Instant::now();
@@ -190,7 +193,7 @@ impl App {
                 tracing::warn!("cannot close {name}: {e}");
             }
         }
-        if differs || recorded || regrouped || stalled {
+        if differs || recorded || stalled {
             let _ = self.changed.send(());
         }
     }

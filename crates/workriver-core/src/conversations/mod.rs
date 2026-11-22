@@ -28,7 +28,7 @@ pub enum DeliveryStep {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReasonCode {
-    /// The intent has no manager registered.
+    /// The intent's workspace has no manager seated (or it runs in none).
     NoManager,
     /// The manager is not running.
     ManagerGone,
@@ -36,7 +36,7 @@ pub enum ReasonCode {
     RuntimeDown,
     /// The runtime refused or failed; `reason` holds its words.
     RuntimeError,
-    /// The intent follows no runtime group, and no agent of it runs: nowhere to start one.
+    /// Neither the task's agent nor its manager runs: nowhere to start an agent beside one.
     NoWorkspace,
     /// No answer came in time.
     Timeout,
@@ -51,6 +51,9 @@ pub enum ReasonCode {
     AgentGone,
     /// The gate that asks about the discussed result was submitted: the discussion is over.
     GateSubmitted,
+    /// The seat it was for was given to another appointment before it was given: what is
+    /// queued for one appointment never reaches the next.
+    SeatChanged,
 }
 
 /// Where the message about a user's input (a decision, a gate result) is.

@@ -16,7 +16,7 @@ import { labelOf } from '@/content/choice/surface'
 export const NOTE = 'workriver:note'
 
 /** Where a terminal brought to the front is, when it is on another machine. */
-export interface Remote { machine: string; workspace?: string | null; agent?: string }
+export interface Remote { machine: string; group?: string | null; agent?: string }
 // The runtime brings it to the front on that machine; the user's own client cannot be
 // switched there from outside, so the note says where it is.
 const remoteNote = (r: Remote | undefined) => r?.machine && window.dispatchEvent(new CustomEvent(NOTE, { detail: { remote: r } }))
@@ -133,13 +133,14 @@ export async function wantNotify(on: boolean): Promise<boolean> {
   return ok
 }
 /**
- * One notification; clicking it brings this tab forward and, for an agent, its terminal.
- * `key` names what it is about (an agent, or a machine's alert), so one is not shown twice.
+ * One notification; clicking it brings this tab forward and does `open` (for an agent, opens
+ * its gate). `key` names what it is about (an agent, or a machine's alert), so one is not
+ * shown twice.
  */
-export function notify(title: string, body: string | undefined, key: string, agent = true) {
+export function notify(title: string, body: string | undefined, key: string, open?: () => void) {
   if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   const n = new Notification(title, { body, tag: `workriver:${key}` })
-  n.onclick = () => { window.focus(); if (agent) focusAgent(key); n.close() }
+  n.onclick = () => { window.focus(); open?.(); n.close() }
 }
 
 /** Writes to a workspace's manager (by the intent it runs, or the workspace's label), with
@@ -311,12 +312,64 @@ export const RUN_GROUP = 'workriver-commands'
 export type StartDelivery = Omit<Sent, 'toManager'>
 
 /**
- * Starts a planned intent in a runtime workspace, as the user: recorded as theirs, and its
- * manager is told to split it. `manager` names that manager for the sample.
+ * Starts a planned intent in a workspace of its project (by the workspace's id), as the
+ * user: recorded as theirs, and its manager is told to split it. `manager` names that
+ * manager for the sample.
  */
-export async function startIntent(intent: string, workspace: string, manager?: string, confirmOtherProject = false): Promise<StartDelivery> {
+export async function startIntent(intent: string, workspace: string, manager?: string): Promise<StartDelivery> {
   if (MOCK) return manager ? { step: 'delivered', to: manager, message: '' } : { step: 'not-delivered', to: null, reasonCode: 'no-manager', message: '' }
-  return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace, confirmOtherProject })).delivery
+  return (await call<{ delivery: StartDelivery }>('/api/intent/start', { intent, workspace })).delivery
+}
+
+/** What the user does to a workspace: make one in a project, rename it, close it, open it
+ *  again, seat its manager (`replaces`: the seat the user was shown), move an intent into it. */
+export type SpaceAct =
+  | { action: 'add'; project: string; name: string }
+  | { action: 'rename'; workspace: string; name: string }
+  | { action: 'close' | 'open'; workspace: string }
+  | { action: 'manager'; workspace: string; manager: string | null; replaces: { session: string; since: number } | null }
+  | { action: 'move'; intent: string; workspace: string }
+
+/** The seat changed since the user was shown it (the service's 409): look again and choose. */
+export class SeatChanged extends Error {}
+
+/** Records one of the user's acts on a workspace; a refusal is thrown in the service's words,
+ *  a seat that changed meanwhile as `SeatChanged`. The sample changes its own data. */
+export async function setSpace(act: SpaceAct): Promise<void> {
+  if (MOCK) {
+    window.dispatchEvent(new CustomEvent(MOCK_CHANGED, { detail: (ws: Workspace) => mockSpace(ws, act) }))
+    return
+  }
+  const res = await fetch('/api/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(act) })
+  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
+  if (res.status === 409) throw new SeatChanged(await res.text())
+  if (!res.ok) throw new Error(await res.text())
+}
+
+/** The sample after one of the user's acts on a workspace, as the service would leave it. */
+export function mockSpace(ws: Workspace, act: SpaceAct): Workspace {
+  const all = ws.workspaces ?? []
+  const each = (id: string, f: (w: NonNullable<Workspace['workspaces']>[number]) => NonNullable<Workspace['workspaces']>[number]) => all.map(w => (w.id === id ? f(w) : w))
+  switch (act.action) {
+    case 'add': return { ...ws, workspaces: [...all, { id: `ws${all.length + 1}`, name: act.name.trim(), project: act.project }] }
+    case 'rename': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, name: act.name.trim() })) }
+    case 'close': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, closed: true, manager: undefined, proposal: undefined })) }
+    case 'open': return { ...ws, workspaces: each(act.workspace, w => ({ ...w, closed: false })) }
+    case 'move': return { ...ws, intents: ws.intents.map(i => (i.id === act.intent ? { ...i, workspace: act.workspace } : i)) }
+    case 'manager': {
+      const s = ws.sessions.find(x => !x.ended && (x.session ?? x.agent) === act.manager)
+      const since = Math.max(0, ...all.map(w => w.manager?.since ?? 0)) + 1
+      const seat = s && act.manager ? { session: act.manager, name: s.agent, machine: s.machine, folder: s.folder ?? '', since, state: s.state ?? ('unknown' as const) } : undefined
+      // A session holds one seat: seated here, its old one is empty.
+      const workspaces = all.map(w => (w.id === act.workspace ? { ...w, manager: seat, proposal: undefined } : seat && w.manager?.session === seat.session ? { ...w, manager: undefined } : w))
+      const held = (x: Workspace['sessions'][number]) => workspaces.find(w => w.manager?.session === (x.session ?? x.agent))
+      return {
+        ...ws, workspaces,
+        sessions: ws.sessions.map(x => { const w = held(x); return w ? { ...x, manager: true, workspace: w.id, intent: w.current } : x.manager ? { ...x, manager: false } : x }),
+        intents: ws.intents.map(i => { const m = workspaces.find(w => w.id === i.workspace)?.manager; return i.workspace && i.state !== 'planned' ? { ...i, manager: m?.name, managerState: m?.state } : i }),
+      }
+    }
+  }
 }
 
 // The sample makes runs up, in memory; a review comes a moment after the dialog opens.

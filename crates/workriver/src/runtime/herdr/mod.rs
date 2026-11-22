@@ -14,13 +14,15 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use workriver_core::RuntimeRef;
-use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Change, Frames, Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::screens::{Key, Screen};
 
 mod agents;
 mod protocol;
 pub mod remote;
+mod screens;
 mod terminals;
+mod watch;
 pub mod words;
 
 use agents::group;
@@ -97,6 +99,18 @@ impl Runtime for Herdr {
         Ok(())
     }
 
+    /// Into this pane only, while it holds this session, read fresh as for `send_to`.
+    fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
+        let (_, list) = self.read().map_err(|e| match e {
+            RuntimeError::Failed(words) => RuntimeError::Unreachable(words),
+            e => e,
+        })?;
+        if !list.iter().any(|(p, a)| p == place && a.session == session) {
+            return Err(RuntimeError::NoAgent(session.into()));
+        }
+        self.prompt_at(place, text)
+    }
+
     /// A new tab in the workspace, so nobody's pane is split; the agent starts in its shell.
     fn start_temporary(&self, group: &str, harness: &str, name: &str, cwd: &str) -> Result<RuntimeAgent, RuntimeError> {
         let tab = self.call("tab.create", json!({ "workspace_id": group, "cwd": cwd, "label": name, "focus": false }))?;
@@ -140,11 +154,6 @@ impl Runtime for Herdr {
         self.roots_of(None, true)
     }
 
-    fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
-        let snap = self.snapshot()?;
-        Ok(snap.workspaces.iter().filter_map(|w| group(&snap, &w.workspace_id, self.label())).collect())
-    }
-
     /// A tab of its own in the workspace labelled `group` (made, with its first tab, when there
     /// is none): a run never types into a shell an earlier run may still hold (a password
     /// prompt, a pager), and each run's output starts clean. Herdr queues the text and Enter
@@ -180,6 +189,30 @@ impl Runtime for Herdr {
         self.call("pane.focus", json!({ "pane_id": place }))?;
         self.activate();
         Ok(())
+    }
+
+    fn watch(&self, _: Option<&str>, to: &mut dyn FnMut(Change) -> bool) -> Result<(), RuntimeError> {
+        self.watch_changes(to)
+    }
+
+    fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, RuntimeError> {
+        self.resolve_pane(session)
+    }
+
+    fn screen(&self, _: Option<&str>, place: &str) -> Result<Screen, RuntimeError> {
+        self.screen_of(place)
+    }
+
+    fn press(&self, _: Option<&str>, place: &str, keys: &[Key]) -> Result<(), RuntimeError> {
+        self.press_at(place, keys)
+    }
+
+    fn observe(&self, _: Option<&str>, place: &str) -> Result<Frames, RuntimeError> {
+        self.frames(place)
+    }
+
+    fn why_blocked(&self, _: Option<&str>, place: &str) -> Result<Option<String>, RuntimeError> {
+        self.explain(place)
     }
 }
 

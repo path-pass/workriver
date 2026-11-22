@@ -21,11 +21,16 @@ pub struct Agent {
 pub struct Message {
     pub id: String,
     pub intent: String,
-    /// The workspace whose conversation it is in, by label; empty: the conversation with
+    /// The workspace whose conversation it is in, by id; empty: the conversation with
     /// every manager.
     pub workspace: String,
     /// The manager's session it went to: only that one replies. Empty for one to every manager.
     pub manager: String,
+    /// The appointment it belongs to: the `since` of the workspace's seat when it was sent
+    /// (to that manager) or said (by it). 0: the seat was not that manager's then. Only that
+    /// appointment replies, is given it, and has its choice answered.
+    #[serde(default, skip_serializing_if = "is_none_yet")]
+    pub since: u64,
     pub text: String,
     /// What the user had picked: a unit (empty: none), one of its tasks (0: none), and the
     /// rest (findings, files, lines, attachments, other tasks).
@@ -54,20 +59,61 @@ pub struct Message {
     /// The user's message that answers a manager's choice: which one, and the value picked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<Answer>,
-    /// The workspace's record whose conversation it is in, found as it was recorded (none: to
-    /// every manager, or a workspace with no record). The label above may be another
-    /// machine's workspace's as well: who reads it is decided by this (`message_for`).
-    #[serde(skip)]
-    pub(crate) record: Option<usize>,
+    /// Not a message of anyone's: a line workriver puts in the conversation. Then `manager`
+    /// is the session it is about, and there is no text (the page words it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<Notice>,
 }
 
-/// A manager a message to every manager goes to: the group it runs in when it is sent (on its
-/// machine; its workspace is that group's), and where its copy is (`None`: not given yet;
-/// never in the event that sends it).
+fn is_none_yet(n: &u64) -> bool {
+    *n == 0
+}
+
+/// What a line of workriver's own in a conversation says.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum Notice {
+    /// The seated session's terminal was gone; it shows again where it was and is the
+    /// manager again, by itself.
+    ManagerBack,
+}
+
+impl Message {
+    /// A line of workriver's own in workspace `workspace`'s conversation, about `session`.
+    pub(crate) fn notice(id: &str, workspace: &str, session: &str, at: &str, notice: Notice) -> Message {
+        Message {
+            id: id.into(),
+            intent: String::new(),
+            workspace: workspace.into(),
+            manager: session.into(),
+            since: 0,
+            text: String::new(),
+            unit: String::new(),
+            task: 0,
+            context: vec![],
+            to: vec![],
+            at: at.into(),
+            delivery: None,
+            replies: vec![],
+            by_manager: false,
+            choice: None,
+            answered: None,
+            answer: None,
+            notice: Some(notice),
+        }
+    }
+}
+
+/// A manager a message to every manager goes to: the seat of an open workspace when it is
+/// sent (the workspace's id, the session, its machine and its appointment), and where its
+/// copy is (`None`: not given yet; never in the event that sends it).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Recipient {
-    pub workspace: RuntimeRef,
+    pub workspace: String,
     pub manager: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    pub since: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<Delivery>,
 }
@@ -106,21 +152,18 @@ impl State {
         self.agents.iter().find(|a| a.session == session).map(|a| a.name.as_str())
     }
 
-    /// The managers running now, here and on other machines, once each: whom a message to
-    /// every manager goes to. Each agent in `live` that manages its group's workspace now (a
-    /// linked group of another machine: the local workspace it is linked to), as the page
-    /// names a manager; with that group, so that its copy keeps where it runs.
+    /// The managers running now, here and on other machines: whom a message to every manager
+    /// goes to. The seat of each open workspace whose session is in `live` on the seat's
+    /// machine, in the workspaces' order.
     pub fn managers_among(&self, live: &[crate::runtime::RuntimeAgent]) -> Vec<Recipient> {
-        let mut out: Vec<Recipient> = vec![];
-        for a in live {
-            if let Some(g) = &a.group
-                && self.workspace_of(g).and_then(|w| w.manager.as_deref()) == Some(a.session.as_str())
-                && !out.iter().any(|r| r.manager == a.session)
-            {
-                out.push(Recipient { workspace: g.clone(), manager: a.session.clone(), delivery: None });
-            }
-        }
-        out
+        let runs = |m: &Seat| live.iter().any(|a| a.session == m.session && a.machine == m.machine);
+        let seats = self.workspaces.iter().filter(|w| !w.closed).filter_map(|w| Some((w, w.manager.as_ref()?)));
+        seats.filter(|(_, m)| runs(m)).map(|(w, m)| Recipient { workspace: w.id.clone(), manager: m.session.clone(), machine: m.machine.clone(), since: m.since, delivery: None }).collect()
+    }
+
+    /// Whether `session` holds the seat of workspace `id` under appointment `since`.
+    pub fn appointed(&self, id: &str, session: &str, since: u64) -> bool {
+        self.workspaces.iter().any(|w| w.id == id && w.manager.as_ref().is_some_and(|m| m.session == session && m.since == since))
     }
 
     /// A manager's choice in a conversation: its message's `reply`-th reply (0: the message),
@@ -140,23 +183,18 @@ impl State {
         }
     }
 
-    /// Whether `session` manages a workspace of this label now, on this machine or another
-    /// (the conversation's workspace is named by its label): a record of that label it was
-    /// registered on, resolved as every message is (a linked group of another machine is the
-    /// local workspace it is linked to), whose manager it still is.
-    fn manages(&self, label: &str, session: &str) -> bool {
-        self.workspaces
-            .iter()
-            .filter(|w| w.group.label == label && w.manager.as_deref() == Some(session))
-            .any(|w| self.workspace_of(&w.group).and_then(|now| now.manager.as_deref()) == Some(session))
-    }
-
     /// Whether the user can still answer a manager's choice in a conversation: not answered,
-    /// and its asker still manages the question's workspace (an earlier manager's answer would
-    /// go nowhere). The same rule routes the answer (`prepare` of `message.sent`).
+    /// and its asker holds the workspace's seat under the appointment it asked under (an
+    /// answer to an earlier appointment would go nowhere). The same rule routes the answer
+    /// (`prepare` of `message.sent`). A rename changes nothing: the workspace is its id.
     pub fn choice_open(&self, message: &str, reply: u32) -> bool {
         let Ok(m) = self.message(message) else { return false };
-        self.asked(message, reply).is_ok_and(|(by, _, answered)| answered.is_none() && self.manages(&m.workspace, by))
+        self.asked(message, reply).is_ok_and(|(by, _, answered)| answered.is_none() && self.appointed(&m.workspace, by, m.since))
+    }
+
+    /// The appointment `session` holds the seat of workspace `id` under; 0: it does not.
+    fn appointment(&self, id: &str, session: &str) -> u64 {
+        self.workspaces.iter().find(|w| w.id == id).and_then(|w| w.manager.as_ref()).filter(|m| m.session == session).map_or(0, |m| m.since)
     }
 
     pub fn message(&self, id: &str) -> Result<&Message, Rejected> {
@@ -181,11 +219,10 @@ impl State {
             if !intent.is_empty() && of != intent {
                 return no(format!("{unit} is not of intent {intent}"));
             }
-            // The same workspace's record, not one of the same label on another machine.
             if let Some(w) = target.filter(|_| intent.is_empty())
-                && self.intent_workspace(of).is_none_or(|x| x.group != w.group)
+                && self.intent_workspace(of).is_none_or(|x| x.id != w.id)
             {
-                return no(format!("{unit} is not of an intent of workspace {:?}", w.group.label));
+                return no(format!("{unit} is not of an intent of workspace {} ({})", w.id, w.name));
             }
             if task != 0 {
                 self.task(unit, task)?;
@@ -239,13 +276,14 @@ impl State {
                 if !intent.is_empty() || !unit.is_empty() || task != 0 {
                     return no("a message to every manager is about no intent or unit; only the user's own files go with it");
                 }
-                // Each the manager now of the workspace of the group it runs in (a linked group:
-                // the local workspace), once; a blind one is not refused: its copy waits for
-                // that task (the service holds it).
+                // Each the seat of an open workspace now, as it is (its session, machine and
+                // appointment), once; a blind one is not refused: its copy waits for that task
+                // (the service holds it).
                 let mut seen: Vec<&str> = vec![];
                 for r in &to {
-                    if self.workspace_of(&r.workspace).and_then(|w| w.manager.as_deref()) != Some(r.manager.as_str()) {
-                        return no(format!("{} is not the manager of workspace {:?}", self.name_of(&r.manager).unwrap_or(&r.manager), r.workspace.label));
+                    let w = self.workspace(&r.workspace)?;
+                    if w.closed || w.manager.as_ref().is_none_or(|m| m.session != r.manager || m.since != r.since || m.machine != r.machine) {
+                        return no(format!("{} does not hold the seat of workspace {} as given", self.name_of(&r.manager).unwrap_or(&r.manager), r.workspace));
                     }
                     if seen.contains(&r.manager.as_str()) {
                         return no(format!("a message to every manager goes to {} twice", self.name_of(&r.manager).unwrap_or(&r.manager)));
@@ -261,32 +299,32 @@ impl State {
                     return no("a message needs its text");
                 }
                 // An answer goes to whoever asked, in the question's workspace and about its
-                // intent, while it manages that workspace (here or on another machine).
-                // Otherwise to the manager of the intent's workspace, or of the workspace
-                // named (here). (Resolved once: the unit picked must be of an intent that runs
-                // in it.)
+                // intent, while it holds that workspace's seat under the appointment it asked
+                // under. Otherwise to the seat of the intent's workspace, or of the workspace
+                // named. (Resolved once: the unit picked must be of an intent that runs in it.)
                 let (intent, workspace, manager, target) = if let Some(a) = &answer {
                     let (by, choice, answered) = self.asked(&a.message, a.reply)?;
                     if answered.is_some() {
                         return no(format!("{} is answered already; write to the manager instead", a.message));
                     }
                     let q = self.message(&a.message)?;
-                    if !self.manages(&q.workspace, by) {
+                    if !self.appointed(&q.workspace, by, q.since) {
                         return no(format!("{} was asked by an earlier manager of this workspace; write to the manager instead", a.message));
                     }
                     choice.check_answer(&a.selected, &text)?;
                     (q.intent.clone(), q.workspace.clone(), Some(by.to_string()), None)
                 } else if intent.is_empty() {
-                    let w = self.workspaces.iter().find(|w| w.group.machine.is_none() && w.group.label == workspace);
-                    (intent, workspace, w.and_then(|w| w.manager.clone()), w)
+                    let w = self.workspace(&workspace)?;
+                    (intent, workspace, w.manager.as_ref().map(|m| m.session.clone()), Some(w))
                 } else {
-                    let i = self.intent(&intent)?;
-                    let label = self.intent_workspace(&intent).map(|w| &w.group.label).or(i.workspace.as_ref().map(|g| &g.label)).cloned().unwrap_or_default();
-                    let manager = self.manager_of(&intent).map(str::to_string);
-                    (intent, label, manager, None)
+                    self.intent(&intent)?;
+                    let Some(w) = self.intent_workspace(&intent) else {
+                        return no(format!("intent {intent} runs in no workspace: start it first, or write to a workspace's manager"));
+                    };
+                    (intent, w.id.clone(), w.manager.as_ref().map(|m| m.session.clone()), None)
                 };
                 let Some(manager) = manager else {
-                    return no(format!("{} has no manager; a manager registers with `workriver manager here`", if intent.is_empty() { format!("workspace {workspace:?}") } else { format!("intent {intent}") }));
+                    return no(format!("{} has no manager; {SEATING}", if intent.is_empty() { format!("workspace {workspace}") } else { format!("intent {intent}'s workspace {workspace}") }));
                 };
                 // Nothing about other work is typed into a blind agent.
                 if !self.blind_tasks(&manager).is_empty() {
@@ -324,13 +362,22 @@ impl State {
             }
             MessageReplied { message, text, choice } => {
                 let m = self.message(&message)?;
+                if m.notice.is_some() {
+                    return no(format!("{message} is a line of workriver's own, not a message: there is nothing to reply to"));
+                }
                 // To every manager: each it went to, for its own workspace.
-                if !m.to.is_empty() && !m.to.iter().any(|r| r.manager == actor) {
+                let copy = m.to.iter().find(|r| r.manager == actor);
+                if !m.to.is_empty() && copy.is_none() {
                     return no(format!("message {message} went to every manager; only the managers it went to reply to it"));
                 }
                 // Only the manager it was typed to: nobody else answers for it, the user included.
                 if m.to.is_empty() && m.manager != actor {
                     return no(format!("message {message} went to {}; only that manager replies to it", self.name_of(&m.manager).unwrap_or(&m.manager)));
+                }
+                // And only as the appointment it went to: seated again, it is another.
+                let (workspace, since) = copy.map_or((&m.workspace, m.since), |r| (&r.workspace, r.since));
+                if !self.appointed(workspace, actor, since) {
+                    return no(format!("message {message} went to an earlier manager of workspace {workspace}; it takes no reply now: say what you have to say with `workriver say --text \"...\"`"));
                 }
                 if blank(&text) {
                     return no("a reply needs its text");
@@ -348,7 +395,7 @@ impl State {
                 if user {
                     return no("the user writes to a manager in workriver's page (Manager)");
                 }
-                let Some(w) = self.workspaces.iter().find(|w| w.manager.as_deref() == Some(actor)) else {
+                let Some(w) = self.seat_of(actor) else {
                     return no("only a workspace's manager says something to the user; a worker tells its manager: `workriver manager tell <task> --text \"...\"`");
                 };
                 if blank(&text) {
@@ -357,12 +404,12 @@ impl State {
                 if let Some(c) = &choice {
                     c.check()?;
                 }
-                MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.group.label.clone(), text, choice }
+                MessageSaid { id: format!("m{}", self.messages.len() + 1), intent: w.current.clone().unwrap_or_default(), workspace: w.id.clone(), text, choice }
             }
             MessagesRead { workspace, at } => {
                 // Empty: the conversation with every manager.
-                if !workspace.is_empty() && blank(&workspace) {
-                    return no("which workspace's conversation was read");
+                if !workspace.is_empty() {
+                    self.workspace(&workspace)?;
                 }
                 // Stored as the service writes times, so that they compare as text.
                 let Ok(t) = humantime::parse_rfc3339_weak(&at) else { return no(format!("{at:?} is not a time")) };
@@ -385,16 +432,6 @@ impl State {
                 }
             }
             MessageSent { id, intent, workspace, manager, text, unit, task, context, to, answer } => {
-                // The record its conversation is in, found as `prepare` routed it.
-                let record = if !to.is_empty() {
-                    None
-                } else if let Some(a) = answer {
-                    self.message(&a.message).ok().and_then(|q| q.record)
-                } else if intent.is_empty() {
-                    self.workspaces.iter().position(|w| w.group.machine.is_none() && &w.group.label == workspace)
-                } else {
-                    self.intents.iter().find(|i| &i.id == intent).and_then(|i| i.workspace.as_ref()).and_then(|g| self.workspace_at(g))
-                };
                 if let Some(a) = answer {
                     let answered = Some(Answered { by: id.clone(), selected: a.selected.clone() });
                     if let Some(m) = self.messages.iter_mut().find(|m| m.id == a.message) {
@@ -408,11 +445,13 @@ impl State {
                         }
                     }
                 }
+                let since = self.appointment(workspace, manager);
                 self.messages.push(Message {
                     id: id.clone(),
                     intent: intent.clone(),
                     workspace: workspace.clone(),
                     manager: manager.clone(),
+                    since,
                     text: text.clone(),
                     unit: unit.clone(),
                     task: *task,
@@ -425,16 +464,15 @@ impl State {
                     choice: None,
                     answered: None,
                     answer: answer.clone(),
-                    record,
+                    notice: None,
                 })
             }
             MessageSaid { id, intent, workspace, text, choice } => self.messages.push(Message {
-                // The workspace its manager says it in, as `prepare` found it.
-                record: self.workspaces.iter().position(|w| w.manager.as_deref() == Some(e.actor.as_str())),
                 id: id.clone(),
                 intent: intent.clone(),
                 workspace: workspace.clone(),
                 manager: e.actor.clone(),
+                since: self.appointment(workspace, &e.actor),
                 text: text.clone(),
                 unit: String::new(),
                 task: 0,
@@ -447,6 +485,7 @@ impl State {
                 choice: choice.clone(),
                 answered: None,
                 answer: None,
+                notice: None,
             }),
             MessagesRead { workspace, at: upto } => {
                 let r = self.read.entry(workspace.clone()).or_default();

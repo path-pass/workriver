@@ -1,11 +1,14 @@
 // The rail picks a project and its units: product name, the filter by kind, size and tag, the
-// project switch, search; the active intents with their units and signals, the roadmap of
-// planned intents (ordered by dragging, added to inline), the done ones folded; settings. What asks something of the
+// project switch, search; then project → workspace → intent → unit: each project's open
+// workspaces (name, id, its manager's state) with their active intents and units, its roadmap of
+// planned intents (ordered by dragging, added to inline), its done ones folded; settings. What asks something of the
 // user and where the agents are live in the side panel on the right.
 import { Waves } from 'lucide-react'
 import { useEffect, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/ui/primitives/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/ui/primitives/popover'
 import { Input } from '@/ui/primitives/input'
 import { ScrollArea } from '@/ui/primitives/scroll-area'
 import { attention, blockedAgents } from '@/attention/select'
@@ -15,8 +18,11 @@ import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { useResize } from '@/lib/useResize'
 import { RAIL_WIDTH } from '@/config/defaults'
-import { record } from '@/api/actions'
+import { record, setSpace } from '@/api/actions'
 import type { Intent, Unit } from './types'
+import type { Space } from '@/agents/types'
+import { activeIn, railOf, runs, type RailProject } from './spaces'
+import { openSeat } from './Seat'
 import type { Workspace } from '@/workspace/types'
 import { MachineChip } from '@/machines/format'
 import { Content, ExternalChip, Slot, SLOT } from '@/content/Chips'
@@ -204,6 +210,7 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
   // Its agents waiting in their terminal count as blocking too.
   sum.blocking += blockedAgents(ws).filter(s => s.intent === intent.id).length
   const active = stateOf(intent) === 'active'
+  const ran = ws?.workspaces?.find(w => w.id === intent.workspace)
   return (
     <Collapsible open={isOpen} onOpenChange={onOpen}>
       <div className="group/row flex items-start gap-0.5">
@@ -221,11 +228,10 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
             {/* Folded, the group still says what waits inside it. */}
             {!isOpen && <span className="flex flex-none items-center gap-1"><Marks blocking={sum.blocking} waiting={sum.waiting} /></span>}
           </span>
-          {/* One quiet line: its kind and size, where it runs, its manager (none is a warning), quiet, finished. */}
+          {/* One quiet line: its kind and size, quiet, finished; a done one, the workspace it ran in. (Its manager is on its workspace's line.) */}
           <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-normal empty:hidden">
             <SortChip intent={intent} />
-            {active && intent.workspace && <span className="font-mono">{intent.workspace.label}</span>}
-            {active && <ManagerState intent={intent} />}
+            {!active && ran && <Tip text={t('rail.ranIn', { workspace: `${ran.name} ${ran.id}` })}><span className="max-w-full truncate"><span lang={contentLang(ran.name)}>{ran.name}</span> <span className="font-mono">{ran.id}</span></span></Tip>}
             <Quiet since={intentQuietSince(intent)} />
             {intent.complete && <Tip text={t('unit.complete')}><span className="tag font-normal" data-progress="ready">{t('unit.finished')}</span></Tip>}
           </span>
@@ -252,6 +258,118 @@ function IntentGroup({ ws, intent, units, isOpen, onOpen, unitId, onUnit, onInte
   )
 }
 
+/** How a workspace's manager is, on its line: the crown, its name, then working, idle and so
+ *  on or not running; "no manager" (amber while the workspace has an active intent: its
+ *  findings reach no one). */
+export function SeatState({ space, busy }: { space: Space; busy: boolean }) {
+  const { t } = useT()
+  const m = space.manager
+  const state = m ? m.state : 'none'
+  const label = t(`manager.state.${state}`)
+  return (
+    <Tip text={m ? t('manager.of', { name: m.name, state: label }) : label}>
+      <span className="flex min-w-0 items-center gap-1 font-normal data-[warn]:text-amber" data-manager={state} data-warn={(busy && !runs(m)) || undefined}>
+        <Icon name="manager" className="size-3 flex-none" />
+        {m && <span className="min-w-0 truncate" lang={contentLang(m.name)}>{m.name}</span>}
+        <span className="flex-none">{label}</span>
+      </span>
+    </Tip>
+  )
+}
+
+/** Renaming a workspace: a name, shown only (it may repeat). */
+function RenameSpace({ space, onClose }: { space: Space | null; onClose: () => void }) {
+  const { t } = useT()
+  const [name, setName] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => { setName(space?.name ?? ''); setError('') }, [space])
+  const save = () => { if (space && name.trim()) setSpace({ action: 'rename', workspace: space.id, name: name.trim() }).then(onClose, e => setError(t('rail.failed', { error: e instanceof Error ? e.message : String(e) }))) }
+  return (
+    <Dialog open={!!space} onOpenChange={o => { if (!o) onClose() }}>
+      <DialogContent closeLabel={t('settings.close')}>
+        <DialogTitle>{t('rail.spaceRename')}<span className="ml-2 font-mono text-xs font-normal text-ink-2">{space?.id}</span></DialogTitle>
+        <DialogDescription>{t('rail.spaceNameHint')}</DialogDescription>
+        <form className="flex flex-col gap-2" onSubmit={e => { e.preventDefault(); save() }}>
+          <Input autoFocus value={name} onChange={e => setName(e.target.value)} aria-label={t('rail.spaceName')} className="h-8 text-sm md:text-sm" />
+          {error && <p role="alert" className="text-xs wrap-anywhere text-del">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button type="button" variant="ghost" size="sm">{t('rail.addCancel')}</Button></DialogClose>
+            <Button type="submit" size="sm" disabled={!name.trim() || name.trim() === space?.name}>{t('rail.spaceSave')}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * One workspace of a project: its name with its id quietly in mono, one status line with
+ * its manager, a menu (rename, manager, close); under it its active intents with their
+ * units. The only level of the rail whose group folds its intents.
+ */
+function SpaceGroup({ space, busy, isOpen, onOpen, onRename, onError, children }: { space: Space; busy: boolean; isOpen: boolean; onOpen: (o: boolean) => void; onRename: () => void; onError: (e: string) => void; children: ReactNode }) {
+  const { t } = useT()
+  const [menu, setMenu] = useState(false)
+  const item = 'h-7 justify-start rounded-sm px-2 text-[13px] font-normal text-rail-ink hover:bg-rail-3 hover:text-rail-ink'
+  const close = () => { setMenu(false); setSpace({ action: 'close', workspace: space.id }).catch(e => onError(t('rail.failed', { error: e instanceof Error ? e.message : String(e) }))) }
+  return (
+    <Collapsible open={isOpen} onOpenChange={onOpen} className="rail-space">
+      <div className="flex items-start gap-0.5">
+        <CollapsibleTrigger aria-label={t('rail.foldSpace', { name: space.name, id: space.id })} className="group/space flex min-w-0 flex-1 items-start gap-0.5 rounded-md py-1 pr-1 text-left text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
+          <Icon name="chev" className="mt-0.5 size-3.5 flex-none transition-transform group-data-[state=open]/space:rotate-90" />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex min-w-0 items-baseline gap-1.5 text-xs font-semibold text-rail-ink">
+              <span className="min-w-0 truncate" lang={contentLang(space.name)}>{space.name}</span>
+              <span className="flex-none font-mono text-[11px] font-normal text-rail-ink-2">{space.id}</span>
+            </span>
+            <span className="flex min-w-0 text-[11px]"><SeatState space={space} busy={busy} /></span>
+          </span>
+        </CollapsibleTrigger>
+        <Popover open={menu} onOpenChange={setMenu}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label={t('rail.spaceMenu', { name: space.name, id: space.id })} className="mt-0.5 size-6 flex-none rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">
+              <Icon name="more" className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-44 gap-0.5 rounded-md border border-rail-line bg-rail-2 p-1 text-rail-ink ring-0">
+            <Button variant="ghost" size="sm" className={item} onClick={() => { setMenu(false); onRename() }}>{t('rail.spaceRename')}</Button>
+            <Button variant="ghost" size="sm" className={item} onClick={() => { setMenu(false); openSeat(space.id) }}>{t('rail.spaceManager')}</Button>
+            <Button variant="ghost" size="sm" className={item} onClick={close}>{t('rail.spaceClose')}</Button>
+          </PopoverContent>
+        </Popover>
+      </div>
+      <CollapsibleContent className="flex flex-col gap-0.5 pl-2">{children}</CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/** A project's "+": a new workspace in it, by its name. */
+function AddSpace({ project, onError }: { project: string; onError: (e: string) => void }) {
+  const { t } = useT()
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const save = () => {
+    if (!name.trim()) return
+    setSpace({ action: 'add', project, name: name.trim() }).then(() => { setName(''); setOpen(false) }, e => onError(t('rail.failed', { error: e instanceof Error ? e.message : String(e) })))
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tip text={t('rail.spaceAdd')}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="icon-sm" aria-label={t('rail.spaceAdd')} className="size-5 rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink"><Icon name="plus" className="size-3.5" /></Button>
+        </PopoverTrigger>
+      </Tip>
+      <PopoverContent align="end" className="w-60 rounded-md border border-rail-line bg-rail-2 p-2 text-rail-ink ring-0">
+        <form className="flex flex-col gap-1.5" onSubmit={e => { e.preventDefault(); save() }}>
+          <input className="rail-field" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder={t('rail.spaceName')} aria-label={t('rail.spaceName')} />
+          <p className="text-[11px] text-rail-ink-2">{t('rail.spaceNameHint')}</p>
+          <Button type="submit" size="sm" variant="outline" className="h-7 self-start rounded-sm bg-transparent text-rail-ink" disabled={!name.trim()}>{t('rail.spaceAdd')}</Button>
+        </form>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /** A quiet section heading in the rail, with an optional action. */
 function Heading({ children, extra }: { children: string; extra?: ReactNode }) {
   return (
@@ -268,6 +386,7 @@ function Heading({ children, extra }: { children: string; extra?: ReactNode }) {
  * "Merge…" opens a dialog that folds intents of one project into one (a roadmap split too finely).
  */
 function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { ws: Workspace; list: Intent[]; all: Intent[]; addTo: string | null; onStart: (i: Intent) => void; onIntent: (id: string) => void; here: string | null; onError: (e: string) => void }) {
+  // (`addTo` null: the roadmap of "No project", which takes no new intent and merges nothing.)
   const { t } = useT()
   const [drag, setDrag] = useState<string | null>(null)
   const [over, setOver] = useState<{ id: string; where: 'before' | 'after' } | null>(null)
@@ -298,16 +417,16 @@ function Roadmap({ ws, list, all, addTo, onStart, onIntent, here, onError }: { w
     record('intent.created', { title: title.trim(), goal: goal.trim(), project: addTo, state: 'planned', ...(kind ? { kind } : {}) })
       .then(() => { setTitle(''); setGoal(''); setKind(null); setAdding(false) }, fail)
   }
-  const add = (
-    <Tip text={addTo ? t('rail.add') : t('rail.addPick')}>
-      <Button variant="ghost" size="icon-sm" aria-label={t('rail.add')} disabled={!addTo} className="size-5 rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink" onClick={() => setAdding(a => !a)}>
+  const add = addTo && (
+    <Tip text={t('rail.add')}>
+      <Button variant="ghost" size="icon-sm" aria-label={t('rail.add')} className="size-5 rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink" onClick={() => setAdding(a => !a)}>
         <Icon name="plus" className="size-3.5" />
       </Button>
     </Tip>
   )
   return (
     <section aria-label={t('rail.roadmap')} className="flex flex-col gap-0.5">
-      <Heading extra={<><MergeDialog ws={ws} project={addTo} />{add}</>}>{t('rail.roadmap')}</Heading>
+      <Heading extra={addTo && <><MergeDialog ws={ws} project={addTo} />{add}</>}>{t('rail.roadmap')}</Heading>
       {list.map(i => (
         <div
           key={i.id}
@@ -386,13 +505,13 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       return { intent, units: named ? units : units.filter(match), named }
     })
     .filter(g => g.units.length || g.named || (!needle && !g.intent.units.some(u => !u.intentLevel)))
-  const active = groupsOf(intents.filter(i => stateOf(i) === 'active'))
-  const done = groupsOf(intents.filter(i => stateOf(i) === 'done'))
   const planned = intents
     .filter(i => stateOf(i) === 'planned' && (!needle || [i.id, i.title, i.goal, i.note, ...(i.tags ?? [])].join(' ').toLowerCase().includes(needle)))
-    .sort((a, b) => (a.project ?? '').localeCompare(b.project ?? '') || (a.order ?? 0) - (b.order ?? 0))
-  // New intents go to the project shown, or to the only one there is.
-  const addTo = project ?? (projects.length === 1 ? projects[0].id : null)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  // Project → workspace → intent → unit; "No project" last, when it holds something.
+  const spaces = ws?.workspaces ?? []
+  const sections = railOf(projects, spaces, groupsOf(intents.filter(i => stateOf(i) === 'active' || stateOf(i) === 'done')), planned, project, !!needle || filtersOn(filter) > 0)
+  const nothing = sections.every(s => !s.spaces.some(x => x.intents.length) && !s.loose.length && !s.planned.length && !s.done.length)
   const [error, setError] = useState('')
   // The intent of the open unit is open; the others are folded unless the user opened them.
   const home = intents.find(i => i.id === unitId || i.units.some(u => u.id === unitId))?.id
@@ -401,6 +520,11 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
   const repo = ws && openUnit && !noCode(openUnit) ? repoOf(ws, openUnit)?.name ?? '' : ''
   const [open, setOpen] = useState<string[]>([])
   useEffect(() => { if (home) setOpen(o => (o.includes(home) ? o : [...o, home])) }, [home])
+  // A workspace's group is open unless the user folded it; the open unit's opens again.
+  const [folded, setFolded] = useState<string[]>([])
+  const homeSpace = intents.find(i => i.id === home)?.workspace
+  useEffect(() => { if (homeSpace) setFolded(f => f.filter(x => x !== homeSpace)) }, [homeSpace, unitId])
+  const [renaming, setRenaming] = useState<Space | null>(null)
   useEffect(() => {
     if (!error) return
     const k = setTimeout(() => setError(''), 6000)
@@ -430,6 +554,42 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       onIntent={onIntent}
     />
   )
+  // One project: its heading (its title with all shown, else "Workspaces") with "+" for a new
+  // workspace, its open workspaces, its roadmap, what is done. "No project": no workspaces.
+  const section = (sec: RailProject) => {
+    const p = sec.project
+    const title = p ? (project ? t('rail.workspaces') : p.title) : t('rail.noProject')
+    return (
+      <section key={p?.id ?? ''} aria-label={p ? p.title : t('rail.noProject')} className="flex flex-col gap-1" data-project={p?.id ?? ''}>
+        <h2 className="flex items-center gap-1.5 px-1.5 pt-2 pb-0.5 text-[11px] font-semibold tracking-wide text-rail-ink-2 uppercase">
+          <span className="min-w-0 flex-1 truncate" lang={p && !project ? contentLang(p.title) : undefined}>{title}</span>
+          {p && <AddSpace project={p.id} onError={setError} />}
+        </h2>
+        {p && !sec.spaces.length && !needle && <p className="px-2.5 text-xs text-rail-ink-2 italic">{t('rail.noSpaces')}</p>}
+        {sec.spaces.map(({ space, intents: list }) => (
+          <SpaceGroup
+            key={space.id} space={space} busy={activeIn(ws?.intents ?? [], space.id).length > 0}
+            isOpen={!!needle || !folded.includes(space.id)}
+            onOpen={o => setFolded(f => (o ? f.filter(x => x !== space.id) : [...f, space.id]))}
+            onRename={() => setRenaming(space)} onError={setError}
+          >
+            {list.map(group)}
+          </SpaceGroup>
+        ))}
+        {sec.loose.length > 0 && <section aria-label={t('rail.loose')} className="flex flex-col gap-0.5"><Heading>{t('rail.loose')}</Heading>{sec.loose.map(group)}</section>}
+        {ws && (sec.planned.length > 0 || (p && !needle)) && <Roadmap ws={ws} list={sec.planned} all={intents} addTo={p?.id ?? null} onStart={onStart} onIntent={onIntent} here={unitId} onError={setError} />}
+        {sec.done.length > 0 && (
+          <Collapsible>
+            <CollapsibleTrigger className="group/done flex w-full items-center gap-1.5 rounded-md px-1.5 pt-2 pb-0.5 text-[11px] font-semibold tracking-wide text-rail-ink-2 uppercase hover:text-rail-ink">
+              <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/done:rotate-90" />
+              {t('rail.done')}<span className="font-normal">{sec.done.length}</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="flex flex-col gap-1">{sec.done.map(group)}</CollapsibleContent>
+          </Collapsible>
+        )}
+      </section>
+    )
+  }
   return (
     <aside className="rail sticky top-0 flex h-screen w-[var(--rail-w,248px)] flex-col gap-3 bg-rail px-3 pt-4 pb-3 text-rail-ink max-[860px]:static max-[860px]:h-auto max-[860px]:w-auto">
       {/* Not on a narrow screen, where the rail is a row of its own. */}
@@ -471,19 +631,9 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       {/* The viewport's inner box is a block, not Radix's table: titles then wrap or cut at the rail's width. */}
       <ScrollArea className="-mx-1 min-h-0 flex-1 max-[860px]:[&>[data-slot=scroll-area-viewport]]:max-h-[40vh] [&>[data-slot=scroll-area-viewport]>div]:block!">
       <div className="flex flex-col gap-1 px-1 py-0.5">
-        {active.length > 0 && <section aria-label={t('rail.active')} className="flex flex-col gap-1"><Heading>{t('rail.active')}</Heading>{active.map(group)}</section>}
-        {ws && (planned.length > 0 || addTo) && <Roadmap ws={ws} list={planned} all={intents} addTo={addTo} onStart={onStart} onIntent={onIntent} here={unitId} onError={setError} />}
+        {sections.map(section)}
         {error && <p role="alert" className="px-2.5 text-xs text-rail-you">{error}</p>}
-        {done.length > 0 && (
-          <Collapsible>
-            <CollapsibleTrigger className="group/done flex w-full items-center gap-1.5 rounded-md px-1.5 pt-2 pb-0.5 text-[11px] font-semibold tracking-wide text-rail-ink-2 uppercase hover:text-rail-ink">
-              <Icon name="chev" className="size-3.5 transition-transform group-data-[state=open]/done:rotate-90" />
-              {t('rail.done')}<span className="font-normal">{done.length}</span>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-1">{done.map(group)}</CollapsibleContent>
-          </Collapsible>
-        )}
-        {ws && !active.length && !done.length && !planned.length && (
+        {ws && nothing && (needle || !spaces.some(w => !w.closed)) && (
           <div className="flex flex-col items-start gap-2 px-2.5 py-2 text-sm text-rail-ink-2">
             {needle && unitsOf(ws).length ? <span><Slot text={t('rail.noMatch', { q: SLOT })}><Content text={q.trim()} /></Slot></span> : t('rail.none')}
             {needle && unitsOf(ws).length > 0 && <Button variant="outline" size="sm" className="rounded-sm bg-transparent text-rail-ink" onClick={() => onQ('')}>{t('rail.clearSearch')}</Button>}
@@ -495,6 +645,7 @@ export function Rail({ ws, unitId, onUnit, q, onQ, open: railOpen, onToggle, pro
       <div className="flex flex-col border-t border-rail-line pt-2">
         <Settings ws={ws} />
       </div>
+      <RenameSpace space={renaming} onClose={() => setRenaming(null)} />
     </aside>
   )
 }

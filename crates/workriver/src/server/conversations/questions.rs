@@ -53,36 +53,23 @@ impl App {
             Ok(None) => return,
             Err(e) => return unread(e),
         };
-        let (q, unit, task_agent, manager, group) = {
+        let (q, unit, task_agent, manager) = {
             let Ok(q) = s.question(id).cloned() else { return };
             let Some(u) = s.unit_or_intent(&q.unit) else { return };
             let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
             let intent = s.intents.iter().find(|i| i.id == u.intent);
             let manager = intent.and_then(|i| s.manager_of(&i.id)).map(str::to_string);
-            let group = intent.and_then(|i| i.workspace.clone());
-            (q, u, task_agent, manager, group)
+            (q, u, task_agent, manager)
         };
         drop(s);
         let live_one = |s: &Option<String>| s.as_ref().and_then(|s| live.iter().find(|a| &a.session == s)).cloned();
         let (worker, boss) = (live_one(&task_agent), live_one(&manager));
-        // Work on another machine is read there: the group of that machine that is the
-        // intent's workspace (linked to it), else where the task's agent runs.
-        let group = match &unit.machine {
-            None => group,
-            Some(m) => {
-                let read = got(self.store.lock().unwrap().recorded());
-                let state = match read {
-                    Ok(Some(state)) => state,
-                    Ok(None) => return,
-                    Err(e) => return unread(e),
-                };
-                let same = |g: &core::RuntimeRef| group.as_ref().is_some_and(|w| state.workspace_of(g).is_some_and(|a| state.workspace_of(w).is_some_and(|b| a.group == b.group)));
-                let there = |g: &&core::RuntimeRef| g.machine.as_ref() == Some(m);
-                let groups = self.groups.lock().unwrap().clone();
-                groups.iter().filter(there).find(|g| same(g)).cloned().or_else(|| worker.as_ref().and_then(|a| a.group.clone()).filter(|g| there(&g)))
-            }
-        };
-        let Some(group) = group.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
+        // A temporary agent opens beside the one it serves, in that one's group of the
+        // runtime (shown only; no record holds it): on the unit's machine, its manager's for
+        // work here and the task's agent's for work elsewhere; else wherever either runs.
+        let there = |a: &Option<RuntimeAgent>| a.as_ref().filter(|a| a.machine == unit.machine).and_then(|a| a.group.clone());
+        let beside = if unit.machine.is_none() { there(&boss).or_else(|| there(&worker)) } else { there(&worker).or_else(|| there(&boss)) };
+        let Some(group) = beside.or_else(|| worker.as_ref().and_then(|a| a.group.clone())).or_else(|| boss.as_ref().and_then(|a| a.group.clone())) else {
             return fail(ReasonCode::NoWorkspace, words::no_group(&unit.intent));
         };
         // Which harness: the task's agent's, else the manager's, else claude. Claude only
@@ -142,14 +129,35 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        // A notice is for a session: an agent that only goes by it as a name is not it.
-        let is = |a: &RuntimeAgent| a.session == h.to || (h.kind != For::Notice && a.name == h.to);
+        // A notice and the user's message are for a session: an agent that only goes by it as
+        // a name is not it (any agent may take a seated manager's session id as its name).
+        let by_session = matches!(h.kind, For::Notice | For::Message | For::Broadcast);
+        let is = |a: &RuntimeAgent| a.session == h.to || (!by_session && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
         };
         // A manager on a blind task is told nothing of other work: the user's message waits
         // (`poll` tries again) until that task is delivered. Checked at every try, since it may
         // have become blind while the message was held. Unread, it is not given either.
+        // The user's message is for one appointment: its seat given to another meanwhile
+        // (another session, or the same one seated anew), it is not delivered, and never
+        // re-routed to whoever holds the seat now. Checked at every try.
+        if matches!(h.kind, For::Message | For::Broadcast) {
+            match self.still_appointed(&h.question, &h.to) {
+                Some(true) => {}
+                Some(false) => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
+                None => {
+                    h.not_ready = None;
+                    self.held.lock().unwrap().push(h);
+                    return;
+                }
+            }
+        }
+        // Nor is it typed into a terminal that only reports the manager's session: its own
+        // is gone, and the user has not confirmed another.
+        if matches!(h.kind, For::Message | For::Broadcast) && self.seat_lost(&h.to) {
+            return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::ManagerGone, &format!("the manager {} does not run in the terminal it was seated in; confirm its new terminal (the workspace's Manager), then write again", h.name));
+        }
         if matches!(h.kind, For::Message | For::Broadcast | For::Notice | For::Discussion | For::Duty) && !self.blind_free(&h.to) {
             h.not_ready = None;
             self.held.lock().unwrap().push(h);
@@ -190,10 +198,22 @@ impl App {
                 // order with a gate's record (`App::discussing`, held by both): one closed
                 // meanwhile goes nowhere, one whose gate was submitted fails now, and with
                 // records that cannot be read it waits. A gate recorded later comes after the
-                // send, which then stands as asked before the user decided.
-                let _order = (h.kind == For::Discussion).then(|| self.discussing.lock().unwrap());
-                let asked = if h.kind == For::Discussion { self.still_asked(&h.question) } else { Some(true) };
+                // send, which then stands as asked before the user decided. The user's message
+                // alike with a seat change (`App::appointing`): its appointment ended meanwhile,
+                // it is not delivered; a seat changed later comes after the send.
+                let message = matches!(h.kind, For::Message | For::Broadcast);
+                let _order = match h.kind {
+                    For::Discussion => Some(self.discussing.lock().unwrap()),
+                    _ if message => Some(self.appointing.lock().unwrap()),
+                    _ => None,
+                };
+                let asked = match h.kind {
+                    For::Discussion => self.still_asked(&h.question),
+                    _ if message => self.still_appointed(&h.question, &h.to),
+                    _ => Some(true),
+                };
                 match asked {
+                    Some(false) if message => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
                     Some(false) => return,
                     None => h.not_ready = None,
                     Some(true) => match sent(&h) {

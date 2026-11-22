@@ -235,28 +235,15 @@ impl State {
     }
 
     /// Whether `who` may put a unit of `intent` on `machine` (none: the machine workriver
-    /// runs on). The user may anywhere. An agent may on its own machine; on another only as
-    /// the intent's manager, and only where a workspace of that machine is linked with the
-    /// intent's workspace: the work must be reachable by the agents it is for.
+    /// runs on). The user may anywhere, and so may the intent's manager: on any machine
+    /// workriver follows (following one is the user's act; the service checks the repository
+    /// there). Another agent only on its own machine.
     fn may_place(&self, who: &Principal, intent: &str, machine: Option<&str>) -> Result<(), Rejected> {
         let Principal::Agent { session, machine: own } = who else { return Ok(()) };
-        if own.as_deref() == machine {
+        if own.as_deref() == machine || self.manager_of(intent) == Some(session.as_str()) {
             return Ok(());
         }
-        if self.manager_of(intent) != Some(session.as_str()) {
-            return no(format!("only the user or the manager of intent {intent} puts its units on another machine"));
-        }
-        let other = machine.or(own.as_deref()).unwrap_or_default();
-        let workspace = self.intent_workspace(intent).map(|w| w.group.label.clone());
-        let linked = workspace.as_ref().is_some_and(|label| self.links.iter().any(|l| l.machine == other && &l.local == label));
-        if !linked {
-            return no(format!(
-                "no workspace on {other} is linked with this intent's workspace{}; the user links one first: workriver workspace link {other}:<workspace there> {}",
-                workspace.as_ref().map(|l| format!(" ({l})")).unwrap_or_default(),
-                workspace.as_deref().unwrap_or("<workspace here>")
-            ));
-        }
-        Ok(())
+        no(format!("only the user or the manager of intent {intent} puts its units on another machine"))
     }
 
     /// The rules of a unit's events: `prepare`, for these kinds.

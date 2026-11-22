@@ -1,7 +1,7 @@
 import type { Repo } from '@/code/types'
 import type { Chore } from '@/work/types'
 import type { Project, BacklogFinding, Intent } from '@/planning/types'
-import type { RuntimeWorkspace, Session } from '@/agents/types'
+import type { Space, Session } from '@/agents/types'
 import type { MachineAlert, Machine } from '@/machines/types'
 import type { ManagerMessage } from '@/conversations/types'
 import type { RecentRun } from '@/commands/types'
@@ -19,14 +19,14 @@ export interface Workspace {
   intents: Intent[];
   /** One per agent. What it is working on comes from the tasks; only this does not. */
   sessions: Session[];
-  /** Registered folders of repositories, and repositories outside all of them. Absent in the sample. */
+  /** Registered folders of repositories. What names none of them is of "No project". */
   projects?: Project[];
   /** Deferred findings that came from outside workriver's tasks (an earlier review, a notes file). */
   backlog?: BacklogFinding[];
   /** Chores that belong to no intent: a project's (`project`), or nobody's. */
   chores?: Chore[];
-  /** Every runtime workspace per machine, with the local one a remote one is linked to. */
-  workspaces?: RuntimeWorkspace[];
+  /** Every workspace, open and closed, in the order they were made. */
+  workspaces?: Space[];
   /** The other machines followed. */
   machines?: Machine[];
   /** Machines past an alert threshold now (the user's view only). */

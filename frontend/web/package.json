@@ -17,6 +17,7 @@
     "@headless-tree/core": "^1.8.0",
     "@headless-tree/react": "^1.8.0",
     "@tailwindcss/vite": "^4.3.5",
+    "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.12.1",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",

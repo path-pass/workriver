@@ -23,10 +23,7 @@ pub enum Body {
         /// One sentence on what the intent is for.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         goal: String,
-        /// Before 0.2, an intent followed one runtime group; kept for replay.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        runtime_ref: Option<RuntimeRef>,
-        /// The project's folder; empty before projects existed.
+        /// The project's folder: one a registered project holds, or empty (no project).
         #[serde(default, skip_serializing_if = "String::is_empty")]
         project: String,
         /// Records before 0.2 have none: those intents were being worked on.
@@ -57,17 +54,21 @@ pub enum Body {
     /// A project's title changed; `project` is its id or its folder.
     #[serde(rename = "project.renamed")]
     ProjectRenamed { project: String, title: String },
-    /// Planned → active (started in a runtime group) → done; or dropped; or back to planned.
+    /// Planned → active (started in a workspace) → done; or dropped; or back to planned.
     #[serde(rename = "intent.state_changed")]
     IntentStateChanged {
         intent: String,
         state: IntentState,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
-        /// Where it is started: the runtime group whose manager runs it.
+        /// Where it is started: the workspace's id. The user names one of the intent's
+        /// project; a manager's start is filled in here, from the seat it holds.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        workspace: Option<RuntimeRef>,
+        workspace: Option<String>,
     },
+    /// The user moves an active intent to another workspace of its project.
+    #[serde(rename = "intent.workspace_set")]
+    IntentWorkspaceSet { intent: String, workspace: String },
     /// A planned intent's place in its project's roadmap.
     #[serde(rename = "intent.moved")]
     IntentMoved {
@@ -101,18 +102,45 @@ pub enum Body {
         finding: String,
         reason: String,
     },
-    /// A workspace of another machine becomes one with a workspace of this machine.
-    #[serde(rename = "workspace.linked")]
-    WorkspaceLinked(Link),
-    #[serde(rename = "workspace.unlinked")]
-    WorkspaceUnlinked { machine: String, workspace: String },
-    /// The user says which project a runtime group works on, over what workriver works out
-    /// (none: workriver works it out again). `project` is a project's folder (or its id).
-    #[serde(rename = "workspace.project_set")]
-    WorkspaceProjectSet {
-        workspace: RuntimeRef,
+    /// The user makes a workspace in a registered project (`project`: its id or folder).
+    #[serde(rename = "workspace.created")]
+    WorkspaceCreated {
+        #[serde(default)]
+        id: String,
+        name: String,
+        project: String,
+    },
+    #[serde(rename = "workspace.renamed")]
+    WorkspaceRenamed { workspace: String, name: String },
+    /// Closed: it has no active intent; its seat is emptied. Its intents and conversation stay.
+    #[serde(rename = "workspace.closed")]
+    WorkspaceClosed { workspace: String },
+    #[serde(rename = "workspace.opened")]
+    WorkspaceOpened { workspace: String },
+    /// The user seats a workspace's manager (a session; none: empties the seat). `machine` and
+    /// `folder` are where the runtime showed that session, filled in by the service.
+    /// `replaces`: the seat the user was shown; refused when it is no longer that one.
+    #[serde(rename = "workspace.manager_set")]
+    WorkspaceManagerSet {
+        workspace: String,
+        #[serde(default)]
+        manager: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        project: Option<String>,
+        machine: Option<String>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        folder: String,
+        #[serde(default)]
+        replaces: Option<SeatRef>,
+    },
+    /// A seated session whose terminal was gone shows again where it was (the same machine and
+    /// folder) and has its seat back by itself: a line of the workspace's conversation, which
+    /// only workriver records. The seat and its appointment are as they were.
+    #[serde(rename = "workspace.manager_back")]
+    ManagerBack {
+        #[serde(default)]
+        id: String,
+        workspace: String,
+        session: String,
     },
     /// A deferred finding from outside workriver's tasks, into a project's backlog.
     #[serde(rename = "finding.added")]
@@ -128,9 +156,6 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         note: String,
     },
-    /// The intent now follows another runtime group (its id changed, say).
-    #[serde(rename = "intent.linked")]
-    IntentLinked { intent: String, runtime_ref: RuntimeRef },
     /// An agent as the runtime shows it; only workriver records it (`Body::service_only`).
     #[serde(rename = "agent.seen")]
     AgentSeen {
@@ -144,18 +169,6 @@ pub enum Body {
         /// The machine it runs on; none: this one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         machine: Option<String>,
-    },
-    #[serde(rename = "manager.registered")]
-    ManagerRegistered {
-        /// Before 0.2: the intent it managed (whose runtime group it ran in).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        intent: Option<String>,
-        /// The agent's session; empty when recorded: whoever records it.
-        #[serde(default)]
-        agent: String,
-        /// The runtime group it manages.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        workspace: Option<RuntimeRef>,
     },
     /// A new title, goal, note, kind, size or tags, or who decides its findings. Title, goal
     /// and findings are the user's; the note, kind, size and tags are also its manager's while
@@ -504,7 +517,7 @@ pub enum Body {
     #[serde(rename = "chore.done")]
     ChoreDone { chore: String },
     /// The user writes to a workspace's manager from the page; workriver types it into the
-    /// manager's terminal. Given an intent (its workspace's manager) or a workspace's label;
+    /// manager's terminal. Given an intent (its workspace's manager) or a workspace's id;
     /// the rest is filled in here.
     #[serde(rename = "message.sent")]
     MessageSent {
@@ -513,7 +526,7 @@ pub enum Body {
         /// The intent it is about, if any.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         intent: String,
-        /// The workspace (runtime group) whose manager it goes to, by label.
+        /// The workspace whose manager it goes to, by id.
         #[serde(default)]
         workspace: String,
         /// That manager's session.
@@ -531,7 +544,8 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context: Vec<AskContext>,
         /// To every manager: the managers it goes to, one copy each (then no intent,
-        /// workspace or manager above). Filled in by the service: those running now.
+        /// workspace or manager above). Filled in by the service: the seats of the open
+        /// workspaces whose session runs now.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         to: Vec<Recipient>,
         /// The user's answer to a manager's choice: which message (or reply of it) asked, and
@@ -568,7 +582,7 @@ pub enum Body {
         /// The workspace's current intent, if any; filled in here.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         intent: String,
-        /// The workspace the caller manages, by label; filled in here.
+        /// The workspace the caller holds the seat of, by id; filled in here.
         #[serde(default)]
         workspace: String,
         text: String,
@@ -576,14 +590,36 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         choice: Option<Choice>,
     },
-    /// The user has read a workspace's conversation with its manager up to `at` (the time of
-    /// the newest message of the manager's the page showed); the page records it.
+    /// The user has read a workspace's conversation (by its id; empty: the one with every
+    /// manager) up to `at` (the time of the newest message of the manager's the page showed);
+    /// the page records it.
     #[serde(rename = "messages.read")]
     MessagesRead { workspace: String, at: String },
     /// An agent tells the manager of a task's intent something (`workriver manager tell`):
     /// typed into the manager's terminal, quoted. The way a worker reaches its manager.
     #[serde(rename = "manager.told")]
     ManagerTold { unit: String, task: u32, text: String },
+    /// The user answered a dialog in an agent's terminal from the page: the keys sent, what
+    /// came of them, and of the screen only its question line and the option's number and
+    /// words, cut where a command, a value or a path begins (`screens::kept`).
+    #[serde(rename = "agent.keys")]
+    AgentKeys {
+        /// The agent's session.
+        agent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+        /// The task it held, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task: Option<u32>,
+        keys: Vec<crate::screens::Key>,
+        outcome: crate::screens::Outcome,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        option: Option<crate::screens::KeptOption>,
+    },
 }
 
 impl Body {
@@ -593,7 +629,6 @@ impl Body {
         let task = |u: &str, n: u32| Some(format!("{u}#{n}"));
         match self {
             IntentCreated { id, .. } => (Some(id.clone()), None, None),
-            IntentLinked { intent, .. } => (Some(intent.clone()), None, None),
             AgentSeen { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | QuestionFailed { .. } | ThreadEnded { .. } => (None, None, None),
             QuestionsRead { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
             MessageDelivery { .. } | MessageReplied { .. } | MessagesRead { .. } => (None, None, None),
@@ -601,12 +636,11 @@ impl Body {
             MessageSent { intent, .. } | MessageSaid { intent, .. } => ((!intent.is_empty()).then(|| intent.clone()), None, None),
             QuestionAsked { unit, task: 0, .. } => (None, Some(unit.clone()), None),
             QuestionAsked { unit, task: n, .. } => (None, Some(unit.clone()), task(unit, *n)),
-            ManagerRegistered { intent, .. } => (intent.clone(), None, None),
-            IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
+            IntentWorkspaceSet { intent, .. } | IntentUpdated { intent, .. } | IntentStateChanged { intent, .. } | IntentMoved { intent, .. } | IntentMerged { intent, .. } | FindingsBatched { intent, .. } => (Some(intent.clone()), None, None),
             ProjectAdded { .. } | ProjectRenamed { .. } => (None, None, None),
             FindingDropped { unit, task: n, .. } => (None, (!unit.is_empty()).then(|| unit.clone()), (!unit.is_empty()).then(|| task(unit, *n)).flatten()),
             FindingAdded { intent, .. } => (intent.clone(), None, None),
-            WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } => (None, None, None),
+            WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } => (None, None, None),
             DeliveryUpdated { chore: Some(_), .. } => (None, None, None),
             UnitCreated { id, intent, .. } => (Some(intent.clone()), Some(id.clone()), None),
             UnitMerged { unit, .. } | UnitDone { unit, .. } | UnitRelocated { unit, .. } | CommitUnlinked { unit, .. } => (None, Some(unit.clone()), None),
@@ -626,6 +660,7 @@ impl Body {
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
             CommandRan { unit, .. } => (None, unit.clone(), None),
             CommandEnded { .. } | CommandReviewed { .. } => (None, None, None),
+            AgentKeys { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
         }
     }
 }

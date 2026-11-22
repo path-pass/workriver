@@ -104,10 +104,9 @@ fn the_inbox_asks_who_calls() {
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), None);
     let far = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
 

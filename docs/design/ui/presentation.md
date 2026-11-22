@@ -59,7 +59,7 @@ never name a raw colour.
   keeping its start and its extension ("2026-11-16-new-acc…source.md"), and cut at the end
   only if even that does not fit; the whole name is in its tooltip and read out by screen
   readers. A long path inside running text (an answer) breaks where it must.
-- Pickers (the project switch, who decides findings, a workspace link, the task a commit
+- Pickers (the project switch, who decides findings, the workspace an intent starts in, the task a commit
   belongs to, the intent of a batch) are Radix Select in our colours, never the system's
   menu: on the rail in the rail's colours, elsewhere on the page's.
 

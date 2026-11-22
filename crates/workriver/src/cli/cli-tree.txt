@@ -186,6 +186,7 @@ workriver help intent add
 workriver help intent done
 workriver help intent drop
 workriver help intent history
+workriver help intent move
 workriver help intent set
 workriver help intent start
 workriver help link
@@ -197,7 +198,7 @@ workriver help machine list
 workriver help machine load
 workriver help machine remove
 workriver help manager
-workriver help manager here
+workriver help manager here  hidden
 workriver help manager tell
 workriver help message
 workriver help message show
@@ -227,10 +228,12 @@ workriver help unit done
 workriver help unit merged
 workriver help unit move
 workriver help workspace
-workriver help workspace link
+workriver help workspace add
+workriver help workspace close
 workriver help workspace list
-workriver help workspace project
-workriver help workspace unlink
+workriver help workspace manager
+workriver help workspace open
+workriver help workspace rename
 workriver intent
 workriver intent  arg help --help -h num=0 action=Help
 workriver intent add
@@ -254,6 +257,7 @@ workriver intent help done
 workriver intent help drop
 workriver intent help help
 workriver intent help history
+workriver intent help move
 workriver intent help set
 workriver intent help start
 workriver intent history
@@ -261,6 +265,10 @@ workriver intent history  arg diff --diff value=["N"] num=1 action=Set
 workriver intent history  arg help --help -h num=0 action=Help
 workriver intent history  arg intent index=1 value=["INTENT"] num=1 action=Set required
 workriver intent history  arg version --version value=["N"] num=1 action=Set conflicts=diff
+workriver intent move
+workriver intent move  arg help --help -h num=0 action=Help
+workriver intent move  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver intent move  arg workspace index=2 value=["WORKSPACE"] num=1 action=Set required
 workriver intent set
 workriver intent set  arg add_note --add-note value=["TEXT"] num=1 action=Set
 workriver intent set  arg base --base value=["N"] num=1 action=Set
@@ -276,6 +284,7 @@ workriver intent set  arg title --title value=["TITLE"] num=1 action=Set
 workriver intent start
 workriver intent start  arg help --help -h num=0 action=Help
 workriver intent start  arg intent index=1 value=["INTENT"] num=1 action=Set required
+workriver intent start  arg workspace --workspace value=["WORKSPACE"] num=1 action=Set
 workriver link
 workriver link  arg help --help -h num=0 action=Help
 workriver link  arg target index=1 value=["TARGET"] num=1 action=Set required
@@ -312,10 +321,10 @@ workriver manager
 workriver manager  arg help --help -h num=0 action=Help
 workriver manager help
 workriver manager help help
-workriver manager help here
+workriver manager help here  hidden
 workriver manager help tell
-workriver manager here
-workriver manager here  arg goal --goal value=["GOAL"] num=1 action=Set
+workriver manager here  hidden
+workriver manager here  arg goal --goal value=["GOAL"] num=1 action=Set hidden
 workriver manager here  arg help --help -h num=0 action=Help
 workriver manager here  arg intent --intent value=["INTENT"] num=1 action=Set hidden
 workriver manager tell
@@ -474,23 +483,32 @@ workriver unit move  arg repo --repo value=["REPO"] num=1 action=Set
 workriver unit move  arg unit index=1 value=["UNIT"] num=1 action=Set required
 workriver workspace
 workriver workspace  arg help --help -h num=0 action=Help
+workriver workspace add
+workriver workspace add  arg help --help -h num=0 action=Help
+workriver workspace add  arg name --name value=["NAME"] num=1 action=Set required
+workriver workspace add  arg project index=1 value=["PROJECT"] num=1 action=Set required
+workriver workspace close
+workriver workspace close  arg help --help -h num=0 action=Help
+workriver workspace close  arg workspace index=1 value=["WORKSPACE"] num=1 action=Set required
 workriver workspace help
+workriver workspace help add
+workriver workspace help close
 workriver workspace help help
-workriver workspace help link
 workriver workspace help list
-workriver workspace help project
-workriver workspace help unlink
-workriver workspace link
-workriver workspace link  arg help --help -h num=0 action=Help
-workriver workspace link  arg local index=2 value=["LOCAL"] num=1 action=Set required
-workriver workspace link  arg remote index=1 value=["REMOTE"] num=1 action=Set required
+workriver workspace help manager
+workriver workspace help open
+workriver workspace help rename
 workriver workspace list
 workriver workspace list  arg help --help -h num=0 action=Help
-workriver workspace project
-workriver workspace project  arg clear --clear value=["CLEAR"] num=0 default=["false"] action=SetTrue conflicts=project
-workriver workspace project  arg help --help -h num=0 action=Help
-workriver workspace project  arg project index=2 value=["PROJECT"] num=1 action=Set
-workriver workspace project  arg workspace index=1 value=["WORKSPACE"] num=1 action=Set required
-workriver workspace unlink
-workriver workspace unlink  arg help --help -h num=0 action=Help
-workriver workspace unlink  arg remote index=1 value=["REMOTE"] num=1 action=Set required
+workriver workspace manager
+workriver workspace manager  arg agent index=2 value=["AGENT"] num=1 action=Set
+workriver workspace manager  arg help --help -h num=0 action=Help
+workriver workspace manager  arg none --none value=["NONE"] num=0 default=["false"] action=SetTrue conflicts=agent
+workriver workspace manager  arg workspace index=1 value=["WORKSPACE"] num=1 action=Set required
+workriver workspace open
+workriver workspace open  arg help --help -h num=0 action=Help
+workriver workspace open  arg workspace index=1 value=["WORKSPACE"] num=1 action=Set required
+workriver workspace rename
+workriver workspace rename  arg help --help -h num=0 action=Help
+workriver workspace rename  arg name index=2 value=["NAME"] num=1 action=Set required
+workriver workspace rename  arg workspace index=1 value=["WORKSPACE"] num=1 action=Set required

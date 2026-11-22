@@ -1,7 +1,7 @@
 # Operations: running commands, machines and settings
 
 Running a command as the user, the machines workriver follows and their alerts, stopped
-workers, and opening an agent's terminal.
+workers, Settings, and opening an agent's terminal.
 
 Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
@@ -110,13 +110,13 @@ its sections went.
   agent's line in Agents, a unit's header and its line in the rail; an agent mark's tooltip
   ends with "@machine". When the machine cannot be reached, its agents stay as last seen,
   faded, the chip dashed (its tooltip says since when it is disconnected), and they raise
-  nothing in Needs you. Settings says "disconnected since …" and when it connects again. A workspace of another
-  machine is its own group in Agents, with the chip in its heading, until the user links it
-  to a workspace of this machine; then its agents sit in that group (one manager, the same
-  intents). Nothing is ever merged by name alone. Settings has "Other machines": each with
+  nothing in Needs you. Settings says "disconnected since …" and when it connects again. An agent on another
+  machine is in a workspace as any agent is: seated as its manager by the user, or through
+  the tasks it has (Agents groups by that, `navigation.md`); there are no links between
+  workspaces, and nothing is ever joined by a name. Settings has "Other machines": each with
   a follow switch, its state in a few words (connecting… until the first attempt ends,
   connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
-  one; and, per workspace over there, a select that links it to a workspace here.
+  one.
 
 ## Stopped workers
 
@@ -148,10 +148,69 @@ its sections went.
   thresholds are kept with the list of machines in the service's settings, not as events;
   a settings file without the newer keys takes their defaults.
 
+## Settings
+
+- **Settings** (the gear at the rail's foot) is a dialog that shows one group at a time, as
+  tabs, in this order: General (language, theme, notifications and the sound), Stopped
+  workers, Workspaces, Machine alerts, Other machines. The tab names the group, so
+  a group has no heading of its own. A group with nothing to set has no tab: Workspaces
+  while there is none, Other machines on the sample
+  page. **Workspaces** lists every workspace, open and closed, in the order they were made:
+  its name with its id in mono (and a "closed" tag), under it its project's title and its
+  manager with its state ("Manager mgr-chat: working", "not running", "no manager"). An open
+  one has "Manager…" (the manager select, `navigation.md`) and "Close" (the service refuses
+  it while an intent is active there, in its words); a closed one has "Open again". A
+  closed workspace is nowhere else on the page but in the Manager select's closed group. A tab whose setting comes from the service (Stopped workers, Machine alerts) is never
+  an empty panel: while the setting loads it says so in a quiet line, and when it cannot be
+  read it says why (`role=alert`). The dialog keeps one height whichever tab shows (each
+  scrolls on its own); on a narrow screen the tabs wrap. The arrow keys move between tabs.
+  The tab picked is kept in this browser (`workriver.settings.tab`) and the gear opens
+  Settings on it next time; a kept tab that has no tab now opens General. A link to a
+  setting opens Settings on its group's tab (`openSettings` in
+  `frontend/web/src/machines/Settings.tsx`) without changing the kept tab; nothing calls it
+  yet. No setting does anything else because of the tabs.
+
 ## Opening a terminal
 
 - **Opening a terminal.** A small terminal button sits at the end of each agent's line in
   the panel (a click target of its own: the line opens the agent's work, the button its
-  terminal) and in the header of running or waiting work. It is not on graph nodes. All
-  of it goes through one function in the UI (`focusAgent` in `frontend/web/src/api/actions.ts`); until the daemon is
-  there it only says what it would do.
+  terminal), in a Blocking row, and in the header of running or waiting work. It is not on
+  graph nodes. It opens the agent's **terminal view** in the page; "Open terminal view" in a
+  gate does the same. Bringing the terminal app to the front (`focusAgent` in
+  `frontend/web/src/api/actions.ts`, the one function for it) is "Open in terminal app" in
+  the view's header. A view, like a gate, names its agent by session and machine together
+  (the same resumed session can live on two machines): every line, row, button and
+  notification passes both, and the view stays on that one across refreshes. A task's button
+  finds its agent in its intent's workspace (on the unit's machine when the unit has a
+  repository), only when exactly one instance fits (see Answering a stuck agent in
+  `navigation.md`).
+- **Where.** A dock at the bottom of the main area, absent until a view is opened: the
+  agent's mark and name, its state, "Open in terminal app", fold, close; its height dragged
+  with `useResize` (remembered). One view per page: opening another agent's replaces it. On
+  a narrow screen it is a sheet.
+- **One stream, while shown.** The dock folded, the page hidden (`visibilitychange`) or the
+  view closed ends its stream (`/api/agent/view`, Server-Sent Events); showing it again opens
+  a new one, whose first frame is the whole screen (5–10 KB). So a page holds at most one
+  stream, and the runtime pays for a working terminal only while it is looked at. A stream
+  that ends for another reason (the connection, a reader too slow) is reopened once, from a
+  whole frame. Within one stream a frame is drawn only after a whole frame came on it, and
+  only if its `seq` is above the last drawn: a delta before any whole frame, or one out of
+  order, ends that stream as an end does (never drawn on a blank or old screen). The service
+  caps open views at four across every page.
+- **Drawing.** xterm.js (`@xterm/xterm`), loaded only when a view first opens, with its DOM
+  renderer (one terminal shown; no WebGL addon, no context limit to meet). Columns and rows
+  are the pane's (from the frames); the font scales so the width fits, down to 9 px, then
+  the view scrolls sideways. The terminal is never resized. Read-only: `disableStdin`, no key
+  reaches it; no clipboard write (OSC 52 ignored). No links: no link addon, and since xterm.js
+  makes OSC 8 hyperlinks in its core, the Terminal is created with
+  `linkHandler: { activate: () => {}, allowNonHttpProtocols: false }`, so a click on one does
+  nothing and shows nothing. While its agent waits, the gate sits under the view (the same
+  component, the same request), for when only the terminal shows what to press: the buttons
+  with the screen they are bound to, as in the gate (the region; the whole screen folded, open
+  with the cut line when the region was cut or nothing was parsed), since the stream is not
+  that screen (it may be blank, late, or show another dialog). It scrolls within its share of
+  the dock.
+- **Gone.** An agent that leaves, a machine that cannot be reached, or a view that cannot be
+  had (another machine without its runtime's terminal stream brought here, a stream that
+  fails): the view keeps its last frame, greyed, or shows nothing, with one line why. The
+  gate still works: it needs only reads and keys.

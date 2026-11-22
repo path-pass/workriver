@@ -1,4 +1,4 @@
-# Other machines and linked workspaces
+# Other machines
 
 **When:** agents run on another machine. Setting this up is **the user's**, from a terminal
 that is not an agent's pane, on the machine workriver runs on: a new terminal window, or a
@@ -7,12 +7,10 @@ user the exact lines:
 
     workriver machine add box --ssh me@box [--herdr-socket PATH]
     workriver machine enable box          # waits, then says connected or why not
-    workriver workspace link box:<workspace there> <workspace here>
 
 What a manager or worker can do:
 
     workriver machine list                    # on workriver's machine: connected, or why not
-    workriver workspace list                  # what is linked to what
     workriver status                          # on the other machine: must answer, same build
 
 On another machine the service checks a command there, not here: the CLI sends its process
@@ -44,8 +42,10 @@ CRIT alert, do not: pick another machine or wait. With a WARN alert, prefer anot
 for heavy work. Also wait or pick another machine when its pressure is warning or critical,
 its OOM kills grew while watched, or its disk is nearly full.
 
-A workspace on another machine is one with yours only if linked; do not hand work to agents
-in unlinked ones. Units there: `units-other-machine`.
+A workspace has no machine: agents on a followed machine work in the same workspaces as
+agents here, through the tasks they are given, and the user may seat one of them as a
+workspace's manager (`seat`). There are no links between workspaces any more. Units there:
+`units-other-machine`.
 
 **Refusals:** "only the user does this" - ask the user. "a caller on machine … is an agent
 of that machine, never the user".

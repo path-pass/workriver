@@ -35,7 +35,11 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/chore-done", &["POST"]),
     ("/api/backlog/merge", &["POST"]),
     ("/api/focus", &["POST"]),
+    ("/api/agent/screen", &["GET"]),
+    ("/api/agent/keys", &["POST"]),
+    ("/api/agent/view", &["GET"]),
     ("/api/intent/start", &["POST"]),
+    ("/api/workspaces", &["POST"]),
     ("/api/run/prepare", &["POST"]),
     ("/api/run", &["POST"]),
     ("/api/run/{id}", &["GET"]),
@@ -197,7 +201,11 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/chore-done", r#"{"chore":"c9"}"#),
     ("POST", "/api/backlog/merge", r#"{"into":"i8","from":["i9"]}"#),
     ("POST", "/api/focus", r#"{"agent":"nobody-here"}"#),
-    ("POST", "/api/intent/start", r#"{"intent":"i9","workspace":"chat"}"#),
+    ("GET", "/api/agent/screen?agent=s-boss", ""),
+    ("POST", "/api/agent/keys", r#"{"agent":"s-boss","shown":"0","press":{"key":"escape"}}"#),
+    ("GET", "/api/agent/view?agent=nobody-here", ""),
+    ("POST", "/api/intent/start", r#"{"intent":"i9","workspace":"ws1"}"#),
+    ("POST", "/api/workspaces", r#"{"action":"rename","workspace":"ws9","name":"probe"}"#),
     ("POST", "/api/run/prepare", r#"{"command":"true","unit":"u9"}"#),
     ("POST", "/api/run", r#"{"id":"r9","command":"true"}"#),
     ("GET", "/api/run/r9", ""),
@@ -207,7 +215,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
     ("GET", "/api/message/m1", ""),
-    ("POST", "/api/messages/read", r#"{"workspace":"chat","at":"2026-01-01T00:00:00Z"}"#),
+    ("POST", "/api/messages/read", r#"{"workspace":"ws1","at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/discuss", r#"{"unit":"u1","task":1,"text":"Why?"}"#),
     ("POST", "/api/discuss/read", r#"{"unit":"u1","task":1,"at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/attachments?name=probe.txt", "BYTES"),
@@ -242,16 +250,13 @@ fn who_may_use_each_route() {
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), None);
     let far = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
-    // A message of the local chat, which far, the manager of box's chat (the same label, not
-    // linked), does not read.
-    let there = far.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
-    far.append("", "manager.registered", json!({ "workspace": there })).unwrap();
+    // A message of ws1's conversation, which far, an agent of box that holds no seat, does
+    // not read.
     user.call("/api/message", Some(json!({ "intent": "i1", "text": "probe" }))).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
 
@@ -385,7 +390,8 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let fake = std::sync::Arc::new(Fake::default());
     let mut rev = live("s-rev", "rev", "w1", Blocked);
     rev.topic = Some("reviewing".into());
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-impl", "impl", "w1", Working)), ("p3".into(), rev)];
+    let boss = workriver_core::runtime::RuntimeAgent { cwd: repo.clone(), ..live("s-boss", "boss", "w1", Idle) };
+    *fake.agents.lock().unwrap() = vec![("p1".into(), boss), ("p2".into(), live("s-impl", "impl", "w1", Working)), ("p3".into(), rev)];
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
     let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", far)]);
@@ -400,6 +406,8 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     wait_until("the machine's listener", || all.local_port("box").is_some());
 
     d.append("user", "project.added", json!({ "path": repo, "title": "Chat" })).unwrap();
+    // The project's own workspace (ws1), closed; boss manages another of it (ws2, "chat").
+    d.call("/api/workspaces", Some(json!({ "action": "close", "workspace": "ws1" }))).unwrap();
     manage(&d, "p1", "s-boss");
     d.append("user", "intent.created", json!({ "title": "Search", "goal": "Find messages", "project": repo, "state": "planned", "note": "See the spec.", "external": { "system": "jira", "key": "CH-1", "url": "https://example.invalid/CH-1" }, "kind": "feature", "size": "m", "tags": ["search"] })).unwrap();
     d.append("user", "finding.added", json!({ "project": repo, "finding": { "severity": "P2", "problem": "Old dependency", "impact": "A known hole", "where": ["Cargo.toml"] }, "source": "audit" })).unwrap();
@@ -426,7 +434,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "task.noted", json!({ "unit": "u2", "task": 1, "text": "Include the cost", "attachments": [shot["id"]] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
-    wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "why-q1"));
+    wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
     // A delivered research discussed with its agent, which is at work: one answer unread, one
     // question held; the gate that asks about it.
     d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "research", "title": "Compare stores", "agent": "impl", "inputs": [{ "from": "start" }] })).unwrap();
@@ -444,9 +452,9 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "task.created", json!({ "unit": "u2", "kind": "gate", "gate": "decide", "title": "Which tool?", "inputs": [{ "from": "start" }], "choice": choice })).unwrap();
     d.call("/api/gate", Some(json!({ "unit": "u2", "task": 4, "result": "answered", "selected": ["hold"], "note": "Later" }))).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Which first?", "choice": choice })).unwrap();
-    d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m3", "selected": ["merge"] } }))).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "ws2", "answer": { "message": "m3", "selected": ["merge"] } }))).unwrap();
     d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Squash?", "choice": choice })).unwrap();
-    d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m4", "reply": 1, "selected": ["merge"] } }))).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "ws2", "answer": { "message": "m4", "reply": 1, "selected": ["merge"] } }))).unwrap();
     d.append("s-boss", "message.replied", json!({ "message": "m4", "text": "Tag it?", "choice": choice })).unwrap();
     d.append("s-boss", "message.said", json!({ "text": "Then which?", "choice": choice })).unwrap();
     d.call("/api/message", Some(json!({ "all": true, "text": "Shutting down at six." }))).unwrap();

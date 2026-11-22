@@ -1,0 +1,13 @@
+
+• It showed:
+
+  Would you like to run the following command?
+
+  › 1. Yes, proceed (y)
+    2. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
+
+› Implement {feature}
+
+  ? for shortcuts                                                       100% context left

@@ -83,6 +83,7 @@ fn serve_prints_nothing_that_signs_in() {
     for args in [&["init", "-q", "-b", "main"][..], &["-c", "user.name=a", "-c", "user.email=a@example.invalid", "commit", "-q", "--allow-empty", "-m", "SECRET-COMMIT-MESSAGE"]] {
         assert!(Command::new("git").arg("-C").arg(&repo).args(args).status().unwrap().success());
     }
+    assert!(cli().args(["project", "add", &repo.display().to_string(), "--title", "Repo"]).status().unwrap().success());
     assert!(cli().args(["backlog", "add", "Login", "--goal", "Safe login", "--project", &repo.display().to_string()]).status().unwrap().success());
     assert!(cli().args(["unit", "add", "i1", "--title", "Auth", "--branch", "feat/auth", "--base", "main", "--repo", &repo.display().to_string()]).status().unwrap().success());
     assert!(cli().args(["task", "add", "u1", "--title", "Check", "--text", "SECRET-TASK-TEXT asks for this"]).status().unwrap().success());

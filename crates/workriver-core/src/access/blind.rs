@@ -1,4 +1,5 @@
-// What an agent on an undelivered blind task may see: its own task, unit and intent.
+// What an agent may see: on an undelivered blind task, its own task, unit and intent; else
+// everything but the conversations of workspaces it does not manage.
 use crate::*;
 
 impl State {
@@ -47,10 +48,85 @@ impl State {
             agents: self.agents.iter().map(|a| if a.session == session { a.clone() } else { Agent { cwd: String::new(), machine: None, ..a.clone() } }).collect(),
             attachments: self.attachments.iter().filter(|a| a.by == session || added.contains(&a.id)).cloned().collect(),
             projects: self.projects.clone(),
-            workspaces: self.workspaces.clone(),
-            links: self.links.clone(),
+            // A seat is an agent's machine and folder: cleared like any other agent's.
+            workspaces: self.workspaces.iter().map(|w| Workspace { manager: w.manager.as_ref().map(|m| if m.session == session { m.clone() } else { Seat { machine: None, folder: String::new(), ..m.clone() } }), ..w.clone() }).collect(),
             reduced: true,
             ..State::default()
         })
     }
+
+    /// What an agent that is on no blind task may see: everything recorded, but of the
+    /// conversations with the user only its own. `self` is the whole state; it is cut down:
+    ///
+    /// - the messages of the workspace whose seat `session` holds, all of them;
+    /// - of a message to every manager, only when a copy went to its appointment now: the
+    ///   message, its own copy and its own replies. Nothing of the other copies (their
+    ///   workspace, manager, delivery) or their replies;
+    /// - the read marks of that workspace, none other;
+    /// - every attachment but one that only the parts cut away name: one that a kept record
+    ///   holds as an attachment too (`held_attachments`), or that the agent stored itself,
+    ///   stays. An id written in words (a title, a note) holds nothing.
+    ///
+    /// Intents, units, tasks, findings, gates, chores, questions, threads and agents stay as
+    /// they are: only the conversations are scoped by workspace.
+    pub fn conversations_of(mut self, session: &str) -> State {
+        let seat = self.appointment_of(session);
+        let mine = |id: &str| seat.as_ref().is_some_and(|(w, _)| w == id);
+        // What the parts cut away point at, before they go.
+        let named = |c: &[AskContext]| c.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>();
+        let mut cut: Vec<String> = vec![];
+        let mut kept = vec![];
+        for m in std::mem::take(&mut self.messages) {
+            let context = named(&m.context);
+            match copy_for(m, session, seat.as_ref()) {
+                Some(m) => kept.push(m),
+                None => cut.extend(context),
+            }
+        }
+        self.messages = kept;
+        self.read.retain(|w, _| mine(w));
+        if !cut.is_empty() {
+            let held = self.held_attachments();
+            self.attachments.retain(|a| a.by == session || !cut.contains(&a.id) || held.contains(&a.id));
+        }
+        self
+    }
+
+    /// The workspace whose seat `session` holds and its appointment, if it holds one.
+    pub(crate) fn appointment_of(&self, session: &str) -> Option<(String, u64)> {
+        self.seat_of(session).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)))
+    }
+
+    /// The attachments the records hold as attachments: a task's files, its checks' reports,
+    /// its findings' files and the notes added to them or to what it asks (of units and
+    /// intents), the backlog's findings', and what a question or a message points at (an
+    /// "attachment" of its context). Never an id that only appears in words.
+    fn held_attachments(&self) -> std::collections::HashSet<String> {
+        fn finding(f: &Finding) -> impl Iterator<Item = &String> {
+            f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))
+        }
+        let tasks = self.units.iter().flat_map(|u| &u.tasks).chain(self.intents.iter().flat_map(|i| &i.tasks));
+        let of_tasks = tasks.flat_map(|t| t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(t.notes.iter().flat_map(|n| &n.attachments)).chain(t.findings.iter().flat_map(finding)));
+        let of_backlog = self.backlog.iter().flat_map(|b| finding(&b.finding));
+        let contexts = self.questions.iter().flat_map(|q| &q.context).chain(self.messages.iter().flat_map(|m| &m.context));
+        let pointed = contexts.filter(|c| c.kind == "attachment").filter_map(|c| c.id.as_ref());
+        of_tasks.chain(of_backlog).chain(pointed).cloned().collect()
+    }
+}
+
+/// Message `m` as `session` reads it in its conversations (`seat`: the workspace whose seat it
+/// holds, and the appointment): one of that workspace's conversation whole; of one to every
+/// manager, only when a copy went to that appointment, with that copy and its own replies
+/// only; nothing else.
+pub(crate) fn copy_for(mut m: Message, session: &str, seat: Option<&(String, u64)>) -> Option<Message> {
+    if m.to.is_empty() {
+        return seat.is_some_and(|(w, _)| *w == m.workspace).then_some(m);
+    }
+    let copied = |r: &Recipient| r.manager == session && seat.is_some_and(|(w, since)| *w == r.workspace && *since == r.since);
+    if !m.to.iter().any(copied) {
+        return None;
+    }
+    m.to.retain(copied);
+    m.replies.retain(|r| r.by == session);
+    Some(m)
 }

@@ -2,8 +2,8 @@
 // unit, task and context. Which workspace's conversation the Manager section shows, and where
 // it goes when the rail switches project.
 import { describe, expect, it } from 'vitest'
-import { chipsOf, EVERY, followProject, leaveOut, messageOf, placesOf, type Chip } from './select'
-import type { Session } from '@/agents/types'
+import { chipsOf, entryOf, EVERY, followProject, leaveOut, messageOf, placesOf, type Chip } from './select'
+import type { Seat, Space } from '@/agents/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { ManagerMessage, Talk } from './types'
 import type { Task } from '@/work/types'
@@ -72,86 +72,110 @@ describe('the message', () => {
   })
 })
 
-// Two projects: web (managers in "api" and "site", and "old" with messages only) and notes
-// (one manager, in "notes"); "lab" works on no known project.
-const manager = (agent: string, label: string) => ({ agent, manager: true, ended: false, group: { id: label, label } }) as unknown as Session
-const projects: Record<string, string> = { api: 'web', site: 'web', old: 'web', notes: 'notes' }
+// Two projects: web (managers running in ws1 "api" and ws2 "site"; ws3 "old" open with
+// messages and no manager) and notes (one manager, in ws4 "notes"); ws5 "lab" is of project
+// lab, its manager running; ws6 "past" (of arch) is seated but not running.
+const seat = (name: string, state: Seat['state'] = 'idle'): Seat => ({ session: `s-${name}`, name, folder: '/w', since: 1, state })
+const space = (id: string, name: string, project: string, manager?: Seat, closed = false): Space => ({ id, name, project, manager, closed })
+const spaces = [space('ws1', 'api', 'web', seat('a')), space('ws2', 'site', 'web', seat('s')), space('ws3', 'old', 'web'), space('ws4', 'notes', 'notes', seat('n')), space('ws5', 'lab', 'lab', seat('l')), space('ws6', 'past', 'arch', seat('p', 'gone'))]
 const said = (workspace: string, unread = false): ManagerMessage => ({ workspace, manager: 'm', text: 'hi', at: '2026-11-21T09:00:00Z', step: 'delivered', replies: [{ by: 'm', text: 'ok', at: '2026-11-21T09:01:00Z', unread }] })
-const active = (id: string, project: string, label: string) => ({ id, project, state: 'active', workspace: { id: label, label }, units: [{ id: `${id}-u` }] }) as unknown as Intent
-const intents = [active('i1', 'web', 'site'), active('i2', 'notes', 'notes'), active('i3', 'web', 'api')]
-type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'followedAt' | 'project' | 'projectOf'>
-const talk = (over: Partial<Shown> = {}): Shown => ({
-  intents, sessions: [manager('a', 'api'), manager('s', 'site'), manager('n', 'notes'), manager('l', 'lab')],
-  messages: [said('old')], projectOf: l => projects[l], ...over,
-})
+const active = (id: string, project: string, workspace: string) => ({ id, project, state: 'active', workspace, units: [{ id: `${id}-u` }] }) as unknown as Intent
+const intents = [active('i1', 'web', 'ws2'), active('i2', 'notes', 'ws4'), active('i3', 'web', 'ws1')]
+type Shown = Pick<Talk, 'intents' | 'intent' | 'spaces' | 'messages' | 'to' | 'followedAt' | 'project'>
+const talk = (over: Partial<Shown> = {}): Shown => ({ intents, spaces, messages: [said('ws3')], ...over })
 
 describe('the Manager section’s workspaces', () => {
   it('are the one on screen, then the rail’s project’s, then the rest; the one shown is the one picked, else the one on screen', () => {
     const p = placesOf(talk({ intent: 'i2', project: 'web' }))
-    expect(p.labels).toEqual(['notes', 'api', 'site', 'old', 'lab'])
-    expect(p.label).toBe('notes')
-    expect(placesOf(talk({ intent: 'i2', project: 'web', to: 'lab' })).label).toBe('lab')
+    // Every open workspace, one entry each: the one on screen, the rail's project's, the rest.
+    expect(p.ids).toEqual(['ws4', 'ws1', 'ws2', 'ws3', 'ws5', 'ws6'])
+    expect(p.id).toBe('ws4')
+    expect(placesOf(talk({ intent: 'i2', project: 'web', to: 'ws5' })).id).toBe('ws5')
     // Nothing on screen: the rail's project's first.
-    expect(placesOf(talk({ project: 'notes' })).label).toBe('notes')
+    expect(placesOf(talk({ project: 'notes' })).id).toBe('ws4')
   })
 
   it('show one followed to on a switch only while the intent then on screen is: another’s own takes its place', () => {
     // On notes, "api" has replies not read; the switch to web opens i1 (own "site") and follows to "api".
-    const from = { ...talk({ intent: 'i2', project: 'notes' }), messages: [said('old'), said('api', true)] }
-    expect(followProject(from, { project: 'web', intent: 'i1' }, null)).toBe('api')
+    const from = { ...talk({ intent: 'i2', project: 'notes' }), messages: [said('ws3'), said('ws1', true)] }
+    expect(followProject(from, { project: 'web', intent: 'i1' }, null)).toBe('ws1')
     // i4, another intent of web, runs in "old".
-    const followed = { ...from, intents: [...intents, active('i4', 'web', 'old')], project: 'web', to: 'api', followedAt: 'i1' }
-    expect(placesOf({ ...followed, intent: 'i1' }).label).toBe('api')
+    const followed = { ...from, intents: [...intents, active('i4', 'web', 'ws3')], project: 'web', to: 'ws1', followedAt: 'i1' }
+    expect(placesOf({ ...followed, intent: 'i1' }).id).toBe('ws1')
     // Another intent of the project opened: its own workspace.
-    expect(placesOf({ ...followed, intent: 'i4' }).label).toBe('old')
+    expect(placesOf({ ...followed, intent: 'i4' }).id).toBe('ws3')
     // Followed with nothing on screen: holds until something opens.
-    expect(placesOf({ ...followed, followedAt: '', intent: undefined }).label).toBe('api')
-    expect(placesOf({ ...followed, followedAt: '', intent: 'i4' }).label).toBe('old')
+    expect(placesOf({ ...followed, followedAt: '', intent: undefined }).id).toBe('ws1')
+    expect(placesOf({ ...followed, followedAt: '', intent: 'i4' }).id).toBe('ws3')
     // A hand pick stays whatever opens.
-    expect(placesOf({ ...followed, followedAt: undefined, intent: 'i4' }).label).toBe('api')
+    expect(placesOf({ ...followed, followedAt: undefined, intent: 'i4' }).id).toBe('ws1')
   })
 })
 
 describe('a project switch', () => {
   it('to a project with one manager shows it', () => {
-    expect(followProject(talk({ intent: 'i1', project: 'web' }), { project: 'notes' }, null)).toBe('notes')
+    expect(followProject(talk({ intent: 'i1', project: 'web' }), { project: 'notes' }, null)).toBe('ws4')
   })
 
   it('to the project of the unit opened, its manager: the one on screen (nothing picked)', () => {
-    expect(followProject(talk({ intent: 'i1', project: 'web', to: 'site' }), { project: 'notes', intent: 'i2' }, null)).toBeNull()
+    expect(followProject(talk({ intent: 'i1', project: 'web', to: 'ws2' }), { project: 'notes', intent: 'i2' }, null)).toBeNull()
   })
 
   it('to a project with several: the one last picked there, else one with unread replies, else the first running', () => {
     const from = talk({ intent: 'i2', project: 'notes' })
-    expect(followProject(from, { project: 'web' }, null)).toBe('api')
-    expect(followProject({ ...from, messages: [said('old'), said('site', true)] }, { project: 'web' }, null)).toBe('site')
-    expect(followProject({ ...from, messages: [said('old'), said('site', true)] }, { project: 'web' }, 'api')).toBe('api')
+    expect(followProject(from, { project: 'web' }, null)).toBe('ws1')
+    expect(followProject({ ...from, messages: [said('ws3'), said('ws2', true)] }, { project: 'web' }, null)).toBe('ws2')
+    expect(followProject({ ...from, messages: [said('ws3'), said('ws2', true)] }, { project: 'web' }, 'ws1')).toBe('ws1')
     // A pick remembered that is not there any more counts for nothing.
-    expect(followProject(from, { project: 'web' }, 'gone')).toBe('api')
+    expect(followProject(from, { project: 'web' }, 'gone')).toBe('ws1')
     // The first running is in the select's order: the unit opened's own first.
     expect(followProject(from, { project: 'web', intent: 'i1' }, null)).toBeNull()
-    expect(followProject(from, { project: 'web', intent: 'i1' }, 'api')).toBe('api')
+    expect(followProject(from, { project: 'web', intent: 'i1' }, 'ws1')).toBe('ws1')
   })
 
   it('a switch back returns to what was picked there', () => {
     // Picked "site" by hand in web (remembered), then to notes, then back.
-    const there = followProject(talk({ intent: 'i3', project: 'web', to: 'site' }), { project: 'notes' }, null)
-    expect(there).toBe('notes')
-    expect(followProject(talk({ project: 'notes', to: there! }), { project: 'web', intent: 'i3' }, 'site')).toBe('site')
+    const there = followProject(talk({ intent: 'i3', project: 'web', to: 'ws2' }), { project: 'notes' }, null)
+    expect(there).toBe('ws4')
+    expect(followProject(talk({ project: 'notes', to: there! }), { project: 'web', intent: 'i3' }, 'ws2')).toBe('ws2')
   })
 
-  it('leaves All managers, a workspace already of the project, one of no known project, and a project with no manager', () => {
+  it('leaves All managers, a workspace already of the project, and a project with no manager', () => {
     expect(followProject(talk({ intent: 'i1', project: 'web', to: EVERY }), { project: 'notes' }, null)).toBeUndefined()
-    expect(followProject(talk({ intent: 'i1', to: 'api' }), { project: 'web' }, null)).toBeUndefined()
-    expect(followProject(talk({ intent: 'i1', project: 'web', to: 'lab' }), { project: 'notes' }, null)).toBeUndefined()
+    expect(followProject(talk({ intent: 'i1', to: 'ws1' }), { project: 'web' }, null)).toBeUndefined()
     expect(followProject(talk({ intent: 'i1', project: 'web' }), { project: 'empty' }, null)).toBeUndefined()
   })
 
   it('goes only to a workspace whose manager runs (the unit opened’s own aside)', () => {
-    // "arch" has a workspace with messages only: its manager has ended.
-    const withPast = (over: Partial<Shown>) => talk({ ...over, messages: [said('old'), said('past')], projectOf: l => (l === 'past' ? 'arch' : projects[l]) })
+    // "arch" has a workspace whose seated manager does not run.
+    const withPast = (over: Partial<Shown>) => talk({ ...over, messages: [said('ws3'), said('ws6')] })
     expect(followProject(withPast({ intent: 'i2', project: 'notes' }), { project: 'arch' }, null)).toBeUndefined()
     // A pick remembered whose manager has ended is passed over for one running.
-    expect(followProject(talk({ intent: 'i2', project: 'notes' }), { project: 'web' }, 'old')).toBe('api')
+    expect(followProject(talk({ intent: 'i2', project: 'notes' }), { project: 'web' }, 'ws3')).toBe('ws1')
+  })
+})
+
+describe('the conversation list', () => {
+  it('has one entry per open workspace by id: equal names are never folded, and say their project', () => {
+    const twins = [space('ws1', 'chat', 'web', seat('a')), space('ws2', 'chat', 'notes', seat('b')), space('ws3', 'docs', 'web')]
+    const projects = [{ id: 'web', title: 'Web' }, { id: 'notes', title: 'Notes' }]
+    const p = placesOf({ intents: [], spaces: twins, messages: [], project: 'web' })
+    expect(p.ids).toEqual(['ws1', 'ws3', 'ws2'])
+    expect(p.ids.map(id => entryOf(twins.find(w => w.id === id)!, twins, projects, false))).toEqual(['chat ws1 · Web · a', 'docs ws3', 'chat ws2 · Notes · b'])
+    // With every project shown, each says its project.
+    expect(entryOf(twins[2], twins, projects, true)).toBe('docs ws3 · Web')
+  })
+
+  it('puts closed workspaces that have messages last, to read only; one with none is not offered', () => {
+    const list = [space('ws1', 'chat', 'web', seat('a')), space('ws2', 'done', 'web', undefined, true), space('ws3', 'empty', 'web', undefined, true)]
+    const p = placesOf({ intents: [], spaces: list, messages: [said('ws2')], to: 'ws2' })
+    expect([p.ids, p.closed, p.id]).toEqual([['ws1'], ['ws2'], 'ws2'])
+  })
+
+  it('shows a workspace’s history with its seat empty, and offers every manager only with two running', () => {
+    const p = placesOf({ intents, spaces, messages: [said('ws3')], to: 'ws3' })
+    expect(p.id).toBe('ws3')
+    expect(p.running.map(w => w.id)).toEqual(['ws1', 'ws2', 'ws4', 'ws5'])
+    expect(placesOf({ intents: [], spaces: [space('ws1', 'chat', 'web', seat('a'))], messages: [] }).every).toBe(false)
   })
 })

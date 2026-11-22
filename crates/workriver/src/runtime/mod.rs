@@ -48,6 +48,12 @@ pub fn adapter_at(socket: std::path::PathBuf) -> Arc<dyn Runtime> {
     adapter::remote::connect(socket, "box", String::new())
 }
 
+/// The sockets of a followed machine's runtime that its connection brings here, each as
+/// (here, there), for its runtime socket over there.
+pub fn forwards(home: &std::path::Path, label: &str, there: &str) -> Vec<(String, String)> {
+    adapter::remote::forwards(home, label, there)
+}
+
 /// The same as `machine add` sends them to the service, to go into its request.
 pub fn socket_request(socket: Option<String>) -> serde_json::Value {
     adapter::remote::request(socket)

@@ -58,37 +58,33 @@ impl From<&str> for Principal {
 
 impl crate::State {
     /// One message as `who` may read it whole (`workriver message show`): the user, every
-    /// message with every reply; an agent, one of the conversation of the workspace it was
-    /// found in (`group`, the same record, not only the same label) or one that went to it; and one to every manager that went to it,
-    /// with its own replies only (the others answer for other workspaces).
-    pub fn message_for(&self, id: &str, who: &Principal, group: Option<&crate::RuntimeRef>) -> Result<crate::Message, Rejected> {
-        let m = self.message(id)?;
+    /// message with every reply; an agent, as `conversations_of` keeps it: one of the
+    /// conversation of the workspace whose seat it holds (by the workspace's id), or of one
+    /// to every manager its own copy, with its own replies only. Anything else is refused the
+    /// same way whether or not it exists.
+    pub fn message_for(&self, id: &str, who: &Principal) -> Result<crate::Message, Rejected> {
         let session = match who {
-            Principal::User => return Ok(m.clone()),
+            Principal::User => return self.message(id).cloned(),
             Principal::Agent { session, .. } => session,
             Principal::Service => return no("workriver reads no message for itself"),
         };
-        if !m.to.is_empty() {
-            if !m.to.iter().any(|r| &r.manager == session) {
-                return no(format!("message {id} went to every manager; you are not one it went to"));
-            }
-            return Ok(crate::Message { replies: m.replies.iter().filter(|r| &r.by == session).cloned().collect(), ..m.clone() });
+        let seat = self.appointment_of(session);
+        match self.messages.iter().find(|m| m.id == id).and_then(|m| blind::copy_for(m.clone(), session, seat.as_ref())) {
+            Some(m) => Ok(m),
+            None => no(format!("no message {id} that you may read: one of the conversation of the workspace you manage, or your copy of one to every manager")),
         }
-        // By the workspace's record (a linked group of another machine: the local one), not
-        // its label, which an unlinked workspace of another machine may carry too.
-        let ours = m.record.is_some() && group.and_then(|g| self.workspace_at(g)) == m.record;
-        if ours || &m.manager == session { Ok(m.clone()) } else { no(format!("message {id} is not in your workspace's conversation")) }
     }
 }
 
 impl Body {
     /// What only the person may record: their decisions and results, and what changes
-    /// where workriver reaches (projects, links between workspaces).
+    /// where workriver reaches or who manages (projects, workspaces, a manager's seat, the
+    /// workspace an intent runs in).
     pub fn user_only(&self) -> bool {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentLinked { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. } | AgentKeys { .. }
         )
     }
 
@@ -97,9 +93,10 @@ impl Body {
     /// recorded as answering may answer it. That a question failed is another: it closes the
     /// question, in workriver's words, so no agent may close the user's. What an agent is
     /// seen as (its name, harness, working directory, machine) is the runtime's word, given
-    /// by the service: nobody names another agent, or points at another session's file.
+    /// by the service: nobody names another agent, or points at another session's file. That
+    /// a seated session has its seat back is what the service saw of its terminal.
     pub fn service_only(&self) -> bool {
-        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. })
+        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. })
     }
 }
 

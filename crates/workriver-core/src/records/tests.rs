@@ -106,16 +106,63 @@ pub(crate) fn add(s: &mut Records, actor: &str, v: serde_json::Value) -> Result<
     s.append(&actor.into(), body(v)).map_err(|e| e.to_string())
 }
 
-/// `agent` becomes the manager of `intent`, as `manager here` and a start record it:
-/// registered for workspace w1, the intent started there by the user (an intent of no
-/// project is the user's to start; one active elsewhere is put back in the backlog first).
+/// Registers `path` as a project unless it is one already; its id.
+pub(crate) fn project(s: &mut Records, path: &str) -> String {
+    if let Some(p) = s.state().projects.iter().find(|p| p.path == path) {
+        return p.id.clone();
+    }
+    let title = path.trim_start_matches('/').to_uppercase();
+    match add(s, "user", json!({"kind": "project.added", "body": {"path": path, "title": title}})).unwrap().body {
+        Body::ProjectAdded { id, .. } => id,
+        _ => unreachable!(),
+    }
+}
+
+/// A new workspace called `name` in the project of folder `path` (registered when it is
+/// not); its id.
+pub(crate) fn workspace(s: &mut Records, name: &str, path: &str) -> String {
+    let p = project(s, path);
+    match add(s, "user", json!({"kind": "workspace.created", "body": {"name": name, "project": p}})).unwrap().body {
+        Body::WorkspaceCreated { id, .. } => id,
+        _ => unreachable!(),
+    }
+}
+
+/// The user seats `session` (none: empties the seat) in workspace `ws`, over the seat as it
+/// is, on `machine` in `folder`.
+pub(crate) fn seat_at(s: &mut Records, ws: &str, session: Option<&str>, machine: Option<&str>, folder: &str) -> Result<Event, String> {
+    let replaces = s.state().workspace(ws).map_err(|e| e.to_string())?.manager.as_ref().map(Seat::shown);
+    add(s, "user", json!({"kind": "workspace.manager_set", "body": {"workspace": ws, "manager": session, "machine": machine, "folder": folder, "replaces": replaces}}))
+}
+
+/// The user seats `session` in workspace `ws`, on this machine in `/w`.
+pub(crate) fn seat(s: &mut Records, ws: &str, session: &str) {
+    seat_at(s, ws, Some(session), None, "/w").unwrap();
+}
+
+/// The start of intent `i` in workspace `ws`, as an event.
+pub(crate) fn start(i: &str, ws: &str) -> serde_json::Value {
+    json!({"kind": "intent.state_changed", "body": {"intent": i, "state": "active", "workspace": ws}})
+}
+
+/// `agent` becomes the manager of `intent`, as the user's seating and start record it:
+/// seated in the first open workspace of the intent's project (made when there is none; an
+/// intent of no project: project /r, which it then takes), the intent started there by the
+/// user (one active elsewhere is put back in the roadmap first).
 pub(crate) fn managed(s: &mut Records, agent: &str, intent: &str) {
-    let w = json!({"id": "w1", "label": "chat"});
-    add(s, agent, json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
+    let folder = Some(s.state().intent(intent).unwrap().project.clone()).filter(|p| !p.is_empty()).unwrap_or_else(|| "/r".into());
+    let p = project(s, &folder);
+    let ws = match s.state().workspaces.iter().find(|w| w.project == p && !w.closed) {
+        Some(w) => w.id.clone(),
+        None => workspace(s, "chat", &folder),
+    };
+    if s.state().workspace(&ws).unwrap().manager.as_ref().is_none_or(|m| m.session != agent) {
+        seat(s, &ws, agent);
+    }
     if s.state().intent(intent).unwrap().state == IntentState::Active {
         add(s, "user", json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "planned"}})).unwrap();
     }
-    add(s, "user", json!({"kind": "intent.state_changed", "body": {"intent": intent, "state": "active", "workspace": w}})).unwrap();
+    add(s, "user", start(intent, &ws)).unwrap();
 }
 
 /// An event as an old database has it, straight into the records past today's rules (the

@@ -167,6 +167,9 @@ fn the_service_takes_the_pane_from_the_process() {
 
     // A pane with no agent, with the token: the user. An agent's pane: that agent, though
     // the same token is in its reach.
+    // (An intent names a registered project: the user registers the repository first.)
+    let (ok, out) = plain.run(&format!("\"$W\" project add '{}' --title Repo", repo.display()));
+    assert!(ok, "{out}");
     let (ok, out) = plain.run(&add("By the user"));
     assert!(ok, "{out}");
     let (ok, out) = two.run(&add("By two"));

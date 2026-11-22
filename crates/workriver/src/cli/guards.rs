@@ -36,6 +36,7 @@ const TOPICS: &[&str] = &[
     "machines",
     "not-delivered",
     "push-pr-merge",
+    "seat",
     "spike",
     "stalled",
     "start-intent",

@@ -9,7 +9,7 @@ pub struct MessageShow {
     pub at: String,
     /// "the user", or the manager that said it, by name.
     pub by: String,
-    /// The workspace whose conversation it is in, by label; empty: to every manager.
+    /// The workspace whose conversation it is in, by id (`ws1`); empty: to every manager.
     pub workspace: String,
     /// The intent it is about; empty: none.
     pub intent: String,

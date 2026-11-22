@@ -113,17 +113,19 @@ pub fn slept(wall: Duration, mono: Duration) -> bool {
 
 // ---- the connection: one ssh per machine, both forwards ----
 
-/// The ssh that brings the machine's runtime socket (`remote_socket`) to `local_socket` here
+/// The ssh that brings the machine's runtime sockets here (`sockets`: each as (here, there))
 /// and forwards a port on the machine, which ssh picks and names on stderr ("Allocated
 /// port N for remote forward…", hence LogLevel INFO whatever the config says), to this
 /// daemon's `local_port`. It never asks for anything and ends if a forward cannot be set
 /// up or the connection dies.
-pub fn tunnel_words(target: &str, local_socket: &str, remote_socket: &str, local_port: u16) -> Vec<String> {
+pub fn tunnel_words(target: &str, sockets: &[(String, String)], local_port: u16) -> Vec<String> {
     let mut w: Vec<String> = vec!["ssh".into(), "-N".into()];
     for o in QUIET.iter().chain(&["ExitOnForwardFailure=yes", "StreamLocalBindUnlink=yes", "LogLevel=INFO"]) {
         w.extend(["-o".to_string(), o.to_string()]);
     }
-    w.extend(["-L".to_string(), format!("{local_socket}:{remote_socket}")]);
+    for (here, there) in sockets {
+        w.extend(["-L".to_string(), format!("{here}:{there}")]);
+    }
     w.extend(["-R".to_string(), format!("127.0.0.1:0:127.0.0.1:{local_port}")]);
     w.extend(["--".to_string(), target.to_string()]);
     w

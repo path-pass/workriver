@@ -255,7 +255,10 @@
    "harness": "claude",
    "manager": true,
    "state": "working",
-   "topic": "把复查结果拆成任务"
+   "topic": "把复查结果拆成任务",
+   "session": "s-mgr-chat",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-A",
@@ -267,7 +270,10 @@
    "intent": "chat-v2",
    "harness": "claude",
    "state": "working",
-   "topic": "高亮 @名字"
+   "topic": "高亮 @名字",
+   "session": "s-agent-A",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-B",
@@ -280,7 +286,10 @@
    "harness": "codex",
    "state": "idle",
    "idleSince": "2026-11-15 18:00",
-   "topic": "等着做成员列表"
+   "topic": "等着做成员列表",
+   "session": "s-agent-B",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-C",
@@ -293,7 +302,10 @@
    "harness": "claude",
    "state": "idle",
    "idleSince": "2026-11-12 19:30",
-   "topic": "通知不带全文"
+   "topic": "通知不带全文",
+   "session": "s-agent-C",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-D",
@@ -306,7 +318,10 @@
    "harness": "claude",
    "state": "working",
    "machine": "mini",
-   "topic": "撤回状态"
+   "topic": "撤回状态",
+   "session": "s-agent-D",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-E",
@@ -319,7 +334,10 @@
    "harness": "codex",
    "state": "blocked",
    "blockedSince": "2026-11-16 21:40",
-   "topic": "要不要允许运行 npm test？"
+   "topic": "要不要允许运行 npm test？",
+   "session": "s-agent-E",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-F",
@@ -331,12 +349,16 @@
    "intent": "chat-v2",
    "harness": "claude",
    "state": "idle",
-   "idleSince": "2026-11-15 21:00"
+   "idleSince": "2026-11-15 21:00",
+   "session": "s-agent-F",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "review-agent",
    "ended": true,
-   "harness": "claude"
+   "harness": "claude",
+   "session": "s-review-agent"
   },
   {
    "agent": "why-q16",
@@ -349,7 +371,10 @@
    "harness": "claude",
    "state": "idle",
    "idleSince": "2026-11-16 13:40",
-   "topic": "引用回复里还会有撤回的消息吗"
+   "topic": "引用回复里还会有撤回的消息吗",
+   "session": "s-why-q16",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "why-q21",
@@ -361,7 +386,10 @@
    "intent": "chat-v2",
    "harness": "claude",
    "state": "working",
-   "topic": "审计日志为什么留着全文"
+   "topic": "审计日志为什么留着全文",
+   "session": "s-why-q21",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws1"
   },
   {
    "agent": "agent-J",
@@ -374,7 +402,9 @@
    "harness": "claude",
    "state": "idle",
    "idleSince": "2026-11-16 09:00",
-   "topic": "问问 Rust 生命周期"
+   "topic": "问问 Rust 生命周期",
+   "session": "s-agent-J",
+   "folder": "/Users/dev/code/demo"
   },
   {
    "agent": "mgr-hard",
@@ -388,7 +418,10 @@
    "manager": true,
    "state": "idle",
    "idleSince": "2026-11-16 18:00",
-   "topic": "等加固的复查"
+   "topic": "等加固的复查",
+   "session": "s-mgr-hard",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws2"
   },
   {
    "agent": "agent-G",
@@ -401,7 +434,10 @@
    "harness": "codex",
    "state": "idle",
    "idleSince": "2026-11-15 20:20",
-   "topic": "按 IP 限流"
+   "topic": "按 IP 限流",
+   "session": "s-agent-G",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws2"
   },
   {
    "agent": "agent-K",
@@ -411,7 +447,9 @@
     "label": "hardening"
    },
    "intent": "hardening",
-   "harness": "codex"
+   "harness": "codex",
+   "session": "s-agent-K",
+   "workspace": "ws2"
   },
   {
    "agent": "scratch",
@@ -423,20 +461,25 @@
    "intent": "hardening",
    "harness": "codex",
    "state": "working",
-   "topic": "整理周报"
+   "topic": "整理周报",
+   "session": "s-scratch",
+   "folder": "/Users/dev/code/demo"
   },
   {
    "agent": "agent-H",
    "ended": false,
    "group": {
     "id": "w3",
-    "label": "ops"
+    "label": "infra"
    },
    "intent": "ops",
    "harness": "claude",
    "state": "idle",
    "idleSince": "2026-11-06 11:20",
-   "topic": "部署脚本"
+   "topic": "部署脚本",
+   "session": "s-agent-H",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws3"
   },
   {
    "agent": "agent-I",
@@ -449,7 +492,10 @@
    "harness": "claude",
    "state": "idle",
    "idleSince": "2026-10-31 10:00",
-   "topic": "虚拟滚动"
+   "topic": "虚拟滚动",
+   "session": "s-agent-I",
+   "folder": "/Users/dev/code/demo",
+   "workspace": "ws5"
   },
   {
    "agent": "mgr-notes",
@@ -462,7 +508,38 @@
    "manager": true,
    "state": "idle",
    "idleSince": "2026-11-17 07:40",
-   "topic": "笔记同步的收尾"
+   "topic": "笔记同步的收尾",
+   "session": "s-mgr-notes",
+   "folder": "/Users/dev/code/notes",
+   "workspace": "ws6"
+  },
+  {
+   "agent": "mgr-perf",
+   "session": "s-mgr-perf",
+   "ended": false,
+   "group": {
+    "id": "w9",
+    "label": "perf-2"
+   },
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-17 08:10",
+   "topic": "性能回归",
+   "folder": "/Users/dev/code/demo-perf"
+  },
+  {
+   "agent": "claude 3",
+   "session": "s-claude-3",
+   "ended": false,
+   "group": {
+    "id": "w4",
+    "label": "onboarding"
+   },
+   "harness": "claude",
+   "state": "idle",
+   "idleSince": "2026-11-17 09:05",
+   "topic": "等着接手新人引导",
+   "folder": "/Users/dev/code/demo"
   }
  ],
  "intents": [
@@ -3275,10 +3352,7 @@
    ],
    "state": "active",
    "project": "demo",
-   "workspace": {
-    "id": "w1",
-    "label": "chat"
-   },
+   "workspace": "ws1",
    "findings": "user",
    "goal": "让聊天从“能发消息”变成“好用的聊天”：能 @ 人、能撤回、能搜到以前说过的话，三件事都上线之后再开始做表情回应。",
    "note": "范围先只做网页版，手机端等这三件做完再评估。\n- @ 功能先做频道内，私聊以后再说\n- 撤回只允许发送后 2 分钟内\n- 搜索先做全文，不做按人或时间筛选\n设计讨论记录：https://example.com/notes/chat-v2",
@@ -3506,10 +3580,7 @@
    ],
    "state": "active",
    "project": "demo",
-   "workspace": {
-    "id": "w2",
-    "label": "hardening"
-   },
+   "workspace": "ws2",
    "goal": "上线前把最容易出事的几处补牢：登录限流、密码重置链接的有效期、上传文件的大小和类型检查，目标是安全审查里没有 P1。",
    "note": "这一轮不做的：两步验证、审计日志（放到下个季度的路线图里）。\n上次安全审查的报告：https://example.com/notes/security-review-2026-10",
    "manager": "mgr-hard",
@@ -3617,22 +3688,18 @@
    "chores": [],
    "state": "active",
    "project": "demo",
-   "workspace": {
-    "id": "w3",
-    "label": "ops"
-   },
+   "workspace": "ws3",
    "goal": "部署和日常运维的东西都写清楚，新来的人照着文档就能把服务部署起来、看懂报警、做一次回滚，不用问人。",
-   "note": "已完成：部署脚本的用法说明。\n还剩：报警说明、回滚手册，等这两个做完再关掉这个意图。"
+   "note": "已完成：部署脚本的用法说明。\n还剩：报警说明、回滚手册，等这两个做完再关掉这个意图。",
+   "manager": "mgr-ops",
+   "managerState": "gone"
   },
   {
    "id": "onboarding",
    "title": "新用户引导",
    "state": "active",
    "project": "demo",
-   "workspace": {
-    "id": "w4",
-    "label": "onboarding"
-   },
+   "workspace": "ws4",
    "goal": "第一次打开应用的人，三分钟内能完成注册、加入一个频道、发出第一条消息，过程中不用看任何帮助文档。",
    "note": "先做调查：现在新用户在哪一步流失最多（看埋点数据），再决定先改哪一步。\n参考：https://example.com/notes/onboarding-funnel",
    "units": [],
@@ -3643,10 +3710,7 @@
    "title": "消息列表性能",
    "state": "active",
    "project": "demo",
-   "workspace": {
-    "id": "w5",
-    "label": "perf"
-   },
+   "workspace": "ws5",
    "goal": "一个频道里有十万条消息时，打开频道和往上翻历史都不卡：首屏 300 毫秒内出现，滚动保持 60 帧。",
    "note": "可能要改成虚拟列表，也可能是后端分页的问题，先让调查任务测清楚瓶颈在哪，再拆单元。\n\n调研结论见 https://example.com/perf-report ：瓶颈在前端渲染，后端分页不用改。",
    "units": [
@@ -3963,7 +4027,9 @@
      ]
     }
    ],
-   "chores": []
+   "chores": [],
+   "manager": "mgr-perf",
+   "managerState": "gone"
   },
   {
    "id": "reactions",
@@ -4078,22 +4144,33 @@
    "goal": "用户能用邮箱和密码注册、登录、找回密码，登录状态在关掉浏览器后保持七天。",
    "note": "已于上个月上线。遗留的“登录限流”放进了“上线前加固”。",
    "units": [],
+   "chores": [],
+   "workspace": "ws7"
+  },
+  {
+   "id": "notes-import",
+   "title": "导入旧笔记",
+   "goal": "把旧系统里的笔记搬过来。",
+   "state": "planned",
+   "project": "",
+   "order": 0,
+   "units": [],
    "chores": []
   }
  ],
  "projects": [
   {
    "id": "demo",
+   "key": "p1",
    "title": "聊天应用",
-   "registered": true,
    "repos": [
     "demo"
    ]
   },
   {
    "id": "notes",
+   "key": "p2",
    "title": "笔记服务",
-   "registered": true,
    "repos": [
     "notes"
    ]
@@ -4101,41 +4178,23 @@
  ],
  "messages": [
   {
-   "id": "m1",
-   "intent": "chat-v2",
-   "workspace": "chat",
-   "manager": "mgr-chat",
-   "text": "撤回先放一放，等 @ 功能合并了再开始。",
-   "at": "2026-11-17T08:30:00Z",
+   "id": "m9",
+   "workspace": "ws7",
+   "manager": "mgr-sand",
+   "text": "登录页的实验先停掉。",
+   "at": "2026-11-02T10:00:00Z",
    "step": "delivered",
    "replies": [
     {
-     "by": "mgr-chat",
-     "text": "好的：\n\n- `recall` 的任务先不派\n- `mention` 合并后我再排它",
-     "at": "2026-11-17T08:33:00Z"
-    }
-   ]
-  },
-  {
-   "id": "m2",
-   "intent": "chat-v2",
-   "workspace": "chat",
-   "manager": "mgr-chat",
-   "text": "搜索那个单元，评审能不能也让 agent-G 看一眼？",
-   "at": "2026-11-17T10:05:00Z",
-   "step": "delivered",
-   "replies": [
-    {
-     "by": "mgr-chat",
-     "text": "可以，我给搜索单元加了一个评审任务派给 agent-G，结果出来会进「待决定」。",
-     "at": "2026-11-17T10:12:00Z",
-     "unread": true
+     "by": "mgr-sand",
+     "text": "已停，分支留着。",
+     "at": "2026-11-02T10:04:00Z"
     }
    ]
   },
   {
    "id": "m3",
-   "workspace": "hardening",
+   "workspace": "ws2",
    "manager": "mgr-hard",
    "text": "限流的阈值先按每分钟 10 次。",
    "at": "2026-11-17T07:10:00Z",
@@ -4149,21 +4208,35 @@
    ]
   },
   {
-   "id": "m4",
+   "id": "m1",
    "intent": "chat-v2",
-   "workspace": "chat",
+   "workspace": "ws1",
    "manager": "mgr-chat",
-   "text": "`recall` 的 #1 推不上去：仓库的 pre-push 钩子只让人推。\n\n我在「需要你」里放了一个手动步骤，你推好后 agent-D 接着开拉取请求。",
-   "at": "2026-11-17T11:40:00Z",
+   "text": "撤回先放一放，等 @ 功能合并了再开始。",
+   "at": "2026-11-17T08:30:00Z",
    "step": "delivered",
-   "replies": [],
-   "byManager": true,
-   "unread": true
+   "replies": [
+    {
+     "by": "mgr-chat",
+     "text": "好的：\n\n- `recall` 的任务先不派\n- `mention` 合并后我再排它",
+     "at": "2026-11-17T08:33:00Z"
+    }
+   ]
+  },
+  {
+   "id": "m8",
+   "workspace": "ws2",
+   "manager": "mgr-hard",
+   "notice": "manager-back",
+   "text": "",
+   "at": "2026-11-17T09:10:00Z",
+   "step": "delivered",
+   "replies": []
   },
   {
    "id": "m5",
    "intent": "hardening",
-   "workspace": "hardening",
+   "workspace": "ws2",
    "manager": "mgr-hard",
    "text": "计划有变：限流先只做登录接口，其他接口等压测结果再定。",
    "at": "2026-11-17T09:20:00Z",
@@ -4175,7 +4248,7 @@
   {
    "id": "m6",
    "intent": "hardening",
-   "workspace": "hardening",
+   "workspace": "ws2",
    "manager": "mgr-hard",
    "text": "限流的压测先在哪儿跑？",
    "at": "2026-11-17T09:30:00Z",
@@ -4265,54 +4338,157 @@
     ]
    },
    "open": true
+  },
+  {
+   "id": "m2",
+   "intent": "chat-v2",
+   "workspace": "ws1",
+   "manager": "mgr-chat",
+   "text": "搜索那个单元，评审能不能也让 agent-G 看一眼？",
+   "at": "2026-11-17T10:05:00Z",
+   "step": "delivered",
+   "replies": [
+    {
+     "by": "mgr-chat",
+     "text": "可以，我给搜索单元加了一个评审任务派给 agent-G，结果出来会进「待决定」。",
+     "at": "2026-11-17T10:12:00Z",
+     "unread": true
+    }
+   ]
+  },
+  {
+   "id": "m4",
+   "intent": "chat-v2",
+   "workspace": "ws1",
+   "manager": "mgr-chat",
+   "text": "`recall` 的 #1 推不上去：仓库的 pre-push 钩子只让人推。\n\n我在「需要你」里放了一个手动步骤，你推好后 agent-D 接着开拉取请求。",
+   "at": "2026-11-17T11:40:00Z",
+   "step": "delivered",
+   "replies": [],
+   "byManager": true,
+   "unread": true
+  },
+  {
+   "id": "m7",
+   "workspace": "",
+   "manager": "",
+   "text": "今晚六点我要关机，各自把手上的活收个尾。",
+   "at": "2026-11-17T12:00:00Z",
+   "step": "delivered",
+   "replies": [],
+   "to": [
+    {
+     "workspace": "ws1",
+     "manager": "mgr-chat",
+     "step": "delivered",
+     "replies": [
+      {
+       "by": "mgr-chat",
+       "text": "chat：`recall` 还有一个任务在跑，五点前能交付。",
+       "at": "2026-11-17T12:03:00Z"
+      }
+     ]
+    },
+    {
+     "workspace": "ws2",
+     "manager": "mgr-hard",
+     "step": "held",
+     "reason": "the manager mgr-hard is on a blind task",
+     "replies": []
+    },
+    {
+     "workspace": "ws6",
+     "manager": "mgr-notes",
+     "step": "delivered",
+     "replies": [
+      {
+       "by": "mgr-notes",
+       "text": "笔记这边没有在跑的任务，可以关。",
+       "at": "2026-11-17T12:05:00Z"
+      }
+     ]
+    }
+   ]
   }
  ],
  "workspaces": [
   {
-   "id": "w1",
-   "label": "chat",
+   "id": "ws1",
+   "name": "chat",
    "project": "demo",
-   "projectTitle": "聊天应用",
-   "projectFrom": "manager"
+   "current": "chat-v2",
+   "manager": {
+    "session": "s-mgr-chat",
+    "name": "mgr-chat",
+    "folder": "/Users/dev/code/demo",
+    "since": 12,
+    "state": "working"
+   }
   },
   {
-   "id": "w2",
-   "label": "hardening",
+   "id": "ws2",
+   "name": "hardening",
    "project": "demo",
-   "projectTitle": "聊天应用",
-   "projectFrom": "manager"
+   "current": "hardening",
+   "manager": {
+    "session": "s-mgr-hard",
+    "name": "mgr-hard",
+    "folder": "/Users/dev/code/demo",
+    "since": 31,
+    "state": "idle"
+   }
   },
   {
-   "id": "w3",
-   "label": "ops",
+   "id": "ws3",
+   "name": "ops",
    "project": "demo",
-   "projectTitle": "聊天应用",
-   "projectFrom": "intents"
+   "current": "ops",
+   "manager": {
+    "session": "s-mgr-ops",
+    "name": "mgr-ops",
+    "folder": "/Users/dev/code/demo",
+    "since": 47,
+    "state": "gone"
+   },
+   "proposal": "s-agent-H"
   },
   {
-   "id": "w4",
-   "label": "onboarding",
+   "id": "ws4",
+   "name": "onboarding",
    "project": "demo",
-   "projectTitle": "聊天应用",
-   "projectFrom": "intents"
+   "current": "onboarding"
   },
   {
-   "id": "w5",
-   "label": "perf",
+   "id": "ws5",
+   "name": "perf",
    "project": "demo",
-   "projectTitle": "聊天应用",
-   "projectFrom": "intents"
+   "current": "perf",
+   "manager": {
+    "session": "s-mgr-perf",
+    "name": "mgr-perf",
+    "folder": "/Users/dev/code/demo",
+    "since": 52,
+    "state": "gone"
+   },
+   "proposal": "s-mgr-perf"
   },
   {
-   "id": "w6",
-   "label": "notes",
+   "id": "ws6",
+   "name": "chat",
    "project": "notes",
-   "projectTitle": "笔记服务",
-   "projectFrom": "manager"
+   "manager": {
+    "session": "s-mgr-notes",
+    "name": "mgr-notes",
+    "folder": "/Users/dev/code/notes",
+    "since": 58,
+    "state": "idle"
+   }
   },
   {
-   "id": "w7",
-   "label": "sandbox"
+   "id": "ws7",
+   "name": "sandbox",
+   "project": "demo",
+   "closed": true
   }
  ],
  "runs": [

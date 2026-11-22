@@ -1,7 +1,7 @@
 // The port's own promises, on a store that is not there: what the provided reads make of
 // a storage that cannot be read. (What a real storage keeps is workriver-data's to test.)
 use super::*;
-use crate::{Body, Principal, RuntimeRef};
+use crate::{Body, Principal};
 
 /// A store whose storage cannot be read.
 struct Down;
@@ -46,8 +46,8 @@ fn every_read_of_an_unavailable_store_says_so() {
     said("agent_name", s.agent_name("a").err());
     said("run", s.run("r1").err());
     said("project", s.project("p1").err());
-    said("intent_in", s.intent_in(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).err());
-    said("workspace_in", s.workspace_in(&RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None }).err());
+    said("workspace", s.workspace("ws1").err());
+    said("seat_of", s.seat_of("a").err());
     said("manages", s.manages("a").err());
     said("units", s.units().err());
     said("delivered", s.delivered().err());

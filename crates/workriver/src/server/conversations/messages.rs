@@ -2,14 +2,14 @@
 use super::*;
 
 impl App {
-    /// Whom a message to every manager goes to: each workspace's manager now that runs, here
-    /// or on a followed machine, where it runs. Refused when none does, or the runtime cannot say.
+    /// Whom a message to every manager goes to: the seat of each open workspace whose session
+    /// runs now, here or on a followed machine. Refused when none does, or the runtime cannot say.
     pub(super) fn running_managers(&self) -> Result<Vec<core::Recipient>, ApiError> {
         let all = self.store.lock().unwrap().recorded()?;
         let live = self.runtime.agents().map_err(|_| ApiError(axum::http::StatusCode::SERVICE_UNAVAILABLE, words::NOT_CONNECTED.into()))?;
         let to = all.managers_among(&live);
         if to.is_empty() {
-            return Err(bad("no manager is running; a manager registers with `workriver manager here`".into()));
+            return Err(bad(format!("no manager is running; {}", core::SEATING)));
         }
         Ok(to)
     }
@@ -54,6 +54,18 @@ impl App {
 
     /// Where a unit's branch is checked out, else its repository (an intent's own work: its
     /// project folder).
+    /// Whether a message to a manager is still for the appointment it was sent to: the seat
+    /// of its workspace (to every manager: of that copy's) holds `to` under the same
+    /// `since`. None: the records cannot be read now.
+    pub(super) fn still_appointed(&self, id: &str, to: &str) -> Option<bool> {
+        let all = got(self.store.lock().unwrap().recorded()).ok()??;
+        let Ok(m) = all.message(id) else { return Some(false) };
+        Some(match m.to.iter().find(|r| r.manager == to) {
+            Some(r) => all.appointed(&r.workspace, &r.manager, r.since),
+            None => m.manager == to && all.appointed(&m.workspace, &m.manager, m.since),
+        })
+    }
+
     pub(super) fn work_tree(&self, unit: &core::Unit) -> String {
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         at.and_then(|at| scan::worktree_of(&at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone())

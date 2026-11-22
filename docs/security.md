@@ -96,9 +96,11 @@ in none of the runtime's terminals needs no tty to be yours. Everything else sta
 
 Decide findings as the user, submit gates, finish chores, do deferred findings together or
 drop them, end a conversation, discuss a delivered research or design result with the agent
-that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, start a planned intent in a
-workspace from the page (`/api/intent/start`), run a command (below), add projects, add or
-enable machines, link workspaces, say which project a workspace works on, set when the machines alert (`/api/metrics/thresholds`).
+that did it (`/api/discuss`; only that agent may answer), focus a terminal from the page, read, answer or watch an agent's terminal from the page (below), start a planned intent in a
+workspace from the page (`/api/intent/start`), run a command (below), add projects, make,
+rename, close and open workspaces, seat a workspace's manager or empty its seat, move an
+intent to another workspace (`/api/workspaces`), add or
+enable machines, set when the machines alert (`/api/metrics/thresholds`).
 Reading the machines' CPU, memory and their history (`/api/metrics`, `/api/metrics/history`,
 `workriver machine load`) the user and an agent of this machine may; an agent on another
 machine reads its own machine's only, never this one's or the others'. The service asks for the token or session on those routes, and
@@ -106,9 +108,9 @@ the rules of the event store refuse those events from anyone else as a last line
 defence.
 
 An intent's text is yours, with one owner beside you: its title and goal only you change; its
-note its manager also changes while the intent is active; while it is planned, a manager of
-any workspace whose project is the intent's (the project you set for that workspace, else
-the project of its current intent: what is recorded, never the folder its terminal is in)
+note its manager also changes while the intent is active; while it is planned, the manager of
+a workspace of the intent's project (the project the workspace was made in: what is
+recorded, never the folder its terminal is in)
 may only add to its note; no other agent changes any of it, and a done or dropped intent, or
 dropping a planned one, is yours alone. These are the rules of the event store
 (`intent.updated`, recorded through the same route as other records, `App::who`), not of a
@@ -119,10 +121,11 @@ intent, its manager is told, your words quoted. Its history is read like the res
 
 One of your messages to a manager can be read whole from a terminal (`workriver message
 show`), for when the quote typed to the manager was cut. It is read through `App::view` too,
-and narrower: an agent reads a message of its own workspace's conversation, or one to every
-manager that went to it (with only its own replies there); a message of another workspace's
-conversation is refused, and so is one of a workspace on another machine that only shares
-its label (one linked to the agent's is the same workspace). You read every message.
+and as narrow: an agent reads a message of the conversation of the workspace whose seat it
+holds (by the workspace's id, never its name), or its own copy of one to every manager (with
+only its own replies there). Anything else is refused the same way as a message that does
+not exist: another workspace's, of the same name or not, and any message for an agent that
+manages no workspace. You read every message.
 
 An intent's kind, size and tags follow the same rules, with less for agents: whoever adds an
 intent sets them in the same record (an agent's `backlog add`, an import); after that you
@@ -137,56 +140,84 @@ as a new version of its tags. The check of the tags a request gives is bounded: 
 32 are refused before any is read, and an edit is refused for who sends it before its tags
 are read, so that no request holds workriver up while it is checked.
 
-Since these rules go by the intent's state and by the project its workspace works on, three
+Since these rules go by the intent's state and by its workspace, three
 facts are held as well: the **project** an intent belongs to, the **workspace** it runs in,
 and its **manager**. Each is set only by you, or by a start the rules checked. No other
-event sets them, and no name a request carries.
+event sets them, no name a request carries, and nothing the agent runtime says: all three
+are checked by the event rules against what is recorded, when the event is recorded.
 
-- **Its project** is the one recorded when the intent was added; nothing changes it
-  afterwards. Its units never make it: an intent added with no project has none for the
-  rules, whatever repositories its units are in (the page still shows the first unit's), so
-  only you start it, and no manager adds to its note while it is planned. A unit is added by
-  the intent's manager or by you, by no other agent.
-- **Where it runs** is set by a start, or by you when you make an intent in a workspace or
-  link one to it. An agent adds intents to the roadmap only (planned, in no workspace). An
-  active intent is marked done, put back in the roadmap or dropped by you or its manager
-  only, and none of the three names a workspace: an intent stays recorded where it last ran.
-- **A manager starts only intents of the project its workspace works on** by the records:
-  what you set, else its current intent's project, else the one project of the intents that
-  ran in it. While nothing recorded says, it starts none of a known project: you start a
-  workspace's first intent (or set its project). So no agent makes its workspace another
-  project's, or becomes the manager of another project's intent, by starting it. You may
-  start any intent anywhere (the page asks you to confirm another project's).
-- **A workspace is what the runtime says it is.** An agent registers as manager
-  (`workriver manager here`) and starts intents only in the workspace it runs in, and the
-  event is recorded with the id and name the runtime gives for it when the request comes
-  (on another machine too), never the ones the request carries.
-- **Its manager** is the manager of the workspace it runs in, or last ran in: an agent
-  running there that registered, which takes over only from a manager no longer running. An
-  intent in a workspace where nobody registered has no manager, and you act for it. (A
-  manager registered for one intent, as before 0.2, counts only for an intent that has no
-  workspace at all.)
-- **An intent stays with its workspace, not with a name.** When the runtime restarts and
-  gives the workspace a new id, or you rename it, workriver's record of the workspace
-  follows it the next time it is recorded (its manager runs `workriver manager here`, an
-  intent is started there, you set its project), and the intents that run or ran there
-  follow the record. A workspace you open later under the old name is a new workspace: its
-  manager is nobody to those intents.
-- **Two open workspaces with one name are refused, never taken for one.** workriver finds a
-  workspace's record by its id, and by its name only once that id is gone (a runtime may
-  give its workspaces new ids when it restarts). While the recorded workspace is still
-  open, another one with the same name is refused wherever it would be recorded, for agents
-  and for you alike: `workriver manager here` and `workriver intent start` there, starting
-  an intent in it from the page, setting its project. The refusal names both ("workspace
-  docs is already recorded for another open workspace (…)"): rename one of them. Which
-  workspaces are open is asked of the runtime of the workspace's machine at each such
-  request, and the request is checked and recorded in one step. While that runtime cannot
-  be asked, the request is refused too: a list that could not be read never counts as "that
-  workspace is closed".
+- **A workspace is workriver's own record, made by you.** It has an id workriver gives
+  (`ws1`, never given again), a name that is only shown (two may share one), and the project
+  it was made in, which never changes. You make, rename, close and open workspaces; adding a
+  project makes its first. Nothing the runtime says of its own workspaces (their ids, their
+  names, which terminal is in which) identifies one, makes one or changes one: any program
+  can rename, create and close those, and the runtime gives a closed one's id again after a
+  restart. A terminal's place in the runtime is shown beside an agent, as where its
+  terminal is, and decides nothing.
+- **Its project** is the registered project that holds the folder recorded when the intent
+  was added; nothing changes it afterwards. An intent names a folder that a registered
+  project holds, or none, whoever adds it: registering a project is yours, so no agent
+  makes a folder a project by naming it (a repository outside every registered project is
+  part of none: the agent is told to name a project by its id, or to ask you to add it).
+  Its units never make it either: an intent with no project has none for the rules,
+  whatever repositories its units are in, so only you start it (it then takes the project
+  of the workspace you start it in), and no manager adds to its note while it is planned.
+  A unit is added by the intent's manager or by you, by no other agent.
+- **Where it runs** is set by a start, or by you when you move an active intent to another
+  workspace of its project. An agent adds intents to the roadmap only (planned, in no
+  workspace). An intent runs only in a workspace of its project. An active intent is marked
+  done, put back in the roadmap or dropped by you or its manager only, and none of the
+  three names a workspace: an intent stays recorded where it last ran.
+- **A manager starts intents only in the workspace it holds the seat of**, and only intents
+  of that workspace's project. Its start names no workspace: the rules fill in the one it
+  is seated in, and refuse a start that names another. So no agent starts an intent in
+  another workspace, or becomes the manager of another project's intent, by starting it.
+- **Its manager** is whoever holds the seat of the workspace it runs in, or last ran in. An
+  intent whose workspace's seat is empty has no manager, and you act for it.
+- **A manager is seated by you, never by an agent.** One event sets a seat, and it is yours
+  alone: in the page (the workspace's line, Manager) or `workriver workspace manager <ws>
+  <agent>` from your own terminal. There is no `workriver manager here`: nobody becomes a
+  manager by saying so, by running in some group of the runtime, or by naming a workspace.
+  What is kept of a seat is the session, its machine and the folder it was started in (to
+  reach its terminal), and the *appointment*: the seating itself. A session holds one seat.
+  You may seat over a manager that still runs (the page asks once; that one is told it no
+  longer manages). A change of the seat names the seat you were shown, and is refused when
+  the seat is no longer that one: a change made meanwhile is never overwritten unseen.
+- **The session you seat is checked where it runs.** At the seating the service asks the
+  runtime of that session's machine (this one or another alike) which terminal shows it:
+  shown in none, or in several, or in another terminal than the one it is known in while
+  that one still runs, the seating is refused. The session is then held to that terminal
+  ([Which terminal a command comes from](#which-terminal-a-command-comes-from): one session, one terminal).
+- **A seat does not move by itself to another session, folder or machine.** While a seated
+  session's terminal is gone, the workspace shows "manager not running", and what is sent
+  to it is "not delivered". One thing comes back by itself: the same session, on the same
+  machine, in the same folder, showing again (a resume, a restart of the runtime) is the
+  manager again, with its appointment, and the workspace's conversation gets a line saying
+  so. Anything else needs you: another session in the old terminal, or the seated session
+  reported from another folder or machine, is not the manager until you seat it (Needs you
+  shows the workspace, with that agent proposed), and that seating is a new appointment.
+  The same while the seated session is shown in its own terminal and in another one at
+  once, on this machine or another: neither is the manager, and nothing is typed to it
+  until only its own terminal shows it again or you seat it. What goes to a manager is
+  typed into the terminal it is held to, never into whichever terminal reports its session,
+  nor into an agent that takes the manager's session id as its name; its screen is read
+  there first, as for every message (below, "A dialog the runtime misses"), and a message
+  you sent holds the order of seat changes, then the agent's one writer, never the reverse.
+- **What belongs to an appointment never reaches the next.** A message you sent, a question
+  a manager asked you with options, a reply: each belongs to the appointment it was sent to
+  or asked under. A message still waiting when the seat is given anew is recorded as not
+  delivered, never typed to the new manager; an earlier appointment's question can no
+  longer be answered (the new manager reads the conversation and asks again); only the
+  appointment a message went to replies to it.
+- **Units on another machine** are put there by the intent's manager or by you, on any
+  machine you follow (following a machine is your act); another agent puts a unit only on
+  its own machine. There are no links between workspaces: an agent on another machine works
+  in a workspace through the tasks it is given, and a manager on another machine holds a
+  seat like any other.
 
 What these do not hold, since the runtime's own interface is your account's, is under
-[What this does not protect against](#what-this-does-not-protect-against): a workspace
-closed or renamed there.
+[What this does not protect against](#what-this-does-not-protect-against): the bait for
+your pick of a manager, and what a program can do to a terminal.
 
 Findings are the exception by design: by default the intent's **manager decides them**, so
 that work does not wait for you. The trade-off, plainly: a manager that is compromised or
@@ -240,6 +271,68 @@ you. That is the most powerful thing the page does, so:
   workriver's, as `command.reviewed` with the run; the agent is closed once it answered, or
   after ten minutes.
 
+## Answering an agent's terminal from the page
+
+When an agent waits for you in its terminal (a permission prompt, a question, a trust
+dialog), the page shows its dialog and lets you answer it, and opens its terminal read-only
+when you ask. Typing into an agent's terminal is acting as you, so:
+
+- **Only you.** The three routes (`/api/agent/screen`, `/api/agent/keys`,
+  `/api/agent/view`) ask for you (`App::user`) and are not served on another machine's
+  listener; an agent's proof is refused there whatever it names, so no agent reads another
+  agent's screen through workriver (a blind reviewer could otherwise read the work it must
+  not see). A POST must come from the page's own origin (as every POST). The two GETs do
+  something (`/view` starts a stream and takes one of four slots, `/screen` reads the
+  terminal), and a page on another port of this host is the same site, so its requests
+  carry the session cookie: a request with the cookie is refused unless the browser says it
+  comes from the page itself (`Sec-Fetch-Site: same-origin`; a missing header is refused
+  too). The CLI's token is not a page's to add. No CORS headers: no other origin reads the
+  answers. Every answer is `Cache-Control: no-store`.
+- **Only keys, only these.** What may be sent is Up, Down, Enter, Escape, Tab or a digit 1–9:
+  the page names an option by its number or one key by its name, never text, a sequence, a
+  size or a paste. A screen can say anything; the page has no other way to type.
+- **Only to the screen you saw, at one place, once.** The service, never the page, reads the
+  screen, parses it and sends the keys. The page sends what you pressed with the digest the
+  service gave for the screen it showed: SHA-256 of a key drawn at random when the service
+  starts, the agent, the number of presses sent to it before the screen was read, and the
+  whole visible screen; the count and the read are taken together under the agent's one
+  writer, so a press under way ends (its keys taken effect) before the screen is read, and a
+  screen read before a press never signs the count after it. One request resolves the agent's session to exactly one place (two places that
+  show it: refused, "answer it in its terminal") and reads and presses only there; it sends
+  only when the whole screen it reads there matches the digest, so a second click, a retried
+  request or a stale dialog that looks the same never goes; a list is walked one arrow at a
+  time with the whole screen read again after each, and Enter goes only when the marked line
+  is the option you chose. A send that failed or whose answer was lost is never repeated by
+  itself. One writer per agent: a press and a message workriver types never interleave. A
+  few milliseconds between the last read and the key remain and cannot be closed (the
+  runtime has no send-if-unchanged); they are kept to one read followed at once by one key.
+- **What is kept.** Screen text and frames stay out of the snapshot, the logs and browser
+  storage. The event store keeps, for each answer, `agent.keys` (yours alone to record): the
+  agent, its task, the keys, the outcome, and two pieces of the screen: the question line
+  (the nearest line above the first option, only when it ends with `?`) and the option's
+  number and words, each cut at the first backtick, `"`, `'` not between two letters, `$`,
+  `=`, `/`, `~` or `\` (where a command's arguments, an assignment, a quoted value or a path
+  begin) and capped (120 and 40 characters), on one line; the event rules cut them again,
+  whatever a request says. It is kept for good, and agents can read it (task detail goes
+  through `App::view` like every record): the cut keeps out where a secret usually sits, but
+  a secret with none of those characters before it, inside the cap, would be kept.
+- **Shown as text, in terminal order.** The screen's text and an option's words are another's
+  writing: the page shows them as plain text (quoted agent text, never Markdown, links
+  inert), drawn left to right in the order written as a terminal draws them (a browser would
+  reorder them by the Unicode bidi algorithm, so a command could read one way and run
+  another), with every invisible or reordering character (Unicode's Default_Ignorable_Code_Point,
+  which holds every Bidi_Control one) shown as its code point, `⟨U+202E⟩`, never dropped.
+  ANSI only inside the terminal view, which is read-only (no key reaches the terminal, it is
+  never resized), writes no clipboard and opens no link (an OSC 8 link does nothing).
+  Screen text never goes into a message to an agent.
+- **Bounded.** Four terminal views at most across every page, one stream each (today a
+  child process of the runtime's own CLI, given no more environment than it needs), killed
+  with its stream; a stream whose reader falls behind is ended.
+- **A dialog the runtime misses.** The service reads the screen of an agent the runtime calls
+  idle or done when that state begins, and before every message it types into any agent (at
+  the same place, under the same writer); a screen with options and a key named under them
+  holds the message and shows the agent waiting, so a prompt is never typed into a dialog.
+
 ## What agents are told
 
 Every message workriver types into a terminal starts with its own words (what happened,
@@ -270,6 +363,39 @@ For this, reading is no longer open to every local program: the page reads with 
 session, the CLI as you (token) or as the agent of its terminal; a request that is neither is
 refused. Only whether the service runs (`workriver status`) is anyone's to see.
 
+## Conversations are read by their workspace
+
+What you and a manager write to each other is that workspace's: through the service, an
+agent reads
+
+- the messages of the workspace whose seat it holds, the earlier managers' included (a new
+  manager reads the history), and that workspace's read marks;
+- of a message you sent to every manager, only when a copy went to its own appointment: the
+  message, its own copy and its own replies. Nothing of the other copies (their workspace,
+  their manager, whether they were delivered) or of the other managers' replies;
+- nothing else of any conversation: not another workspace's, with the same name or not.
+
+The same cut is made for every route that returns records, on this machine's listener and
+on another machine's (`App::view`: the records, the page's snapshot, a task, an intent's
+history, a stored file). For a stored file the cut is only this: a file that nothing but the
+parts cut away names is not served to that agent; a file another record holds as a file too
+(a task's or a finding's files, a check's report, what a question or a message it does read
+points at), or that the agent stored itself, is served as before. A file's id written in
+words (a title, a note) holds nothing. You read everything.
+
+What stays readable by every agent, by design: everything that is not a conversation with
+you. Intents (planned and active, every workspace's and project's), units, tasks, findings,
+gates, chores, the discussions of tasks and their threads, the agents. A review reads
+another unit's work, `workriver ask` reaches any task, a manager plans against the whole
+roadmap. The blind view (above) narrows that for an agent on a blind task.
+
+What this scope cannot hold is the same as for blind reviews, and no more is promised: it
+binds the service's routes, so it holds completely for agents on other machines, which
+reach the records only through their machine's listener. An agent on this machine runs as
+you: it can read the database and the stored files from disk, and where the runtime lets
+any agent read another's terminal (Herdr does), it can read the manager's terminal, where
+your messages are typed.
+
 Blindness guards against bias, not against an agent that sets out to look. What remains:
 
 - **Commit messages and the repository.** The reviewer reads the code from git, and git
@@ -280,9 +406,9 @@ Blindness guards against bias, not against an agent that sets out to look. What 
 - **Files.** Agents run as you: the database and the attachments in `~/workriver-data`
   can be read from disk, and so can every harness's session files (workriver only says
   where they are, when asked; it never reads them).
-- **Where workspaces run.** A workspace's machine belongs to the workspace (the records'
-  workspaces, a session's group), so a blind agent sees which machine another agent's
-  workspace is on; only an agent's own machine, as its session shows it, is cleared for others.
+- **Who manages.** A workspace has no machine of its own; its seat's machine and folder are
+  an agent's, and are cleared for a blind agent like any other agent's. That a workspace
+  has a manager, and its name, stays visible.
 - **Other terminals.** Where the runtime lets any agent read another's terminal (Herdr does:
   [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr)), what another
   agent's terminal shows is not workriver's to hide.
@@ -314,26 +440,37 @@ determined program on your machine:
 - **The runtime's own interface is your account's.** Any program may tell the runtime which
   agent a terminal holds, or close a terminal (under Herdr, any program can:
   [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr)).
-  - **A session whose terminal is gone can be taken**: once the terminal a session was first
-    seen in no longer runs, whoever reports that session for its own terminal is that agent.
-    A program does not have to wait: it can close that terminal through the runtime and then
-    report its session. It cannot do that unseen: the agent's terminal disappears.
+  - **A session whose terminal is gone can be taken**, unless it holds a manager's seat:
+    once the terminal a session was first seen in no longer runs, whoever reports that
+    session for its own terminal is that agent. A program does not have to wait: it can
+    close that terminal through the runtime and then report its session. It cannot do that
+    unseen: the agent's terminal disappears. A session that holds a seat is not taken this
+    way from another folder or machine (that needs your seating); from the same folder on
+    the same machine it is: a program started there that reports the seated session's id
+    after its terminal is gone is the manager again, with its appointment, as a resumed
+    manager is. You see it: the workspace's conversation says the manager is back.
   - **An agent can be given another name** by a report for its terminal: its next commands
     are a new agent's and its own tasks refuse it. Nobody is impersonated; work stops.
-  - **A workspace can be renamed or closed there, and its name is how workriver finds its
-    record once its id is gone.** A program can close a workspace and give another one its
-    name: that one is then taken for the closed workspace (as after a restart of the
-    runtime), with its manager's place to register in and its intents. It can also give a
-    workspace the name a link to another machine's workspace names. workriver does not see
-    either happen, and no request to workriver does it; you would see a workspace gone or
-    renamed. Two workspaces that are both open under one name are refused instead (above).
-    A workspace that gets a new id and a new name with nothing recorded in between (the
-    runtime restarts and it is renamed before anything names it again) is not found again:
-    it is a new workspace to workriver, and its old record is a closed one's, as here.
+  - **Bait for your pick of a manager.** An agent's name, its session id and the group of
+    the runtime its terminal is in are what any program reports. The manager select shows
+    them with what workriver itself knows: the machine, the folder, the tasks the records
+    give that session. This holds for the agent Needs you proposes too: a program that
+    reports the seated session's id from another folder is offered as "a new terminal
+    reports this session", with both folders shown, and your confirming it is a new
+    appointment. A wrong pick is yours to seat again.
+  - **Closing the manager's terminal** through the runtime stops that workspace's
+    deliveries. Nobody gains them.
+  - **Renaming, creating or closing the runtime's own workspaces changes nothing recorded.**
   - **A terminal the runtime knows as an agent's only by report can be released** and is
     then a plain terminal: yours, with the token. (Under Herdr, which agents are
     not such terminals: [runtimes/herdr.md](runtimes/herdr.md#security-under-herdr).)
-  - On another machine the session goes to the first terminal that *calls* with it. A
+  - On another machine a worker's session goes to the first terminal that *calls* with it;
+    a manager's is held, from its seating, to the one terminal that machine's runtime
+    shows it in: while that terminal is gone or holds another agent, or another terminal
+    (there or on any other machine) shows the session too, nothing is typed to the manager,
+    as on this machine, and the same session showing again in the seat's
+    folder there has its seat back by itself. What that machine's processes and runtime say comes through that machine's
+    account, so it holds as far as that account does. A
     terminal where the runtime knows no shell is not remembered: its session shown by
     another terminal gets both refused.
 - **Typing into another terminal.** Where the runtime lets any agent type into any terminal

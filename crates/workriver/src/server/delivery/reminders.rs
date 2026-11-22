@@ -73,8 +73,9 @@ pub(in crate::server) fn step(state: &State, live: &[RuntimeAgent], idle: &HashM
     for i in state.intents.iter().filter(|i| i.state == IntentState::Active) {
         let manager = state.manager_of(&i.id);
         let units = state.units.iter().filter(|u| u.intent == i.id && u.merged.is_none() && u.done.is_none());
-        // Where the work runs: the unit's machine, or the intent's workspace's.
-        let owners = std::iter::once((&i.id, &i.tasks, i.workspace.as_ref().and_then(|w| w.machine.as_deref()))).chain(units.map(|u| (&u.id, &u.tasks, u.machine.as_deref())));
+        // Where the work runs: the unit's machine, or the intent's manager's.
+        let seat = state.intent_workspace(&i.id).and_then(|w| w.manager.as_ref()).and_then(|m| m.machine.as_deref());
+        let owners = std::iter::once((&i.id, &i.tasks, seat)).chain(units.map(|u| (&u.id, &u.tasks, u.machine.as_deref())));
         for (owner, tasks, machine) in owners {
             for t in tasks.iter().filter(|t| t.state == TaskState::Running && t.kind != TaskKind::Gate) {
                 let Some(a) = t.agent.as_deref() else { continue };
@@ -186,9 +187,8 @@ fn all_tasks(state: &State) -> impl Iterator<Item = (&str, bool, &Task)> {
 /// Not a worker a manager started: a manager itself, or a temporary agent answering a
 /// question (workriver closes those).
 fn not_a_worker(state: &State, x: &RuntimeAgent) -> bool {
-    let mut managers = state.workspaces.iter().filter_map(|w| w.manager.as_deref()).chain(state.intents.iter().filter_map(|i| i.manager.as_deref()));
     let temporary = state.questions.iter().any(|q| q.temporary && q.agent.as_deref() == Some(x.session.as_str()));
-    managers.any(|m| m == x.session) || temporary
+    state.seat_of(&x.session).is_some() || temporary
 }
 
 /// It has work: a task to do or being done, in work still open; or a delivered design or
@@ -255,6 +255,17 @@ mod tests {
 
     use super::*;
 
+    /// Workspace ws1 of project p1, with "boss" seated as its manager by the user.
+    fn seated(s: &mut Store) {
+        for v in [
+            json!({"kind": "project.added", "body": {"path": "/r", "title": "R"}}),
+            json!({"kind": "workspace.created", "body": {"name": "chat", "project": "p1"}}),
+            json!({"kind": "workspace.manager_set", "body": {"workspace": "ws1", "manager": "boss"}}),
+        ] {
+            s.record(&Principal::User, serde_json::from_value(v).unwrap()).unwrap();
+        }
+    }
+
     fn agent(session: &str, state: AgentState, machine: Option<&str>) -> RuntimeAgent {
         RuntimeAgent { session: session.into(), harness: "claude".into(), state, cwd: String::new(), group: None, name: session.into(), topic: None, machine: machine.map(str::to_string) }
     }
@@ -267,8 +278,9 @@ mod tests {
         let mut s = Store::open(&dir.path().join("w.db")).unwrap();
         let at = |s: &mut Store, who: Principal, v: serde_json::Value| s.record(&who, serde_json::from_value(v).unwrap()).unwrap().event;
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
-        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "runtime_ref": {"id": "w1", "label": "chat"}}}));
-        at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"intent": "i1"}}));
+        at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
+        seated(&mut s);
+        at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": "ws1"}}));
         at(&mut s, Principal::User, json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Far", "repo": "/r", "branch": "feat/b", "base": "main", "machine": "box"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "x", "agent": "w"}}));
         let w = || Principal::Agent { session: "w".into(), machine: Some("box".into()) };
@@ -296,9 +308,8 @@ mod tests {
         let boss = || Principal::Agent { session: "boss".into(), machine: None };
         let r = || Principal::Agent { session: "r".into(), machine: None };
         at(&mut s, Principal::User, json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
-        let w1 = json!({"id": "w1", "label": "chat"});
-        at(&mut s, boss(), json!({"kind": "manager.registered", "body": {"workspace": w1}}));
-        at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}}));
+        seated(&mut s);
+        at(&mut s, Principal::User, json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": "ws1"}}));
         at(&mut s, boss(), json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Survey", "kind": "research"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "research", "title": "x", "agent": "r"}}));
         at(&mut s, boss(), json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Which?", "inputs": [{"from": "1"}]}}));

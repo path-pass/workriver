@@ -11,7 +11,6 @@ use workriver_core::{self as core, Body, Principal};
 
 use crate::server::delivery;
 use crate::server::files::{self, store};
-use crate::server::views;
 use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
@@ -89,24 +88,12 @@ pub(super) struct Append {
 pub(super) async fn append(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(a): Json<Append>) -> Result<Json<serde_json::Value>, ApiError> {
     let body: Body = serde_json::from_value(json!({ "kind": a.kind, "body": a.body })).map_err(|e| bad(format!("{} event: {e}", a.kind)))?;
     blocking(move || {
-        // With the workspace its place is in: the one an agent's own event may name.
-        let (who, at) = app.who_in(&caller, a.named.as_deref())?;
-        let e = app.record_in(&who, at.as_ref(), body)?;
+        let who = app.who(&caller, a.named.as_deref())?;
+        let e = app.record(&who, body)?;
         let mut out = serde_json::to_value(&e).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         // A requirement added to a task: whether its agent was told, apart from the note.
         if let Body::TaskNoted { .. } = &e.body {
             out["told"] = json!(app.noted(&e));
-        }
-        // A manager that starts an intent of another project than its workspace's is told so.
-        if let Body::IntentStateChanged { intent, state: core::IntentState::Active, workspace: Some(g), .. } = &e.body {
-            let live = app.runtime.agents().unwrap_or_default();
-            // The event is recorded: a store that cannot be read now only leaves the warning out.
-            let read = got(app.store.lock().unwrap().recorded());
-            if let Ok(Some(all)) = read
-                && let Some(why) = views::other_project(&all, &live, g, intent)
-            {
-                out["warning"] = json!(format!("{why}. If you do not work on that project, do not split it: ask the user with a decide gate first (`workriver guide how ask-user`)."));
-            }
         }
         // A manager that closes its intent is told, in place of a message, to tell the user.
         if let Body::IntentStateChanged { intent, state: core::IntentState::Done, .. } = &e.body {
@@ -209,7 +196,7 @@ pub(super) async fn focus(State(app): State<Shared>, Extension(caller): Extensio
         // client stays where it is (the runtime has no way to switch it), so the page says where.
         let there = app.live().unwrap_or_default().into_iter().find(|a| a.session == session && a.machine.is_some());
         Ok(match there {
-            Some(a) => Json(json!({ "machine": a.machine, "workspace": a.group.map(|g| g.label), "agent": a.name })).into_response(),
+            Some(a) => Json(json!({ "machine": a.machine, "group": a.group.map(|g| g.label), "agent": a.name })).into_response(),
             None => StatusCode::NO_CONTENT.into_response(),
         })
     })

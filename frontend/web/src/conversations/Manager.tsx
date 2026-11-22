@@ -16,8 +16,9 @@ import type { Talk, Answer } from './types'
 import { Choice } from '@/ui/Choice'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
-import { chipKey, chipsOf, EVERY, leaveOut, messageOf, placesOf, repliesOf } from './select'
+import { chipKey, chipsOf, entryOf, EVERY, leaveOut, messageOf, placesOf, repliesOf } from './select'
 import { Chips, Log, MessageView } from './Turns'
+import { openSeat } from '@/planning/Seat'
 
 /** Whether pasted html holds text of its own (tags, styles and scripts left out). Parsed
  *  as an inert document: nothing in it runs or loads. */
@@ -126,7 +127,7 @@ export function Box({ label, placeholder, focusAt, above, below, disabled, close
 /** How long a conversation is on screen before its new messages count as read, in ms. */
 const READ_AFTER = 1500
 
-/** The select's value for the conversation with every manager (a workspace's is `w:` and its label). */
+/** The select's value for the conversation with every manager (a workspace's is `w:` and its id). */
 const ALL = 'all'
 
 /**
@@ -156,9 +157,11 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   const { t } = useT()
   // Every manager at once: offered with more than one running, or once written to; once
   // picked it stays picked, however many run (none: the draft stays and nothing is sent).
-  const { intent, own, running, labels, every, label } = placesOf(talk, unit?.id)
+  const { intent, own, running, ids, closed, every, id: label } = placesOf(talk, unit?.id)
   const all = label === EVERY
-  const manager = all ? undefined : running.find(s => s.group!.label === label)
+  const space = all ? undefined : talk.spaces.find(w => w.id === label)
+  // Its manager, while it runs: a conversation shows its history with the seat empty too.
+  const manager = running.find(w => w.id === label)?.manager
   const list = talk.messages.filter(m => m.workspace === label)
   // The options a message of the user's answered: the manager's message, or one of its replies.
   const askedOf = (a: Answer) => {
@@ -209,33 +212,32 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
   const size = list.length + ':' + list.map(m => m.step + repliesOf(m).length + (m.to ?? []).map(c => c.step).join('')).join(',')
   const options = [
     ...(every ? [{ value: ALL, label: t('talk.every') }] : []),
-    ...labels.map(l => {
-      const m = running.find(s => s.group!.label === l)
-      return { value: `w:${l}`, label: m ? `${l} · ${m.agent}` : l }
-    }),
+    ...ids.map(w => talk.spaces.find(x => x.id === w)!).map(w => ({ value: `w:${w.id}`, label: entryOf(w, talk.spaces, talk.projects, !talk.project) })),
   ]
+  // Closed workspaces that have messages: last, to read only.
+  const past = closed.map(w => talk.spaces.find(x => x.id === w)!).map(w => ({ value: `w:${w.id}`, label: entryOf(w, talk.spaces, talk.projects, !talk.project) }))
   const send = (text: string) => {
     if (label === null || (all ? !running.length : !manager)) return
     if (all) talk.onTell({ workspace: EVERY, all: true }, text, '', messageOf(context, []), files)
-    else talk.onTell(label === own && intent ? { intent: intent.id, workspace: label } : { workspace: label }, text, manager!.agent, messageOf(context, []), files)
+    else talk.onTell(label === own && intent ? { intent: intent.id, workspace: label } : { workspace: label }, text, manager!.name, messageOf(context, []), files)
     setFiles([])
     setRefused([])
   }
   return (
     <>
       <div ref={shown} className="flex min-h-0 flex-1 flex-col px-4 pb-3 text-sm">
-        {options.length > 1 && <Choice value={label === null ? '' : all ? ALL : `w:${label}`} onChange={v => talk.onPick(v === ALL ? EVERY : v.slice(2))} options={options} label={t('talk.workspace')} className="mb-2 flex-none" />}
+        {options.length + past.length > 1 && <Choice value={label === null ? '' : all ? ALL : `w:${label}`} onChange={v => talk.onPick(v === ALL ? EVERY : v.slice(2))} options={options} groups={[{ label: t('talk.closed'), options: past }]} label={t('talk.workspace')} className="mb-2 flex-none" />}
         {label === null
           ? <p className="text-ink-2">{t('talk.noWorkspace')}</p>
           : !list.length
-            ? <p className="text-ink-2">{all ? t('talk.everyEmpty') : t('talk.empty', { workspace: label })}</p>
+            ? <p className="text-ink-2">{all ? t('talk.everyEmpty') : t('talk.empty', { workspace: space ? `${space.name} ${space.id}` : label })}</p>
             : (
               <Log size={size} label={t('talk.label')}>
                 <ol className="chat">
                   {list.map((m, k) => (
                     <MessageView
                       key={m.id ?? `local-${k}`} m={m} asked={askedOf}
-                      onAnswer={(a, note) => label && talk.onAnswer(label, a, note, manager?.agent ?? '')}
+                      onAnswer={(a, note) => label && talk.onAnswer(label, a, note, manager?.name ?? '')}
                     />
                   ))}
                 </ol>
@@ -244,7 +246,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
       </div>
       <Box
         label={t('talk.label')}
-        placeholder={all ? t('talk.everyPlaceholder') : t('talk.placeholder', { agent: manager?.agent ?? t('manager.state.none') })}
+        placeholder={all ? t('talk.everyPlaceholder') : t('talk.placeholder', { agent: manager?.name ?? t('manager.state.none') })}
         focusAt={talk.focusAt}
         disabled={all ? !running.length : !manager}
         onSend={send}
@@ -262,7 +264,12 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
             )}
           </>
         )}
-        below={all ? (running.length ? t('talk.everyHow', { count: running.length }) : t('talk.everyNone')) : manager ? t('talk.how', { agent: manager.agent }) : t('talk.none')}
+        below={all ? (running.length ? t('talk.everyHow', { count: running.length }) : t('talk.everyNone')) : space?.closed ? t('talk.readOnly') : manager ? t('talk.how', { agent: manager.name }) : (
+          <span className="flex flex-wrap items-center gap-x-2">
+            {t('talk.none')}
+            {space && <button type="button" className="rounded-sm font-semibold underline-offset-2 hover:text-ink hover:underline" onClick={() => openSeat(space.id, space.proposal)}>{t('rail.spaceManager')}</button>}
+          </span>
+        )}
       />
     </>
   )

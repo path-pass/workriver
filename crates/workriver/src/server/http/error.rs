@@ -13,6 +13,8 @@ pub(in crate::server) fn bad(msg: String) -> ApiError {
 impl From<DataError> for ApiError {
     fn from(e: DataError) -> Self {
         match e {
+            // A seat that changed since the user was shown it: look again (409), not a bad request.
+            DataError::Rejected(r) if r.0.starts_with(core::SEAT_CHANGED) => ApiError(StatusCode::CONFLICT, r.0),
             DataError::Rejected(r) => bad(r.0),
             e => ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         }

@@ -32,6 +32,29 @@ pub fn socket_here(home: &Path, label: &str) -> PathBuf {
     home.join(format!("herdr-{label}.sock"))
 }
 
+/// How long a Unix socket's path may be, its closing NUL included (`sun_path`).
+#[cfg(target_os = "linux")]
+pub const SOCKET_PATH_MAX: usize = 108;
+#[cfg(not(target_os = "linux"))]
+pub const SOCKET_PATH_MAX: usize = 104;
+
+/// The sockets of a machine's Herdr brought here, each as (here, there): its API socket, and
+/// next to it the client socket its terminal stream is served on. That second one only when
+/// its path here can be bound: Herdr's terminal stream finds it only next to the API socket,
+/// and its name is longer. Left out, the machine's agents are followed and answered as before,
+/// and only its terminal view says it cannot open; ssh would otherwise end the whole
+/// connection on a forward it cannot set up.
+pub fn forwards(home: &Path, label: &str, there: &str) -> Vec<(String, String)> {
+    let here = socket_here(home, label);
+    let client = |p: &Path| super::screens::client_socket(p).to_string_lossy().into_owned();
+    let mut all = vec![(here.to_string_lossy().into_owned(), there.to_string())];
+    let near = client(&here);
+    if near.len() < SOCKET_PATH_MAX {
+        all.push((near, client(Path::new(there))));
+    }
+    all
+}
+
 /// What a machine's setting keeps for Herdr, in `settings.json` and in what the service is
 /// asked to add: its socket over there, a path or nothing (anything else is refused, and makes
 /// a settings file unreadable); none is not written. Other keys of a machine's entry are not kept.

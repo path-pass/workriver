@@ -91,7 +91,7 @@ fn list(d: &Daemon, project: Option<&str>, only: &Filter) -> anyhow::Result<()> 
         let id = s(&p["id"]);
         println!("{}  {id}{}", s(&p["title"]), p["key"].as_str().map(|k| format!("  ({k})")).unwrap_or_default());
         for i in w["intents"].as_array().into_iter().flatten().filter(|i| s(&i["project"]) == id && s(&i["state"]) == "active" && only.keeps(i)) {
-            let at = i["workspace"]["label"].as_str().map(|l| format!("  (in {l})")).unwrap_or_default();
+            let at = i["workspace"].as_str().map(|l| format!("  (in {l})")).unwrap_or_default();
             println!("  active  {} {}{}{at}", s(&i["id"]), s(&i["title"]), labels(i));
         }
         // Numbered by their place in the whole roadmap, also when some are filtered out.
@@ -151,60 +151,33 @@ fn export(d: &Daemon, project: &str) -> anyhow::Result<()> {
 /// The commands of intents, units, projects, workspaces and the backlog: what each records (printed by `run` as before), or None when it
 /// printed what it had to say itself.
 pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
-    let Cx { d, actor, here, group, here_intent } = *cx;
+    let Cx { d, actor, here_intent } = *cx;
     Ok(Some(match cmd {
-        Cmd::Manager(ManagerCmd::Here { intent, goal }) => {
-            if group.is_none() && intent.is_none() {
-                bail!(runtime::words::MANAGER_HERE_NOWHERE);
-            }
-            d.append(actor, "manager.registered", json!({ "intent": intent, "workspace": group }))?;
-            println!("manager of workspace {}", group.as_ref().and_then(|g| g["label"].as_str()).or(intent.as_deref()).unwrap_or("?"));
-            if let Some(goal) = goal {
-                // ponytail: kept one release for old prompts; remove with --goal.
-                eprintln!("--goal is deprecated: add intents with `workriver backlog add` and start them with `workriver intent start <intent>`.");
-                let current = here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string));
-                match current {
-                    // An intent's goal is the user's: it is not changed from here.
-                    Some(i) => eprintln!("--goal is not set on {i}: an intent's goal is the user's (they edit it on its page); write what you know in its note"),
-                    None => {
-                        let title = group.as_ref().and_then(|g| g["label"].as_str()).unwrap_or("intent").to_string();
-                        let made = d.append(actor, "intent.created", json!({ "title": title, "goal": goal, "project": cwd_folder()?, "state": "planned" }))?;
-                        let i = made["body"]["id"].as_str().unwrap_or_default().to_string();
-                        // A workspace's first intent is the user's to start.
-                        println!("added {i} to the roadmap; ask the user to start it in this workspace");
-                    }
-                }
-            }
-            return Ok(None);
-        }
+        // Gone: nobody becomes a manager by saying so.
+        Cmd::Manager(ManagerCmd::Here { .. }) => bail!("`workriver manager here` is gone: an agent does not make itself a manager. {}. Tell the user which workspace you are meant for; once seated you are told in this terminal", workriver_core::SEATING),
         Cmd::Workspace(WorkspaceCmd::List) => {
             let w = d.get("/api/workspace?light=true")?;
+            let title = |folder: &Value| w["projects"].as_array().into_iter().flatten().find(|p| &p["id"] == folder).map(|p| format!("{} ({})", s(&p["title"]), s(&p["key"]))).unwrap_or_else(|| "?".into());
             for g in w["workspaces"].as_array().into_iter().flatten() {
-                let label = g["label"].as_str().unwrap_or("?");
-                match (g["machine"].as_str(), g["linkedTo"].as_str()) {
-                    (None, _) => match (g["projectTitle"].as_str(), g["projectFrom"].as_str()) {
-                        (Some(p), Some(from)) => println!("{label}  works on {p} ({from})"),
-                        _ => println!("{label}  project unknown"),
-                    },
-                    (Some(m), Some(to)) => println!("{m}:{label}  linked to {to}"),
-                    (Some(m), None) => println!("{m}:{label}  not linked"),
-                }
+                let manager = match g["manager"].as_object() {
+                    Some(m) => format!("manager {} ({}{})", s(&m["name"]), s(&m["state"]), m["machine"].as_str().map(|x| format!(", on {x}")).unwrap_or_default()),
+                    None => "no manager".into(),
+                };
+                let current = g["current"].as_str().map(|i| format!("  current {i}")).unwrap_or_default();
+                println!("{}  {}  project {}  {manager}{current}{}", s(&g["id"]), s(&g["name"]), title(&g["project"]), if g["closed"] == true { "  (closed)" } else { "" });
             }
             return Ok(None);
         }
-        Cmd::Workspace(WorkspaceCmd::Link { remote, local }) => {
-            let (machine, workspace) = remote.split_once(':').ok_or_else(|| anyhow!("write the remote workspace as <machine>:<workspace>, as `workriver workspace list` shows it"))?;
-            d.append(actor, "workspace.linked", json!({ "machine": machine, "workspace": workspace, "local": local }))?
-        }
-        Cmd::Workspace(WorkspaceCmd::Unlink { remote }) => {
-            let (machine, workspace) = remote.split_once(':').ok_or_else(|| anyhow!("write the remote workspace as <machine>:<workspace>"))?;
-            d.append(actor, "workspace.unlinked", json!({ "machine": machine, "workspace": workspace }))?
-        }
-        Cmd::Workspace(WorkspaceCmd::Project { workspace, project, clear: _ }) => {
+        Cmd::Workspace(WorkspaceCmd::Add { project, name }) => d.call("/api/workspaces", Some(json!({ "action": "add", "project": project_arg(&project)?, "name": name })))?,
+        Cmd::Workspace(WorkspaceCmd::Rename { workspace, name }) => d.call("/api/workspaces", Some(json!({ "action": "rename", "workspace": workspace, "name": name })))?,
+        Cmd::Workspace(WorkspaceCmd::Close { workspace }) => d.call("/api/workspaces", Some(json!({ "action": "close", "workspace": workspace })))?,
+        Cmd::Workspace(WorkspaceCmd::Open { workspace }) => d.call("/api/workspaces", Some(json!({ "action": "open", "workspace": workspace })))?,
+        Cmd::Workspace(WorkspaceCmd::Manager { workspace, agent, none: _ }) => {
+            // The seat as it is read now is the one this replaces: changed meanwhile, refused.
             let w = d.get("/api/workspace?light=true")?;
-            let g = w["workspaces"].as_array().into_iter().flatten().find(|g| g["label"] == workspace.as_str() && g["machine"].is_null());
-            let g = g.ok_or_else(|| anyhow!("no workspace {workspace} on this machine; see `workriver workspace list`"))?;
-            d.append(actor, "workspace.project_set", json!({ "workspace": { "id": g["id"], "label": g["label"] }, "project": project.as_deref().map(project_arg).transpose()? }))?
+            let Some(g) = w["workspaces"].as_array().into_iter().flatten().find(|g| g["id"] == workspace.as_str()) else { bail!("no workspace {workspace}; see `workriver workspace list`") };
+            let replaces = g["manager"].as_object().map(|m| json!({ "session": m["session"], "since": m["since"] }));
+            d.call("/api/workspaces", Some(json!({ "action": "manager", "workspace": workspace, "manager": agent, "replaces": replaces })))?
         }
         Cmd::Project(ProjectCmd::Add { folder, title }) => {
             let folder = std::fs::canonicalize(&folder).with_context(|| format!("no folder {folder}"))?;
@@ -214,9 +187,8 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
         Cmd::Project(ProjectCmd::List) => {
             let w = d.get("/api/workspace?light=true")?;
             for p in w["projects"].as_array().into_iter().flatten() {
-                let kind = if p["registered"] == true { "" } else { "  (a repository outside every project)" };
                 let key = p["key"].as_str().map(|k| format!("{k} ")).unwrap_or_default();
-                println!("{key}{}  {}{kind}", p["title"].as_str().unwrap_or("?"), p["id"].as_str().unwrap_or("?"));
+                println!("{key}{}  {}", p["title"].as_str().unwrap_or("?"), p["id"].as_str().unwrap_or("?"));
                 for r in p["repos"].as_array().into_iter().flatten() {
                     println!("  {}", r.as_str().unwrap_or("?"));
                 }
@@ -243,14 +215,11 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
         Cmd::Backlog(BacklogCmd::Export { project }) => return export(d, &project_arg(&project)?).map(|()| None),
         Cmd::Backlog(BacklogCmd::Move { intent, before, after }) => d.append(actor, "intent.moved", json!({ "intent": intent, "before": before, "after": after }))?,
         Cmd::Backlog(BacklogCmd::Merge { into, from, title }) => d.call("/api/backlog/merge", Some(json!({ "into": into, "from": from, "title": title })))?,
-        Cmd::Intent(IntentCmd::Start { intent }) => {
-            let Some(g) = &group else { bail!(runtime::words::INTENT_START_NOWHERE) };
-            let out = d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": g }))?;
-            if let Some(w) = out["warning"].as_str() {
-                eprintln!("warning: {w}");
-            }
-            out
-        }
+        // A manager's start names nothing: it starts in the workspace it holds the seat of,
+        // which the rules fill in. The user says where (or it is the one open workspace of
+        // the intent's project).
+        Cmd::Intent(IntentCmd::Start { intent, workspace }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": workspace }))?,
+        Cmd::Intent(IntentCmd::Move { intent, workspace }) => d.call("/api/workspaces", Some(json!({ "action": "move", "intent": intent, "workspace": workspace })))?,
         Cmd::Intent(IntentCmd::Done { intent }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "done" }))?,
         Cmd::Intent(IntentCmd::Drop { intent, reason }) => d.append(actor, "intent.state_changed", json!({ "intent": intent, "state": "dropped", "reason": reason }))?,
         Cmd::Intent(IntentCmd::Add { title, goal, project, sort }) => d.append(
@@ -348,8 +317,22 @@ pub(crate) enum IntentCmd {
         #[command(flatten)]
         sort: Sort,
     },
-    #[command(about = runtime::words::HELP_INTENT_START)]
-    Start { intent: String },
+    /// Start a planned intent: it becomes active and its workspace's current intent, where
+    /// new units and tasks go. By the workspace's manager (it starts where it holds the seat,
+    /// its project's intents only), or by the user.
+    Start {
+        intent: String,
+        /// The user only: the workspace it starts in (ws1…); default: the one open workspace
+        /// of the intent's project.
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// Move an active intent to another open workspace of its project. The user only.
+    Move {
+        intent: String,
+        /// The workspace it runs in from now on (ws1…).
+        workspace: String,
+    },
     /// Mark an active intent done.
     Done { intent: String },
     /// Drop a planned or active intent.
@@ -412,31 +395,35 @@ pub(crate) enum IntentCmd {
 
 #[derive(Subcommand)]
 pub(crate) enum WorkspaceCmd {
-    /// Every workspace per machine, with its link.
+    /// Every workspace: its id, name, project, manager and current intent.
     List,
-    /// Make a workspace of another machine one with a workspace of this machine: one
-    /// manager (wherever it runs), the same intents.
-    Link {
-        /// `<machine>:<workspace label>`.
-        remote: String,
-        /// The label of the workspace on this machine.
-        local: String,
-    },
-    Unlink {
-        /// `<machine>:<workspace label>`.
-        remote: String,
-    },
-    /// Say which project a workspace of this machine works on, over what workriver works out
-    /// (from where its manager runs, else its current intent). The user only.
-    Project {
-        /// The workspace's label.
-        workspace: String,
+    /// Make another workspace in a project (each project gets its first with `project add`):
+    /// for a big intent, or a conversation of its own. The user only.
+    Add {
         /// The project (p1, or a folder as `workriver project list` shows it).
-        #[arg(required_unless_present = "clear")]
-        project: Option<String>,
-        /// Forget what was set: workriver works it out again.
-        #[arg(long, conflicts_with = "project")]
-        clear: bool,
+        project: String,
+        /// Shown only; it may repeat.
+        #[arg(long)]
+        name: String,
+    },
+    /// The user only.
+    Rename { workspace: String, name: String },
+    /// Close a workspace with no active intent: it leaves the rail, its seat is emptied, its
+    /// intents and conversation stay. The user only.
+    Close { workspace: String },
+    /// Open a closed workspace again. The user only.
+    Open { workspace: String },
+    /// Seat a workspace's manager: a running agent, which is told in its terminal. From the
+    /// user's own terminal only; an agent is never made a manager by an agent.
+    Manager {
+        /// The workspace (ws1…).
+        workspace: String,
+        /// The agent: its session, or its name when only one running agent has it.
+        #[arg(required_unless_present = "none")]
+        agent: Option<String>,
+        /// Empty the seat.
+        #[arg(long, conflicts_with = "agent")]
+        none: bool,
     },
 }
 
@@ -628,13 +615,12 @@ pub(crate) enum UnitCmd {
 
 #[derive(Subcommand)]
 pub(crate) enum ManagerCmd {
-    #[command(about = runtime::words::HELP_MANAGER_HERE)]
+    /// Gone: the user seats a manager (`workriver workspace manager`). Kept to say so.
+    #[command(hide = true)]
     Here {
-        #[arg(long, hide = true, help = runtime::words::HELP_MANAGER_HERE_INTENT)]
+        #[arg(long, hide = true)]
         intent: Option<String>,
-        /// Deprecated: creates and starts an intent with this goal. Use `backlog add` and
-        /// `intent start`.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         goal: Option<String>,
     },
     /// Tell the manager of a task's intent something, from a worker: typed into the

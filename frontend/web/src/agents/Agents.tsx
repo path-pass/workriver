@@ -1,17 +1,23 @@
-// The side panel's Agents section: the agents as a tree, by the workspace they run in.
+// The side panel's Agents section: the agents as a tree, by the workspace the records put
+// them in (its seat, else its tasks'); the rest under "In no workspace".
+import { useContext } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
-import { agentTree, type TreeAgent } from './select'
+import { agentTree, refOf, type TreeAgent } from './select'
 import { contentLang, useT } from '@/i18n'
 import { NodeName } from '@/work/Nodes'
 import { TerminalButton, Who } from './Mark'
+import { AgentContext } from './context'
 import { MachineChip } from '@/machines/format'
 import { Icon, Mark } from '@/ui/Icon'
+import { Tip } from '@/ui/Tip'
 import type { Pick } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
 
-/** One agent of the tree: the line opens its work, the icon at its end its terminal; under it, its question agents. */
+/** One agent of the tree: the line opens its work (and, blocked, its gate), the icon at its
+ *  end its terminal view; under it, its question agents. */
 function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pick: Pick } | null; onOpen: (unit: string, pick: Pick) => void }) {
   const { t, waited } = useT()
+  const agents = useContext(AgentContext)
   const { s, state, at } = a
   const ago = Number.isFinite(a.since) ? waited(a.since) : ''
   const word = a.closable
@@ -21,6 +27,8 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
   // What it is on (or held, or last did); a question agent, who asked.
   const sub = [
     s.harness && <span key="h" className="flex-none font-mono">{s.harness}</span>,
+    // Where its terminal is in the runtime: a hint, quietly.
+    s.group && <Tip key="g" text={t('seat.group', { group: s.group.label })}><span className="max-w-24 flex-none truncate opacity-70" lang={contentLang(s.group.label)}>{s.group.label}</span></Tip>,
     a.asker !== undefined && <span key="q" className="flex-none">{a.asker ? t('agents.askedBy', { who: a.asker }) : t('agents.askedByYou')}</span>,
     at ? (
       <span key="t" className="task min-w-0 truncate">
@@ -36,9 +44,12 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
           type="button"
           className="agent"
           data-state={state}
-          disabled={!at}
+          disabled={!at && state !== 'blocked'}
           aria-pressed={!!at && here?.unit === at.unit.id && here.pick?.id === at.node.id}
-          onClick={() => at && onOpen(at.unit.id, { kind: 'task', id: at.node.id })}
+          onClick={() => {
+            if (at) onOpen(at.unit.id, { kind: 'task', id: at.node.id })
+            if (state === 'blocked') agents.answer(refOf(s))
+          }}
         >
           <Who name={s.agent} topic={s.topic} live={state === 'working' && !!at?.node.writing} />
           <span className="agent-name">
@@ -52,15 +63,15 @@ function AgentLine({ a, here, onOpen }: { a: TreeAgent; here: { unit: string; pi
           {/* Under the name and the word: it takes the whole width left of the terminal button. */}
           {sub.length > 0 && <span className="sub">{sub.flatMap((x, k) => (k ? [<span key={`d${k}`} aria-hidden className="flex-none">·</span>, x] : [x]))}</span>}
         </button>
-        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} />}
+        {state !== 'gone' && <TerminalButton agent={s.agent} session={s.session} machine={s.machine} />}
       </div>
-      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={k.s.session ?? k.s.agent} a={k} here={here} onOpen={onOpen} />)}</ul>}
+      {a.kids.length > 0 && <ul className="tree">{a.kids.map(k => <AgentLine key={`${k.s.session ?? k.s.agent}\n${k.s.machine ?? ''}`} a={k} here={here} onOpen={onOpen} />)}</ul>}
     </li>
   )
 }
 
 /**
- * The agents as a tree, by the runtime workspace they run in: the workspace and its manager,
+ * The agents as a tree, by workspace: the workspace (its name and id) and its manager,
  * the workers under it, the question agents under the worker whose task they ask about. Last,
  * folded, the sessions that never took a task.
  */
@@ -68,23 +79,22 @@ export function Agents({ ws, here, onOpen }: { ws: Workspace; here: { unit: stri
   const { t, num } = useT()
   const { groups, own } = agentTree(ws)
   const line = (a: TreeAgent) => <AgentLine key={a.s.session ?? a.s.agent} a={a} here={here} onOpen={onOpen} />
-  // The project a workspace works on, on its label's hover.
-  const worksOn = (id: string) => { const w = ws.workspaces?.find(x => x.id === id); return w?.projectTitle ? t('intent.worksOn', { project: w.projectTitle }) : undefined }
+  // A workspace's project, on its name's hover.
+  const worksOn = (id: string) => { const p = ws.projects?.find(x => x.id === ws.workspaces?.find(w => w.id === id)?.project); return p ? t('intent.worksOn', { project: p.title }) : undefined }
   return (
     <div className="agents flex flex-col gap-2">
       {groups.map(g => (
-        <section key={g.key} aria-label={g.label || undefined} className="flex flex-col">
-          {g.label && (
+        <section key={g.key} aria-label={g.key ? `${g.label} ${g.key}` : t('agents.noSpace')} className="flex flex-col">
+          {g.key ? (
             <h3 className="flex items-center gap-1.5 px-3.5 pt-2 pb-0.5 text-xs font-semibold text-ink-2">
-              {/* The workspace's label keeps its room; the intent's title gives way. */}
+              {/* The workspace's name and id keep their room; the intent's title gives way. */}
               <span className="max-w-1/2 flex-none truncate" title={worksOn(g.key)} lang={contentLang(g.label)}>{g.label}</span>
-              {/* A workspace of another machine, not linked to one here: its own group. */}
-              <MachineChip machine={g.machine} />
+              <span className="flex-none font-mono text-[11px] font-normal">{g.key}</span>
               {/* Where the workspace's new work goes: its current intent. */}
               {g.intent && g.intent.title !== g.label && <span className="min-w-0 truncate font-normal">· <span lang={contentLang(g.intent.title)}>{g.intent.title}</span></span>}
               {!g.manager && <span className="flex flex-none items-center gap-1 font-normal opacity-70"><Icon name="manager" className="size-3" />{t('manager.state.none')}</span>}
             </h3>
-          )}
+          ) : <h3 className="px-3.5 pt-2 pb-0.5 text-xs font-semibold text-ink-2">{t('agents.noSpace')}</h3>}
           <ul className="tree" data-root>
             {g.manager ? <AgentLine a={{ ...g.manager, kids: g.workers }} here={here} onOpen={onOpen} /> : g.workers.map(line)}
           </ul>

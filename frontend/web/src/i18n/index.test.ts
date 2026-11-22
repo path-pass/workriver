@@ -2,6 +2,9 @@
 // the three dictionaries have the same keys is held by `tsc -b`, plural forms included.)
 import { describe, expect, it } from 'vitest'
 import { contentLang } from './index'
+import { en } from './en'
+import { ja } from './ja'
+import { zhCN } from './zh-CN'
 
 describe('the language of content', () => {
   it('kana is Japanese, Han without kana Chinese, anything else unset', () => {
@@ -13,5 +16,22 @@ describe('the language of content', () => {
     expect(contentLang('')).toBeUndefined()
     expect(contentLang(null)).toBeUndefined()
     expect(contentLang(undefined)).toBeUndefined()
+  })
+})
+
+// Every key of a section with its text, as dotted paths.
+const flat = (o: object, at = ''): [string, string][] =>
+  Object.entries(o).flatMap(([k, v]) => (typeof v === 'string' ? [[at + k, v] as [string, string]] : flat(v, `${at}${k}.`)))
+
+describe('the texts of answering an agent from the page', () => {
+  it('are there in English, Chinese and Japanese, none empty', () => {
+    for (const section of ['screen', 'answer', 'view'] as const) {
+      const keys = flat(en[section]).map(([k]) => k)
+      for (const lang of [zhCN, ja]) {
+        expect(flat(lang[section]).map(([k]) => k)).toEqual(keys)
+        expect(flat(lang[section]).filter(([, v]) => !v.trim())).toEqual([])
+      }
+      expect(flat(en[section]).filter(([, v]) => !v.trim())).toEqual([])
+    }
   })
 })

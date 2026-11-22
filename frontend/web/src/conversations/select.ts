@@ -5,11 +5,11 @@ import { baseName } from '@/code/files'
 import type { Attachment } from '@/attachments/types'
 import type { Lines } from '@/code/types'
 import type { Task } from '@/work/types'
-import type { Session } from '@/agents/types'
+import type { Space } from '@/agents/types'
 import type { Intent, Unit } from '@/planning/types'
 import type { AskContext, ManagerMessage, Talk, Thread } from './types'
 
-/** The conversation with every manager, as the service names it: under no workspace's label. */
+/** The conversation with every manager, as the service names it: under no workspace's id. */
 export const EVERY = ''
 
 /** A message's replies: its manager's, or (to every manager) each copy's. */
@@ -88,40 +88,47 @@ export function messageOf(chips: Chip[], files: Pick<Attachment, 'id' | 'name'>[
 }
 
 /** What the Manager section needs to know which workspaces it offers and which it shows. */
-export type Shown = Pick<Talk, 'intents' | 'intent' | 'sessions' | 'messages' | 'to' | 'followedAt' | 'project' | 'projectOf'>
+export type Shown = Pick<Talk, 'intents' | 'intent' | 'spaces' | 'messages' | 'to' | 'followedAt' | 'project'>
 
-/** The workspaces the Manager section offers and the conversation it shows. */
+/** The workspaces the Manager section offers and the conversation it shows, each by its id. */
 export interface Places {
   /** The intent on screen: its page, or the open unit's. */
   intent?: Intent
-  /** Its workspace, while it is active. */
+  /** Its workspace (its id), while it is active. */
   own?: string
-  /** The managers running, each in a workspace. */
-  running: Session[]
-  /** Every workspace with a manager running or with messages: the one on screen first, then
-   *  those of the rail's project, then the rest. */
-  labels: string[]
+  /** The open workspaces whose manager runs: whom a message to every manager goes to. */
+  running: Space[]
+  /** Every open workspace, one entry each (equal names are never folded): the one on screen
+   *  first, then those of the rail's project, then the rest. */
+  ids: string[]
+  /** Closed workspaces that have messages: after the open ones, read-only. */
+  closed: string[]
   /** "All managers" is offered: more than one running, or once written to or picked. */
   every: boolean
   /** The conversation shown: the one picked while it is offered (one followed to on a switch
    *  only while the intent then on screen is), else the one on screen, else the first;
-   *  `EVERY`: every manager; none: no workspace has a manager. */
-  label: string | null
+   *  `EVERY`: every manager; none: there is no workspace. */
+  id: string | null
 }
+
+const seated = (w: Space) => !!w.manager && w.manager.state !== 'gone'
 
 /** The workspaces offered and the one shown; `unit`: the open unit, when no intent is named. */
 export function placesOf(talk: Shown, unit?: string): Places {
   const intent = talk.intents.find(i => i.id === talk.intent) ?? (unit ? talk.intents.find(i => i.units.some(u => u.id === unit)) : undefined)
-  const own = intent?.state === 'active' ? intent.workspace?.label : undefined
-  const running = talk.sessions.filter(s => s.manager && !s.ended && s.group)
-  const all = [...new Set([...running.map(s => s.group!.label), ...talk.messages.map(m => m.workspace)].filter(l => !!l && l !== own))]
-  const ours = (l: string) => !!talk.project && talk.projectOf(l) === talk.project
-  const labels = [...(own ? [own] : []), ...all.filter(ours), ...all.filter(l => !ours(l))]
+  const open = talk.spaces.filter(w => !w.closed)
+  const own = intent?.state === 'active' && open.some(w => w.id === intent.workspace) ? intent.workspace : undefined
+  const running = open.filter(seated)
+  const rest = open.filter(w => w.id !== own)
+  const ours = (w: Space) => !!talk.project && w.project === talk.project
+  const ids = [...(own ? [own] : []), ...rest.filter(ours).map(w => w.id), ...rest.filter(w => !ours(w)).map(w => w.id)]
+  const closed = talk.spaces.filter(w => w.closed && talk.messages.some(m => m.workspace === w.id)).map(w => w.id)
   const held = talk.followedAt === undefined || talk.followedAt === (intent?.id ?? '')
   const chosen = held ? talk.to ?? null : null
   const every = running.length > 1 || chosen === EVERY || talk.messages.some(m => m.workspace === EVERY)
-  const label = (chosen !== null && (labels.includes(chosen) || (chosen === EVERY && every)) ? chosen : null) ?? own ?? labels[0] ?? null
-  return { intent, own, running, labels, every, label }
+  const offered = chosen !== null && (ids.includes(chosen) || closed.includes(chosen) || (chosen === EVERY && every))
+  const id = (offered ? chosen : null) ?? own ?? ids[0] ?? null
+  return { intent, own, running, ids, closed, every, id }
 }
 
 /**
@@ -129,20 +136,29 @@ export function placesOf(talk: Shown, unit?: string): Places {
  * intent then on screen). A workspace of another project gives way to the project's manager:
  * its only one; with several, the one last picked there (`remembered`), else one with replies
  * not read, else the first running. Only a workspace whose manager runs is gone to, besides
- * the opened unit's own. All managers, a workspace already of the project, one of no known
- * project, and a project with no manager stay as they are.
- * Returns the workspace to show; null: the one on screen; undefined: no change.
+ * the opened unit's own. All managers, a workspace already of the project, and a project
+ * with no manager stay as they are.
+ * Returns the workspace (its id) to show; null: the one on screen; undefined: no change.
  */
 export function followProject(talk: Shown, next: { project: string; intent?: string }, remembered: string | null): string | null | undefined {
-  const shown = placesOf(talk).label
-  const from = shown ? talk.projectOf(shown) : undefined
+  const projectOf = (id: string) => talk.spaces.find(w => w.id === id)?.project
+  const shown = placesOf(talk).id
+  const from = shown ? projectOf(shown) : undefined
   if (!from || from === next.project) return undefined
   const after = placesOf({ ...talk, ...next })
-  const live = (l: string) => after.running.some(s => s.group!.label === l)
-  const ours = after.labels.filter(l => talk.projectOf(l) === next.project && (l === after.own || live(l)))
-  const unread = (l: string) => talk.messages.some(m => m.workspace === l && ((m.byManager && m.unread) || repliesOf(m).some(r => r.unread)))
+  const live = (id: string) => after.running.some(w => w.id === id)
+  const ours = after.ids.filter(id => projectOf(id) === next.project && (id === after.own || live(id)))
+  const unread = (id: string) => talk.messages.some(m => m.workspace === id && ((m.byManager && m.unread) || repliesOf(m).some(r => r.unread)))
   const to = ours.length > 1
     ? (remembered && ours.includes(remembered) ? remembered : ours.find(unread) ?? ours.find(live) ?? ours[0])
     : ours[0]
   return to === undefined ? undefined : to === after.own ? null : to
+}
+
+/** A workspace's entry in the select: its name and id, its project where names repeat or
+ *  every project is shown, and its manager's name. */
+export function entryOf(w: Space, all: Space[], projects: { id: string; title: string }[], everyProject: boolean): string {
+  const twice = all.some(x => x.id !== w.id && !x.closed && x.name === w.name)
+  const project = twice || everyProject ? projects.find(p => p.id === w.project)?.title : undefined
+  return [`${w.name} ${w.id}`, project, w.manager?.name].filter(Boolean).join(' · ')
 }

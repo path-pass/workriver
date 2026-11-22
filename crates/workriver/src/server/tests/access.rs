@@ -37,10 +37,11 @@ fn only_the_user_is_the_user() {
 
     // The user (token, no agent's place) sets things up; agents record as themselves by place.
     user.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
-    let group = json!({ "id": "w1", "label": "chat" });
-    let reg = boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    assert_eq!((reg["actor"].as_str(), reg["body"]["agent"].as_str()), (Some("s-boss"), Some("s-boss")), "in an agent's pane the token changes nothing");
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    let ws = seat_at(&user, &boss);
+    // In an agent's pane the token changes nothing: it is the agent, and seats nobody.
+    let refused = boss.call("/api/workspaces", Some(json!({ "action": "manager", "workspace": ws, "manager": "s-rev", "replaces": seat_of(&user, &ws) }))).unwrap_err().to_string();
+    assert!(refused.contains("only the user does this"), "{refused}");
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "test", "title": "Try it", "inputs": [{ "from": "1" }] })).unwrap();
@@ -63,7 +64,7 @@ fn only_the_user_is_the_user() {
     let own = decide(&boss, "P2-1").unwrap();
     assert_eq!((own["actor"].as_str(), own["body"]["by"].as_str()), (Some("s-boss"), Some("agent")));
     assert!(decide(&boss, "P2-1").unwrap_err().to_string().contains("only the user changes a decision"));
-    for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 2, "result": "done" })), ("chore.done", json!({ "chore": "c1" })), ("workspace.linked", json!({ "machine": "box", "workspace": "a", "local": "a" })), ("project.added", json!({ "path": tmp.path(), "title": "P" }))] {
+    for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 2, "result": "done" })), ("chore.done", json!({ "chore": "c1" })), ("workspace.created", json!({ "name": "a", "project": "p1" })), ("workspace.manager_set", json!({ "workspace": "ws1", "manager": "s-far" })), ("project.added", json!({ "path": tmp.path(), "title": "P" }))] {
         let e = boss.append("", kind, body).unwrap_err().to_string();
         assert!(e.contains("only the user does this"), "{kind}: {e}");
     }
@@ -160,7 +161,8 @@ fn only_the_user_is_the_user() {
     assert!(user.get("/api/state").is_ok() && rev.get("/api/workspace").is_ok() && nobody.get("/api/state").is_err());
     // Only whether the service runs is anyone's to see.
     assert_eq!(http(port, "GET", "/api/status", &[], None).0, 200);
-    assert!(fake.sent.lock().unwrap().iter().all(|(_, m)| !m.starts_with("[workriver] The user")), "nothing was delivered as the user's");
+    // (The one thing the user did say: the seating, told to the manager it seated.)
+    assert!(fake.sent.lock().unwrap().iter().all(|(_, m)| !m.starts_with("[workriver] The user") || m.starts_with("[workriver] The user made you the manager of workspace ws1")), "nothing was delivered as the user's");
 
     // The page: a one-time code makes its session.
     let ours = format!("http://127.0.0.1:{port}");
@@ -267,7 +269,7 @@ fn a_machines_listener_serves_only_agents() {
     // is told where (the user's own Herdr cannot be switched to that machine from outside).
     wait_until("the agent over there is seen", || user.get("/api/workspace").unwrap()["sessions"].as_array().is_some_and(|s| s.iter().any(|x| x["agent"] == "far")));
     let shown = user.call("/api/focus", Some(json!({ "agent": "far" }))).unwrap();
-    assert_eq!((shown["machine"].as_str(), shown["agent"].as_str(), shown["workspace"].as_str()), (Some("box"), Some("far"), Some("chat")), "{shown}");
+    assert_eq!((shown["machine"].as_str(), shown["agent"].as_str(), shown["group"].as_str()), (Some("box"), Some("far"), Some("chat")), "{shown}");
     // What is allowed: reading the board and recording, as the agent of the pane over there.
     for path in ["/api/state", "/api/workspace"] {
         assert_eq!(http(box_port, "GET", path, &creds, None).0, 401, "{path} as nobody, token and all");
@@ -291,9 +293,8 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!(crate::cli::page(&there).unwrap(), format!("http://127.0.0.1:{port}"));
     // A unit is its intent's manager's to add: the agent over there manages its workspace,
     // and the user starts the intent in it.
-    let group = at_place(&there, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["group"].clone();
-    there.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    let ws = seat_at(&user, &there);
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     // Research over there: a unit with no branch, so nothing of that machine to check.
     let e = there.append("", "unit.created", json!({ "intent": "i1", "title": "Look around", "kind": "research" })).unwrap();
     assert_eq!(e["actor"], "s-far");
@@ -325,7 +326,7 @@ fn a_machines_listener_serves_only_agents() {
     assert_eq!(there.get("/api/workspace").unwrap()["reduced"], true);
     // Not the user's events, with or without a place, token and all.
     for d in [&there, &kernel.daemon(box_port, None, Some(tmp.path().to_path_buf())), &kernel.daemon(box_port, Some("w1:p9".into()), Some(tmp.path().to_path_buf()))] {
-        for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 1, "result": "done" })), ("workspace.linked", json!({ "machine": "box", "workspace": "a", "local": "a" })), ("project.added", json!({ "path": "/p", "title": "P" })), ("intent.created", json!({ "title": "As the user?" }))] {
+        for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 1, "result": "done" })), ("workspace.created", json!({ "name": "a", "project": "p1" })), ("workspace.manager_set", json!({ "workspace": "ws1", "manager": "s-far" })), ("project.added", json!({ "path": "/p", "title": "P" })), ("intent.created", json!({ "title": "As the user?" }))] {
             if d.place.as_deref() == Some("w1:p1") && kind == "intent.created" {
                 continue; // an agent may add to the backlog, as itself
             }
@@ -333,7 +334,8 @@ fn a_machines_listener_serves_only_agents() {
         }
     }
     let state: workriver_core::State = serde_json::from_value(user.get("/api/state").unwrap()).unwrap();
-    assert!(state.links.is_empty() && state.projects.is_empty() && state.intents.len() == 1);
+    // Nothing but what the user made: the one project, its workspace and the intent.
+    assert!(state.workspaces.len() == 1 && state.projects.len() == 1 && state.intents.len() == 1 && state.workspaces[0].manager.as_ref().is_some_and(|m| m.session == "s-far"));
 }
 
 /// A blind review: its agent reads and is told nothing of other work until it delivers;
@@ -363,10 +365,9 @@ fn blind_reviews() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, imp, sec) = (at("p1"), at("p2"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
     imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
@@ -557,7 +558,7 @@ fn here_is_where_the_process_is() {
     assert!(code == 403 && text.contains("says it runs in pane p3") && text.contains("runs in pane p2"), "{text}");
     // In no pane: nobody and no group; answered without the token, but not without a process.
     let (code, text) = here(None, Some(vec![proc(4800, 1, Some("ttys000"), "zsh")]));
-    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null, "name": null, "group": null, "intent": null })));
+    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null, "name": null, "group": null, "workspace": null, "manager": false, "intent": null })));
     let (code, text) = here(Some("p2"), None);
     assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
 }

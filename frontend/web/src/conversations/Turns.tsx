@@ -12,7 +12,8 @@ import { needsNote, noteWords, showsNothing, type Choice } from '@/content/choic
 import { Input } from '@/ui/primitives/input'
 import { Who } from '@/agents/Mark'
 import { Prose } from '@/content/Prose'
-import { ChipName } from '@/content/Chips'
+import { ChipName, Content, Slot, SLOT } from '@/content/Chips'
+import { useSpace } from '@/planning/spaces'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Thumbs } from '@/attachments/Thumbs'
@@ -362,6 +363,8 @@ export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswe
   const replies = copies.length
     ? copies.flatMap(c => c.replies.map(r => ({ ...r, place: <Place c={c} /> }))).sort((a, b) => ms(a.at) - ms(b.at))
     : m.replies.map((r, k) => ({ ...r, place: null, k: k + 1 }))
+  // A line of workriver's own: nobody's bubble, never unread.
+  if (m.notice) return <Notice m={m} />
   return (
     <>
       {/* One the manager started: its words alone, nothing of the user's above them. */}
@@ -388,9 +391,25 @@ export function MessageView({ m, onAnswer, asked }: { m: ManagerMessage; onAnswe
   )
 }
 
-/** The workspace a copy of a message to every manager went to (and its machine, when another). */
+/** A system line in a conversation: the seated manager's terminal was gone and it shows
+ *  again where it was, so it is the manager again by itself. */
+function Notice({ m }: { m: ManagerMessage }) {
+  const { t, when, waited } = useT()
+  return (
+    <li className="chat-note" data-notice={m.notice}>
+      <Icon name="manager" className="size-3 flex-none" />
+      <span className="min-w-0"><Slot text={t(`talk.notice.${m.notice!}`, { manager: SLOT })}><Content text={m.manager} /></Slot></span>
+      <Tip text={when(ms(m.at))}><time className="flex-none" dateTime={m.at}>{waited(ms(m.at))}</time></Tip>
+    </li>
+  )
+}
+
+/** The workspace a copy of a message to every manager went to, by its name and id (and its
+ *  manager's machine, when another). */
 function Place({ c }: { c: Copy }) {
   const { t } = useT()
-  const text = c.machine ? t('talk.place', { workspace: c.workspace, machine: c.machine }) : c.workspace
-  return <span lang={contentLang(c.workspace)}>{text}</span>
+  const space = useSpace(c.workspace)
+  const name = space?.name ?? ''
+  const text = c.machine ? t('talk.place', { workspace: name, machine: c.machine }) : name
+  return <span className="inline-flex min-w-0 items-baseline gap-1"><span className="min-w-0 truncate" lang={contentLang(name)}>{text}</span><span className="flex-none font-mono text-[11px] opacity-80">{c.workspace}</span></span>
 }

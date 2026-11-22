@@ -1,0 +1,16 @@
+› Before planning, use your ask-the-user question tool (request_user_input) to ask which color I prefer: Red or Blue.
+  Do nothing else.
+
+
+• Hook failed
+  └ plugin contents changed; hook approval required
+
+
+  Question 1/1 (1 unanswered)
+  你更喜欢哪种颜色？
+
+  › 1. Red (Recommended)  选择红色。
+    2. Blue               选择蓝色。
+    3. None of the above  Optionally, add details in notes (tab)
+
+  tab to add notes | enter to submit answer | esc to interrupt

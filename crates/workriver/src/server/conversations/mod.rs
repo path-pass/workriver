@@ -88,14 +88,15 @@ pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extens
 }
 
 /// One message whole, with its replies (`workriver message show`): what a cut quote in a
-/// manager's terminal points at. Of the records the caller may see (`App::view`), as
-/// `State::message_for` lets it read them; each text whole, made safe to quote.
+/// manager's terminal points at. Of the records the caller may see (`App::view`: an agent,
+/// its own workspace's conversation by id), as `State::message_for` lets it read them; each
+/// text whole, made safe to quote.
 pub(super) async fn message_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::MessageShow>, ApiError> {
     blocking(move || {
-        let (who, group) = app.who_in(&caller, r.named.as_deref())?;
+        let who = app.who(&caller, r.named.as_deref())?;
         let state = app.view(&caller, &r)?;
-        state.message(&id).map_err(|e| ApiError(StatusCode::NOT_FOUND, e.0))?;
-        let m = state.message_for(&id, &who, group.as_ref()).map_err(|e| ApiError(StatusCode::FORBIDDEN, e.0))?;
+        // Not there and not the caller's are one answer: what is not its own it never sees.
+        let m = state.message_for(&id, &who).map_err(|e| ApiError(StatusCode::NOT_FOUND, e.0))?;
         let name = |session: &str| delivery::quote::name(state.name_of(session).unwrap_or(session));
         let (answers, selected) = match &m.answer {
             Some(a) if a.reply == 0 => (a.message.clone(), a.selected.join(", ")),

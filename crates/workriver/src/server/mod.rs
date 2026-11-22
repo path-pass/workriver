@@ -33,6 +33,7 @@ mod files;
 mod http;
 mod machines;
 mod planning;
+mod terminals;
 mod views;
 mod work;
 #[cfg(test)]
@@ -72,11 +73,15 @@ pub(super) struct Waits {
     minute: Duration,
     /// How long one hour of the ready threshold lasts (an hour; less in tests).
     hour: Duration,
+    /// How often the runtime's agents are read (`POLL`; longer in a test of the wake-ups).
+    tick: Duration,
+    /// How long after the runtime's change stream ended it is opened again.
+    rewatch: Duration,
 }
 
 impl Default for Waits {
     fn default() -> Self {
-        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600) }
+        Waits { answer: prompts::TIMEOUT, idle: prompts::IDLE, ready: prompts::READY, minute: Duration::from_secs(60), hour: Duration::from_secs(3600), tick: POLL, rewatch: Duration::from_secs(5) }
     }
 }
 
@@ -116,7 +121,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         remote_kick: kick,
         machines,
         listeners: Mutex::default(),
-        groups: Mutex::default(),
+        proposals: Mutex::default(),
         tunnels: Mutex::default(),
         runtime,
         warning,
@@ -131,6 +136,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         idle_since: Mutex::default(),
         seen_on: Mutex::default(),
         discussing: Mutex::default(),
+        appointing: Mutex::default(),
         gone: Mutex::default(),
         stalls: Mutex::default(),
         stall_minutes: crate::runtime::Settings::stall_minutes(&store_home).into(),
@@ -147,16 +153,50 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         watcher: Mutex::new(None),
         watched: Mutex::default(),
         runs: Mutex::default(),
+        terminals: terminals::Terminals::new(),
+        wake: Arc::default(),
     });
     let poller = app.clone();
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(POLL);
+        let mut tick = tokio::time::interval(poller.waits.tick);
+        // The runtime told of a change: the poll runs at once, once per tick at most.
+        let mut early = false;
         loop {
-            tick.tick().await;
+            tokio::select! {
+                _ = tick.tick() => early = false,
+                _ = poller.wake.notified(), if !early => early = true,
+            }
             let app = poller.clone();
             let _ = tokio::task::spawn_blocking(move || app.poll()).await;
         }
     });
+    // This machine's changes as they happen (another machine's are followed in follow.rs,
+    // next to its reads): each wakes the poll. Opened again a while after it ends.
+    let watcher = app.clone();
+    std::thread::spawn(move || {
+        let stopping = watcher.stopping.subscribe();
+        while !*stopping.borrow() {
+            let wake = watcher.wake.clone();
+            let stop = stopping.clone();
+            let ended = watcher.runtime.watch(None, &mut |_| {
+                wake.notify_one();
+                !*stop.borrow()
+            });
+            if let Err(e) = ended
+                && !*stopping.borrow()
+            {
+                tracing::debug!("the runtime's changes are not followed now: {e}");
+            }
+            let until = std::time::Instant::now() + watcher.waits.rewatch;
+            while std::time::Instant::now() < until && !*stopping.borrow() {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    });
+    if let Some(m) = &app.machines {
+        let wake = app.wake.clone();
+        m.on_change(std::sync::Arc::new(move || wake.notify_one()));
+    }
     let tx = changed.clone();
     let debouncer = new_debouncer(Duration::from_millis(300), move |res: DebounceEventResult| {
         if res.is_ok_and(|events| events.iter().any(|e| worth_a_look(&e.path))) {

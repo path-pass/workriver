@@ -1,0 +1,45 @@
+{"at":"2026-01-01T00:01:00Z","actor":"workriver","kind":"agent.seen","body":{"session": "s-m1", "name": "app-mgr", "harness": "claude", "cwd": "/r/app"},"from":1}
+{"at":"2026-01-01T00:02:00Z","actor":"workriver","kind":"agent.seen","body":{"session": "s-r", "name": "box-mgr", "harness": "codex", "cwd": "/home/b/app", "machine": "box"},"from":2}
+{"at":"2026-01-01T00:03:00Z","actor":"workriver","kind":"agent.seen","body":{"session": "s-b", "name": "web-mgr", "harness": "claude", "cwd": "/home/b/web", "machine": "box"},"from":3}
+{"at":"2026-01-01T00:04:00Z","actor":"workriver","kind":"agent.seen","body":{"session": "s-a", "name": "helper", "harness": "claude", "cwd": "/r/app"},"from":4}
+{"at":"2026-01-01T00:05:00Z","actor":"user","kind":"project.added","body":{"id": "p1", "path": "/r/app", "title": "App"},"from":5}
+{"at":"2026-01-01T00:06:00Z","actor":"user","kind":"intent.created","body":{"id": "i1", "title": "Login", "project": "/r/app", "state": "planned"},"from":6}
+{"at":"2026-01-01T00:07:00Z","actor":"user","kind":"project.added","body":{"id":"p2","path":"/r/tools","title":"tools"},"check":true}
+{"at":"2026-01-01T00:07:00Z","actor":"user","kind":"intent.created","body":{"id": "i2", "title": "Tools", "project": "/r/tools", "state": "planned"},"from":7}
+{"at":"2026-01-01T00:08:00Z","actor":"user","kind":"project.added","body":{"id":"p3","path":"/r/lib","title":"Lib"},"from":8,"check":true}
+{"at":"2026-01-01T00:09:00Z","actor":"user","kind":"project.renamed","body":{"project":"p3","title":"Library"},"from":9,"check":true}
+{"at":"2026-01-01T00:10:00Z","actor":"s-a","kind":"intent.created","body":{"id":"i3","state":"planned","title":"Peek"},"from":10,"check":true}
+{"at":"2026-01-01T00:11:00Z","actor":"user","kind":"intent.created","body":{"id": "i4", "title": "Cache", "project": "/r/lib", "state": "planned"},"from":11}
+{"at":"2026-01-01T00:12:00Z","actor":"user","kind":"intent.created","body":{"id": "i5", "title": "Old one", "state": "planned"},"from":12}
+{"at":"2026-01-01T00:14:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws1","name":"app","project":"p1"},"check":true}
+{"at":"2026-01-01T00:14:00Z","actor":"user","kind":"intent.state_changed","body":{"intent":"i1","state":"active","workspace":"ws1"},"from":14,"check":true}
+{"at":"2026-01-01T00:15:00Z","actor":"s-m1","kind":"unit.created","body":{"id": "u1", "intent": "i1", "title": "Form", "repo": "/r/app", "branch": "login", "base": "main"},"from":15}
+{"at":"2026-01-01T00:16:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws2","name":"app","project":"p3"},"check":true}
+{"at":"2026-01-01T00:16:00Z","actor":"user","kind":"intent.state_changed","body":{"intent":"i4","state":"active","workspace":"ws2"},"from":16,"check":true}
+{"at":"2026-01-01T00:17:00Z","actor":"s-m1","kind":"message.said","body":{"id":"m1","intent":"i4","text":"Lib started.","workspace":"ws2"},"from":17,"check":true}
+{"at":"2026-01-01T00:18:00Z","actor":"user","kind":"message.sent","body":{"id":"m2","manager":"s-m1","text":"Which first?","workspace":"ws1"},"from":18,"check":true}
+{"at":"2026-01-01T00:19:00Z","actor":"workriver","kind":"message.delivery","body":{"id": "m2", "message": "Which first?", "step": "delivered", "to": "s-m1"},"from":19}
+{"at":"2026-01-01T00:20:00Z","actor":"s-m1","kind":"message.replied","body":{"message": "m2", "text": "Login."},"from":20}
+{"at":"2026-01-01T00:22:00Z","actor":"user","kind":"intent.created","body":{"id": "i6", "title": "Search", "project": "/r/app", "state": "planned"},"from":22}
+{"at":"2026-01-01T00:23:00Z","actor":"s-m1","kind":"intent.state_changed","body":{"intent":"i6","state":"active","workspace":"ws1"},"from":23,"check":true}
+{"at":"2026-01-01T00:24:00Z","actor":"user","kind":"intent.created","body":{"id": "i7", "title": "Web index", "project": "/r/lib", "state": "planned"},"from":24}
+{"at":"2026-01-01T00:25:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws3","name":"web","project":"p3"},"check":true}
+{"at":"2026-01-01T00:25:00Z","actor":"user","kind":"intent.state_changed","body":{"intent":"i7","state":"active","workspace":"ws3"},"from":25,"check":true}
+{"at":"2026-01-01T00:26:00Z","actor":"s-b","kind":"message.said","body":{"choice":{"surface":{"createSurface":{"catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json","components":[{"children":["options","submit"],"component":"Column","id":"root"},{"component":"ChoicePicker","id":"options","options":[{"label":"Keep it","value":"a"},{"label":"Drop it","value":"b"}],"value":{"@path":"/selected"},"variant":"mutuallyExclusive"},{"@checks":[{"condition":{"@call":"required","args":{"value":{"@path":"/selected"}}}}],"action":{"event":{"context":{"selected":{"@path":"/selected"}},"name":"answer"}},"child":"submit-label","component":"Button","id":"submit","variant":"primary"},{"component":"Text","id":"submit-label","text":{"@path":"/ui/submit"}}],"dataModel":{"selected":[]},"surfaceId":"choice"},"version":"1.0"}},"id":"m3","intent":"i7","text":"Pick one","workspace":"ws3"},"from":26,"check":true}
+{"at":"2026-01-01T00:27:00Z","actor":"user","kind":"message.sent","body":{"id":"m4","manager":"","text":"Stop at six.","to":[{"manager":"s-m1","since":13,"workspace":"ws1"},{"machine":"box","manager":"s-b","since":22,"workspace":"ws3"}],"workspace":""},"from":27,"check":true}
+{"at":"2026-01-01T00:28:00Z","actor":"workriver","kind":"message.delivery","body":{"id": "m4", "manager": "s-m1", "message": "Stop at six.", "step": "delivered", "to": "s-m1"},"from":28}
+{"at":"2026-01-01T00:29:00Z","actor":"s-m1","kind":"message.replied","body":{"message": "m4", "text": "OK"},"from":29}
+{"at":"2026-01-01T00:31:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws4","name":"app","project":"p1"},"check":true}
+{"at":"2026-01-01T00:31:00Z","actor":"s-r","kind":"message.said","body":{"id":"m5","text":"Box is up.","workspace":"ws4"},"from":31,"check":true}
+{"at":"2026-01-01T00:35:00Z","actor":"user","kind":"intent.created","body":{"id": "i8", "title": "Box sync", "project": "/r/app", "state": "planned"},"from":35}
+{"at":"2026-01-01T00:36:00Z","actor":"s-r","kind":"intent.state_changed","body":{"intent":"i8","state":"active","workspace":"ws1"},"from":36,"check":true}
+{"at":"2026-01-01T00:38:00Z","actor":"user","kind":"messages.read","body":{"at":"2026-01-01T00:31:00Z","workspace":"ws1"},"from":38,"check":true}
+{"at":"2026-01-01T00:38:00Z","actor":"user","kind":"messages.read","body":{"at":"2026-01-01T00:31:00Z","workspace":"ws2"},"from":38,"check":true}
+{"at":"2026-01-01T00:38:00Z","actor":"user","kind":"messages.read","body":{"at":"2026-01-01T00:31:00Z","workspace":"ws4"},"from":38,"check":true}
+{"at":"2026-01-01T00:39:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws5","name":"ghost","project":"p1"},"check":true}
+{"at":"2026-01-01T00:39:00Z","actor":"user","kind":"message.sent","body":{"id":"m6","manager":"s-old","text":"Anyone?","workspace":"ws5"},"from":39,"check":true}
+{"at":"2026-01-01T00:40:00Z","actor":"user","kind":"intent.state_changed","body":{"intent": "i1", "state": "done"},"from":40}
+{"at":"2026-01-01T00:41:00Z","actor":"user","kind":"message.sent","body":{"id":"m7","intent":"i6","manager":"s-r","text":"Ship it","workspace":"ws1"},"from":41,"check":true}
+{"at":"2026-01-01T00:41:00Z","actor":"user","kind":"workspace.created","body":{"id":"ws6","name":"tools","project":"p2"},"check":true}
+{"at":"2026-01-01T00:41:00Z","actor":"user","kind":"workspace.closed","body":{"workspace":"ws4"},"check":true}
+{"at":"2026-01-01T00:41:00Z","actor":"user","kind":"workspace.closed","body":{"workspace":"ws5"},"check":true}

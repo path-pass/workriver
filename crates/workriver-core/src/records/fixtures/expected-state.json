@@ -35,25 +35,13 @@
           "findings": "user",
           "goal": "Find messages fast",
           "id": "i2",
-          "manager": null,
           "note": "",
           "project": "/r/chat",
           "reason": null,
-          "runtime_ref": null,
           "state": "active",
           "tasks": [],
           "title": "Search and emoji",
-          "workspace": {
-            "id": "w2",
-            "label": "search"
-          }
-        }
-      ],
-      "links": [
-        {
-          "local": "search",
-          "machine": "box",
-          "workspace": "srch"
+          "workspace": "ws2"
         }
       ],
       "messages": [],
@@ -127,21 +115,32 @@
       ],
       "workspaces": [
         {
-          "current": null,
-          "group": {
-            "id": "w7",
-            "label": "chat"
+          "id": "ws1",
+          "manager": {
+            "session": "s-boss",
+            "since": 4
           },
-          "manager": "s-boss"
+          "name": "chat v1",
+          "project": "p1"
         },
         {
           "current": "i2",
-          "group": {
-            "id": "w2",
-            "label": "search"
+          "id": "ws2",
+          "manager": {
+            "session": "s-boss2",
+            "since": 31
           },
-          "manager": "s-boss2",
-          "project": "/r/chat"
+          "name": "search",
+          "project": "p1"
+        },
+        {
+          "id": "ws3",
+          "manager": {
+            "session": "s-far",
+            "since": 82
+          },
+          "name": "search",
+          "project": "p1"
         }
       ]
     },
@@ -193,10 +192,6 @@
     {
       "body": {
         "id": "i1",
-        "runtime_ref": {
-          "id": "w1",
-          "label": "chat"
-        },
         "state": "active",
         "title": "Chat v1"
       },
@@ -204,10 +199,35 @@
     },
     {
       "body": {
-        "agent": "s-boss",
-        "intent": "i1"
+        "id": "p1",
+        "path": "/r/chat",
+        "title": "Chat"
       },
-      "kind": "manager.registered"
+      "kind": "project.added"
+    },
+    {
+      "body": {
+        "id": "ws1",
+        "name": "chat",
+        "project": "p1"
+      },
+      "kind": "workspace.created"
+    },
+    {
+      "body": {
+        "folder": "/r/chat",
+        "manager": "s-boss",
+        "replaces": null,
+        "workspace": "ws1"
+      },
+      "kind": "workspace.manager_set"
+    },
+    {
+      "body": {
+        "intent": "i1",
+        "workspace": "ws1"
+      },
+      "kind": "intent.workspace_set"
     },
     {
       "body": {
@@ -367,13 +387,10 @@
     },
     {
       "body": {
-        "intent": "i1",
-        "runtime_ref": {
-          "id": "w7",
-          "label": "chat"
-        }
+        "name": "chat v1",
+        "workspace": "ws1"
       },
-      "kind": "intent.linked"
+      "kind": "workspace.renamed"
     },
     {
       "body": {
@@ -436,14 +453,6 @@
     },
     {
       "body": {
-        "id": "p1",
-        "path": "/r/chat",
-        "title": "Chat"
-      },
-      "kind": "project.added"
-    },
-    {
-      "body": {
         "project": "/r/chat",
         "title": "Chat app"
       },
@@ -502,22 +511,26 @@
     },
     {
       "body": {
-        "agent": "s-boss2",
-        "workspace": {
-          "id": "w2",
-          "label": "search"
-        }
+        "id": "ws2",
+        "name": "search",
+        "project": "p1"
       },
-      "kind": "manager.registered"
+      "kind": "workspace.created"
+    },
+    {
+      "body": {
+        "folder": "/r/chat",
+        "manager": "s-boss2",
+        "replaces": null,
+        "workspace": "ws2"
+      },
+      "kind": "workspace.manager_set"
     },
     {
       "body": {
         "intent": "i2",
         "state": "active",
-        "workspace": {
-          "id": "w2",
-          "label": "search"
-        }
+        "workspace": "ws2"
       },
       "kind": "intent.state_changed"
     },
@@ -1149,36 +1162,66 @@
     },
     {
       "body": {
-        "local": "search",
-        "machine": "box",
-        "workspace": "search"
+        "id": "ws3",
+        "name": "search",
+        "project": "p1"
       },
-      "kind": "workspace.linked"
+      "kind": "workspace.created"
     },
     {
       "body": {
-        "project": "/r/chat",
-        "workspace": {
-          "id": "w2",
-          "label": "search"
-        }
+        "folder": "/home/far/chat",
+        "machine": "box",
+        "manager": "s-far",
+        "replaces": null,
+        "workspace": "ws3"
       },
-      "kind": "workspace.project_set"
+      "kind": "workspace.manager_set"
     },
     {
       "body": {
-        "machine": "box",
-        "workspace": "search"
+        "manager": null,
+        "replaces": {
+          "session": "s-far",
+          "since": 78
+        },
+        "workspace": "ws3"
       },
-      "kind": "workspace.unlinked"
+      "kind": "workspace.manager_set"
     },
     {
       "body": {
-        "local": "search",
-        "machine": "box",
-        "workspace": "srch"
+        "workspace": "ws3"
       },
-      "kind": "workspace.linked"
+      "kind": "workspace.closed"
+    },
+    {
+      "body": {
+        "workspace": "ws3"
+      },
+      "kind": "workspace.opened"
+    },
+    {
+      "body": {
+        "folder": "/home/far/chat",
+        "machine": "box",
+        "manager": "s-far",
+        "replaces": null,
+        "workspace": "ws3"
+      },
+      "kind": "workspace.manager_set"
+    },
+    {
+      "body": {
+        "folder": "/r/chat",
+        "manager": "s-boss2",
+        "replaces": {
+          "session": "s-boss2",
+          "since": 31
+        },
+        "workspace": "ws2"
+      },
+      "kind": "workspace.manager_set"
     },
     {
       "body": {
@@ -1222,7 +1265,7 @@
         "intent": "i2",
         "manager": "s-boss2",
         "text": "How is it going?",
-        "workspace": "search"
+        "workspace": "ws2"
       },
       "kind": "message.sent"
     },
@@ -1248,21 +1291,76 @@
         "id": "m2",
         "intent": "i2",
         "text": "Design confirmed.",
-        "workspace": "search"
+        "workspace": "ws2"
       },
       "kind": "message.said"
     },
     {
       "body": {
         "at": "2025-12-03T10:00:00Z",
-        "workspace": "search"
+        "workspace": "ws2"
       },
       "kind": "messages.read"
     },
     {
       "body": {
         "at": "2025-12-03T09:00:00Z",
-        "workspace": "search"
+        "workspace": "ws2"
+      },
+      "kind": "messages.read"
+    },
+    {
+      "body": {
+        "id": "m3",
+        "session": "s-boss2",
+        "workspace": "ws2"
+      },
+      "kind": "workspace.manager_back"
+    },
+    {
+      "body": {
+        "id": "m4",
+        "manager": "",
+        "text": "I shut down at six.",
+        "to": [
+          {
+            "manager": "s-boss2",
+            "since": 31,
+            "workspace": "ws2"
+          },
+          {
+            "machine": "box",
+            "manager": "s-far",
+            "since": 82,
+            "workspace": "ws3"
+          }
+        ],
+        "workspace": ""
+      },
+      "kind": "message.sent"
+    },
+    {
+      "body": {
+        "id": "m4",
+        "manager": "s-far",
+        "message": "I shut down at six.",
+        "reason": null,
+        "step": "delivered",
+        "to": "s-far"
+      },
+      "kind": "message.delivery"
+    },
+    {
+      "body": {
+        "message": "m4",
+        "text": "Nothing running on box."
+      },
+      "kind": "message.replied"
+    },
+    {
+      "body": {
+        "at": "2025-12-03T10:02:00Z",
+        "workspace": ""
       },
       "kind": "messages.read"
     },
@@ -1588,11 +1686,11 @@
     },
     {
       "body": {
-        "id": "m3",
+        "id": "m5",
         "intent": "i2",
         "manager": "s-boss2",
         "text": "Hello",
-        "workspace": "search"
+        "workspace": "ws2"
       },
       "kind": "message.sent"
     },
@@ -1765,14 +1863,9 @@
         "findings": "manager",
         "goal": "",
         "id": "i1",
-        "manager": "s-boss",
         "note": "",
-        "project": "",
+        "project": "/r/chat",
         "reason": null,
-        "runtime_ref": {
-          "id": "w7",
-          "label": "chat"
-        },
         "state": "done",
         "tasks": [
           {
@@ -1803,10 +1896,7 @@
           }
         ],
         "title": "Chat v1",
-        "workspace": {
-          "id": "w7",
-          "label": "chat"
-        }
+        "workspace": "ws1"
       },
       {
         "at": "2025-12-02T02:00:00Z",
@@ -1819,18 +1909,13 @@
         "findings": "user",
         "goal": "Find messages fast",
         "id": "i2",
-        "manager": null,
         "note": "See the spec.\n\nMerged from i3: Emoji\n\nSecond paragraph.",
         "project": "/r/chat",
         "reason": null,
-        "runtime_ref": null,
         "state": "active",
         "tasks": [],
         "title": "Search and emoji",
-        "workspace": {
-          "id": "w2",
-          "label": "search"
-        }
+        "workspace": "ws2"
       },
       {
         "at": "2025-12-02T03:00:00Z",
@@ -1839,11 +1924,9 @@
         "findings": "manager",
         "goal": "",
         "id": "i3",
-        "manager": null,
         "note": "",
         "project": "/r/chat",
         "reason": "merged into i2",
-        "runtime_ref": null,
         "state": "dropped",
         "tasks": [],
         "title": "Emoji",
@@ -1856,11 +1939,9 @@
         "findings": "manager",
         "goal": "",
         "id": "i4",
-        "manager": null,
         "note": "",
         "project": "/r/chat",
         "reason": "later",
-        "runtime_ref": null,
         "state": "dropped",
         "tasks": [],
         "title": "Threads",
@@ -1876,22 +1957,13 @@
         "findings": "manager",
         "goal": "",
         "id": "i5",
-        "manager": null,
         "note": "Whole note",
         "project": "/r/chat",
         "reason": null,
-        "runtime_ref": null,
         "state": "planned",
         "tasks": [],
         "title": "Later, maybe",
         "workspace": null
-      }
-    ],
-    "links": [
-      {
-        "local": "search",
-        "machine": "box",
-        "workspace": "srch"
       }
     ],
     "messages": [
@@ -1913,8 +1985,9 @@
             "text": "Fine."
           }
         ],
+        "since": 31,
         "text": "How is it going?",
-        "workspace": "search"
+        "workspace": "ws2"
       },
       {
         "at": "2025-12-03T10:00:00Z",
@@ -1924,8 +1997,55 @@
         "intent": "i2",
         "manager": "s-boss2",
         "replies": [],
+        "since": 31,
         "text": "Design confirmed.",
-        "workspace": "search"
+        "workspace": "ws2"
+      },
+      {
+        "at": "2025-12-03T10:02:00Z",
+        "delivery": null,
+        "id": "m3",
+        "intent": "",
+        "manager": "s-boss2",
+        "notice": "manager-back",
+        "replies": [],
+        "text": "",
+        "workspace": "ws2"
+      },
+      {
+        "at": "2025-12-03T10:02:00Z",
+        "delivery": null,
+        "id": "m4",
+        "intent": "",
+        "manager": "",
+        "replies": [
+          {
+            "at": "2025-12-03T10:02:00Z",
+            "by": "s-far",
+            "text": "Nothing running on box."
+          }
+        ],
+        "text": "I shut down at six.",
+        "to": [
+          {
+            "manager": "s-boss2",
+            "since": 31,
+            "workspace": "ws2"
+          },
+          {
+            "delivery": {
+              "message": "I shut down at six.",
+              "reason": null,
+              "step": "delivered",
+              "to": "s-far"
+            },
+            "machine": "box",
+            "manager": "s-far",
+            "since": 82,
+            "workspace": "ws3"
+          }
+        ],
+        "workspace": ""
       }
     ],
     "projects": [
@@ -2076,7 +2196,8 @@
       "u3#1": "2025-12-03T14:01:00Z"
     },
     "read": {
-      "search": "2025-12-03T10:00:00Z"
+      "": "2025-12-03T10:02:00Z",
+      "ws2": "2025-12-03T10:00:00Z"
     },
     "roadmap": [
       "i5"
@@ -2716,21 +2837,36 @@
     ],
     "workspaces": [
       {
-        "current": null,
-        "group": {
-          "id": "w7",
-          "label": "chat"
+        "id": "ws1",
+        "manager": {
+          "folder": "/r/chat",
+          "session": "s-boss",
+          "since": 4
         },
-        "manager": "s-boss"
+        "name": "chat v1",
+        "project": "p1"
       },
       {
         "current": "i2",
-        "group": {
-          "id": "w2",
-          "label": "search"
+        "id": "ws2",
+        "manager": {
+          "folder": "/r/chat",
+          "session": "s-boss2",
+          "since": 31
         },
-        "manager": "s-boss2",
-        "project": "/r/chat"
+        "name": "search",
+        "project": "p1"
+      },
+      {
+        "id": "ws3",
+        "manager": {
+          "folder": "/home/far/chat",
+          "machine": "box",
+          "session": "s-far",
+          "since": 82
+        },
+        "name": "search",
+        "project": "p1"
       }
     ]
   }

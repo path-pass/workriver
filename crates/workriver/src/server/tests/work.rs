@@ -138,14 +138,13 @@ fn pick_up_survives_a_restart() {
     let busy = std::sync::Arc::new(Fake::default());
     *busy.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Working))];
     let a = start(busy.clone());
-    a.append("user", "intent.created", json!({ "title": "Chat", "runtime_ref": { "id": "w1", "label": "chat" } })).unwrap();
-    a.append("s-boss", "manager.registered", json!({ "intent": "i1", "agent": "s-boss" })).unwrap();
+    manage(&a, "p1", "s-boss");
     a.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     a.append("s-rev", "task.created", json!({ "unit": "u1", "kind": "review" })).unwrap();
     a.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P1", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500));
     a.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P1-1", "decision": "accept" }))).unwrap();
-    assert_eq!(busy.sent.lock().unwrap().len(), 2, "the review's delivery and the decision");
+    assert_eq!(busy.sent.lock().unwrap().len(), 3, "the seating, the review's delivery and the decision");
 
     // A second daemon on the same records sees the manager go idle, then start working.
     let fresh = std::sync::Arc::new(Fake::default());
@@ -270,13 +269,9 @@ fn a_read_that_fails_after_the_commit_does_not_fail_the_request() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle))];
     let (user, kernel, faults) = flaky_service(fake.clone(), &db, crate::server::Waits::default());
     let boss = kernel.daemon(user.port, Some("p1".into()), None);
-    let group = json!({ "id": "w1", "label": "chat" });
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    // Of one project: the user's start makes the workspace that project's, so its manager starts the next.
-    let project = tmp.path().join("proj");
-    std::fs::create_dir(&project).unwrap();
-    let project = std::fs::canonicalize(&project).unwrap();
-    user.append("", "project.added", json!({ "path": project.to_string_lossy(), "title": "Proj" })).unwrap();
+    // Of the workspace's project: its manager starts the next one itself.
+    let ws = seat_at(&user, &boss);
+    let project = std::fs::canonicalize(tmp.path().join("proj")).unwrap();
     user.append("", "intent.created", json!({ "title": "Login", "project": project.to_string_lossy(), "state": "planned" })).unwrap();
     user.append("", "intent.created", json!({ "title": "Search", "project": project.to_string_lossy(), "state": "planned" })).unwrap();
     let state_of = |intent: &str| stored(&db).iter().rev().map(|e| serde_json::to_value(e).unwrap()).find(|v| v["kind"] == "intent.state_changed" && v["body"]["intent"] == intent).map(|v| v["body"]["state"].clone());
@@ -284,7 +279,7 @@ fn a_read_that_fails_after_the_commit_does_not_fail_the_request() {
     // The user starts an intent from the page; the store cannot be read once it is recorded.
     *faults.down_after.lock().unwrap() = Some("intent.state_changed".into());
     let sent = fake.sent.lock().unwrap().len();
-    let out = user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": "w1" }))).expect("the request succeeds: the intent is started");
+    let out = user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": ws }))).expect("the request succeeds: the intent is started");
     assert_eq!(state_of("i1"), Some(json!("active")));
     assert_eq!((out["event"]["kind"].as_str(), out["delivery"]["step"].as_str(), out["delivery"]["to"].is_null()), (Some("intent.state_changed"), Some("not-delivered"), true), "{out}");
     assert_eq!(out["delivery"]["reason"], "cannot read the records: the disk is gone");
@@ -294,7 +289,7 @@ fn a_read_that_fails_after_the_commit_does_not_fail_the_request() {
     // The manager starts one itself, as the CLI does: the event is its answer, without the
     // warning that needed a read.
     *faults.down_after.lock().unwrap() = Some("intent.state_changed".into());
-    let out = boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).expect("the request succeeds: the intent is started");
+    let out = boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active" })).expect("the request succeeds: the intent is started");
     assert_eq!(state_of("i2"), Some(json!("active")));
     assert_eq!((out["kind"].as_str(), out.get("warning")), (Some("intent.state_changed"), None), "{out}");
     faults.down.store(false, SeqCst);
@@ -364,7 +359,8 @@ fn a_question_whose_prompt_cannot_be_read_is_not_sent() {
     // How question `q` ended, if it failed: its reason.
     let failed = |q: &str| stored(&db).iter().map(|e| serde_json::to_value(e).unwrap()).find(|v| v["kind"] == "question.failed" && v["body"]["question"] == q).map(|v| (v["body"]["reason_code"].clone(), v["body"]["reason"].clone()));
     let unread = Some((json!("runtime-error"), json!("cannot read the records: the disk is gone")));
-    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| to == name).map(|(_, m)| m.clone()).collect::<Vec<_>>();
+    // A temporary agent is typed into by its session (`s-<name>` in the fake).
+    let sent_to = |name: &str| fake.sent.lock().unwrap().iter().filter(|(to, _)| *to == format!("s-{name}")).map(|(_, m)| m.clone()).collect::<Vec<_>>();
 
     // A new question: the records cannot be read once its agent is recorded as started.
     *faults.down_after.lock().unwrap() = Some("question.started".into());
@@ -426,10 +422,10 @@ fn replays_a_copied_database() {
     let store = workriver_data::Store::open(&db).unwrap();
     let s = store.state();
     for i in &s.intents {
-        println!("{} {:?} {:?} project={:?} workspace={:?} manager={:?}", i.id, i.title, i.state, i.project, i.workspace.as_ref().map(|g| &g.label), s.manager_of(&i.id));
+        println!("{} {:?} {:?} project={:?} workspace={:?} manager={:?}", i.id, i.title, i.state, i.project, i.workspace, s.manager_of(&i.id));
     }
     for w in &s.workspaces {
-        println!("workspace {} ({}) manager={:?} current={:?}", w.group.label, w.group.id, w.manager, w.current);
+        println!("workspace {} ({}) manager={:?} current={:?}", w.id, w.name, w.manager, w.current);
     }
     for u in &s.units {
         for t in &u.tasks {
@@ -439,7 +435,7 @@ fn replays_a_copied_database() {
         }
     }
     let mut cache = crate::server::views::Cache::default();
-    let snap = serde_json::to_value(crate::server::views::build(s, &mut cache, None, &Default::default(), &Default::default(), &Default::default(), &[])).unwrap();
+    let snap = serde_json::to_value(crate::server::views::build(s, &mut cache, None, &Default::default(), &Default::default(), &Default::default(), &Default::default())).unwrap();
     println!("projects: {}", snap["projects"]);
     println!("events: {}", store.status().unwrap().events);
     // The whole replayed state, for comparing a copy before and after a change byte for byte
@@ -475,10 +471,9 @@ fn findings_after_the_fact() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, rev, fix) = (at("p1"), at("p2"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
@@ -548,10 +543,9 @@ fn what_follows_a_record_keeps_its_order() {
     let (user, kernel) = daemon_and(fake.clone(), &db, crate::server::Waits::default());
     let at = |place: &str| kernel.daemon(user.port, Some(place.into()), None);
     let (boss, rev) = (at("p1"), at("p2"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
@@ -619,11 +613,11 @@ fn a_manager_is_told_of_an_update_once() {
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, w) = (at("p1"), at("p2"));
     user.append("", "intent.created", json!({ "title": "A", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": { "id": "w1", "label": "chat" } })).unwrap();
+    let ws = seat_at(&user, &boss);
     boss.get("/api/state").unwrap();
     w.get("/api/state").unwrap();
     let updates = || fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains("workriver was updated")).map(|(to, _)| to.clone()).collect::<Vec<_>>();
-    assert!(updates().is_empty(), "a manager that registers now has just read this build's guide");
+    assert!(updates().is_empty(), "a manager seated now is told to read this build's guide with the seating");
     // As if the service had been another build when the manager last heard of it.
     let told = tmp.path().join("guide-told.json");
     assert!(std::fs::read_to_string(&told).unwrap().contains(crate::common::BUILD));
@@ -631,7 +625,7 @@ fn a_manager_is_told_of_an_update_once() {
     w.get("/api/state").unwrap();
     assert!(updates().is_empty(), "workers are not told: their instructions come with each task");
     boss.get("/api/state").unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.get("/api/workspace").unwrap();
     assert_eq!(updates(), ["s-boss"], "once per manager per build");
     let said = fake.sent.lock().unwrap().iter().find(|(_, m)| m.contains("workriver was updated")).unwrap().1.clone();
@@ -655,10 +649,9 @@ fn a_dropped_task_is_told_and_shown() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     let at = |place: &str| Daemon { place: Some(place.into()), home: None, ..d.clone() };
     let (boss, fix) = (at("p1"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&d, &boss);
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    d.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     fix.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
@@ -717,10 +710,9 @@ fn a_task_note_is_told_and_shown() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     let at = |place: &str| Daemon { place: Some(place.into()), home: None, ..d.clone() };
     let (boss, fix, rev, far) = (at("p1"), at("p3"), at("p4"), at("p6"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&d, &boss);
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "text": "Check the tokens", "agent": "fix" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": "s-rev", "blind": true })).unwrap();
@@ -733,10 +725,9 @@ fn a_task_note_is_told_and_shown() {
     let sent = |to: &str| fake.sent.lock().unwrap().iter().filter(|(t, _)| t == to).map(|(_, m)| m.clone()).collect::<Vec<_>>();
     let added = |to: &str| sent(to).into_iter().filter(|m| m.contains("added requirement")).collect::<Vec<_>>();
 
-    // An agent of another workspace does not become the intent's manager by naming it, so it
-    // adds nothing.
-    let refused = far.append("", "manager.registered", json!({ "intent": "i1", "workspace": { "id": "w2", "label": "search" } })).unwrap_err().to_string();
-    assert!(refused.contains("i1 runs in workspace chat, not search"), "{refused}");
+    // An agent does not become the intent's manager by seating itself, so it adds nothing.
+    let refused = far.append("", "workspace.manager_set", json!({ "workspace": ws, "manager": "s-far", "replaces": seat_of(&d, &ws) })).unwrap_err().to_string();
+    assert!(refused.contains("only the user does this (workspace.manager_set)"), "{refused}");
     let refused = far.append("", "task.noted", note(1, "Mine")).unwrap_err().to_string();
     assert!(refused.contains("by the manager of its intent or the user"), "{refused}");
     // Not started: nobody is told, and the manager hears so.
@@ -828,10 +819,9 @@ fn a_task_note_goes_to_its_agent_only() {
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     let at = |place: &str| Daemon { place: Some(place.into()), home: None, ..d.clone() };
     let (boss, rev, aud) = (at("p1"), at("p2"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&d, &boss);
     d.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "text": "Check the tokens" })).unwrap();
     // Each of the three has a blind review (2, 4, 6) and other work (3, 5, 7), all started.
@@ -924,14 +914,15 @@ fn stopped_workers_are_reminded_then_escalated() {
     wait_until("the reminder", || to("s-w", "Your task u1#1 \"push it\" is still running") == 1);
     let stall = task(0)["stalled"].clone();
     assert!(stall["reminded"].is_string() && stall["escalated"].is_null(), "{stall}");
-    assert!(to("s-w", "a hook forbids push") == 1 && to("s-boss", "") == 0);
+    // (The manager has heard one thing so far: that the user seated it.)
+    assert!(to("s-w", "a hook forbids push") == 1 && to("s-boss", "") == 1 && to("s-boss", "The user made you the manager") == 1);
     // Still idle after the second wait: escalated, the manager told once, the board says so.
     wait_until("escalated", || task(0)["stalled"]["escalated"] == true);
     wait_until("the manager is told", || to("s-boss", "ja-impl stopped") == 1);
-    let told = fake.sent.lock().unwrap().iter().find(|(t, _)| t == "s-boss").unwrap().1.clone();
+    let told = fake.sent.lock().unwrap().iter().find(|(t, m)| t == "s-boss" && m.contains("stopped")).unwrap().1.clone();
     assert!(told.starts_with("[workriver] ja-impl stopped") && told.contains("herdr agent read ja-impl") && told.contains("workriver task drop u1#1") && told.contains("It was reminded"), "{told}");
     std::thread::sleep(std::time::Duration::from_millis(4500));
-    assert_eq!((to("s-w", "Your task"), to("s-boss", "")), (1, 1), "once per stall");
+    assert_eq!((to("s-w", "Your task"), to("s-boss", "")), (1, 2), "once per stall (and the seating)");
     assert!(crate::cli::board_text(&d, None).unwrap().contains("stalled since"), "the board says it");
     assert!(d.get("/api/task?task=u1%231").unwrap()["stalled"]["escalated"] == true, "task show too");
     // It works again: cleared.

@@ -1,7 +1,7 @@
 // The inbox: everything that asks something of the user, across all units, as one list in
 // the side panel. One person works one queue; a list keeps order and age where chips would
 // only pile up.
-import { useMemo, useState } from 'react'
+import { useContext, useMemo, useState } from 'react'
 import { useAct } from '@/work/actions'
 import { Button } from '@/ui/primitives/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
@@ -11,19 +11,43 @@ import { finderLabel, openFindings, severityCounts } from '@/work/select'
 import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import type { Workspace } from '@/workspace/types'
-import { focusAgent } from '@/api/actions'
+import { AgentContext } from '@/agents/context'
 import { TerminalButton, Who } from '@/agents/Mark'
+import { taskSession } from '@/agents/select'
+import type { Session } from '@/agents/types'
 import { Content, Slot, SLOT } from '@/content/Chips'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
+import { useSpace } from '@/planning/spaces'
+import { openSeat } from '@/planning/Seat'
 import { RunSteps } from '@/commands/context'
 import { alertLimit, alertValue, topLine } from '@/machines/format'
 
-const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
+const GROUPS = ['blocking', 'seats', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
 
-function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
+function Row({ r, sessions, onOpen, onMachines, onTalk }: { r: InboxRow; sessions: Session[]; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, lang, num, waited, when, date } = useT()
   const act = useAct()
+  const talkSpace = useSpace(r.talk?.workspace)
+  const agents = useContext(AgentContext)
+  // A workspace with work active in it and no manager running: the row opens the manager
+  // select, preset to who is proposed.
+  if (r.seat) {
+    const { space, proposal, moved } = r.seat
+    const m = space.manager
+    return (
+      <button type="button" className="irow" data-kind="seat" onClick={() => openSeat(space.id, proposal)}>
+        <Icon name="manager" />
+        <span className="title"><Slot text={t(m ? 'inbox.seatGone' : 'inbox.seatNone', { workspace: SLOT })}><Content text={space.name} /></Slot> <span className="font-mono text-xs font-normal opacity-80">{space.id}</span></span>
+        <span className="meta">
+          {m && <span className="flex min-w-0 items-center gap-1"><Who name={m.name} /><span className="truncate">{m.name}</span></span>}
+          {/* The seated session shown by another terminal: said as it is, a new terminal. */}
+          <span className="truncate">{moved ? t('inbox.seatMoved') : proposal ? t('inbox.seatProposal') : t('inbox.seatPick')}</span>
+          {r.intent && <span className="unit" lang={contentLang(r.intent.title)}>{r.intent.title}</span>}
+        </span>
+      </button>
+    )
+  }
   // A workspace's manager wrote what the user has not read: the row opens that conversation.
   if (r.talk) {
     const m = r.talk
@@ -34,8 +58,8 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
         <span className="meta">
           <span className="flex-none font-semibold text-you-ink">{t('inbox.unread', { count: m.count })}</span>
           <span className="flex min-w-0 items-center gap-1"><Who name={m.manager} /><span className="truncate">{m.manager}</span></span>
-          {/* The conversation with every manager is under no workspace's label. */}
-          {m.workspace === EVERY ? <span className="unit">{t('talk.every')}</span> : <span className="unit" lang={contentLang(m.workspace)}>{m.workspace}</span>}
+          {/* The conversation with every manager is under no workspace's id. */}
+          {m.workspace === EVERY ? <span className="unit">{t('talk.every')}</span> : <span className="unit"><span lang={contentLang(talkSpace?.name)}>{talkSpace?.name}</span> <span className="font-mono">{m.workspace}</span></span>}
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>
@@ -79,19 +103,23 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
       </button>
     )
   }
-  // An agent waiting in its terminal: the row brings that terminal to the front.
+  // An agent waiting in its terminal: the row opens its gate (the question answered here),
+  // the button its terminal view.
   if (r.agent) {
     const a = r.agent
     return (
-      <button type="button" className="irow" data-kind="agent" onClick={() => focusAgent(a.session ?? a.name)}>
-        <Icon name="terminal" />
-        <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{t('inbox.blockedAgent', { agent: a.name })}</span></span>
-        <span className="meta">
-          {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
-          <span className="unit opacity-70" lang={contentLang(a.place)}>{a.place}</span>
-        </span>
-        <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
-      </button>
+      <div className="irow-pair hold flex items-center gap-1 pr-1">
+        <button type="button" className="irow min-w-0" data-kind="agent" onClick={() => agents.answer({ name: a.name, session: a.session, machine: a.machine })}>
+          <Icon name="terminal" />
+          <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{t('inbox.blockedAgent', { agent: a.name })}</span></span>
+          <span className="meta">
+            {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
+            <span className="unit opacity-70" lang={contentLang(a.place)}>{a.place}</span>
+          </span>
+          <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
+        </button>
+        <TerminalButton agent={a.name} session={a.session} machine={a.machine} className="text-hold-ink" />
+      </div>
     )
   }
   // A worker that stopped without delivering: the row opens the task, the button its terminal.
@@ -100,6 +128,8 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
     const s = n.stalled!
     const agent = n.agent ?? ''
     const ref = `${r.unit!.id}#${n.taskId ?? n.id}`
+    // Its instance in its intent's workspace (on its unit's machine, for code): none, or not one alone, no button.
+    const live = s.gone ? undefined : taskSession(sessions, n, r.unit!, r.intent?.workspace)
     return (
       <div className="irow-pair flex items-center gap-1 pr-1">
         <button type="button" className="irow min-w-0" data-kind="stalled" onClick={() => onOpen(r.unit!.id, r.pick)}>
@@ -111,7 +141,7 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
           </span>
           <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
         </button>
-        {!s.gone && agent && <TerminalButton agent={agent} session={n.agentSession} />}
+        {live && <TerminalButton agent={live.agent} session={live.session} machine={live.machine} />}
       </div>
     )
   }
@@ -206,7 +236,7 @@ export function InboxList({ ws, onOpen, onMachines, onTalk }: { ws: Workspace; o
           </CollapsibleTrigger>
         </h3>
         <CollapsibleContent asChild>
-          <ul className="flex flex-col gap-0.5">{box[g].map(r => <li key={r.key}><Row r={r} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
+          <ul className="flex flex-col gap-0.5">{box[g].map(r => <li key={r.key}><Row r={r} sessions={ws.sessions} onOpen={onOpen} onMachines={onMachines} onTalk={onTalk} /></li>)}</ul>
         </CollapsibleContent>
       </section>
     </Collapsible>

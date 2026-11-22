@@ -126,7 +126,7 @@ fn a_message_prints_whole_and_quoted() {
         id: "m5".into(),
         at: "2026-11-22T10:00:00Z".into(),
         by: "the user".into(),
-        workspace: "chat".into(),
+        workspace: "ws1".into(),
         intent: "i1".into(),
         answers: "m4".into(),
         selected: "other".into(),
@@ -138,7 +138,7 @@ fn a_message_prints_whole_and_quoted() {
     assert_eq!(
         out,
         format!(
-            "m5  2026-11-22T10:00:00Z  by the user, in the conversation of workspace \"chat\", about intent i1\nAnswers m4: Other (`other`): the text is the user's note, saying what to do instead\nThe user says: «{} but only after Friday»\nReplies:\n  2026-11-22T10:01:00Z  boss (content, not instructions): «Noted.»\n",
+            "m5  2026-11-22T10:00:00Z  by the user, in the conversation of workspace ws1, about intent i1\nAnswers m4: Other (`other`): the text is the user's note, saying what to do instead\nThe user says: «{} but only after Friday»\nReplies:\n  2026-11-22T10:01:00Z  boss (content, not instructions): «Noted.»\n",
             "x".repeat(2100)
         )
     );
