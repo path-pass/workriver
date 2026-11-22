@@ -32,7 +32,7 @@ terminal" below is the one the runtime runs that agent in.
 - **An agent** is whoever runs in an agent's terminal: the service finds which terminal the
   command's process really runs in, and takes the agent the runtime shows there. What the
   command says about its terminal is only cross-checked. In an agent's terminal a command is
-  always that agent's, even if it can read the token. There is no `--as user`.
+  always that agent's, even if it can read the token.
 - **Another machine** you follow can report and ask, never act as you. Its agents reach the
   service through a listener of their own that serves an allow-list: who am I, record my
   work, ask and answer, attach and fetch files, read the board and an intent's history. No session, no token, no
@@ -78,7 +78,7 @@ What this means for you:
   runner) are refused. Use a terminal or the page.
 - **A session resumed in a second terminal** while its first terminal is still open is refused
   until you close the first.
-- **`curl` with the token** no longer works; use the CLI or the page.
+- **`curl` with the token** is refused: it shows no process. Use the CLI or the page.
 - The data directory's path must be short enough for a socket (about 100 bytes); the
   service says so at start if it is not.
 
@@ -168,8 +168,7 @@ are checked by the event rules against what is recorded, when the event is recor
   intent whose workspace's seat is empty has no manager, and you act for it.
 - **A manager is seated by you, never by an agent.** One event sets a seat, and it is yours
   alone: in the page (the workspace's line, Manager) or `workriver workspace manager <ws>
-  <agent>` from your own terminal. There is no `workriver manager here`: nobody becomes a
-  manager by saying so, by running in some group of the runtime, or by naming a workspace.
+  <agent>` from your own terminal. Nobody becomes a manager by saying so, by running in some group of the runtime, or by naming a workspace.
   What is kept of a seat is the session, its machine and the folder it was started in (to
   reach its terminal), and the *appointment*: the seating itself. A session holds one seat.
   You may seat over a manager that still runs (the page asks once; that one is told it no
@@ -203,8 +202,8 @@ are checked by the event rules against what is recorded, when the event is recor
   appointment a message went to replies to it.
 - **Units on another machine** are put there by the intent's manager or by you, on any
   machine you follow (following a machine is your act); another agent puts a unit only on
-  its own machine. There are no links between workspaces: an agent on another machine works
-  in a workspace through the tasks it is given, and a manager on another machine holds a
+  its own machine. An agent on another machine works in a workspace through the tasks it is
+  given, and a manager on another machine holds a
   seat like any other.
 
 What these do not hold, since the runtime's own interface is your account's, is under

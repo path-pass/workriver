@@ -44,8 +44,7 @@ its OOM kills grew while watched, or its disk is nearly full.
 
 A workspace has no machine: agents on a followed machine work in the same workspaces as
 agents here, through the tasks they are given, and the user may seat one of them as a
-workspace's manager (`seat`). There are no links between workspaces any more. Units there:
-`units-other-machine`.
+workspace's manager (`seat`). Units there: `units-other-machine`.
 
 **Refusals:** "only the user does this" - ask the user. "a caller on machine … is an agent
 of that machine, never the user".

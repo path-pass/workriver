@@ -114,7 +114,7 @@ workriver workspace manager ws1 boss     # agent 的名字，或它的会话
 ```
 
 workriver 会在那个 agent 的终端里告诉它：它现在是这个工作区的管理者，以及它的职责写在哪里。只有你能
-指定管理者：agent 不能自己当（`workriver manager here` 已经没有了），席位也不跟着名字或运行时里的位置走。
+指定管理者：agent 不能自己当，席位也不跟着名字或运行时里的位置走。
 随时可以换人（被换下的会收到通知），或者清空席位（`--none`）。
 
 管理者的终端关掉后，它的工作区显示"管理者未运行"。同一个会话在同一台机器、同一个文件夹里恢复，会自己
@@ -206,7 +206,6 @@ workriver status                              # 回答来自你这台机器上�
 
 那边的 agent 会带着机器名显示。它们和这边的 agent 在同样的工作区里工作：工作区没有机器之分。那边的
 worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可以像别的 agent 一样被你指定为工作区的管理者。
-没有什么需要关联的。
 
 单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
 并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch feat/queue`）；

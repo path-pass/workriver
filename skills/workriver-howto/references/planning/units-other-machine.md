@@ -10,8 +10,8 @@ Give `--repo` and `--branch` as they are **on that machine**: never a path or re
 exists only on yours (a relay remote's `hub/feat/queue`); the worker cannot check it out.
 
 As the intent's manager you put its units on any machine workriver follows (following one
-is the user's: `machines`). There is nothing to link: a workspace has no machine, and a
-worker over there is in your workspace through the tasks you give it. A worker adds a unit
+is the user's: `machines`). A workspace has no machine: a worker over there is in your
+workspace through the tasks you give it. A worker adds a unit
 only on its own machine.
 
 **You will see:** `u1`; on the board `[on box: /home/me/app, branch feat/queue from main]`.

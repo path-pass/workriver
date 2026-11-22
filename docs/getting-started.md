@@ -129,9 +129,8 @@ workriver workspace manager ws1 boss     # the agent's name, or its session
 ```
 
 workriver types into that agent's terminal that it is now the manager of the workspace,
-with where its role is written. Only you seat a manager: an agent cannot make itself one
-(there is no `workriver manager here`), and the seat does not follow a name or a place in
-the runtime. Seat someone else at any time (the one replaced is told), or empty the seat
+with where its role is written. Only you seat a manager: an agent cannot make itself one,
+and the seat does not follow a name or a place in the runtime. Seat someone else at any time (the one replaced is told), or empty the seat
 (`--none`).
 
 When a manager's terminal closes, its workspace shows "manager not running". The same
@@ -241,7 +240,7 @@ the runtime over there is not where workriver looks for it, `machine add` takes 
 Agents over there show up with the machine's name. They work in the same workspaces as
 agents here: a workspace has no machine. A worker over there is in a workspace through the
 tasks it is given, and you can seat an agent over there as a workspace's manager like any
-other. There is nothing to link.
+other.
 
 A unit is recorded where its work happens: an agent over there
 records it there as usual; a manager on this machine names the machine, with the path and

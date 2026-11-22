@@ -57,8 +57,8 @@ A task is dropped, never deleted; what follows it no longer waits on it:
 The same for any task re-planning made unneeded: its agent is told to stop (the reason is
 quoted to it); the board shows `dropped (reason)`.
 
-**Nothing is put before a recorded gate.** Once a gate is recorded, no task goes before it
-(there is no `--before`): work put there would change what the gate asks, and a gate open
+**Nothing is put before a recorded gate.** Once a gate is recorded, no task goes before it:
+work put there would change what the gate asks, and a gate open
 or already answered could then read as confirming what the user never saw. When new work
 must come first (a fix, another review, an amended design), ask anew: drop the gate with
 its reason, record the new work after what the gate followed, and a new gate after that
