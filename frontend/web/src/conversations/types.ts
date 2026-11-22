@@ -169,10 +169,20 @@ export interface Talk {
   lines: Lines | null
   /** The intent on screen: its page, or the open unit's. */
   intent?: string
-  /** Set to now to show the conversation with a workspace's manager. */
-  managerAt?: number
-  /** With `managerAt`: the workspace whose conversation to show; none: the one on screen. */
+  /** The workspace whose conversation is shown, by label: picked in the select, asked for
+   *  (Needs you, an intent's page) or followed to on a project switch; `EVERY`: every
+   *  manager; none: the one on screen. */
   to?: string
+  /** Set when `to` was followed to on a project switch: the intent then on screen ('': none).
+   *  `to` holds only while that intent is on screen; a hand pick (unset) holds until the next
+   *  switch. */
+  followedAt?: string
+  /** The user picks a workspace (or `EVERY`) in the select. */
+  onPick: (workspace: string) => void
+  /** The project the rail shows (its folder); none: all. */
+  project?: string
+  /** The project a workspace (by label) works on, as the rail knows it; none: unknown. */
+  projectOf: (workspace: string) => string | undefined
   /** The user has seen a workspace's conversation, up to the manager's newest words shown. */
   onRead: (workspace: string, at: string) => void
   onFile: (path: string) => void
