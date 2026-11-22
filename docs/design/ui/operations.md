@@ -175,7 +175,9 @@ its sections went.
   `frontend/web/src/api/actions.ts`, the one function for it) is "Open in terminal app" in
   the view's header. A view, like a gate, names its agent by session and machine together
   (the same resumed session can live on two machines): every line, row, button and
-  notification passes both, and the view stays on that one across refreshes.
+  notification passes both, and the view stays on that one across refreshes. A task's button
+  finds its agent on the task's unit's machine in its intent's workspace, only when exactly
+  one instance fits (see Answering a stuck agent in `navigation.md`).
 - **Where.** A dock at the bottom of the main area, absent until a view is opened: the
   agent's mark and name, its state, "Open in terminal app", fold, close; its height dragged
   with `useResize` (remembered). One view per page: opening another agent's replaces it. On

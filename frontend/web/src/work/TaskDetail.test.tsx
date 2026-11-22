@@ -12,6 +12,8 @@ import type { GateResult, Task } from './types'
 import { withEdits, NO_EDITS } from '@/workspace/edits'
 import type { Workspace } from '@/workspace/types'
 import { Detail } from './TaskDetail'
+import { AgentContext } from '@/agents/context'
+import type { AgentRef, Session } from '@/agents/types'
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -93,5 +95,65 @@ describe('a task’s trace', () => {
   it('is not there for work no agent did', () => {
     show(unit(gate))
     expect(trace()).toBeUndefined()
+  })
+})
+
+describe('a task’s waiting line and terminal button', () => {
+  const work: Task = {
+    id: '1', kind: 'implement', state: 'running', taskId: '1', title: 'Do it', agent: 'impl', agentSession: 's-1', writing: false,
+    inputs: [{ from: 'start', primary: true }], input: { text: 'Do it', causes: [] }, output: { commits: [] }, plans: [],
+  }
+  const on = (machine?: string, label = 'w'): Session => ({
+    agent: 'impl', session: 's-1', ended: false, state: 'blocked', blockedSince: '2026-01-01T00:00:00Z', machine,
+    group: { id: 'w1', label },
+  })
+  const asked: { answer: AgentRef[]; view: AgentRef[] } = { answer: [], view: [] }
+  const showIn = (u: Unit, sessions: Session[], workspace?: string) => act(() => root.render(
+    <TooltipProvider><ActContext.Provider value={acts}>
+      <AgentContext.Provider value={{ answer: a => asked.answer.push(a), view: a => asked.view.push(a) }}>
+        <Detail unit={u} n={u.tasks[0]} onPick={() => {}} talk={{ ...talk, sessions } as Talk} workspace={workspace} />
+      </AgentContext.Provider>
+    </ActContext.Provider></TooltipProvider>,
+  ))
+  const answer = () => [...host.querySelectorAll('button')].find(b => b.textContent === 'Answer')
+  const terminal = () => host.querySelector<HTMLButtonElement>('[aria-label="Open the terminal view of impl"]')
+  beforeEach(() => { asked.answer = []; asked.view = [] })
+
+  it('on another machine reach the instance on that machine, not the same session here listed first', () => {
+    const remote = { ...unit(work), machine: 'box' } as Unit
+    // Both wait; the one here comes first, as the service may list them.
+    showIn(remote, [on(undefined), on('box')], 'w1')
+    act(() => answer()!.click())
+    act(() => terminal()!.click())
+    expect(asked.answer).toEqual([{ name: 'impl', session: 's-1', machine: 'box' }])
+    expect(asked.view).toEqual([{ name: 'impl', session: 's-1', machine: 'box' }])
+  })
+
+  it('on this machine reach the instance here, not one on another machine listed first', () => {
+    showIn(unit(work), [on('box'), on(undefined)], 'w1')
+    act(() => answer()!.click())
+    act(() => terminal()!.click())
+    expect(asked.answer).toEqual([{ name: 'impl', session: 's-1', machine: undefined }])
+    expect(asked.view).toEqual([{ name: 'impl', session: 's-1', machine: undefined }])
+  })
+
+  it('by name only, reach the instance in the task’s workspace', () => {
+    const named = { ...work, agentSession: null }
+    const other = { ...on(undefined), session: 's-2', group: { id: 'w2', label: 'other' } }
+    showIn(unit(named), [other, { ...on(undefined), session: 's-1' }], 'w1')
+    act(() => answer()!.click())
+    expect(asked.answer).toEqual([{ name: 'impl', session: 's-1', machine: undefined }])
+  })
+
+  it('are not there when no instance is the task’s alone, or none is on its machine', () => {
+    const named = { ...work, agentSession: null }
+    // Two of that name in the task's workspace on its machine: not one to pick.
+    showIn(unit(named), [{ ...on(undefined), session: 's-1' }, { ...on(undefined), session: 's-2' }], 'w1')
+    expect(answer()).toBeUndefined()
+    expect(terminal()).toBeNull()
+    // The only instance is on another machine.
+    showIn(unit(work), [on('box')], 'w1')
+    expect(answer()).toBeUndefined()
+    expect(terminal()).toBeNull()
   })
 })

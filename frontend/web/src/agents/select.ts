@@ -15,9 +15,20 @@ export const isRef = (r: AgentRef, x: Session) => (r.session ? x.session === r.s
 /** The live session a ref names. */
 export const liveSession = (sessions: Session[], r: AgentRef) => sessions.find(x => !x.ended && isRef(r, x))
 
-/** The live session a task's agent runs in (a task names no machine: the first that fits). */
-export const taskSession = (sessions: Session[], n: { agent?: string | null; agentSession?: string | null }) =>
-  n.agent ? sessions.find(x => !x.ended && (n.agentSession && x.session ? x.session === n.agentSession : x.agent === n.agent)) : undefined
+/**
+ * The live session a task's agent runs in: its session (or, with none, its name) on the
+ * machine of the task's unit (absent: this one) and, when its intent's workspace is known, in
+ * that workspace. Only when exactly one fits: a session may show on two machines and a name
+ * in several workspaces, and keys must never go to another instance.
+ */
+export function taskSession(sessions: Session[], n: { agent?: string | null; agentSession?: string | null }, at: { machine?: string; workspace?: string }) {
+  if (!n.agent) return undefined
+  const fit = sessions.filter(x => !x.ended
+    && (n.agentSession && x.session ? x.session === n.agentSession : x.agent === n.agent)
+    && (x.machine ?? '') === (at.machine ?? '')
+    && (!at.workspace || x.group?.id === at.workspace))
+  return fit.length === 1 ? fit[0] : undefined
+}
 
 /**
  * Where a live agent is, in the order the rail lists them. Agents cross units, so this is

@@ -244,7 +244,10 @@ its sections went.
   Blocking row, from its running task's detail ("Waiting for you in its terminal · Answer"),
   from its blocked line in Agents, and from the browser notification; each names the agent
   by session and machine together (the same resumed session can live on two machines), and
-  the gate stays on that one across refreshes. The terminal is not
+  the gate stays on that one across refreshes. A task's entries (its detail's waiting line
+  and terminal button, a stalled worker's row) find its agent on the machine of the task's
+  unit and, when known, in its intent's workspace (a name may repeat across workspaces);
+  when no instance or more than one fits, they are not shown: never a guess at another. The terminal is not
   shown by default: the gate shows the dialog's text and buttons to answer it. A dialog
   (Radix, modal, up to 960 px wide so 120 columns fit); opening it reads the agent's screen
   (`/api/agent/screen`); a failed read says why, with the keys disabled and "Try again". Top

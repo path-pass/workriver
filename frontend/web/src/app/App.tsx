@@ -532,7 +532,7 @@ export default function App() {
               </div>
               <div className="flex flex-none gap-1 min-[861px]:hidden"><SideButtons active={sheet} onPick={s => setSheet(now => (now === s ? null : s))} /></div>
             </header>
-            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
+            <Activity unit={unit} pick={pick} onPick={onPick} talk={talk} workspace={intentOf(ws, unit.id)?.workspace?.id} fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`} />
             {tree && coded && codeSel && <CodeLayer
               root={tree}
               unit={coded}

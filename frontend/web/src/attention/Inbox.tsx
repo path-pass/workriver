@@ -107,6 +107,8 @@ function Row({ r, sessions, onOpen, onMachines, onTalk }: { r: InboxRow; session
     const s = n.stalled!
     const agent = n.agent ?? ''
     const ref = `${r.unit!.id}#${n.taskId ?? n.id}`
+    // Its instance on its unit's machine, in its intent's workspace: none, or not one alone, no button.
+    const live = s.gone ? undefined : taskSession(sessions, n, { machine: r.unit!.machine, workspace: r.intent?.workspace?.id })
     return (
       <div className="irow-pair flex items-center gap-1 pr-1">
         <button type="button" className="irow min-w-0" data-kind="stalled" onClick={() => onOpen(r.unit!.id, r.pick)}>
@@ -118,7 +120,7 @@ function Row({ r, sessions, onOpen, onMachines, onTalk }: { r: InboxRow; session
           </span>
           <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
         </button>
-        {!s.gone && agent && <TerminalButton agent={agent} session={n.agentSession} machine={taskSession(sessions, n)?.machine} />}
+        {live && <TerminalButton agent={live.agent} session={live.session} machine={live.machine} />}
       </div>
     )
   }

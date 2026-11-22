@@ -24,6 +24,7 @@ import { gateKey } from './actions'
 import { TerminalButton, Who } from '@/agents/Mark'
 import { AgentContext } from '@/agents/context'
 import { refOf, taskSession } from '@/agents/select'
+import type { Session } from '@/agents/types'
 import { cap } from '@/agents/Gate'
 import { TerminalText } from '@/content/TerminalText'
 import { Prose } from '@/content/Prose'
@@ -124,11 +125,10 @@ export function Answers({ n }: { n: Task }) {
 }
 
 /** A line under the head of work whose agent waits for the user in its terminal: to its gate. */
-function Waiting({ n, talk }: { n: Task; talk: Talk }) {
+function Waiting({ s }: { s: Session | undefined }) {
   const { t } = useT()
   const agents = useContext(AgentContext)
-  const s = n.agent ? talk.sessions.find(x => !x.ended && x.blockedSince && (n.agentSession && x.session ? x.session === n.agentSession : x.agent === n.agent)) : undefined
-  if (!s) return null
+  if (!s?.blockedSince) return null
   return (
     <div className="flex items-center gap-2 border-b border-line bg-hold-bg px-3 py-1.5 text-xs font-semibold text-hold-ink">
       <Icon name="blocked" className="size-3.5" />
@@ -138,8 +138,11 @@ function Waiting({ n, talk }: { n: Task; talk: Talk }) {
   )
 }
 
-export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk }) {
+/** `workspace`: the runtime workspace of the unit's intent, when known: where its agents are found. */
+export function Detail({ unit, n, finding, onPick, talk, workspace }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk; workspace?: string }) {
   const { t, num, when } = useT()
+  // The instance of its agent, on its unit's machine in its workspace: the one its buttons reach.
+  const live = taskSession(talk.sessions, n, { machine: unit.machine, workspace })
   const byId = (id?: string) => unit.tasks.find(x => x.id === id)
   const commitsOf = (x?: Task) => unit.commits.filter(c => x?.output.commits?.includes(c.id))
   const quiet = (text: string) => <div className="text-xs text-ink-2">{text}</div>
@@ -254,14 +257,14 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
         {n.blind && <Tip text={t('task.blindHint')}><span className="flex items-center gap-1 font-normal"><Icon name="blind" className="size-3.5" />{t('task.blind')}</span></Tip>}
         <span className="ml-auto flex items-center gap-1">
           {/* The agent on work that is running or still to do, while its session lives: to its terminal view. */}
-          {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
-            <TerminalButton agent={n.agent} session={n.agentSession} machine={taskSession(talk.sessions, n)?.machine} className="text-you-ink hover:bg-surface/60" />
+          {live && (n.state === 'running' || n.state === 'todo') && (
+            <TerminalButton agent={live.agent} session={live.session} machine={live.machine} className="text-you-ink hover:bg-surface/60" />
           )}
           {/* Its own link: to send someone straight here. */}
           <CopyButton text={linkTo(pathOf(unit.id, { kind: 'task', id: n.id }))} aria={t('link.copy')} className="text-you-ink hover:bg-surface/60" />
         </span>
       </div>
-      {(n.state === 'running' || n.state === 'todo') && <Waiting n={n} talk={talk} />}
+      {(n.state === 'running' || n.state === 'todo') && <Waiting s={live} />}
       {n.trace && <Traced trace={n.trace} />}
       {/* No longer needed: by whom and when, then why in their words. */}
       {n.dropped && (

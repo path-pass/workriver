@@ -171,7 +171,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
       {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} offered={tagsOf(ws.intents.filter(i => i.project === intent.project))} onClose={() => setEditing(null)} />}
       {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: draftOf(text), restoring: n }) }} />}
 
-      {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
+      {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} workspace={intent.workspace?.id} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
     </>
   )
 }
