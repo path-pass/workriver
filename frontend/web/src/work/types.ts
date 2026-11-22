@@ -1,5 +1,5 @@
 // The work of a unit: its tasks as a graph, what they found, and what the user puts in.
-import type { Sent, Thread, Turn } from '@/conversations/types'
+import type { Sent, Thread } from '@/conversations/types'
 import type { External } from '@/planning/types'
 import type { Attachment } from '@/attachments/types'
 import type { Choice } from '@/content/choice/surface'
@@ -151,8 +151,6 @@ export interface Task {
   agentSession?: string | null;
   /** True while the agent has uncommitted changes in its working directory. */
   writing: boolean;
-  /** Who raised an implement node. 'plan' means the original breakdown. */
-  raisedBy?: Reviewer | 'user' | 'plan';
   /** Gate nodes only. */
   gate?: GateKind;
   /**
@@ -166,8 +164,6 @@ export interface Task {
    * open findings finished. Absent when nothing waits.
    */
   since?: string;
-  /** Questions asked about this work and their answers, oldest first (the sample's form). */
-  thread?: Turn[];
   /** Conversations about this work, oldest first (from the service). */
   threads?: Thread[];
   /** A design task: implement work whose output is its design note. */

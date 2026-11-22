@@ -165,10 +165,8 @@ its sections went.
   read it says why (`role=alert`). The dialog keeps one height whichever tab shows (each
   scrolls on its own); on a narrow screen the tabs wrap. The arrow keys move between tabs.
   The tab picked is kept in this browser (`workriver.settings.tab`) and the gear opens
-  Settings on it next time; a kept tab that has no tab now opens General. A link to a
-  setting opens Settings on its group's tab (`openSettings` in
-  `frontend/web/src/machines/Settings.tsx`) without changing the kept tab; nothing calls it
-  yet. No setting does anything else because of the tabs.
+  Settings on it next time; a kept tab that has no tab now opens General. No setting does
+  anything else because of the tabs.
 
 ## Opening a terminal
 

@@ -734,7 +734,6 @@
        "title": "从消息文本里找出被 @ 的人",
        "agent": "agent-D",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -799,7 +798,6 @@
        "title": "发送消息时通知被 @ 的人",
        "agent": "agent-A",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -834,7 +832,6 @@
        "title": "把消息里的 @名字 显示成高亮",
        "agent": "agent-A",
        "writing": true,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -863,7 +860,6 @@
        "title": "输入 @ 时弹出成员列表供选择",
        "agent": "agent-B",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -890,7 +886,6 @@
        "title": "只允许 @ 这个频道里的成员",
        "agent": null,
        "writing": false,
-       "raisedBy": "user",
        "inputs": [
         {
          "from": "start",
@@ -916,7 +911,6 @@
        "title": "通知里不要带消息全文，避免内容出现在别人的锁屏上",
        "agent": "agent-C",
        "writing": false,
-       "raisedBy": "security-review",
        "inputs": [
         {
          "from": "v2|security-review",
@@ -947,46 +941,52 @@
         ]
        },
        "plans": [],
-       "thread": [
+       "threads": [
         {
-         "question": "为什么通知里干脆不带消息内容，而不是只截前几个字？",
-         "context": [
+         "id": "",
+         "ended": false,
+         "turns": [
           {
-           "kind": "task",
-           "label": "#6"
+           "question": "为什么通知里干脆不带消息内容，而不是只截前几个字？",
+           "context": [
+            {
+             "kind": "task",
+             "label": "#6"
+            },
+            {
+             "kind": "finding",
+             "label": "安全审查 P1-1"
+            },
+            {
+             "kind": "file",
+             "label": "push.ts",
+             "path": "app/notify/push.ts"
+            }
+           ],
+           "answer": "安全审查的 P1-1 指出推送内容里带了整条消息，会出现在别人的锁屏上。截前几个字也一样会泄露：一句话的前十个字往往就是要点。所以 app/notify/push.ts 里的 push() 只留下 channel 和 at，正文要点开通知、通过权限检查之后才在 app/chat/render.ts 里显示。代价是通知里看不出是谁 @ 的，这一点后来由 #11 补上了 from 字段。",
+           "at": "2026-11-15T19:31",
+           "consulted": {
+            "agent": "agent-C",
+            "outcome": "asked"
+           }
           },
           {
-           "kind": "finding",
-           "label": "安全审查 P1-1"
-          },
-          {
-           "kind": "file",
-           "label": "push.ts",
-           "path": "app/notify/push.ts"
+           "question": "后来补上的 from 字段会不会又把内容带出去？",
+           "context": [
+            {
+             "kind": "task",
+             "label": "#6"
+            }
+           ],
+           "answer": null,
+           "at": "2026-11-16T09:12",
+           "step": "blocked",
+           "blocked": {
+            "agent": "why-q9",
+            "session": "why-q9"
+           }
           }
-         ],
-         "answer": "安全审查的 P1-1 指出推送内容里带了整条消息，会出现在别人的锁屏上。截前几个字也一样会泄露：一句话的前十个字往往就是要点。所以 app/notify/push.ts 里的 push() 只留下 channel 和 at，正文要点开通知、通过权限检查之后才在 app/chat/render.ts 里显示。代价是通知里看不出是谁 @ 的，这一点后来由 #11 补上了 from 字段。",
-         "at": "2026-11-15T19:31",
-         "consulted": {
-          "agent": "agent-C",
-          "outcome": "asked"
-         }
-        },
-        {
-         "question": "后来补上的 from 字段会不会又把内容带出去？",
-         "context": [
-          {
-           "kind": "task",
-           "label": "#6"
-          }
-         ],
-         "answer": null,
-         "at": "2026-11-16T09:12",
-         "step": "blocked",
-         "blocked": {
-          "agent": "why-q9",
-          "session": "why-q9"
-         }
+         ]
         }
        ],
        "started": "2026-11-05 11:00",
@@ -1075,7 +1075,6 @@
        "title": "推送失败时把通知存下来重试",
        "agent": null,
        "writing": false,
-       "raisedBy": "code-review",
        "inputs": [
         {
          "from": "v6|code-review",
@@ -1110,7 +1109,6 @@
        "title": "通知里写明是谁 @ 了你",
        "agent": "agent-A",
        "writing": false,
-       "raisedBy": "test",
        "inputs": [
         {
          "from": "v6|test",
@@ -1163,7 +1161,6 @@
        "title": "把 main 合进分支，跟上最新代码",
        "agent": "agent-A",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "s11",
@@ -1198,7 +1195,6 @@
        "title": "同一个人被 @ 两次只通知一次",
        "agent": "review-agent",
        "writing": false,
-       "raisedBy": "code-review",
        "inputs": [
         {
          "from": "v1|code-review",
@@ -1272,7 +1268,6 @@
        "title": "推送失败时记一条日志，写明是谁、哪个频道",
        "agent": "agent-E",
        "writing": false,
-       "raisedBy": "code-review",
        "inputs": [
         {
          "from": "v6|code-review",
@@ -1305,7 +1300,6 @@
        "title": "推送出错不影响消息发送",
        "agent": null,
        "writing": false,
-       "raisedBy": "code-review",
        "inputs": [
         {
          "from": "v6|code-review",
@@ -1338,7 +1332,6 @@
        "title": "给通知内容定一个类型，私聊时不带频道",
        "agent": null,
        "writing": false,
-       "raisedBy": "code-review",
        "inputs": [
         {
          "from": "v6|code-review",
@@ -1373,7 +1366,6 @@
        "title": "通知里显示频道名，不显示频道 id",
        "agent": null,
        "writing": false,
-       "raisedBy": "user",
        "inputs": [
         {
          "from": "g6|test",
@@ -1473,7 +1465,6 @@
        "title": "对所有频道打开 @ 通知",
        "agent": null,
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "g11|test",
@@ -1796,25 +1787,31 @@
        },
        "plans": [],
        "since": "2026-11-15T19:50",
-       "thread": [
+       "threads": [
         {
-         "question": "P2-1 为什么是 P2，不是 P1？没有类型不是很危险吗？",
-         "context": [
+         "id": "",
+         "ended": false,
+         "turns": [
           {
-           "kind": "task",
-           "label": "代码 review #6"
-          },
-          {
-           "kind": "finding",
-           "label": "P2-1"
+           "question": "P2-1 为什么是 P2，不是 P1？没有类型不是很危险吗？",
+           "context": [
+            {
+             "kind": "task",
+             "label": "代码 review #6"
+            },
+            {
+             "kind": "finding",
+             "label": "P2-1"
+            }
+           ],
+           "answer": "我按\"出错时的后果\"定级：P1 是用户会直接受害（收不到通知、内容泄露），P2 是会让后面的改动更容易出错。payload 没有类型现在不会让任何通知出错，它的风险在下一次有人改字段名的时候；而且 #16 已经计划给它定类型，所以放在 P2。如果 app/notify/push.ts 以后要被别的模块直接调用，我会把它升到 P1。",
+           "at": "2026-11-15T20:12",
+           "consulted": {
+            "agent": "review-agent",
+            "outcome": "asked"
+           }
           }
-         ],
-         "answer": "我按\"出错时的后果\"定级：P1 是用户会直接受害（收不到通知、内容泄露），P2 是会让后面的改动更容易出错。payload 没有类型现在不会让任何通知出错，它的风险在下一次有人改字段名的时候；而且 #16 已经计划给它定类型，所以放在 P2。如果 app/notify/push.ts 以后要被别的模块直接调用，我会把它升到 P1。",
-         "at": "2026-11-15T20:12",
-         "consulted": {
-          "agent": "review-agent",
-          "outcome": "ended"
-         }
+         ]
         }
        ],
        "started": "2026-11-15 18:30",
@@ -2058,7 +2055,6 @@
       {
        "id": "q30",
        "ended": false,
-       "live": true,
        "turns": [
         {
          "id": "q30",
@@ -2154,7 +2150,6 @@
         {
          "id": "q1",
          "ended": true,
-         "live": false,
          "turns": [
           {
            "question": "撤回状态为什么放在消息表上，而不是单独一张表？",
@@ -2216,7 +2211,6 @@
         {
          "id": "q6",
          "ended": true,
-         "live": false,
          "turns": [
           {
            "question": "撤回后别人已经收到的推送通知怎么办？",
@@ -2291,7 +2285,6 @@
         {
          "id": "q11",
          "ended": false,
-         "live": false,
          "turns": [
           {
            "question": "两分钟的期限是谁定的，能不能做成频道设置？",
@@ -2353,7 +2346,6 @@
         {
          "id": "q16",
          "ended": false,
-         "live": true,
          "turns": [
           {
            "question": "被撤回的消息还会出现在别人的引用回复里吗？",
@@ -2416,7 +2408,6 @@
         {
          "id": "q21",
          "ended": false,
-         "live": true,
          "turns": [
           {
            "question": "为什么审计日志里还保留了被撤回消息的全文？",
@@ -2482,7 +2473,6 @@
         {
          "id": "q26",
          "ended": false,
-         "live": true,
          "turns": [
           {
            "question": "撤回之后搜索索引什么时候更新？",
@@ -2549,7 +2539,6 @@
        "title": "给消息加上已撤回的状态",
        "agent": "agent-D",
        "writing": true,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -2619,7 +2608,6 @@
        "title": "只有发送者能在两分钟内撤回",
        "agent": "agent-E",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -2649,7 +2637,6 @@
        "title": "撤回的消息不再出现在搜索结果里",
        "agent": "agent-F",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -2959,7 +2946,6 @@
        "title": "按词查找消息",
        "agent": "agent-A",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -3052,7 +3038,6 @@
        "title": "消息列表上方的搜索框",
        "agent": "agent-B",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -3385,7 +3370,6 @@
         "reminded": "2026-11-15T20:30:00Z",
         "escalated": true
        },
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -3419,7 +3403,6 @@
        "title": "被限流时告诉客户端多久以后再试",
        "agent": "agent-K",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -3492,13 +3475,11 @@
        "started": "2026-11-10 09:30",
        "delivered": "2026-11-10 15:20",
        "research": true,
-       "raisedBy": "plan",
        "discuss": "over",
        "threads": [
         {
          "id": "q1",
          "ended": false,
-         "live": false,
          "discuss": true,
          "turns": [
           {
@@ -3638,7 +3619,6 @@
        "title": "给部署脚本加用法说明和参数检查",
        "agent": "agent-H",
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",
@@ -3748,8 +3728,7 @@
        "plans": [],
        "started": "2026-10-25 10:00",
        "delivered": "2026-10-26 18:40",
-       "research": true,
-       "raisedBy": "plan"
+       "research": true
       },
       {
        "id": "2",
@@ -3775,8 +3754,7 @@
        "plans": [],
        "started": "2026-10-27 09:00",
        "delivered": "2026-10-27 16:30",
-       "design": true,
-       "raisedBy": "plan"
+       "design": true
       },
       {
        "id": "3",
@@ -3825,7 +3803,6 @@
        "title": "用 content-visibility 做一版消息列表，加上测量脚本",
        "agent": "agent-I",
        "writing": false,
-       "raisedBy": "plan",
        "started": "2026-10-27 10:00",
        "delivered": "2026-10-27 16:40",
        "inputs": [
@@ -3860,7 +3837,6 @@
        "title": "写下测出来的数字",
        "agent": "agent-I",
        "writing": false,
-       "raisedBy": "plan",
        "started": "2026-10-27 16:50",
        "delivered": "2026-10-27 17:30",
        "inputs": [
@@ -3915,7 +3891,6 @@
        "title": "消息列表改成虚拟滚动",
        "agent": "agent-I",
        "writing": false,
-       "raisedBy": "plan",
        "started": "2026-10-28 10:00",
        "delivered": "2026-10-30 17:10",
        "inputs": [
@@ -3977,7 +3952,6 @@
        "title": "跳到某条消息时先加载它前后的消息",
        "agent": null,
        "writing": false,
-       "raisedBy": "plan",
        "inputs": [
         {
          "from": "start",

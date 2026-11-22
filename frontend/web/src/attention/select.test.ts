@@ -10,7 +10,7 @@ import type { Thread } from '@/conversations/types'
 const turn = (question: string, answer: string | null, answeredAt?: string, unread?: boolean) =>
   ({ question, context: [], answer, answerBy: answer ? 'agent-R' : undefined, answeredAt, unread, at: '2026-11-21T10:00:00Z' })
 const discussion: Thread = {
-  id: 'q1', ended: false, live: false, discuss: true,
+  id: 'q1', ended: false, discuss: true,
   turns: [turn('Why IP?', 'Cheaper.', '2026-11-21T10:01:00Z', true), turn('And accounts?', 'Later.\nSee section 2.', '2026-11-21T10:05:00Z', true), turn('More?', null)],
 }
 const research = { id: '1', kind: 'implement', research: true, state: 'done', title: 'Compare limits', agent: 'agent-R', inputs: [], input: { text: '', causes: [] }, output: { gate: '2' }, plans: [], discuss: 'open', threads: [discussion] } as unknown as Task

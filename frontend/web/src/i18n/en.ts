@@ -539,13 +539,10 @@ export const en = {
       held: 'Waiting for {{agent}}: it goes in once {{agent}} is free.',
       starting: 'Starting an agent…',
       reading: 'Reading the records and the code…',
-      asking: 'Asking {{agent}}…',
       blocked: 'Waiting for you in {{runtime}}: {{agent}} needs an answer in its terminal. The question goes in once it is free.'
     },
     toTerminal: 'Go to the terminal',
     asked: 'Asked {{agent}}',
-    busy: '{{agent}} was busy; answered from the records',
-    ended: '{{agent}}’s session has ended; answered from the records',
     cannot: 'Could not start an agent to answer: {{reason}}',
     threadEnded: 'Ended',
     concludeAsked: 'Conclusion asked for',
@@ -865,7 +862,6 @@ export const en = {
     lostCommits: 'Its commits are not on the current branch: {{commits}} (on a branch this unit left)',
     uncommitted: 'Writing, not committed yet',
     notStarted: 'Not started yet.',
-    notDone: 'Not done yet.',
     willChange: 'Expected to change: {{paths}}'
   },
   stat: {

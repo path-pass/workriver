@@ -528,13 +528,10 @@ export const zhCN: OneForm<typeof en> = {
       held: '等 {{agent}}：它空下来后问题会自动发进去。',
       starting: '正在启动 agent…',
       reading: '正在读记录和代码…',
-      asking: '正在问 {{agent}}…',
       blocked: '在 {{runtime}} 里等你：{{agent}} 需要你在它的终端里回答。回答后问题会自动发给它。'
     },
     toTerminal: '去终端',
     asked: '问过 {{agent}}',
-    busy: '{{agent}} 正忙，根据记录回答',
-    ended: '{{agent}} 的会话已结束，根据记录回答',
     cannot: '没能启动回答的 agent：{{reason}}',
     threadEnded: '已结束',
     concludeAsked: '请它写结论',
@@ -844,7 +841,6 @@ export const zhCN: OneForm<typeof en> = {
     lostCommits: '它的提交不在当前分支上：{{commits}}（在这个单元离开的分支上）',
     uncommitted: '正在写，还没有提交',
     notStarted: '还没有开始。',
-    notDone: '还没有做。',
     willChange: '预计会改：{{paths}}'
   },
   stat: {

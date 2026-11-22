@@ -477,8 +477,6 @@ pub(crate) struct Task {
     pub(crate) agent_session: Option<String>,
     pub(crate) writing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) raised_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) gate: Option<core::GateKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) since: Option<String>,
@@ -699,8 +697,6 @@ pub(crate) struct Commit {
 pub(crate) struct ThreadOut {
     pub(crate) id: String,
     pub(crate) ended: bool,
-    /// Its temporary agent runs, so a follow-up keeps its context.
-    pub(crate) live: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) conclusion: Option<String>,
     pub(crate) turns: Vec<Turn>,

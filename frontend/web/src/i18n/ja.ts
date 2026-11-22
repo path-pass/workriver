@@ -528,13 +528,10 @@ export const ja: OneForm<typeof en> = {
       held: '{{agent}} を待っています。空いたら質問が入ります。',
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
-      asking: '{{agent}} に確認中…',
       blocked: '{{runtime}} であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたら質問が入ります。'
     },
     toTerminal: 'ターミナルへ',
     asked: '{{agent}} に確認済み',
-    busy: '{{agent}} が作業中のため、記録から回答しました',
-    ended: '{{agent}} のセッションは終了しているため、記録から回答しました',
     cannot: '回答するエージェントを起動できませんでした：{{reason}}',
     threadEnded: '終了',
     concludeAsked: '結論を依頼しました',
@@ -844,7 +841,6 @@ export const ja: OneForm<typeof en> = {
     lostCommits: 'コミットが現在のブランチにありません：{{commits}}（このユニットが離れたブランチ上）',
     uncommitted: '作成中、未コミット',
     notStarted: 'まだ開始していません。',
-    notDone: 'まだ完了していません。',
     willChange: '変更予定：{{paths}}'
   },
   stat: {

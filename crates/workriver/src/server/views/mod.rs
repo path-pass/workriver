@@ -187,7 +187,6 @@ fn threads(state: &core::State, live: &[RuntimeAgent], names: &Names, unit: &str
             ThreadOut {
                 id: t.id.clone(),
                 ended: t.ended,
-                live: agent.is_some(),
                 discuss: t.discuss,
                 conclusion: t.conclusion.clone(),
                 turns: state
@@ -713,15 +712,6 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         TaskKind::Review => t.reviewer.map(|r| name(&r)),
         _ => None,
     };
-    let by_task = |n: u32| u.tasks.iter().find(|x| x.n == n);
-    // Who raised implement work: the finder of what it answers, the user, or the plan.
-    let raised_by = (!finder).then(|| match t.causes.first().and_then(|c| by_task(c.task)) {
-        Some(f) if f.kind == TaskKind::Gate => "user".to_string(),
-        Some(f) if f.kind == TaskKind::Tests => "test".to_string(),
-        Some(f) => f.reviewer.map(|r| name(&r)).unwrap_or_else(|| "code-review".into()),
-        None if t.by == "user" => "user".into(),
-        None => "plan".into(),
-    });
     let policy = state.intents.iter().find(|i| i.id == u.intent).map(|i| i.findings).unwrap_or_default();
     // The manager decides only while there is one running; else its findings fall to the user.
     let manager_runs = manager.is_some_and(|m| live.iter().any(|a| a.session == m));
@@ -775,7 +765,6 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         agent: t.agent.as_deref().map(|a| names.of(a)),
         agent_session: t.agent.clone(),
         writing: false,
-        raised_by,
         gate: t.gate,
         since,
         started: t.started.clone(),
@@ -847,7 +836,6 @@ fn unregistered(c: &scan::Commit) -> Task {
         agent: None,
         agent_session: None,
         writing: false,
-        raised_by: None,
         gate: None,
         since: None,
         started: None,

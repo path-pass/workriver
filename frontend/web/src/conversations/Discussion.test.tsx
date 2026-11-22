@@ -16,8 +16,8 @@ declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const turn = (question: string, answer: string | null, more: Partial<Turn> = {}): Turn => ({ question, context: [], answer, at: '2026-11-21T10:00:00Z', ...more })
-const discussion: Thread = { id: 'q1', ended: false, live: false, discuss: true, turns: [turn('Why IP?', 'THE_ANSWER', { answerBy: 'agent-R', answeredAt: '2026-11-21T10:01:00Z', unread: true })] }
-const plain = (k: number): Thread => ({ id: `q${k + 2}`, ended: false, live: false, turns: [turn(`Plain ${k}`, 'ok')] })
+const discussion: Thread = { id: 'q1', ended: false, discuss: true, turns: [turn('Why IP?', 'THE_ANSWER', { answerBy: 'agent-R', answeredAt: '2026-11-21T10:01:00Z', unread: true })] }
+const plain = (k: number): Thread => ({ id: `q${k + 2}`, ended: false, turns: [turn(`Plain ${k}`, 'ok')] })
 
 let host: HTMLDivElement
 let root: Root

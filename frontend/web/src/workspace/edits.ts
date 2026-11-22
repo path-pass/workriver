@@ -58,7 +58,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
     if (mine?.length || read) {
       const threads = out.threads ?? []
       const had = threads.some(th => th.discuss)
-      const all = had ? threads.map(th => (th.discuss ? { ...th, turns: [...th.turns, ...(mine ?? [])] } : th)) : mine?.length ? [...threads, { id: '', ended: false, live: false, discuss: true, turns: mine }] : threads
+      const all = had ? threads.map(th => (th.discuss ? { ...th, turns: [...th.turns, ...(mine ?? [])] } : th)) : mine?.length ? [...threads, { id: '', ended: false, discuss: true, turns: mine }] : threads
       out = { ...out, threads: all.map(th => (th.discuss && read ? { ...th, turns: th.turns.map(x => (x.unread && x.answeredAt && ms(x.answeredAt) <= ms(read) ? { ...x, unread: false } : x)) } : th)) }
     }
     const found = out.output.findings
