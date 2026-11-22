@@ -355,7 +355,7 @@ fn a_start_seats_only_a_ready_agent_whose_screen_shows_no_error() {
     let side = workspace_named(&d, "side");
     seat(&d, &side, Some("s-boss")).unwrap();
     *fake.bring.lock().unwrap() = Bring::Session;
-    *fake.start_screen.lock().unwrap() = Some(" ▐▛███▜▌   Claude Code v2.1.330\n\n⚠ Model \"claude-nope-9-9\" isn't recognized · context assumed to be 1m tokens · update Claude Code, or see\n  https://code.claude.com/docs/en/model-config\n\n────────\n❯ Try \"edit <filepath> to…\"\n────────\n".into());
+    *fake.start_screen.lock().unwrap() = Some("% claude --model claude-nope-9-9\n ▐▛███▜▌   Claude Code v2.1.330\n\n⚠ Model \"claude-nope-9-9\" isn't recognized · context assumed to be 1m tokens · update Claude Code, or see\n  https://code.claude.com/docs/en/model-config\n\n────────\n❯ Try \"edit <filepath> to…\"\n────────\n".into());
     let e = d.call("/api/workspaces", Some(json!({ "action": "start", "workspace": side, "harness": "claude", "model": "claude-nope-9-9", "replaces": seat_of(&d, &side) }))).unwrap();
     let wrong = format!("s-ws2-manager-{}", e["seq"]);
     wait_until("ended", || line(&d, &side)["start"]["reason"] == "startup_error");
@@ -366,6 +366,20 @@ fn a_start_seats_only_a_ready_agent_whose_screen_shows_no_error() {
     assert_eq!(told(&fake, &wrong, ""), 0);
     assert!(fake.agents.lock().unwrap().iter().any(|(_, a)| a.session == wrong), "left running");
     assert!(fake.closed.lock().unwrap().is_empty() && fake.closed_places.lock().unwrap().is_empty());
+}
+
+/// What the shell printed before the start typed the harness's command (a warning of the
+/// user's shell set-up, marked as a harness marks its errors) is not the harness's: a ready
+/// agent with a session is seated.
+#[test]
+fn a_shells_warning_before_the_command_does_not_stop_the_seating() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.start_screen.lock().unwrap() = Some("⚠ Optional development tools are not on PATH\nzhangdongwei@air proj % claude --model opus\n ▐▛███▜▌   Claude Code v2.1.330\n\n────────\n❯ Try \"edit <filepath> to…\"\n────────\n".into());
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits());
+    let ws = workspace_named(&d, "chat");
+    let session = format!("s-ws1-manager-{}", start(&d, &ws, "opus").unwrap()["seq"]);
+    wait_until("seated", || seat_of(&d, &ws)["session"] == session.as_str());
 }
 
 /// A read of the start's place that fails is not a closed terminal: it is read again, and

@@ -45,11 +45,19 @@ impl Harness {
         Ok(if model.is_empty() { vec![] } else { vec![self.model_flag.to_string(), model.to_string()] })
     }
 
-    /// The problem the harness reported as it started, as its screen shows it: the first line
-    /// that starts with its mark, without the mark, with the indented lines the terminal
-    /// wrapped it onto. None: its screen reports none.
-    pub fn startup_error(&self, screen: &str) -> Option<String> {
-        let mut lines = screen.lines().skip_while(|l| !l.starts_with(self.error_mark));
+    /// The problem the harness reported as it started, as its screen shows it: after the line
+    /// where the start typed its command (this kind and `args`, as words of that line; the
+    /// quotes and backslashes a runtime types around an argument are not counted), the first
+    /// line that starts with its mark, without the mark, with the indented lines the terminal
+    /// wrapped it onto. What the shell printed before the command is the shell's, never read.
+    /// None: no such line, or no line with the command (nothing to tell the harness's from).
+    pub fn startup_error(&self, screen: &str, args: &[String]) -> Option<String> {
+        let command: Vec<&str> = std::iter::once(self.kind).chain(args.iter().map(String::as_str)).collect();
+        let typed = |line: &str| {
+            let words: Vec<String> = line.split_whitespace().map(|w| w.replace(['\'', '"', '\\'], "")).collect();
+            words.windows(command.len()).any(|w| w.iter().zip(&command).all(|(a, b)| a == b))
+        };
+        let mut lines = screen.lines().skip_while(|l| !typed(l)).skip(1).skip_while(|l| !l.starts_with(self.error_mark));
         let first = lines.next()?.trim_start_matches(self.error_mark).trim();
         let wrapped = lines.take_while(|l| l.starts_with(char::is_whitespace) && !l.trim().is_empty()).map(str::trim);
         Some(std::iter::once(first).chain(wrapped).collect::<Vec<_>>().join(" "))
@@ -80,24 +88,52 @@ mod tests {
         assert!(harness("bash").is_none());
     }
 
+    fn args(model: &str) -> Vec<String> {
+        vec!["--model".into(), model.into()]
+    }
+
     /// What each harness shows as it starts with a model it does not know (Claude Code
-    /// 2.1.330, Codex 0.171.0, measured), and with one it knows.
+    /// 2.1.330, Codex 0.171.0, measured), and with one it knows: read after the line where
+    /// the start typed the harness's command.
     #[test]
-    fn a_startup_error_is_the_marked_line_of_the_screen() {
+    fn a_startup_error_is_the_marked_line_after_the_command() {
         let claude = harness("claude").unwrap();
-        let banner = "% claude --model opsu\n ▐▛███▜▌   Claude Code v2.1.330\n▝▜█████▛▘  opsu with high effort · Claude Ultra\n  ▘▘ ▝▝    /tmp/proj\n\n";
+        let banner = |model: &str| format!("zhangdongwei@air proj % claude --model {model}\n ▐▛███▜▌   Claude Code v2.1.330\n▝▜█████▛▘  {model} with high effort · Claude Ultra\n  ▘▘ ▝▝    /tmp/proj\n\n");
         let prompt = "\n────────\n❯ Try \"edit <filepath> to…\"\n────────\n  [opsu] │ proj                                ● high · /effort\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n";
-        let screen = format!("{banner}⚠ Model \"opsu\" isn't recognized · did you mean \"opus\"?\n{prompt}");
-        assert_eq!(claude.startup_error(&screen).as_deref(), Some("Model \"opsu\" isn't recognized · did you mean \"opus\"?"));
+        let screen = format!("{}⚠ Model \"opsu\" isn't recognized · did you mean \"opus\"?\n{prompt}", banner("opsu"));
+        assert_eq!(claude.startup_error(&screen, &args("opsu")).as_deref(), Some("Model \"opsu\" isn't recognized · did you mean \"opus\"?"));
         // A line the terminal wrapped is one.
-        let screen = format!("{banner}⚠ Model \"claude-nope-9-9\" isn't recognized · update Claude Code, or see\n  https://code.claude.com/docs/en/model-config\n{prompt}");
-        assert_eq!(claude.startup_error(&screen).as_deref(), Some("Model \"claude-nope-9-9\" isn't recognized · update Claude Code, or see https://code.claude.com/docs/en/model-config"));
-        assert_eq!(claude.startup_error(&format!("{banner}{prompt}")), None);
-        assert_eq!(claude.startup_error(""), None);
+        let screen = format!("{}⚠ Model \"claude-nope-9-9\" isn't recognized · update Claude Code, or see\n  https://code.claude.com/docs/en/model-config\n{prompt}", banner("claude-nope-9-9"));
+        assert_eq!(claude.startup_error(&screen, &args("claude-nope-9-9")).as_deref(), Some("Model \"claude-nope-9-9\" isn't recognized · update Claude Code, or see https://code.claude.com/docs/en/model-config"));
+        assert_eq!(claude.startup_error(&format!("{}{prompt}", banner("opus")), &args("opus")), None);
+        assert_eq!(claude.startup_error("", &args("opus")), None);
         // Codex's count of warnings at the end of its status line is not one.
         let codex = harness("codex").unwrap();
-        let screen = "  >_ OpenAI Codex (v0.171.0)\n\n⚠ Your ChatGPT model list doesn't include `gpt-nope-1`. Check the spelling or use /model to choose another model.\n\n\n\n› Ask Codex to do anything\n\n  gpt-nope-1 high · /tmp/proj · Context 0% used\n  ← for agents · ? for shortcuts                       ⚠ 6 warnings · f2 to view\n";
-        assert_eq!(codex.startup_error(screen).as_deref(), Some("Your ChatGPT model list doesn't include `gpt-nope-1`. Check the spelling or use /model to choose another model."));
-        assert_eq!(codex.startup_error("› Ask Codex to do anything\n  ← for agents · ? for shortcuts      ⚠ 6 warnings · f2 to view\n"), None);
+        let screen = "% codex --model gpt-nope-1\n  >_ OpenAI Codex (v0.171.0)\n\n⚠ Your ChatGPT model list doesn't include `gpt-nope-1`. Check the spelling or use /model to choose another model.\n\n\n\n› Ask Codex to do anything\n\n  gpt-nope-1 high · /tmp/proj · Context 0% used\n  ← for agents · ? for shortcuts                       ⚠ 6 warnings · f2 to view\n";
+        assert_eq!(codex.startup_error(screen, &args("gpt-nope-1")).as_deref(), Some("Your ChatGPT model list doesn't include `gpt-nope-1`. Check the spelling or use /model to choose another model."));
+        assert_eq!(codex.startup_error("% codex\n› Ask Codex to do anything\n  ← for agents · ? for shortcuts      ⚠ 6 warnings · f2 to view\n", &[]), None);
+    }
+
+    /// What the shell printed before the start typed the command is the shell's, never the
+    /// harness's error: a ready agent there is seated.
+    #[test]
+    fn a_shells_warning_before_the_command_is_not_a_startup_error() {
+        let claude = harness("claude").unwrap();
+        let shell = "⚠ Optional development tools are not on PATH\n  install them with brew bundle\nzhangdongwei@air proj % ";
+        let ready = "\n ▐▛███▜▌   Claude Code v2.1.330\n▝▜█████▛▘  Opus 5.5 · Claude Ultra\n\n────────\n❯ Try \"edit <filepath> to…\"\n────────\n";
+        assert_eq!(claude.startup_error(&format!("{shell}claude --model opus{ready}"), &args("opus")), None);
+        assert_eq!(claude.startup_error(&format!("{shell}claude{ready}"), &[]), None);
+        // After it, the harness's own: still one.
+        let wrong = format!("{shell}claude --model opsu\n⚠ Model \"opsu\" isn't recognized · did you mean \"opus\"?\n{ready}");
+        assert_eq!(claude.startup_error(&wrong, &args("opsu")).as_deref(), Some("Model \"opsu\" isn't recognized · did you mean \"opus\"?"));
+        // The command as the runtime typed it: an argument quoted, a prompt on the right.
+        let quoted = format!("{shell}claude --model 'claude-opus-5-5[1m]'\n⚠ Model \"claude-opus-5-5[1m]\" isn't recognized\n{ready}");
+        assert_eq!(claude.startup_error(&quoted, &args("claude-opus-5-5[1m]")).as_deref(), Some("Model \"claude-opus-5-5[1m]\" isn't recognized"));
+        let right = format!("{shell}claude --model opsu                     ~/proj 10:42\n⚠ Model \"opsu\" isn't recognized\n{ready}");
+        assert_eq!(claude.startup_error(&right, &args("opsu")).as_deref(), Some("Model \"opsu\" isn't recognized"));
+        // Another command is not the start's: what follows it is not read.
+        assert_eq!(claude.startup_error(&format!("{shell}claude --model sonnet\n⚠ Model \"x\" isn't recognized{ready}"), &args("opus")), None);
+        // No line with the command (scrolled out of what was read): nothing is read as an error.
+        assert_eq!(claude.startup_error("⚠ Optional development tools are not on PATH\n❯ Try\n", &args("opus")), None);
     }
 }

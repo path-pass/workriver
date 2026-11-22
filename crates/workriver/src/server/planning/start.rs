@@ -184,7 +184,7 @@ impl App {
                         // Ready, with a session: seated unless its screen shows a problem it
                         // reported as it started (a model it does not know), which ends it.
                         Some(a) if self.runtime.has_session(&a) && matches!(a.state, AgentState::Idle | AgentState::Done) => match self.runtime.read_place(None, &up.place, SCREEN) {
-                            Ok(screen) => match up.harness.startup_error(&screen) {
+                            Ok(screen) => match up.harness.startup_error(&screen, &up.args) {
                                 Some(words) => return Some((StartEnd::StartupError, words)),
                                 None => return self.seat_start(up, &a),
                             },

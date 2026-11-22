@@ -80,10 +80,15 @@ Herdr's list (only `--model <model>` when you picked one), under a name of that 
 `<ws>-manager-<n>` (`n` the start's number in workriver's records): Herdr takes a live name
 once across its server (`agent_name_taken`), and an earlier start's agent may still run. It
 seats the agent once Herdr reports it ready (idle or done) with a session of the harness's
-own in that pane, and its screen shows no line that starts with `⚠`, which is how Claude Code
-and Codex report a model they do not know as they start (both still start, ready). A start
-whose screen shows one ends unseated, the agent left running in its pane, and the page shows
-that line. Herdr's
+own in that pane, and its screen (`pane.read`, recent lines unwrapped) shows no line that
+starts with `⚠` after the line where Herdr typed the harness's command (Herdr quotes an
+argument there, e.g. `claude --model 'claude-opus-5-5[1m]'`). That is how Claude Code and
+Codex report a model they do not know as they start (both still start, ready); what the shell
+printed before the command is the shell's and is not read. A start whose screen shows one
+ends unseated, the agent left running in its pane, and the page shows that line. Codex draws
+over the whole screen, so its command line, and with it its error, is not in what Herdr reads
+back (measured with Codex 0.171.0); a page-started Codex is not seated anyway until it has a
+session, which it gets with its first prompt. Herdr's
 `agent_not_ready` (the harness blocked at startup, e.g. on its trust question in a new
 folder) keeps the pane: answer in it or from Needs you. Which harnesses are offered comes
 from Herdr's `integration.list`: the command found, and Herdr's integration for it current
