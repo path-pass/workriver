@@ -8,42 +8,69 @@ const SOUND = 'workriver.sound'
 export function soundWanted() { try { return localStorage.getItem(SOUND) === '1' } catch { return false } }
 export function wantSound(on: boolean) { try { localStorage.setItem(SOUND, on ? '1' : '0') } catch { /* not remembered; still applies now */ } }
 
+/** A row of Needs you that sounds: `key` names the row and stays while the row only changes;
+ *  `once` names this coming of it (an agent asking again, a gate waiting again is another). */
+export interface Sounding { key: string; once: string }
+
 /** The groups whose new rows make the sound: what waits on the user. Gaps and Not urgent
  *  block nobody, so they stay quiet. A decision on a gate holds only what the user wrote
  *  there: their own act, not news. A conversation's row stays while it has unread words, so
- *  its key carries the newest one's time: a new word is a new row, reading one is not. */
+ *  its key carries the newest one: a new word is a new row, reading one is not. */
 const SOUNDING = ['blocking', 'machines', 'decisions', 'messages'] as const
-export const soundingRows = (box: Inbox) => SOUNDING.flatMap(g => box[g]
+export const soundingRows = (box: Inbox): Sounding[] => SOUNDING.flatMap(g => box[g]
   .filter(r => !(r.kind === 'decision' && r.node?.kind === 'gate'))
-  .map(r => (r.kind === 'message' || r.kind === 'discussion' ? `${r.key}:${r.since}` : r.key)))
+  .map(r => {
+    const key = r.kind === 'message' || r.kind === 'discussion' ? `${r.key}:${r.word}` : r.key
+    return { key, once: `${key}@${r.since}` }
+  }))
 
 /** Rows that come within this long of a sound make no second one. */
 export const QUIET_MS = 5000
-
-// The time of the last sound, shared by all open tabs: each reads the same change, one plays.
-const LAST = 'workriver.sound.last'
-const lastSound = () => { try { return Number(localStorage.getItem(LAST) ?? -Infinity) } catch { return -Infinity } }
-const soundAt = (at: number) => { try { localStorage.setItem(LAST, String(at)) } catch { /* this tab still keeps it */ } }
+/** How long the tabs remember what was played for: a tab that sees a row later than this
+ *  plays for it again. */
+export const REMEMBER_MS = 10 * 60_000
 
 /**
- * Says, for each list of rows in turn, whether it plays: only when a row is there that was not
- * in the list before. The first list is what was there when the page loaded: not news. A row
- * that only changes keeps its key, so it is not new. Rows seen while the sound is off are
- * still seen, so turning it on later does not play for them. Within QUIET_MS of a sound in
- * any tab, nothing plays.
+ * Says, for each list of rows in turn, which rows came that were not in the list before (by
+ * their coming). The first list is what was there when the page loaded: not news. A row that
+ * only changes keeps its key, so it is not new. Rows seen while the sound is off are still
+ * seen, so turning it on later does not play for them.
  */
-export function rowSound(now: () => number = Date.now) {
+export function rowSound() {
   let seen: Set<string> | null = null
-  let last = -Infinity
-  return (keys: string[], wanted: boolean): boolean => {
+  return (rows: Sounding[], wanted: boolean): string[] => {
     const before = seen
-    seen = new Set(keys)
-    if (!wanted || !before || keys.every(k => before.has(k))) return false
-    const at = now()
-    if (Math.abs(at - Math.max(last, lastSound())) < QUIET_MS) return false
-    soundAt((last = at))
-    return true
+    seen = new Set(rows.map(r => r.key))
+    return wanted && before ? rows.filter(r => !before.has(r.key)).map(r => r.once) : []
   }
+}
+
+// What was played for, shared by all open tabs: each reads the same change, one plays.
+const PLAYED = 'workriver.sound.played'
+interface Played { at: number; rows: Record<string, number> }
+let here: Played = { at: -Infinity, rows: {} }
+const played = (): Played => {
+  try {
+    const p = JSON.parse(localStorage.getItem(PLAYED) ?? 'null')
+    return typeof p?.at === 'number' && p.rows ? p : { at: -Infinity, rows: {} }
+  } catch { return here }
+}
+const remember = (p: Played) => { here = p; try { localStorage.setItem(PLAYED, JSON.stringify(p)) } catch { /* this tab still keeps it */ } }
+
+/**
+ * Claims the sound for these comings of rows, for all open tabs, at the moment it would play:
+ * false when every one was played for already (in any tab), or a sound played within QUIET_MS.
+ * Rows that come within QUIET_MS of a sound count as played for: that sound covered them.
+ */
+export function claim(once: string[], at: number): boolean {
+  const p = played()
+  const rows = Object.fromEntries(Object.entries(p.rows).filter(([, t]) => at - t < REMEMBER_MS))
+  const fresh = once.filter(o => !(o in rows))
+  if (!fresh.length) return false
+  for (const o of fresh) rows[o] = at
+  const quiet = Math.abs(at - p.at) < QUIET_MS
+  remember({ at: quiet ? p.at : at, rows })
+  return !quiet
 }
 
 // ---- the sound itself ----
@@ -77,21 +104,32 @@ function tones(c: AudioContext) {
   }
 }
 
-/** Plays the sound now; whether it could. A context the browser holds back is asked to go on,
- *  but a sound that cannot play now is dropped, not played late. */
-export async function chime(): Promise<boolean> {
+/** Plays the sound now; whether it played. A context the browser holds back is asked to go
+ *  on, but a sound that cannot play now is dropped, not played late. For new rows, the tabs
+ *  are asked right before it plays (claim): only a tab that can play takes them. */
+export async function chime(once?: string[], now: () => number = Date.now): Promise<boolean> {
   const c = audio()
   if (c && c.state !== 'running') await Promise.race([c.resume().catch(() => {}), new Promise(r => setTimeout(r, 200))])
   missed = !c || c.state !== 'running'
-  if (!missed) tones(c!)
-  return !missed
+  if (missed || (once && !claim(once, now()))) return false
+  tones(c!)
+  return true
+}
+
+/** One tab's sound for new rows: plays for those of each list that no tab played for yet. */
+export function rowPlayer() {
+  const step = rowSound()
+  return (rows: Sounding[], wanted: boolean): Promise<boolean> => {
+    const once = step(rows, wanted)
+    return once.length ? chime(once) : Promise.resolve(false)
+  }
 }
 
 /** The sound for new rows of Needs you; a click or a key on the page lets the browser play it
  *  from then on. */
 export function useRowSound(box: Inbox | null) {
-  const step = useRef(rowSound())
-  useEffect(() => { if (box && step.current(soundingRows(box), soundWanted())) void chime() }, [box])
+  const play = useRef(rowPlayer())
+  useEffect(() => { if (box) void play.current(soundingRows(box), soundWanted()) }, [box])
   useEffect(() => {
     const allow = () => { if (soundWanted()) audio()?.resume().catch(() => {}) }
     window.addEventListener('pointerdown', allow, true)
