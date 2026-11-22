@@ -697,17 +697,9 @@ export const ja: OneForm<typeof en> = {
     dropConfirm: '不要にする',
     dropCancel: 'キャンセル',
     dropFailed: '記録できませんでした：{{error}}',
-    trace: '担当エージェント：ハーネス、モデル、セッション',
+    trace: '担当エージェント：ハーネスとモデル',
     noHarness: 'ハーネス不明',
-    noModel: 'モデル未申告',
-    onMachine: '{{machine}} 上',
-    unconfirmed: '推定したパス、ここでは見当たらない',
-    noFile: {
-      harness: 'このハーネスがセッションをどこに保存するかは不明です',
-      id: 'ハーネスが独自のセッション ID を出していません',
-      cwd: 'セッションファイル不明：作業ディレクトリが記録されていません',
-      missing: 'このマシンにセッションファイルが見つかりません'
-    }
+    noModel: 'モデル未申告'
   },
   who: {
     writing: '{{name}}、作成中'

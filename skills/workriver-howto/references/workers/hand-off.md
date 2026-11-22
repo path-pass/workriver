@@ -20,17 +20,19 @@ u1#3` and read it fully before you start", and the worker instructions.
 with), commits with `Task: u1#3` (in the message's last paragraph, with any other trailers
 and no blank line between them), and `task deliver`; you are told when it delivers.
 
-Which harness and model did a task, and where the harness keeps the session, is in
-`task show` (under `Agent:`) and in the task's detail on the page; `workriver task session
-u1#3` prints only the path of the session file, on the machine the agent ran on, for you
-or the user to open with the harness's own tools. workriver never reads that file, and it
-reads only what the task is open to (a blind task's agent: its own). It is there once the
-task is started or delivered, for the agent recorded with that; a task still to do shows
-none. A worker that did not say its model shows "model (not given)"; the model is only
-ever the worker's own word, so a start you record for it (`task start u1#3 --agent impl`)
-takes no `--model`. A path "worked out, not seen there" is where the file would be by the
-directory the agent was started in, not one found; a session whose working directory was
-never seen, or a harness workriver does not know, says why instead of a path.
+Which harness and model did a task is in `task show` (under `Agent:`) and in the task's
+detail on the page; nothing else of the session is shown there. Where the harness keeps
+the session is recorded: `workriver task session u1#3` prints the path of the session
+file, on the machine the agent ran on, for you or the user to open with the harness's own
+tools (`task show --json` has it too, under `trace`, with the session id). workriver never
+reads that file, and it reads only what the task is open to (a blind task's agent: its
+own). It is there once the task is started or delivered, for the agent recorded with
+that; a task still to do shows none. A worker that did not say its model shows "model
+(not given)"; the model is only ever the worker's own word, so a start you record for it
+(`task start u1#3 --agent impl`) takes no `--model`. A path "worked out, not seen there"
+is where the file would be by the directory the agent was started in, not one found; a
+session whose working directory was never seen, or a harness workriver does not know,
+says why instead of a path.
 
 For a blind task leave out everyone else's account: see `blind-review`.
 

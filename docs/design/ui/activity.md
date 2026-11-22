@@ -54,20 +54,19 @@ its sections went.
   Work an agent started or delivered (any kind but a gate) has a quiet line under the
   header, its **trace**, from the agent recorded with that start or delivery; a task still
   to do has none (its assignee's session is other work's until it starts). The line holds
-  the harness as the runtime named it, the model the agent gave when it started the task
-  itself ("model not given" when it gave none; a start recorded for it by someone else
-  carries none), and the harness's session id; under them the path of the session file
-  with a copy button, and "on <machine>" for an agent on another machine (the path from its
-  `~`, with `*` where the file is found by its id and that machine was not looked at). A
-  path on this machine with no file there by that name says "worked out, not seen there".
-  Without a path it says why: the harness is not one workriver knows, it gave no session
-  id of its own, the working directory it keeps the session by was never seen, or a file
-  found by its id is not there. The service works the path out (one place,
-  `server/views/trace.rs`; Claude Code by the directory the agent was started in, or by its
-  id among its folders when it was begun elsewhere; Codex by listing its sessions and
-  archived sessions folders for the id; a session not found is looked for again only after
-  a while) and never reads the file; the page only shows it, and the line is there only
-  where the task is (a blind agent sees its own).
+  the harness as the runtime named it ("harness not known" before the agent was seen) and
+  the model the agent gave when it started the task itself ("model not given" when it gave
+  none; a start recorded for it by someone else carries none), and nothing else: no copy
+  button. The harness's own session id and where the harness keeps the session file are
+  recorded, not shown (the user asked for less): the page's JSON carries only the harness
+  and the model, and `task show` prints the same two under `Agent:`. Whoever needs the
+  file asks for it: `workriver task session u1#3` prints its path, and `task show --json`
+  keeps the whole trace for tools (the session, the path, the machine, why there is none).
+  The service works the path out only for those (one place, `server/views/trace.rs`;
+  Claude Code by the directory the agent was started in, or by its id among its folders
+  when it was begun elsewhere; Codex by listing its sessions and archived sessions folders
+  for the id; a session not found is looked for again only after a while) and never reads
+  the file; the line is there only where the task is (a blind agent sees its own).
   After Output, a **Questions** block holds the past questions about the task (the user's
   from when the page had its own Ask, agents' to each other), read-only, folded to rows (`conversations.md`,
   Past questions); a delivered design or research also has its discussion there, open, with

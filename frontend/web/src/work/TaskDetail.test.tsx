@@ -74,27 +74,20 @@ describe('a task’s trace', () => {
     id: '1', kind: 'implement', state: 'done', taskId: '1', title: 'Do it', agent: 'impl', agentSession: 's-1', writing: false,
     inputs: [{ from: 'start', primary: true }], input: { text: 'Do it', causes: [] }, output: { commits: [] }, plans: [],
   }
-  const trace = () => host.querySelector('[aria-label="Its agent: harness, model, session"]')?.textContent
+  const label = '[aria-label="Its agent: harness and model"]'
+  const trace = () => host.querySelector(label)?.textContent
 
-  it('names the harness, the model and the session, with the path of the session file', () => {
-    show(unit({ ...work, trace: { session: 's-1', harness: 'claude', model: 'claude-opus-5-5', file: '/Users/me/.claude/projects/-r/s-1.jsonl' } }))
-    expect(trace()).toBe('claude · claude-opus-5-5 · s-1/Users/me/.claude/projects/-r/s-1.jsonl')
-    expect(host.querySelector('[aria-label="Its agent: harness, model, session"] button')).not.toBeNull()
+  it('names the harness and the model only: no session, no file, nothing to copy', () => {
+    show(unit({ ...work, trace: { harness: 'claude', model: 'claude-opus-5-5' } }))
+    expect(trace()).toBe('claude · claude-opus-5-5')
+    expect(host.querySelector(`${label} button`)).toBeNull()
   })
 
-  it('says the machine of a far one, what was not given, and why there is no file', () => {
-    show(unit({ ...work, trace: { session: 's-1', harness: 'codex', machine: 'box', file: '~/.codex/sessions/*/*/*/rollout-*-s-1.jsonl*' } }))
-    expect(trace()).toBe('codex · model not given · s-1~/.codex/sessions/*/*/*/rollout-*-s-1.jsonl*on box')
-    show(unit({ ...work, trace: { session: 's-1', unknown: 'harness' } }))
-    expect(trace()).toBe('harness not known · model not given · s-1Where this harness keeps its sessions is not known')
-  })
-
-  it('says when the path is only worked out, not seen there', () => {
-    show(unit({ ...work, trace: { session: 's-1', harness: 'claude', file: '/Users/me/.claude/projects/-r-sub/s-1.jsonl', unconfirmed: true } }))
-    expect(trace()).toBe('claude · model not given · s-1/Users/me/.claude/projects/-r-sub/s-1.jsonlworked out, not seen there')
-    // A far one says its machine: nothing is looked at there.
-    show(unit({ ...work, trace: { session: 's-1', harness: 'claude', machine: 'box', file: '~/.claude/projects/-r/s-1.jsonl', unconfirmed: true } }))
-    expect(trace()).toBe('claude · model not given · s-1~/.claude/projects/-r/s-1.jsonlon box')
+  it('says what was not known or not given', () => {
+    show(unit({ ...work, trace: { harness: 'codex' } }))
+    expect(trace()).toBe('codex · model not given')
+    show(unit({ ...work, trace: {} }))
+    expect(trace()).toBe('harness not known · model not given')
   })
 
   it('is not there for work no agent did', () => {

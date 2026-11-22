@@ -17,6 +17,12 @@ use crate::common::wire::{NoFile, Trace};
 /// there and gets a suffix of its own, which is not worked out here (a `*` stands for it).
 const CLAUDE_FOLDER: usize = 200;
 
+/// Which harness and model did work of the agent of `session`: all the page shows of a trace.
+pub(in crate::server) fn ran(state: &core::State, session: &str, model: Option<&str>) -> crate::common::wire::workspace::Ran {
+    let harness = state.agents.iter().find(|a| a.session == session).map(|a| a.harness.clone()).filter(|h| !h.is_empty());
+    crate::common::wire::workspace::Ran { harness, model: model.map(str::to_string) }
+}
+
 /// What a look for a session's file by its id came to.
 enum Looked {
     /// There, when last looked (checked again before it is shown).

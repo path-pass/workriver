@@ -718,17 +718,9 @@ export const en = {
     dropConfirm: 'Mark no longer needed',
     dropCancel: 'Cancel',
     dropFailed: 'Not recorded: {{error}}',
-    trace: 'Its agent: harness, model, session',
+    trace: 'Its agent: harness and model',
     noHarness: 'harness not known',
-    noModel: 'model not given',
-    onMachine: 'on {{machine}}',
-    unconfirmed: 'worked out, not seen there',
-    noFile: {
-      harness: 'Where this harness keeps its sessions is not known',
-      id: 'The harness gave no session id of its own',
-      cwd: 'Session file not known: its working directory was not recorded',
-      missing: 'Session file not found on this machine'
-    }
+    noModel: 'model not given'
   },
   who: {
     writing: '{{name}}, writing now'

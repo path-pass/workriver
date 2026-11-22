@@ -421,8 +421,7 @@ pub(crate) fn text(s: &TaskShow) -> String {
     }
     let _ = writeln!(out, "Agent: {}", s.agent.as_deref().unwrap_or("(none yet)"));
     if let Some(t) = &s.trace {
-        let _ = writeln!(out, "  harness {}, model {}, session {}", t.harness.as_deref().unwrap_or("(not known)"), t.model.as_deref().unwrap_or("(not given)"), t.session);
-        let _ = writeln!(out, "  session file: {}", session_file(t));
+        let _ = writeln!(out, "  harness {}, model {}", t.harness.as_deref().unwrap_or("(not known)"), t.model.as_deref().unwrap_or("(not given)"));
     }
     if let Some(st) = &s.stalled {
         let _ = writeln!(out, "{}", stalled_line(st));

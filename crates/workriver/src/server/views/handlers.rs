@@ -175,23 +175,20 @@ impl App {
         let mut ws = views::build(state, &mut cache, live.as_deref(), &blocked, &idle, &stalls, &groups);
         views::mark_gone(&mut ws, &self.gone.lock().unwrap());
         cache.save();
-        let (recomputed, reused) = (cache.recomputed, cache.reused);
-        // What follows may list folders: not while every other reader waits on the cache.
-        drop(cache);
-        // Each task an agent started or delivered: that agent's harness and model, and where
-        // the harness keeps the session. One still to do has none: its agent's session is
-        // still other work's.
+        // Each task an agent started or delivered: that agent's harness and model (where the
+        // harness keeps the session is `task show`'s). One still to do has none: its agent's
+        // session is still other work's.
         for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
             for t in &mut u.tasks {
                 let Some(begun) = t.id.parse().ok().and_then(|n| state.task(&u.id, n).ok()).filter(|x| x.started.is_some() || x.done.is_some()) else { continue };
-                t.trace = t.agent_session.as_deref().map(|s| self.sessions.trace(state, s, begun.model.as_deref()));
+                t.trace = t.agent_session.as_deref().map(|s| views::trace::ran(state, s, begun.model.as_deref()));
             }
         }
         if state.reduced {
             views::hide(&mut ws, state);
         }
         let ms = started.elapsed().as_millis() as u64;
-        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed, reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= crate::common::config::defaults::SLOW_MS);
+        tracing::info!(target: "perf", kind = "snapshot", trigger, light, ms, recomputed = cache.recomputed, reused = cache.reused, git = scan::CALLS.load(std::sync::atomic::Ordering::Relaxed) - calls, slow = ms >= crate::common::config::defaults::SLOW_MS);
         ws
     }
 }

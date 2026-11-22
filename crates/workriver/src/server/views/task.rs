@@ -185,6 +185,6 @@ pub(in crate::server) fn task(state: &State, ws: &serde_json::Value, unit: &str,
             .collect(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: who(state, &d.by), ..d }),
         stalled: mine.and_then(|m| serde_json::from_value(m["stalled"].clone()).ok()),
-        trace: mine.and_then(|m| serde_json::from_value(m["trace"].clone()).ok()),
+        trace: None,
     })
 }

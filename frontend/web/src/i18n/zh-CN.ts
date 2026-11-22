@@ -697,17 +697,9 @@ export const zhCN: OneForm<typeof en> = {
     dropConfirm: '标记为不再需要',
     dropCancel: '取消',
     dropFailed: '没有记录：{{error}}',
-    trace: '做这件事的 agent：harness、模型、会话',
+    trace: '做这件事的 agent：harness 和模型',
     noHarness: 'harness 未知',
-    noModel: '没有报模型',
-    onMachine: '在 {{machine}} 上',
-    unconfirmed: '推算的路径，未在此处见到',
-    noFile: {
-      harness: '不知道这个 harness 把会话存在哪里',
-      id: 'harness 没有给出自己的会话 id',
-      cwd: '会话文件未知：没有记录它的工作目录',
-      missing: '在这台机器上没有找到会话文件'
-    }
+    noModel: '没有报模型'
   },
   who: {
     writing: '{{name}}，正在写'

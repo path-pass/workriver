@@ -418,6 +418,17 @@ pub(crate) struct Overlap {
     pub(crate) units: Vec<String>,
 }
 
+/// Which harness and model did a task, as the page shows it.
+#[derive(Serialize)]
+pub(crate) struct Ran {
+    /// The harness, as the runtime named it, once the agent was seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) harness: Option<String>,
+    /// The model, as the agent said when it started the task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) model: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Task {
@@ -484,9 +495,10 @@ pub(crate) struct Task {
     /// Running, and its agent stopped without delivering (idle too long, or gone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stalled: Option<super::Stall>,
-    /// Its agent's harness and model, and where the harness keeps the session.
+    /// Its agent's harness and model: all the page shows of its trace (the session and its
+    /// file are kept for `task show --json` and `task session`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) trace: Option<super::Trace>,
+    pub(crate) trace: Option<Ran>,
     /// A delivered design or research with its agent: whether the user may discuss it now
     /// ("open"), its agent is gone ("gone"), or its gate was submitted ("over").
     #[serde(skip_serializing_if = "Option::is_none")]

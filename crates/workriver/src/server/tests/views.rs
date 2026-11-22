@@ -535,7 +535,10 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
     assert_eq!(state.agents.iter().filter(|a| a.session == "s-fix").map(|a| a.cwd.as_str()).collect::<Vec<_>>(), ["/w/fix_1.x"]);
     let text = crate::cli::text(&serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap());
     assert!(t.unconfirmed, "no such file in this home: worked out only");
-    assert!(text.contains(&format!("Agent: fix\n  harness claude, model claude-opus-5-5, session s-fix\n  session file: {file} (worked out, not seen there)\n")), "{text}");
+    // The text says the harness and the model only; the session and its file are kept for
+    // `--json` and `task session`.
+    assert!(text.contains("Agent: fix\n  harness claude, model claude-opus-5-5\n"), "{text}");
+    assert!(!text.contains("s-fix") && !text.contains(".jsonl"), "{text}");
 
     // Codex's file is found by its id; a start that says no model has none.
     // Nobody says another agent's model for it: a start recorded for it carries none.
@@ -544,10 +547,10 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
     cx.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
     let t = trace(&user, 2);
     assert_eq!((t.harness.as_deref(), t.model, t.file), (Some("codex"), None, Some(day.join("rollout-2026-11-22T10-00-00-0c0d-ex.jsonl").display().to_string())));
-    // The page reads the same.
+    // The page reads the harness and the model only: no session, no file.
     let ws = user.get("/api/workspace").unwrap();
     let tasks = &ws["intents"][0]["units"][0]["tasks"];
-    assert_eq!((tasks[0]["trace"]["file"].as_str(), tasks[1]["trace"]["harness"].as_str()), (Some(file.as_str()), Some("codex")));
+    assert_eq!((&tasks[0]["trace"], &tasks[1]["trace"]), (&json!({ "harness": "claude", "model": "claude-opus-5-5" }), &json!({ "harness": "codex" })));
 
     // Only workriver says what an agent is seen as: not an agent, not the user.
     for who in [&fix, &user] {
