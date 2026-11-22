@@ -166,6 +166,9 @@ pub struct Task {
     pub by: String,
     pub at: String,
     pub started: Option<String>,
+    /// The model its agent said it works with when it started it, if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// When it was delivered, or a gate submitted.
     pub done: Option<String>,
     pub note: String,

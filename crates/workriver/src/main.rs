@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
             tracing::warn!("{w}");
         }
         let allow_as = std::env::var("WORKRIVER_ALLOW_AS").is_ok_and(|v| v == "1");
-        let options = server::Options { warning, waits: server::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default() };
+        let options = server::Options { warning, waits: server::Waits::default(), machines: Some(all.clone()), allow_as, sample: true, procs: std::sync::Arc::new(common::process::System), callers: std::sync::Arc::default(), user_home: std::env::home_dir() };
         let rt = tokio::runtime::Runtime::new()?;
         return rt.block_on(async {
             let listener = server::bind(cli.port.unwrap_or(cli::DEFAULT_PORT)).await?;

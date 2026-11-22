@@ -5,7 +5,7 @@ import { Button } from '@/ui/primitives/button'
 import { untested, finderLabel, findingsOf } from './select'
 import { ms } from '@/planning/select'
 import { commitStats } from '@/code/select'
-import type { Pick, Task } from './types'
+import type { Pick, Task, Trace } from './types'
 import { dropTask, record } from '@/api/actions'
 import { Input } from '@/ui/primitives/input'
 import { contentLang, useT } from '@/i18n'
@@ -50,6 +50,19 @@ function Checks({ n }: { n: Task }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/**
+ * Who did the work: the harness and the model its agent said. The session and where the
+ * harness keeps it are recorded, not shown (`workriver task session`).
+ */
+export function Traced({ trace }: { trace: Trace }) {
+  const { t } = useT()
+  return (
+    <div className="border-b border-line px-3 py-1.5 text-xs text-ink-2 wrap-anywhere" aria-label={t('task.trace')}>
+      {[trace.harness ?? t('task.noHarness'), trace.model ?? t('task.noModel')].join(' · ')}
+    </div>
   )
 }
 
@@ -199,6 +212,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
           <CopyButton text={linkTo(pathOf(unit.id, { kind: 'task', id: n.id }))} aria={t('link.copy')} className="text-you-ink hover:bg-surface/60" />
         </span>
       </div>
+      {n.trace && <Traced trace={n.trace} />}
       {/* No longer needed: by whom and when, then why in their words. */}
       {n.dropped && (
         <div className="flex flex-col gap-0.5 border-b border-line px-3 py-2 text-sm wrap-anywhere">

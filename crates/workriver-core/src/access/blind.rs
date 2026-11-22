@@ -15,7 +15,8 @@ impl State {
     /// attached itself. None for anyone else.
     ///
     /// Everything else is left out: other tasks with their output, notes, evidence, findings
-    /// and decisions, questions, deliveries, the backlog, other units and intents.
+    /// and decisions, questions, deliveries, the backlog, other units and intents, and where
+    /// other agents work (their working directory and machine; their names stay).
     pub fn blind_view(&self, session: &str) -> Option<State> {
         let mine = self.blind_tasks(session);
         if mine.is_empty() {
@@ -42,7 +43,8 @@ impl State {
         Some(State {
             intents,
             units,
-            agents: self.agents.clone(),
+            // Others by name only: where another session is kept is none of its business.
+            agents: self.agents.iter().map(|a| if a.session == session { a.clone() } else { Agent { cwd: String::new(), machine: None, ..a.clone() } }).collect(),
             attachments: self.attachments.iter().filter(|a| a.by == session || added.contains(&a.id)).cloned().collect(),
             projects: self.projects.clone(),
             workspaces: self.workspaces.clone(),

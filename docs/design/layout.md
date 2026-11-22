@@ -290,6 +290,8 @@ crates/workriver/
 │   │   │   ├── cache.rs              # Branch/commit/tree/remote caches, persisted format.
 │   │   │   ├── task.rs               # Builds the task view (its shape is common/wire/task.rs, its
 │   │   │   │                         # text the CLI's display.rs).
+│   │   │   ├── trace.rs              # A task's trace: harness, model, and where each harness keeps the
+│   │   │   │                         # session (the one place that knows; never reads the file).
 │   │   │   └── tests.rs
 │   │   ├── delivery/                 # Pure delivery plans and text.
 │   │   │   ├── mod.rs                # Plan, event-to-recipient planning.
@@ -337,7 +339,7 @@ crates/workriver/
 │       └── wire/                     # What service, CLI and page agree on: JSON shapes and the
 │                                     # constants both sides use; no logic.
 │           ├── mod.rs                # Shared values: EXPIRED (the proof header), MAX_ATTACHMENT.
-│           ├── task.rs               # The task view's shape (TaskShow and its parts) and Stall.
+│           ├── task.rs               # The task view's shape (TaskShow and its parts), Stall and Trace.
 │           ├── machines.rs           # A followed machine as the service reports it (MachineState).
 │           ├── workspace.rs          # The snapshot shapes (not re-exported at wire's root).
 │           └── metrics.rs            # The metrics report types.
@@ -403,7 +405,7 @@ frontend/web/
     │                                 # classify.ts (kind, size, tags, the rail's filter) Sort.tsx (their chips and fields)
     ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
-    ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
+    ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
     ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
@@ -417,7 +419,7 @@ frontend/web/
     ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx and popover.tsx among them) Choice.tsx Icon.tsx
     │                                 # CopyButton.tsx Tip.tsx; never feature/data/API imports
     ├── lib/                          # utils.ts useResize.ts isField.ts
-    ├── config/defaults.ts            # Quiet/resize/cache/preview defaults, widths, the graph's height.
+    ├── config/defaults.ts            # Quiet/resize/cache/preview defaults, widths, the graph's height, a hidden tab's reads.
     ├── theme.ts
     ├── i18n/                         # en, zh-CN, ja, index, the i18next declaration.
     └── mock/                         # demo.json, lockscreen.svg, metrics.ts, history.ts (intent

@@ -21,6 +21,11 @@ pub const STALL_MAX: u32 = 240;
 /// Anything slower than this is marked so in the timing log.
 pub const SLOW_MS: u64 = 500;
 
+/// A task's session file not found by its id (moved, archived elsewhere, deleted) is looked
+/// for again after five minutes, not on every snapshot: each look lists the harness's
+/// folders, which grow with every session it kept. A file that turns up shows within that.
+pub const SESSION_RECHECK_SECS: u64 = 300;
+
 /// How long the service goes on reading the body of a request it has answered without
 /// reading all of it (a refusal from the headers alone): as long as the CLI waits for an
 /// upload, the slowest request it sends. A client still sending after that has given up.

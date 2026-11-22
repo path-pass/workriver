@@ -420,6 +420,9 @@ pub(crate) fn text(s: &TaskShow) -> String {
         }
     }
     let _ = writeln!(out, "Agent: {}", s.agent.as_deref().unwrap_or("(none yet)"));
+    if let Some(t) = &s.trace {
+        let _ = writeln!(out, "  harness {}, model {}", t.harness.as_deref().unwrap_or("(not known)"), t.model.as_deref().unwrap_or("(not given)"));
+    }
     if let Some(st) = &s.stalled {
         let _ = writeln!(out, "{}", stalled_line(st));
     }
@@ -617,4 +620,21 @@ pub(crate) fn intent_history_text(d: &Daemon, intent: &str, version: Option<u32>
     let n = versions.last().map(|v| v["n"].to_string()).unwrap_or_default();
     let _ = writeln!(out, "(now v{n}: give it as --base to change the title, goal, note, kind, size or tags; one whole: `workriver intent history {intent} --version N`; what it changed: `--diff N`)");
     Ok(out)
+}
+
+/// Where a task's session file is, on which machine, or why that is not known.
+pub(crate) fn session_file(t: &crate::common::wire::Trace) -> String {
+    use crate::common::wire::NoFile;
+    let on = match (t.machine.as_deref(), t.unconfirmed) {
+        (Some(m), _) => format!(" (on machine {m}, not looked at there)"),
+        (None, true) => " (worked out, not seen there)".into(),
+        (None, false) => String::new(),
+    };
+    match (&t.file, t.unknown) {
+        (Some(f), _) => format!("{f}{on}"),
+        (None, Some(NoFile::Id)) => "not known: the harness gave no session id of its own".into(),
+        (None, Some(NoFile::Cwd)) => "not known: the agent's working directory was not recorded (it was last seen before workriver kept it)".into(),
+        (None, Some(NoFile::Missing)) => "not found by its id on the machine workriver runs on".into(),
+        (None, _) => format!("not known: workriver does not know where {} keeps its sessions", t.harness.as_deref().unwrap_or("this harness")),
+    }
 }

@@ -400,7 +400,7 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Index design", "agent": "impl", "plans": ["a.txt"] })).unwrap();
     d.append("s-impl", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "One table", "evidence": [{ "command": "cargo test", "result": "passed", "summary": "3 passed" }] })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Build it", "agent": "impl", "inputs": [{ "from": "1" }], "steps": [{ "text": "Check", "command": "cargo test" }] })).unwrap();
-    d.append("s-impl", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+    d.append("s-impl", "task.started", json!({ "unit": "u1", "task": 2, "model": "claude-opus-5-5" })).unwrap();
     d.append("s-impl", "task.delivered", json!({ "unit": "u1", "task": 2, "note": "Built", "evidence": [{ "command": "cargo test", "result": "passed", "summary": "5 passed" }] })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "title": "Review it", "agent": "rev", "inputs": [{ "from": "2" }], "blind": true })).unwrap();
     d.append("s-rev", "task.delivered", json!({ "unit": "u1", "task": 3, "findings": [

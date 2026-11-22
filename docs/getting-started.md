@@ -150,7 +150,7 @@ The worker records its own work:
 
 ```sh
 workriver task show u1#1                          # the task in full: what it asks, its causes, notes
-workriver task start u1#1
+workriver task start u1#1 --model claude-opus-5-5  # the model it works with, if it knows
 git commit -m "Find mentions" -m "Task: u1#1"     # the trailer links the commit to the task
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```

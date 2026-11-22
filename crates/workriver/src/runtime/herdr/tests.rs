@@ -64,7 +64,9 @@ fn reads_agents_one_request_per_connection() {
     let named: Vec<(&str, Option<&str>)> = list.iter().map(|a| (a.name.as_str(), a.topic.as_deref())).collect();
     assert_eq!(named[2..], [("claude 1", None), ("claude 2", Some("Fix the login"))]);
     let a = &list[0];
-    assert_eq!((a.session.as_str(), a.name.as_str(), a.harness.as_str(), a.cwd.as_str()), ("s-1", "lead", "claude", "/r/sub"));
+    // The directory it was started in, not where its foreground went since: a harness may
+    // keep the session by the first.
+    assert_eq!((a.session.as_str(), a.name.as_str(), a.harness.as_str(), a.cwd.as_str()), ("s-1", "lead", "claude", "/r"));
     assert_eq!(a.state, AgentState::Working);
     assert_eq!(a.group, Some(RuntimeRef { id: "w5".into(), label: "chat".into(), machine: None }));
     let b = &list[1];

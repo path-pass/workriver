@@ -14,6 +14,7 @@ mod cache;
 mod code;
 mod handlers;
 pub(super) mod task;
+pub(super) mod trace;
 
 pub(super) use cache::*;
 pub(super) use code::*;
@@ -112,8 +113,9 @@ fn where_is(state: &core::State, live: &[RuntimeAgent], names: &Names, manager: 
 /// Takes out of a snapshot built from `State::blind_view` what git adds to it and an agent
 /// on a blind task is not to be told: other commits' subjects and authors (the range to
 /// review is the hashes; the code is read from git), tasks made up from unregistered
-/// commits, uncommitted work, and what other sessions are about.
-fn hide(ws: &mut Workspace) {
+/// commits, uncommitted work, what other sessions are about and the machine each runs on
+/// (a workspace's own machine stays: it is the workspace's, kept in the records too).
+fn hide(ws: &mut Workspace, state: &core::State) {
     ws.reduced = true;
     for u in ws.intents.iter_mut().flat_map(|i| i.units.iter_mut()) {
         hide_unit(u);
@@ -122,6 +124,9 @@ fn hide(ws: &mut Workspace) {
         s.topic = None;
         // When another agent went idle would say when it delivered.
         s.idle_since = None;
+        // Where it runs, as the reduced records keep it: the reader's own; others' not.
+        s.machine = state.agents.iter().find(|a| a.session == s.session).and_then(|a| a.machine.clone());
+        s.unreachable &= s.machine.is_some();
     }
 }
 
@@ -886,6 +891,7 @@ fn task(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, t: &core::Ta
         amended: t.amended.clone(),
         dropped: t.dropped.clone().map(|d| core::Closed { by: names.of(&d.by), ..d }),
         stalled: None,
+        trace: None,
         discuss: discussable(state, &u.id, t),
     }
 }
@@ -923,6 +929,7 @@ fn unregistered(c: &scan::Commit) -> Task {
         amended: None,
         dropped: None,
         stalled: None,
+        trace: None,
         discuss: None,
     }
 }

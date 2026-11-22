@@ -169,6 +169,8 @@ export const ja: OneForm<typeof en> = {
     themes: { system: 'システム', light: 'ライト', dark: 'ダーク' },
     notify: 'エージェントやマシンが私を待っているときに通知する',
     notifyDenied: 'このページの通知はブラウザで許可されていません。',
+    sound: '「要対応」に新しい項目が来たら音を鳴らす',
+    soundMissed: 'ブラウザがこのページの音を止めました。ページを一度クリックすると鳴るようになります。',
     stall: {
       title: '止まったワーカー',
       sentence: '進行中のタスクでエージェントが <minutes/> 分間待機していたら知らせます。さらにその半分の時間たっても待機中なら、マネージャーに伝えてここに表示します。',
@@ -701,7 +703,10 @@ export const ja: OneForm<typeof en> = {
     dropReasonHint: '例：#17 に置き換え。担当のエージェントとマネージャーに伝わります',
     dropConfirm: '不要にする',
     dropCancel: 'キャンセル',
-    dropFailed: '記録できませんでした：{{error}}'
+    dropFailed: '記録できませんでした：{{error}}',
+    trace: '担当エージェント：ハーネスとモデル',
+    noHarness: 'ハーネス不明',
+    noModel: 'モデル未申告'
   },
   who: {
     writing: '{{name}}、作成中'

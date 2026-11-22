@@ -172,6 +172,8 @@ export const en = {
     themes: { system: 'System', light: 'Light', dark: 'Dark' },
     notify: 'Notify me when an agent or a machine needs me',
     notifyDenied: 'The browser does not allow notifications for this page.',
+    sound: 'Play a sound when something new comes into Needs you',
+    soundMissed: 'The browser did not let this page play the sound; a click on the page lets it.',
     stall: {
       title: 'Stopped workers',
       sentence: 'Remind an agent idle on a running task after <minutes/> min; still idle half that again later, tell its manager and show it here.',
@@ -722,7 +724,10 @@ export const en = {
     dropReasonHint: 'e.g. superseded by #17; the agent on it and the manager are told',
     dropConfirm: 'Mark no longer needed',
     dropCancel: 'Cancel',
-    dropFailed: 'Not recorded: {{error}}'
+    dropFailed: 'Not recorded: {{error}}',
+    trace: 'Its agent: harness and model',
+    noHarness: 'harness not known',
+    noModel: 'model not given'
   },
   who: {
     writing: '{{name}}, writing now'

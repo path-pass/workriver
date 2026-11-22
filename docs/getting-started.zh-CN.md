@@ -136,7 +136,7 @@ worker 自己记录工作：
 
 ```sh
 workriver task show u1#1                          # 任务全文：要求、起因、补充说明
-workriver task start u1#1
+workriver task start u1#1 --model claude-opus-5-5  # 它用的模型（知道的话）
 git commit -m "Find mentions" -m "Task: u1#1"     # 这一行 trailer 把提交和任务连起来
 workriver task deliver u1#1 --evidence 'npm test => passed: 6 passed'
 ```

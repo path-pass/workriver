@@ -131,8 +131,20 @@ pub enum Body {
     /// The intent now follows another runtime group (its id changed, say).
     #[serde(rename = "intent.linked")]
     IntentLinked { intent: String, runtime_ref: RuntimeRef },
+    /// An agent as the runtime shows it; only workriver records it (`Body::service_only`).
     #[serde(rename = "agent.seen")]
-    AgentSeen { session: String, name: String, harness: String },
+    AgentSeen {
+        session: String,
+        name: String,
+        harness: String,
+        /// The working directory it was first seen in, as the runtime gave it; where some
+        /// harnesses keep the session. Empty before it was recorded.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        cwd: String,
+        /// The machine it runs on; none: this one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        machine: Option<String>,
+    },
     #[serde(rename = "manager.registered")]
     ManagerRegistered {
         /// Before 0.2: the intent it managed (whose runtime group it ran in).
@@ -264,6 +276,10 @@ pub enum Body {
         task: u32,
         #[serde(default)]
         agent: Option<String>,
+        /// The model the agent says it works with (`task start --model`); the runtime does
+        /// not tell it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     #[serde(rename = "task.delivered")]
     TaskDelivered {

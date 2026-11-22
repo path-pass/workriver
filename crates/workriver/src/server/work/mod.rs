@@ -65,6 +65,10 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
             })
         };
         let mut shown = crate::server::views::task::task(&state, &ws, &unit, n, &file)?;
+        // Started or delivered: its agent's harness and model, and where the harness keeps
+        // the session (one still to do has none: its agent's session is other work's).
+        let begun = state.task(&unit, n).ok().filter(|t| t.started.is_some() || t.done.is_some());
+        shown.trace = begun.and_then(|t| Some(app.sessions.trace(&state, t.agent.as_deref()?, t.model.as_deref())));
         shown.link = format!("{}/{unit}/{n}", app.page());
         Ok(Json(shown))
     })

@@ -275,6 +275,8 @@ workspace.intents[].units[].tasks[].threads[].turns[].unread: bool
 workspace.intents[].units[].tasks[].threads[].turns[]: object
 workspace.intents[].units[].tasks[].threads[]: object
 workspace.intents[].units[].tasks[].title: string
+workspace.intents[].units[].tasks[].trace.model: string
+workspace.intents[].units[].tasks[].trace: object
 workspace.intents[].units[].tasks[].writing: bool
 workspace.intents[].units[].tasks[]: object
 workspace.intents[].units[].title: string

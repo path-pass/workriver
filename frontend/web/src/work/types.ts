@@ -175,6 +175,8 @@ export interface Task {
    * was reminded, and whether that did not help (then it is the user's and the manager's).
    */
   stalled?: { since: string; gone?: boolean; reminded?: string; escalated?: boolean };
+  /** Its agent: the harness and the model it said. */
+  trace?: Trace;
   /** A delivered design or research with its agent: the user may discuss it with that agent
    *  now (open); its agent is no longer running (gone); the gate that asks about it was
    *  submitted (over). */
@@ -250,4 +252,10 @@ export interface GateResult {
   attachments: Attachment[]
   findings: NewFinding[]
   at: string
+}
+
+/** Which harness and model did a task (a part absent: not known, not given). */
+export interface Trace {
+  harness?: string;
+  model?: string;
 }

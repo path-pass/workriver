@@ -96,7 +96,11 @@ The page must stay quick with twenty agents committing, so it reads in two parts
   blind task gets none of what its view hides.
 - **Refreshing.** Each "changed" from the service reads the snapshot again, at most one read
   at a time: changes told during a read make one more read after it. A hidden tab reads
-  nothing and reads once when it is shown again. A snapshot that leaves the unit on screen
+  nothing and reads once when it is shown again, unless the sound or notifications is on
+  (Settings): then a hidden tab still reads on "changed", at most once every five seconds
+  (`HIDDEN_READ` in `config/defaults.ts`), so a new row of Needs you sounds and notifies while
+  the user is elsewhere; it reads once more when shown again only if a change came after its
+  last read. A snapshot that leaves the unit on screen
   as it was keeps it, so its graph and code are not worked out and drawn again.
 - The built files carry their content's hash in their names and are kept by the browser for
   good; the page itself is asked for every time. Nothing is compressed: on 127.0.0.1 gzip
