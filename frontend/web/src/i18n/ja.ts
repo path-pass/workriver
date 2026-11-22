@@ -163,6 +163,7 @@ export const ja: OneForm<typeof en> = {
   },
   settings: {
     title: '設定',
+    general: '一般',
     close: '閉じる',
     language: '言語',
     theme: 'テーマ',

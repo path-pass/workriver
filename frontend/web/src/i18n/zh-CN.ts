@@ -163,6 +163,7 @@ export const zhCN: OneForm<typeof en> = {
   },
   settings: {
     title: '设置',
+    general: '通用',
     close: '关闭',
     language: '语言',
     theme: '主题',

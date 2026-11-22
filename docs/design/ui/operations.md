@@ -1,7 +1,7 @@
 # Operations: running commands, machines and settings
 
 Running a command as the user, the machines workriver follows and their alerts, stopped
-workers, and opening an agent's terminal.
+workers, Settings, and opening an agent's terminal.
 
 Moved from `DESIGN.md` when it was split into these files, word for word but for paths
 made whole and "see …" naming the file; `DESIGN.md` is the overview and says where each of
@@ -147,6 +147,20 @@ its sections went.
   the service's values. On a narrow screen the sentence wraps under the switch. The
   thresholds are kept with the list of machines in the service's settings, not as events;
   a settings file without the newer keys takes their defaults.
+
+## Settings
+
+- **Settings** (the gear at the rail's foot) is a dialog that shows one group at a time, as
+  tabs, in this order: General (language, theme, notifications and the sound), Stopped
+  workers, Workspaces' projects, Machine alerts, Other machines. The tab names the group, so
+  a group has no heading of its own. A group with nothing to set has no tab: Workspaces'
+  projects while no workspace here or no project is known, Other machines on the sample
+  page. The dialog keeps one height whichever tab shows (each scrolls on its own); on a
+  narrow screen the tabs wrap. The arrow keys move between tabs. The tab picked is kept in
+  this browser (`workriver.settings.tab`) and Settings opens on it next time; a kept tab that
+  has no tab now opens General. A link to a setting opens Settings on its group's tab
+  (`openSettings` in `frontend/web/src/machines/Settings.tsx`). No setting does anything
+  else because of the tabs.
 
 ## Opening a terminal
 

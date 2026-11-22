@@ -166,6 +166,7 @@ export const en = {
   },
   settings: {
     title: 'Settings',
+    general: 'General',
     close: 'Close',
     language: 'Language',
     theme: 'Theme',

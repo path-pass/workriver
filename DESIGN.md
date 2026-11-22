@@ -47,7 +47,7 @@ anything in `frontend/`.
 | [`activity.md`](docs/design/ui/activity.md) | The main area and its first layer (the graph), a node's detail, findings, gates and chores, what the user puts in, evidence, where the scope grew |
 | [`code.md`](docs/design/ui/code.md) | The code layer, the Commits section, the view by function (postponed) |
 | [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, discussing a delivered result with its agent, agents asking each other |
-| [`operations.md`](docs/design/ui/operations.md) | Running a command as the user, Machines, other machines, stopped workers, machine alerts, opening a terminal |
+| [`operations.md`](docs/design/ui/operations.md) | Running a command as the user, Machines, other machines, stopped workers, machine alerts, Settings, opening a terminal |
 | [`attachments.md`](docs/design/ui/attachments.md) | Attachments and the viewer |
 | [`presentation.md`](docs/design/ui/presentation.md) | Colour, type, space and shape, the river lines, states, loading |
 
