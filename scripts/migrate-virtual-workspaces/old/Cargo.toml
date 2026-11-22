@@ -1,0 +1,25 @@
+# The first half of the one-off migration to virtual workspaces: reads a copy of a store in
+# the earlier form and replays it with the code that wrote it (workriver-core as of the last
+# commit before the change, checked out under .local/migrate-old, see ../README.md). Not a
+# member of the repository's workspace: never built, tested or shipped with the product.
+[package]
+name = "migrate-virtual-workspaces-old"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "old"
+path = "src/main.rs"
+
+[dependencies]
+workriver-core = { path = "../../../.local/migrate-old/crates/workriver-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# A workspace of its own: without it Cargo takes this package for a part of the root's.
+[workspace]

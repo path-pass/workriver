@@ -311,3 +311,18 @@ Agents run under the user's account, and this check does not change that.
   (after one every root is new, so reopened sessions should be pinned afresh, and a seated
   one where it was takes its seat back), a
   multiplexer inside a place.
+
+## 7. Workspaces and seats: not done
+
+- An agent asking for a seat for the user to accept; a join code; a successor in the same
+  terminal taking the seat by itself (only the same session where it was takes it back).
+- Changing a workspace's project; merging two workspaces; moving a conversation.
+- Two managers in one workspace; one session managing two.
+- Scoping by workspace, for agents, anything but the conversations (intents, units, tasks,
+  questions and their threads stay readable by every agent); scoping the threads would be
+  a change of its own.
+- Reading events of the form from before workriver's own workspaces: a store with them is
+  refused (`Store::open`) and is converted once, outside the product
+  (`scripts/migrate-virtual-workspaces/`, removed once the user's store is migrated).
+- workriver making or arranging the runtime's groups for a workspace, or starting agents.
+- Machines known by anything but their label; agents outside the supported runtime.
