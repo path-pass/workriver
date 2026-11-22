@@ -6,6 +6,20 @@ export type OneForm<T> = { [K in keyof T as K extends `${string}_one` ? never : 
 
 export const en = {
   rail: {
+    spaceSave: 'Rename',
+    spaceNameHint: 'A name is only shown, and may repeat: its id tells workspaces apart.',
+    spaceName: 'Workspace name',
+    spaceAdd: 'New workspace',
+    spaceClose: 'Close',
+    spaceManager: 'Manager…',
+    spaceRename: 'Rename',
+    spaceMenu: 'Workspace {{name}} ({{id}}): rename, manager, close',
+    foldSpace: 'Show or hide the intents of workspace {{name}} ({{id}})',
+    ranIn: 'Ran in {{workspace}}',
+    noSpaces: 'No open workspace: add one with +',
+    loose: 'In no workspace',
+    noProject: 'No project',
+    workspaces: 'Workspaces',
     note: 'Note',
     noteMore: 'Show more',
     noteLess: 'Show less',
@@ -24,7 +38,6 @@ export const en = {
     quietSince: 'Nothing has moved since {{date}}',
     project: 'Project',
     allProjects: 'All projects',
-    active: 'Active',
     roadmap: 'Roadmap',
     done: 'Done',
     add: 'Add',
@@ -32,7 +45,6 @@ export const en = {
     addGoal: 'Goal, in one sentence',
     addSave: 'Add to the roadmap',
     addCancel: 'Cancel',
-    addPick: 'Pick a project above to add to its roadmap',
     drag: 'Drag to reorder',
     start: 'Start',
     intentWork: 'Research and design',
@@ -66,17 +78,18 @@ export const en = {
     }
   },
   manager: {
-    mark: 'Manager of its workspace',
+    mark: 'Manager of a workspace',
     of: 'Manager {{name}}: {{state}}',
     state: { working: 'working', idle: 'idle', done: 'idle', blocked: 'blocked', unknown: 'unknown', gone: 'not running', none: 'no manager' }
   },
   intent: {
+    move: 'Move to…',
     state: { planned: 'Planned', active: 'Active', done: 'Done', dropped: 'Dropped' },
     dropped: 'Dropped: {{reason}}',
     note: 'Note',
     where: 'Where it runs',
     workspace: 'Workspace',
-    worksOn: 'works on {{project}}',
+    worksOn: 'Project: {{project}}',
     manager: 'Manager',
     notStarted: 'Not started yet: it is in the roadmap.',
     talk: 'Write to the manager',
@@ -144,13 +157,13 @@ export const en = {
     }
   },
   start: {
+    seat: 'Seat it as the workspace’s manager: “Manager…” on the workspace in the rail, or from your own terminal (it is told in its terminal, with where its role is written):',
+    project: 'Add your project, from a terminal of your own in its folder. It comes with its first workspace:',
     title: 'Start here',
-    lead: 'Nothing is recorded yet. Agents record their work themselves; one manager agent per {{runtime}} workspace plans it.',
-    leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; one manager agent per {{runtime}} workspace plans it.',
-    agent: 'In a {{runtime}} workspace, start a coding agent to be its manager.',
-    skill: 'Give it the manager skill: link skills/workriver-manager into its skills folder, or paste what this prints.',
-    register: 'Have it register as the manager of the workspace:',
-    begin: 'Start its first goal yourself: “Start” on a goal in the roadmap on the left, in its workspace. Then it starts that project’s next goals itself; it reads the roadmap with:',
+    lead: 'Nothing is recorded yet. Agents record their work themselves; each workspace has one manager agent that plans it, and you say which.',
+    leadProject: 'Nothing is recorded in {{project}} yet. Agents record their work themselves; each workspace has one manager agent that plans it, and you say which.',
+    agent: 'Start a coding agent in {{runtime}} to be the manager.',
+    begin: 'Start a goal: “Start” on a goal in the roadmap on the left. The manager then starts its project’s next goals itself; it reads the roadmap with:',
     import: 'Have an existing backlog file? Ask an agent to import it with the import skill:',
     work: 'It splits the goal into units and tasks and hands them to worker agents; their work shows up here.',
     trailer: 'A commit belongs to a task through a line in its message:'
@@ -272,10 +285,6 @@ export const en = {
     ssh: 'ssh target (host or user@host)',
     add: 'Add',
     remove: 'Remove {{machine}}',
-    links: 'Workspaces there',
-    linkLead: 'A workspace there becomes one with a workspace here only when you link them: one manager, the same intents.',
-    notLinked: 'Not linked',
-    linkTo: 'Link {{workspace}} on {{machine}} to a workspace here',
     failed: 'Not done: {{error}}'
   },
   unit: {
@@ -303,6 +312,7 @@ export const en = {
     waiting_other: '{{count, number}} things waiting for you'
   },
   agents: {
+    noSpace: 'In no workspace',
     blocked: 'Waiting for you in its terminal',
     notice: '{{agent}} is waiting for you',
     title: 'Agents',
@@ -318,38 +328,21 @@ export const en = {
     ownHint: 'Sessions that never took a task: yours, or started by hand.'
   },
   plan: {
+    goAnyway: 'Start without a manager',
+    noWorkspaceAny: 'There is no open workspace yet. Add a project first (`workriver project add <folder>`): it comes with its first workspace.',
+    optionProject: '{{label}} · {{project}}',
     title: 'Start “{{title}}”',
-    lead: 'workriver does not start agents. These are the steps, in {{runtime}}:',
-    workspace: 'Open a {{runtime}} workspace for it, or pick one whose manager has room for another intent.',
-    agent: 'If the workspace has no manager yet, start a coding agent there and give it the manager skill:',
-    register: 'In the manager’s terminal, register it:',
-    start: 'Then pick that workspace here and start it: a workspace’s first intent is yours to start (it then works on that project). Its manager starts that project’s next intents itself.',
     pickLabel: 'Start it in',
     option: '{{label}} · {{manager}}: {{state}}',
     optionNone: '{{label}} · no manager',
-    noWorkspace: '{{runtime}} has no workspace yet. These are the steps:',
+    noWorkspace: 'Its project has no open workspace. Make one (or open a closed one in Settings):',
     go: 'Start',
     goHint: 'Recorded as yours; {{manager}} is told to split it into units and tasks.',
-    none: '{{label}} has no manager, so nobody would split the work. Start one there first:',
+    none: 'No manager is running in {{label}}, so nobody would split the work. Seat one that runs now:',
     started: 'Started in {{label}}.',
     failed: 'Not started: {{error}}',
     close: 'Close',
-    optionUnknown: '{{option}} · project unknown',
-    optionOther: '{{option}} · works on {{project}}',
-    others: 'Other projects’ workspaces',
-    showOthers_one: 'Other projects’ workspaces ({{count, number}})',
-    showOthers_other: 'Other projects’ workspaces ({{count, number}})',
-    pickOther: 'Pick a workspace',
-    otherAsk: 'Its manager {{manager}} works on {{theirs}}; give it a {{mine}} intent?',
-    goOther: 'Yes, start it there'
-  },
-  wsProject: {
-    title: 'Workspaces’ projects',
-    lead: 'Which project each workspace works on. workriver works it out from where its manager runs, else from its current intent; what you set here wins. Starting an intent of another project there asks first.',
-    pick: 'The project {{workspace}} works on',
-    auto: 'Worked out: {{project}} ({{from}})',
-    autoUnknown: 'Worked out: unknown',
-    from: { manager: 'its manager’s folder', intents: 'its current intent', user: 'set by you' }
+    pickOther: 'Pick a workspace'
   },
   backlog: {
     title: 'Backlog',
@@ -380,11 +373,42 @@ export const en = {
     close: 'Fold the panel',
     resize: 'Panel width (drag, or arrow keys; double-click for the default)'
   },
+  seat: {
+    title: 'Manager of {{workspace}}',
+    lead: 'A workspace of {{project}}. Its manager splits the work of the intents that run here and hands it out. Only you seat one; the agent is told in its terminal.',
+    leadNone: 'Its manager splits the work of the intents that run here and hands it out. Only you seat one.',
+    now: 'Manager now: {{name}}, seated in {{folder}}.',
+    nowGone: 'Seated: {{name}} (in {{folder}}), not running.',
+    empty: 'No manager is seated.',
+    moved: 'A new terminal reports the session of {{name}}; anything can report a session id. It is not where the manager was seated, so confirming it is a new appointment: questions the earlier one asked close, and what was queued for it is not delivered.',
+    movedOld: 'Seated in: {{folder}} on {{machine}} (gone)',
+    movedNew: 'Shows now in: {{folder}} on {{machine}}',
+    nobody: 'No agent is running now. Start one in {{runtime}}, then seat it here.',
+    pick: 'The agent to seat',
+    managerOf: 'manager of {{workspace}}',
+    tasks_one: '{{count, number}} task ({{first}})',
+    tasks_other: '{{count, number}} tasks ({{first}}, …)',
+    nothing: 'no task, no seat',
+    group: 'in {{runtime}}: {{group}}',
+    over: '{{old}} runs and is the manager now. Seat {{next}} instead? {{old}} is told it no longer manages this workspace.',
+    changed: 'The seat changed meanwhile: it is shown above as it is now. Look again and choose.',
+    failed: 'Not seated: {{error}}',
+    clear: 'Empty the seat',
+    go: 'Seat as manager',
+    goOver: 'Yes, seat {{name}}',
+    goNew: 'Seat it: a new appointment'
+  },
+  spaces: {
+    title: 'Workspaces',
+    lead: 'Every workspace: workriver’s own, one per project to begin with. Each has one manager, which you seat. A closed one keeps its intents and conversation, read-only.',
+    closed: 'closed',
+    open: 'Open again'
+  },
   terminal: {
     open: 'Open in terminal',
     openFor: 'Open {{agent}} in terminal',
     note: 'Would bring {{agent}}’s terminal to the front – not connected yet',
-    remote: '{{what}} is on {{machine}}: it is in front there, in workspace {{workspace}}. In {{runtime}}, switch to {{machine}} to see it.',
+    remote: '{{what}} is on {{machine}}: it is in front there, in {{runtime}}’s “{{group}}”. In {{runtime}}, switch to {{machine}} to see it.',
     command: 'The command'
   },
   run: {
@@ -489,6 +513,9 @@ export const en = {
     atGate: 'Discuss {{task}} with {{agent}}'
   },
   talk: {
+    notice: { 'manager-back': '{{manager}} is back in its terminal and is the manager again' },
+    readOnly: 'This workspace is closed: its conversation is kept to read. Open it again in Settings to write.',
+    closed: 'Closed workspaces',
     title: 'Manager',
     ask: 'Ask the manager',
     attach: 'Attach files (or paste them, or drop them on this panel)',
@@ -501,8 +528,8 @@ export const en = {
     workspace: 'Workspace',
     label: 'Message to the manager',
     placeholder: 'Write to {{agent}}…',
-    none: 'No manager is running in this workspace: nobody would read it.',
-    noWorkspace: 'No workspace has a manager yet.',
+    none: 'No manager is running in this workspace: nobody would read it. Its history stays; seat a manager to write.',
+    noWorkspace: 'There is no workspace yet: add a project, then seat a manager in its workspace.',
     empty: 'Write to the manager of {{workspace}}: it reads it in its terminal and replies here.',
     every: 'All managers',
     everyEmpty: 'Write once to every manager running, here and on followed machines: each reads it in its terminal and replies here, for its own workspace.',
@@ -529,6 +556,12 @@ export const en = {
     none: 'No commits in this project yet.'
   },
   inbox: {
+    seatPick: 'Work is active here and reaches no one: seat a manager',
+    seatProposal: 'An agent now runs in its terminal: confirm it, or pick another',
+    seatMoved: 'A new terminal reports this session: confirming is a new appointment',
+    seatNone: '{{workspace}}: no manager',
+    seatGone: '{{workspace}}: its manager is not running',
+    seats: 'Managers',
     title: 'Needs you',
     blocking: 'Blocking',
     blockedAgent: '{{agent}} is waiting for you in its terminal',
@@ -643,17 +676,18 @@ export const en = {
     held: 'Waiting: {{agent}} is on a blind task; it goes once that task is delivered',
     notDelivered: 'Not delivered: {{reason}}',
     reason: {
-      'no-manager': 'the intent has no manager',
+      'no-manager': 'its workspace has no manager seated',
       'manager-gone': 'the manager is not running',
       'runtime-down': '{{runtime}} is not reachable',
       'runtime-error': '{{runtime}} refused it',
-      'no-workspace': 'its intent has no {{runtime}} workspace',
+      'no-workspace': 'neither its manager nor the task’s agent runs in {{runtime}}',
       timeout: 'no answer in time',
       restarted: 'the service restarted',
       blocked: 'its agent waited for an answer in its terminal the whole time',
       'not-ready': 'its new agent never got ready for a prompt; its terminal is left open in {{runtime}}',
       'agent-gone': 'the agent that did the task is no longer running',
       'gate-submitted': 'its gate was submitted, so the discussion is over',
+      'seat-changed': 'the workspace’s seat was given anew before it could be delivered; write to the manager again',
       unknown: 'no reason given'
     },
     failed: 'Not recorded: the service did not take it'

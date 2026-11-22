@@ -23,6 +23,7 @@ fn asking_why() {
     let waits = crate::server::Waits { answer: std::time::Duration::from_secs(3), idle: std::time::Duration::from_secs(1), ..Default::default() };
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), waits);
     manage(&d, "p1", "s-boss");
+    fake.sent.lock().unwrap().clear(); // the seating, told to the manager
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "design", "title": "Design the mentions", "agent": "s-w" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "gate", "gate": "decide", "title": "Confirm the design", "inputs": [{ "from": "1" }] })).unwrap();
@@ -32,7 +33,7 @@ fn asking_why() {
     assert_eq!(asked["body"]["thread"], "q1");
     wait_until("the agent is started and asked", || !fake.sent.lock().unwrap().is_empty());
     let started = fake.started.lock().unwrap().clone();
-    assert_eq!((started[0].0.as_str(), started[0].1.as_str(), started[0].2.as_str()), ("w1", "codex", "why-q1"), "the intent's workspace, the task agent's harness");
+    assert_eq!((started[0].0.as_str(), started[0].1.as_str(), started[0].2.as_str()), ("w1", "codex", "why-q1"), "beside the intent's manager, with the task agent's harness");
     let (to, prompt) = fake.sent.lock().unwrap()[0].clone();
     assert_eq!(to, "why-q1");
     assert!(prompt.ends_with("Question q1, the user asks: «Why one table?»") && prompt.contains("the file src/a.rs") && prompt.contains("workriver answer q1 --text"), "{prompt}");
@@ -464,12 +465,12 @@ fn talking_to_a_manager() {
     assert!(d.append("user", "message.replied", json!({ "message": "m1", "text": "No." })).is_err());
     d.append("s-boss", "message.replied", json!({ "message": "m1", "text": "Paused." })).unwrap();
     let m = message(0);
-    assert_eq!((m["replies"][0]["by"].as_str(), m["replies"][0]["text"].as_str(), m["manager"].as_str(), m["workspace"].as_str()), (Some("boss"), Some("Paused."), Some("boss"), Some("chat")));
+    assert_eq!((m["replies"][0]["by"].as_str(), m["replies"][0]["text"].as_str(), m["manager"].as_str(), m["workspace"].as_str()), (Some("boss"), Some("Paused."), Some("boss"), Some("ws1")));
 
     // By workspace; with the manager gone it is not delivered, and says why.
     fake.agents.lock().unwrap().retain(|(p, _)| p != "p1");
     std::thread::sleep(std::time::Duration::from_millis(2500));
-    d.call("/api/message", Some(json!({ "workspace": "chat", "text": "Still there?" }))).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "Still there?" }))).unwrap();
     wait_until("not delivered", || message(1)["step"] == "not-delivered");
     assert_eq!(message(1)["reasonCode"], "manager-gone");
 }
@@ -492,6 +493,7 @@ fn a_message_points_at_what_the_user_picked() {
     *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-w", "worker-2", "w1", Idle)), ("p3".into(), live("s-w4", "worker-4", "w1", Idle))];
     let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
     manage(&d, "p1", "s-boss");
+    fake.sent.lock().unwrap().clear(); // the seating, told to the manager
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Search", "repo": repo.to_string_lossy(), "branch": "feat/paging", "base": "main" })).unwrap();
     // The workers have been seen (they ran workriver from their places): their names are on record.
     for place in ["p2", "p3"] {
@@ -530,7 +532,7 @@ fn a_message_points_at_what_the_user_picked() {
     assert_eq!(m["attachments"][0], json!({ "id": shot["id"], "name": "shot.png", "url": format!("/api/attachments/{}", shot["id"].as_str().unwrap()), "type": "image/png" }));
 
     // Only the user's file, to the workspace: no unit, no place in the code.
-    d.call("/api/message", Some(json!({ "workspace": "chat", "text": "And this?", "context": [{ "kind": "attachment", "label": "shot.png", "id": shot["id"] }] }))).unwrap();
+    d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "And this?", "context": [{ "kind": "attachment", "label": "shot.png", "id": shot["id"] }] }))).unwrap();
     wait_until("given again", || to_boss().len() == 2);
     let text = to_boss()[1].clone();
     assert!(text.contains(&format!("It points at: the attachment \"shot.png\" at {}. The user says", shot_path.display())), "{text}");
@@ -552,19 +554,20 @@ fn a_manager_says_and_the_user_reads_it() {
     let db = tmp.path().join("w.db");
     let d = daemon_with(fake.clone(), &db, Default::default());
     manage(&d, "p1", "s-boss");
+    fake.sent.lock().unwrap().clear(); // the seating, told to the manager
     let message = |k: usize| d.get("/api/workspace").unwrap()["messages"][k].clone();
-    let read = |d: &Daemon, at: &serde_json::Value| d.call("/api/messages/read", Some(json!({ "workspace": "chat", "at": at })));
+    let read = |d: &Daemon, at: &serde_json::Value| d.call("/api/messages/read", Some(json!({ "workspace": "ws1", "at": at })));
 
     assert!(d.append("s-w", "message.said", json!({ "text": "Done." })).unwrap_err().to_string().contains("workriver manager tell"));
     d.append("s-boss", "message.said", json!({ "text": "u1 is merged." })).unwrap();
     let m = message(0);
-    assert_eq!((m["byManager"].as_bool(), m["unread"].as_bool(), m["workspace"].as_str(), m["manager"].as_str(), m["intent"].as_str()), (Some(true), Some(true), Some("chat"), Some("boss"), Some("i1")));
+    assert_eq!((m["byManager"].as_bool(), m["unread"].as_bool(), m["workspace"].as_str(), m["manager"].as_str(), m["intent"].as_str()), (Some(true), Some(true), Some("ws1"), Some("boss"), Some("i1")));
     assert!(fake.sent.lock().unwrap().is_empty(), "typed nowhere");
 
     // An agent does not read for the user: not from its pane, not as itself.
     let worker = Daemon { place: Some("p2".into()), home: Some(tmp.path().to_path_buf()), ..d.clone() };
     assert!(read(&worker, &m["at"]).unwrap_err().to_string().contains("only the user does this"));
-    assert!(d.append("s-w", "messages.read", json!({ "workspace": "chat", "at": m["at"] })).unwrap_err().to_string().contains("only the user does this"));
+    assert!(d.append("s-w", "messages.read", json!({ "workspace": "ws1", "at": m["at"] })).unwrap_err().to_string().contains("only the user does this"));
     assert_eq!(message(0)["unread"], true);
     read(&d, &m["at"]).unwrap();
     assert!(message(0)["unread"].is_null());
@@ -772,10 +775,9 @@ fn a_far_manager_gets_the_fetch_command_whatever_the_data_folder() {
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     wait_until("machine listener", || all.local_port("box").is_some());
     let remote = at_place(&kernel.daemon(all.local_port("box").unwrap(), None, None), "p1");
-    let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
+    let ws = seat_at(&d, &remote);
     d.append("user", "intent.created", json!({ "title": "Remote chat", "state": "planned" })).unwrap();
-    remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    d.append("user", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
     let shot = tmp.path().join("shot.png");
     std::fs::write(&shot, b"review remote attachment").unwrap();
@@ -820,8 +822,8 @@ fn the_user_writes_to_every_manager() {
     manage(&d, "p2", "s-web");
     manage(&d, "p3", "s-old");
     let remote = at_place(&kernel.daemon(all.local_port("box").unwrap(), None, None), "p1");
-    let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
-    remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    let far_ws = workspace_named(&d, "far");
+    seat(&d, &far_ws, Some("s-far")).unwrap();
     // A manager on record that no longer runs is not written to.
     local.agents.lock().unwrap().retain(|(p, _)| p != "p3");
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
@@ -837,23 +839,23 @@ fn the_user_writes_to_every_manager() {
     let message = || d.get("/api/workspace").unwrap()["messages"][0].clone();
 
     // The user's alone, to every manager at once; nothing of an intent goes with it.
-    assert!(d.append("s-w", "message.sent", json!({ "text": "x", "to": [{ "workspace": { "id": "w1", "label": "chat" }, "manager": "s-boss" }] })).unwrap_err().to_string().contains("only the user does this"));
+    assert!(d.append("s-w", "message.sent", json!({ "text": "x", "to": [{ "workspace": "ws1", "manager": "s-boss", "since": 1 }] })).unwrap_err().to_string().contains("only the user does this"));
     assert!(d.call("/api/message", Some(json!({ "all": true, "intent": "i1", "text": "x" }))).unwrap_err().to_string().contains("to every manager is about no intent"));
     let sent = d.call("/api/message", Some(json!({ "all": true, "text": "I shut down at six: clean up worktrees you no longer use.", "context": [{ "kind": "attachment", "label": "shot.png", "id": shot["id"] }] }))).unwrap();
     assert_eq!((sent["actor"].as_str(), sent["body"]["id"].as_str()), (Some("user"), Some("m1")));
-    let to: Vec<_> = sent["body"]["to"].as_array().unwrap().iter().map(|r| (r["manager"].as_str().unwrap(), r["workspace"]["label"].as_str().unwrap(), r["workspace"]["machine"].as_str())).collect();
-    assert_eq!(to, [("s-boss", "chat", None), ("s-web", "web", None), ("s-far", "chat", Some("box"))]);
+    let to: Vec<_> = sent["body"]["to"].as_array().unwrap().iter().map(|r| (r["manager"].as_str().unwrap(), r["workspace"].as_str().unwrap(), r["machine"].as_str())).collect();
+    assert_eq!(to, [("s-boss", "ws1", None), ("s-web", "ws2", None), ("s-far", "ws4", Some("box"))], "each seat of an open workspace whose session runs, by the workspace's id");
     assert_eq!(d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().len(), 1, "recorded once");
 
     // Each running manager gets its copy, here and on the followed machine.
     wait_until("boss gets it", || got(&local, "s-boss").len() == 1);
     wait_until("far gets it", || got(&far, "s-far").len() == 1);
     let text = got(&local, "s-boss")[0].clone();
-    assert!(text.starts_with("[workriver] The user writes to every manager from workriver's page (message m1, to the managers of 3 workspaces): answer for your own workspace, \"chat\", only. Reply with `workriver reply m1 --text \"...\"`"), "{text}");
+    assert!(text.starts_with("[workriver] The user writes to every manager from workriver's page (message m1, to the managers of 3 workspaces): answer for your own workspace, ws1 \"chat\", only. Reply with `workriver reply m1 --text \"...\"`"), "{text}");
     assert!(text.contains(&format!("the attachment \"shot.png\" at {}", tmp.path().join("attachments").display())), "{text}");
     assert!(text.ends_with("The user says, in workriver: «I shut down at six: clean up worktrees you no longer use.»"), "{text}");
     let text = got(&far, "s-far")[0].clone();
-    assert!(text.contains("answer for your own workspace, \"chat\" on machine box, only."), "{text}");
+    assert!(text.contains("answer for your own workspace, ws4 \"far\", only."), "{text}");
     assert!(text.contains(&format!("`workriver attach fetch {}.png`", shot["id"].as_str().unwrap())), "{text}");
     // The blind one waits, and the page says why.
     wait_until("each copy where it is", || {
@@ -863,13 +865,13 @@ fn the_user_writes_to_every_manager() {
     let m = message();
     assert_eq!((m["workspace"].as_str(), m["manager"].as_str(), m["step"].as_str()), (Some(""), Some(""), Some("sending")));
     assert!(m["to"][1]["reason"].as_str().unwrap().contains("blind task"), "{m}");
-    assert_eq!((m["to"][2]["workspace"].as_str(), m["to"][2]["machine"].as_str(), m["to"][2]["manager"].as_str()), (Some("chat"), Some("box"), Some("far")));
+    assert_eq!((m["to"][2]["workspace"].as_str(), m["to"][2]["machine"].as_str(), m["to"][2]["manager"].as_str()), (Some("ws4"), Some("box"), Some("far")));
     std::thread::sleep(std::time::Duration::from_millis(2500));
     assert!(got(&local, "s-web").is_empty(), "nothing is typed into a blind manager");
-    assert!(local.sent.lock().unwrap().iter().all(|(to, _)| to != "s-old"));
+    assert!(local.sent.lock().unwrap().iter().all(|(to, m)| to != "s-old" || m.contains("The user made you the manager")), "nothing after its seating");
     d.append("s-web", "task.delivered", json!({ "unit": "u1", "task": 2, "findings": [] })).unwrap();
     wait_until("web gets it once its blind task is delivered", || got(&local, "s-web").len() == 1);
-    assert!(got(&local, "s-web")[0].contains("answer for your own workspace, \"web\", only."));
+    assert!(got(&local, "s-web")[0].contains("answer for your own workspace, ws2 \"web\", only."));
     wait_until("all delivered", || message()["step"] == "delivered");
 
     // Each manager it went to replies, for its own workspace; the replies are kept apart.
@@ -888,10 +890,9 @@ fn the_user_writes_to_every_manager() {
     assert!(message()["to"].as_array().unwrap().iter().flat_map(|c| c["replies"].as_array().unwrap()).all(|r| r["unread"] != true));
 }
 
-/// Three managers here (boss of chat, web, old) and one on machine box (far, in its chat),
-/// all registered, with the service following box: what the tests of a message to every
-/// manager start from. `link`: box's chat is linked to this local label before far
-/// registers (none: far registers first).
+/// Three managers here (boss of chat, web, old: ws1 to ws3) and one on machine box (far, of
+/// workspace "far", ws4), all seated by the user, with the service following box: what the
+/// tests of a message to every manager start from.
 struct EveryManager {
     _tmp: tempfile::TempDir,
     d: Daemon,
@@ -900,7 +901,7 @@ struct EveryManager {
     all: std::sync::Arc<crate::runtime::follow::Machines>,
 }
 
-fn every_manager(link: Option<&str>) -> EveryManager {
+fn every_manager() -> EveryManager {
     use workriver_core::runtime::AgentState::*;
     let tmp = tempfile::tempdir().unwrap();
     let local = std::sync::Arc::new(Fake::default());
@@ -925,11 +926,9 @@ fn every_manager(link: Option<&str>) -> EveryManager {
     manage(&d, "p2", "s-web");
     manage(&d, "p3", "s-old");
     let remote = at_place(&kernel.daemon(all.local_port("box").unwrap(), None, None), "p1");
-    let group = remote.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
-    if let Some(label) = link {
-        d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": label })).unwrap();
-    }
-    remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    remote.call("/api/here", Some(json!({}))).unwrap();
+    let far_ws = workspace_named(&d, "far");
+    seat(&d, &far_ws, Some("s-far")).unwrap();
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
     EveryManager { _tmp: tmp, d, local, far, all }
 }
@@ -941,30 +940,30 @@ impl EveryManager {
     }
 }
 
-/// A manager on record whose workspace was linked to another since (far, of box's chat, now
-/// one with the local chat that boss manages) is no manager now: the message goes to the
-/// current managers, as the page names them, and is not refused for it.
+/// A manager on record that the user replaced since (boss of chat: the user seats far there,
+/// which leaves far's own workspace without a manager) is no manager now: the message goes
+/// to the seats as they are, and is not refused for it.
 #[test]
-fn every_manager_is_the_current_one_after_a_link() {
-    let t = every_manager(None);
-    t.d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
+fn every_manager_is_the_seat_now() {
+    let t = every_manager();
+    seat(&t.d, "ws1", Some("s-far")).unwrap();
     t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
     let to = t.d.get("/api/workspace").unwrap()["messages"][0]["to"].clone();
-    let mut managers: Vec<&str> = to.as_array().unwrap().iter().map(|c| c["manager"].as_str().unwrap()).collect();
+    let mut managers: Vec<(&str, &str)> = to.as_array().unwrap().iter().map(|c| (c["manager"].as_str().unwrap(), c["workspace"].as_str().unwrap())).collect();
     managers.sort();
-    assert_eq!(managers, ["boss", "old", "web"], "{to}");
+    assert_eq!(managers, [("far", "ws1"), ("old", "ws3"), ("web", "ws2")], "{to}");
 }
 
-/// A manager on another machine that registered in a workspace linked to a local one keeps
-/// where it runs: its copy is on its machine, and its terminal says so.
+/// A manager on another machine keeps where it runs: its copy is on its machine, for the
+/// workspace it holds the seat of.
 #[test]
-fn a_far_manager_of_a_linked_workspace_keeps_its_machine() {
-    let t = every_manager(Some("linked-chat"));
+fn a_far_managers_copy_keeps_its_machine() {
+    let t = every_manager();
     t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
     let copy = t.copy("far");
-    assert_eq!((copy["workspace"].as_str(), copy["machine"].as_str()), (Some("chat"), Some("box")), "{copy}");
+    assert_eq!((copy["workspace"].as_str(), copy["machine"].as_str()), (Some("ws4"), Some("box")), "{copy}");
     let terminal = t.far.sent.lock().unwrap().iter().find(|(_, text)| text.contains("message m1")).unwrap().1.clone();
-    assert!(terminal.contains("answer for your own workspace, \"chat\" on machine box, only"), "{terminal}");
+    assert!(terminal.contains("answer for your own workspace, ws4 \"far\", only"), "{terminal}");
     assert!(terminal.find(RESULT_IS_A_REPLY).is_some_and(|k| k < terminal.find('«').unwrap()), "{terminal}");
 }
 
@@ -977,7 +976,7 @@ const RESULT_IS_A_REPLY: &str = "Once the work it asks is done, reply to this me
 #[test]
 fn a_copy_not_reachable_for_now_waits() {
     use std::sync::atomic::Ordering::SeqCst;
-    let t = every_manager(None);
+    let t = every_manager();
     let far = t.far.clone();
     *t.local.on_send.lock().unwrap() = Some(Box::new(move |to| {
         if to == "s-boss" {
@@ -1045,7 +1044,7 @@ fn copies_wait_when_the_only_runtime_drops_before_they_are_given() {
 #[test]
 fn a_copy_here_waits_when_typing_into_its_manager_fails_before_the_prompt() {
     use std::sync::atomic::Ordering::SeqCst;
-    let t = every_manager(None);
+    let t = every_manager();
     let runtime = std::sync::Arc::downgrade(&t.local);
     *t.local.on_send.lock().unwrap() = Some(Box::new(move |to| {
         if to == "s-boss" {
@@ -1068,7 +1067,7 @@ fn a_copy_here_waits_when_typing_into_its_manager_fails_before_the_prompt() {
 fn a_held_copy_here_waits_while_only_this_machine_is_unread() {
     use std::sync::atomic::Ordering::SeqCst;
     use workriver_core::runtime::AgentState::{Blocked, Idle};
-    let t = every_manager(None);
+    let t = every_manager();
     let set_web = |state| t.local.agents.lock().unwrap().iter_mut().find(|(_, a)| a.session == "s-web").unwrap().1.state = state;
     set_web(Blocked);
     t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
@@ -1094,7 +1093,7 @@ fn a_held_copy_here_waits_while_only_this_machine_is_unread() {
 #[test]
 fn every_manager_includes_those_here_while_this_machine_is_unread() {
     use std::sync::atomic::Ordering::SeqCst;
-    let t = every_manager(None);
+    let t = every_manager();
     t.local.down.store(true, SeqCst);
     let sent = t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
     let mut managers: Vec<&str> = sent["body"]["to"].as_array().unwrap().iter().map(|r| r["manager"].as_str().unwrap()).collect();
@@ -1557,9 +1556,9 @@ fn a_gate_submitted_during_the_send_stops_the_prompt() {
     *fake.on_agents.lock().unwrap() = Some(Arc::new(move || match calls.fetch_add(1, SeqCst) {
         // First list in poll: make the held question eligible for retry.
         0 => stand_in.upgrade().unwrap().agents.lock().unwrap()[1].1.state = Idle,
-        // The second list is Runtime::groups. The third is inside hand, after its
-        // read of the gate and before its runtime send.
-        2 => {
+        // The second is inside hand, after its read of the gate and before its runtime
+        // send.
+        1 => {
             paused_tx.send(()).unwrap();
             continue_rx.lock().unwrap().recv_timeout(Duration::from_secs(10)).unwrap();
         }
@@ -1611,20 +1610,23 @@ fn choices_go_to_the_page_and_the_answer_to_the_manager() {
     d.append("s-boss", "message.said", json!({ "text": "Merge now?", "choice": choice })).unwrap();
     let said = |k: usize| ws()["messages"][k].clone();
     assert_eq!((said(0)["choice"].clone(), said(0)["open"].as_bool()), (choice.clone().unwrap(), Some(true)));
-    let sent = d.call("/api/message", Some(json!({ "workspace": "chat", "text": "", "answer": { "message": "m1", "selected": ["merge"] } }))).unwrap();
+    let sent = d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "", "answer": { "message": "m1", "selected": ["merge"] } }))).unwrap();
     assert_eq!(sent["body"]["id"], "m2");
     assert_eq!((said(0)["answered"].clone(), said(0).get("open").cloned()), (json!({ "by": "m2", "selected": ["merge"] }), None));
     assert_eq!(said(1)["answer"], json!({ "message": "m1", "selected": ["merge"] }));
     wait_until("typed to the manager", || to_boss().iter().any(|m| m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2, about intent i1 \"Chat\"): option `merge`.")));
-    // In a reply, and closed once another manager runs the workspace.
+    // In a reply; open while its asker's appointment holds the seat, whether or not it runs
+    // (a rename of the workspace changes nothing either); closed once the user seats another.
     d.append("s-boss", "message.replied", json!({ "message": "m2", "text": "Then?", "choice": choice })).unwrap();
     assert_eq!(said(1)["replies"][0]["open"], true);
+    d.call("/api/workspaces", Some(json!({ "action": "rename", "workspace": "ws1", "name": "renamed" }))).unwrap();
     fake.agents.lock().unwrap().retain(|(p, _)| p != "p1");
     std::thread::sleep(std::time::Duration::from_millis(2500));
-    let here = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
-    d.append("s-new", "manager.registered", json!({ "agent": "s-new", "workspace": here["group"] })).unwrap();
+    assert_eq!(said(1)["replies"][0]["open"], true, "a rename, and its manager not running, close no question");
+    at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
+    seat(&d, "ws1", Some("s-new")).unwrap();
     assert!(said(1)["replies"][0].get("open").is_none() && said(1)["replies"][0].get("answered").is_none());
-    assert!(d.call("/api/message", Some(json!({ "workspace": "chat", "answer": { "message": "m2", "reply": 1, "selected": ["merge"] } }))).unwrap_err().to_string().contains("asked by an earlier manager"));
+    assert!(d.call("/api/message", Some(json!({ "workspace": "ws1", "answer": { "message": "m2", "reply": 1, "selected": ["merge"] } }))).unwrap_err().to_string().contains("asked by an earlier manager"));
 }
 
 /// Herdr's connection drops after the copy is handed over but before its prompt is asked
@@ -1636,7 +1638,7 @@ fn a_copy_waits_when_herdr_drops_before_the_prompt() {
     use std::os::unix::net::UnixListener;
     use std::sync::{Arc, atomic::{AtomicBool, Ordering::SeqCst}};
 
-    let t = every_manager(None);
+    let t = every_manager();
     let path = t._tmp.path().join("probe.sock");
     let listener = UnixListener::bind(&path).unwrap();
     let dropped = Arc::new(AtomicBool::new(false));

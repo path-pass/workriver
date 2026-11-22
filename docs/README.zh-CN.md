@@ -80,7 +80,7 @@ cargo build --release
 
 页面和命令行只有带着你机器上的用户令牌才算是你；agent 和其他机器不行。它能防什么、防不住什么：[安全模型](security.zh-CN.md)。
 
-数据在 `~/workriver-data/workriver.db`（用 `WORKRIVER_HOME` 换位置）。`workriver --help` 说明各个命令。一个工作区的管理者在自己的终端里用 `workriver manager here` 登记，每个工作区一个，`workriver guide manager` / `workriver guide worker` 打印给 agent 的说明。服务在哪里找运行时：[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)；没有运行时，服务照常记录和显示，只是看不到 agent。
+数据在 `~/workriver-data/workriver.db`（用 `WORKRIVER_HOME` 换位置）。`workriver --help` 说明各个命令。每个工作区的管理者由你指定（在页面上，或用 `workriver workspace manager <ws> <agent>`），每个工作区一个，`workriver guide manager` / `workriver guide worker` 打印给 agent 的说明。服务在哪里找运行时：[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)；没有运行时，服务照常记录和显示，只是看不到 agent。
 
 改界面时：在 `frontend/web` 里 `pnpm dev` 连正在运行的 `workriver serve`；`pnpm dev:mock` 改用示例数据。代码的各部分在哪里：[architecture.zh-CN.md](architecture.zh-CN.md)。
 

@@ -4,10 +4,9 @@ use std::process::Command;
 use serde_json::json;
 
 use super::support::*;
-use crate::cli::Daemon;
 
-/// Identity from the runtime place, intents that follow the runtime's groups, and a user's
-/// decision delivered to the manager, then picked up.
+/// Identity from the runtime place, a workspace that is the records' (whatever the runtime
+/// does to its groups), and a user's decision delivered to the manager, then picked up.
 #[test]
 fn identity_intents_and_delivery() {
     use workriver_core::runtime::AgentState::*;
@@ -28,14 +27,20 @@ fn identity_intents_and_delivery() {
     let options = crate::server::Options { allow_as: true, ..kernel.options() };
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
 
-    // A workspace has no intent until its manager starts one.
+    // An agent is in no workspace until the user seats it, or it has a task in one.
     let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["group"]["id"].as_str()), (Some("s-boss"), None, Some("w1")), "{here}");
+    assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["group"]["id"].as_str(), here["workspace"].is_null()), (Some("s-boss"), None, Some("w1"), true), "{here}");
     manage(&d, "p1", "s-boss");
-    // The workspace got a new id but kept its label: its current intent follows it.
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w9", Idle)), ("p2".into(), live("s-rev", "rev", "w9", Idle))];
-    let again = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((again["actor"].as_str(), again["intent"].as_str()), (Some("s-rev"), Some("i1")));
+    // The runtime gives its group a new id and another name: nothing of the workspace
+    // changes, which is workriver's own. The manager is in it by its seat; an agent with no
+    // task is in none, wherever its terminal is.
+    let mut renamed = live("s-boss", "boss", "w9", Idle);
+    renamed.group.as_mut().unwrap().label = "other".into();
+    *fake.agents.lock().unwrap() = vec![("p1".into(), renamed), ("p2".into(), live("s-rev", "rev", "w9", Idle))];
+    let again = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
+    assert_eq!((again["actor"].as_str(), again["intent"].as_str(), again["workspace"]["id"].as_str(), again["manager"].as_bool(), again["group"]["id"].as_str()), (Some("s-boss"), Some("i1"), Some("ws1"), Some(true), Some("w9")), "{again}");
+    let worker = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
+    assert_eq!((worker["actor"].as_str(), worker["intent"].as_str(), worker["workspace"].is_null()), (Some("s-rev"), None, true), "{worker}");
 
     d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "Mentions", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "agent": "rev" })).unwrap();
@@ -43,8 +48,11 @@ fn identity_intents_and_delivery() {
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P1-1", "decision": "accept" }))).unwrap();
 
+    // (After the seating:) first the review's delivery, told to the manager; then the user's
+    // decision, to the manager too.
     let sent = fake.sent.lock().unwrap().clone();
-    // First the review's delivery, told to the manager; then the user's decision, to the manager too.
+    assert!(sent[0].1.starts_with("[workriver] The user made you the manager of workspace ws1"), "{}", sent[0].1);
+    let sent = sent[1..].to_vec();
     assert_eq!(sent.len(), 2);
     assert!(sent.iter().all(|(to, _)| to == "s-boss"));
     assert!(sent[0].1.starts_with("[workriver] u1#1 (code review) delivered by rev."), "{}", sent[0].1);
@@ -66,49 +74,9 @@ fn identity_intents_and_delivery() {
     assert!(picked, "picked up after the receiver started working");
 }
 
-/// One workspace, one manager: an agent manages only the workspace it runs in, and takes it
-/// over only when its manager is gone. Which workspace that is, and what it is called, is
-/// what the runtime says of the caller, never the label its request gives.
-#[test]
-fn a_workspace_has_one_manager() {
-    use workriver_core::runtime::AgentState::*;
-    let tmp = tempfile::tempdir().unwrap();
-    let fake = std::sync::Arc::new(Fake::default());
-    let mut far = live("s-far", "far", "w2", Idle);
-    far.group.as_mut().unwrap().label = "search".into();
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-rev", "rev", "w1", Idle)), ("p3".into(), far)];
-    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
-    manage(&d, "p1", "s-boss");
-    let w1 = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap()["group"].clone();
-    let manager = |d: &Daemon| d.get("/api/state").unwrap()["workspaces"][0]["manager"].clone();
-
-    let err = d.append("s-far", "manager.registered", json!({ "workspace": w1 })).unwrap_err().to_string();
-    assert!(err.contains("the workspace it runs in"), "{err}");
-    let err = d.append("s-far", "manager.registered", json!({ "intent": "i1" })).unwrap_err().to_string();
-    assert!(err.contains("the workspace it runs in"), "an old intent-only registration too: {err}");
-    let err = d.append("s-rev", "manager.registered", json!({ "workspace": w1 })).unwrap_err().to_string();
-    assert!(err.contains("boss"), "the running manager is named: {err}");
-    d.append("s-boss", "manager.registered", json!({ "workspace": w1 })).expect("a manager registers again");
-    assert_eq!(manager(&d), "s-boss");
-
-    // Its manager gone, another agent of the workspace takes it over. Not one of another
-    // workspace that gives its own the label of this one: it is recorded as the workspace
-    // the runtime says it is, which is not the intent's.
-    fake.agents.lock().unwrap().remove(0);
-    let lie = json!({ "id": "w2", "label": "chat" });
-    let err = d.append("s-far", "manager.registered", json!({ "intent": "i1", "workspace": lie })).unwrap_err().to_string();
-    assert!(err.contains("i1 runs in workspace chat, not search"), "{err}");
-    let made = d.append("s-far", "manager.registered", json!({ "workspace": lie })).unwrap();
-    assert_eq!(made["body"]["workspace"], json!({ "id": "w2", "label": "search" }));
-    assert_eq!(manager(&d), "s-boss");
-    assert_eq!(d.get("/api/state").unwrap()["workspaces"][0]["group"], w1);
-    d.append("s-rev", "manager.registered", json!({ "workspace": w1 })).unwrap();
-    assert_eq!(manager(&d), "s-rev");
-}
-
-/// Projects (a registered folder of repositories, and a repository outside it), several
-/// intents in one workspace, each delivery to the manager of the workspace its intent is
-/// active in, and a batch of deferred findings sent as one message.
+/// Projects (registered folders of repositories; a repository outside every one is no
+/// project), several intents in one workspace, each delivery to the manager of the workspace
+/// its intent is active in, and a batch of deferred findings sent as one message.
 #[test]
 fn projects_workspaces_and_batches() {
     use workriver_core::runtime::AgentState::*;
@@ -130,29 +98,33 @@ fn projects_workspaces_and_batches() {
     let path = |p: &std::path::Path| std::fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
 
     d.append("user", "project.added", json!({ "path": path(&proj), "title": "" })).unwrap();
-    // A repository in the project names the project; one outside is a project of its own.
+    // A repository in the project names the project; one outside every project names none,
+    // until the user registers it.
+    let outside = d.append("user", "intent.created", json!({ "title": "Solo work", "project": path(&tmp.path().join("solo")), "state": "planned" })).unwrap_err().to_string();
+    assert!(outside.contains("is in no registered project") && outside.contains("workriver project add"), "{outside}");
+    d.append("user", "project.added", json!({ "path": path(&tmp.path().join("solo")), "title": "" })).unwrap();
     for (title, p) in [("Login", path(&proj.join("api"))), ("Search", path(&proj)), ("Solo work", path(&tmp.path().join("solo")))] {
         d.append("user", "intent.created", json!({ "title": title, "goal": "g", "project": p, "state": "planned" })).unwrap();
     }
     let ws = d.get("/api/workspace").unwrap();
-    let projects: Vec<(String, bool, usize)> = ws["projects"].as_array().unwrap().iter().map(|p| (p["title"].as_str().unwrap().to_string(), p["registered"] == true, p["repos"].as_array().unwrap().len())).collect();
-    assert_eq!(projects, [("proj".to_string(), true, 2), ("solo".to_string(), false, 1)]);
+    let projects: Vec<(String, usize)> = ws["projects"].as_array().unwrap().iter().map(|p| (p["title"].as_str().unwrap().to_string(), p["repos"].as_array().unwrap().len())).collect();
+    assert_eq!(projects, [("proj".to_string(), 2), ("solo".to_string(), 1)]);
+    // Each project came with its first workspace, named as it.
+    let made: Vec<(&str, &str, &str)> = ws["workspaces"].as_array().unwrap().iter().map(|w| (w["id"].as_str().unwrap(), w["name"].as_str().unwrap(), w["project"].as_str().unwrap())).collect();
+    assert_eq!(made, [("ws1", "proj", path(&proj).as_str()), ("ws2", "solo", path(&tmp.path().join("solo")).as_str())]);
     assert_eq!(ws["intents"][0]["project"], path(&proj));
     assert_eq!((ws["intents"][0]["order"].as_u64(), ws["intents"][1]["order"].as_u64(), ws["intents"][2]["order"].as_u64()), (Some(0), Some(1), Some(0)), "a roadmap per project");
 
-    // Two intents active in w1, one in w2.
-    let start = |place: &str, agent: &str, intent: &str| {
-        let here = at_place(&d, place).call("/api/here", Some(json!({}))).unwrap();
-        d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
-        // Started by the user: a workspace whose project nothing recorded says yet takes it from them.
-        d.append("user", "intent.state_changed", json!({ "intent": intent, "state": "active", "workspace": here["group"] })).unwrap();
-    };
-    start("p1", "s-b1", "i1");
-    start("p1", "s-b1", "i2");
-    start("p2", "s-b2", "i3");
-    let here = at_place(&d, "p3").call("/api/here", Some(json!({}))).unwrap();
+    // Two intents active in ws1, one in ws2: each manager starts its own project's, in the
+    // workspace it was seated in, which its start need not name.
+    seat(&d, "ws1", Some("s-b1")).unwrap();
+    seat(&d, "ws2", Some("s-b2")).unwrap();
+    for (agent, intent) in [("s-b1", "i1"), ("s-b1", "i2"), ("s-b2", "i3")] {
+        d.append(agent, "intent.state_changed", json!({ "intent": intent, "state": "active" })).unwrap();
+    }
+    let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!(here["intent"], "i2", "the last one started is the workspace's current intent");
-    let e = d.append("s-b2", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": { "id": "w2", "label": "ws-w2" } })).unwrap_err().to_string();
+    let e = d.append("s-b2", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": "ws2" })).unwrap_err().to_string();
     assert!(e.contains("cannot become active"), "{e}");
 
     // Reviews in i1 (w1) and i3 (w2): each delivery goes to its own workspace's manager.
@@ -163,16 +135,17 @@ fn projects_workspaces_and_batches() {
         d.append("s-rev", "task.created", json!({ "unit": u, "kind": "review" })).unwrap();
         d.append("s-rev", "task.delivered", json!({ "unit": u, "task": 1, "findings": [{ "severity": "P3", "problem": "p", "impact": "i", "where": ["a"] }] })).unwrap();
     }
-    let sent = fake.sent.lock().unwrap().clone();
+    let told = || fake.sent.lock().unwrap().iter().filter(|(_, m)| !m.contains("The user made you the manager")).cloned().collect::<Vec<_>>();
+    let sent = told();
     assert_eq!(sent.iter().map(|(to, _)| to.as_str()).collect::<Vec<_>>(), ["s-b1", "s-b2"], "{sent:?}");
 
     // A deferred finding and an imported one, done together in i1: one message to boss1.
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P3-1", "decision": "defer" }))).unwrap();
     let f = d.append("user", "finding.added", json!({ "project": path(&proj), "finding": { "severity": "P2", "problem": "Old token leak" }, "source": "## login 遗留", "note": "修法: rotate" })).unwrap();
     assert_eq!(f["body"]["finding"]["id"], "f1");
-    let before = fake.sent.lock().unwrap().len();
+    let before = told().len();
     d.append("user", "findings.batched", json!({ "intent": "i1", "findings": [{ "unit": "u1", "task": 1, "finding": "P3-1" }, { "finding": "f1" }] })).unwrap();
-    let sent = fake.sent.lock().unwrap().clone();
+    let sent = told();
     assert_eq!(sent.len(), before + 1, "the batch, one message");
     let (to, msg) = sent.last().unwrap();
     assert_eq!(to, "s-b1");
@@ -182,8 +155,11 @@ fn projects_workspaces_and_batches() {
     // The batch's message is recorded on its first finding.
     assert_eq!(ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0]["delivery"]["to"], "boss1");
     assert!(ws["intents"][0]["units"][0]["tasks"][0]["output"]["findings"][0]["decided"].is_string(), "when it was decided");
-    let rev = ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == "rev").unwrap();
-    assert_eq!((rev["intent"].as_str(), rev["manager"].as_bool()), (Some("i2"), Some(false)));
+    // An agent's workspace is the records': the manager's by its seat; one with no task has none.
+    let session = |name: &str| ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == name).unwrap().clone();
+    let (b1, rev) = (session("boss1"), session("rev"));
+    assert_eq!((b1["workspace"].as_str(), b1["intent"].as_str(), b1["manager"].as_bool()), (Some("ws1"), Some("i2"), Some(true)), "{b1}");
+    assert_eq!((rev.get("workspace"), rev.get("intent"), rev["manager"].as_bool(), rev["group"]["id"].as_str()), (None, None, Some(false), Some("w1")), "{rev}");
 }
 
 /// A unit from first task to merge: where it stands at each step; renamed and rebased
@@ -211,10 +187,9 @@ fn units_finish() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, w, rev) = (at("p1"), at("p2"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Expire tokens", "agent": "s-w" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }], "agent": "s-rev" })).unwrap();
@@ -310,7 +285,7 @@ fn units_finish() {
     assert!(matches!(&done[..], [m] if m.starts_with("[workriver] Intent i1 is done: w, rev worked on it") && !m.contains("workriver say") && !m.contains("workriver reply")), "{done:?}");
     // The user closes one: the manager is told, and the user's own output says nothing of it.
     user.append("", "intent.created", json!({ "title": "Logout", "state": "planned" })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": "ws1" })).unwrap();
     let out = user.append("", "intent.state_changed", json!({ "intent": "i2", "state": "done" })).unwrap();
     assert_eq!(crate::cli::made(&out), "i2 done");
     assert_eq!(to_boss("Intent i2 is done"), [format!("[workriver] Intent i2 is done. {say}what the intent came to{now}")]);
@@ -439,18 +414,19 @@ fn the_user_starts_an_intent_from_the_page() {
     let (port, kernel) = daemon_over(fake.clone(), None, &tmp.path().join("w.db"));
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
-    boss.append("", "manager.registered", json!({ "workspace": { "id": "w1", "label": "chat" } })).unwrap();
+    let ws = seat_at(&user, &boss);
+    fake.sent.lock().unwrap().clear();
     boss.append("", "intent.created", json!({ "title": "Login", "goal": "Sign in with a passkey", "state": "planned" })).unwrap();
 
-    let start = json!({ "intent": "i1", "workspace": "w1" });
+    let start = json!({ "intent": "i1", "workspace": ws });
     let (status, said) = http(port, "POST", "/api/intent/start", &[], Some(&start.to_string()));
     assert_eq!(status, 401, "nobody: {said}");
     assert!(boss.call("/api/intent/start", Some(start.clone())).unwrap_err().to_string().contains("only the user does this"), "an agent, token and all");
-    assert!(user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": "w9" }))).unwrap_err().to_string().contains("no workspace w9"));
+    assert!(user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": "ws9" }))).unwrap_err().to_string().contains("no workspace ws9"));
     assert!(fake.sent.lock().unwrap().is_empty());
 
     let done = user.call("/api/intent/start", Some(start.clone())).unwrap();
-    assert_eq!((done["event"]["actor"].as_str(), done["event"]["body"]["state"].as_str(), done["event"]["body"]["workspace"]["label"].as_str()), (Some("user"), Some("active"), Some("chat")), "{done}");
+    assert_eq!((done["event"]["actor"].as_str(), done["event"]["body"]["state"].as_str(), done["event"]["body"]["workspace"].as_str()), (Some("user"), Some("active"), Some("ws1")), "{done}");
     assert_eq!((done["delivery"]["step"].as_str(), done["delivery"]["to"].as_str()), (Some("delivered"), Some("boss")), "{done}");
     let sent = fake.sent.lock().unwrap().clone();
     assert_eq!(sent.len(), 1);
@@ -461,113 +437,7 @@ fn the_user_starts_an_intent_from_the_page() {
     assert!(user.call("/api/intent/start", Some(start)).unwrap_err().to_string().contains("cannot become active"));
 }
 
-/// Which project a workspace works on: what the user set; else where its manager runs (a
-/// registered project, or a repository outside every one; another machine's paths only as
-/// the repositories of units recorded there); else its current intent's project.
-#[test]
-fn which_project_a_workspace_works_on() {
-    use crate::server::views::{Known, group_project, other_project};
-    use workriver_core::Principal;
-    use workriver_core::ports::WorkStore;
-    use workriver_core::runtime::AgentState::*;
-    let tmp = tempfile::tempdir().unwrap();
-    let (a, b, repo) = (tmp.path().join("alpha"), tmp.path().join("beta"), tmp.path().join("repo"));
-    for d in [&a, &b, &repo] {
-        std::fs::create_dir_all(d.join("sub")).unwrap();
-    }
-    git(&repo, &["init", "-q", "-b", "main"]);
-    let (a, b, repo) = (a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned(), repo.to_string_lossy().into_owned());
-    let mut store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
-    let boss = Principal::Agent { session: "s-boss".into(), machine: None };
-    let body = |v: serde_json::Value| serde_json::from_value::<workriver_core::Body>(v).unwrap();
-    store.record(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": a, "title": "Alpha" } }))).unwrap();
-    store.record(&Principal::User, body(json!({ "kind": "project.added", "body": { "path": b, "title": "Beta" } }))).unwrap();
-    store.record(&boss, body(json!({ "kind": "manager.registered", "body": { "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
-    store.record(&Principal::User, body(json!({ "kind": "intent.created", "body": { "title": "Login", "project": b, "state": "planned" } }))).unwrap();
-    store.record(&Principal::User, body(json!({ "kind": "intent.state_changed", "body": { "intent": "i1", "state": "active", "workspace": { "id": "w1", "label": "chat" } } }))).unwrap();
-    let g = workriver_core::RuntimeRef { id: "w1".into(), label: "chat".into(), machine: None };
-    let at = |cwd: &str, machine: Option<&str>| {
-        let mut m = live("s-boss", "boss", "w1", Idle);
-        m.cwd = cwd.into();
-        m.machine = machine.map(str::to_string);
-        vec![m]
-    };
 
-    // The manager runs in a registered project's folder: that project, whatever its intents.
-    let s = store.state();
-    assert_eq!(group_project(s, &at(&format!("{a}/sub"), None), &g), Some((a.clone(), Known::Manager)));
-    let why = other_project(s, &at(&format!("{a}/sub"), None), &g, "i1").expect("another project");
-    assert!(why.contains("works on project Alpha") && why.contains("i1 belongs to project Beta"), "{why}");
-    // In a repository outside every project: that repository.
-    assert_eq!(group_project(s, &at(&format!("{repo}/sub"), None), &g), Some((repo.clone(), Known::Manager)));
-    // No manager running: its current intent's project, which agrees with the intent.
-    assert_eq!(group_project(s, &[], &g), Some((b.clone(), Known::Intents)));
-    assert_eq!(other_project(s, &[], &g, "i1"), None);
-    // Another machine's path names no folder here unless a unit is recorded there.
-    assert_eq!(group_project(s, &at(&format!("{a}/sub"), Some("mini")), &g), Some((b.clone(), Known::Intents)));
-
-    // Set by hand: the user's alone, and it wins over the manager's folder; cleared, worked out again.
-    let set = |p: Option<&str>| body(json!({ "kind": "workspace.project_set", "body": { "workspace": { "id": "w1", "label": "chat" }, "project": p } }));
-    assert!(store.record(&boss, set(Some("p2"))).unwrap_err().to_string().contains("only the user"));
-    assert!(store.record(&Principal::User, set(Some("p9"))).unwrap_err().to_string().contains("no project p9"));
-    store.record(&Principal::User, set(Some("p2"))).unwrap();
-    assert_eq!(group_project(store.state(), &at(&format!("{a}/sub"), None), &g), Some((b.clone(), Known::User)));
-    store.record(&Principal::User, set(None)).unwrap();
-    assert_eq!(group_project(store.state(), &at(&format!("{a}/sub"), None), &g), Some((a.clone(), Known::Manager)));
-}
-
-/// Starting an intent in a workspace that works on another project: the page must say the
-/// user confirmed it; the manager is told the intent's project; a manager that starts one
-/// itself is warned.
-#[test]
-fn starting_an_intent_in_another_projects_workspace() {
-    use workriver_core::runtime::AgentState::*;
-    let tmp = tempfile::tempdir().unwrap();
-    // As the service records folders, and as the runtime reports where an agent runs.
-    let dir = |n: &str| {
-        std::fs::create_dir_all(tmp.path().join(n)).unwrap();
-        std::fs::canonicalize(tmp.path().join(n)).unwrap().to_string_lossy().into_owned()
-    };
-    let (a, b) = (dir("alpha"), dir("beta"));
-    let fake = std::sync::Arc::new(Fake::default());
-    let mut m = live("s-boss", "boss", "w1", Idle);
-    m.cwd = a.clone();
-    *fake.agents.lock().unwrap() = vec![("w1:p1".into(), m)];
-    let (port, kernel) = daemon_over(fake.clone(), None, &tmp.path().join("w.db"));
-    let user = kernel.client(port, tmp.path());
-    let boss = kernel.daemon(port, Some("w1:p1".into()), Some(tmp.path().to_path_buf()));
-    user.append("", "project.added", json!({ "path": a, "title": "Alpha" })).unwrap();
-    user.append("", "project.added", json!({ "path": b, "title": "Beta \"β\"" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": { "id": "w1", "label": "chat" } })).unwrap();
-    user.append("", "intent.created", json!({ "title": "Login", "project": b, "state": "planned" })).unwrap();
-    user.append("", "intent.created", json!({ "title": "Search", "project": b, "state": "planned" })).unwrap();
-    user.append("", "intent.created", json!({ "title": "Docs", "project": a, "state": "planned" })).unwrap();
-
-    let err = user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": "w1" }))).unwrap_err().to_string();
-    assert!(err.contains("works on project Alpha") && err.contains("confirmOtherProject"), "{err}");
-    assert!(fake.sent.lock().unwrap().is_empty(), "not started, nobody told");
-    let ws = user.get("/api/workspace").unwrap();
-    assert_eq!((ws["workspaces"][0]["project"].as_str(), ws["workspaces"][0]["projectTitle"].as_str(), ws["workspaces"][0]["projectFrom"].as_str()), (Some(a.as_str()), Some("Alpha"), Some("manager")), "{}", ws["workspaces"]);
-
-    let done = user.call("/api/intent/start", Some(json!({ "intent": "i1", "workspace": "w1", "confirmOtherProject": true }))).unwrap();
-    assert_eq!(done["delivery"]["step"], "delivered", "{done}");
-    let told = fake.sent.lock().unwrap()[0].1.clone();
-    assert!(told.starts_with(&format!("[workriver] The user started i1 «Login» of project «Beta 'β'» (folder «{b}») in your workspace;")), "{told}");
-    assert!(told.contains("If your workspace works on another project, do not split it: ask the user first (`workriver guide how ask-user`)."), "{told}");
-
-    // The manager starts one itself: of the project its workspace works on by the records (its
-    // current intent's, Beta), recorded with a warning when its folder says another; one of
-    // another project by the records is refused, whatever its folder says.
-    let out = boss.append("", "intent.state_changed", json!({ "intent": "i2", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
-    let warning = out["warning"].as_str().unwrap_or_default();
-    assert!(warning.contains("i2 belongs to project Beta 'β'") && warning.contains("ask the user with a decide gate"), "{out}");
-    let err = boss.append("", "intent.state_changed", json!({ "intent": "i3", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap_err().to_string();
-    assert!(err.contains("i3 belongs to project Alpha; your workspace works on Beta") && err.contains("ask the user to start it"), "{err}");
-    // Once the user says it works on Alpha, it starts Alpha's, and no warning is given.
-    user.append("", "workspace.project_set", json!({ "workspace": { "id": "w1", "label": "chat" }, "project": a })).unwrap();
-    let out = boss.append("", "intent.state_changed", json!({ "intent": "i3", "state": "active", "workspace": { "id": "w1", "label": "chat" } })).unwrap();
-    assert!(out.get("warning").is_none(), "{out}");
-}
 
 // ---- which pane a call truly comes from (docs/design/caller-identity.md) ----
 
@@ -588,7 +458,7 @@ fn an_intent_start_waits_for_a_blind_manager() {
     d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "agent": "s-boss", "blind": true, "inputs": [{ "from": "1" }] })).unwrap();
     d.append("user", "intent.created", json!({ "title": "OTHER_INTENT_TITLE", "goal": "OTHER_INTENT_GOAL", "state": "planned" })).unwrap();
     fake.sent.lock().unwrap().clear();
-    let started = d.call("/api/intent/start", Some(json!({ "intent": "i2", "workspace": "w1", "confirmOtherProject": true }))).unwrap();
+    let started = d.call("/api/intent/start", Some(json!({ "intent": "i2", "workspace": "ws1" }))).unwrap();
     let delivery = &started["delivery"];
     assert_eq!((delivery["step"].as_str(), delivery["to"].as_str()), (Some("held"), Some("boss")), "{delivery}");
     assert!(delivery["reason"].as_str().unwrap().contains("blind task"), "{delivery}");

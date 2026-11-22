@@ -68,7 +68,6 @@ fn the_user_runs_a_command() {
 
     // A unit on another machine: the shell is that machine's, through its runtime.
     // (In tests a machine's git runs here, so its repository is a folder here.)
-    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     let made = boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
     let shown = user.call("/api/run/prepare", Some(json!({ "command": "make deploy", "unit": made["body"]["id"] }))).unwrap();
     assert_eq!((shown["machine"].as_str(), shown["by"].as_str()), (Some("box"), Some("user")), "{shown}");
@@ -122,7 +121,6 @@ fn a_runs_shell_closes() {
     manage_here(&user, &boss);
     let repo_s = repo.to_string_lossy().to_string();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo_s, "branch": "feat/f", "base": "main" })).unwrap();
-    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Far", "repo": repo_s, "branch": "feat/g", "base": "main", "machine": "box" })).unwrap();
     // Runs `command` in `unit`'s folder; its id.
     let run = |unit: &str, command: &str| {

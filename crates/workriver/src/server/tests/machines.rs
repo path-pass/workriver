@@ -1,14 +1,16 @@
-// Other machines: followed, linked, their connection.
+// Other machines: followed, their agents in workriver's workspaces, their connection.
 use serde_json::json;
 
 use super::support::*;
 
-/// Two machines with the same pane, workspace id and workspace label: everything from the
-/// other machine carries its name, messages go where the agent is, a machine that cannot be
-/// reached leaves the rest working, and the two workspaces are one only once linked. A
-/// caller on the other machine's listener is an agent of that machine, whatever it says.
+/// Two machines with the same pane, runtime group id and label: everything from the other
+/// machine carries its name, messages go where the agent is, a machine that cannot be
+/// reached leaves the rest working, and what the runtimes call their groups joins nothing:
+/// an agent over there is in a workspace by the user's seating or by its tasks, with no
+/// link. A caller on the other machine's listener is an agent of that machine, whatever it
+/// says.
 #[test]
-fn machines_are_separate_until_linked() {
+fn machines_are_separate_and_need_no_link() {
     use workriver_core::runtime::{AgentState::*, Runtime};
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
@@ -60,25 +62,27 @@ fn machines_are_separate_until_linked() {
     manage(&d, "w1:p1", "s-boss");
     assert_eq!(at_place(&d, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["actor"], "s-boss");
     let there = at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str()), (Some("s-far"), Some("w1@box"), None), "same label, not the same workspace");
+    assert_eq!((there["actor"].as_str(), there["group"]["id"].as_str(), there["intent"].as_str(), there["workspace"].is_null()), (Some("s-far"), Some("w1@box"), None, true), "the same group name over there is no workspace");
     assert!(via_box.call("/api/machines", Some(json!({ "label": "x", "action": "add", "ssh": "x" }))).is_err(), "machines are managed locally");
 
-    // Not linked yet: the far agent manages its own "chat" over there and asks with options.
-    // The question is open in the page, and the user's answer, sent as the page sends it (the
-    // question's workspace by its label, which the local "chat" shares), goes to its asker.
-    via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
+    // The user makes a second workspace and seats the agent over there in it: a manager on
+    // another machine holds a seat like any other. It asks with options; the question is
+    // open in the page, and the user's answer, sent as the page sends it (the question's
+    // workspace by its id), goes to its asker.
+    let far_ws = workspace_named(&d, "far");
+    let seated = seat(&d, &far_ws, Some("s-far")).unwrap();
+    assert_eq!((seated["body"]["manager"].as_str(), seated["body"]["machine"].as_str()), (Some("s-far"), Some("box")), "{seated}");
+    wait_until("the far manager is told of its seat", || far.sent.lock().unwrap().iter().any(|(to, m)| to == "s-far" && m.contains(&format!("made you the manager of workspace {far_ws}"))));
     let choice = crate::cli::parse_choice(&["a=Here".into(), "b=There".into()], &[]).unwrap();
     let said = via_box.append("s-far", "message.said", json!({ "text": "Which?", "choice": choice })).unwrap();
+    assert_eq!(said["body"]["workspace"], far_ws.as_str());
     let id = said["body"]["id"].as_str().unwrap().to_string();
     let asked = || d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().find(|m| m["id"] == id.as_str()).unwrap().clone();
     assert_eq!(asked()["open"], true, "{}", asked());
-    let sent = d.call("/api/message", Some(json!({ "workspace": "chat", "text": "", "answer": { "message": id, "selected": ["b"] } }))).unwrap();
-    assert_eq!(sent["body"]["manager"], "s-far", "not the local manager of the same label");
+    let sent = d.call("/api/message", Some(json!({ "workspace": far_ws, "text": "", "answer": { "message": id, "selected": ["b"] } }))).unwrap();
+    assert_eq!(sent["body"]["manager"], "s-far", "not the manager of the other workspace");
     wait_until("the answer reaches the far manager", || far.sent.lock().unwrap().iter().any(|(to, m)| to == "s-far" && m.contains(&format!("The user answered your question {id}"))));
     assert!(asked().get("open").is_none() && asked()["answered"]["selected"] == json!(["b"]));
-
-    d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
-    assert_eq!(at_place(&via_box, "w1:p1").call("/api/here", Some(json!({}))).unwrap()["intent"], "i1", "linked: the local workspace's current intent");
 
     // A unit is its intent's manager's to add, not any agent's over there; one the manager
     // puts on the other machine has its repository there.
@@ -98,13 +102,15 @@ fn machines_are_separate_until_linked() {
     via_box.append("s-far", "task.delivered", json!({ "unit": "u1", "task": 1, "findings": [{ "severity": "P2", "problem": "p", "impact": "i", "where": ["a"], "attachments": [up["id"]] }] })).unwrap();
     let told = local.sent.lock().unwrap().last().unwrap().clone();
     assert!(told.0 == "s-boss" && told.1.contains("delivered by far") && told.1.contains(&tmp.path().join("attachments").display().to_string()), "{told:?}");
-    // The far agent becomes the linked workspace's manager once the local one is gone (one
-    // workspace, one manager): decisions go to its machine.
-    let err = via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap_err().to_string();
-    assert!(err.contains("boss"), "{err}");
+    // The far agent does not make itself the manager of the workspace the intent runs in;
+    // the user seats it there (one workspace, one manager; one session, one seat): decisions
+    // then go to its machine.
+    let err = via_box.append("s-far", "workspace.manager_set", json!({ "workspace": "ws1", "manager": "s-far", "replaces": seat_of(&d, "ws1") })).unwrap_err().to_string();
+    assert!(err.contains("only the user does this (workspace.manager_set)"), "{err}");
     local.agents.lock().unwrap().clear();
     all.poll_all();
-    via_box.append("s-far", "manager.registered", json!({ "agent": "s-far", "workspace": there["group"] })).unwrap();
+    seat(&d, "ws1", Some("s-far")).unwrap();
+    assert!(seat_of(&d, &far_ws).is_null(), "its old seat is empty");
     d.call("/api/decide", Some(json!({ "unit": "u1", "task": 1, "finding": "P2-1", "decision": "accept" }))).unwrap();
     let got = far.sent.lock().unwrap().last().unwrap().clone();
     assert!(got.0 == "s-far" && got.1.contains("Attachments: `workriver attach fetch ") && got.1.contains(".png` (run it: the file is saved in the folder you are in)") && !got.1.contains("curl") && !got.1.contains(&tmp.path().display().to_string()), "{got:?}");
@@ -118,9 +124,9 @@ fn machines_are_separate_until_linked() {
     let ws = d.get("/api/workspace").unwrap();
     assert_eq!(ws["intents"][0]["units"][0]["machine"], "box");
     let s = ws["sessions"].as_array().unwrap().iter().find(|s| s["agent"] == "far").unwrap();
-    assert_eq!((s["machine"].as_str(), s["group"]["id"].as_str(), s["manager"].as_bool()), (Some("box"), Some("w1"), Some(true)), "shown in the local workspace it is linked to");
-    let linked: Vec<_> = ws["workspaces"].as_array().unwrap().iter().map(|g| (g["machine"].as_str(), g["label"].as_str(), g["linkedTo"].as_str())).collect();
-    assert_eq!(linked, [(None, Some("chat"), None), (Some("box"), Some("chat"), Some("chat"))]);
+    assert_eq!((s["machine"].as_str(), s["group"]["id"].as_str(), s["workspace"].as_str(), s["manager"].as_bool()), (Some("box"), Some("w1@box"), Some("ws1"), Some(true)), "in the workspace it holds the seat of; its runtime group is only where its terminal is");
+    let seats: Vec<_> = ws["workspaces"].as_array().unwrap().iter().map(|w| (w["id"].as_str(), w["name"].as_str(), w["manager"]["session"].as_str(), w["manager"]["machine"].as_str())).collect();
+    assert_eq!(seats, [(Some("ws1"), Some("chat"), Some("s-far"), Some("box")), (Some("ws2"), Some("far"), None, None)]);
     assert_eq!(ws["machines"].as_array().unwrap().len(), 2);
 }
 
@@ -370,17 +376,15 @@ fn units_on_another_machine() {
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
     let user = kernel.client(port, tmp.path());
     let boss = kernel.daemon(port, Some("p1".into()), None);
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Sync", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
 
     // What happened on the work machine: recorded on the manager's side, with a ref that only exists there.
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Engine", "repo": path(&here), "branch": "feat/hub", "base": "main" })).unwrap();
-    // Recording it where the work is needs the two workspaces linked.
+    // Recording it where the work is: the intent's manager puts a unit on any machine
+    // workriver follows, with no link.
     let on_box = json!({ "intent": "i1", "title": "Queue", "repo": path(&there), "branch": "feat/feature", "base": "main", "machine": "box" });
-    assert!(boss.append("", "unit.created", on_box.clone()).unwrap_err().to_string().contains("workspace link box:"));
-    user.append("", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
     let made = boss.append("", "unit.created", on_box).unwrap();
     assert_eq!((made["body"]["machine"].as_str(), made["body"]["repo"].as_str()), (Some("box"), Some(path(&there).as_str())));
     // The path and the base are checked on that machine.
@@ -431,12 +435,15 @@ fn units_on_another_machine() {
     assert!(boss.append("", "unit.created", json!({ "intent": "i1", "title": "y", "repo": path(&there), "branch": "feat/f", "base": "main", "machine": "box" })).unwrap_err().to_string().contains("machine box cannot be reached now (disconnected since "));
     std::fs::remove_file(&slow).unwrap();
 
-    // Chores of no intent: a project's, and nobody's.
+    // Chores of no intent: a project's (a registered one's; a repository outside every
+    // project is nobody's), and nobody's.
+    boss.append("", "chore.created", json!({ "project": path(&here), "title": "Outside every project" })).unwrap();
+    user.append("", "project.added", json!({ "path": path(&here), "title": "Mac" })).unwrap();
     boss.append("", "chore.created", json!({ "project": path(&here), "title": "Renew the certificate" })).unwrap();
     boss.append("", "chore.created", json!({ "title": "Pay the invoice" })).unwrap();
     let ws = user.get("/api/workspace").unwrap();
-    assert_eq!(ws["chores"].as_array().unwrap().iter().map(|c| (c["title"].as_str().unwrap(), c["project"].as_str().unwrap().to_string())).collect::<Vec<_>>(), [("Renew the certificate", path(&here)), ("Pay the invoice", String::new())]);
-    assert!(crate::cli::board_text(&boss, None).unwrap().contains("chore c2 Pay the invoice (by boss)"));
+    assert_eq!(ws["chores"].as_array().unwrap().iter().map(|c| (c["title"].as_str().unwrap(), c["project"].as_str().unwrap().to_string())).collect::<Vec<_>>(), [("Outside every project", String::new()), ("Renew the certificate", path(&here)), ("Pay the invoice", String::new())]);
+    assert!(crate::cli::board_text(&boss, None).unwrap().contains("chore c3 Pay the invoice (by boss)"));
     user.call("/api/chore-done", Some(json!({ "chore": "c1" }))).unwrap();
 
     // The build is told, to tell a CLI and a service of different builds apart.

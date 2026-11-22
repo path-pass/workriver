@@ -14,7 +14,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use workriver_core::RuntimeRef;
 use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
 
 mod agents;
@@ -138,11 +137,6 @@ impl Runtime for Herdr {
 
     fn agent_roots(&self, _: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
         self.roots_of(None, true)
-    }
-
-    fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
-        let snap = self.snapshot()?;
-        Ok(snap.workspaces.iter().filter_map(|w| group(&snap, &w.workspace_id, self.label())).collect())
     }
 
     /// A tab of its own in the workspace labelled `group` (made, with its first tab, when there

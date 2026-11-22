@@ -110,13 +110,13 @@ its sections went.
   agent's line in Agents, a unit's header and its line in the rail; an agent mark's tooltip
   ends with "@machine". When the machine cannot be reached, its agents stay as last seen,
   faded, the chip dashed (its tooltip says since when it is disconnected), and they raise
-  nothing in Needs you. Settings says "disconnected since …" and when it connects again. A workspace of another
-  machine is its own group in Agents, with the chip in its heading, until the user links it
-  to a workspace of this machine; then its agents sit in that group (one manager, the same
-  intents). Nothing is ever merged by name alone. Settings has "Other machines": each with
+  nothing in Needs you. Settings says "disconnected since …" and when it connects again. An agent on another
+  machine is in a workspace as any agent is: seated as its manager by the user, or through
+  the tasks it has (Agents groups by that, `navigation.md`); there are no links between
+  workspaces, and nothing is ever joined by a name. Settings has "Other machines": each with
   a follow switch, its state in a few words (connecting… until the first attempt ends,
   connected and how many agents, not connected, connected but no Herdr) and ssh's own words when it is down; a name and ssh target to add
-  one; and, per workspace over there, a select that links it to a workspace here.
+  one.
 
 ## Stopped workers
 
@@ -152,10 +152,15 @@ its sections went.
 
 - **Settings** (the gear at the rail's foot) is a dialog that shows one group at a time, as
   tabs, in this order: General (language, theme, notifications and the sound), Stopped
-  workers, Workspaces' projects, Machine alerts, Other machines. The tab names the group, so
-  a group has no heading of its own. A group with nothing to set has no tab: Workspaces'
-  projects while no workspace here or no project is known, Other machines on the sample
-  page. A tab whose setting comes from the service (Stopped workers, Machine alerts) is never
+  workers, Workspaces, Machine alerts, Other machines. The tab names the group, so
+  a group has no heading of its own. A group with nothing to set has no tab: Workspaces
+  while there is none, Other machines on the sample
+  page. **Workspaces** lists every workspace, open and closed, in the order they were made:
+  its name with its id in mono (and a "closed" tag), under it its project's title and its
+  manager with its state ("Manager mgr-chat: working", "not running", "no manager"). An open
+  one has "Manager…" (the manager select, `navigation.md`) and "Close" (the service refuses
+  it while an intent is active there, in its words); a closed one has "Open again". A
+  closed workspace is nowhere else on the page but in the Manager select's closed group. A tab whose setting comes from the service (Stopped workers, Machine alerts) is never
   an empty panel: while the setting loads it says so in a quiet line, and when it cannot be
   read it says why (`role=alert`). The dialog keeps one height whichever tab shows (each
   scrolls on its own); on a narrow screen the tabs wrap. The arrow keys move between tabs.

@@ -56,8 +56,6 @@ impl App {
                 }
             }
         }
-        let groups = self.runtime.groups().unwrap_or_default();
-        let regrouped = std::mem::replace(&mut *self.groups.lock().unwrap(), groups.clone()) != groups;
         {
             let mut blocked = self.blocked.lock().unwrap();
             let still: Vec<&RuntimeAgent> = now.iter().flatten().filter(|a| a.state == AgentState::Blocked).collect();
@@ -190,7 +188,7 @@ impl App {
                 tracing::warn!("cannot close {name}: {e}");
             }
         }
-        if differs || recorded || regrouped || stalled {
+        if differs || recorded || stalled {
             let _ = self.changed.send(());
         }
     }

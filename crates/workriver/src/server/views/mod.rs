@@ -8,7 +8,6 @@ use workriver_core::{self as core, FindingState, TaskKind, TaskState, name, pars
 use workriver_scan as scan;
 
 pub(super) use crate::common::wire::workspace::*;
-use crate::server::delivery::quote;
 
 mod cache;
 mod code;
@@ -52,12 +51,14 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 .iter()
                 .map(|r| {
                     let (step, reason_code, reason, blocked) = where_is(state, live, names, &r.manager, r.delivery.as_ref());
-                    CopyOut { workspace: r.workspace.label.clone(), machine: r.workspace.machine.clone(), manager: names.of(&r.manager), step, reason_code, reason, blocked, replies: replies(Some(&r.manager)) }
+                    CopyOut { workspace: r.workspace.clone(), machine: r.machine.clone(), manager: names.of(&r.manager), step, reason_code, reason, blocked, replies: replies(Some(&r.manager)) }
                 })
                 .collect();
             let (step, reason_code, reason, blocked) = match (m.by_manager, to.is_empty()) {
                 // Nothing to deliver: it is the manager's.
                 (true, _) => ("delivered", None, None, None),
+                // A line of workriver's own went nowhere either.
+                _ if m.notice.is_some() => ("delivered", None, None, None),
                 (false, true) => where_is(state, live, names, &m.manager, m.delivery.as_ref()),
                 // Each copy says where it is; the whole: on its way until each is given or not.
                 (false, false) if to.iter().any(|c| !matches!(c.step, "delivered" | "not-delivered")) => ("sending", None, None, None),
@@ -69,6 +70,7 @@ fn messages(state: &core::State, live: &[RuntimeAgent], names: &Names) -> Vec<Me
                 intent: m.intent.clone(),
                 workspace: m.workspace.clone(),
                 manager: if to.is_empty() { names.of(&m.manager) } else { String::new() },
+                notice: m.notice,
                 text: m.text.clone(),
                 unit: m.unit.clone(),
                 task: (m.task != 0).then_some(m.task),
@@ -127,6 +129,10 @@ fn hide(ws: &mut Workspace, state: &core::State) {
         // Where it runs, as the reduced records keep it: the reader's own; others' not.
         s.machine = state.agents.iter().find(|a| a.session == s.session).and_then(|a| a.machine.clone());
         s.unreachable &= s.machine.is_some();
+        // The folder it was started in likewise: its own, as the reduced records keep it.
+        if state.agents.iter().find(|a| a.session == s.session).is_none_or(|a| a.cwd.is_empty()) {
+            s.folder.clear();
+        }
     }
 }
 
@@ -154,14 +160,6 @@ fn chore(c: &core::Chore, names: &Names, project: Option<String>) -> Chore {
         state: if c.done { "done" } else { "open" },
         since: c.at.clone(),
         unit: c.unit.clone(),
-    }
-}
-
-/// The group a linked group of another machine stands for: this machine's, by the link.
-fn canon(state: &core::State, groups: &[core::RuntimeRef], g: &core::RuntimeRef) -> core::RuntimeRef {
-    match state.link_of(g) {
-        None => g.clone(),
-        Some(l) => groups.iter().find(|x| x.machine.is_none() && x.label == l.local).cloned().unwrap_or_else(|| core::RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None }),
     }
 }
 
@@ -295,7 +293,7 @@ impl Names {
 /// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
 /// (or done) the same way; `stalls`: the
 /// running tasks whose agent stopped, by (unit or intent, task).
-pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, groups: &[core::RuntimeRef]) -> Workspace {
+pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, proposals: &HashMap<String, Option<String>>) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
     cache.worktrees.clear();
@@ -354,11 +352,11 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
     let mut sessions: Vec<Session> = live
         .iter()
         .map(|a| {
-            let intent = a.group.as_ref().and_then(|g| state.intent_for(g));
-            let manages = a.group.as_ref().and_then(|g| state.workspace_of(g)).and_then(|w| w.manager.as_deref()) == Some(a.session.as_str());
+            // Its workspace is the records' to say (its seat, else its tasks'); where the
+            // runtime shows its terminal is only a hint.
+            let workspace = state.workspace_of_agent(&a.session);
+            let manages = state.seat_of(&a.session).is_some();
             let away = a.machine.as_ref().is_some_and(|m| machines.iter().any(|x| &x.label == m && !x.reachable));
-            // A linked workspace of another machine is shown as the workspace of this machine.
-            let group = a.group.as_ref().map(|g| canon(state, groups, g));
             Session {
                 machine: a.machine.clone(),
                 unreachable: away,
@@ -369,10 +367,12 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
                 blocked_since: (a.state == AgentState::Blocked && !away).then(|| blocked.get(&a.session).cloned().unwrap_or_else(core::now)),
                 idle_since: idle.get(&a.session).filter(|_| !away && matches!(a.state, AgentState::Idle | AgentState::Done)).cloned(),
                 harness: (!a.harness.is_empty()).then(|| a.harness.clone()),
-                group,
+                group: a.group.clone(),
+                workspace: workspace.map(|w| w.id.clone()),
+                folder: a.cwd.clone(),
                 ended: false,
                 state: Some(if away { "unknown".into() } else { name(&a.state) }),
-                intent: intent.map(|i| i.id.clone()),
+                intent: workspace.and_then(|w| w.current.clone()),
                 manager: manages,
             }
         })
@@ -382,7 +382,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         let agent = names.of(&session);
         if !live.iter().any(|a| a.session == session) && !sessions.iter().any(|s| s.agent == agent) {
             let harness = state.agents.iter().find(|a| a.session == session).map(|a| a.harness.clone()).filter(|h| !h.is_empty());
-            sessions.push(Session { agent, session, topic: None, blocked_since: None, idle_since: None, harness, group: None, ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
+            sessions.push(Session { agent, session, topic: None, blocked_since: None, idle_since: None, harness, group: None, workspace: None, folder: String::new(), ended: true, state: None, intent: None, manager: false, machine: None, unreachable: false });
         }
     }
     let backlog = state
@@ -391,7 +391,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
         .map(|b| {
             let f = &b.finding;
             BacklogOut {
-                project: state.project_of(&b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone()),
+                project: state.project_of(&b.project).map(|p| p.path.clone()).unwrap_or_default(),
                 intent: b.intent.clone(),
                 source: b.source.clone(),
                 by: names.of(&b.by),
@@ -419,18 +419,32 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             }
         })
         .collect();
-    let workspaces = groups
+    let workspaces = state
+        .workspaces
         .iter()
-        .map(|g| {
-            let (project, from) = group_project(state, live, g).unzip();
-            Group { id: g.id.clone(), label: g.label.clone(), machine: g.machine.clone(), linked_to: state.link_of(g).map(|l| l.local.clone()), project_title: project.as_deref().map(|p| project_title(state, p)), project, project_from: from }
+        .map(|w| WorkspaceOut {
+            id: w.id.clone(),
+            name: w.name.clone(),
+            project: state.workspace_project(w).map(|p| p.path.clone()).unwrap_or_default(),
+            closed: w.closed,
+            current: w.current.clone(),
+            manager: w.manager.as_ref().map(|m| SeatOut {
+                session: m.session.clone(),
+                name: names.of(&m.session),
+                machine: m.machine.clone(),
+                folder: m.folder.clone(),
+                since: m.since,
+                // Not at the root it was seated at: not running, whatever reports its session.
+                state: live.iter().find(|a| a.session == m.session && a.machine == m.machine).filter(|_| !proposals.contains_key(&w.id)).map(|a| name(&a.state)).unwrap_or_else(|| "gone".into()),
+            }),
+            proposal: proposals.get(&w.id).cloned().flatten(),
         })
         .collect();
     let chores = state
         .chores
         .iter()
         .filter(|c| c.intent.is_empty())
-        .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))))
+        .map(|c| chore(c, &names, Some(state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_default())))
         .collect();
     let messages = messages(state, live, &names);
     Workspace { repos, projects: projects(state), backlog, built_at: core::now(), runtime: crate::runtime::words::NAME, intents, sessions, workspaces, machines, reduced: false, chores, alerts: vec![], messages, runs: vec![] }
@@ -468,76 +482,8 @@ fn overlaps(intents: &mut [Intent], changed: &HashMap<String, BTreeSet<String>>)
     }
 }
 
-/// The project (its folder) a runtime group works on, and how that is known: what the user
-/// set; else where its manager runs; else its current intent's project. None: unknown.
-pub(super) fn group_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef) -> Option<(String, Known)> {
-    let w = state.workspace_of(g);
-    if let Some(p) = w.and_then(|w| w.project.clone()) {
-        return Some((p, Known::User));
-    }
-    let manager = w.and_then(|w| w.manager.as_deref()).and_then(|m| live.iter().find(|a| a.session == m));
-    if let Some(p) = manager.and_then(|a| project_at(state, a.machine.as_deref(), &a.cwd)) {
-        return Some((p, Known::Manager));
-    }
-    state.intent_for(g).map(|i| state.project_folder(i)).filter(|p| !p.is_empty()).map(|p| (p, Known::Intents))
-}
-
-/// The project a folder is in. Here: the deepest registered project holding it, else the
-/// repository it is in (a project of its own; a linked worktree counts as its main
-/// repository). On another machine its paths are its own: only the repositories of units
-/// recorded on that machine, as their intents' projects.
-fn project_at(state: &core::State, machine: Option<&str>, cwd: &str) -> Option<String> {
-    if cwd.is_empty() {
-        return None;
-    }
-    let cwd = Path::new(cwd);
-    if let Some(m) = machine {
-        let u = state.units.iter().filter(|u| u.machine.as_deref() == Some(m) && u.has_code() && cwd.starts_with(&u.repo)).max_by_key(|u| u.repo.len())?;
-        let i = state.intents.iter().find(|i| i.id == u.intent)?;
-        return Some(state.project_folder(i)).filter(|p| !p.is_empty());
-    }
-    if let Some(p) = state.project_of(&cwd.to_string_lossy()) {
-        return Some(p.path.clone());
-    }
-    let top = cwd.ancestors().find(|d| d.join(".git").exists())?;
-    // A linked worktree's `.git` is a file: `gitdir: <main>/.git/worktrees/<name>`.
-    let main = std::fs::read_to_string(top.join(".git")).ok().and_then(|g| g.trim().strip_prefix("gitdir:").and_then(|d| d.trim().split_once("/.git/worktrees/")).map(|(m, _)| m.to_string()));
-    let top = main.unwrap_or_else(|| top.to_string_lossy().into_owned());
-    Some(state.project_of(&top).map(|p| p.path.clone()).unwrap_or(top))
-}
-
-/// A project's title: a registered one's, else its folder's name.
-pub(super) fn project_title(state: &core::State, folder: &str) -> String {
-    match state.projects.iter().find(|p| p.path == folder) {
-        Some(p) => p.title.clone(),
-        None => Path::new(folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.to_string()),
-    }
-}
-
-/// When `intent` belongs to a known project and the group is known to work on another: the
-/// two, in a sentence. None when they agree or either is unknown.
-pub(super) fn other_project(state: &core::State, live: &[RuntimeAgent], g: &core::RuntimeRef, intent: &str) -> Option<String> {
-    let i = state.intents.iter().find(|i| i.id == intent)?;
-    let mine = state.project_folder(i);
-    let (theirs, known) = group_project(state, live, g)?;
-    if mine.is_empty() || mine == theirs {
-        return None;
-    }
-    let how = match known {
-        Known::Manager => "its manager runs in that project's folder",
-        Known::Intents => "its current intent belongs to it",
-        Known::User => "the user set it",
-    };
-    Some(format!(
-        "workspace {} works on project {} ({theirs}; {how}), but {intent} belongs to project {} ({mine})",
-        quote::name(&g.label),
-        quote::name(&project_title(state, &theirs)),
-        quote::name(&project_title(state, &mine))
-    ))
-}
-
-/// Registered projects with the repositories in them, and one implicit project per
-/// repository that intents use outside all of them.
+/// Registered projects with the repositories in them. A repository is part of a registered
+/// project or of none: what names no registered project is shown under "No project".
 fn projects(state: &core::State) -> Vec<ProjectOut> {
     let repos_in = |folder: &str| {
         let f = Path::new(folder);
@@ -548,15 +494,7 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
         list.sort();
         list
     };
-    let mut out: Vec<ProjectOut> = state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), registered: true, repos: repos_in(&p.path) }).collect();
-    let folders = state.intents.iter().map(|i| state.project_folder(i)).chain(state.chores.iter().filter(|c| c.intent.is_empty()).map(|c| state.project_of(&c.project).map(|p| p.path.clone()).unwrap_or_else(|| c.project.clone()))).chain(state.backlog.iter().map(|b| state.project_of(&b.project).map(|p| p.path.clone()).unwrap_or_else(|| b.project.clone())));
-    for folder in folders {
-        if !folder.is_empty() && !out.iter().any(|p| p.id == folder) {
-            let title = Path::new(&folder).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| folder.clone());
-            out.push(ProjectOut { id: folder.clone(), key: None, title, registered: false, repos: vec![folder] });
-        }
-    }
-    out
+    state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), repos: repos_in(&p.path) }).collect()
 }
 
 /// An intent's own tasks (research, design and their reviews and gates, recorded before

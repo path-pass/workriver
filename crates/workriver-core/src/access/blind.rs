@@ -1,4 +1,5 @@
-// What an agent on an undelivered blind task may see: its own task, unit and intent.
+// What an agent may see: on an undelivered blind task, its own task, unit and intent; else
+// everything but the conversations of workspaces it does not manage.
 use crate::*;
 
 impl State {
@@ -47,10 +48,54 @@ impl State {
             agents: self.agents.iter().map(|a| if a.session == session { a.clone() } else { Agent { cwd: String::new(), machine: None, ..a.clone() } }).collect(),
             attachments: self.attachments.iter().filter(|a| a.by == session || added.contains(&a.id)).cloned().collect(),
             projects: self.projects.clone(),
-            workspaces: self.workspaces.clone(),
-            links: self.links.clone(),
+            // A seat is an agent's machine and folder: cleared like any other agent's.
+            workspaces: self.workspaces.iter().map(|w| Workspace { manager: w.manager.as_ref().map(|m| if m.session == session { m.clone() } else { Seat { machine: None, folder: String::new(), ..m.clone() } }), ..w.clone() }).collect(),
             reduced: true,
             ..State::default()
         })
+    }
+
+    /// What an agent that is on no blind task may see: everything recorded, but of the
+    /// conversations with the user only its own. `self` is the whole state; it is cut down:
+    ///
+    /// - the messages of the workspace whose seat `session` holds, all of them;
+    /// - of a message to every manager, only when a copy went to its appointment now: the
+    ///   message, its own copy and its own replies. Nothing of the other copies (their
+    ///   workspace, manager, delivery) or their replies;
+    /// - the read marks of that workspace, none other;
+    /// - every attachment but one that only the parts cut away name: one that anything kept
+    ///   names too, or that the agent stored itself, stays.
+    ///
+    /// Intents, units, tasks, findings, gates, chores, questions, threads and agents stay as
+    /// they are: only the conversations are scoped by workspace.
+    pub fn conversations_of(mut self, session: &str) -> State {
+        let seat = self.seat_of(session).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)));
+        let mine = |id: &str| seat.as_ref().is_some_and(|(w, _)| w == id);
+        let copied = |r: &Recipient| r.manager == session && seat.as_ref().is_some_and(|(w, since)| *w == r.workspace && *since == r.since);
+        // What the parts cut away point at, before they go.
+        let named = |c: &[AskContext]| c.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>();
+        let mut cut: Vec<String> = vec![];
+        let mut kept = vec![];
+        for mut m in std::mem::take(&mut self.messages) {
+            let keep = if m.to.is_empty() { mine(&m.workspace) } else { m.to.iter().any(copied) };
+            if !keep {
+                cut.extend(named(&m.context));
+                continue;
+            }
+            if !m.to.is_empty() {
+                m.to.retain(copied);
+                m.replies.retain(|r| r.by == session);
+            }
+            kept.push(m);
+        }
+        self.messages = kept;
+        self.read.retain(|w, _| mine(w));
+        if !cut.is_empty() {
+            // Whatever else names one keeps it: looked for in everything kept, as it is
+            // written, so that no kind of record is forgotten here.
+            let rest = serde_json::to_string(&State { attachments: vec![], ..self.clone() }).unwrap_or_default();
+            self.attachments.retain(|a| a.by == session || !cut.contains(&a.id) || rest.contains(&a.id));
+        }
+        self
     }
 }

@@ -23,6 +23,7 @@ local POST /api/chore-done  anonymous 401  agent 403  user 422
 local POST /api/backlog/merge  anonymous 401  agent 422  user 422
 local POST /api/focus  anonymous 401  agent 403  user 204
 local POST /api/intent/start  anonymous 401  agent 403  user 422
+local POST /api/workspaces  anonymous 401  agent 403  user 422
 local POST /api/run/prepare  anonymous 401  agent 403  user 422
 local POST /api/run  anonymous 401  agent 403  user 422
 local GET /api/run/r9  anonymous 401  agent 403  user 404

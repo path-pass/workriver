@@ -116,7 +116,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         remote_kick: kick,
         machines,
         listeners: Mutex::default(),
-        groups: Mutex::default(),
+        proposals: Mutex::default(),
         tunnels: Mutex::default(),
         runtime,
         warning,

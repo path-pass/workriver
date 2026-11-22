@@ -64,12 +64,11 @@ pub struct State {
     pub roadmap: Vec<String>,
     #[serde(default)]
     pub backlog: Vec<BacklogFinding>,
-    #[serde(default)]
-    pub links: Vec<Link>,
     /// The user's messages to managers, with their replies.
     #[serde(default)]
     pub messages: Vec<Message>,
-    /// Up to when the user has read each workspace's conversation with its manager, by label.
+    /// Up to when the user has read each workspace's conversation with its manager, by the
+    /// workspace's id (empty: the conversation with every manager).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub read: std::collections::BTreeMap<String, String>,
     /// Up to when the user has read each task's discussion, by `unit#task`.
@@ -121,8 +120,8 @@ impl State {
         // Each kind's own rules are its domain's.
         match body {
             // Planning: planning/.
-            IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentLinked { .. } => self.prepare_intents(who, body),
-            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => self.prepare_projects(who, body),
+            IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentWorkspaceSet { .. } => self.prepare_intents(who, body),
+            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } => self.prepare_projects(who, body),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.prepare_units(who, body),
             // The work: work/.
             TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.prepare_tasks(who, body),
@@ -144,8 +143,8 @@ impl State {
         let at = &e.at;
         match &e.body {
             // Planning: planning/.
-            IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentLinked { .. } => self.apply_intents(e),
-            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceLinked(..) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ManagerRegistered { .. } => self.apply_projects(e),
+            IntentCreated { .. } | IntentStateChanged { .. } | IntentMoved { .. } | IntentMerged { .. } | IntentUpdated { .. } | IntentWorkspaceSet { .. } => self.apply_intents(e),
+            ProjectAdded { .. } | ProjectRenamed { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ManagerBack { .. } => self.apply_projects(e),
             UnitCreated { .. } | UnitRelocated { .. } | UnitMerged { .. } | UnitDone { .. } | CommitLinked { .. } | CommitUnlinked { .. } => self.apply_units(e),
             // The work: work/.
             TaskCreated(..) | TaskStarted { .. } | TaskDelivered { .. } | TaskDropped { .. } | TaskAmended { .. } | TaskNoted { .. } => self.apply_tasks(e),

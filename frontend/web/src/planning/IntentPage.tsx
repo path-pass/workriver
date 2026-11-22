@@ -7,7 +7,9 @@ import { lastMove, quietSince } from './select'
 import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
-import { record } from '@/api/actions'
+import { record, setSpace } from '@/api/actions'
+import { runs } from './spaces'
+import { openSeat } from './Seat'
 import type { Intent, Unit } from './types'
 import type { Workspace } from '@/workspace/types'
 import type { Talk } from '@/conversations/types'
@@ -82,7 +84,10 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
   const state = intent.state ?? 'active'
   const units = intent.units.filter(u => !u.intentLevel)
   const session = intent.manager ? ws.sessions.find(s => s.manager && !s.ended && s.agent === intent.manager) : undefined
-  const worksOn = ws.workspaces?.find(w => w.id === intent.workspace?.id)?.projectTitle
+  const space = ws.workspaces?.find(w => w.id === intent.workspace)
+  // An active intent may move to another open workspace of its project.
+  const others = state === 'active' ? (ws.workspaces ?? []).filter(w => !w.closed && w.project === intent.project && w.id !== intent.workspace) : []
+  const [moveError, setMoveError] = useState('')
   // The note as written (its indentation is Markdown); only a blank one is none.
   const note = intent.note?.trim() ? intent.note : ''
   // The edit dialog (with what it starts from: its text, or a version to restore) and the history.
@@ -129,17 +134,29 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
             <p className="text-sm text-ink-2">{t('intent.notStarted')}</p>
           ) : (
             <dl className="flex flex-col gap-1.5 text-sm">
-              {intent.workspace && (
+              {space && (
                 <Row label={t('intent.workspace')}>
-                  <span className="font-mono text-xs">{intent.workspace.label}</span>
-                  {/* The project its manager works on, when workriver knows it. */}
-                  {worksOn && <span className="text-xs text-ink-2"><Slot text={t('intent.worksOn', { project: SLOT })}><Content text={worksOn} /></Slot></span>}
+                  <span lang={contentLang(space.name)}>{space.name}</span>
+                  <span className="font-mono text-xs text-ink-2">{space.id}</span>
+                  {space.closed && <span className="tag font-normal">{t('spaces.closed')}</span>}
+                  {others.length > 0 && (
+                    <Choice
+                      label={t('intent.move')}
+                      value=""
+                      placeholder={t('intent.move')}
+                      onChange={v => { setSpace({ action: 'move', intent: intent.id, workspace: v }).then(() => setMoveError(''), e => setMoveError(e instanceof Error ? e.message : String(e))) }}
+                      options={others.map(w => ({ value: w.id, label: `${w.name} ${w.id}` }))}
+                      className="h-7 w-44 text-xs"
+                    />
+                  )}
+                  {moveError && <span role="alert" className="text-xs wrap-anywhere text-del">{moveError}</span>}
                 </Row>
               )}
               <Row label={t('intent.manager')}>
                 {intent.manager && <span className="font-[550]">{intent.manager}</span>}
                 <span className="text-ink-2"><ManagerState intent={intent} /></span>
                 {session && <TerminalButton agent={session.agent} session={session.session} className="text-ink-2" />}
+                {state === 'active' && space && !runs(space.manager) && <Button variant="outline" size="sm" className="h-7 gap-1.5" onClick={() => openSeat(space.id, space.proposal)}><Icon name="manager" className="size-3.5" />{t('rail.spaceManager')}</Button>}
                 {state === 'active' && intent.workspace && intent.manager && (
                   <Button variant="outline" size="sm" className="h-7 gap-1.5" onClick={onTalk}><Icon name="manager" className="size-3.5" />{t('intent.talk')}</Button>
                 )}

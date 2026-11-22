@@ -17,4 +17,13 @@ pub(super) const MIGRATIONS: &[&str] = &["
         BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
     CREATE TRIGGER events_no_delete BEFORE DELETE ON events
         BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+", "
+    CREATE TABLE format (events TEXT NOT NULL);
+    INSERT INTO format (events) VALUES ('virtual-workspaces');
 "];
+
+/// The step that marks the form the events are written in: workspaces of workriver's own
+/// (`ws1`), not the runtime's groups. It only ever runs on a store that holds no events: one
+/// that has events and not this step was written in the earlier form, which this version
+/// does not read (`Store::open` refuses it, and leaves it as it is).
+pub(super) const FORMAT_STEP: usize = 1;

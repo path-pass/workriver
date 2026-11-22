@@ -121,7 +121,7 @@ fn target(state: &State, live: Option<&[RuntimeAgent]>, intent: &str, first: Opt
     match state.manager_of(intent).map(str::to_string) {
         Some(m) if is_live(&m) => Ok(m),
         Some(m) => Err((ReasonCode::ManagerGone, format!("the manager of intent {intent} ({}) is not running", state.name_of(&m).unwrap_or(&m)))),
-        None => Err((ReasonCode::NoManager, format!("intent {intent} has no manager; the manager registers with `workriver manager here`"))),
+        None => Err((ReasonCode::NoManager, format!("intent {intent} has no manager; {}", workriver_core::SEATING))),
     }
 }
 
@@ -464,21 +464,33 @@ pub(super) fn started(state: &State, live: Option<&[RuntimeAgent]>, intent: &str
     let i = state.intents.iter().find(|i| i.id == intent).ok_or_else(|| (ReasonCode::NoManager, format!("no intent {intent}")))?;
     let to = target(state, live, intent, None)?;
     let goal = if i.goal.trim().is_empty() { String::new() } else { format!(" {}", quoted("Its goal", &i.goal)) };
-    // Its project, so that a manager working on another one stops before splitting it.
-    let folder = state.project_folder(i);
-    let project = if folder.is_empty() {
-        String::new()
-    } else {
-        format!(" of project «{}» (folder «{}»)", quote::name(&crate::server::views::project_title(state, &folder)), quote::name(&folder))
-    };
-    let check = if folder.is_empty() { "" } else { " If your workspace works on another project, do not split it: ask the user first (`workriver guide how ask-user`)." };
     Ok((
         to,
         format!(
-            "[workriver] The user started {intent} «{}»{project} in your workspace; it is now where new work goes. Split it into units and tasks: `workriver guide how start-intent`, then `workriver board {intent}`.{check}{goal}",
+            "[workriver] The user started {intent} «{}» in your workspace; it is now where new work goes. Split it into units and tasks: `workriver guide how start-intent`, then `workriver board {intent}`.{goal}",
             quote::name(&i.title)
         ),
     ))
+}
+
+/// What a session reads when the user seats it as a workspace's manager: which workspace
+/// (its id, its name and its project, named from the records), the intents active there, and
+/// where the role is written.
+pub(super) fn seated(state: &State, w: &workriver_core::Workspace) -> String {
+    let project = state.workspace_project(w).map(|p| format!(" of project «{}» (folder «{}»)", quote::name(&p.title), quote::name(&p.path))).unwrap_or_default();
+    let active: Vec<String> = state.intents.iter().filter(|i| i.state == workriver_core::IntentState::Active && i.workspace.as_deref() == Some(w.id.as_str())).map(|i| format!("{} «{}»", i.id, quote::name(&i.title))).collect();
+    let active = if active.is_empty() { "No intent is active there yet".to_string() } else { format!("Active there: {}", active.join(", ")) };
+    format!(
+        "[workriver] The user made you the manager of workspace {} «{}»{project}. {active}. Read your role now: `workriver guide manager`, then `workriver board`. The user writes to you in workriver's page; you answer with `workriver reply` and `workriver say`.",
+        w.id,
+        quote::name(&w.name)
+    )
+}
+
+/// What a session reads when it no longer holds a workspace's seat.
+pub(super) fn unseated(state: &State, w: &workriver_core::Workspace) -> String {
+    let now = w.manager.as_ref().map(|m| format!(" The user seated {} there.", who(state, &m.session))).unwrap_or_default();
+    format!("[workriver] You are no longer the manager of workspace {} «{}»: the user changed its seat.{now} Stop managing its intents; what you were asked there is no longer yours to answer.", w.id, quote::name(&w.name))
 }
 
 #[cfg(test)]

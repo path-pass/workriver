@@ -58,12 +58,13 @@ impl From<&str> for Principal {
 
 impl Body {
     /// What only the person may record: their decisions and results, and what changes
-    /// where workriver reaches (projects, links between workspaces).
+    /// where workriver reaches or who manages (projects, workspaces, a manager's seat, the
+    /// workspace an intent runs in).
     pub fn user_only(&self) -> bool {
         use Body::*;
         matches!(
             self,
-            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentLinked { .. } | WorkspaceLinked(_) | WorkspaceUnlinked { .. } | WorkspaceProjectSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. }
+            GateSubmitted { .. } | ChoreDone { .. } | ThreadEnded { .. } | IntentWorkspaceSet { .. } | WorkspaceCreated { .. } | WorkspaceRenamed { .. } | WorkspaceClosed { .. } | WorkspaceOpened { .. } | WorkspaceManagerSet { .. } | ProjectAdded { .. } | ProjectRenamed { .. } | FindingsBatched { .. } | FindingDropped { .. } | MessageSent { .. } | MessagesRead { .. } | QuestionsRead { .. } | CommandRan { .. }
         )
     }
 
@@ -72,9 +73,10 @@ impl Body {
     /// recorded as answering may answer it. That a question failed is another: it closes the
     /// question, in workriver's words, so no agent may close the user's. What an agent is
     /// seen as (its name, harness, working directory, machine) is the runtime's word, given
-    /// by the service: nobody names another agent, or points at another session's file.
+    /// by the service: nobody names another agent, or points at another session's file. That
+    /// a seated session has its seat back is what the service saw of its terminal.
     pub fn service_only(&self) -> bool {
-        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. })
+        matches!(self, Body::QuestionStarted { .. } | Body::QuestionFailed { .. } | Body::AgentSeen { .. } | Body::ManagerBack { .. })
     }
 }
 

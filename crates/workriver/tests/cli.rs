@@ -114,9 +114,14 @@ fn lists_findings_and_machines_from_the_cli() {
     run(&["backlog", "add-finding", "--project", &repo, "--severity", "P2", "--problem", "Old dependency", "--impact", "A known hole", "--where", "Cargo.toml", "--source", "audit", "--note", "Seen in the audit."]);
 
     assert_eq!(run(&["project", "list"]), format!("p1 Chat  {repo}\n  {repo}\n"));
-    assert_eq!(run(&["workspace", "list"]), "exp  project unknown\n");
-    run(&["workspace", "project", "exp", "p1"]);
-    assert_eq!(run(&["workspace", "list"]), "exp  works on Chat (user)\n");
+    // The project came with its first workspace, named as it; the user adds, renames and
+    // closes others. What the runtime calls its groups ("exp") is no workspace.
+    assert_eq!(run(&["workspace", "list"]), "ws1  Chat  project Chat (p1)  no manager\n");
+    assert_eq!(run(&["workspace", "add", "p1", "--name", "Big intent"]), "ws2 Big intent\n");
+    assert_eq!(run(&["workspace", "rename", "ws2", "Side"]), "ws2 is now Side\n");
+    assert_eq!(run(&["workspace", "close", "ws2"]), "ws2 closed\n");
+    assert_eq!(run(&["workspace", "list"]), "ws1  Chat  project Chat (p1)  no manager\nws2  Side  project Chat (p1)  no manager  (closed)\n");
+    assert_eq!(run(&["workspace", "open", "ws2"]), "ws2 open\n");
     let listed = format!("Chat  {repo}  (p1)\n  roadmap:\n    1. i1 Search — Find messages [jira:CH-1]\n    2. i2 Emoji — React to messages\n  deferred findings:\n    P2 f1 from audit: Old dependency\n");
     assert_eq!(run(&["backlog", "list"]), listed);
     assert_eq!(run(&["backlog", "list", "--project", "p1"]), listed);

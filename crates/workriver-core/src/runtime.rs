@@ -1,8 +1,19 @@
 // What workriver needs from the program that runs the agents, in workriver's own words.
 // The one implementation is in the outer crate's runtime/; nothing here names it.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::planning::RuntimeRef;
+/// A group of the runtime's that an agent's terminal is in: its id and label there. Shown as
+/// where a terminal is, and used to open a temporary agent beside the one it serves; no
+/// record holds it and no rule reads it.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct RuntimeRef {
+    /// Unique across machines: another machine's carries its name.
+    pub id: String,
+    pub label: String,
+    /// The machine it is on; none: this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+}
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -25,7 +36,7 @@ pub struct RuntimeAgent {
     pub state: AgentState,
     /// The directory the agent was started in (not where it went since).
     pub cwd: String,
-    /// The group the agent works in; one group is one intent.
+    /// The runtime's group its terminal is in, if the runtime has groups.
     pub group: Option<RuntimeRef>,
     /// The name shown for the agent.
     pub name: String,
@@ -163,23 +174,6 @@ pub trait Runtime: Send + Sync {
     /// Brings a place on `machine` to the front.
     fn focus_place(&self, _machine: Option<&str>, _place: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::None)
-    }
-    /// Every group there is, with or without agents; by default, those of the agents.
-    fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
-        let mut all: Vec<RuntimeRef> = vec![];
-        for g in self.agents()?.into_iter().filter_map(|a| a.group) {
-            if !all.contains(&g) {
-                all.push(g);
-            }
-        }
-        Ok(all)
-    }
-    /// Every group on `machine` (none: this one), asked of that machine's runtime now: an
-    /// error while it cannot be asked, never what was last read of it. Whether a workspace
-    /// is still open is judged on this alone, since a list that could not be read does not
-    /// say that it closed. By default, those of `groups` that are on that machine.
-    fn groups_on(&self, machine: Option<&str>) -> Result<Vec<RuntimeRef>, RuntimeError> {
-        Ok(self.groups()?.into_iter().filter(|g| g.machine.as_deref() == machine).collect())
     }
 }
 

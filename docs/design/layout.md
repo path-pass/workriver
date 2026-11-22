@@ -53,10 +53,11 @@ workriver/
 │   │       │   ├── mod.rs            # Planning types/exports and transition entry points.
 │   │       │   ├── intents.rs        # Roadmap; intent create/update/start/close/merge; finding policy;
 │   │       │   │                     # who edits an intent's text, its versions (Edits), the base check,
-│   │       │   │                     # an intent's and a workspace's project.
+│   │       │   │                     # an intent's project, the workspace it starts or moves in.
 │   │       │   ├── history.rs        # An intent's versions and a version's text, rebuilt from its events.
 │   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links.
-│   │       │   ├── projects.rs       # Projects, runtime workspace associations, links, current intent.
+│   │       │   ├── projects.rs       # Projects; workspaces (workriver's own: id, name, project), the
+│   │       │   │                     # manager's seat and its appointment, an agent's workspace.
 │   │       │   ├── tests.rs
 │   │       │   └── tests/ownership.rs  # Who sets an intent's project, workspace and manager.
 │   │       ├── work/                 # The task graph and its outcomes; no IO.
@@ -78,7 +79,8 @@ workriver/
 │   │       │   └── tests.rs
 │   │       ├── access/               # Authority and visibility.
 │   │       │   ├── mod.rs            # Principal/Rejected, reserved actors, Body::user_only, Body::service_only.
-│   │       │   ├── blind.rs          # blind_tasks/blind_view.
+│   │       │   ├── blind.rs          # blind_tasks/blind_view; conversations_of (an agent reads only its
+│   │       │   │                     # own workspace's conversation, and its own copy of a broadcast).
 │   │       │   └── tests.rs
 │   │       └── records/              # The aggregate and its history; every core domain.
 │   │           ├── mod.rs            # Event, State, prepare/apply orchestration, the name helper; no domain bodies.
@@ -91,7 +93,8 @@ workriver/
 │   │       ├── lib.rs                # Re-exports Store and Error; the WorkStore implementation.
 │   │       ├── sqlite/
 │   │       │   ├── mod.rs            # The Store (open a given file, append, reads) and its Error.
-│   │       │   ├── migrations.rs     # Schema, PRAGMAs and triggers.
+│   │       │   ├── migrations.rs     # Schema, PRAGMAs and triggers; the format step (run only on a store
+│   │       │   │                     # with no events; one with events and without it is refused).
 │   │       │   ├── events.rs         # The stored row both ways: its encoding (insert) and replay; an
 │   │       │   │                     # intent's events with those merged into it.
 │   │       │   └── tests.rs          # Append-only, replay rebuilds the same state, and the stored
@@ -152,28 +155,25 @@ or several records of one revision are needed. Every read returns a `Result`.
 
 No SQL, connection, transaction, table or row id crosses the port. Reads take no principal:
 who asks and what they may see is settled before a read, by `App::who` and by `App::view`
-with core's blind rule, so no second copy of that decision sits in an adapter. There is no
+with core's two cuts (the blind view, else the conversations of the caller's own workspace:
+`State::conversations_of`), so no second copy of that decision sits in an adapter. There is no
 conflict error, since one service writes. `DataError` is `Rejected` (a broken rule, core's
 `Rejected` inside), `Unavailable` or `Corrupt`, the last two with the storage's own text;
 the service answers 422 for a broken rule and 500 otherwise.
 
-`App::record` keeps, outside the adapter, what surrounds a write: the workspace checks and
-`complete` before it, and after the commit, in this order, delivery, the kind's follow-up,
-the branch watch and the page's signal. It is `App::record_in` with no workspace; the append
-handler, the one way an agent's own event comes in, calls `record_in` with the workspace
-`App::who_in` found the caller's place in. `record_in` works in two steps. With nothing
-locked it reads what the runtime says: `callers_workspace` puts the caller's workspace, as
-the runtime gave it for that place, in place of the one an agent's registration or start
-names (the label a request gives is never recorded, and no list of agents read earlier is
-asked), and the groups open on the named group's machine are asked of that machine
-(`Runtime::groups_on`, never the regular read's list). Then it locks the store, checks, and
-records, without letting go in between: `not_another_open` refuses a group whose record is
-another workspace still open, for every event that names a group (a registration, a start,
-`intent.created` with a group, `intent.linked`, `workspace.project_set`), whoever sends it,
-and refuses (503) when that machine's groups could not be asked; `may_manage` keeps a
-running manager's seat; a registration that names only an intent is checked against the
-workspace the intent is recorded in then (`caller-identity.md`, section 6). No runtime is
-asked while the store is locked. A requirement added to a task (`task.noted`) is
+`App::record` keeps, outside the adapter, what surrounds a write: `complete` before it, and
+after the commit, in this order, delivery, the kind's follow-up, the branch watch and the
+page's signal. Nothing of the runtime's groups is read for a record: which workspace an
+event names, whether it is open, the caller's and of the intent's project is the rules' to
+check (`State::prepare`), on the store, when the event is recorded. Two things the service
+adds, both for the user's own events only. A seating (`workspace.manager_set` naming a
+session): `App::seating` reads, with nothing locked, where that session's machine's runtime
+shows it (refused at no root, at several, or away from a pin that runs), fills in the seat's
+machine and folder, and pins the session once the event is committed (`App::seated`); then
+the new manager and the one it replaced are told (`tell_of_seat`). And a project:
+`project.added` and its first `workspace.created` are recorded under one lock of the store.
+A seat that is not the one the event's `replaces` names is refused by the rules and answered
+409 (`core::SEAT_CHANGED`). No runtime is asked while the store is locked. A requirement added to a task (`task.noted`) is
 told apart: the append handler calls `App::noted` after the commit, which tells the task's
 agent (found in the runtime now, not the last poll) and gives how far that got, answered
 beside the recorded event. An agent not found while machines are followed may have started
@@ -216,7 +216,7 @@ crates/workriver/
 │   │   ├── mod.rs                    # The clap tree (Cli, Cmd), the shared context (Cx), status,
 │   │   │                             # open, board, link, guide, perf; one dispatch per domain.
 │   │   ├── client.rs                 # Daemon, proof fetch and renewal, headers, bounded response reading.
-│   │   ├── planning.rs               # Intent/unit/project/workspace/backlog/manager-here commands.
+│   │   ├── planning.rs               # Intent/unit/project/workspace/backlog commands (a seating included).
 │   │   ├── work.rs                   # Task/finding/commit/gate/chore/attach/run-review commands;
 │   │   │                             # delivery staging, task show.
 │   │   ├── conversations.rs          # Ask/answer/reply/say/manager-tell and waits.
@@ -234,11 +234,12 @@ crates/workriver/
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
-│   │   │   ├── record.rs             # App::record/record_in/complete/may_manage, the workspace checks, noted/give_notes,
+│   │   │   ├── record.rs             # App::record/complete, a seating's read and what follows it, noted/give_notes,
 │   │   │   │                         # post-commit order.
 │   │   │   └── progress.rs           # Pending hand-offs, picked-up tracking, reminders run.
 │   │   ├── access/                   # The security spine: who calls, what they may do and see.
-│   │   │   ├── mod.rs                # App::who/user/view/here, the Caller and the Reader.
+│   │   │   ├── mod.rs                # App::who/user/view/here, a seated session's root (seating, seated, the
+│   │   │   │                         # take-back and the proposals of see_roots), the Caller and the Reader.
 │   │   │   ├── auth.rs               # Token, random sessions, one-time codes, modes, atomic saves.
 │   │   │   ├── caller.rs             # Unix peer identity, proof store and listener (caller-identity.md).
 │   │   │   ├── pins.rs               # Session-root pins (caller-identity.md, rule 5).
@@ -253,7 +254,8 @@ crates/workriver/
 │   │   │   ├── session.rs            # Session status/code/exchange routes.
 │   │   │   ├── error.rs              # ApiError, status mapping, blocking helper.
 │   │   │   └── assets.rs             # Embedded web dist, MIME/caching, SPA fallback.
-│   │   ├── planning/mod.rs           # Intent/project/workspace/start/merge handlers.
+│   │   ├── planning/mod.rs           # Start and merge handlers; the user's acts on workspaces
+│   │   │                             # (/api/workspaces: add, rename, close, open, manager, move).
 │   │   ├── work/mod.rs               # Append, task show/drop, decisions, gates, chores, focus.
 │   │   ├── conversations/
 │   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, shared state.
@@ -281,7 +283,7 @@ crates/workriver/
 │   │   │   ├── store.rs              # Paths, content ids, atomic put, usage.
 │   │   │   └── tests.rs
 │   │   ├── views/                    # What the page and the CLI read; git attribution; caches.
-│   │   │   ├── mod.rs                # Workspace build, project/group derivation, the files
+│   │   │   ├── mod.rs                # Snapshot build (workspaces with their seats), the files
 │   │   │   │                         # two open units both change.
 │   │   │   ├── handlers.rs           # Workspace/state/code/metrics/history/settings reads; an intent's
 │   │   │   │                         # history (through App::view, a reduced view refused).

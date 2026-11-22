@@ -82,6 +82,28 @@ it); else none.
    runs (the pid is gone or has another start time). A place may show a new session at any
    time (the agent started a new conversation): that is a new agent.
 
+   **A session that holds a manager's seat keeps its root** (`Workspace.manager`, a record
+   of workriver's own; the seat is set by the user alone, `docs/security.md`):
+   - *At the seating* the service reads the roots of the session's own machine, this one or
+     another alike (`Runtime::agent_roots(machine)`; one that cannot be asked: 503), in
+     `App::seating`. The seating is refused when the session is shown at no root there, at
+     more than one, or at another root than the one it is pinned to while that one runs. A
+     session with no pin, or whose pinned root is gone, is pinned at the seating to the one
+     root it is shown at (after the event is recorded, `App::seated`). The seat keeps the
+     machine and the working directory the runtime showed for it there (`folder`).
+   - *Afterwards* its pin is not released when the root stops running, and no other root
+     takes the session by reporting it, with one exception: a root on the seat's machine
+     that shows the session in the seat's folder, as the one root showing it there, is
+     pinned in the gone root's place, on the regular read (this machine) or when it calls
+     (any machine, whose roots are read then). The session has its seat back by itself,
+     with its appointment (`since`), and the service records `workspace.manager_back`: a
+     line of the workspace's conversation. A root in another folder or on another machine
+     is refused (`words::seat_elsewhere`), saying the user confirms the manager's new
+     terminal: the page proposes that agent for the seat (`App::see_roots`, `proposals`),
+     and the user's seating of it is a new appointment.
+   - Emptying the seat, or closing its workspace, leaves the pin to rule 5 as it is for any
+     agent.
+
    Around it:
    - **An agent without a session id** is named by its place (`herdr:<pane>`, with the
      machine's label on another machine), a name only the runtime implementation makes,
@@ -102,8 +124,12 @@ it); else none.
 `App::user`'s "a caller whose place holds an agent is not the user" uses `place(P)` too.
 
 **`/api/here`** ("who and where am I") answers about `place(P)`: the agent there (rule 5
-applied), its group and that group's current intent. A caller that names another place gets
-rule 1's refusal; a caller in no place gets `actor`, `name`, `group` and `intent` as null.
+applied); its workspace, which the records give and nothing of the place does (the workspace
+whose seat its session holds, else the one workspace of the intents of the tasks it has
+running, else none: `State::workspace_of_agent`), with whether it holds the seat and that
+workspace's current intent; and the runtime's group of the place, which is only shown. A
+caller that names another place gets rule 1's refusal; a caller in no place gets `actor`,
+`name`, `group`, `workspace` and `intent` as null.
 It is answerable without the token, but not without a proof.
 
 **The cases** (held by the tests in `server/tests/access.rs`):
@@ -177,8 +203,10 @@ conditions, because the pid is the caller's word: the process must be alive and 
 Rule 5 there costs no call of its own: the service does not read that machine's roots on
 its tick. A session of that machine is pinned when its first call arrives, with the root
 taken from the caller's own chain; whether a pinned root still runs is asked only when
-another root there claims the same session. So there the pin goes to the first place that
-*calls* with a session, not the first that shows it.
+another root there claims the same session. So there a worker's pin goes to the first place
+that *calls* with a session, not the first that shows it. A manager's does not: at its
+seating, and when a seated session's gone root is replaced, that machine's roots are read
+(rule 5), and the pin goes to the one root that machine's runtime shows the session at.
 
 Stored files are fetched there with `workriver attach fetch <id.ext or link>` (it sends its
 pid like every other call and saves into the current folder), never with a link a bare
@@ -226,11 +254,18 @@ Agents run under the user's account, and this check does not change that.
 - **The runtime's own socket is the account's.** Which agent a place holds is what the
   runtime was told, and any process of the account can tell it for any place. Rule 5
   narrows what that buys; it leaves:
-  - **A session whose place is gone can be taken**: its records, its tasks, and a manager's
-    right to decide findings. The runtime's socket closes any place, so that takes two
-    calls; it cannot be done unseen: the agent's terminal is gone, and the work recorded
-    afterwards under its name comes from another place.
-  - **On another machine the pin goes to the first place that calls** with a session.
+  - **A session whose place is gone can be taken**: its records and its tasks. The
+    runtime's socket closes any place, so that takes two calls; it cannot be done unseen:
+    the agent's terminal is gone, and the work recorded afterwards under its name comes
+    from another place. A session that holds a seat is taken this way only from the seat's
+    own machine and folder (rule 5): a program started there that reports the seated
+    session once its root is gone is the manager again, with the appointment, its queued
+    messages and the right to decide findings. That is the price of a resumed manager
+    needing no click; the workspace's conversation says the manager is back. From any
+    other folder or machine it needs the user's seating.
+  - **On another machine a worker's pin goes to the first place that calls** with a
+    session. What that machine's processes and runtime say comes through its runner, so
+    rule 5 there, a seat's included, holds as far as that machine's account does.
   - **A place with no known shell is not pinned**: its session reported by another place
     gets both refused, which stops that agent rather than replacing it.
   - **An agent can be given another name**: a report for somebody else's place makes it
@@ -240,41 +275,19 @@ Agents run under the user's account, and this check does not change that.
     not open to this; a harness the runtime cannot tell from its screen would be.
   - **Two places showing a session at first sight** are both refused: a way to stop an
     agent's first calls.
-  - **A workspace's record is found by its label once its id is gone**, and the runtime's
-    socket renames and closes workspaces. The service records an agent's workspace as the
-    runtime names it (never as a request does): the group of the place the caller was
-    found at, read with that place (`App::who_in`), on a followed machine too, never the
-    one a regular read of the agents last had. It refuses a group whose record is another
-    workspace still open (`not_another_open` in `App::record_in`: every event that names a
-    group, the user's too). Which workspaces are open is asked of the group's own machine
-    at the request (`Runtime::groups_on`): a list that cannot be read is no proof that a
-    workspace closed, so the request is refused (503), on this machine while others are
-    followed as well, and a followed machine's last regular read is never asked. The check
-    and the record are one step under the store's lock, on what is recorded then: two
-    requests cannot both pass against a state that has neither's record, and a
-    registration that names only an intent is for the workspace the intent is in when it
-    is recorded. So two open workspaces that share a label are refused, not matched.
-
-    An intent is in its workspace's record, not under the id or label it was started
-    with: when an event that names the workspace moves its record to a new id (the runtime
-    restarted) or a new label (it was renamed), the intents that run or ran there are
-    rewritten with it (`workspace_mut`; one in a linked group of another machine keeps that
-    group). A workspace opened later under the old label is then a workspace of its own,
-    and its manager is nobody to those intents. A workspace that got a new id and a new
-    label with nothing recorded in between is found by neither: it is a new workspace to
-    workriver, and its old record is a closed workspace's (below).
-
-    What is left goes through the socket only:
-    - an agent gives its own workspace the label a link names: when that label is next
-      recorded, from the runtime, the link resolves to the first local record that has it,
-      and the linked workspace's intents are that record's manager's;
-    - an agent closes a workspace and gives its own that label: a group with no record of
-      its own is then matched to the closed one's record (the restart case, which is what
-      the label is for), with its manager's seat and its intents. Any local record is open
-      to this, not only one a link names.
-
-    workriver does not see either happen, and no request to workriver does it. The rules in
-    core take a workspace as an event names it; only the service knows the runtime.
+  - **Nothing of the runtime's groups is read for a record.** A workspace is workriver's
+    own (`ws1`: an id, a name that is only shown, a project), made by the user; the rules
+    in core find it by its id and check every event that names one against the store
+    (`State::prepare`): the user's start in a workspace of the intent's project, a
+    manager's only in the workspace it holds the seat of. So renaming, creating or closing
+    the runtime's groups through its socket changes no record, and gives nobody a seat, an
+    intent or a conversation. `App::who` gives the principal and nothing else; the group
+    of a place is shown beside its agent, and is where a temporary agent opens beside the
+    one it serves.
+  - **Bait for the user's pick.** What the manager select shows of an agent (its name, its
+    session, its group) is what any program reports; the machine, the folder and the tasks
+    the records give that session are shown with it. A wrong pick is the user's to seat
+    again.
 - **Typing into another terminal.** The runtime lets any agent type into any place: a
   command typed into agent B's place is B's, one typed into a place with no agent is the
   user's.
@@ -295,5 +308,6 @@ Agents run under the user's account, and this check does not change that.
 - **`WORKRIVER_ALLOW_AS=1`** lets any local caller with a proof record as any agent by
   name, and drops rule 4's terminal; nothing else.
 - **Not verified:** a real followed machine over ssh, a runtime restart against rule 5
-  (after one every root is new, so reopened sessions should be pinned afresh), a
+  (after one every root is new, so reopened sessions should be pinned afresh, and a seated
+  one where it was takes its seat back), a
   multiplexer inside a place.

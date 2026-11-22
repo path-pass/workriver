@@ -1,19 +1,8 @@
-// Projects (a folder of repositories), the runtime workspaces that work on them, and the
-// links that make a workspace of another machine one with a local one.
+// Projects (a folder of repositories) and the workspaces that work on them: workriver's own
+// records, made at the user's word, each with the seat of its manager.
 use serde::{Deserialize, Serialize};
 
 use crate::*;
-
-/// The runtime's group an intent follows (a workspace): its id and label.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct RuntimeRef {
-    /// Unique across machines: another machine's carries its name.
-    pub id: String,
-    pub label: String,
-    /// The machine it is on; none: this one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-}
 
 /// A registered project folder.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -23,110 +12,123 @@ pub struct Project {
     pub title: String,
 }
 
-/// A runtime group (a workspace): its manager and the intent new work goes to.
+/// A workspace: where a project's intents run, one conversation with the user, one manager.
+/// Nothing of the agent runtime identifies it: its id is workriver's, and its name is shown
+/// only (it may repeat).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Workspace {
-    pub group: RuntimeRef,
-    pub manager: Option<String>,
-    pub current: Option<String>,
-    /// The project (its folder) the user says it works on; none: workriver works it out.
+    /// `ws<N>`, in the order they are made; never changes, never given again.
+    pub id: String,
+    pub name: String,
+    /// The registered project's id; set when the workspace is made, never changed.
+    pub project: String,
+    /// The seat: who its manager is, and where to reach it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
+    pub manager: Option<Seat>,
+    /// The intent new work goes to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    /// Closed by the user: its intents and conversation stay, read-only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
 }
 
-/// A workspace of another machine made one with a workspace of this machine: one manager,
-/// the same intents. Workspaces are named by their labels, which outlive their ids.
+/// A manager's seat: the session the user seated, with what reaches its terminal. `since` is
+/// the appointment: the revision of the event that seated it. What was asked of or queued
+/// for one appointment is never another's.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct Link {
-    pub machine: String,
-    pub workspace: String,
-    /// The label of the workspace on this machine.
-    pub local: String,
+pub struct Seat {
+    pub session: String,
+    /// The machine it runs on; none: this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    /// The working directory the runtime showed for it when it was seated.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
+    pub since: u64,
 }
+
+/// A seat as someone was shown it: its session and appointment.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct SeatRef {
+    pub session: String,
+    pub since: u64,
+}
+
+impl Seat {
+    pub fn shown(&self) -> SeatRef {
+        SeatRef { session: self.session.clone(), since: self.since }
+    }
+}
+
+/// How a refused seating starts when the seat is no longer the one the user was shown.
+pub const SEAT_CHANGED: &str = "the seat changed";
+
+/// How the user seats a manager, for a refusal.
+pub const SEATING: &str = "the user seats a workspace's manager: in the web UI (the workspace's line, Manager), or `workriver workspace manager <ws> <agent>` from the user's own terminal";
 
 impl State {
-    /// The record of the workspace an intent runs in (a linked group of another machine: the
-    /// workspace here it is linked to); none for an intent that runs nowhere, or in a group
-    /// with no record.
+    pub fn workspace(&self, id: &str) -> Result<&Workspace, Rejected> {
+        match self.workspaces.iter().find(|w| w.id == id) {
+            Some(w) => Ok(w),
+            None => no(format!("no workspace {id}; `workriver workspace list` shows them")),
+        }
+    }
+
+    /// The workspace an intent runs in, or last ran in; none for one that never ran.
     pub fn intent_workspace(&self, intent: &str) -> Option<&Workspace> {
-        self.intents.iter().find(|i| i.id == intent)?.workspace.as_ref().and_then(|g| self.workspace_of(g))
+        let id = self.intents.iter().find(|i| i.id == intent)?.workspace.as_deref()?;
+        self.workspaces.iter().find(|w| w.id == id)
     }
 
-    /// A runtime group's record: by its id, or else by its label, since a runtime may give
-    /// its groups new ids when it restarts.
-    pub fn workspace_of(&self, r: &RuntimeRef) -> Option<&Workspace> {
-        self.workspace_at(r).map(|k| &self.workspaces[k])
+    /// The workspace whose seat `session` holds (a session holds one).
+    pub fn seat_of(&self, session: &str) -> Option<&Workspace> {
+        self.workspaces.iter().find(|w| w.manager.as_ref().is_some_and(|m| m.session == session))
     }
 
-    /// Whether two runtime groups are one workspace: the same group, or the same record.
-    pub(crate) fn same_group(&self, a: &RuntimeRef, b: &RuntimeRef) -> bool {
-        (a.id == b.id && a.machine == b.machine) || self.workspace_at(a).is_some_and(|k| self.workspace_at(b) == Some(k))
-    }
-
-    /// The link of a group of another machine, if it has one.
-    pub fn link_of(&self, r: &RuntimeRef) -> Option<&Link> {
-        let m = r.machine.as_ref()?;
-        self.links.iter().find(|l| &l.machine == m && l.workspace == r.label)
-    }
-
-    /// Where a group's record is. A linked group of another machine is the workspace of this
-    /// machine it is linked to; nothing else is ever matched across machines.
-    pub(super) fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
-        if let Some(l) = self.link_of(r) {
-            return self.workspaces.iter().position(|w| w.group.machine.is_none() && w.group.label == l.local);
+    /// An agent's workspace, from the records alone: the one whose seat its session holds;
+    /// else the workspace of the intents of the tasks it has (started, not over) when that
+    /// is one workspace; else none. Nothing picks the newest.
+    pub fn workspace_of_agent(&self, session: &str) -> Option<&Workspace> {
+        if let Some(w) = self.seat_of(session) {
+            return Some(w);
         }
-        let here = |w: &&Workspace| w.group.machine == r.machine;
-        let at = |f: &dyn Fn(&Workspace) -> bool| self.workspaces.iter().position(|w| here(&w) && f(w));
-        at(&|w| w.group.id == r.id).or_else(|| at(&|w| w.group.label == r.label))
-    }
-
-    /// The intent new work in a runtime group goes to: the group's current intent.
-    pub fn intent_for(&self, r: &RuntimeRef) -> Option<&Intent> {
-        let id = self.workspace_of(r)?.current.as_deref()?;
-        self.intents.iter().find(|i| i.id == id)
-    }
-
-    /// A runtime group's record, made when first needed; it follows the group's latest id and
-    /// label, and the intents that run or ran in it follow the record: an intent is in its
-    /// workspace's record, not under the id or label it was started with, or the next
-    /// workspace to carry that label would be found as where it runs.
-    pub(super) fn workspace_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
-        // A linked group's record is the local workspace's, which keeps its own id and label.
-        let local = self.link_of(g).map(|l| RuntimeRef { id: l.local.clone(), label: l.local.clone(), machine: None });
-        match self.workspace_at(g) {
-            Some(k) => {
-                if local.is_none() && self.workspaces[k].group != *g {
-                    // Those of the record's own groups; one in a linked group of another
-                    // machine stays in that group, which the link finds by its own label.
-                    let there = |i: &Intent| i.workspace.as_ref().is_some_and(|x| self.link_of(x).is_none() && self.workspace_at(x) == Some(k));
-                    let ran: Vec<usize> = (0..self.intents.len()).filter(|n| there(&self.intents[*n])).collect();
-                    self.workspaces[k].group = g.clone();
-                    for n in ran {
-                        self.intents[n].workspace = Some(g.clone());
-                    }
-                }
-                &mut self.workspaces[k]
-            }
-            None => {
-                self.workspaces.push(Workspace { group: local.unwrap_or_else(|| g.clone()), manager: None, current: None, project: None });
-                self.workspaces.last_mut().unwrap()
-            }
+        let name = self.name_of(session);
+        let mine = |t: &&Task| t.state == TaskState::Running && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
+        let of_units = self.units.iter().filter(|u| u.tasks.iter().any(|t| mine(&t))).map(|u| u.intent.as_str());
+        let of_intents = self.intents.iter().filter(|i| i.tasks.iter().any(|t| mine(&t))).map(|i| i.id.as_str());
+        let mut found: Vec<&str> = of_units.chain(of_intents).filter_map(|i| self.intent_workspace(i)).map(|w| w.id.as_str()).collect();
+        found.sort_unstable();
+        found.dedup();
+        match found[..] {
+            [one] => self.workspaces.iter().find(|w| w.id == one),
+            _ => None,
         }
     }
 
-    /// A group's record, found and never renamed: for an event that does not name a workspace
-    /// itself (an intent closed, a manager registered for an intent), which must not set a
-    /// record's id and label back to the ones its intent was started with. Made when there
-    /// is none.
-    pub(super) fn workspace_found_mut(&mut self, g: &RuntimeRef) -> &mut Workspace {
-        match self.workspace_at(g) {
-            Some(k) => &mut self.workspaces[k],
-            None => self.workspace_mut(g),
+    /// A workspace's project, as registered.
+    pub fn workspace_project(&self, w: &Workspace) -> Option<&Project> {
+        self.projects.iter().find(|p| p.id == w.project)
+    }
+
+    /// The intent started last among those still active in workspace `id`, but `not`.
+    fn next_current(&self, id: &str, not: &str) -> Option<String> {
+        self.intents.iter().rev().find(|i| i.state == IntentState::Active && i.id != not && i.workspace.as_deref() == Some(id)).map(|i| i.id.clone())
+    }
+
+    /// An intent leaves workspace `id` (closed, shelved, moved): no longer where new work
+    /// goes there; that is then the intent started last among those still active in it.
+    pub(super) fn left(&mut self, id: &str, intent: &str) {
+        let next = self.next_current(id, intent);
+        if let Some(w) = self.workspaces.iter_mut().find(|w| w.id == id)
+            && w.current.as_deref() == Some(intent)
+        {
+            w.current = next;
         }
     }
 
     /// The rules of a project's or a workspace's events: `prepare`, for these kinds.
-    pub(crate) fn prepare_projects(&self, who: &Principal, body: Body) -> Result<Body, Rejected> {
+    pub(crate) fn prepare_projects(&self, _who: &Principal, body: Body) -> Result<Body, Rejected> {
         use Body::*;
         Ok(match body {
             ProjectAdded { path, title, .. } => {
@@ -147,56 +149,63 @@ impl State {
                 }
                 ProjectRenamed { project: p.id.clone(), title }
             }
-            WorkspaceLinked(l) => {
-                if blank(&l.machine) || blank(&l.workspace) || blank(&l.local) {
-                    return no("a link names a machine, its workspace and a workspace of this machine");
-                }
-                if let Some(old) = self.links.iter().find(|x| x.machine == l.machine && x.workspace == l.workspace) {
-                    return no(format!("{}:{} is already linked to {}; unlink it first", l.machine, l.workspace, old.local));
-                }
-                WorkspaceLinked(l)
-            }
-            WorkspaceUnlinked { machine, workspace } => {
-                if !self.links.iter().any(|x| x.machine == machine && x.workspace == workspace) {
-                    return no(format!("{machine}:{workspace} is not linked"));
-                }
-                WorkspaceUnlinked { machine, workspace }
-            }
-            WorkspaceProjectSet { workspace, project } => {
-                if blank(&workspace.id) || blank(&workspace.label) {
-                    return no("name the workspace by its id and label, as `workriver workspace list` shows it");
-                }
-                let project = match project {
-                    None => None,
-                    // A registered project (by id or folder), or a folder an intent or unit names.
-                    Some(p) => match self.projects.iter().find(|x| x.id == p || x.path == p) {
-                        Some(x) => Some(x.path.clone()),
-                        None if !blank(&p) && (self.intents.iter().any(|i| i.project == p) || self.units.iter().any(|u| u.repo == p)) => Some(p),
-                        None => return no(format!("no project {p}; name a project as `workriver project list` shows it")),
-                    },
+            WorkspaceCreated { name, project, .. } => {
+                let Some(p) = self.projects.iter().find(|p| p.id == project || p.path == project) else {
+                    return no(format!("no project {project}: a workspace is made in a registered project (`workriver project list`)"));
                 };
-                WorkspaceProjectSet { workspace, project }
+                if blank(&name) {
+                    return no("a workspace needs a name");
+                }
+                WorkspaceCreated { id: format!("ws{}", self.workspaces.len() + 1), name: name.trim().to_string(), project: p.id.clone() }
             }
-            ManagerRegistered { intent, agent, workspace } => {
-                if workspace.as_ref().is_some_and(|g| blank(&g.id)) || (workspace.is_none() && intent.is_none()) {
-                    return no("a manager manages a runtime workspace: run `workriver manager here` in its terminal");
+            WorkspaceRenamed { workspace, name } => {
+                self.workspace(&workspace)?;
+                if blank(&name) {
+                    return no("a workspace needs a name");
                 }
-                // Naming an intent (as before 0.2) is managing the workspace it runs in, and only that.
-                if let Some(i) = &intent {
-                    let Some(at) = &self.intent(i)?.workspace else {
-                        return no(format!("{i} runs in no workspace: run `workriver manager here` in your workspace's terminal, without --intent, then `workriver intent start {i}`"));
-                    };
-                    if let Some(g) = workspace.as_ref().filter(|g| !self.same_group(g, at)) {
-                        return no(format!("{i} runs in workspace {}, not {}: a manager manages the workspace it runs in; run `workriver manager here` there, without --intent", at.label, g.label));
-                    }
+                WorkspaceRenamed { workspace, name: name.trim().to_string() }
+            }
+            WorkspaceClosed { workspace } => {
+                let w = self.workspace(&workspace)?;
+                if w.closed {
+                    return no(format!("{workspace} is closed already"));
                 }
-                // An agent registers itself; nobody is made a manager by someone else.
-                let agent = match who {
-                    Principal::Agent { session, .. } if blank(&agent) || &agent == session => session.clone(),
-                    Principal::Agent { .. } => return no("an agent registers itself as manager, not another agent"),
-                    _ => return no("a manager is an agent: run `workriver manager here` in the manager agent's terminal"),
-                };
-                ManagerRegistered { intent, agent, workspace }
+                if let Some(i) = self.intents.iter().find(|i| i.state == IntentState::Active && i.workspace.as_deref() == Some(&workspace)) {
+                    return no(format!("{workspace} has an active intent ({}): finish it, put it back in the roadmap or move it to another workspace first", i.id));
+                }
+                WorkspaceClosed { workspace }
+            }
+            WorkspaceOpened { workspace } => {
+                if !self.workspace(&workspace)?.closed {
+                    return no(format!("{workspace} is open"));
+                }
+                WorkspaceOpened { workspace }
+            }
+            WorkspaceManagerSet { workspace, manager, machine, folder, replaces } => {
+                let w = self.workspace(&workspace)?;
+                if w.closed {
+                    return no(format!("{workspace} is closed: open it first (Settings → Workspaces, or `workriver workspace open {workspace}`)"));
+                }
+                // Never over a seat the user was not shown: a change made meanwhile stays.
+                let now = w.manager.as_ref().map(Seat::shown);
+                if now != replaces {
+                    let who = |s: &Option<SeatRef>| s.as_ref().map_or("nobody".to_string(), |s| self.name_of(&s.session).unwrap_or(&s.session).to_string());
+                    return no(format!("{SEAT_CHANGED}: {workspace}'s manager is {} now, not {}; look again and choose", who(&now), who(&replaces)));
+                }
+                match &manager {
+                    None if now.is_none() => return no(format!("{workspace} has no manager")),
+                    Some(s) if blank(s) || matches!(s.as_str(), "user" | "workriver") => return no("a manager is an agent: name its session"),
+                    _ => {}
+                }
+                // An empty seat has no machine or folder.
+                let (machine, folder) = if manager.is_some() { (machine, folder) } else { (None, String::new()) };
+                WorkspaceManagerSet { workspace, manager, machine, folder, replaces }
+            }
+            ManagerBack { workspace, session, .. } => {
+                if self.workspace(&workspace)?.manager.as_ref().is_none_or(|m| m.session != session) {
+                    return no(format!("{session} does not hold the seat of {workspace}"));
+                }
+                ManagerBack { id: format!("m{}", self.messages.len() + 1), workspace, session }
             }
             other => unreachable!("{} is not one of a project's or a workspace's kinds", name_of_kind(&other)),
         })
@@ -205,6 +214,7 @@ impl State {
     /// What a project's or a workspace's events change: `apply`, for these kinds.
     pub(crate) fn apply_projects(&mut self, e: &Event) {
         use Body::*;
+        let found = |all: &mut Vec<Workspace>, id: &str| all.iter().position(|w| w.id == id);
         match &e.body {
             ProjectAdded { id, path, title } => self.projects.push(Project { id: id.clone(), path: path.clone(), title: title.clone() }),
             ProjectRenamed { project, title } => {
@@ -212,24 +222,38 @@ impl State {
                     p.title = title.clone();
                 }
             }
-            WorkspaceLinked(l) => self.links.push(l.clone()),
-            WorkspaceUnlinked { machine, workspace } => self.links.retain(|x| !(&x.machine == machine && &x.workspace == workspace)),
-            WorkspaceProjectSet { workspace, project } => self.workspace_mut(workspace).project = project.clone(),
-            ManagerRegistered { intent, agent, workspace } => {
-                // Before 0.2: the intent's manager, which is the manager of its runtime group.
-                let mut ran = None;
-                if let Some(i) = intent.as_ref().and_then(|id| self.intents.iter_mut().find(|i| &i.id == id)) {
-                    i.manager = Some(agent.clone());
-                    ran = i.workspace.clone();
-                }
-                // Only a workspace the event names is followed (its id and label); the
-                // intent's is found as it is recorded now.
-                if let Some(g) = workspace {
-                    self.workspace_mut(g).manager = Some(agent.clone());
-                } else if let Some(g) = ran {
-                    self.workspace_found_mut(&g).manager = Some(agent.clone());
+            WorkspaceCreated { id, name, project } => self.workspaces.push(Workspace { id: id.clone(), name: name.clone(), project: project.clone(), manager: None, current: None, closed: false }),
+            WorkspaceRenamed { workspace, name } => {
+                if let Some(k) = found(&mut self.workspaces, workspace) {
+                    self.workspaces[k].name = name.clone();
                 }
             }
+            WorkspaceClosed { workspace } => {
+                if let Some(k) = found(&mut self.workspaces, workspace) {
+                    self.workspaces[k].closed = true;
+                    self.workspaces[k].manager = None;
+                }
+            }
+            WorkspaceOpened { workspace } => {
+                if let Some(k) = found(&mut self.workspaces, workspace) {
+                    self.workspaces[k].closed = false;
+                }
+            }
+            WorkspaceManagerSet { workspace, manager, machine, folder, .. } => {
+                let Some(k) = found(&mut self.workspaces, workspace) else { return };
+                let Some(session) = manager else {
+                    self.workspaces[k].manager = None;
+                    return;
+                };
+                // A session holds one seat.
+                for w in self.workspaces.iter_mut().filter(|w| &w.id != workspace && w.manager.as_ref().is_some_and(|m| &m.session == session)) {
+                    w.manager = None;
+                }
+                // The same session where it was keeps its appointment; anything else is a new one.
+                let kept = self.workspaces[k].manager.as_ref().filter(|m| &m.session == session && &m.machine == machine && &m.folder == folder).map(|m| m.since);
+                self.workspaces[k].manager = Some(Seat { session: session.clone(), machine: machine.clone(), folder: folder.clone(), since: kept.unwrap_or(e.seq as u64) });
+            }
+            ManagerBack { id, workspace, session } => self.messages.push(Message::notice(id, workspace, session, &e.at, Notice::ManagerBack)),
             other => unreachable!("{} is not one of a project's or a workspace's kinds", name_of_kind(other)),
         }
     }

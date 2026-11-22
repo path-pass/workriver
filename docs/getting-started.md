@@ -4,7 +4,7 @@
 
 This takes a Mac with [mise](https://mise.jdx.dev), git and the agent runtime
 ([Herdr](https://herdr.dev); what it needs: [runtimes/herdr.md](runtimes/herdr.md)) to a
-running workriver with a manager agent in each workspace.
+running workriver with a manager agent seated in each workspace.
 
 ## 1. Build
 
@@ -56,7 +56,18 @@ printed, since agents can read the runtime's terminals; on a machine without a b
 
 A **project** is a folder with one or more repositories. Register one that holds several:
 `workriver project add ~/code/shop` (its repositories are its direct subfolders with a
-`.git`). A repository outside every registered folder is a project of its own; nothing to do.
+`.git`); a single repository is registered the same way. Only you register projects, and a
+repository is part of a registered project or of none: an agent that adds an intent or a
+deferred finding names a project you registered (`p1`, or a folder inside it) and is
+refused otherwise, with the command for you to run.
+
+Each project gets a **workspace** when you add it, named as the project: where its intents
+run, with one manager and one conversation with you. A workspace is workriver's own
+(`ws1`, shown beside its name), not the runtime's: where a terminal sits in the runtime
+decides nothing. One workspace per project is the usual; add another for a big intent or a
+separate conversation (the "+" on the project in the left rail, or `workriver workspace
+add p1 --name "Checkout"`), and close one you are done with (its intents and conversation
+stay).
 
 Each project has a **backlog**: its **roadmap** (planned intents, goals in the order you
 want them) and its **deferred findings** (problems put off for later). Add to the roadmap
@@ -83,8 +94,8 @@ import); intents you added only you merge.
 
 ## 4. Give each workspace a manager
 
-A workspace of the runtime runs one or more intents; its manager agent plans and hands out
-their work. In each workspace, start a coding agent as its manager and give it the skills.
+A workspace runs one or more intents of its project; its manager agent plans and hands out
+their work. Start a coding agent in the runtime, give it the skills, and seat it (below).
 
 Install **stubs**, once: small skill files that send the agent to `workriver guide …`, which
 always matches the installed `workriver`. A copy of the real skill files goes stale with
@@ -108,15 +119,28 @@ each situation (`workriver guide how`, an index, and `workriver guide how <topic
 importing a backlog (`workriver guide import`). After an update, a manager that was already
 running is told once to read `workriver guide changes`.
 
-Then tell it, for example: "You are the workriver manager of this workspace. Start the
-first intent of the roadmap, plan units and tasks, and hand them to worker agents." On the
-page, "Start" next to a planned intent shows the same steps with the commands to copy.
+Then **seat it**: on the page, the workspace's line in the left rail, "Manager", and pick the
+agent among those running (the page shows each one's harness, machine and folder); or from
+your own terminal
 
-Each workspace works on one project. workriver works out which from the folder its manager
-runs in (else from its current intent); you can set it in Settings, "Workspaces' projects",
-or with `workriver workspace project <workspace> <p1>` (`--clear` to let workriver work it
-out again). "Start" lists the workspaces of the intent's project first and asks before
-giving an intent to a manager that works on another project.
+```sh
+workriver workspace list                 # ws1  shop  project shop (p1)  no manager
+workriver workspace manager ws1 boss     # the agent's name, or its session
+```
+
+workriver types into that agent's terminal that it is now the manager of the workspace,
+with where its role is written. Only you seat a manager: an agent cannot make itself one
+(there is no `workriver manager here`), and the seat does not follow a name or a place in
+the runtime. Seat someone else at any time (the one replaced is told), or empty the seat
+(`--none`).
+
+When a manager's terminal closes, its workspace shows "manager not running". The same
+session resumed in the same folder on the same machine is the manager again by itself (the
+conversation says so). A new session, or the old one in another folder, is not: Needs you
+lists the workspace with that agent proposed, and one click seats it.
+
+"Start" next to a planned intent lists the open workspaces of its project, each with its
+manager; an intent runs only in a workspace of its project.
 
 Optional, if agents take screenshots with the Playwright MCP: by default its files land in
 the project (`.playwright-mcp/`). Give it workriver's folder for files it names itself,
@@ -128,15 +152,13 @@ they need with `workriver attach <file> --task u1#3 --move`.
 
 ## 5. What happens next
 
-You start the workspace's first intent: "Start" on i1 "Mentions" in the roadmap, picking the
-workspace (or set the workspace's project in Settings and let the manager start it). From
-then on the workspace works on that project, and its manager starts that project's next
-intents itself (`workriver intent start i2`); another project's it leaves to you.
+Start the first intent: "Start" on i1 "Mentions" in the roadmap, picking the workspace; its
+manager is told to split it. The manager starts its project's next intents itself, in the
+workspace it is seated in (`workriver intent start i2`); another project's it cannot.
 
 The manager, from its terminal:
 
 ```sh
-workriver manager here                 # registers it as the workspace's manager
 workriver backlog list                 # the roadmap: i1 "Mentions" (active, started by you) ...
 workriver unit add --title "Mentions" --branch feat/mention   # its own branch: feat/, fix/ or chore/
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
@@ -216,16 +238,12 @@ picks a free one, and workriver writes it there to `~/.config/workriver/port`, w
 the runtime over there is not where workriver looks for it, `machine add` takes where it is
 ([runtimes/herdr.md](runtimes/herdr.md#other-machines)).
 
-Agents over there show up with the machine's name. Ids are never assumed to be the same
-across machines, and a workspace there is its own, even with the same name as one here.
-To make one workspace of the two (one manager, the same intents), link them:
+Agents over there show up with the machine's name. They work in the same workspaces as
+agents here: a workspace has no machine. A worker over there is in a workspace through the
+tasks it is given, and you can seat an agent over there as a workspace's manager like any
+other. There is nothing to link.
 
-```sh
-workriver workspace list                      # box:chat  not linked
-workriver workspace link box:chat chat
-```
-
-or pick it in Settings. A unit is recorded where its work happens: an agent over there
+A unit is recorded where its work happens: an agent over there
 records it there as usual; a manager on this machine names the machine, with the path and
 branch as they are there (`workriver unit add --machine box --repo /home/me/app --branch
 feat/queue`), and a unit recorded in the wrong place is moved with `workriver unit move u1
@@ -312,12 +330,15 @@ files are older than another's last build would run that other worktree's code.
   terminal outside the runtime.
 - **"workriver answers the user, and agents from their own …" (401)**: the command or the page is not known to be you.
   The page: `workriver open`. The CLI: run it from a terminal that is not an agent's,
-  on the machine workriver runs on. Decisions, gates, chores, projects, machines and
-  workspace links are yours alone; see [Security model](security.md).
+  on the machine workriver runs on. Decisions, gates, chores, projects, machines,
+  workspaces and their managers' seats are yours alone; see [Security model](security.md).
 - **"Not delivered: …"** on the page (hover for the details):
-  - *the intent has no manager*: run `workriver manager here` in the manager's terminal in
-    the workspace the intent was started in;
-  - *the manager is not running*: start it again and register it;
+  - *the intent has no manager*: seat one in its workspace (the workspace's line, "Manager",
+    or `workriver workspace manager <ws> <agent>`);
+  - *the manager is not running*: resume it where it ran (it is the manager again by
+    itself), or seat another agent;
+  - *the seat was given anew*: the message was for the earlier manager and is never passed
+    on; write to the manager again;
   - *… is not reachable* or *… refused it* (the page names the runtime): see
     [runtimes/herdr.md](runtimes/herdr.md#troubleshooting); sort it out in the terminal, then
     paste the message by hand with "Copy message".

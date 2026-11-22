@@ -172,8 +172,6 @@ pub(in crate::server) struct Fake {
     pub(super) no_shell: std::sync::Mutex<Vec<String>>,
     /// Which places hold an agent cannot be asked (the runtime errs), the rest can.
     pub(super) agent_roots_down: std::sync::atomic::AtomicBool,
-    /// Which groups there are cannot be asked (the runtime errs); agents and places can.
-    pub(super) groups_down: std::sync::atomic::AtomicBool,
     /// Called with the receiver as a message is taken, before `send` returns: what a test
     /// wants to look at at that very moment.
     pub(super) on_send: std::sync::Mutex<Option<Look>>,
@@ -245,19 +243,6 @@ impl workriver_core::runtime::Runtime for Fake {
                 workriver_core::runtime::Root { shell: (!no_shell.contains(&p)).then_some(pid), front: vec![pid], at: self.locate(None, &p).unwrap(), place: p }
             })
             .collect())
-    }
-    /// Those of the agents, as by default, unless the test says they cannot be asked.
-    fn groups(&self) -> Result<Vec<workriver_core::RuntimeRef>, workriver_core::runtime::RuntimeError> {
-        if self.groups_down.load(std::sync::atomic::Ordering::Relaxed) {
-            return Err(workriver_core::runtime::RuntimeError::Failed("the runtime cannot say which groups are open".into()));
-        }
-        let mut all = vec![];
-        for g in self.agents()?.into_iter().filter_map(|a| a.group) {
-            if !all.contains(&g) {
-                all.push(g);
-            }
-        }
-        Ok(all)
     }
     fn focus(&self, _: &str) -> Result<(), workriver_core::runtime::RuntimeError> {
         Ok(())
@@ -343,15 +328,53 @@ pub(super) fn live(session: &str, name: &str, group: &str, state: workriver_core
     }
 }
 
-/// The agent at `place` becomes the manager of its workspace and starts a new intent there
-/// (the next id, i1 for the first).
+/// The id of the open workspace named `name`, made when there is none: the first one with
+/// the test's project (a folder in the daemon's home, registered as the user), the others
+/// added to it. `d`: the user's client.
+pub(super) fn workspace_named(d: &Daemon, name: &str) -> String {
+    let state = d.get("/api/state").unwrap();
+    if let Some(w) = state["workspaces"].as_array().into_iter().flatten().find(|w| w["name"] == name && w["closed"] != true) {
+        return w["id"].as_str().unwrap().to_string();
+    }
+    if state["projects"].as_array().is_none_or(|p| p.is_empty()) {
+        let folder = d.home.clone().expect("the user's client").join("proj");
+        std::fs::create_dir_all(&folder).unwrap();
+        d.append("", "project.added", json!({ "path": folder, "title": name })).unwrap();
+        return workspace_named(d, name);
+    }
+    d.call("/api/workspaces", Some(json!({ "action": "add", "project": "p1", "name": name }))).unwrap()["body"]["id"].as_str().unwrap().to_string()
+}
+
+/// The seat of workspace `ws` as the records have it now: what a seating names as `replaces`.
+pub(super) fn seat_of(d: &Daemon, ws: &str) -> serde_json::Value {
+    let state = d.get("/api/state").unwrap();
+    let w = state["workspaces"].as_array().unwrap().iter().find(|w| w["id"] == ws).unwrap_or_else(|| panic!("no workspace {ws}")).clone();
+    match w.get("manager").filter(|m| !m.is_null()) {
+        Some(m) => json!({ "session": m["session"], "since": m["since"] }),
+        None => serde_json::Value::Null,
+    }
+}
+
+/// The user seats `agent` (a session or a name; none: empties the seat) in workspace `ws`,
+/// over the seat as it is.
+pub(super) fn seat(d: &Daemon, ws: &str, agent: Option<&str>) -> anyhow::Result<serde_json::Value> {
+    d.call("/api/workspaces", Some(json!({ "action": "manager", "workspace": ws, "manager": agent, "replaces": seat_of(d, ws) })))
+}
+
+/// The agent at `place` becomes the manager of a workspace, by the user's act, and the user
+/// starts a new intent there (the next id, i1 for the first). The workspace is the one named
+/// as the runtime group of the agent's place is labelled (made when there is none; `live`
+/// labels every group "chat"), so that agents a test puts in groups of two labels manage
+/// two workspaces: only a way for the tests to say which, nothing the product reads.
+/// `d`: the user's client.
 pub(super) fn manage(d: &Daemon, place: &str, agent: &str) -> String {
     let here = at_place(d, place).call("/api/here", Some(json!({}))).unwrap();
-    let made = d.append("user", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
+    let ws = workspace_named(d, here["group"]["label"].as_str().unwrap_or("chat"));
+    seat(d, &ws, Some(agent)).unwrap();
+    let made = d.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
     let id = made["body"]["id"].as_str().unwrap().to_string();
-    d.append(agent, "manager.registered", json!({ "agent": agent, "workspace": here["group"] })).unwrap();
     // The user starts it: an intent of no project is not its manager's to start.
-    d.append("user", "intent.state_changed", json!({ "intent": id, "state": "active", "workspace": here["group"] })).unwrap();
+    d.append("", "intent.state_changed", json!({ "intent": id, "state": "active", "workspace": ws })).unwrap();
     id
 }
 
@@ -603,13 +626,21 @@ pub(super) fn daemon_over(runtime: std::sync::Arc<dyn workriver_core::runtime::R
     (port, kernel)
 }
 
-/// The agent at `boss` registers as its workspace's manager and the user (`user`) starts a
-/// new intent there (an intent of no project is not its manager's to start).
+/// The user (`user`) seats the agent at `boss` as the manager of workspace "chat" (made, with
+/// the test's project, when there is none); the workspace's id.
+pub(super) fn seat_at(user: &Daemon, boss: &Daemon) -> String {
+    let here = boss.call("/api/here", Some(json!({}))).unwrap();
+    let ws = workspace_named(user, "chat");
+    seat(user, &ws, here["actor"].as_str()).unwrap();
+    ws
+}
+
+/// The user (`user`) seats the agent at `boss` as the manager of workspace "chat" (ws1) and
+/// starts a new intent there (an intent of no project is not its manager's to start).
 pub(super) fn manage_here(user: &Daemon, boss: &Daemon) {
-    let w = json!({ "id": "w1", "label": "chat" });
-    boss.append("", "manager.registered", json!({ "workspace": w })).unwrap();
+    let ws = seat_at(user, boss);
     boss.append("", "intent.created", json!({ "title": "Chat", "state": "planned" })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": w })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
 }
 
 /// A plain request to `port` as the CLI of a command run at `place` sends it (`d`: a client of
@@ -620,6 +651,22 @@ pub(super) fn http_at(d: &Daemon, port: u16, place: &str, method: &str, path: &s
     let mut headers = vec![("x-workriver-place", place), ("x-workriver-caller", proof.as_str()), ("x-workriver-pid", pid.as_str())];
     headers.extend_from_slice(extra);
     http(port, method, path, &headers, body)
+}
+
+/// A request as the user's CLI sends it (the token, a process at no place): the status and
+/// the answer's body.
+pub(super) fn as_user(d: &Daemon, method: &str, path: &str, body: Option<&serde_json::Value>) -> (u16, String) {
+    let (proof, pid) = d.process(false);
+    let (proof, pid, token) = (proof.unwrap_or_default(), pid.to_string(), format!("Bearer {}", d.token().unwrap_or_default()));
+    let headers = [("authorization", token.as_str()), ("x-workriver-caller", proof.as_str()), ("x-workriver-pid", pid.as_str())];
+    let (code, text) = http(d.port, method, path, &headers, body.map(|b| b.to_string()).as_deref());
+    (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
+}
+
+/// The status and body a request from `place` is answered with (no token).
+pub(super) fn from_place(d: &Daemon, place: &str, method: &str, path: &str, body: Option<&serde_json::Value>) -> (u16, String) {
+    let (code, text) = http_at(d, d.port, place, method, path, &[], body.map(|b| b.to_string()).as_deref());
+    (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
 }
 
 /// A process as a test makes it up.

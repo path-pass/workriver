@@ -25,20 +25,35 @@ context; everything else still goes to the manager.
 
 - **Where.** One section of the side panel, **Manager** (the speech-bubble button, the
   last), in the same place as the others; no switch in its heading. The workspace is the
-  open unit's intent's, or picked from those with a manager (a select, when there are
-  several; Needs you's unread messages and an intent's "Write to the manager" open the
-  section on a workspace), or **All managers**, the select's first option (below). Its
+  open unit's intent's, or picked in a select (when there is more than one entry; Needs
+  you's unread messages and an intent's "Write to the manager" open the section on a
+  workspace), or **All managers**, the select's first option (below). Its
   messages read as a chat, at the bottom, fixed: the chips, the box, and the line saying where
-  it goes. The select lists the open unit's workspace first, then those of the rail's project,
-  then the rest. A workspace picked there, or asked for, stays while other sections are open.
+  it goes. A workspace is workriver's own record (`ws1`), and a conversation is its
+  workspace's, by that id: the select has one entry per open workspace, never one per name
+  (two workspaces of one name are two entries and two conversations). An entry is the
+  workspace's name and id, its project's title where another open workspace has the same
+  name or the rail shows all projects, and its manager's name ("chat ws6 · Notes ·
+  mgr-notes"). Order: the open unit's workspace first, then those of the rail's project, then
+  the rest; then, under a "Closed workspaces" heading, the closed ones that have messages,
+  to read only (the box is disabled and says the workspace is closed). A conversation
+  follows the workspace, not the manager: it shows its history with the seat empty or the
+  manager not running (the box is then disabled, says nobody would read it, and "Manager…"
+  beside it opens the manager select, `navigation.md`), and a manager seated later sees it
+  all. A workspace picked there, or asked for, stays while other sections are open.
+- **A line of workriver's own.** A message with `notice` is not anyone's words: it is one
+  quiet centred line in the conversation, with a crown and its age, never a bubble, never
+  unread, never a row in Needs you. One kind for now, `manager-back`: "<manager> is back in
+  its terminal and is the manager again" (the seated session's terminal was gone and it
+  shows again where it was seated, so it has the seat back by itself, `docs/security.md`).
 - **It follows the rail's project.** When the rail switches to a project and the conversation
   shown is a workspace of another project, it shows the new project's manager: its only one;
   with several, the one the user last picked in that project (remembered per project,
   `workriver.talk.<folder>`, like the rail's filter), else one with replies not read, else
   the first running in the select's order (the opened unit's own first). It goes only to a
   workspace whose manager runs, or to the opened unit's own. A workspace's
-  project is the one the rail knows (Start's dialog, Settings' "Workspaces' projects"). All
-  managers stays (it spans projects); so does a workspace of no known project, one already of
+  project is the one it was made in (it never changes). All
+  managers stays (it spans projects); so does a workspace already of
   the new project, and the conversation when the new project has no manager running. A
   workspace the switch went to holds only while the intent then on screen is (or, with none,
   until one opens): another intent's unit opened after it shows that unit's own workspace. A
@@ -65,10 +80,13 @@ context; everything else still goes to the manager.
   copy held and given like any message (waiting for a person, a blind task, a manager that
   cannot be reached for now) and never skipped: one that cannot be given (its manager gone)
   says "Not delivered" and why. The message shows once,
-  with a line per copy under it (the workspace, "on <machine>" for another machine, then
-  where that copy is, in the same words and colours as a single message's), and each
-  manager's replies follow it on the left in the order they came, each headed by the
-  manager, its crown and its workspace. The box says how many managers it goes to; with none
+  with a line per copy under it (the workspace's name and its id in mono, "on <machine>"
+  for a manager on another machine, then where that copy is, in the same words and colours
+  as a single message's), and each manager's replies follow it on the left in the order
+  they came, each headed by the manager, its crown and its workspace (name and id). A copy
+  goes to one appointment (the seat as it was when the message was sent): seated anew
+  before it is given, the copy says "Not delivered: the workspace's seat was given anew…"
+  (`seat-changed`), and is never given to whoever holds the seat next. The box says how many managers it goes to; with none
   running it is disabled and says so. Needs you counts its unread replies as one row, "All
   managers", which opens this conversation; reading it there marks them read.
 - **What is picked goes with it, as chips** above the box: the unit (its title), the picked
@@ -116,12 +134,14 @@ context; everything else still goes to the manager.
   fetches it, for a manager on another machine).
 - **A manager's question with options** (`say` or `reply` with `--option`, see Choices in
   `activity.md`) shows its options under its words. While the user can answer it (not
-  answered, and asked by the workspace's manager now) they are radio buttons, a one-line
+  answered, and asked under the appointment that holds the workspace's seat now; a rename
+  of the workspace changes nothing) they are radio buttons, a one-line
   note (required for an option marked "say why") and "Answer". The answer is a message of the
   user's, through the same route and rules as one typed, naming the question and the value;
   it shows as "Chose: <the option's words>" with the note, and the question shows the pick.
-  It is answered once, and it starts nothing: the manager is only told. A question asked by
-  an earlier manager of the workspace is shown read-only, saying it can no longer be answered
+  It is answered once, and it starts nothing: the manager is only told. A question asked under
+  an earlier appointment (another manager since, or the same session seated anew in another
+  folder) is shown read-only, saying it can no longer be answered
   here and that the user can write to the manager instead.
 - **Under the sent message** what it pointed at shows as a turn did: its unit or task and
   the other chips, then the files as attachments show everywhere: pictures as thumbnails,
@@ -306,8 +326,7 @@ by `unit#task`. Rules (`prepare_questions`), each a refusal in the service's wor
   page shows them under the message.
 - **Rules** (`MessageSent`, `State::picked`), each a refusal in the service's words:
   - `unit` must be a unit (or an intent's own work) of the message's intent; with no intent
-    named, of an intent that runs in the very workspace named (its record, not one of the
-    same label on another machine). `task` must be one of the unit's tasks.
+    named, of an intent that runs in the very workspace named (by its id). `task` must be one of the unit's tasks.
   - An attachment the user stored (`Attachment.user`) needs no unit: it may go to any
     workspace's manager, from Needs you, an intent's page or another workspace too.
   - Everything else needs a unit and is refused without one: `task`, `finding`, `file`,
@@ -320,26 +339,32 @@ by `unit#task`. Rules (`prepare_questions`), each a refusal in the service's wor
     task: write once it is delivered"), since nothing about other work is typed into a
     blind agent.
 - **To every manager.** `MessageSent.to` (`serde(default)`, empty for a message to one
-  manager) lists the managers it goes to, a `Recipient` each: the group its manager runs in
-  when it is sent (so one on another machine keeps its machine, even in a workspace linked
-  to a local one) and its manager's session. The recipients are fixed then, with their right
+  manager) lists the managers it goes to, a `Recipient` each: a workspace's id, and its
+  seat as it is when the message is sent (the session, its machine, its appointment
+  `since`). The recipients are fixed then, with their right
   to reply. The service fills it (`/api/message` with `all`; `App::running_managers`):
-  `State::managers_among` the agents the runtime shows running, each one that manages its
-  group's workspace now (a linked group of another machine: the local workspace it is linked
-  to), as the page names a manager; so a manager on record whose workspace was since linked
-  to one with a manager of its own gets no copy. None running, or the runtime unreachable,
-  is a refusal. The rules (`MessageSent` with `to`): each recipient is the manager now of
-  its group's workspace (`workspace_of`, links resolved), each once; no intent, unit or
+  `State::managers_among` the agents the runtime shows running, the seat of each open
+  workspace whose session runs on the seat's machine. None running, or the runtime
+  unreachable, is a refusal. The rules (`MessageSent` with `to`): each recipient is the seat
+  of an open workspace as it is now (session, machine and appointment), each once; no intent, unit or
   task, and context only the user's own files (`State::picked` with no unit); a manager on
   a blind task is not refused, since its copy is held. The message's `workspace` and `manager` are empty: its
-  conversation is the one under no workspace's label, and `messages.read` with an empty
+  conversation is the one under no workspace's id, and `messages.read` with an empty
   workspace reads it. `MessageDelivery.manager` names the copy (the recipient's session; it
   must be one of them, and is empty for a message to one manager), whose `delivery` it
-  sets. Each recipient replies (`MessageReplied`), nobody else; a reply's `by` keeps them
-  apart. The page's JSON (`MessageOut.to`, a `CopyOut` each) gives each copy's workspace,
-  machine, manager, where it is (as a message's step, reason and wait) and its manager's
+  sets. Each recipient replies (`MessageReplied`), nobody else, and only while it holds the
+  seat under the appointment its copy went to; a reply's `by` keeps them
+  apart. The page's JSON (`MessageOut.to`, a `CopyOut` each) gives each copy's workspace (its id),
+  its manager's machine, manager, where it is (as a message's step, reason and wait) and its manager's
   replies; the message's own `replies` are then empty and its `step` is "sending" until
   every copy is given or not.
+- **Who reads a conversation.** The user reads all. An agent reads, through any route that
+  returns records (`App::view`, `State::conversations_of`), only the conversation of the
+  workspace whose seat it holds; of a message to every manager only when a copy went to its
+  appointment now, and then the message, its own copy and its own replies, nothing of the
+  other copies (their workspace, manager, delivery) or their replies; and only that
+  workspace's read marks. An attachment is left out for it only when nothing but the parts
+  cut away names it. `docs/security.md` says what this binds and what it cannot.
 - **Files.** The page stores each one with `POST /api/attachments` when the message is sent
   (the same content once) and names the ids in `context`; not `/api/attachments/inbox`,
   which makes a task's folder for an agent. Until sent they are held in the page; one taken
@@ -378,13 +403,13 @@ then the user's text quoted. For example:
   done, is a reply to it too (`workriver reply` again, never `say`); `say` is for what
   nobody asked (a merge, a deploy, a gate's outcome, a problem found).
 - To every manager, each copy is `delivery::broadcast_message`: that it went to every
-  manager, how many, and which workspace is this manager's own (its label, and "on machine
-  …" for another machine, through `quote::name`), so it answers for that one only; then the
+  manager, how many, and which workspace is this manager's own (its id, and its name through
+  `quote::name`), so it answers for that one only; then the
   same reply instruction as a single message (`replying`), the user's files (`pointed`),
   and the user's text quoted. For example:
 
       [workriver] The user writes to every manager from workriver's page (message m4, to
-      the managers of 3 workspaces): answer for your own workspace, "chat", only. Reply with
+      the managers of 3 workspaces): answer for your own workspace, ws1 "chat", only. Reply with
       `workriver reply m4 --text "..."`; … The user says, in workriver: «I shut down at six.»
 
   Each copy is held (`For::Broadcast`, keyed by the message and its manager) and recorded

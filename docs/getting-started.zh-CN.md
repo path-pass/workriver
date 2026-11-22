@@ -3,8 +3,8 @@
 [English](getting-started.md)
 
 在一台装好 [mise](https://mise.jdx.dev)、git 和 agent 运行时（[Herdr](https://herdr.dev)；它需要什么：
-[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)）的 Mac 上，把 workriver 跑起来，并让每个工作区
-都有一个管理者 agent。
+[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md)）的 Mac 上，把 workriver 跑起来，并给每个工作区
+指定一个管理者 agent。
 
 ## 1. 构建
 
@@ -53,8 +53,14 @@ workriver serve              # http://127.0.0.1:47820
 ## 3. 项目和待办
 
 **项目**是一个装着一个或多个仓库的目录。装了好几个仓库的目录要登记一下：
-`workriver project add ~/code/shop`（它的仓库就是下一层带 `.git` 的子目录）。不在任何已登记
-目录里的仓库自己就是一个项目，不用做什么。
+`workriver project add ~/code/shop`（它的仓库就是下一层带 `.git` 的子目录）；单个仓库也这样登记。
+只有你能登记项目，一个仓库要么属于某个已登记的项目，要么不属于任何项目：agent 添加意图或延后的
+发现时，要写你登记过的项目（`p1`，或它里面的文件夹），否则会被拒绝，并给出需要你运行的命令。
+
+添加项目时，它会得到一个与项目同名的**工作区**：项目的意图在这里运行，有一个管理者，和你有一份对话。
+工作区是 workriver 自己的（`ws1`，显示在名字旁边），不是运行时的：终端在运行时里的位置什么都不决定。
+通常一个项目一个工作区；大的意图或者想单独开一份对话时可以再加（左栏项目上的"+"，或者
+`workriver workspace add p1 --name "Checkout"`），用完的可以关闭（它的意图和对话都保留）。
 
 每个项目有一份**待办**：它的**路线图**（计划中的意图，按你想要的顺序排的目标）和**延后的发现**
 （先放一放的问题）。在页面左栏往路线图里加（Roadmap 旁的"+"，拖动调整顺序），或者：
@@ -77,8 +83,8 @@ skill 来做（`skills/workriver-backlog-import/`，或者把 `workriver guide i
 
 ## 4. 给每个工作区一个管理者
 
-运行时的一个工作区跑一个或多个意图，由它的管理者 agent 规划和派活。在每个工作区里启动一个
-coding agent 当管理者，并把 skill 给它。
+一个工作区跑它所属项目的一个或多个意图，由它的管理者 agent 规划和派活。在运行时里启动一个
+coding agent，把 skill 给它，然后指定它为管理者（见下）。
 
 装**存根**，只装一次：存根是很小的 skill 文件，只让 agent 去运行 `workriver guide …`，而后者永远和
 已安装的 `workriver` 一致。把真正的 skill 文件拷过去，每次更新后就过期了；照着旧拷贝做事的管理者
@@ -99,13 +105,23 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 是目录，`workriver guide how <主题>` 是一条做法）、导入待办（`workriver guide import`）。更新之后，
 已经在运行的管理者会收到一次提示，让它读 `workriver guide changes`。
 
-然后告诉它，例如："你是这个工作区的 workriver 管理者。开始路线图里的第一个意图，规划单元和
-任务，交给 worker agent 去做。"页面上计划中的意图旁边的"开始"会列出同样的步骤和可复制的命令。
+然后**指定它为管理者**：在页面左栏该工作区那一行点"管理者"，从正在运行的 agent 里选（页面会显示每个
+agent 的 harness、机器和文件夹）；或者在你自己的终端里
 
-每个工作区只做一个项目。workriver 按它的管理者在哪个文件夹里运行来判断（否则按它当前的意图）；
-你可以在设置的"工作区在做的项目"里设定，或者用 `workriver workspace project <工作区> <p1>`
-（`--clear` 交回给 workriver 判断）。"开始"会先列出这个意图所属项目的工作区；要把意图交给在做
-别的项目的管理者之前会先问你。
+```sh
+workriver workspace list                 # ws1  shop  project shop (p1)  no manager
+workriver workspace manager ws1 boss     # agent 的名字，或它的会话
+```
+
+workriver 会在那个 agent 的终端里告诉它：它现在是这个工作区的管理者，以及它的职责写在哪里。只有你能
+指定管理者：agent 不能自己当（`workriver manager here` 已经没有了），席位也不跟着名字或运行时里的位置走。
+随时可以换人（被换下的会收到通知），或者清空席位（`--none`）。
+
+管理者的终端关掉后，它的工作区显示"管理者未运行"。同一个会话在同一台机器、同一个文件夹里恢复，会自己
+重新成为管理者（对话里会写明）。新的会话，或者原会话换了文件夹，则不会："需要你"会列出这个工作区并建议
+那个 agent，点一下就指定了。
+
+计划中的意图旁边的"开始"会列出它所属项目的开着的工作区和各自的管理者；意图只在它所属项目的工作区里运行。
 
 可选：如果 agent 用 Playwright MCP 截图，它的文件默认会落在项目里（`.playwright-mcp/`）。
 可以把它自己命名的文件指到 workriver 的目录，例如 Claude Code：
@@ -115,14 +131,12 @@ skill 有三个：管理者的角色（`workriver guide manager`，很短）、�
 
 ## 5. 接下来会发生什么
 
-工作区的第一个意图由你来开始：在路线图里 i1 "Mentions" 上点"开始"，选这个工作区（或者先在设置里
-给工作区设定项目，再让管理者开始它）。此后这个工作区就在做那个项目，管理者自己开始这个项目的其他意图
-（`workriver intent start i2`）；别的项目的意图留给你。
+开始第一个意图：在路线图里 i1 "Mentions" 上点"开始"，选工作区；它的管理者会被告知去拆分它。之后管理者
+在自己所在的工作区里自己开始这个项目的其他意图（`workriver intent start i2`）；别的项目的它开始不了。
 
 管理者在自己的终端里：
 
 ```sh
-workriver manager here                 # 登记为这个工作区的管理者
 workriver backlog list                 # 路线图：i1 "Mentions"（进行中，由你开始）……
 workriver unit add --title "Mentions" --branch feat/mention   # 单元自己的分支：feat/、fix/ 或 chore/ 开头
 workriver task add u1 --title "Notify the people mentioned, with unit tests" --agent finder
@@ -190,15 +204,11 @@ workriver status                              # 回答来自你这台机器上�
 如果那边的运行时不在 workriver 找它的地方，`machine add` 可以指明它在哪里
 （[runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#其他机器)）。
 
-那边的 agent 会带着机器名显示。workriver 不假定任何 id 跨机器唯一；那边的工作区是独立的，即使和
-这边的同名。要把两个工作区合成一个（一个管理者，同一批意图），就关联它们：
+那边的 agent 会带着机器名显示。它们和这边的 agent 在同样的工作区里工作：工作区没有机器之分。那边的
+worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可以像别的 agent 一样被你指定为工作区的管理者。
+没有什么需要关联的。
 
-```sh
-workriver workspace list                      # box:chat  not linked
-workriver workspace link box:chat chat
-```
-
-或者在设置里选。单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
+单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
 并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch feat/queue`）；
 登记错了地方的单元用 `workriver unit move u1 --machine box --repo … --branch …` 改正。分支改了名、
 或者变基到了新分支，也用这条命令（`workriver unit move u1 --branch feat/queue-2 [--base main-2]`）：单元、
@@ -265,9 +275,11 @@ Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` �
   这期间要以你自己的身份运行命令，请用运行时之外的终端。
 - **"workriver answers the user, and agents from their own …"（401）**：服务不确定这个命令或页面是你。页面：运行
   `workriver open`。命令行：在 workriver 所在的机器上，用一个不属于任何 agent 的终端运行。决定、
-  手工步骤、杂事、项目、机器和工作区关联只有你能做；见[安全模型](security.zh-CN.md)。
+  手工步骤、杂事、项目、机器、工作区和管理者的席位只有你能动；见[安全模型](security.zh-CN.md)。
 - 页面上显示 **"没送出：…"**（鼠标停上去能看到细节）：
-  - *这个意图还没有管理者*：在这个意图开始时所在工作区的管理者终端里运行 `workriver manager here`；
-  - *管理者没在运行*：重新启动它，再登记一次；
+  - *这个意图还没有管理者*：给它的工作区指定一个（该工作区那一行的"管理者"，或
+    `workriver workspace manager <ws> <agent>`）；
+  - *管理者没在运行*：在它原来运行的地方恢复它（它会自己重新成为管理者），或者指定另一个 agent；
+  - *席位已经重新指定*：这条消息是发给之前的管理者的，不会转交；请重新写给管理者；
   - *连不上 …* 或 *… 没有接收*（页面上写的是运行时的名字）：见
     [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#排错)；先在终端里处理好，再用"复制消息"手动粘贴。

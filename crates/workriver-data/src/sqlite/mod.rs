@@ -13,7 +13,7 @@ mod events;
 mod migrations;
 
 use events::{insert, of_intent, read, replay};
-use migrations::MIGRATIONS;
+use migrations::{FORMAT_STEP, MIGRATIONS};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -25,6 +25,12 @@ pub enum Error {
     Corrupt { seq: i64, err: serde_json::Error },
     #[error("{0}")]
     Io(#[from] std::io::Error),
+    /// The file holds events written before workspaces were workriver's own.
+    #[error(
+        "{} holds events in the form from before virtual workspaces, which this version does not read. Nothing was changed. Migrate a copy of it once with scripts/migrate-virtual-workspaces (see its README), or run the version that wrote it",
+        .0.display()
+    )]
+    OldForm(PathBuf),
 }
 
 /// What the port says of a failure: a broken rule stays one, an unreadable row is corrupt,
@@ -53,6 +59,12 @@ impl Store {
 
     pub fn open(path: &Path) -> Result<Store, Error> {
         let mut conn = Connection::open(path)?;
+        // Before anything is written to the file: events without the format's step are in
+        // the earlier form. Such a store is refused as it is, and never marked.
+        let ran: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if ran > 0 && ran as usize <= FORMAT_STEP && conn.query_row("SELECT EXISTS (SELECT 1 FROM events)", [], |r| r.get::<_, bool>(0))? {
+            return Err(Error::OldForm(path.to_path_buf()));
+        }
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.busy_timeout(Duration::from_secs(5))?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

@@ -14,9 +14,9 @@ export interface Edits {
   chores: string[]
   /** Planned intents merged into another (as the service records it: dropped, with this reason). */
   merges: { into: string; from: string[]; title?: string }[]
-  /** Planned intents started in a runtime workspace, by intent. */
-  starts: Record<string, { id: string; label: string; manager?: string; managerState?: Intent['managerState'] }>
-  /** Up to when the user has read each workspace's conversation with its manager, by label. */
+  /** Planned intents started in a workspace (its id), by intent. */
+  starts: Record<string, string>
+  /** Up to when the user has read each workspace's conversation with its manager, by its id. */
   read: Record<string, string>
   /** The sample's questions in a task's discussion (the service's come with the workspace), by `unit:task`. */
   discussed: Record<string, Turn[]>
@@ -83,6 +83,11 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
   const answered = (key: string, q: Asked) => (edits.answers[key] && !q.answered ? { answered: { by: '', selected: edits.answers[key] }, open: false } : {})
   // Read: the manager's words up to then are no longer new.
   const fresh = (workspace: string, at: string) => !(ms(at) <= ms(edits.read[workspace]))
+  // Started here: active in that workspace, with its manager (one of no project takes the workspace's).
+  const started = (space: string) => {
+    const w = ws.workspaces?.find(x => x.id === space)
+    return { state: 'active' as const, workspace: space, manager: w?.manager?.name, managerState: w?.manager?.state, ...(w && { project: w.project }) }
+  }
   return {
     ...ws,
     messages: ws.messages?.map(m => ({
@@ -93,7 +98,7 @@ export function withEdits(ws: Workspace, edits: Edits): Workspace {
     intents: ws.intents.map(i => ({
       ...i,
       ...(mergedInto(i) && { state: 'dropped' as const, reason: `merged into ${mergedInto(i)}` }),
-      ...(i.state === 'planned' && edits.starts[i.id] && { state: 'active' as const, workspace: { id: edits.starts[i.id].id, label: edits.starts[i.id].label }, manager: edits.starts[i.id].manager, managerState: edits.starts[i.id].managerState }),
+      ...(i.state === 'planned' && edits.starts[i.id] && started(edits.starts[i.id])),
       note: noteOf(i),
       title: titleOf(i),
       units: i.units.map(u => ({ ...u, tasks: u.tasks.map(n => task(u, n)) })),

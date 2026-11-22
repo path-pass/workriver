@@ -3,7 +3,7 @@
 import type { Attachment } from '@/attachments/types'
 import type { Lines } from '@/code/types'
 import type { Intent } from '@/planning/types'
-import type { Session } from '@/agents/types'
+import type { Session, Space } from '@/agents/types'
 import type { Choice } from '@/content/choice/surface'
 
 /** What the user's message answers: a manager's message (`m7`) or its `reply`-th reply, and the value picked. */
@@ -15,7 +15,7 @@ export interface Answer {
 
 /** A manager's question with options (`say` or `reply` with `--option`): its options, the
  *  user's answer (by which message), and whether the user can still answer it (not answered,
- *  and asked by the workspace's manager now). */
+ *  and asked under the appointment that holds the workspace's seat now). */
 export interface Asked {
   choice?: Choice
   answered?: { by: string; selected: string[] }
@@ -28,8 +28,10 @@ export interface ManagerMessage extends Asked {
   id?: string;
   /** The intent it is about, if any. */
   intent?: string;
-  /** The runtime workspace whose manager it went to, by label; `EVERY` (empty): to every manager. */
+  /** The workspace whose conversation it is in, by its id; `EVERY` (empty): every manager's. */
   workspace: string;
+  /** A line of workriver's own, not a message: what it says (`manager` is who it is about). */
+  notice?: 'manager-back';
   /** The manager's name; empty for one to every manager. */
   manager: string;
   text: string;
@@ -60,7 +62,7 @@ export interface ManagerMessage extends Asked {
 
 /** One manager's copy of the user's message to every manager. */
 export interface Copy {
-  /** The workspace it manages, by label, and its machine (absent: this one). */
+  /** The workspace it manages, by its id, and the manager's machine (absent: this one). */
   workspace: string;
   machine?: string;
   /** The manager's name. */
@@ -155,7 +157,7 @@ export interface Turn {
 }
 
 /** Why a message was not delivered, or a question got no answer. */
-export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error' | 'no-workspace' | 'timeout' | 'restarted' | 'blocked' | 'not-ready' | 'agent-gone' | 'gate-submitted';
+export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runtime-error' | 'no-workspace' | 'timeout' | 'restarted' | 'blocked' | 'not-ready' | 'agent-gone' | 'gate-submitted' | 'seat-changed';
 
 /** A discussion's question goes straight to its task's agent: "starting" is its "sending",
  *  "held" waits while that agent works or is on a blind task. */
@@ -169,7 +171,7 @@ export interface Talk {
   lines: Lines | null
   /** The intent on screen: its page, or the open unit's. */
   intent?: string
-  /** The workspace whose conversation is shown, by label: picked in the select, asked for
+  /** The workspace whose conversation is shown, by its id: picked in the select, asked for
    *  (Needs you, an intent's page) or followed to on a project switch; `EVERY`: every
    *  manager; none: the one on screen. */
   to?: string
@@ -181,8 +183,10 @@ export interface Talk {
   onPick: (workspace: string) => void
   /** The project the rail shows (its folder); none: all. */
   project?: string
-  /** The project a workspace (by label) works on, as the rail knows it; none: unknown. */
-  projectOf: (workspace: string) => string | undefined
+  /** Every workspace, open and closed. */
+  spaces: Space[]
+  /** Titles of the projects, by folder. */
+  projects: { id: string; title: string }[]
   /** The user has seen a workspace's conversation, up to the manager's newest words shown. */
   onRead: (workspace: string, at: string) => void
   onFile: (path: string) => void

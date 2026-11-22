@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 
 use serde_json::Value;
-use workriver_core::runtime::AgentState;
+use workriver_core::runtime::{AgentState, RuntimeRef};
 
 use super::agents::agents_of;
 use super::words::*;

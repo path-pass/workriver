@@ -16,14 +16,35 @@ import { TerminalButton, Who } from '@/agents/Mark'
 import { Content, Slot, SLOT } from '@/content/Chips'
 import { Icon, Mark } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
+import { useSpace } from '@/planning/spaces'
+import { openSeat } from '@/planning/Seat'
 import { RunSteps } from '@/commands/context'
 import { alertLimit, alertValue, topLine } from '@/machines/format'
 
-const GROUPS = ['blocking', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
+const GROUPS = ['blocking', 'seats', 'machines', 'decisions', 'messages', 'gaps', 'later'] as const
 
 function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: string, pick: Pick) => void; onMachines: () => void; onTalk: (workspace: string) => void }) {
   const { t, lang, num, waited, when, date } = useT()
   const act = useAct()
+  const talkSpace = useSpace(r.talk?.workspace)
+  // A workspace with work active in it and no manager running: the row opens the manager
+  // select, preset to who is proposed.
+  if (r.seat) {
+    const { space, proposal, moved } = r.seat
+    const m = space.manager
+    return (
+      <button type="button" className="irow" data-kind="seat" onClick={() => openSeat(space.id, proposal)}>
+        <Icon name="manager" />
+        <span className="title"><Slot text={t(m ? 'inbox.seatGone' : 'inbox.seatNone', { workspace: SLOT })}><Content text={space.name} /></Slot> <span className="font-mono text-xs font-normal opacity-80">{space.id}</span></span>
+        <span className="meta">
+          {m && <span className="flex min-w-0 items-center gap-1"><Who name={m.name} /><span className="truncate">{m.name}</span></span>}
+          {/* The seated session shown by another terminal: said as it is, a new terminal. */}
+          <span className="truncate">{moved ? t('inbox.seatMoved') : proposal ? t('inbox.seatProposal') : t('inbox.seatPick')}</span>
+          {r.intent && <span className="unit" lang={contentLang(r.intent.title)}>{r.intent.title}</span>}
+        </span>
+      </button>
+    )
+  }
   // A workspace's manager wrote what the user has not read: the row opens that conversation.
   if (r.talk) {
     const m = r.talk
@@ -34,8 +55,8 @@ function Row({ r, onOpen, onMachines, onTalk }: { r: InboxRow; onOpen: (unit: st
         <span className="meta">
           <span className="flex-none font-semibold text-you-ink">{t('inbox.unread', { count: m.count })}</span>
           <span className="flex min-w-0 items-center gap-1"><Who name={m.manager} /><span className="truncate">{m.manager}</span></span>
-          {/* The conversation with every manager is under no workspace's label. */}
-          {m.workspace === EVERY ? <span className="unit">{t('talk.every')}</span> : <span className="unit" lang={contentLang(m.workspace)}>{m.workspace}</span>}
+          {/* The conversation with every manager is under no workspace's id. */}
+          {m.workspace === EVERY ? <span className="unit">{t('talk.every')}</span> : <span className="unit"><span lang={contentLang(talkSpace?.name)}>{talkSpace?.name}</span> <span className="font-mono">{m.workspace}</span></span>}
         </span>
         <Tip text={when(r.since)}><span className="age">{waited(r.since)}</span></Tip>
       </button>

@@ -1,7 +1,14 @@
 # Virtual workspaces: workriver's own, not bound to the runtime
 
-Design, not built yet. Merged from two designs written independently; section 9 says where
-they differed and which way this one takes. A workspace stops being the record of a runtime
+Built, but for the migration script (section 5): the product follows sections 1 to 4 and
+6, and their rules are in the living specs (`docs/security.md`, `caller-identity.md`,
+`layout.md`, `guards.md`, `docs/design/ui/`, the recipes and `CHANGES.md`). This file stays
+until the script is done and the user's store is migrated, then goes. It was merged from
+two designs written independently; section 9 says where they differed and which way this
+one takes. Amended after the user confirmed it: implicit projects go (section 1), the
+attachment rule is the view's cut (section 3), only what the script writes or changes
+passes today's rules (section 5), and a seated session where it was takes its seat back by
+itself (section 2, the user's word). A workspace stops being the record of a runtime
 group (machine, the runtime's id, label) and becomes a record workriver makes at the user's
 word. It replaces `workspace_at` / `workspace_mut` (a record found by the runtime's id, else
 by its label), `not_another_open`, the links, and every use of a label as a key. Before the
@@ -39,6 +46,17 @@ reads it.
     holds. And `intent.created` names such a folder or none, whoever records it (refused
     otherwise, saying to add the project first): today an agent's planned intent may name
     any folder, and nothing checks it.
+  - **Implicit projects go with that.** Today a repository outside every registered folder
+    is "a project of its own", here and on another machine. Now a repository is part of a
+    registered project or of none, here and on another machine alike: `backlog add
+    --project .` in an unregistered repository, or from another machine with a path of
+    that machine, is refused with "<folder> is in no registered project: name a project by
+    its id (`workriver project list`), or ask the user to add it first (`workriver project
+    add <folder>`, from the user's terminal)". The same rule holds for `finding.added`: a
+    deferred finding is in a registered project's backlog, so none is left without a home
+    in a rail that is per registered project. A chore of no intent keeps taking a project
+    or none. `docs/getting-started.md` section 3, the backlog-import skill and the
+    `start-intent` recipe say so.
   - `manager`: the seat, section 2. `current`: the intent new work goes to, as today.
 - **Who makes and closes one: the user only** (`Body::user_only`; the page, or the CLI
   from the user's own terminal).
@@ -57,8 +75,8 @@ reads it.
   conversation. A project with no open workspace offers only "New workspace". A workspace
   needs no running terminal.
 - **An intent's workspace.** A planned intent is in none: it is in its project's roadmap,
-  one ordered list per project. A planned intent of no project (old records, section 5) is
-  in the roadmap of "No project", shown after the projects; only the user starts it.
+  one ordered list per project. A planned intent of no project (old records, section 5, and
+  any added with none since) is in the roadmap of "No project", shown after the projects; only the user starts it.
   A start puts it in a workspace of its project (section 3);
   the user may move an active intent to another workspace of the same project
   (`intent.workspace_set`). Messages sent before a move stay in the conversation they were
@@ -109,29 +127,34 @@ reads it.
     manager of `ws3` «name» (project, active intents), with `workriver guide manager`.
     **`workriver manager here` and `manager.registered` go**; the command is refused with
     how the user seats a manager.
-- **A seated session keeps its root.** Rule 5's pin of a session that holds a seat is not
-  released when its root stops running, and no other root takes it by reporting the
-  session: such a caller is refused, the refusal saying the user confirms the manager's new
-  terminal. The workspace then shows "manager not running"; what goes to it is "not
-  delivered" as today. The same root running again (nothing was closed) is the manager
-  again with nothing to do.
+- **A seated session keeps its root, and takes its seat back only where it was** (the
+  user's word after the gate: the same session, on the same machine, in the same working
+  folder, showing again after its old terminal is gone, is the manager again by itself, no
+  click; another session or folder needs the user's act). Rule 5's pin of a session that
+  holds a seat is not released when its root stops running. While the root is gone the
+  workspace shows "manager not running" and what goes to it is "not delivered" as today.
+  Then:
+  - A root on the seat's machine that shows the session in the seat's folder, as the one
+    root showing it there, is pinned in the gone root's place: on the regular read (this
+    machine), or when it calls (any machine; that machine's roots are read then). The seat
+    and its appointment (`since`) are as they were: open choices stay answerable, queued
+    sends are delivered. This is said as a line of the workspace's conversation, which only
+    workriver records (`workspace.manager_back {id, workspace, session}`: a message with
+    `notice: manager-back`, no text of anyone's, never unread). It is not a Needs you row:
+    those do not go away by themselves. (A kind of notification that clears itself is for
+    later.)
+  - A root that shows the session in another folder, or on another machine, is refused,
+    the refusal saying the user confirms the manager's new terminal.
 - **Any other terminal or session takes the seat only by the user's act.** Needs you shows
   one row per open workspace that has an active intent and no running manager. It opens the
-  same select, preset to the seated session when it now runs at another root (a resume, a
-  runtime restart), else to the agent now running in the terminal the old session was
-  pinned to, when there is one. One click; the seating is checked as above.
-  - **A seated session at a new root is shown as a new terminal**, never as "the manager,
-    resumed": the row says that a new terminal reports this session, and shows the old
-    root's machine and folder (the seat's, "gone") beside the new root's (and when it
-    started). The session id is what any program may report (section 0), so the preset is
-    a proposal like any other.
-  - **The appointment is kept only where the new root is where the old one was.**
-    Confirming the same session keeps `since` (open choices stay answerable, queued sends
-    are delivered) only when the new root's machine and folder are the seat's. Otherwise
-    the confirmation is a new appointment, as for another session: the earlier
-    appointment's choices close and its queued sends are "not delivered". The page says
-    which of the two the click does before it is made.
-  - Another session always gets a new `since`.
+  same select, preset to the seated session when it now shows at a root in another folder
+  (never "the manager, resumed": the row says that a new terminal reports this session, and
+  shows the seat's machine and folder beside the new root's), else to the agent now running
+  in the terminal the old session was pinned to, when there is one. One click; the seating
+  is checked as above, and it is always a new appointment: the earlier appointment's
+  choices close and its queued sends are "not delivered". (In the rules, the same session
+  seated again with the seat's machine and folder keeps `since`; the take-back above is the
+  one case that reaches it without a click.)
 - Emptying the seat or closing the workspace releases the pin to rule 5 as it is for any
   agent.
 
@@ -167,9 +190,11 @@ record, every workspace's messages included. Now the view, for an agent, keeps:
 The same view serves every route that returns records, on both listeners (on main:
 `/api/state`, the snapshot `/api/workspace`, `/api/task` and the attachment route;
 `message show` is a command of the unmerged choices branch and goes through it once that
-is merged). An attachment is served to an agent only when a record the view kept grants
-it. The user sees all; the blind view stays
-as it is within that.
+is merged). For an attachment the rule is the view's cut, not a grant: the view leaves an
+attachment out, for an agent, only when every record that names it is a part the view
+dropped (another workspace's message, another copy's reply); one that anything kept names
+too (a task, a finding, a question, a kept message), or that the agent stored itself, is
+served as today. The user sees all; the blind view stays as it is within that.
 
 **What stays readable by every agent:** everything that is not a conversation with the
 user: intents (planned and active, every workspace's and project's), units, tasks,
@@ -189,7 +214,7 @@ scope binds, and what it cannot, is under the limits (section 6).
   intents with their units, as today. The project's **Roadmap** (planned intents are in no
   workspace; the order is the project's) and **Done** (folded; each done intent names the
   workspace it ran in) follow its workspaces. After the projects, "No project" holds the
-  planned intents of no project (old records only: section 1), with Start for the user
+  planned intents of no project (section 1), with Start for the user
   only; it is not shown when it is empty. A project's "+" adds a workspace; a
   workspace's menu: rename, manager, close. A closed workspace is not in the rail; Settings
   → Workspaces lists them (open again there). A link to an intent or unit opens its
@@ -249,7 +274,8 @@ scope binds, and what it cannot, is under the limits (section 6).
      replays the copy, with each old record's and message's mapped workspace.
   3. `new write <dir> <out.db>`: `Store::open` makes `out.db` (empty, so it is marked);
      then each line is decoded as the new `Body` (one that does not decode fails the run),
-     checked against the new rules (below), and inserted as a row with its own `at` and
+     checked against the new rules where the script wrote or changed it (below), and
+     inserted as a row with its own `at` and
      `actor`, the way workriver-data's `events::insert` writes one (the same columns; kind,
      body and refs from the new `Body`), all in one transaction. This insert is the one
      write of the events table outside workriver-data, and it goes with the script.
@@ -279,18 +305,25 @@ scope binds, and what it cannot, is under the limits (section 6).
   | Every other event | unchanged, byte for byte, in order: ids, authors, times, attachment ids. |
 
 - **How it is checked**, all on the copy:
-  1. **Every new event passes the new rules** (in `new write`, before it is stored): the
-     state of the events before it, as the new code applies them, `prepare`s it under the
-     principal its actor names (`user`: the user; `workriver`: the service; else the agent
-     of that session, on the machine its `agent.seen` gives), and the prepared body must be
-     the line's (the ids and numbers `prepare` gives come out as written). The old
+  1. **Every event the script writes or changes passes the new rules** (in `new write`,
+     before it is stored): the new kinds, starts and moves with a ws id, an
+     `intent.created` whose project a folder's line changed, messages and read marks
+     pointed at a ws id, and a `project.added` from `register`. For each, the state of the
+     events before it, as the new code applies them, `prepare`s it under the principal its
+     actor names (`user`: the user; `workriver`: the service; else the agent of that
+     session, on the machine its `agent.seen` gives), and the prepared body must be the
+     line's (the ids and numbers `prepare` gives come out as written). The old
      registrations are not records of the new form, yet an old manager's starts, says and
      replies were allowed by them; so for this check only, the seats of `seats.jsonl` (each
      workspace's registered session from where it registered, `since` the revision of the
-     last new event before that point) are set on that state in memory before each event, and written
-     nowhere. A refusal, or a body that comes out different, fails the run, listed with the
-     event and the rule's words; it is mended in the script or by a line of the mapping,
-     never by a looser rule in the product.
+     last new event before that point) are set on that state in memory before each event,
+     and written nowhere. A refusal, or a body that comes out different, fails the run,
+     listed with the event and the rule's words; it is mended in the script or by a line of
+     the mapping, never by a looser rule in the product. **An event kept byte for byte is
+     not put through today's `prepare`**: the store holds events that were accepted before
+     a later rule tightened (a unit's branch with no prefix, tasks of an intent itself, an
+     agent's edit of a goal), and today's rules refuse them. Such an event only has to
+     decode as the new `Body` and replay (`apply`), as it does today.
   2. The product's copied-database replay (`replays_a_copied_database`) of `out.db` gives
      the new state: it replays at all, and the service starts on it.
   3. `check` compares that state with `old-state.json`: everything that is not a workspace
@@ -350,11 +383,14 @@ none is on `machine_router`.
 
 **Limits that stay** (the runtime's interface and the files are the user's account's):
 
-- **A seated manager's new terminal needs the user.** After a runtime restart every root
-  is new: each workspace with a manager waits for one click (section 2). That is the price
-  of a seat never moving by itself.
-- **A session whose terminal is gone can still be taken** when it holds no seat
-  (`caller-identity.md`, unchanged): a worker's session, never a manager's.
+- **A seated manager's new terminal needs the user, unless it is where the old one was.**
+  After a runtime restart every root is new: a manager resumed in its folder is the manager
+  again by itself; one that is not waits for one click (section 2).
+- **A session whose terminal is gone can still be taken** (`caller-identity.md`): a
+  worker's as before; a manager's only from the seat's own machine and folder, where a
+  program that reports the seated session after its root is gone is the manager again,
+  with the appointment. That is the price of a resume needing no click; the conversation's
+  line says the manager is back. From anywhere else it needs the user's seating.
 - **The read scope binds the service, not the machine.** It holds for every route of the
   service, and so completely for agents on other machines, which reach the records only
   through their machine's listener. An agent on this machine runs as the user: it can read
@@ -425,8 +461,13 @@ route-access guard for reading a message and an attachment granted by one. The s
 without a format mark refused, and never marked by opening it. The script: each row of
 section 5 on a fixture of old events, among them an old link, a conversation the mapping
 must settle, and a folder an agent named (left unregistered unless the mapping says
-`register`); `write` failing on an event the new rules refuse and on a body that comes
-out different; `check` failing on an unexplained difference.
+`register`); `write` failing on an event the script wrote that the new rules refuse and on
+a body that comes out different, and passing an old event kept byte for byte that today's
+rules would refuse; `check` failing on an unexplained difference. An attachment named both
+by a dropped reply or message and by a task the agent reads is still served. A seated
+session whose root is gone, showing again on the seat's machine in the seat's folder, has
+its seat back with its appointment and one line in the conversation; in another folder it
+is refused until the user seats it, which is a new appointment.
 
 ## 9. Where the two designs differed
 
@@ -444,7 +485,7 @@ store kept; the product reading only the new form.
 | A workspace's project | a folder, as an intent's | a registered project's id; unregistered folders registered by the script | Second for the id: the rail is by registered project, so no workspace hangs under a folder that is none. Not the registering: an agent may have written the folder, so each is a line of the mapping for the user (section 5, after the security review). |
 | Closing a workspace | `closed` / `opened` | not said | First: the rail needs to drop finished workspaces without losing their conversation. |
 | A seat change racing another | the page asks once | the event names the seat the user saw; checked atomically | Second, with the first's question: a seat is never overwritten unseen. |
-| A seated session in a new terminal | the manager again by itself; "a session whose terminal is gone can be taken" left as a limit | the pin stays; a new root needs the user | Second: it closes the only way to a seat without the user, on another machine too once the seating reads that machine's roots (section 2); the click is the Needs you row the first design already had for a new session, and keeps the appointment only where the new root is where the old one was. Cost: one click per workspace after a runtime restart. |
+| A seated session in a new terminal | the manager again by itself; "a session whose terminal is gone can be taken" left as a limit | the pin stays; a new root needs the user | Second, and after the gate the user took the first for one case (the same machine and folder: back by itself, said in the conversation). Before that: it closes the only way to a seat without the user, on another machine too once the seating reads that machine's roots (section 2); the click is the Needs you row the first design already had for a new session, and keeps the appointment only where the new root is where the old one was. Cost: one click per workspace after a runtime restart. |
 | Who owns an open choice | the session holding the seat | the appointment (the seating event) | Second: seated, replaced and seated again is a new appointment; re-confirming the same session after a restart is not. |
 | Queued delivery after the seat changed | not said | checked against the appointment | Second: old work never reaches a new manager. |
 | Agents reading conversations | by route (`message show`, a command of the unmerged choices branch) | the snapshot, direct reads and attachments filtered | Second: `App::view` gives every agent every workspace's messages today; the first design missed that. A message to every manager is cut down to the agent's own copy and replies (section 3). |

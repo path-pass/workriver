@@ -31,7 +31,6 @@ use crate::common::wire::MachineState;
 #[derive(Default)]
 struct Seen {
     agents: Vec<RuntimeAgent>,
-    groups: Vec<RuntimeRef>,
     ok: bool,
     error: Option<String>,
 }
@@ -410,21 +409,20 @@ fn their_agent(a: RuntimeAgent, machine: &str) -> RuntimeAgent {
     RuntimeAgent { machine: Some(machine.into()), group: a.group.map(|g| theirs(g, machine)), ..a }
 }
 
-/// One read of a machine's agents and groups; what was last seen stays while it cannot be reached.
+/// One read of a machine's agents; what was last seen stays while it cannot be reached.
 /// `quiet`: a failure is not news (the connection is not up yet).
 fn poll_once(e: &Entry, quiet: bool) -> bool {
     let started = Instant::now();
-    let read = e.runtime.agents().and_then(|a| Ok((a, e.runtime.groups()?)));
+    let read = e.runtime.agents();
     let ms = started.elapsed().as_millis() as u64;
     match &read {
-        Ok((a, _)) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, agents = a.len(), ok = true, slow = ms >= SLOW_MS),
+        Ok(a) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, agents = a.len(), ok = true, slow = ms >= SLOW_MS),
         Err(err) => tracing::info!(target: "perf", kind = "poll", machine = %e.label, ms, ok = false, error = crate::common::diagnostics::kind_of(&err.to_string()), slow = ms >= SLOW_MS),
     }
     let mut seen = e.seen.lock().unwrap();
     match read {
-        Ok((agents, groups)) => {
+        Ok(agents) => {
             seen.agents = agents.into_iter().map(|a| their_agent(a, &e.label)).collect();
-            seen.groups = groups.into_iter().map(|g| theirs(g, &e.label)).collect();
             seen.ok = true;
             seen.error = None;
         }
@@ -574,32 +572,5 @@ impl Runtime for Machines {
 
     fn focus_place(&self, machine: Option<&str>, place: &str) -> Result<(), RuntimeError> {
         self.at(machine, |r| r.focus_place(None, place))
-    }
-
-    /// This machine's groups read fresh, and every followed machine's as last seen; none of
-    /// this machine's while its runtime does not answer and other machines are followed. For
-    /// what is shown; what must know that a group is gone asks `groups_on`.
-    fn groups(&self) -> Result<Vec<RuntimeRef>, RuntimeError> {
-        let entries = self.entries.lock().unwrap().clone();
-        let mut all = match self.local.groups() {
-            Ok(g) => g,
-            Err(e) if entries.is_empty() => return Err(e),
-            Err(_) => vec![],
-        };
-        for e in entries {
-            all.extend(e.seen.lock().unwrap().groups.iter().cloned());
-        }
-        Ok(all)
-    }
-
-    /// Asked of that machine's own runtime, now: a failure is given, and nothing last seen.
-    fn groups_on(&self, machine: Option<&str>) -> Result<Vec<RuntimeRef>, RuntimeError> {
-        match machine {
-            None => self.local.groups(),
-            Some(m) => {
-                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
-                Ok(on(&e, &|r: &dyn Runtime| r.groups())?.into_iter().map(|g| theirs(g, m)).collect())
-            }
-        }
     }
 }

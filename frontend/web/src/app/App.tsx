@@ -10,6 +10,9 @@ import { Topics } from '@/agents/Mark'
 import { MachineChip, alertLimit, alertValue, topLine } from '@/machines/format'
 import { CopyButton } from '@/ui/CopyButton'
 import { Start, StartIntent } from '@/planning/Start'
+import { SeatDialog } from '@/planning/Seat'
+import { runs, Spaces } from '@/planning/spaces'
+import type { Space } from '@/agents/types'
 import { mockWhere, RunDialog } from '@/commands/Run'
 import { RunContext } from '@/commands/context'
 import type { RunAsk } from '@/commands/types'
@@ -57,6 +60,7 @@ function useSame<T>(value: T): T {
 }
 
 const remember = (key: string, value: string) => { try { localStorage.setItem(key, value) } catch { /* not remembered, still shown */ } }
+const NO_SPACES: Space[] = []
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
 export default function App() {
@@ -181,8 +185,8 @@ export default function App() {
   const [talkTo, setTalk] = useState<{ to?: string; at?: string }>({})
   const setTalkTo = (to?: string) => setTalk({ to })
   const showTalk = (workspace?: string) => { openAsk(false); setTalkTo(workspace) }
-  // The project a workspace works on, as the rail knows it (Start's dialog, Settings).
-  const projectOf = (label: string) => ws?.workspaces?.find(w => w.label === label)?.project
+  // A workspace's project (its folder), by the workspace's id.
+  const projectOf = (id: string) => ws?.workspaces?.find(w => w.id === id)?.project
   // Picked by hand: shown until the next switch, and remembered for its project.
   const pickTalk = (workspace: string) => {
     setTalkTo(workspace)
@@ -327,7 +331,7 @@ export default function App() {
     const context = [...about.context, ...files.map(a => ({ kind: 'attachment' as const, label: a.name, id: a.id }))]
     const step: ManagerMessage['step'] = MOCK ? 'delivered' : 'sending'
     // To every manager, the sample's: a copy for each running one (the service names its own).
-    const copies = to.all && MOCK ? (ws?.sessions ?? []).filter(s => s.manager && !s.ended && s.group).map((s): Copy => ({ workspace: s.group!.label, machine: s.machine, manager: s.agent, step, replies: [] })) : undefined
+    const copies = to.all && MOCK ? (ws?.workspaces ?? []).filter(w => !w.closed && runs(w.manager)).map((w): Copy => ({ workspace: w.id, machine: w.manager!.machine, manager: w.manager!.name, step, replies: [] })) : undefined
     const m: ManagerMessage = { workspace: to.workspace, intent: to.intent, manager, text, ...about, context, attachments: files, at: new Date().toISOString(), step, replies: [], ...(to.all ? { to: copies ?? [] } : {}) }
     if (MOCK) {
       setTold(all => [...all, m])
@@ -386,7 +390,7 @@ export default function App() {
   const talk: Talk | null = ws
     ? {
         sessions: ws.sessions, file, lines,
-        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), to: talkTo.to, followedAt: talkTo.at, onPick: pickTalk, project: project ?? undefined, projectOf, onRead,
+        intent: page?.id ?? (unit ? intentOf(ws, unit.id)?.id : undefined), to: talkTo.to, followedAt: talkTo.at, onPick: pickTalk, project: project ?? undefined, spaces: ws.workspaces ?? [], projects: ws.projects ?? [], onRead,
         intents: ws.intents, messages: [...(ws.messages ?? []), ...told], onTell, onDiscuss, onDiscussRead, onAnswer,
         // The sheet gets out of the way of the file, as for a row of the panel.
         onFile: p => { setFile(p); setSheet(null); document.querySelector('.code-grid')?.scrollIntoView({ block: 'start' }) },
@@ -472,6 +476,7 @@ export default function App() {
     <RunContext.Provider value={run}>
     <ViewerContext.Provider value={viewer}>
     <Topics.Provider value={topics}>
+    <Spaces.Provider value={ws?.workspaces ?? NO_SPACES}>
     <div className="grid min-h-screen grid-cols-[auto_minmax(0,1fr)_auto] max-[860px]:grid-cols-[minmax(0,1fr)]">
       <Rail ws={ws} unitId={unitId} onUnit={id => ws && pickUnit(ws, id)} onIntent={id => ws && pickUnit(ws, id)} q={q} onQ={setQ} open={railOpen} onToggle={toggleRail} project={project} onProject={pickProject} onStart={setStarting} onWidth={setRailWidth} />
       <main className="flex min-w-0 flex-col gap-5 px-6 pt-5 pb-10 max-[860px]:p-4">
@@ -540,9 +545,11 @@ export default function App() {
         </>
       )}
       <StartIntent ws={ws} intent={starting} onClose={() => setStarting(null)} onStarted={(i, w) => setEdits(e => ({ ...e, starts: { ...e.starts, [i]: w } }))} />
+      <SeatDialog ws={ws} />
       <RunDialog ask={running} onClose={() => setRunning(null)} />
       <Notes />
     </div>
+    </Spaces.Provider>
     </Topics.Provider>
     </ViewerContext.Provider>
     </RunContext.Provider>
@@ -560,7 +567,7 @@ export function Notes() {
     const on = (e: Event) => {
       const d = (e as CustomEvent<{ agent?: string; remote?: Remote }>).detail
       const r = d.remote
-      setText(r ? t('terminal.remote', { what: r.agent ?? t('terminal.command'), machine: r.machine, workspace: r.workspace ?? '?' }) : t('terminal.note', { agent: d.agent }))
+      setText(r ? t('terminal.remote', { what: r.agent ?? t('terminal.command'), machine: r.machine, group: r.group ?? '?' }) : t('terminal.note', { agent: d.agent }))
       clearTimeout(timer)
       timer = window.setTimeout(() => setText(null), r ? 8000 : 2500)
     }

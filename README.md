@@ -185,8 +185,8 @@ The page and the CLI act as you only with the user token on your machine; agents
 other machines cannot. What that does and does not protect: [Security model](docs/security.md).
 
 Data lives in `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to move it).
-`workriver --help` explains the commands. The manager of a workspace registers with
-`workriver manager here` from its own terminal, one per workspace, and `workriver guide
+`workriver --help` explains the commands. You seat the manager of a workspace yourself (on
+the page, or `workriver workspace manager <ws> <agent>`), one per workspace, and `workriver guide
 manager` / `workriver guide worker` print the instructions for agents. Where the service
 finds the runtime: [docs/runtimes/herdr.md](docs/runtimes/herdr.md); without it the service
 still records and shows, it just sees no agents.

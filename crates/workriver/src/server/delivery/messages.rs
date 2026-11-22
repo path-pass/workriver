@@ -202,12 +202,13 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
 pub(in crate::server) fn broadcast_message(state: &State, m: &workriver_core::Message, r: &workriver_core::Recipient, home: &Path) -> String {
     let at = pointed(state, "", &m.context, home);
     let at = if at.is_empty() { String::new() } else { format!("It points at: {}. ", at.join("; ")) };
-    let on = r.workspace.machine.as_deref().map(|x| format!(" on machine {}", quote::name(x))).unwrap_or_default();
+    let name = state.workspace(&r.workspace).map(|w| w.name.clone()).unwrap_or_default();
     format!(
-        "[workriver] The user writes to every manager from workriver's page (message {}, to the managers of {} workspaces): answer for your own workspace, \"{}\"{on}, only. {}{at}{}",
+        "[workriver] The user writes to every manager from workriver's page (message {}, to the managers of {} workspaces): answer for your own workspace, {} \"{}\", only. {}{at}{}",
         m.id,
         m.to.len(),
-        quote::name(&r.workspace.label),
+        r.workspace,
+        quote::name(&name),
         replying(&m.id),
         users("The user says, in workriver", &m.text)
     )

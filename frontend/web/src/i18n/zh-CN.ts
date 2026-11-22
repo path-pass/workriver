@@ -4,6 +4,20 @@ import type { en, OneForm } from './en'
 
 export const zhCN: OneForm<typeof en> = {
   rail: {
+    spaceSave: '改名',
+    spaceNameHint: '名称只用来显示，可以重复；区分工作区靠的是它的 id。',
+    spaceName: '工作区名称',
+    spaceAdd: '新建工作区',
+    spaceClose: '关闭',
+    spaceManager: '管理者…',
+    spaceRename: '改名',
+    spaceMenu: '工作区 {{name}}（{{id}}）：改名、管理者、关闭',
+    foldSpace: '显示或隐藏工作区 {{name}}（{{id}}）的意图',
+    ranIn: '曾在 {{workspace}} 运行',
+    noSpaces: '没有打开的工作区：用 + 新建一个',
+    loose: '不在任何工作区',
+    noProject: '无项目',
+    workspaces: '工作区',
     note: '备注',
     noteMore: '展开',
     noteLess: '收起',
@@ -22,7 +36,6 @@ export const zhCN: OneForm<typeof en> = {
     quietSince: '{{date}} 以来没有动静',
     project: '项目',
     allProjects: '全部项目',
-    active: '进行中',
     roadmap: '路线图',
     done: '已完成',
     add: '添加',
@@ -30,7 +43,6 @@ export const zhCN: OneForm<typeof en> = {
     addGoal: '目标，一句话',
     addSave: '加入路线图',
     addCancel: '取消',
-    addPick: '先在上面选一个项目，才能加到它的路线图',
     drag: '拖动调整顺序',
     start: '开始',
     intentWork: '调研与设计',
@@ -63,17 +75,18 @@ export const zhCN: OneForm<typeof en> = {
     }
   },
   manager: {
-    mark: '这个工作区的管理者',
+    mark: '工作区的管理者',
     of: '管理者 {{name}}：{{state}}',
     state: { working: '工作中', idle: '空闲', done: '空闲', blocked: '卡住了', unknown: '状态不明', gone: '没在运行', none: '没有管理者' }
   },
   intent: {
+    move: '移到…',
     state: { planned: '计划中', active: '进行中', done: '已完成', dropped: '已放弃' },
     dropped: '已放弃：{{reason}}',
     note: '备注',
     where: '在哪里进行',
     workspace: '工作区',
-    worksOn: '在做 {{project}}',
+    worksOn: '项目：{{project}}',
     manager: '管理者',
     notStarted: '还没开始：它在路线图里。',
     talk: '给管理者留言',
@@ -141,13 +154,13 @@ export const zhCN: OneForm<typeof en> = {
     }
   },
   start: {
+    seat: '把它安排为这个工作区的管理者：在左栏的工作区上点“管理者…”，或在你自己的终端里运行（它会在自己的终端里收到通知，以及该读的角色说明）：',
+    project: '在你自己的终端里、项目目录下添加项目。它会带上第一个工作区：',
     title: '从这里开始',
-    lead: '还没有任何记录。agent 自己记录自己的工作；每个 {{runtime}} 工作区有一个管理者 agent 负责规划。',
-    leadProject: '{{project}} 里还没有任何记录。agent 自己记录自己的工作；每个 {{runtime}} 工作区有一个管理者 agent 负责规划。',
-    agent: '在一个 {{runtime}} 工作区里，启动一个 coding agent 当它的管理者。',
-    skill: '把管理者 skill 给它：把 skills/workriver-manager 链接进它的 skills 目录，或者把下面这条命令的输出贴给它。',
-    register: '让它登记为这个工作区的管理者：',
-    begin: '它的第一个目标由你来开始：在左边路线图里的目标上点“开始”，选它的工作区。之后这个项目的其他目标由它自己开始；它这样看路线图：',
+    lead: '还没有任何记录。agent 自己记录自己的工作；每个工作区有一个管理者 agent 负责规划，由你指定是谁。',
+    leadProject: '{{project}} 里还没有任何记录。agent 自己记录自己的工作；每个工作区有一个管理者 agent 负责规划，由你指定是谁。',
+    agent: '在 {{runtime}} 里启动一个 coding agent 来当管理者。',
+    begin: '开始一个目标：在左边路线图里的目标上点“开始”。之后这个项目的其他目标由管理者自己开始；它这样看路线图：',
     import: '已经有一份待办文件？让一个 agent 用导入 skill 把它导进来：',
     work: '它会把目标拆成单元和任务，交给 worker agent；它们的工作会显示在这里。',
     trailer: '提交信息里写这样一行，这个提交就归到对应的任务：'
@@ -266,10 +279,6 @@ export const zhCN: OneForm<typeof en> = {
     ssh: 'ssh 目标（主机名或 user@host）',
     add: '添加',
     remove: '移除 {{machine}}',
-    links: '那边的工作区',
-    linkLead: '那边的工作区只有在你把它和这边的工作区关联之后才算同一个：一个管理者，同一批意图。',
-    notLinked: '未关联',
-    linkTo: '把 {{machine}} 上的 {{workspace}} 关联到这边的一个工作区',
     failed: '没有完成：{{error}}'
   },
   unit: {
@@ -295,6 +304,7 @@ export const zhCN: OneForm<typeof en> = {
     waiting_other: '{{count, number}} 件事等你'
   },
   agents: {
+    noSpace: '不在任何工作区',
     blocked: '在终端里等你',
     notice: '{{agent}} 在等你',
     title: 'Agent',
@@ -310,37 +320,21 @@ export const zhCN: OneForm<typeof en> = {
     ownHint: '从没接过任务的会话：你自己的，或手动开的。'
   },
   plan: {
+    goAnyway: '不等管理者，直接开始',
+    noWorkspaceAny: '还没有打开的工作区。先添加一个项目（`workriver project add <folder>`）：它会带上第一个工作区。',
+    optionProject: '{{label}} · {{project}}',
     title: '开始「{{title}}」',
-    lead: 'workriver 不会启动 agent。在 {{runtime}} 里按这几步做：',
-    workspace: '为它开一个 {{runtime}} 工作区，或者选一个管理者还能再管一个意图的工作区。',
-    agent: '如果这个工作区还没有管理者，在里面启动一个 coding agent，并把管理者 skill 给它：',
-    register: '在管理者的终端里登记：',
-    start: '然后在这里选那个工作区并开始它：一个工作区的第一个意图由你来开始（它从此在做那个项目）。之后这个项目的其他意图由它的管理者自己开始。',
     pickLabel: '在哪里开始',
     option: '{{label}} · {{manager}}：{{state}}',
     optionNone: '{{label}} · 没有管理者',
-    noWorkspace: '{{runtime}} 里还没有工作区。按这几步做：',
+    noWorkspace: '它的项目没有打开的工作区。新建一个（或在设置里重新打开一个已关闭的）：',
     go: '开始',
     goHint: '记为你的操作；会通知 {{manager}} 把它拆成单元和任务。',
-    none: '{{label}} 没有管理者，没人会去拆分这份工作。先在那里启动一个：',
+    none: '{{label}} 没有在运行的管理者，没人会去拆分这份工作。从正在运行的 agent 里安排一个：',
     started: '已在 {{label}} 开始。',
     failed: '没能开始：{{error}}',
     close: '关闭',
-    optionUnknown: '{{option}} · 项目未知',
-    optionOther: '{{option}} · 在做 {{project}}',
-    others: '其他项目的工作区',
-    showOthers_other: '其他项目的工作区（{{count, number}}）',
-    pickOther: '选一个工作区',
-    otherAsk: '它的管理者 {{manager}} 在做 {{theirs}}；要把一个 {{mine}} 的意图交给它吗？',
-    goOther: '是，就在那里开始'
-  },
-  wsProject: {
-    title: '工作区在做的项目',
-    lead: '每个工作区在做哪个项目。workriver 按它的管理者在哪个文件夹里运行来判断，否则按它当前的意图；你在这里设的优先。在那里开始另一个项目的意图之前会先问你。',
-    pick: '{{workspace}} 在做的项目',
-    auto: '自动判断：{{project}}（{{from}}）',
-    autoUnknown: '自动判断：未知',
-    from: { manager: '管理者所在的文件夹', intents: '它当前的意图', user: '你设的' }
+    pickOther: '选一个工作区'
   },
   backlog: {
     title: '待办',
@@ -369,11 +363,41 @@ export const zhCN: OneForm<typeof en> = {
     close: '收起面板',
     resize: '面板宽度（拖动，或用方向键；双击恢复默认）'
   },
+  seat: {
+    title: '{{workspace}} 的管理者',
+    lead: '{{project}} 的一个工作区。管理者负责拆分在这里运行的意图并分派出去。只有你能安排管理者；被安排的 agent 会在自己的终端里收到通知。',
+    leadNone: '管理者负责拆分在这里运行的意图并分派出去。只有你能安排管理者。',
+    now: '现在的管理者：{{name}}，任命时所在目录 {{folder}}。',
+    nowGone: '已任命：{{name}}（目录 {{folder}}），没有在运行。',
+    empty: '还没有安排管理者。',
+    moved: '一个新终端报告了 {{name}} 的会话；会话 id 谁都可以报告。它不在当初任命的位置，所以确认它是一次新的任命：之前那次任命提出的问题会关闭，排队给它的消息不会送达。',
+    movedOld: '任命时：{{machine}} 上的 {{folder}}（已不在）',
+    movedNew: '现在出现在：{{machine}} 上的 {{folder}}',
+    nobody: '现在没有在运行的 agent。先在 {{runtime}} 里启动一个，再到这里安排它。',
+    pick: '要安排的 agent',
+    managerOf: '{{workspace}} 的管理者',
+    tasks_other: '{{count, number}} 个任务（{{first}} 等）',
+    nothing: '没有任务，也不是管理者',
+    group: '在 {{runtime}} 里：{{group}}',
+    over: '{{old}} 正在运行，是现在的管理者。要改为安排 {{next}} 吗？{{old}} 会被告知它不再管理这个工作区。',
+    changed: '这期间管理者变了：上面显示的是现在的情况。请再看一眼，重新选择。',
+    failed: '没能安排：{{error}}',
+    clear: '撤下管理者',
+    go: '安排为管理者',
+    goOver: '是，安排 {{name}}',
+    goNew: '安排它：一次新的任命'
+  },
+  spaces: {
+    title: '工作区',
+    lead: '所有工作区：都是 workriver 自己的，每个项目起初有一个。每个工作区有一个管理者，由你安排。关闭后，它的意图和对话仍然保留，只能查看。',
+    closed: '已关闭',
+    open: '重新打开'
+  },
   terminal: {
     open: '在终端里打开',
     openFor: '在终端里打开 {{agent}}',
     note: '将把 {{agent}} 的终端切到前台（还没有接上）',
-    remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于工作区 {{workspace}}。在 {{runtime}} 左侧切到 {{machine}} 就能看到。',
+    remote: '{{what}} 在 {{machine}} 上：已在那边切到前台，位于 {{runtime}} 的“{{group}}”。在 {{runtime}} 里切到 {{machine}} 就能看到。',
     command: '这条命令'
   },
   run: {
@@ -474,6 +498,9 @@ export const zhCN: OneForm<typeof en> = {
     atGate: '和 {{agent}} 讨论 {{task}}'
   },
   talk: {
+    notice: { 'manager-back': '{{manager}} 回到了它的终端，重新成为管理者' },
+    readOnly: '这个工作区已关闭：对话保留，只能查看。要写消息，先在设置里重新打开它。',
+    closed: '已关闭的工作区',
     title: '管理者',
     ask: '问管理者',
     attach: '添加文件（也可以粘贴，或拖到这个面板上）',
@@ -486,8 +513,8 @@ export const zhCN: OneForm<typeof en> = {
     workspace: '工作区',
     label: '给管理者的消息',
     placeholder: '写给 {{agent}}…',
-    none: '这个工作区没有在运行的管理者，没人会读到。',
-    noWorkspace: '还没有哪个工作区有管理者。',
+    none: '这个工作区没有在运行的管理者，没人会读到。历史对话还在；先安排一个管理者再写。',
+    noWorkspace: '还没有工作区：先添加一个项目，再给它的工作区安排管理者。',
     empty: '写给 {{workspace}} 的管理者：它在终端里读到，在这里回复。',
     every: '所有管理者',
     everyEmpty: '一次写给所有在运行的管理者（本机和关注的机器上的）：每个管理者在自己的终端里读到，在这里回复，各自只管自己的工作区。',
@@ -513,6 +540,12 @@ export const zhCN: OneForm<typeof en> = {
     none: '这个项目还没有提交。'
   },
   inbox: {
+    seatPick: '这里有进行中的工作却没人接：安排一个管理者',
+    seatProposal: '它原来的终端里现在有一个 agent：确认它，或另选一个',
+    seatMoved: '有一个新终端报告了这个会话：确认即为一次新的任命',
+    seatNone: '{{workspace}}：没有管理者',
+    seatGone: '{{workspace}}：管理者没有在运行',
+    seats: '管理者',
     title: '需要你',
     blocking: '卡住了',
     blockedAgent: '{{agent}} 在终端里等你',
@@ -625,17 +658,18 @@ export const zhCN: OneForm<typeof en> = {
     held: '等待中：{{agent}} 正在做盲审任务，交付后才会发给它',
     notDelivered: '没送出：{{reason}}',
     reason: {
-      'no-manager': '这个意图还没有管理者',
+      'no-manager': '它的工作区还没有安排管理者',
       'manager-gone': '管理者没在运行',
       'runtime-down': '连不上 {{runtime}}',
       'runtime-error': '{{runtime}} 没有接收',
-      'no-workspace': '它的意图没有对应的 {{runtime}} 工作区',
+      'no-workspace': '它的管理者和任务的 agent 都没有在 {{runtime}} 里运行',
       timeout: '没有及时回答',
       restarted: '服务重启了',
       blocked: '它的 agent 一直在终端里等人回答',
       'not-ready': '新启动的 agent 一直没准备好接收提问；它的终端还在 {{runtime}} 里留着',
       'agent-gone': '做这个任务的 agent 已经不在运行',
       'gate-submitted': '它的 gate 已经提交，讨论已结束',
+      'seat-changed': '送达之前，这个工作区换了任命；请重新写给管理者',
       unknown: '没有说明原因'
     },
     failed: '没记下：服务没有收下'

@@ -53,6 +53,16 @@ pub fn held(session: &str, pane: &str, machine: Option<&str>) -> String {
     format!("session {session} was first seen in pane {pane}{on}, whose shell still runs; one session is one pane: close that pane, or start a new session here")
 }
 
+/// A session that holds a manager's seat shows in a pane that is not where it was seated.
+pub fn seat_elsewhere(session: &str, pane: &str, machine: Option<&str>, folder: &str, seat_machine: Option<&str>, seat_folder: &str) -> String {
+    let on = |m: Option<&str>| m.map(|m| format!(" on machine {m}")).unwrap_or_default();
+    format!(
+        "session {session} holds a manager's seat, given to it in {seat_folder}{}; pane {pane} shows it in {folder}{}. A manager's new terminal is the manager only once the user confirms it: ask the user (the workspace's line in the web UI, Manager, or `workriver workspace manager <ws> {session}` from the user's own terminal)",
+        on(seat_machine),
+        on(machine)
+    )
+}
+
 /// Two panes show one session nobody was seen with before.
 pub fn twice(session: &str, here: &str, there: &str) -> String {
     format!("session {session} shows in pane {here} and in pane {there} at once, and workriver has seen it in neither before: it takes it from neither. One session is one pane: close one of them, or start a new session in one")
@@ -84,9 +94,6 @@ pub const AS_ALLOWED: &str = "WORKRIVER_ALLOW_AS is set: any local caller may re
 /// An agent asks for what only the user does.
 pub const ONLY_THE_USER: &str = "only the user does this: in the web UI, or with the CLI from a terminal that is not an agent's: a new terminal window, or a Herdr pane with no agent (`!` in an agent's session runs in the agent's pane and does not count). Ask the user to run it there; give them the exact command";
 
-/// An agent registers as the manager of a workspace it does not run in.
-pub const MANAGE_YOUR_OWN: &str = "an agent manages the workspace it runs in: run `workriver manager here` in your own pane";
-
 /// A request that shows neither the user nor an agent.
 pub const NOT_THE_USER: &str = "workriver answers the user, and agents from their own Herdr pane; this request does not show it comes from either. As the user: in the browser, open workriver with `workriver open`; with the `workriver` CLI, use a terminal that is not an agent's pane, on the machine workriver runs on (it reads the user token there).";
 
@@ -95,7 +102,7 @@ pub const NOT_CONNECTED: &str = "the agent runtime (Herdr) is not connected";
 
 /// An intent with nowhere to start an agent for it.
 pub fn no_group(intent: &str) -> String {
-    format!("intent {intent} follows no Herdr workspace and none of its agents runs")
+    format!("neither the manager of intent {intent} nor the task's agent runs in Herdr: there is no terminal to open an agent beside")
 }
 
 // ---- what the CLI says ----
@@ -103,25 +110,11 @@ pub fn no_group(intent: &str) -> String {
 /// `--as user`, which names nobody any more.
 pub const AS_USER_GONE: &str = "--as user is gone: the user is whoever runs the CLI from a terminal that is not an agent's pane, on the machine workriver runs on";
 
-/// A command that needs an intent, in a workspace that has no current one.
-pub fn no_current_intent(group: &str) -> String {
-    format!("no intent given, and Herdr workspace {group} has no current intent; its manager starts one: `workriver backlog list`, then `workriver intent start <intent>`")
-}
-
-/// The same, run in no workspace.
-pub const NO_INTENT_NOWHERE: &str = "no intent given, and not inside a Herdr workspace; name one (see `workriver backlog list`)";
-
 /// `workriver open`, run by an agent.
 pub const OPEN_IS_THE_USERS: &str = "`workriver open` is the user's: run it from a terminal that is not an agent's pane";
 
 /// Before `workriver open --print` shows its link.
 pub const LINK_ON_A_SCREEN: &str = "Anyone who can read this terminal can open workriver as you with this link (agents read Herdr panes). It works once, for 60 seconds.";
-
-/// `workriver manager here`, run in no workspace.
-pub const MANAGER_HERE_NOWHERE: &str = "not inside a Herdr workspace: run `workriver manager here` in the manager's Herdr pane";
-
-/// `workriver intent start`, run in no workspace.
-pub const INTENT_START_NOWHERE: &str = "run `workriver intent start` in the manager's Herdr pane: the intent starts in that workspace";
 
 /// A machine whose connection is up while its agents cannot be read, in `machine list`.
 pub const REMOTE_SILENT: &str = "connected, but its Herdr does not answer";
@@ -135,22 +128,20 @@ A command run in an agent's Herdr pane is that agent's (by its session). One run
 with no agent, or in a terminal window outside Herdr, on the machine workriver runs on, is
 the user's (the CLI sends the user token, `<WORKRIVER_HOME>/user-token`). Anything else is
 refused: a command that names a pane it does not run in, one with no terminal in no pane,
-a request that is not this CLI's. Nobody is anyone by saying so. Decisions as the user, gates, chores done, projects, machines and workspace links are
-the user's alone. Inside a Herdr workspace the intent is the workspace's current one, so
-commands that take an intent may leave it out.";
+a request that is not this CLI's. Nobody is anyone by saying so. Decisions as the user, gates, chores done, projects, machines, workspaces and their
+managers' seats are the user's alone. A workspace is workriver's own (ws1…), not Herdr's:
+an agent's is the one it manages, else the one its tasks are in, and commands that take an
+intent may then leave it out (that workspace's current one).";
 
 pub const HELP_AS: &str = "For tests and development: record as this agent instead of the one in this Herdr pane. Refused unless the service was started with WORKRIVER_ALLOW_AS=1; never the user";
 pub const HELP_SERVE: &str = "Run the daemon: records events, reads git, follows the agents in Herdr, serves the web UI. Data lives in $WORKRIVER_HOME (default ~/workriver-data)";
 pub const HELP_OPEN: &str = "Open the web UI in the browser as the user: with a one-time link that gives the page its session. Not from an agent's pane";
 pub const HELP_MACHINE: &str = "Other machines whose agents (in their own Herdr) are followed over ssh";
-pub const HELP_WORKSPACE: &str = "Runtime workspaces (Herdr's) on this and other machines, and the links that make a workspace of another machine one with a workspace of this machine";
-pub const HELP_MANAGER: &str = "The manager: the one agent per Herdr workspace that splits work and hands it out";
+pub const HELP_WORKSPACE: &str = "Workspaces: workriver's own (ws1…), each in a project, with one manager the user seats; not Herdr's workspaces, which decide nothing";
+pub const HELP_MANAGER: &str = "The manager: the one agent per workspace, seated by the user, that splits work and hands it out";
 pub const HELP_TASK_SHOW: &str = "Everything about one task that you may see, in full: what it asks, where the work is, the findings it must answer with all that was added to them and every decision, steps, its output, commits and questions. Read it before you start a task. Without a task, in an agent's pane: the task that agent is on";
-pub const HELP_CHORE_INTENT: &str = "The intent it belongs to (i1…); default: the intent of this Herdr workspace";
-pub const HELP_INTENT_START: &str = "Start a planned intent in this Herdr workspace (run by its manager, in its pane): it becomes active and the workspace's current intent, where new units and tasks go";
-pub const HELP_UNIT_INTENT: &str = "The intent it serves (i1…); default: the current intent of this Herdr workspace";
-pub const HELP_MANAGER_HERE: &str = "Register the agent of this Herdr pane as the manager of its workspace. Decisions, gate results and batches of deferred findings for the intents active there are delivered to it";
-pub const HELP_MANAGER_HERE_INTENT: &str = "Before 0.2: the intent to manage, when not run inside a Herdr workspace";
+pub const HELP_CHORE_INTENT: &str = "The intent it belongs to (i1…); default: the current intent of your workspace";
+pub const HELP_UNIT_INTENT: &str = "The intent it serves (i1…); default: the current intent of your workspace";
 
 /// `workriver machine add`'s option for where the runtime's socket is over there: its id,
 /// its flag and its help.

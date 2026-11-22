@@ -13,7 +13,10 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
 ## Terms
 
 - **Intent**: a goal in a project; it groups the units that serve it. It is planned in the
-  project's roadmap until a Herdr workspace's manager starts it.
+  project's roadmap until it is started in a workspace of that project.
+- **Workspace**: where a project's intents run: one manager, one conversation with the
+  user. workriver's own record (`ws1`: an id, a name that is only shown, a project), made
+  by the user; not the agent runtime's group, which decides nothing.
 - **Unit**: a piece of an intent that can be implemented on its own, on its own branch.
 - **Task**: one piece of work handed to one agent (implement, review) or to the user (a
   gate); a node in a unit's graph. Not "bolt": in AI-DLC a bolt is a coarser delivery slice.
@@ -44,8 +47,9 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
   (`docs/design/caller-identity.md`). The instructions
   an agent needs travel inside the task message the manager sends it. MCP is not used
   for now; add it only if a harness that cannot run shell commands has to be supported.
-- Each intent (one Herdr workspace) has one manager agent of its own. It registers itself
-  with the CLI, splits the work into units and tasks, hands tasks to agents through the
+- Each workspace has one manager agent, seated by the user (the page, or `workriver
+  workspace manager` from the user's terminal; never by an agent). It splits the work of
+  the intents that run there into units and tasks, hands tasks to agents through the
   runtime, and receives the user's accepted findings. workriver records and delivers; the
   manager schedules.
 - Who is running, where, in what state, and delivering a message to an agent come from
@@ -53,8 +57,9 @@ Herdr runtime, delivery of the user's decisions to agents, the manager skill
   interface in workriver's own terms (agent, session, state, working directory, send a
   message, wait for a state); Herdr (through its socket API) is the first and only
   implementation, kept in one place so it can be replaced. No Herdr names (pane, tab)
-  outside that implementation; workspace is also workriver's own word (an intent runs in
-  one), so it may appear. Agents not running under Herdr are out of scope for now.
+  outside that implementation; workspace is workriver's own word and record, never the
+  runtime's (the runtime's group of a terminal is shown as a hint only: no record holds
+  it and no rule reads it). Agents not running under Herdr are out of scope for now.
 - Later: a desktop app and an iOS app (Tauri is the candidate for both; not decided).
 
 ## Layout
@@ -167,19 +172,27 @@ moves code keeps the guards of `docs/design/guards.md` green without editing the
   agent. No harness is named in code or in a refusal; what a harness needs is in the
   `hand-off` recipe. Text written by agents or the user goes
   into messages only through `quote.rs`. An intent's project, the workspace it runs in and
-  its manager are set only by the user or by a start the rules checked (`docs/security.md`):
-  a workspace an agent's event names is recorded as the runtime gave it for the place the
-  caller was found at (`App::who_in`, `callers_workspace`; never a list read earlier), and
-  every event that names a runtime group passes `not_another_open`, on the groups that
-  group's machine gives at the request (`Runtime::groups_on`; it cannot be asked: 503). Both
-  are in `App::record_in`, which checks against the store and records under one lock of it;
-  a new kind that names a workspace joins them. An intent follows its workspace's record to
-  a new id or label (`workspace_mut`), and the rules never read an intent's project from
-  its units (`intent_project`). Reading is
+  its manager are set only by the user or by a start the rules checked (`docs/security.md`),
+  and all three are checked in core's `prepare`, against the store, when the event is
+  recorded: a workspace is found by its id (`ws1`), never by anything the runtime says of
+  its groups, and never taken from the request's word alone (it exists, is open, is of the
+  intent's project, and for a manager's start is the one it holds the seat of, which the
+  rules fill in). A manager's seat is set by one event, the user's only
+  (`workspace.manager_set`): no agent event sets a seat, a workspace or a project, and a
+  new kind that does one of these is `Body::user_only`. The service adds to a seating only
+  what it reads of the runtime, for the user's own event (`App::seating`: the one root the
+  session's machine shows it at; its machine and folder; the pin), never a seat. A seated
+  session's root is kept (`App::one_place`, `see_roots`): it comes back by itself only on
+  the seat's machine and in its folder, anything else is refused until the user seats it.
+  What is sent to or asked under one appointment (`Seat.since`) never reaches another
+  (`appointed`, `still_appointed`). The rules never read an intent's project from its units
+  or from a folder no registered project holds (`intent_project`). Reading is
   scoped the same way: a route that
-  returns records goes through `App::view` (the user sees all; an agent sees all unless it
-  is on an undelivered blind task, then only `State::blind_view`; nobody else reads). A new
-  read route that skips it breaks blind reviews.
+  returns records goes through `App::view` (the user sees all; an agent sees all but the
+  conversations of workspaces whose seat it does not hold, `State::conversations_of`,
+  unless it is on an undelivered blind task, then only `State::blind_view`; nobody else
+  reads). A new read route that skips it breaks blind reviews and lets one workspace's
+  manager read another's conversation.
 - Read `DESIGN.md`, and the file of `docs/design/ui/` for the part you change, before
   changing anything in `frontend/`.
 - Test data files live in a `__fixtures__/` folder beside the tests that read them.

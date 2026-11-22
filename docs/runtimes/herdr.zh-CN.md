@@ -6,7 +6,8 @@ workriver 通过一个 agent 运行时得知谁在运行、在哪里、处于什
 目前这个运行时是 [Herdr](https://herdr.dev)，也是 workriver 唯一支持的一个。其他文档里属于
 Herdr 自己的内容都放在这一页：[README](../README.zh-CN.md)、[上手](../getting-started.zh-CN.md)
 和[安全模型](../security.zh-CN.md)里说"运行时"的地方，指的就是 Herdr；说 agent 的终端的地方，
-指的是它所在的 Herdr 窗格；工作区就是 Herdr 工作区。
+指的是它所在的 Herdr 窗格。工作区不是 Herdr 的：workriver 的工作区是它自己的记录（`ws1`），
+Herdr 工作区只是窗格所在的地方。
 
 ## 安装和运行
 
@@ -25,8 +26,16 @@ Herdr 的 socket 是 `~/.config/herdr/herdr.sock`（或 `HERDR_SOCKET_PATH`）�
 
 ## 工作区和管理者
 
-一个 Herdr 工作区跑一个或多个意图；每个 Herdr 工作区有一个管理者 agent 负责规划。一个工作区的
-管理者在自己的窗格里用 `workriver manager here` 登记，每个工作区一个。
+工作区是 workriver 自己的记录，由你在某个项目里建立；Herdr 工作区只是一组窗格。Herdr 工作区的任何
+东西都不能认出 workriver 的工作区：Herdr 重启后会把已关闭工作区的 id 再发一次，两个工作区可以同名，
+任何程序都能通过 socket 给它们改名、新建、关闭。所以窗格怎么摆随你（一个 workriver 工作区对应一个
+Herdr 工作区看起来清楚，但不是要求）：workriver 只在 agent 旁边显示它的窗格在哪个 Herdr 工作区，并把
+临时 agent 的窗格开在它服务的那个 agent 旁边。
+
+工作区的管理者由你自己指定：在一个窗格里启动 coding agent，然后在页面上选它（该工作区那一行的
+"管理者"），或者在没有 agent 的窗格、或 Herdr 之外的终端里运行 `workriver workspace manager ws1 <agent>`。
+Herdr 重启后所有窗格都是新的：在同一个文件夹里恢复的管理者会自己重新成为管理者；不是这样的，在
+"需要你"里等你点一下。
 
 管理者用 Herdr 自己的命令启动干活的 agent、把任务交给它（见 `herdr --skill`）：
 

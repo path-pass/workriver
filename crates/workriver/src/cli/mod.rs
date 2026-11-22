@@ -37,8 +37,6 @@ pub(crate) use work::*;
 pub(super) struct Cx<'a> {
     pub(super) d: &'a Daemon,
     pub(super) actor: &'a str,
-    pub(super) here: &'a Option<Value>,
-    pub(super) group: &'a Option<Value>,
     pub(super) here_intent: &'a dyn Fn(Option<String>) -> anyhow::Result<String>,
 }
 
@@ -297,29 +295,23 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
         bail!(runtime::words::AS_USER_GONE);
     }
     // Who records, and in which intent, the service finds from the place this process runs in.
-    // Where it runs matters to these: the workspace's current intent, or the workspace itself.
-    let needs_place = matches!(
-        cli.cmd,
-        Cmd::Unit(UnitCmd::Add { intent: None, .. })
-            | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. })
-            | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
-            | Cmd::Intent(IntentCmd::Start { .. })
-    );
+    // Which intent matters to these when none is given: the current one of the caller's workspace.
+    let needs_place = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. }));
     let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
-    // Who records is the daemon's to find, from this place; the CLI only asks where it is
-    // for the commands that need the workspace or its current intent.
+    // Who records is the daemon's to find, from this place; the CLI only asks who it is and
+    // which workspace is its own (by the records: its seat, else its tasks') for the commands
+    // that need that workspace's current intent.
     let here = if records && needs_place { Some(d.call("/api/here", Some(json!({})))?) } else { None };
-    let group = here.as_ref().map(|h| h["group"].clone()).filter(|g| !g.is_null());
     // `--as`, where the service allows it; else empty: whoever the service finds this to be.
     let actor = cli.actor.clone().unwrap_or_default();
     let actor = actor.as_str();
     let here_intent = |given: Option<String>| {
-        given.or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string))).ok_or_else(|| match &group {
-            Some(g) => anyhow!(runtime::words::no_current_intent(g["label"].as_str().unwrap_or("?"))),
-            None => anyhow!(runtime::words::NO_INTENT_NOWHERE),
+        given.or_else(|| here.as_ref().and_then(|h| h["intent"].as_str().map(str::to_string))).ok_or_else(|| match here.as_ref().and_then(|h| h["workspace"]["id"].as_str()) {
+            Some(w) => anyhow!("no intent given, and workspace {w} has no current intent; its manager starts one: `workriver backlog list`, then `workriver intent start <intent>`"),
+            None => anyhow!("no intent given, and yours cannot be told: you hold no workspace's seat, and the tasks you have are in no one workspace; name the intent (see `workriver backlog list`)"),
         })
     };
-    let cx = Cx { d: &d, actor, here: &here, group: &group, here_intent: &here_intent };
+    let cx = Cx { d: &d, actor, here_intent: &here_intent };
     let out = match cli.cmd {
         Cmd::Serve { .. } | Cmd::Guide { .. } | Cmd::Perf { .. } => unreachable!(),
         Cmd::Status => {
@@ -406,9 +398,15 @@ pub(crate) fn made(out: &serde_json::Value) -> String {
         Some("unit.relocated") => format!("{} is now {}{}, branch {} from {}", b["unit"].as_str().unwrap_or("?"), b["machine"].as_str().map(|m| format!("on {m}: ")).unwrap_or_default(), b["repo"].as_str().unwrap_or("?"), b["branch"].as_str().unwrap_or("?"), b["base"].as_str().unwrap_or("?")),
         Some("commit.linked") => format!("{} is now part of {}#{}", b["hash"].as_str().unwrap_or("?").chars().take(9).collect::<String>(), b["unit"].as_str().unwrap_or("?"), b["task"]),
         Some("commit.unlinked") => "unlinked".into(),
-        Some("workspace.linked") => "linked".into(),
-        Some("workspace.unlinked") => "unlinked".into(),
-        Some("workspace.project_set") => b["project"].as_str().map(|p| format!("works on {p}")).unwrap_or_else(|| "worked out by workriver".into()),
+        Some("workspace.created") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["name"].as_str().unwrap_or("?")),
+        Some("workspace.renamed") => format!("{} is now {}", b["workspace"].as_str().unwrap_or("?"), b["name"].as_str().unwrap_or("?")),
+        Some("workspace.closed") => format!("{} closed", b["workspace"].as_str().unwrap_or("?")),
+        Some("workspace.opened") => format!("{} open", b["workspace"].as_str().unwrap_or("?")),
+        Some("workspace.manager_set") => match b["manager"].as_str() {
+            Some(m) => format!("{m} is the manager of {}; it was told in its terminal", b["workspace"].as_str().unwrap_or("?")),
+            None => format!("{} has no manager now", b["workspace"].as_str().unwrap_or("?")),
+        },
+        Some("intent.workspace_set") => format!("{} runs in {}", b["intent"].as_str().unwrap_or("?"), b["workspace"].as_str().unwrap_or("?")),
         Some("project.added") => format!("{} {}", b["id"].as_str().unwrap_or("?"), b["path"].as_str().unwrap_or("?")),
         Some("intent.merged") => format!("merged {} into {}{}", b["from"].as_array().into_iter().flatten().filter_map(|f| f.as_str()).collect::<Vec<_>>().join(" "), b["intent"].as_str().unwrap_or("?"), b["title"].as_str().map(|t| format!(", now \"{t}\"")).unwrap_or_default()),
         // What the service asks of the one who ran it next (a manager closing its intent).

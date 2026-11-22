@@ -18,7 +18,6 @@ use workriver_scan as scan;
 use crate::common::BUILD;
 use crate::common::process::Procs;
 use crate::runtime::follow::Machines;
-use crate::runtime::words;
 use crate::server::Waits;
 use crate::server::access::auth::Auth;
 use crate::server::access::caller::Callers;
@@ -110,8 +109,10 @@ pub(super) struct App {
     pub(super) metrics: Arc<Metrics>,
     /// Each followed machine's own listener, to end it when the machine is no longer followed.
     pub(super) listeners: Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
-    /// The runtime's groups as last polled, with or without agents.
-    pub(super) groups: Mutex<Vec<core::RuntimeRef>>,
+    /// The workspaces (by id) whose seated manager is not at the root it was seated at, as
+    /// last read (`App::see_roots`): each with the session the page proposes to the user for
+    /// the seat, if there is one.
+    pub(super) proposals: Mutex<std::collections::HashMap<String, Option<String>>>,
     /// Which machines' connections were up at the last poll: the page hears of a change at once.
     pub(super) tunnels: Mutex<Vec<(String, bool)>>,
     /// Who the user is: the token, sessions of the page, one-time codes.
@@ -193,7 +194,11 @@ impl App {
     /// Sends a message to an agent. One on another machine cannot open files of this
     /// machine: paths into the attachment store become links through its tunnel.
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        let machine = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to).and_then(|a| a.machine);
+        let found = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to);
+        if self.seat_lost(found.as_ref().map_or(to, |a| a.session.as_str())) {
+            return Err(RuntimeError::NoAgent(to.into()));
+        }
+        let machine = found.and_then(|a| a.machine);
         self.runtime.send(to, &self.readable_on(machine.as_deref(), text))
     }
 
@@ -201,6 +206,10 @@ impl App {
     /// the caller found it in the runtime, and to no other: one that is gone is not replaced
     /// by an agent going by its name. Files as `send` gives them, for that machine.
     pub(super) fn send_to(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
+        // A manager whose terminal is gone is not the terminal that reports its session now.
+        if self.seat_lost(session) {
+            return Err(RuntimeError::NoAgent(session.into()));
+        }
         self.runtime.send_to(machine, session, &self.readable_on(machine, text))
     }
 

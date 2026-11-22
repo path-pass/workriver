@@ -65,6 +65,7 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/backlog/merge", post(merge))
         .route("/api/focus", post(focus))
         .route("/api/intent/start", post(start_intent))
+        .route("/api/workspaces", post(workspace_set))
         .route("/api/run/prepare", post(run_prepare))
         .route("/api/run", post(run_command))
         .route("/api/run/{id}", get(run_read))

@@ -7,19 +7,14 @@ import { Switch } from '@/ui/primitives/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/primitives/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/ui/primitives/toggle-group'
 import { MOCK } from '@/workspace/source'
-import { machines as loadMachines, metrics as loadMetrics, notifyWanted, record, RUN_GROUP, setMachine, setStallMinutes, setThresholds, stallMinutes, wantNotify } from '@/api/actions'
-import type { RuntimeWorkspace } from '@/agents/types'
+import { machines as loadMachines, metrics as loadMetrics, notifyWanted, setMachine, setSpace, setStallMinutes, setThresholds, stallMinutes, wantNotify, type SpaceAct } from '@/api/actions'
+import { openSeat } from '@/planning/Seat'
 import type { Levels, Machine, Thresholds } from './types'
 import type { Workspace } from '@/workspace/types'
 import { Trans } from 'react-i18next'
 import { contentLang, LANGS, useT, type Lang } from '@/i18n'
 import { readTheme, setTheme, THEMES, type Theme } from '@/theme'
-import { Content, Slot, SLOT } from '@/content/Chips'
-import { Choice } from '@/ui/Choice'
 import { chime, soundMissed, soundWanted, wantSound } from '@/attention/sound'
-
-/** Not linked, in the link picker (Radix takes no empty value). */
-const NONE = '-'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -32,7 +27,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 /**
  * The other machines: add one (a name and its ssh target), follow it or not, see whether its
- * connection is up and why not; and link a workspace over there to one here.
+ * connection is up and why not. (An agent over there joins a workspace as any agent does:
+ * seated as its manager, or through the tasks it is given. There are no links.)
  */
 function Machines({ ws }: { ws: Workspace | null }) {
   const { t, date } = useT()
@@ -46,12 +42,6 @@ function Machines({ ws }: { ws: Workspace | null }) {
   useEffect(() => { loadMachines().then(setList, () => {}) }, [ws?.machines?.length])
   const live = (m: Machine) => ws?.machines?.find(x => x.label === m.label) ?? m
   const state = (m: Machine) => !m.enabled ? t('machines.off') : m.connecting ? t('machines.connecting') : m.tunnel && m.reachable ? t('machines.connected', { count: m.agents }) : m.tunnel ? t('machines.noHerdr') : m.downSince ? t('machines.downSince', { time: date(m.downSince) }) : t('machines.down')
-  const here = (ws?.workspaces ?? []).filter(g => !g.machine)
-  const there = (ws?.workspaces ?? []).filter(g => g.machine)
-  const link = (machine: string, workspace: string, to: string, was?: string) => {
-    const undo = was ? record('workspace.unlinked', { machine, workspace }) : Promise.resolve()
-    undo.then(() => (to ? record('workspace.linked', { machine, workspace, local: to }) : undefined)).then(() => setError(''), fail)
-  }
   const field = 'w-0 min-w-0 flex-1 rounded-sm border border-line bg-surface px-2 py-1 text-sm'
   return (
     <div className="flex flex-col gap-2">
@@ -73,72 +63,51 @@ function Machines({ ws }: { ws: Workspace | null }) {
         <input className={field} value={ssh} onChange={e => setSsh(e.target.value)} placeholder={t('machines.ssh')} aria-label={t('machines.ssh')} />
         <Button type="submit" size="sm" variant="outline" disabled={!name.trim() || !ssh.trim()}>{t('machines.add')}</Button>
       </form>
-      {there.length > 0 && (
-        <>
-          <h4 className="pt-1 text-xs font-semibold">{t('machines.links')}</h4>
-          <p className="text-xs text-ink-2">{t('machines.linkLead')}</p>
-          {there.map(g => (
-            <label key={g.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-center gap-2 text-sm">
-              <span className="truncate" title={`${g.machine}:${g.label}`}><span className="font-mono text-xs text-ink-2">{g.machine}:</span><span lang={contentLang(g.label)}>{g.label}</span></span>
-              {/* A linked workspace that is not open here now still shows what it is linked to. */}
-              <Choice
-                label={t('machines.linkTo', { machine: g.machine, workspace: g.label })}
-                value={g.linkedTo ?? NONE}
-                onChange={v => link(g.machine!, g.label, v === NONE ? '' : v, g.linkedTo)}
-                options={[{ value: NONE, label: t('machines.notLinked') }, ...[...new Set([...here.map(h => h.label), ...(g.linkedTo ? [g.linkedTo] : [])])].map(l => ({ value: l, label: l, lang: contentLang(l) }))]}
-                className="h-7 w-full"
-              />
-            </label>
-          ))}
-        </>
-      )}
       {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
     </div>
   )
 }
 
-/** Worked out by workriver, in the project picker. */
-const AUTO = '-'
-
-/** The workspaces of this machine a project can be set for. */
-const ownWorkspaces = (ws: Workspace | null) => (ws?.workspaces ?? []).filter(g => !g.machine && g.label !== RUN_GROUP)
-
 /**
- * Which project each workspace here works on: worked out by workriver (from where its
- * manager runs, else its current intent), or set by the user, which wins. Starting an
- * intent of another project there asks first.
+ * Every workspace, open and closed: its name and id, its project, its manager and state. An
+ * open one: seat its manager, or close it (refused while an intent is active in it); a closed
+ * one: open it again.
  */
-function WorkspaceProjects({ ws }: { ws: Workspace | null }) {
+function Workspaces({ ws }: { ws: Workspace | null }) {
   const { t } = useT()
   const [error, setError] = useState('')
-  const list = ownWorkspaces(ws)
-  const projects = ws?.projects ?? []
-  if (!list.length || !projects.length) return null
-  const set = (g: RuntimeWorkspace, v: string) =>
-    record('workspace.project_set', { workspace: { id: g.id, label: g.label }, project: v === AUTO ? null : v }).then(() => setError(''), e => setError(t('machines.failed', { error: String(e) })))
+  const list = ws?.workspaces ?? []
+  const act = (a: SpaceAct) => setSpace(a).then(() => setError(''), e => setError(t('machines.failed', { error: e instanceof Error ? e.message : String(e) })))
+  const title = (folder: string) => ws?.projects?.find(p => p.id === folder)?.title ?? ''
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-ink-2">{t('wsProject.lead')}</p>
-      {list.map(g => (
-        <label key={g.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-center gap-2 text-sm">
-          <span className="truncate" lang={contentLang(g.label)}>{g.label}</span>
-          <Choice
-            label={t('wsProject.pick', { workspace: g.label })}
-            value={g.projectFrom === 'user' && g.project ? g.project : AUTO}
-            onChange={v => set(g, v)}
-            options={[
-              g.project && g.projectFrom !== 'user'
-                ? (() => {
-                    const project = g.projectTitle ?? g.project, from = t(`wsProject.from.${g.projectFrom ?? 'intents'}`)
-                    return { value: AUTO, label: t('wsProject.auto', { project, from }), content: <Slot text={t('wsProject.auto', { project: SLOT, from })}><Content text={project} /></Slot> }
-                  })()
-                : { value: AUTO, label: t('wsProject.autoUnknown') },
-              ...projects.map(p => ({ value: p.id, label: p.title, lang: contentLang(p.title) })),
-            ]}
-            className="h-7 w-full"
-          />
-        </label>
-      ))}
+      <p className="text-xs text-ink-2">{t('spaces.lead')}</p>
+      <ul className="flex flex-col gap-1.5">
+        {list.map(w => (
+          <li key={w.id} className="flex items-center gap-2 text-sm" data-closed={w.closed || undefined}>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span className="min-w-0 truncate font-[550]" lang={contentLang(w.name)}>{w.name}</span>
+                <span className="flex-none font-mono text-xs text-ink-2">{w.id}</span>
+                {w.closed && <span className="tag flex-none font-normal">{t('spaces.closed')}</span>}
+              </span>
+              <span className="flex min-w-0 gap-1.5 text-xs text-ink-2">
+                <span className="min-w-0 truncate" lang={contentLang(title(w.project))}>{title(w.project)}</span>
+                <span className="flex-none">·</span>
+                <span className="min-w-0 truncate">{w.manager ? t('manager.of', { name: w.manager.name, state: t(`manager.state.${w.manager.state}`) }) : t('manager.state.none')}</span>
+              </span>
+            </span>
+            {w.closed
+              ? <Button variant="outline" size="sm" className="h-7 flex-none" onClick={() => act({ action: 'open', workspace: w.id })}>{t('spaces.open')}</Button>
+              : (
+                <>
+                  <Button variant="outline" size="sm" className="h-7 flex-none" onClick={() => openSeat(w.id, w.proposal)}>{t('rail.spaceManager')}</Button>
+                  <Button variant="ghost" size="sm" className="h-7 flex-none" onClick={() => act({ action: 'close', workspace: w.id })}>{t('rail.spaceClose')}</Button>
+                </>
+              )}
+          </li>
+        ))}
+      </ul>
       {error && <p role="alert" className="text-xs wrap-anywhere text-you-ink">{error}</p>}
     </div>
   )
@@ -351,7 +320,7 @@ function General() {
 }
 
 /** Settings' groups, one tab each, in this order: the person's own first. */
-export const GROUPS = ['general', 'workers', 'projects', 'alerts', 'machines'] as const
+export const GROUPS = ['general', 'workers', 'workspaces', 'alerts', 'machines'] as const
 export type SettingsGroup = (typeof GROUPS)[number]
 
 /** The tab last picked, kept in this browser. */
@@ -382,11 +351,11 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
     return () => { openers.delete(opener) }
   }, [])
   // A group with nothing to set here has no tab; its remembered pick shows the first.
-  const shown = GROUPS.filter(g => (g === 'projects' ? ownWorkspaces(ws).length > 0 && (ws?.projects ?? []).length > 0 : g !== 'machines' || !MOCK))
+  const shown = GROUPS.filter(g => (g === 'workspaces' ? (ws?.workspaces ?? []).length > 0 : g !== 'machines' || !MOCK))
   const label: Record<SettingsGroup, string> = {
     general: t('settings.general'),
     workers: t('settings.stall.title'),
-    projects: t('wsProject.title'),
+    workspaces: t('spaces.title'),
     alerts: t('alerts.title'),
     machines: t('machines.title'),
   }
@@ -418,7 +387,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
               screen the tabs wrap, each keeping its own height (shadcn sizes it to the list). */}
           <TabsContent value="general" className="min-h-0 overflow-y-auto pt-1"><General /></TabsContent>
           <TabsContent value="workers" className="min-h-0 overflow-y-auto pt-1"><Stall /></TabsContent>
-          <TabsContent value="projects" className="min-h-0 overflow-y-auto pt-1"><WorkspaceProjects ws={ws} /></TabsContent>
+          <TabsContent value="workspaces" className="min-h-0 overflow-y-auto pt-1"><Workspaces ws={ws} /></TabsContent>
           <TabsContent value="alerts" className="min-h-0 overflow-y-auto pt-1"><MachineAlerts /></TabsContent>
           {!MOCK && <TabsContent value="machines" className="min-h-0 overflow-y-auto pt-1"><Machines ws={ws} /></TabsContent>}
         </Tabs>

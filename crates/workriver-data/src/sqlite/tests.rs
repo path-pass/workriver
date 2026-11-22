@@ -126,6 +126,7 @@ fn an_intents_history_is_read_with_what_was_merged_into_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut s = Store::open(&dir.path().join("w.db")).unwrap();
     for v in [
+        json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}}),
         json!({"kind": "intent.created", "body": {"title": "Search", "project": "/p", "state": "planned"}}),
         json!({"kind": "intent.created", "body": {"title": "Emoji", "note": "By name", "project": "/p", "state": "planned"}}),
         json!({"kind": "intent.created", "body": {"title": "Codes", "project": "/p", "state": "planned"}}),
@@ -140,7 +141,7 @@ fn an_intents_history_is_read_with_what_was_merged_into_it() {
         s.append(&Principal::User, body(v)).unwrap();
     }
     let got = s.intent_events("i1").unwrap();
-    assert_eq!(got.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 2, 3, 5, 6, 9, 10], "its own, i2's and i3's: no move, nothing of i4");
+    assert_eq!(got.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 3, 4, 6, 7, 10, 11], "its own (after the project's event), i2's and i3's: no move, nothing of i4");
     let all = s.history(workriver_core::ports::Revision(0), 100).unwrap().events;
     assert_eq!(intent_versions(&got, "i1"), intent_versions(&all, "i1"));
     assert_eq!(intent_text(&got, "i1", 2), intent_text(&all, "i1", 2));
@@ -159,6 +160,7 @@ fn kind_size_and_tags_survive_storing_and_reopening() {
     {
         let mut s = Store::open(&path).unwrap();
         for v in [
+            json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}}),
             json!({"kind": "intent.created", "body": {"title": "Login", "project": "/p", "state": "planned", "kind": "fix", "size": "s", "tags": ["Security"]}}),
             json!({"kind": "intent.updated", "body": {"intent": "i1", "goal": "No lockout", "base": 1}}),
             json!({"kind": "intent.updated", "body": {"intent": "i1", "kind": null, "tags": [], "base": 2}}),
@@ -171,13 +173,54 @@ fn kind_size_and_tags_survive_storing_and_reopening() {
     let i = s.state().intent("i1").unwrap();
     assert_eq!((i.kind, i.size, i.tags.len(), i.goal.as_str()), (Some(IntentKind::Feature), Some(IntentSize::S), 0, "No lockout"));
     let all = s.history(workriver_core::ports::Revision(0), 100).unwrap().events;
-    let Body::IntentUpdated { kind, size, tags, .. } = &all[2].body else { panic!() };
+    let Body::IntentUpdated { kind, size, tags, .. } = &all[3].body else { panic!() };
     assert_eq!((kind, size, tags), (&Some(None), &None, &Some(vec![])), "null and [] are read back as written, an absent size as absent");
-    let Body::IntentUpdated { kind, tags, .. } = &all[1].body else { panic!() };
+    let Body::IntentUpdated { kind, tags, .. } = &all[2].body else { panic!() };
     assert_eq!((kind, tags), (&None, &None), "an unrelated edit carries none of them");
     let got = s.intent_events("i1").unwrap();
     let seen: Vec<_> = intent_versions(&got, "i1").iter().map(|v| (v.kind, v.tags.clone())).collect();
     assert_eq!(seen, [(Some(Some(IntentKind::Fix)), Some(vec!["security".to_string()])), (None, None), (Some(None), Some(vec![])), (Some(Some(IntentKind::Feature)), None)]);
     let v1 = intent_text(&got, "i1", 1).unwrap();
     assert_eq!((v1.kind, v1.size, v1.tags), (Some(IntentKind::Fix), Some(IntentSize::S), vec!["security".to_string()]));
+}
+
+/// A file as the version before virtual workspaces left it: the first schema step only.
+fn before_the_format(path: &std::path::Path, events: usize) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch(super::migrations::MIGRATIONS[0]).unwrap();
+    conn.pragma_update(None, "user_version", 1).unwrap();
+    for _ in 0..events {
+        conn.execute("INSERT INTO events (at, kind, actor, body) VALUES ('2026-01-01T00:00:00Z', 'intent.created', 'user', '{\"id\":\"i1\",\"title\":\"Old\"}')", []).unwrap();
+    }
+}
+
+fn version(path: &std::path::Path) -> (i64, bool) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let marked = conn.query_row("SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'format')", [], |r| r.get(0)).unwrap();
+    (conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap(), marked)
+}
+
+/// The product reads only the new form: a store with events and without the format's step
+/// is refused, naming the script, and opening it does not mark it; a new store, and one
+/// that holds no events yet, is marked.
+#[test]
+fn a_store_without_the_format_mark_is_refused_and_never_marked() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("old.db");
+    before_the_format(&old, 1);
+    for _ in 0..2 {
+        let err = Store::open(&old).err().expect("refused").to_string();
+        assert!(err.contains("scripts/migrate-virtual-workspaces") && err.contains("Nothing was changed"), "{err}");
+        assert_eq!(version(&old), (1, false), "left as it is");
+    }
+    let empty = dir.path().join("empty.db");
+    before_the_format(&empty, 0);
+    Store::open(&empty).unwrap();
+    assert_eq!(version(&empty), (2, true), "nothing to migrate: marked");
+    let new = dir.path().join("new.db");
+    let mut s = Store::open(&new).unwrap();
+    assert_eq!(version(&new), (2, true));
+    s.append(&Principal::User, body(json!({"kind": "intent.created", "body": {"title": "New", "state": "planned"}}))).unwrap();
+    drop(s);
+    assert_eq!(Store::open(&new).unwrap().state().intents.len(), 1, "a marked store with events opens");
 }

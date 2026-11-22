@@ -146,7 +146,7 @@ fn design_tasks_decide_gates_and_revised_findings() {
 fn deferred_batches() {
     let mut s = Records::default();
     seeded(&mut s);
-    let w1 = json!({"id": "w1", "label": "chat"});
+    let w1 = workspace(&mut s, "chat", "/r");
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "defer", "by": "user"}})).unwrap();
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "decision": "defer", "by": "user"}})).unwrap();
     let f = add(&mut s, "user", json!({"kind": "finding.added", "body": {"project": "/r", "finding": {"severity": "P1", "problem": "Old leak"}, "source": "## feature-x 遗留", "note": "修法: close it", "external": null}})).unwrap();
@@ -162,7 +162,7 @@ fn deferred_batches() {
     let batch = json!({"kind": "findings.batched", "body": {"intent": "i1", "findings": [{"unit": "u1", "task": 2, "finding": "P2-1"}, {"finding": "f1"}]}});
     // A legacy intent (created before 0.2) is active.
     assert_eq!(s.state().intent("i1").unwrap().state, IntentState::Active);
-    add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
+    seat(&mut s, &w1, "boss");
     add(&mut s, "user", batch).unwrap();
     let st = s.state();
     assert_eq!(st.task("u1", 2).unwrap().findings[0].state, FindingState::Scheduled);

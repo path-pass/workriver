@@ -94,6 +94,8 @@ manager of the workspace can no longer be answered; the page says so.
 **Refusals:** "a choice is stored as workriver's A2UI 1.0 subset; give it with --option" and
 the option rules of `ask-user`. "message m3 went to … only that manager replies to it" - it
 was sent to another manager (an earlier one of this workspace); the user can write again.
+"message m3 went to an earlier manager of workspace ws1; it takes no reply now" - you were
+seated anew since it was sent (`seat`): say what you have to say with `workriver say`.
 "message m3 went to every manager; only the managers it went to reply to it" - it went to the
 managers running when it was sent, and you were not one of them. "no message m3" - check the
 id in the message.
@@ -103,9 +105,10 @@ id in the message.
 The user may write once to every manager running (here and on followed machines). It arrives
 like this:
 
-    [workriver] The user writes to every manager from workriver's page (message m3, to the managers of 3 workspaces): answer for your own workspace, "chat", only. Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. … The user says, in workriver: «I shut down at six: clean up the worktrees you no longer use.»
+    [workriver] The user writes to every manager from workriver's page (message m3, to the managers of 3 workspaces): answer for your own workspace, ws2 "chat", only. Reply with `workriver reply m3 --text "..."`; the user reads replies there, not in this terminal. … The user says, in workriver: «I shut down at six: clean up the worktrees you no longer use.»
 
-Every other manager got the same message; each answers for its own workspace. Do for yours
+Every other manager got the same message; each answers for its own workspace (you are
+shown only your own copy and your own replies, never another manager's). Do for yours
 what it asks (pause your workers, close those you no longer need, hand a clean-up to a
 worker, `closing-workers`), never for another workspace, and reply with what you did or will
 do there: `workriver reply m3 --text "chat: paused u2; worktrees of u1 removed."`. The page

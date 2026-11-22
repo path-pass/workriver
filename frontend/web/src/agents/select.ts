@@ -33,13 +33,11 @@ export interface AgentAt {
   at: { unit: Unit; node: Task } | null
 }
 
-/** Agents of one runtime workspace (or, in the sample, of no workspace). */
+/** Agents of one workspace (by the records), or of none (`key` empty). */
 export interface AgentGroup {
   key: string
-  /** The intent's title when the workspace has one, else the workspace's label. */
+  /** The workspace's name; empty for those in no workspace. */
   label: string
-  /** A workspace of another machine that is not linked to one of this machine. */
-  machine?: string
   intent: Intent | null
   agents: AgentAt[]
 }
@@ -50,7 +48,7 @@ export function agents(ws: Workspace): AgentAt[] {
 }
 
 /**
- * Live agents by runtime workspace: groups with someone working first, then by label;
+ * Live agents by workspace: groups with someone working first, then by name;
  * inside, the manager, then working, blocked, holding work, idle.
  */
 export function agentGroups(ws: Workspace): AgentGroup[] {
@@ -62,8 +60,9 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
     // Working without a node of its own (a manager planning, say): working all the same.
     const [state, at]: [AgentState, AgentAt['at']] = running ? ['working', running] : s.state === 'working' ? ['working', todo ?? last] : todo ? ['queued', todo] : ['idle', last]
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
-    const key = s.group?.id ?? intent?.id ?? ''
-    if (!groups.has(key)) groups.set(key, { key, label: s.group?.label ?? intent?.title ?? '', machine: s.group?.machine, intent, agents: [] })
+    const space = ws.workspaces?.find(w => w.id === s.workspace)
+    const key = space?.id ?? ''
+    if (!groups.has(key)) groups.set(key, { key, label: space?.name ?? '', intent, agents: [] })
     groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
   }
   const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
@@ -93,12 +92,12 @@ export interface TreeAgent {
   kids: TreeAgent[]
 }
 
-/** A runtime workspace: its manager, and the workers (with their question agents) under it. */
+/** A workspace (`key`: its id): its manager, and the workers (with their question agents)
+ *  under it. `key` empty: the agents with tasks that are in no one workspace. */
 export interface TreeGroup {
   key: string
+  /** The workspace's name. */
   label: string
-  /** A workspace of another machine that is not linked to one of this machine. */
-  machine?: string
   /** The workspace's current intent. */
   intent: Intent | null
   manager: TreeAgent | null
@@ -126,14 +125,15 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
     return { s, state, since, at: live ?? last, current: !!live, closable: state === 'idle' && !live && own.length > 0, kids: [] }
   }
   const groups = new Map<string, TreeGroup>()
-  const group = (key: string, label: string, intent: Intent | null, machine?: string) => {
-    if (!groups.has(key)) groups.set(key, { key, label, machine, intent, manager: null, workers: [] })
+  // By the workspace the records say (its seat, else its tasks'), never by where the runtime
+  // shows its terminal; with none, under "In no workspace" (`key` empty).
+  const group = (id: string | undefined) => {
+    const space = ws.workspaces?.find(w => w.id === id)
+    const key = space?.id ?? ''
+    if (!groups.has(key)) groups.set(key, { key, label: space?.name ?? '', intent: ws.intents.find(i => i.id === space?.current) ?? null, manager: null, workers: [] })
     return groups.get(key)!
   }
-  const groupOf = (s: Session) => {
-    const intent = ws.intents.find(i => i.id === s.intent) ?? null
-    return group(s.group?.id ?? intent?.id ?? '', s.group?.label ?? intent?.title ?? '', intent, s.group?.machine)
-  }
+  const groupOf = (s: Session) => group(s.workspace)
   const own: TreeAgent[] = [], questions: TreeAgent[] = []
   for (const s of ws.sessions) {
     const q = QUESTION.exec(s.agent)?.[1]
@@ -158,7 +158,7 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
       const open = held.find(a => a.node.state === 'running' || a.node.state === 'todo')
       if (!open) continue
       const i = intentOfUnit(open.unit)
-      group(i.workspace?.id ?? i.id, i.workspace?.label ?? i.title, i).workers.push(agent(s, held))
+      group(i.workspace).workers.push(agent(s, held))
       continue
     }
     if (!held.length) { own.push(agent(s, [])); continue }
@@ -176,6 +176,7 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
   const list = [...groups.values()]
   for (const g of list) g.workers.sort((a, b) => rank(a) - rank(b) || a.s.agent.localeCompare(b.s.agent))
   const busy = (g: TreeGroup) => (g.manager?.state === 'working' || g.workers.some(w => w.state === 'working') ? 0 : 1)
-  list.sort((a, b) => busy(a) - busy(b) || a.label.localeCompare(b.label))
+  // Those in no workspace come last.
+  list.sort((a, b) => Number(!a.key) - Number(!b.key) || busy(a) - busy(b) || a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
   return { groups: list, own: own.sort((a, b) => a.s.agent.localeCompare(b.s.agent)) }
 }

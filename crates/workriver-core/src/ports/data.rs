@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::access::{Principal, Rejected};
 use crate::records::{Body, Event, State};
-use crate::{Agent, CommandRun, Delivery, DeliveryStep, Intent, Project, Question, RuntimeRef, Task, Thread, Unit, Workspace};
+use crate::{Agent, CommandRun, Delivery, DeliveryStep, Project, Question, Task, Thread, Unit, Workspace};
 
 /// How far the record has got: the number of its last committed change (that event's
 /// `seq`), 0 before the first. History is read by it too: it is the cursor.
@@ -187,20 +187,19 @@ pub trait WorkStore: Send {
         Ok(self.recorded()?.projects.iter().find(|p| p.id == id).cloned())
     }
 
-    /// The intent a runtime group works on now, if any.
-    fn intent_in(&self, group: &RuntimeRef) -> Result<Option<Intent>, DataError> {
-        Ok(self.recorded()?.intent_for(group).cloned())
+    /// A workspace by its id (`ws1`).
+    fn workspace(&self, id: &str) -> Result<Workspace, DataError> {
+        Ok(self.recorded()?.workspace(id)?.clone())
     }
 
-    /// The record a runtime group is matched to (by its id, else its label, or its link),
-    /// if any.
-    fn workspace_in(&self, group: &RuntimeRef) -> Result<Option<Workspace>, DataError> {
-        Ok(self.recorded()?.workspace_of(group).cloned())
+    /// The workspace whose seat `session` holds, if any.
+    fn seat_of(&self, session: &str) -> Result<Option<Workspace>, DataError> {
+        Ok(self.recorded()?.seat_of(session).cloned())
     }
 
-    /// Whether `session` is the manager of any workspace.
+    /// Whether `session` holds the seat of any workspace.
     fn manages(&self, session: &str) -> Result<bool, DataError> {
-        Ok(self.recorded()?.workspaces.iter().any(|w| w.manager.as_deref() == Some(session)))
+        Ok(self.seat_of(session)?.is_some())
     }
 
     /// Every unit, in the order they were made.

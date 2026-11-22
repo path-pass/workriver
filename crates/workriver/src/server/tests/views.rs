@@ -42,10 +42,9 @@ fn linked_commits_and_rebased_branches() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, w, x) = (at("p1"), at("p2"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, after) in [("First", "start"), ("Second", "1")] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": "s-w", "inputs": [{ "from": after }] })).unwrap();
@@ -127,10 +126,9 @@ fn a_task_shown_in_full() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, rev, fix, sec) = (at("p1"), at("p2"), at("p3"), at("p4"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login.", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Tokens that expire", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-fix" })).unwrap();
     rev.append("", "task.created", json!({ "unit": "u1", "kind": "review", "inputs": [{ "from": "1" }] })).unwrap();
@@ -287,10 +285,9 @@ fn a_waiting_gate_carries_its_attachments() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, imp, sec) = (at("p1"), at("p2"), at("p3"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "goal": "Safe login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "purpose": "Check tokens", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "agent": "s-imp" })).unwrap();
     imp.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
@@ -367,6 +364,9 @@ fn files_two_open_units_change() {
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
     let d = kernel.client(port, tmp.path());
     let (one, other) = (one.to_string_lossy().to_string(), other.to_string_lossy().to_string());
+    for (path, title) in [(&one, "One"), (&other, "Other")] {
+        d.append("user", "project.added", json!({ "path": path, "title": title })).unwrap();
+    }
     for (title, project) in [("Search", &one), ("Login", &one), ("Elsewhere", &other)] {
         d.append("user", "intent.created", json!({ "title": title, "project": project })).unwrap();
     }
@@ -446,6 +446,7 @@ fn overlaps_are_of_the_net_change() {
     std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, std::sync::Arc::new(workriver_core::runtime::NoRuntime), options)));
     let d = kernel.client(port, tmp.path());
     let repo = r.to_string_lossy().to_string();
+    d.append("user", "project.added", json!({ "path": repo, "title": "Repo" })).unwrap();
     for title in ["Search", "Login"] {
         d.append("user", "intent.created", json!({ "title": title, "project": repo })).unwrap();
     }
@@ -505,10 +506,9 @@ fn a_task_shows_who_did_it_and_where_its_session_is() {
     let user = kernel.client(port, tmp.path());
     let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
     let (boss, fix, cx, sec) = (at("p1"), at("p2"), at("p3"), at("p4"));
-    let group = json!({ "id": "w1", "label": "chat" });
+    let ws = seat_at(&user, &boss);
     user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
-    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
-    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     for (title, agent) in [("Check tokens", "s-fix"), ("Expire tokens", "0c0d-ex")] {
         boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": agent, "inputs": [{ "from": "start" }] })).unwrap();

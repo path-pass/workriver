@@ -4,7 +4,7 @@ use crate::records::tests::*;
 use crate::*;
 
 /// What is the user's is the user's whoever asks: an agent cannot submit a gate, finish a
-/// chore, batch or drop findings, link workspaces or add projects; its decision on a finding
+/// chore, batch or drop findings, make or rename a workspace or add projects; its decision on a finding
 /// is recorded as an agent's whatever it claims; and it cannot call itself the user.
 #[test]
 fn only_the_user_does_what_is_the_users() {
@@ -18,9 +18,10 @@ fn only_the_user_does_what_is_the_users() {
         json!({"kind": "chore.done", "body": {"chore": "c1"}}),
         json!({"kind": "findings.batched", "body": {"intent": "i1", "findings": [{"unit": "u1", "task": 2, "finding": "P2-2"}]}}),
         json!({"kind": "finding.dropped", "body": {"unit": "u1", "task": 2, "finding": "P2-2", "reason": "x"}}),
-        json!({"kind": "workspace.linked", "body": {"machine": "box", "workspace": "a", "local": "a"}}),
         json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}}),
         json!({"kind": "project.renamed", "body": {"project": "/p", "title": "Q"}}),
+        json!({"kind": "workspace.created", "body": {"name": "docs", "project": "/p"}}),
+        json!({"kind": "workspace.renamed", "body": {"workspace": "ws1", "name": "talk"}}),
     ];
     for who in ["agent-a", "workriver"] {
         for v in &theirs {
@@ -31,13 +32,14 @@ fn only_the_user_does_what_is_the_users() {
     let impostor = Principal::Agent { session: "user".into(), machine: None };
     assert!(s.append(&impostor, body(theirs[0].clone())).is_err());
     assert!(s.append(&impostor, body(json!({"kind": "task.started", "body": {"unit": "u1", "task": 1}}))).is_err(), "nor record anything under that name");
-    // A manager is an agent registering itself.
-    let w = json!({"id": "w1", "label": "chat"});
-    assert!(add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w}})).is_err());
-    assert!(add(&mut s, "user", json!({"kind": "manager.registered", "body": {"workspace": w}})).is_err());
-    let e = add(&mut s, "agent-a", json!({"kind": "manager.registered", "body": {"workspace": w}})).unwrap();
-    assert_eq!(e.body, body(json!({"kind": "manager.registered", "body": {"agent": "agent-a", "workspace": w}})));
+    // A manager is seated by the user: no agent seats itself or another.
     managed(&mut s, "agent-a", "i1");
+    for (who, manager) in [("agent-a", "agent-b"), ("agent-b", "agent-b"), ("workriver", "agent-b")] {
+        let seat = s.state().workspace("ws1").unwrap().manager.as_ref().map(Seat::shown);
+        let e = add(&mut s, who, json!({"kind": "workspace.manager_set", "body": {"workspace": "ws1", "manager": manager, "replaces": seat}})).unwrap_err();
+        assert!(e.contains("only the user does this (workspace.manager_set)"), "{who}: {e}");
+    }
+    assert_eq!(s.state().manager_of("i1"), Some("agent-a"));
     // The intent's manager decides findings unless the user keeps them (nobody else says
     // which); no other agent ever does; and what an agent decides is an agent's decision.
     let decide = |d: &str| json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": d, "by": "user"}});
@@ -76,6 +78,7 @@ fn a_blind_task_sees_only_its_own() {
     add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Other unit", "repo": "/r2", "branch": "feat/o", "base": "main"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "chore.created", "body": {"intent": "i1", "title": "Rotate the key"}})).unwrap();
     add(&mut s, "user", json!({"kind": "question.asked", "body": {"unit": "u1", "task": 1, "text": "Why a regex?"}})).unwrap();
+    project(&mut s, "/r");
     add(&mut s, "user", json!({"kind": "finding.added", "body": {"project": "/r", "finding": {"severity": "P2", "problem": "Old leak"}}})).unwrap();
     add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "u1", "task": 2, "finding": "P2-1", "decision": "accept", "note": "Yes, fix"}})).unwrap();
     for (who, id) in [("sec", "aaaaaaaaaaaaaaaa"), ("agent-a", "bbbbbbbbbbbbbbbb")] {
@@ -146,4 +149,22 @@ fn only_workriver_says_what_an_agent_is_seen_as() {
     add(&mut s, "workriver", seen).unwrap();
     let a = s.state().agents.iter().find(|a| a.session == "agent-a").cloned().unwrap();
     assert_eq!((a.name.as_str(), a.cwd.as_str(), a.machine), ("boss", "/elsewhere", None));
+}
+
+/// A workspace has no machine; its seat's is an agent's machine and folder, cleared in a
+/// blind view like any other agent's (its own stays).
+#[test]
+fn a_blind_view_shows_no_other_seats_machine_or_folder() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    managed(&mut s, "boss", "i1");
+    let other = workspace(&mut s, "docs", "/r");
+    seat_at(&mut s, "ws1", Some("boss"), Some("box"), "/home/boss/secret").unwrap();
+    seat_at(&mut s, &other, Some("sec"), Some("far"), "/home/sec").unwrap();
+    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "reviewer": "security-review", "text": "Look", "inputs": [{"from": "1"}], "agent": "sec", "blind": true}})).unwrap();
+    let v = s.state().blind_view("sec").unwrap();
+    let seats: Vec<_> = v.workspaces.iter().map(|w| w.manager.as_ref().map(|m| (m.session.as_str(), m.machine.as_deref(), m.folder.as_str()))).collect();
+    assert_eq!(seats, [Some(("boss", None, "")), Some(("sec", Some("far"), "/home/sec"))]);
+    assert!(!serde_json::to_string(&v).unwrap().contains("secret"));
+    assert_eq!(v.workspaces[0].id, "ws1", "the workspaces themselves stay");
 }

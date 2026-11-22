@@ -7,7 +7,8 @@ through an agent runtime. Today that runtime is [Herdr](https://herdr.dev), the 
 workriver supports. This page holds everything in the other documents that is Herdr's
 own: where the [README](../../README.md), [Getting started](../getting-started.md) and the
 [Security model](../security.md) say "the runtime", read Herdr; where they say an agent's
-terminal, read the Herdr pane it runs in; a workspace is a Herdr workspace.
+terminal, read the Herdr pane it runs in. A workspace is not Herdr's: workriver's
+workspaces are its own records (`ws1`), and a Herdr workspace is only where a pane sits.
 
 ## Installing and running
 
@@ -28,9 +29,19 @@ terminal app.
 
 ## Workspaces and managers
 
-A Herdr workspace runs one or more intents; one manager agent per Herdr workspace plans
-them. The manager of a workspace registers with `workriver manager here` from its own
-pane, one per workspace.
+A workspace is workriver's own record, made by you in a project; a Herdr workspace is only
+a group of panes. Nothing of Herdr's workspaces identifies one of workriver's: Herdr gives
+a closed workspace's id again after a restart, two may share a label, and any program
+renames, creates and closes them through the socket. So arrange your panes as you like
+(one Herdr workspace per workriver workspace reads well; nothing requires it): workriver
+shows the Herdr workspace beside an agent as where its pane is, and opens a temporary
+agent's pane beside the one it serves.
+
+You seat a workspace's manager yourself: start a coding agent in a pane, then pick it on
+the page (the workspace's line, "Manager") or run `workriver workspace manager ws1 <agent>`
+in a pane with no agent or a terminal outside Herdr. After Herdr restarts, every pane is
+new: a manager resumed in the same folder is the manager again by itself; one that is not
+waits for your click in Needs you.
 
 The manager starts a worker and gives it its task with Herdr's own commands (see `herdr
 --skill`):

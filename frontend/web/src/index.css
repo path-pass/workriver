@@ -307,6 +307,8 @@
   .irow[data-kind="agent"] .ic { color: var(--hold); }
   .irow[data-kind="agent"] :is(.meta, .age) { color: inherit; font-weight: 400; }
   .irow[data-kind="stalled"] .ic { color: var(--you); }
+  /* A workspace waiting for a manager: the rail's amber "no manager", here too. */
+  .irow[data-kind="seat"] .ic { color: var(--amber); }
   /* A row with a button of its own beside it highlights as one. */
   .irow-pair { border-radius: 6px; transition: background .15s; }
   .irow-pair:hover { background: var(--sunken); }
@@ -440,6 +442,8 @@
   .msg .bubble { max-width: 100%; min-width: 0; padding: 6px 10px; border-radius: 10px; }
   .msg[data-side="mine"] .bubble { background: var(--sunken); border-top-right-radius: 3px; }
   .msg[data-side="theirs"] .bubble { align-self: stretch; border: 1px solid var(--line); border-top-left-radius: 3px; }
+  /* A line of workriver's own in a conversation: nobody's bubble, quiet, centred. */
+  .chat-note { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; font-size: 11px; color: var(--ink-2); }
 
   /* ---- the findings of the picked review ---- */
   .fgroup + .fgroup { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }

@@ -7,6 +7,8 @@ import type { ManagerMessage } from '@/conversations/types'
 import type { Workspace } from '@/workspace/types'
 import { ms } from '@/planning/select'
 import { repliesOf } from '@/conversations/select'
+import type { Space } from '@/agents/types'
+import { activeIn, candidates, movedSeat, unmanaged } from '@/planning/spaces'
 import { type Working, working, openCount, openFindings, SEVERITIES } from '@/work/select'
 
 export interface Attention {
@@ -31,16 +33,18 @@ export function attention(unit: Unit): Attention {
 
 export interface InboxRow {
   key: string
-  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge' | 'message' | 'discussion'
+  kind: 'agent' | 'stalled' | 'machine' | 'gate' | 'decision' | 'loose' | 'chore' | 'merge' | 'message' | 'discussion' | 'seat'
   /** The intent; null for an agent in a workspace no intent follows, and for a project's chore. */
   intent: Intent | null
   /** A chore of no intent: its project's name, if it has a project. */
   project?: string
   /** agent: the agent waiting in its terminal, and where it runs. */
   agent?: { name: string; session?: string; topic?: string; place: string }
+  /** seat: an open workspace with an active intent and no manager running: whom to offer. */
+  seat?: { space: Space; proposal?: string; moved: boolean }
   /** machine: a machine past an alert threshold. */
   alert?: MachineAlert
-  /** message: a workspace's conversation with unread words of its manager: how many, the newest. */
+  /** message: a workspace's conversation (by its id) with unread words of its manager: how many, the newest. */
   talk?: { workspace: string; manager: string; count: number; text: string }
   /** discussion: a task's discussion with answers of its agent the user has not read: how many, the newest. */
   discussion?: { agent: string; count: number; text: string }
@@ -63,6 +67,9 @@ export const blockedAgents = (ws: Workspace | null) => (ws?.sessions ?? []).filt
 export interface Inbox {
   /** Gates: an agent cannot go on. */
   blocking: InboxRow[]
+  /** Open workspaces with an active intent and no manager running: what is decided there
+   *  reaches no one until the user seats one. They leave once a manager runs. */
+  seats: InboxRow[]
   /** Machines past an alert threshold: they slow every agent there; they leave by themselves. */
   machines: InboxRow[]
   /** Reviews and gates with open findings, the highest open severity first. */
@@ -77,7 +84,7 @@ export interface Inbox {
 }
 
 export function inbox(ws: Workspace): Inbox {
-  const box: Inbox = { blocking: [], machines: [], decisions: [], messages: [], gaps: [], later: [] }
+  const box: Inbox = { blocking: [], seats: [], machines: [], decisions: [], messages: [], gaps: [], later: [] }
   const stalled: InboxRow[] = []
   const discussions: InboxRow[] = []
   for (const intent of ws.intents) for (const unit of intent.units) {
@@ -114,11 +121,18 @@ export function inbox(ws: Workspace): Inbox {
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     return {
       key: `agent:${s.session ?? s.agent}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, since: ms(s.blockedSince),
-      agent: { name: s.agent, session: s.session, topic: s.topic, place: intent?.title ?? s.group?.label ?? '' },
+      agent: { name: s.agent, session: s.session, topic: s.topic, place: intent?.title ?? ws.workspaces?.find(w => w.id === s.workspace)?.name ?? s.group?.label ?? '' },
     }
   }).sort(oldest)
   box.blocking.sort(oldest)
   box.blocking.unshift(...waiting, ...stalled.sort(oldest))
+  // A workspace whose manager does not run, with work active in it: one row each, the oldest
+  // intent's start first (nothing dates the seat's end).
+  box.seats = unmanaged(ws).map((space): InboxRow => {
+    const intent = activeIn(ws.intents, space.id)[0] ?? null
+    const c = candidates(ws).find(x => x.key === space.proposal)
+    return { key: `seat:${space.id}`, kind: 'seat', intent, unit: null, node: null, pick: null, chore: null, since: NaN, seat: { space, proposal: space.proposal, moved: movedSeat(space, c) } }
+  })
   box.machines = (ws.alerts ?? [])
     .map((a): InboxRow => ({ key: `machine:${a.machine}:${a.metric}`, kind: 'machine', alert: a, intent: null, unit: null, node: null, pick: null, chore: null, since: ms(a.since) }))
     .sort(oldest)

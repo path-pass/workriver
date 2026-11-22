@@ -19,8 +19,8 @@ const { openSettings, Settings } = await import('./Settings')
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-/** A workspace here with a project to set: every group has a tab. */
-const ws = { workspaces: [{ id: 'w1', label: 'main' }], projects: [{ id: 'p1', title: 'Notes' }] } as unknown as Workspace
+/** An open workspace with its manager and a closed one: every group has a tab. */
+const ws = { workspaces: [{ id: 'ws1', name: 'main', project: '/notes', manager: { session: 's1', name: 'boss', folder: '/notes', since: 3, state: 'idle' } }, { id: 'ws2', name: 'old', project: '/notes', closed: true }], projects: [{ id: '/notes', key: 'p1', title: 'Notes' }], sessions: [], intents: [] } as unknown as Workspace
 
 let root: Root
 let host: HTMLDivElement
@@ -48,7 +48,7 @@ describe('Settings in tabs', () => {
   it('shows one group at a time, the general one first', async () => {
     await mount()
     await open()
-    expect(tabs().map(b => b.textContent)).toEqual(['General', 'Stopped workers', 'Workspaces’ projects', 'Machine alerts', 'Other machines'])
+    expect(tabs().map(b => b.textContent)).toEqual(['General', 'Stopped workers', 'Workspaces', 'Machine alerts', 'Other machines'])
     expect(selected()).toBe('General')
     expect(panels()).toHaveLength(1)
     expect(text()).toContain('Language')
@@ -75,10 +75,10 @@ describe('Settings in tabs', () => {
   })
 
   it('a group with nothing to set has no tab; remembered, it opens on the general one', async () => {
-    localStorage.setItem('workriver.settings.tab', 'projects')
+    localStorage.setItem('workriver.settings.tab', 'workspaces')
     await mount({ workspaces: [], projects: [] } as unknown as Workspace)
     await open()
-    expect(tabs().map(b => b.textContent)).not.toContain('Workspaces’ projects')
+    expect(tabs().map(b => b.textContent)).not.toContain('Workspaces')
     expect(selected()).toBe('General')
   })
 

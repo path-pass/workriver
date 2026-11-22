@@ -17,7 +17,8 @@ confirm.
 
 - Read every file the user names, in full.
 - Find the target project: `workriver project list`. If the user named none, propose the
-  one the file sits in. A folder with several repositories is registered by the user, not you:
+  one the file sits in. A project is registered by the user, not you, and a folder outside
+  every registered project is refused as a project (a single repository too):
   ask them to run `workriver project add <folder>` in a new terminal (not your pane; `!` in
   your session is refused too).
 - See what is already there: `workriver backlog list --project <P>`, so you do not add

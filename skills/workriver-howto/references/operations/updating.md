@@ -15,5 +15,10 @@ file may be older. Each machine has its own `workriver` binary: on another machi
 Rebuilding is the user's: `git pull`, build, restart `workriver serve`; the same build on
 every machine followed.
 
+After the update that made workspaces workriver's own, nobody is a manager until the user
+seats them again: "only a workspace's manager … starts an intent" or "only a workspace's
+manager says something to the user" from a pane that managed before means that. Tell the
+user which workspace you managed; they seat you with one click (`seat`).
+
 **Refusals:** "unrecognized subcommand" - this CLI is older than the recipe: tell the user
 the builds differ.

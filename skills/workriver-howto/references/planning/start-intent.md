@@ -1,21 +1,17 @@
 # Starting an intent from the backlog
 
-**When:** you are the manager of a Herdr workspace and begin a goal.
+**When:** you are the manager of a workspace (the user seated you: `seat`) and begin a goal.
 
-    workriver manager here                 # once per workspace: registers you
     workriver backlog list                 # the roadmap, in the user's order
-    workriver intent start i3              # active here; your workspace's current intent
+    workriver intent start i3              # active in your workspace; its current intent
     workriver board i3
 
-You start intents of the project your workspace works on by the records only: the one the
-user set (`workriver workspace list`), else that of its current intent, else that of the
-intents that ran in it. An intent's project is the one recorded on it when it was added,
-never where its units are. A new workspace has none: the user starts its first intent on the
-page ("Start" in the roadmap, picking your workspace) or sets its project; ask them
-(`ask-user`), then go on. Another project's intent the user starts, in a workspace of that
-project or, confirming it, in yours. `workriver manager here` and `workriver intent start`
-run from your own pane only: both are recorded for the workspace you run in, as the runtime
-names it.
+You start intents in the workspace you hold the seat of, and nowhere else: the command
+names no workspace, workriver fills in yours. And only intents of your workspace's project
+(the project the workspace was made in; `workriver workspace list`). An intent's project is
+the one recorded on it when it was added, never where its units are. Another project's
+intent runs in a workspace of that project: the user starts it there. An intent of no
+project is the user's to start.
 
 Not in the roadmap yet: `workriver backlog add "<title>" --goal "<one sentence>" [--kind K]
 [--size S] [--tag T]...`, then start it.
@@ -34,16 +30,12 @@ into i3", their text in i3's note; i3 keeps its title (`--title` is the user's: 
 it on its page). `workriver board i3` prints the note.
 
 **Started by the user:** the user may start a planned intent in your workspace from the page;
-then you get `[workriver] The user started i3 «title» of project «workriver» (folder
-«/path/to/workriver») in your workspace …`. It is already active here: do not start it again;
-`workriver board i3`, then split it into units and tasks.
+then you get `[workriver] The user started i3 «title» in your workspace …`. It is already
+active here: do not start it again; `workriver board i3`, then split it into units and tasks.
 
-**Another project:** check the project the message (or `workriver board i3`) names against the
-one you work on (the folder your pane runs in). If they differ, do not split it: add a
-research unit and a decide gate `--after start` asking the user whether to go on here or start
-it in a workspace of that project (`ask-user`), and wait. `workriver intent start` of another
-project's intent than your workspace's (by the records) is refused; one the records allow is
-recorded with a `warning:` line when your pane's folder says another project.
+**Moved by the user:** the user may move an active intent to another workspace of its
+project; its manager is then that workspace's. What was said about it before stays in the
+conversation it was said in.
 
 **Its kind, size and tags:** when you split it, set a kind it lacks and the size you judge,
 with `workriver intent set i3 [--kind feature|fix|chore|research] [--size s|m|l] [--tags
@@ -75,36 +67,34 @@ your active intent you get `[workriver] The user changed i3 (now v5): title: «�
 
 **A planned intent's note:** what the user tells you about an intent still in the roadmap
 (an example, a constraint) goes into its note with `workriver intent set i7 --add-note "…"`,
-if a workspace you manage works on its project (as the user set it, `workriver workspace
-list`, else the project of its current intent, else that of the intents that ran in it). Only additions: its title, goal and the rest
+if it is of your workspace's project. Only additions: its title, goal and the rest
 of its note are the user's until it is started, and so is dropping it. Done and dropped
 intents are the user's alone.
 
-**Changing managers** (one handing over to another pane): a workspace has one manager, so
-the new one registers only after the old one is closed. The old manager writes down what
-workriver does not hold (why things were decided, what it was about to do) in your shared
-memory, if you have one, else as a note on the intent (`workriver intent set i3 --add-note
-"…"`); the user closes it; the new one runs `workriver manager here` at once, then
-`workriver board`, and reads the memory or note. A message sent in between shows as not
-delivered on the page: ask the user to paste it to you.
+**Changing managers** is the user's act (`seat`): the user seats the new one, and the old
+one is told it no longer manages. The old manager writes down what workriver does not hold
+(why things were decided, what it was about to do) in your shared memory, if you have one,
+else as a note on the intent (`workriver intent set i3 --add-note "…"`), before or when it
+is told. The new one reads `workriver board`, the conversation on the page's record
+(`workriver board` names the open messages) and the memory or note. A message the user
+sent the old manager and it never got shows as not delivered on the page: it is not passed
+on to you; the user writes again.
 
-**Refusals:** "only the manager of workspace … starts intents there" - run
-`workriver manager here` first, in your own pane. "intent i3 is done; it cannot become
+**Refusals:** "only a workspace's manager, or the user, starts an intent" - you hold no
+seat: tell the user which workspace you are meant for (`seat`). "you manage workspace ws2
+(…): a manager starts intents there, and nowhere else" - leave the workspace out. "i3
+belongs to project Q; workspace ws2 (…) is of project P: an intent runs in a workspace of
+its project" - not yours to start: tell the user, who starts it in a workspace of Q.
+"i3 has no project: ask the user to start it" - the user starts it (it then takes the
+project of the workspace). "workspace ws2 is closed" - the user opens it first. "… is in no
+registered project: name a project by its id, or ask the user to add it first" - `backlog
+add --project` takes a project the user registered (`workriver project list`): give the
+user the line `workriver project add <folder>`. "intent i3 is done; it cannot become
 active" - add a new one. "the title and goal of i3 are the user's" - ask the user; write
 what you know in its note. "i7 is planned: its kind, size and tags are the user's" - start it
 first, or ask the user; write what you think in its note. "give --base N" - read `workriver intent history i3` first.
-"i7 belongs to project …; your workspace's project is not known" - ask the user to set it
-(Settings, or `workriver workspace project`), or to start i7 in your workspace on the page.
-"i3 belongs to project Q; your workspace works on P" - not yours to start: ask the user.
-"i3 has no project: ask the user to start it" - an intent from before projects: the user
-starts it.
+"i7 belongs to project …; the workspace you manage is of another project" - its note is not
+yours to add to.
 "only the user or the manager of intent i3 marks it done" - not your intent. "only the user drops planned intent i7" - it is
-in the roadmap: ask the user. "workspace … has a manager running: X" - a workspace has one
-manager; you are a worker there, not its manager: tell the user, who closes X first if you
-are to take over. "an agent manages the workspace it runs in" - run it in your own pane.
-"an agent starts intents in the workspace it runs in" - the same for `intent start`: run it
-in your own pane. "workspace docs is already recorded for another open workspace (…); two
-open workspaces have one name" - another open workspace has the same name as yours, and
-workriver tells workspaces apart by name: ask the user to rename one of them (`ask-user`),
-then run it again; nothing is recorded for your workspace until then. "a state change names
+in the roadmap: ask the user. "a state change names
 a workspace only when it starts an intent" - `intent done` and `intent drop` name none.

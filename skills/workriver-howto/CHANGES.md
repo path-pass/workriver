@@ -4,6 +4,51 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-22
 
+- **Workspaces are workriver's own, and the user seats the manager** (managers: a big
+  change; read `workriver guide how seat` and `workriver guide manager` again). What was a
+  Herdr workspace with a registered manager is now a record of workriver's: `ws1`, a name
+  that is only shown, one project. Herdr's workspaces, their ids and their names decide
+  nothing any more. What changes for you:
+  - **`workriver manager here` is gone**, and nothing replaces it for an agent: the user
+    seats a manager, on the page (the workspace's line, "Manager") or with `workriver
+    workspace manager ws1 <agent>` from the user's own terminal. You are told in your pane
+    when you are seated ("The user made you the manager of workspace ws1 …") and when you
+    are replaced. After this update every seat starts empty: the user seats each manager
+    once (Needs you lists the workspaces; one click each). Until then `intent start`,
+    `say`, `reply` and deciding findings are refused: tell the user, do not look for
+    another way.
+  - **Your terminal closed or Herdr restarted:** the same session resumed in the same
+    folder on the same machine is the manager again by itself (the conversation says so).
+    A new session, or another folder, is refused until the user seats it.
+  - **`workriver intent start i3` names no workspace**: it starts in the workspace you hold
+    the seat of, and only intents of that workspace's project. The "your workspace's
+    project is not known" refusals, the `warning:` about another project, `workriver
+    workspace project` and "Other projects' workspaces" on the page are gone: an intent
+    runs in a workspace of its project, which the user starts or moves (`workriver intent
+    move i3 ws2`, the user's).
+  - **Links are gone** (`workriver workspace link` / `unlink`): a workspace has no machine.
+    As the intent's manager you put a unit on any followed machine (`unit add --machine
+    box …`), and workers there are in your workspace through their tasks. Two workspaces
+    of one name are two workspaces; nothing is refused or merged by a name.
+  - **A project is registered or it is none**: `workriver backlog add --project <folder>`
+    (and `add-finding`) takes a project the user registered, by its id or a folder inside
+    it, and refuses any other folder ("… is in no registered project"), on another machine
+    too (name it by its id there: `--project p1`). A repository outside every project is no
+    longer a project of its own: ask the user to run `workriver project add <folder>`.
+  - **A seat is an appointment.** A message the user sent an earlier manager and it never
+    got is not passed on to you (it shows "not delivered: the seat was given anew"); its
+    question with options can no longer be answered; `workriver reply` to its message is
+    refused ("went to an earlier manager of workspace ws1"). Read the conversation and ask
+    anew with `workriver say`.
+  - **You read your own workspace's conversation only**, and of a message to every manager
+    your own copy and replies. Intents, units, tasks, findings and questions of every
+    workspace stay readable.
+  - `workriver workspace list` prints each workspace's id, name, project, manager and
+    current intent. A command that leaves the intent out takes your workspace's current
+    one: the workspace you manage, or for a worker the one workspace of its running tasks
+    (tasks in two workspaces: name the intent).
+  (`seat`, `start-intent`, `units-other-machine`, `machines`, `not-delivered`)
+
 - **A task shows its harness and model** (workers, managers): start a task with the model
   you work with, `workriver task start u1#3 --model claude-opus-5-5` (as your harness names
   it; optional: leave it out if you do not know it). `task show` now prints under `Agent:`

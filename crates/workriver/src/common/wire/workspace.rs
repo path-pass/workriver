@@ -17,8 +17,8 @@ pub struct Workspace {
     pub(crate) runtime: &'static str,
     pub(crate) intents: Vec<Intent>,
     pub(crate) sessions: Vec<Session>,
-    /// Every workspace the runtime has, per machine, with what it is linked to.
-    pub(crate) workspaces: Vec<Group>,
+    /// Every workspace, open and closed, in the order they were made.
+    pub(crate) workspaces: Vec<WorkspaceOut>,
     /// The other machines followed, with whether each can be reached.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) machines: Vec<super::MachineState>,
@@ -75,9 +75,13 @@ pub(crate) struct MessageOut {
     pub(crate) id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub(crate) intent: String,
+    /// The workspace whose conversation it is in, by its id; empty: every manager's.
     pub(crate) workspace: String,
     /// The manager's name.
     pub(crate) manager: String,
+    /// A line of workriver's own, not a message: what it says (`manager` is who it is about).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) notice: Option<core::Notice>,
     pub(crate) text: String,
     /// What the user picked with it: a unit, one of its tasks, and the rest, as chips.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -112,7 +116,8 @@ pub(crate) struct MessageOut {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unread: bool,
     /// The manager's message with options (`say`), the user's answer to it, and whether the
-    /// user can still answer it (not answered, and asked by the workspace's manager now).
+    /// user can still answer it (not answered, and asked under the appointment that holds the
+    /// workspace's seat now).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) choice: Option<core::Choice>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,7 +133,7 @@ pub(crate) struct MessageOut {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CopyOut {
-    /// The workspace it manages, by label, and its machine (none: this one).
+    /// The workspace it manages, by its id, and the manager's machine (none: this one).
     pub(crate) workspace: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) machine: Option<String>,
@@ -189,23 +194,42 @@ pub(crate) struct CommitCode {
     pub(crate) files: Vec<scan::FileChange>,
 }
 
-/// A runtime workspace: of this machine, or of another with the local one it is linked to.
+/// A workspace, as the page shows it: workriver's own record, with its manager's seat.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Group {
+pub(crate) struct WorkspaceOut {
+    /// `ws1`: what everything names it by. The name is shown only, and may repeat.
     pub(crate) id: String,
-    pub(crate) label: String,
+    pub(crate) name: String,
+    /// Its project's folder (a project's `id` on the page).
+    pub(crate) project: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) closed: bool,
+    /// The intent new work goes to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) current: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) manager: Option<SeatOut>,
+    /// Its manager does not run where it was seated: the session to propose for the seat
+    /// (the seated one in another terminal, or the agent now in the old terminal), if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) proposal: Option<String>,
+}
+
+/// A manager's seat, as the page shows it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SeatOut {
+    pub(crate) session: String,
+    pub(crate) name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) machine: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) linked_to: Option<String>,
-    /// The project (its folder) it works on, its title, and how that is known; none: unknown.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) project: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) project_title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) project_from: Option<Known>,
+    /// The folder it was seated in.
+    pub(crate) folder: String,
+    /// The appointment: what a change of the seat names as the seat it replaces.
+    pub(crate) since: u64,
+    /// The runtime's state of it, or "gone" when it is not running.
+    pub(crate) state: String,
 }
 
 #[derive(Serialize)]
@@ -235,17 +259,24 @@ pub(crate) struct Session {
     /// The harness that runs it (claude, codex), when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) harness: Option<String>,
-    /// The runtime group it runs in.
+    /// Where its terminal is in the runtime: shown as a hint, never a workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) group: Option<core::RuntimeRef>,
+    /// Its workspace by the records (its id): the one whose seat it holds, else the one
+    /// workspace of the tasks it has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) workspace: Option<String>,
+    /// The folder it was started in, while it lives.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub(crate) folder: String,
     pub(crate) ended: bool,
     /// The runtime's state of the agent, while it lives.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) state: Option<String>,
-    /// The current intent of the runtime group it works in.
+    /// The current intent of its workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) intent: Option<String>,
-    /// It manages its runtime group.
+    /// It holds its workspace's seat.
     pub(crate) manager: bool,
     /// The machine it runs on; none: this one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -255,7 +286,7 @@ pub(crate) struct Session {
     pub(crate) unreachable: bool,
 }
 
-/// A project: a registered folder of repositories, or a repository outside all of them.
+/// A project: a registered folder of repositories.
 #[derive(Serialize)]
 pub(crate) struct ProjectOut {
     /// Its folder, which is what intents name.
@@ -264,7 +295,6 @@ pub(crate) struct ProjectOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) key: Option<String>,
     pub(crate) title: String,
-    pub(crate) registered: bool,
     pub(crate) repos: Vec<String>,
 }
 
@@ -284,9 +314,9 @@ pub(crate) struct Intent {
     pub(crate) note: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) external: Option<core::External>,
-    /// The runtime group it runs (or last ran) in.
+    /// The workspace it runs (or last ran) in, by its id.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) workspace: Option<core::RuntimeRef>,
+    pub(crate) workspace: Option<String>,
     /// Planned: its place in its project's roadmap, from 0.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) order: Option<usize>,
@@ -736,16 +766,4 @@ pub struct Squash {
     pub tip: String,
     pub into: String,
     pub commit: String,
-}
-
-/// How workriver knows which project a workspace works on.
-#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum Known {
-    /// Its manager runs inside the project's folder.
-    Manager,
-    /// Its current intent belongs to the project.
-    Intents,
-    /// The user said so (`workspace.project_set`).
-    User,
 }
