@@ -545,3 +545,91 @@ fn a_seat_shown_on_another_machine_too_is_lost() {
     assert_eq!(workspace(&user, "ws1")["manager"]["state"], "gone");
     neither_delivered(&user, "ws1", &[&local, &far]);
 }
+
+/// The user's message, then one to every manager, each once settled: (direct, copy).
+fn both_settled(user: &Daemon, ws: &str, tag: &str) -> (Value, Value) {
+    let settled = |v: &Value| v["step"] == "delivered" || v["step"] == "not-delivered";
+    let (one, all) = (format!("{tag}_ONE"), format!("{tag}_ALL"));
+    user.call("/api/message", Some(json!({ "workspace": ws, "text": one }))).unwrap();
+    wait_until("the message settled", || settled(&message(user, &one)));
+    user.call("/api/message", Some(json!({ "all": true, "text": all }))).unwrap();
+    wait_until("its copy settled", || settled(&message(user, &all)["to"][0]));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    (message(user, &one), message(user, &all)["to"][0].clone())
+}
+
+/// What the fake runtime was asked to send containing `what`, by whom it was sent to.
+fn sent_to(fake: &Fake, what: &str) -> Vec<String> {
+    fake.sent.lock().unwrap().iter().filter(|(_, m)| m.contains(what)).map(|(t, _)| t.clone()).collect()
+}
+
+/// Another agent, with a session of its own, takes the seated manager's session id as its
+/// display name and is listed first. The user's message and its copy of one to every
+/// manager are for the seated session: typed at its pinned terminal, never into the agent
+/// named after it.
+#[test]
+fn an_agent_named_after_a_seated_session_is_not_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    *fake.agents.lock().unwrap() = vec![("p9".into(), started_in("s-evil", "s-boss", "/w/e")), ("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a regular read of the runtime
+    let (one, copy) = both_settled(&d, "ws1", "NAMED");
+    assert_eq!((one["step"].as_str(), copy["step"].as_str()), (Some("delivered"), Some("delivered")), "{one} {copy}");
+    assert_eq!(typed_at(&fake, "NAMED"), ["p1", "p1"]);
+    assert!(sent_to(&fake, "NAMED").iter().all(|t| t != "s-evil"), "typed into the agent named after the session");
+}
+
+/// The same with the seat on another machine and the agent named after it on this one:
+/// typed at the pinned terminal there, nothing here.
+#[test]
+fn an_agent_here_named_after_a_remote_seated_session_is_not_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("p3".into(), started_in("s-new", "new", "/srv/n"))];
+    let all = crate::runtime::follow::Machines::with(local.clone(), vec![("box", far.clone())]);
+    let (port, kernel) = daemon_over(all.clone(), Some(all.clone()), &tmp.path().join("w.db"));
+    let user = kernel.client(port, tmp.path());
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let there = kernel.daemon(all.local_port("box").unwrap(), None, None);
+    let ws = workspace_named(&user, "chat");
+    all.poll_all();
+    seat(&user, &ws, Some("s-new")).unwrap();
+    assert_eq!(here(&there, "p3").unwrap()["manager"], true);
+    *local.agents.lock().unwrap() = vec![("p9".into(), started_in("s-evil", "s-new", "/w/e"))];
+    all.poll_all();
+    let (one, copy) = both_settled(&user, &ws, "NAMED");
+    assert_eq!((one["step"].as_str(), copy["step"].as_str()), (Some("delivered"), Some("delivered")), "{one} {copy}");
+    assert!(sent_to(&local, "NAMED").is_empty(), "typed into this machine's agent named after the session");
+    assert_eq!(typed_at(&far, "NAMED"), ["p3", "p3"]);
+}
+
+/// What a seated manager must act on (here a worker's `manager tell`) goes by its session
+/// too: typed at its pinned terminal, not by the runtime's lookup of an agent named after it.
+#[test]
+fn a_worker_reaches_its_seated_manager_not_one_named_after_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss")), ("p2".into(), started_in("s-w", "ja-impl", "/w/w"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    d.append("s-boss", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "push it", "agent": "ja-impl" })).unwrap();
+    let worker = Daemon { place: Some("p2".into()), home: Some(tmp.path().to_path_buf()), ..d.clone() };
+    worker.append("", "task.started", json!({ "unit": "u1", "task": 1 })).unwrap();
+    let mut agents = fake.agents.lock().unwrap().clone();
+    agents.insert(0, ("p9".into(), started_in("s-evil", "s-boss", "/w/e")));
+    *fake.agents.lock().unwrap() = agents;
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a regular read of the runtime
+    worker.append("", "manager.told", json!({ "unit": "u1", "task": 1, "text": "TOLD_BOSS" })).unwrap();
+    wait_until("the manager hears it", || !sent_to(&fake, "TOLD_BOSS").is_empty());
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(typed_at(&fake, "TOLD_BOSS"), ["p1"], "sent: {:?}", sent_to(&fake, "TOLD_BOSS"));
+}

@@ -129,8 +129,10 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        // A notice is for a session: an agent that only goes by it as a name is not it.
-        let is = |a: &RuntimeAgent| a.session == h.to || (h.kind != For::Notice && a.name == h.to);
+        // A notice and the user's message are for a session: an agent that only goes by it as
+        // a name is not it (any agent may take a seated manager's session id as its name).
+        let by_session = matches!(h.kind, For::Notice | For::Message | For::Broadcast);
+        let is = |a: &RuntimeAgent| a.session == h.to || (!by_session && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
         };

@@ -196,14 +196,21 @@ impl App {
 
     /// Sends a message to an agent. One on another machine cannot open files of this
     /// machine: paths into the attachment store become links through its tunnel.
+    ///
+    /// A seated session is decided by `to` itself, before any name: an agent that takes the
+    /// session id as its name is not it. A name goes to the agent of that session, and to
+    /// its pin if that one is seated.
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        let found = self.live().unwrap_or_default().into_iter().find(|a| a.session == to || a.name == to);
-        let session = found.as_ref().map_or(to, |a| a.session.as_str());
-        if let Some(sent) = self.send_seated(session, text) {
+        if let Some(sent) = self.send_seated(to, text) {
             return sent;
         }
-        let machine = found.and_then(|a| a.machine);
-        self.runtime.send(to, &self.readable_on(machine.as_deref(), text))
+        let live = self.live().unwrap_or_default();
+        let found = live.iter().find(|a| a.session == to).or_else(|| live.iter().find(|a| a.name == to));
+        if let Some(sent) = found.filter(|a| a.session != to).and_then(|a| self.send_seated(&a.session, text)) {
+            return sent;
+        }
+        let machine = found.and_then(|a| a.machine.as_deref());
+        self.runtime.send(to, &self.readable_on(machine, text))
     }
 
     /// Sends a message to the agent that has this session on `machine` (none: this one), as

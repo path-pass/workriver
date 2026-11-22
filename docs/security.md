@@ -191,7 +191,8 @@ are checked by the event rules against what is recorded, when the event is recor
   The same while the seated session is shown in its own terminal and in another one at
   once, on this machine or another: neither is the manager, and nothing is typed to it
   until only its own terminal shows it again or you seat it. What goes to a manager is
-  typed into the terminal it is held to, never into whichever terminal reports its session.
+  typed into the terminal it is held to, never into whichever terminal reports its session,
+  nor into an agent that takes the manager's session id as its name.
 - **What belongs to an appointment never reaches the next.** A message you sent, a question
   a manager asked you with options, a reply: each belongs to the appointment it was sent to
   or asked under. A message still waiting when the seat is given anew is recorded as not
