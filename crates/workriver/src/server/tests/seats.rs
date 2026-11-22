@@ -633,3 +633,26 @@ fn a_worker_reaches_its_seated_manager_not_one_named_after_it() {
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert_eq!(typed_at(&fake, "TOLD_BOSS"), ["p1"], "sent: {:?}", sent_to(&fake, "TOLD_BOSS"));
 }
+
+/// A message held while the seated manager waits for a person is given once that session is
+/// free; an agent that names itself after the session and reports Working (listed first)
+/// does not keep it held: readiness is read by session, as `hand` finds the recipient.
+#[test]
+fn a_held_message_waits_on_the_seated_session_not_one_named_after_it() {
+    use workriver_core::runtime::AgentState::{Blocked, Working};
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), started_in("s-boss", "boss", "/w/boss"))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    *fake.agents.lock().unwrap() = vec![("p1".into(), RuntimeAgent { cwd: "/w/boss".into(), ..live("s-boss", "boss", "w1", Blocked) })];
+    std::thread::sleep(std::time::Duration::from_millis(2500)); // a regular read: the manager waits
+    d.call("/api/message", Some(json!({ "workspace": "ws1", "text": "HELD" }))).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    *fake.agents.lock().unwrap() = vec![
+        ("p9".into(), RuntimeAgent { cwd: "/w/e".into(), ..live("s-evil", "s-boss", "w1", Working) }),
+        ("p1".into(), started_in("s-boss", "boss", "/w/boss")),
+    ];
+    wait_until("held message given", || message(&d, "HELD")["step"] == "delivered");
+    assert_eq!(typed_at(&fake, "HELD"), ["p1"]);
+}
