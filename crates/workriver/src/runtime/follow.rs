@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use workriver_core::RuntimeRef;
-use workriver_core::runtime::{Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::runtime::{Change, Frames, Place, Root, Runtime, RuntimeAgent, RuntimeError};
+use workriver_core::screens::{Key, Screen};
 use workriver_scan as scan;
 
 use super::ssh::{Pace, Tunnel, hint, nap, publish, supervise, this_host, tunnel_words};
@@ -201,7 +202,7 @@ impl Machines {
                 nap(delay, &e.stop);
             }
         });
-        let (ssh, pace, host) = (self.ssh.clone(), self.pace, this_host());
+        let (ssh, pace, host, home) = (self.ssh.clone(), self.pace, this_host(), self.home.clone());
         std::thread::spawn(move || {
             let e = entry;
             // Where the runtime's socket is over there: as given, else asked of the machine.
@@ -220,10 +221,13 @@ impl Machines {
                     }
                 }
             };
-            let mut words = tunnel_words(&e.setting.ssh, &socket.to_string_lossy(), &remote, local_port);
+            let sockets = super::forwards(&home, &e.label, &remote);
+            let mut words = tunnel_words(&e.setting.ssh, &sockets, local_port);
             words[0] = ssh.clone();
             supervise(&words, &e.tunnel, &e.stop, pace, &|port| publish(&ssh, &e.setting.ssh, port, &host));
-            let _ = std::fs::remove_file(&socket);
+            for (here, _) in sockets {
+                let _ = std::fs::remove_file(here);
+            }
         });
     }
 
@@ -590,6 +594,45 @@ impl Runtime for Machines {
             all.extend(e.seen.lock().unwrap().groups.iter().cloned());
         }
         Ok(all)
+    }
+
+    /// That machine's own runtime's changes; another machine's only while its connection is up.
+    fn watch(&self, machine: Option<&str>, to: &mut dyn FnMut(Change) -> bool) -> Result<(), RuntimeError> {
+        match machine {
+            None => self.local.watch(None, to),
+            Some(m) => {
+                let e = self.entry(m).ok_or_else(|| RuntimeError::Failed(format!("machine {m} is not followed")))?;
+                if !e.tunnel.lock().unwrap().up {
+                    return Err(RuntimeError::Unreachable(format!("machine {m} is disconnected")));
+                }
+                e.runtime.watch(None, to)
+            }
+        }
+    }
+
+    /// Asked of the machine named, read fresh there.
+    fn resolve(&self, machine: Option<&str>, session: &str) -> Result<String, RuntimeError> {
+        self.at(machine, |r| r.resolve(None, session))
+    }
+
+    fn screen(&self, machine: Option<&str>, place: &str) -> Result<Screen, RuntimeError> {
+        self.at(machine, |r| r.screen(None, place))
+    }
+
+    fn press(&self, machine: Option<&str>, place: &str, keys: &[Key]) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.press(None, place, keys))
+    }
+
+    fn send_at(&self, machine: Option<&str>, place: &str, text: &str) -> Result<(), RuntimeError> {
+        self.at(machine, |r| r.send_at(None, place, text))
+    }
+
+    fn observe(&self, machine: Option<&str>, place: &str) -> Result<Frames, RuntimeError> {
+        self.at(machine, |r| r.observe(None, place))
+    }
+
+    fn why_blocked(&self, machine: Option<&str>, place: &str) -> Result<Option<String>, RuntimeError> {
+        self.at(machine, |r| r.why_blocked(None, place))
     }
 
     /// Asked of that machine's own runtime, now: a failure is given, and nothing last seen.

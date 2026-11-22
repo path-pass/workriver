@@ -32,6 +32,14 @@ pub fn socket_here(home: &Path, label: &str) -> PathBuf {
     home.join(format!("herdr-{label}.sock"))
 }
 
+/// The sockets of a machine's Herdr brought here, each as (here, there): its API socket, and
+/// next to it the client socket its terminal stream is served on.
+pub fn forwards(home: &Path, label: &str, there: &str) -> Vec<(String, String)> {
+    let here = socket_here(home, label);
+    let client = |p: &Path| super::screens::client_socket(p).to_string_lossy().into_owned();
+    vec![(here.to_string_lossy().into_owned(), there.to_string()), (client(&here), client(Path::new(there)))]
+}
+
 /// What a machine's setting keeps for Herdr, in `settings.json` and in what the service is
 /// asked to add: its socket over there, a path or nothing (anything else is refused, and makes
 /// a settings file unreadable); none is not written. Other keys of a machine's entry are not kept.

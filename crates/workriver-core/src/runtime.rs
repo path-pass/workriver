@@ -3,6 +3,7 @@
 use serde::Serialize;
 
 use crate::planning::RuntimeRef;
+use crate::screens::{Frame, Key, Screen};
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -87,7 +88,21 @@ pub enum RuntimeError {
     /// A run's shell is no longer there, or its place is no longer a run's shell.
     #[error("{0}")]
     NoPlace(String),
+    /// More than one place shows the session: which one is meant cannot be told, so nothing
+    /// is read or sent there.
+    #[error("{0}")]
+    Ambiguous(String),
 }
+
+/// A change of an agent's state, as the runtime tells it when it happens.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Change {
+    pub place: String,
+    pub state: AgentState,
+}
+
+/// A place's terminal as frames, the first one whole; dropping it stops it.
+pub type Frames = Box<dyn Iterator<Item = Result<Frame, RuntimeError>> + Send>;
 
 /// Sync on purpose: the daemon calls it from a blocking task.
 pub trait Runtime: Send + Sync {
@@ -180,6 +195,44 @@ pub trait Runtime: Send + Sync {
     /// say that it closed. By default, those of `groups` that are on that machine.
     fn groups_on(&self, machine: Option<&str>) -> Result<Vec<RuntimeRef>, RuntimeError> {
         Ok(self.groups()?.into_iter().filter(|g| g.machine.as_deref() == machine).collect())
+    }
+    // What follows reads, answers and watches an agent's terminal. Everything that reads or
+    // presses takes a place, never a session: a request resolves its session once (`resolve`)
+    // and then works on that one place, so its reads and its keys cannot reach two places.
+    // By default, no runtime can.
+    /// Blocks, telling `to` each change of an agent's state on `machine` (none: this one) as it
+    /// happens, until `to` returns false (Ok) or the connection ends (the error). Only a
+    /// wake-up: states are still read with `agents`; a change missed before it started or
+    /// while it reconnects is seen by the next read.
+    fn watch(&self, _machine: Option<&str>, _to: &mut dyn FnMut(Change) -> bool) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// The one place on `machine` that shows this session now, read fresh: `NoAgent` when none
+    /// does, `Ambiguous` when more than one does; never an agent by its name, never a place
+    /// kept from an earlier read.
+    fn resolve(&self, _machine: Option<&str>, _session: &str) -> Result<String, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// What that place shows now, as plain text, one line per row, with its size.
+    fn screen(&self, _machine: Option<&str>, _place: &str) -> Result<Screen, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// Presses keys at that place, in order; no text.
+    fn press(&self, _machine: Option<&str>, _place: &str, _keys: &[Key]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// Types a message at that place and submits it, as `send_to` does for a session.
+    fn send_at(&self, _machine: Option<&str>, _place: &str, _text: &str) -> Result<(), RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// That place's terminal as frames, the first one whole; dropping it stops it.
+    fn observe(&self, _machine: Option<&str>, _place: &str) -> Result<Frames, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    /// Why the runtime calls the agent at that place blocked, in its words (a rule and its
+    /// evidence).
+    fn why_blocked(&self, _machine: Option<&str>, _place: &str) -> Result<Option<String>, RuntimeError> {
+        Err(RuntimeError::None)
     }
 }
 

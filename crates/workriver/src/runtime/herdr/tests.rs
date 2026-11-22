@@ -345,3 +345,76 @@ fn machine_add_sends_the_socket_or_null() {
     assert_eq!(body(Some("/s")), r#"{"action":"add","herdrSocket":"/s","label":"box","ssh":"fixture.invalid"}"#);
     assert_eq!((body(None), body(Some("/s"))), (before(None), before(Some("/s"))));
 }
+
+/// A session becomes exactly one pane, from a fresh read: two panes that report it are
+/// refused, none is no agent; a name is never a session.
+#[test]
+fn a_session_resolves_to_one_pane() {
+    let two = {
+        let mut s = snapshot();
+        s["result"]["snapshot"]["agents"][4]["agent_session"] = json!({ "value": "s-1" });
+        s
+    };
+    let (_dir, herdr, server) = fake(vec![snapshot(), two, snapshot(), snapshot()]);
+    assert_eq!(herdr.resolve(None, "s-1").unwrap(), "w5:p1");
+    assert!(matches!(herdr.resolve(None, "s-1"), Err(RuntimeError::Ambiguous(_))));
+    assert!(matches!(herdr.resolve(None, "lead"), Err(RuntimeError::NoAgent(_))), "a name is not a session");
+    assert!(matches!(herdr.resolve(None, "s-gone"), Err(RuntimeError::NoAgent(_))));
+    let seen = server.join().unwrap();
+    assert!(seen.iter().all(|r| r["method"] == "session.snapshot"));
+}
+
+/// The visible text of a pane, keys in Herdr's names, a message typed at a pane, the reason.
+#[test]
+fn a_panes_screen_keys_and_reason() {
+    let (_dir, herdr, server) = fake(vec![
+        json!({ "result": { "type": "pane_read", "read": { "pane_id": "w5:p1", "text": "a\n❯ 1. Yes\n  2. No\n", "revision": 3, "truncated": false } } }),
+        json!({ "result": { "type": "ok" } }),
+        json!({ "result": { "type": "ok" } }),
+        json!({ "result": { "type": "agent_explain", "explain": { "rule": "bash_permission_prompt", "evidence": "Do you want to proceed?" } } }),
+        json!({ "result": { "type": "agent_explain", "explain": null } }),
+    ]);
+    let s = herdr.screen(None, "w5:p1").unwrap();
+    assert_eq!((s.text.as_str(), s.rows, s.cols), ("a\n❯ 1. Yes\n  2. No\n", 3, 8));
+    herdr.press(None, "w5:p1", &[Key::Down, Key::Escape, Key::Digit(2), Key::Enter, Key::Tab, Key::Up]).unwrap();
+    herdr.send_at(None, "w5:p1", "hello").unwrap();
+    assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap().as_deref(), Some("bash_permission_prompt: Do you want to proceed?"));
+    assert_eq!(herdr.why_blocked(None, "w5:p1").unwrap(), None);
+    let seen = server.join().unwrap();
+    assert_eq!(seen[0]["method"], "pane.read");
+    assert_eq!(seen[0]["params"], json!({ "pane_id": "w5:p1", "source": "visible", "format": "text" }));
+    assert_eq!(seen[1]["params"], json!({ "pane_id": "w5:p1", "keys": ["down", "esc", "2", "enter", "tab", "up"] }));
+    assert_eq!((seen[2]["method"].as_str(), &seen[2]["params"]), (Some("agent.prompt"), &json!({ "target": "w5:p1", "text": "hello" })));
+    assert_eq!((seen[3]["method"].as_str(), &seen[3]["params"]), (Some("agent.explain"), &json!({ "target": "w5:p1" })));
+}
+
+/// The observe child: Herdr's own CLI for that pane, at the socket of that server, with none
+/// of the pane variables of the service's own terminal; its client socket next to the API's.
+#[test]
+fn the_observe_child() {
+    let cmd = screens::observe_command(std::path::Path::new("/data/herdr-box.sock"), "w5:p1");
+    assert_eq!(cmd.get_program(), "herdr");
+    assert_eq!(cmd.get_args().collect::<Vec<_>>(), ["terminal", "session", "observe", "w5:p1"]);
+    let envs: Vec<(String, Option<String>)> = cmd.get_envs().map(|(k, v)| (k.to_string_lossy().into(), v.map(|v| v.to_string_lossy().into()))).collect();
+    for v in ["HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID", "HERDR_ENV"] {
+        assert!(envs.contains(&(v.to_string(), None)), "{v} removed: {envs:?}");
+    }
+    assert!(envs.contains(&("HERDR_SOCKET_PATH".into(), Some("/data/herdr-box.sock".into()))));
+    assert_eq!(screens::client_socket(std::path::Path::new("/home/me/.config/herdr/herdr.sock")), std::path::Path::new("/home/me/.config/herdr/herdr-client.sock"));
+    // No client socket: observe fails alone, with why.
+    let (_dir, herdr, _server) = fake(vec![]);
+    let Err(RuntimeError::Failed(why)) = herdr.observe(None, "w5:p1") else { panic!("observe without a client socket") };
+    assert!(why.contains("client socket"), "{why}");
+}
+
+/// What the watch subscribes to, and what each event wakes.
+#[test]
+fn events_as_wake_ups() {
+    let subs = watch::subscriptions(&["w5:p1".into(), "w5:p4".into()]);
+    assert_eq!(subs["subscriptions"], json!([{ "type": "pane.agent_detected" }, { "type": "pane.closed" }, { "type": "pane.agent_status_changed", "pane_id": "w5:p1" }, { "type": "pane.agent_status_changed", "pane_id": "w5:p4" }]));
+    let (c, again) = watch::event(&json!({ "event": "pane.agent_status_changed", "data": { "pane_id": "w5:p1", "agent_status": "blocked", "workspace_id": "w5" } }));
+    assert_eq!((c.unwrap(), again), (Change { place: "w5:p1".into(), state: AgentState::Blocked }, false));
+    let (c, again) = watch::event(&json!({ "event": "pane.closed", "data": { "pane_id": "w5:p4" } }));
+    assert!(c.is_some() && again, "a pane gone: subscribe again");
+    assert_eq!(watch::event(&json!({ "event": "workspace.focused", "data": {} })), (None, false));
+}
