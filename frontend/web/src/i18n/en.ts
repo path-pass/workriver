@@ -380,9 +380,75 @@ export const en = {
     close: 'Fold the panel',
     resize: 'Panel width (drag, or arrow keys; double-click for the default)'
   },
+  screen: {
+    answer: 'Answer',
+    waited: 'waiting {{time}}',
+    onScreen: 'The runtime reports it idle; its screen shows a question.',
+    reading: 'Reading its screen…',
+    readFailed: 'Its screen could not be read: {{reason}}',
+    retry: 'Try again',
+    again: 'Read its screen again',
+    whole: 'Whole screen',
+    cut: 'The question is longer than the lines shown above: read the whole screen before you answer.',
+    noDialog: 'No question could be read off its screen: answer with the keys below, or open its terminal view.',
+    options: 'Answers',
+    hints: 'Keys the question names',
+    other: 'Other keys',
+    press: 'Press {{key}}',
+    openView: 'Open terminal view',
+    cap: { up: '↑', down: '↓', enter: '↵', escape: 'Esc', tab: 'Tab' },
+    keyName: { up: 'Up', down: 'Down', enter: 'Enter', escape: 'Escape', tab: 'Tab' },
+    outcome: {
+      answered: 'Answered.',
+      open: 'Sent; the question is still open. An answer that takes text is given in its terminal.',
+      new: 'Sent; a new question is there now.',
+      sent: 'Sent; the question is gone, but the runtime still reports it waiting.',
+      changed: 'Something else changed while the selection moved; Enter was not sent. Look again.',
+      unsure: 'It may have been sent; look again before you press anything.'
+    },
+    refused: {
+      gone: 'It is gone: no live agent has that session there.',
+      two: 'It shows in two places; answer it in its terminal.',
+      'not-waiting': 'It is no longer waiting.',
+      busy: 'Something is being sent to it now; try again in a moment.',
+      changed: 'The screen changed; look again.',
+      'no-dialog': 'Its screen shows no question to answer.',
+      invalid: 'The service did not take the request.',
+      runtime: 'The runtime cannot read or answer it now.',
+      origin: 'Refused: the request did not come from this page.',
+      views: 'Too many terminal views are open; close one first.',
+      refused: 'Refused: this page is not signed in as you.',
+      failed: 'It failed.',
+      unsure: 'The answer was lost; it may have been sent. Look again before you press anything.'
+    }
+  },
+  answer: {
+    list: 'Answered in its terminal',
+    answered: 'You answered in its terminal',
+    pressed: 'You pressed in its terminal',
+    outcome: {
+      open: 'the question stayed open',
+      new: 'a new question followed',
+      sent: 'still reported waiting',
+      changed: 'not sent: the screen changed',
+      unsure: 'may have been sent'
+    }
+  },
+  view: {
+    title: 'Terminal view of {{agent}}',
+    app: 'Open in terminal app',
+    fold: 'Fold the terminal view',
+    unfold: 'Show the terminal view',
+    close: 'Close the terminal view',
+    resize: 'Terminal view height (drag, or arrow keys; double-click for the default)',
+    gone: 'The agent is gone; this was its last screen.',
+    ended: 'The view ended: {{reason}}',
+    endedQuietly: 'The view ended.',
+    failed: 'The terminal view could not be opened: the agent may be gone, its machine out of reach, or too many views open.'
+  },
   terminal: {
-    open: 'Open in terminal',
-    openFor: 'Open {{agent}} in terminal',
+    open: 'Open terminal view',
+    openFor: 'Open the terminal view of {{agent}}',
     note: 'Would bring {{agent}}’s terminal to the front – not connected yet',
     remote: '{{what}} is on {{machine}}: it is in front there, in workspace {{workspace}}. In {{runtime}}, switch to {{machine}} to see it.',
     command: 'The command'

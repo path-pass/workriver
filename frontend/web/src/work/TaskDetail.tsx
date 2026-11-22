@@ -1,6 +1,6 @@
 // The picked task in full: what went in, what came out, its checks and findings, and what
 // can be done with it.
-import { useState, type ReactNode } from 'react'
+import { useContext, useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { untested, finderLabel, findingsOf } from './select'
 import { ms } from '@/planning/select'
@@ -22,6 +22,9 @@ import { Chose } from '@/content/choice/Choice'
 import { Thumbs } from '@/attachments/Thumbs'
 import { gateKey } from './actions'
 import { TerminalButton, Who } from '@/agents/Mark'
+import { AgentContext } from '@/agents/context'
+import { cap } from '@/agents/Gate'
+import { TerminalText } from '@/content/TerminalText'
 import { Prose } from '@/content/Prose'
 import { Slot, SLOT } from '@/content/Chips'
 import { CopyButton } from '@/ui/CopyButton'
@@ -90,6 +93,50 @@ export function Added({ n }: { n: Task }) {
   )
 }
 
+/**
+ * What the user answered from the page in its agent's terminal: the question line and the
+ * option as the service recorded them (cut where a command or a path begins), in the order a
+ * terminal draws them; a key pressed by hand as its cap. Oldest first, with the time.
+ */
+export function Answers({ n }: { n: Task }) {
+  const { t, when } = useT()
+  const list = n.input.answers ?? []
+  if (!list.length) return null
+  return (
+    <ul className="mt-2 flex flex-col gap-2 border-l-2 border-line pl-2.5" aria-label={t('answer.list')}>
+      {list.map((x, k) => {
+        const what = x.option
+          ? [x.question, `${x.option.number !== undefined ? `${x.option.number}. ` : ''}${x.option.words}`].filter(Boolean).join(' — ')
+          : x.keys.map(key => cap(t, key)).join(' ')
+        return (
+          <li key={k} className="flex flex-col gap-0.5">
+            <div className="text-xs text-ink-2">
+              {t(x.option ? 'answer.answered' : 'answer.pressed')} · {when(ms(x.at))}
+              {x.outcome !== 'answered' && ['open', 'new', 'sent', 'changed', 'unsure'].includes(x.outcome) && <> · {t(`answer.outcome.${x.outcome as 'open'}`)}</>}
+            </div>
+            <TerminalText text={what} className="font-mono text-xs wrap-anywhere" />
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** A line under the head of work whose agent waits for the user in its terminal: to its gate. */
+function Waiting({ n, talk }: { n: Task; talk: Talk }) {
+  const { t } = useT()
+  const agents = useContext(AgentContext)
+  const s = n.agent ? talk.sessions.find(x => !x.ended && x.blockedSince && (n.agentSession && x.session ? x.session === n.agentSession : x.agent === n.agent)) : undefined
+  if (!s) return null
+  return (
+    <div className="flex items-center gap-2 border-b border-line bg-hold-bg px-3 py-1.5 text-xs font-semibold text-hold-ink">
+      <Icon name="blocked" className="size-3.5" />
+      <span className="min-w-0 flex-1">{t('agents.blocked')}</span>
+      <Button variant="outline" size="xs" className="rounded-sm" onClick={() => agents.answer({ name: s.agent, session: s.session })}>{t('screen.answer')}</Button>
+    </div>
+  )
+}
+
 export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task; finding?: string; onPick: (p: Pick) => void; talk: Talk }) {
   const { t, num, when } = useT()
   const byId = (id?: string) => unit.tasks.find(x => x.id === id)
@@ -103,7 +150,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
     const of = byId(n.inputs.find(i => i.primary)?.from)
     const files = [...new Set(commitsOf(of).filter(c => !c.merge).flatMap(c => c.files.map(f => f.path)))]
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(n.state === 'dropped' ? 'state.dropped' : n.result === 'running' ? 'state.running' : 'state.done')}</>
-    input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}<Added n={n} /></>
+    input = <>{of && <div><Slot text={t('io.changesOf', { label: SLOT })}><NodeName n={of} /></Slot></div>}{files.length ? paths(files) : quiet(t('io.noChanges'))}<Added n={n} /><Answers n={n} /></>
     output = <>{found || quiet(t(n.result === 'running' ? 'io.noFindingsYet' : 'io.noFindings'))}<Checks n={n} /><Thumbs list={n.output.attachments ?? []} /></>
   } else if (n.kind === 'gate') {
     head = <><Icon name={glyph(n)} />{finderLabel(t, n)} · {t(`state.${n.state}`)}</>
@@ -145,6 +192,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
     input = <>
       <Prose text={n.input.text || n.title} />
       <Added n={n} />
+      <Answers n={n} />
       {n.state === 'unregistered' && quiet(t('io.unknownInput'))}
       {/* The gap is closed by saying which task the commit belongs to; nothing is rewritten. */}
       {n.state === 'unregistered' && n.output.commits?.[0] && (
@@ -204,7 +252,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
         {/* Blind: its findings were made without seeing other work; weigh agreement accordingly. */}
         {n.blind && <Tip text={t('task.blindHint')}><span className="flex items-center gap-1 font-normal"><Icon name="blind" className="size-3.5" />{t('task.blind')}</span></Tip>}
         <span className="ml-auto flex items-center gap-1">
-          {/* The agent on work that is running or still to do, while its session lives: to its terminal. */}
+          {/* The agent on work that is running or still to do, while its session lives: to its terminal view. */}
           {n.agent && (n.state === 'running' || n.state === 'todo') && talk.sessions.some(s => s.agent === n.agent && !s.ended) && (
             <TerminalButton agent={n.agent} session={n.agentSession} className="text-you-ink hover:bg-surface/60" />
           )}
@@ -212,6 +260,7 @@ export function Detail({ unit, n, finding, onPick, talk }: { unit: Unit; n: Task
           <CopyButton text={linkTo(pathOf(unit.id, { kind: 'task', id: n.id }))} aria={t('link.copy')} className="text-you-ink hover:bg-surface/60" />
         </span>
       </div>
+      {(n.state === 'running' || n.state === 'todo') && <Waiting n={n} talk={talk} />}
       {n.trace && <Traced trace={n.trace} />}
       {/* No longer needed: by whom and when, then why in their words. */}
       {n.dropped && (

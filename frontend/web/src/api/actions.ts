@@ -133,13 +133,14 @@ export async function wantNotify(on: boolean): Promise<boolean> {
   return ok
 }
 /**
- * One notification; clicking it brings this tab forward and, for an agent, its terminal.
- * `key` names what it is about (an agent, or a machine's alert), so one is not shown twice.
+ * One notification; clicking it brings this tab forward and does `open` (for an agent, opens
+ * its gate). `key` names what it is about (an agent, or a machine's alert), so one is not
+ * shown twice.
  */
-export function notify(title: string, body: string | undefined, key: string, agent = true) {
+export function notify(title: string, body: string | undefined, key: string, open?: () => void) {
   if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   const n = new Notification(title, { body, tag: `workriver:${key}` })
-  n.onclick = () => { window.focus(); if (agent) focusAgent(key); n.close() }
+  n.onclick = () => { window.focus(); open?.(); n.close() }
 }
 
 /** Writes to a workspace's manager (by the intent it runs, or the workspace's label), with

@@ -64,7 +64,7 @@ export function agentGroups(ws: Workspace): AgentGroup[] {
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     const key = s.group?.id ?? intent?.id ?? ''
     if (!groups.has(key)) groups.set(key, { key, label: s.group?.label ?? intent?.title ?? '', machine: s.group?.machine, intent, agents: [] })
-    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked', manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
+    groups.get(key)!.agents.push({ agent: s.agent, session: s.session, topic: s.topic, state, blocked: s.state === 'blocked' || !!s.onScreen, manager: !!s.manager, machine: s.machine, unreachable: s.unreachable, at })
   }
   const rank = (a: AgentAt) => (a.blocked ? 0 : a.manager ? 1 : a.state === 'working' ? 2 : a.state === 'queued' ? 3 : 4)
   const list = [...groups.values()]
@@ -121,7 +121,8 @@ export function agentTree(ws: Workspace): { groups: TreeGroup[]; own: TreeAgent[
     const own = held.filter((a): a is NonNullable<TreeAgent['at']> => !!a)
     const live = own.find(a => a.node.state === 'running') ?? own.find(a => a.node.state === 'todo')
     const last = own.filter(a => a.node.state === 'done').sort((a, b) => (ms(a.node.delivered) || 0) - (ms(b.node.delivered) || 0)).at(-1) ?? null
-    const state = s.ended ? 'gone' : s.state === 'blocked' ? 'blocked' : s.state === 'working' ? 'working' : 'idle'
+    // One waiting on its screen (the runtime missed the dialog) is shown exactly as blocked.
+    const state = s.ended ? 'gone' : s.state === 'blocked' || s.onScreen ? 'blocked' : s.state === 'working' ? 'working' : 'idle'
     const since = state === 'blocked' ? ms(s.blockedSince) : ms(s.idleSince) || ms(last?.node.delivered)
     return { s, state, since, at: live ?? last, current: !!live, closable: state === 'idle' && !live && own.length > 0, kids: [] }
   }

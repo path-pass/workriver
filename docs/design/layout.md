@@ -420,7 +420,8 @@ frontend/web/
     │                                 # (an <img src>, the viewer's text preview).
     │   ├── http.ts                   # GET (read), POST (post, call), the change stream, errors, SIGNED_OUT.
     │   ├── session.ts                # One-time code exchange, the remembered deep link.
-    │   └── actions.ts                # The page's actions, focus included.
+    │   ├── actions.ts                # The page's actions, focus included.
+    │   └── terminal.ts               # An agent's terminal: its screen, the keys pressed, its view's stream.
     ├── workspace/                    # Snapshot loading and the optimistic overlay; no components.
     │   ├── types.ts  source.ts  edits.ts
     ├── planning/                     # types.ts select.ts edit.ts Rail.tsx IntentPage.tsx Start.tsx
@@ -430,13 +431,16 @@ frontend/web/
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
+    │                                 # Gate.tsx (a stuck agent answered: its screen, options, keys)
+    │                                 # TerminalView.tsx (the dock, xterm.js loaded on first use) context.tsx
     ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts
     ├── attachments/                  # types.ts Viewer.tsx Thumbs.tsx preview.ts; Viewer calls onAsk, never Ask
     ├── commands/                     # types.ts Run.tsx context.tsx
     ├── machines/                     # types.ts format.tsx Machines.tsx Settings.tsx
     ├── session/                      # Session.tsx
-    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx, diagram/ (mermaid),
+    ├── content/                      # Markdown.tsx Prose.tsx Chips.tsx TerminalText.tsx (screen text in the
+    │                                 # order a terminal draws it), diagram/ (mermaid),
     │                                 # choice/ (a question's options: surface.ts Choice.tsx);
     │                                 # no api or domain UI imports
     ├── ui/                           # primitives/ (the shadcn files, radio-group.tsx and popover.tsx among them) Choice.tsx Icon.tsx
