@@ -206,7 +206,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/here", "{}"),
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
-    ("GET", "/api/message/m9", ""),
+    ("GET", "/api/message/m1", ""),
     ("POST", "/api/messages/read", r#"{"workspace":"chat","at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/discuss", r#"{"unit":"u1","task":1,"text":"Why?"}"#),
     ("POST", "/api/discuss/read", r#"{"unit":"u1","task":1,"at":"2026-01-01T00:00:00Z"}"#),
@@ -248,6 +248,11 @@ fn who_may_use_each_route() {
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
+    // A message of the local chat, which far, the manager of box's chat (the same label, not
+    // linked), does not read.
+    let there = far.call("/api/here", Some(json!({}))).unwrap()["group"].clone();
+    far.append("", "manager.registered", json!({ "workspace": there })).unwrap();
+    user.call("/api/message", Some(json!({ "intent": "i1", "text": "probe" }))).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
 
     let token = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());

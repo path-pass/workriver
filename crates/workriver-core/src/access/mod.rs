@@ -59,7 +59,7 @@ impl From<&str> for Principal {
 impl crate::State {
     /// One message as `who` may read it whole (`workriver message show`): the user, every
     /// message with every reply; an agent, one of the conversation of the workspace it was
-    /// found in (`group`) or one that went to it; and one to every manager that went to it,
+    /// found in (`group`, the same record, not only the same label) or one that went to it; and one to every manager that went to it,
     /// with its own replies only (the others answer for other workspaces).
     pub fn message_for(&self, id: &str, who: &Principal, group: Option<&crate::RuntimeRef>) -> Result<crate::Message, Rejected> {
         let m = self.message(id)?;
@@ -74,7 +74,9 @@ impl crate::State {
             }
             return Ok(crate::Message { replies: m.replies.iter().filter(|r| &r.by == session).cloned().collect(), ..m.clone() });
         }
-        let ours = !m.workspace.is_empty() && group.and_then(|g| self.workspace_of(g)).is_some_and(|w| w.group.label == m.workspace);
+        // By the workspace's record (a linked group of another machine: the local one), not
+        // its label, which an unlinked workspace of another machine may carry too.
+        let ours = m.record.is_some() && group.and_then(|g| self.workspace_at(g)) == m.record;
         if ours || &m.manager == session { Ok(m.clone()) } else { no(format!("message {id} is not in your workspace's conversation")) }
     }
 }

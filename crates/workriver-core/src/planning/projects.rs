@@ -71,7 +71,7 @@ impl State {
 
     /// Where a group's record is. A linked group of another machine is the workspace of this
     /// machine it is linked to; nothing else is ever matched across machines.
-    pub(super) fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
+    pub(crate) fn workspace_at(&self, r: &RuntimeRef) -> Option<usize> {
         if let Some(l) = self.link_of(r) {
             return self.workspaces.iter().position(|w| w.group.machine.is_none() && w.group.label == l.local);
         }

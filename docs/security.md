@@ -121,7 +121,8 @@ One of your messages to a manager can be read whole from a terminal (`workriver 
 show`), for when the quote typed to the manager was cut. It is read through `App::view` too,
 and narrower: an agent reads a message of its own workspace's conversation, or one to every
 manager that went to it (with only its own replies there); a message of another workspace's
-conversation is refused. You read every message.
+conversation is refused, and so is one of a workspace on another machine that only shares
+its label (one linked to the agent's is the same workspace). You read every message.
 
 An intent's kind, size and tags follow the same rules, with less for agents: whoever adds an
 intent sets them in the same record (an agent's `backlog add`, an import); after that you

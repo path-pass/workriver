@@ -54,6 +54,11 @@ pub struct Message {
     /// The user's message that answers a manager's choice: which one, and the value picked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<Answer>,
+    /// The workspace's record whose conversation it is in, found as it was recorded (none: to
+    /// every manager, or a workspace with no record). The label above may be another
+    /// machine's workspace's as well: who reads it is decided by this (`message_for`).
+    #[serde(skip)]
+    pub(crate) record: Option<usize>,
 }
 
 /// A manager a message to every manager goes to: the group it runs in when it is sent (on its
@@ -380,6 +385,16 @@ impl State {
                 }
             }
             MessageSent { id, intent, workspace, manager, text, unit, task, context, to, answer } => {
+                // The record its conversation is in, found as `prepare` routed it.
+                let record = if !to.is_empty() {
+                    None
+                } else if let Some(a) = answer {
+                    self.message(&a.message).ok().and_then(|q| q.record)
+                } else if intent.is_empty() {
+                    self.workspaces.iter().position(|w| w.group.machine.is_none() && &w.group.label == workspace)
+                } else {
+                    self.intents.iter().find(|i| &i.id == intent).and_then(|i| i.workspace.as_ref()).and_then(|g| self.workspace_at(g))
+                };
                 if let Some(a) = answer {
                     let answered = Some(Answered { by: id.clone(), selected: a.selected.clone() });
                     if let Some(m) = self.messages.iter_mut().find(|m| m.id == a.message) {
@@ -410,9 +425,12 @@ impl State {
                     choice: None,
                     answered: None,
                     answer: answer.clone(),
+                    record,
                 })
             }
             MessageSaid { id, intent, workspace, text, choice } => self.messages.push(Message {
+                // The workspace its manager says it in, as `prepare` found it.
+                record: self.workspaces.iter().position(|w| w.manager.as_deref() == Some(e.actor.as_str())),
                 id: id.clone(),
                 intent: intent.clone(),
                 workspace: workspace.clone(),

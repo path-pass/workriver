@@ -898,6 +898,8 @@ struct EveryManager {
     local: std::sync::Arc<Fake>,
     far: std::sync::Arc<Fake>,
     all: std::sync::Arc<crate::runtime::follow::Machines>,
+    /// far, as it calls from its place on box.
+    remote: Daemon,
 }
 
 fn every_manager(link: Option<&str>) -> EveryManager {
@@ -931,7 +933,7 @@ fn every_manager(link: Option<&str>) -> EveryManager {
     }
     remote.append("", "manager.registered", json!({ "workspace": group })).unwrap();
     wait_until("the far agent is seen", || d.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().any(|s| s["machine"] == "box"));
-    EveryManager { _tmp: tmp, d, local, far, all }
+    EveryManager { _tmp: tmp, d, local, far, all, remote }
 }
 
 impl EveryManager {
@@ -966,6 +968,28 @@ fn a_far_manager_of_a_linked_workspace_keeps_its_machine() {
     let terminal = t.far.sent.lock().unwrap().iter().find(|(_, text)| text.contains("message m1")).unwrap().1.clone();
     assert!(terminal.contains("answer for your own workspace, \"chat\" on machine box, only"), "{terminal}");
     assert!(terminal.find(RESULT_IS_A_REPLY).is_some_and(|k| k < terminal.find('«').unwrap()), "{terminal}");
+}
+
+/// Two workspaces of one label on two machines, not linked, are two conversations: a
+/// message is read by the workspace it is in, its record, not by its label. far (box's chat)
+/// reads no message of the local chat, and boss (the local chat) none that far said in
+/// box's; once box's chat is linked to the local one, they are one conversation.
+#[test]
+fn a_message_is_read_by_its_workspace_not_its_label() {
+    let t = every_manager(None);
+    let boss = at_place(&t.d, "p1");
+    let show = |who: &Daemon, id: &str| who.get(&format!("/api/message/{id}"));
+    t.d.call("/api/message", Some(json!({ "workspace": "chat", "text": "Local only" }))).unwrap();
+    t.remote.append("", "message.said", json!({ "text": "Far only" })).unwrap();
+    let said = t.d.get("/api/workspace").unwrap()["messages"].as_array().unwrap().iter().map(|m| (m["id"].as_str().unwrap().to_string(), m["workspace"].as_str().unwrap().to_string())).collect::<Vec<_>>();
+    assert_eq!(said, [("m1".to_string(), "chat".to_string()), ("m2".to_string(), "chat".to_string())], "both in a conversation labelled chat");
+    assert_eq!(show(&boss, "m1").unwrap()["text"], "Local only");
+    assert_eq!(show(&t.remote, "m2").unwrap()["text"], "Far only");
+    assert!(show(&t.remote, "m1").unwrap_err().to_string().contains("message m1 is not in your workspace's conversation"));
+    assert!(show(&boss, "m2").unwrap_err().to_string().contains("message m2 is not in your workspace's conversation"));
+
+    t.d.append("user", "workspace.linked", json!({ "machine": "box", "workspace": "chat", "local": "chat" })).unwrap();
+    assert_eq!(show(&t.remote, "m1").unwrap()["text"], "Local only");
 }
 
 /// What a manager is told of the result of what the user's message asked, single or to every
