@@ -34,6 +34,11 @@ reads it.
     project when `intent_project` is that project's folder. `workspace_project` (worked out
     from the manager's folder, the current intent, the intents that ran) and
     `workspace.project_set` go.
+  - An intent's project, for the rules, is the registered project holding the folder it
+    names, else none: `intent_project` no longer returns a folder no registered project
+    holds. And `intent.created` names such a folder or none, whoever records it (refused
+    otherwise, saying to add the project first): today an agent's planned intent may name
+    any folder, and nothing checks it.
   - `manager`: the seat, section 2. `current`: the intent new work goes to, as today.
 - **Who makes and closes one: the user only** (`Body::user_only`; the page, or the CLI
   from the user's own terminal).
@@ -52,7 +57,9 @@ reads it.
   conversation. A project with no open workspace offers only "New workspace". A workspace
   needs no running terminal.
 - **An intent's workspace.** A planned intent is in none: it is in its project's roadmap,
-  one ordered list per project. A start puts it in a workspace of its project (section 3);
+  one ordered list per project. A planned intent of no project (old records, section 5) is
+  in the roadmap of "No project", shown after the projects; only the user starts it.
+  A start puts it in a workspace of its project (section 3);
   the user may move an active intent to another workspace of the same project
   (`intent.workspace_set`). Messages sent before a move stay in the conversation they were
   in. A done or dropped intent keeps the workspace it ran in.
@@ -63,13 +70,16 @@ reads it.
 
 ## 2. The manager's seat
 
-- **What is kept:** `manager: {session, machine, since}`, to know who the manager is and to
-  reach its terminal (`Runtime::send_to(machine, session)`, `focus`). `since` is the
-  revision of the event that seated this session: the **appointment**. Not its pane, not
-  its runtime group. A manager on another machine holds a seat the same way: there are no
-  links.
+- **What is kept:** `manager: {session, machine, folder, since}`, to know who the manager
+  is and to reach its terminal (`Runtime::send_to(machine, session)`, `focus`). `folder`
+  is the working directory the runtime showed for it when it was seated (the service fills
+  it in from the same read as the machine); it is shown, and compared once (below). `since`
+  is the revision of the event that seated this session: the **appointment**. Not its pane,
+  not its runtime group. A manager on another machine holds a seat the same way: there are
+  no links.
 - **Seated by the user's act, never by an agent alone.** One event, the user's only:
-  `workspace.manager_set {workspace, manager: session | none, machine, replaces}`.
+  `workspace.manager_set {workspace, manager: session | none, machine, folder, replaces}`
+  (machine and folder filled in by the service from its read of the runtime, below).
   - `replaces` is the seat the user was shown (its session and `since`, or none). The rules
     refuse the event when the seat is no longer that one (409, the page shows the seat
     again): a change made meanwhile is never overwritten unseen. Checked and recorded under
@@ -82,9 +92,16 @@ reads it.
   - In the user's own terminal: `workriver workspace manager ws3 <session>` (a name only
     when exactly one running agent has it; else refused with the list), `--none` to empty.
     It sends the seat it read as `replaces`.
-  - The session must be one the runtime lists on that machine at the request (a read made
-    then; it cannot be asked: 503), and pinned to one root that runs (`caller-identity.md`
-    rule 5). A session the service cannot place, or first seen at two roots, is refused.
+  - **The session's root is read at the seating, on its own machine.** The service reads
+    that machine's agent roots then (`Runtime::agent_roots(machine)`, this machine's or
+    another's alike; one that cannot be asked: 503). The seat is refused when the session
+    is shown at no root there, at more than one, or at a root other than the one it is
+    pinned to while that root runs (`caller-identity.md` rule 5); the refusal names the
+    places. A session with no pin, or whose pinned root is gone, is pinned at the seating to
+    the one root it is shown at. So on another machine too the seat's root is the one the
+    runtime shows for that session when the user seats it, not whichever root called first
+    with it (today a remote pin goes to the first caller, and only this machine is looked
+    at for a session shown twice, `App::one_place`).
   - A session holds one seat: seating it in another workspace empties its old one.
   - The user may seat over a manager that still runs (the page says it runs and asks once);
     that one is told it no longer manages.
@@ -101,9 +118,20 @@ reads it.
 - **Any other terminal or session takes the seat only by the user's act.** Needs you shows
   one row per open workspace that has an active intent and no running manager. It opens the
   same select, preset to the seated session when it now runs at another root (a resume, a
-  runtime restart: confirming it moves the pin and keeps the appointment), else to the
-  agent now running in the terminal the old session was pinned to, when there is one. One
-  click. Seating the same session again keeps `since`; another session gets a new one.
+  runtime restart), else to the agent now running in the terminal the old session was
+  pinned to, when there is one. One click; the seating is checked as above.
+  - **A seated session at a new root is shown as a new terminal**, never as "the manager,
+    resumed": the row says that a new terminal reports this session, and shows the old
+    root's machine and folder (the seat's, "gone") beside the new root's (and when it
+    started). The session id is what any program may report (section 0), so the preset is
+    a proposal like any other.
+  - **The appointment is kept only where the new root is where the old one was.**
+    Confirming the same session keeps `since` (open choices stay answerable, queued sends
+    are delivered) only when the new root's machine and folder are the seat's. Otherwise
+    the confirmation is a new appointment, as for another session: the earlier
+    appointment's choices close and its queued sends are "not delivered". The page says
+    which of the two the click does before it is made.
+  - Another session always gets a new `since`.
 - Emptying the seat or closing the workspace releases the pin to rule 5 as it is for any
   agent.
 
@@ -124,11 +152,32 @@ reads it.
 | The blind view shows which machine a workspace is on | a workspace has no machine; the seat's is an agent's machine and is cleared like one. |
 
 **Conversations are read by their workspace only.** Today `App::view` gives an agent every
-record, every workspace's messages included. Now the view leaves out, for an agent, the
-messages of every workspace whose seat it does not hold, except copies addressed to its
-current appointment; the read marks likewise. The same holds for the snapshot, `message
-show`, and an attachment whose only grant is such a message. The user sees all; the blind
-view stays as it is within that.
+record, every workspace's messages included. Now the view, for an agent, keeps:
+
+- the messages of the workspace whose seat it holds;
+- of a message to every manager, only when a copy of it went to its current appointment:
+  the message itself (the user's text, what it points at, the user's attachments), its
+  own copy and its own replies, and the user's answers to those replies. Nothing of the
+  other copies: not their workspace, manager or delivery, not their replies (text,
+  choices, answers), not the attachments those replies or answers carry. Such a message
+  is one record (`Message.to` holds every copy, `Message.replies` every manager's
+  replies), so the view cuts it down; keeping or dropping it whole would not do;
+- the read marks of the workspace whose seat it holds; none other.
+
+The same view serves every route that returns records, on both listeners (on main:
+`/api/state`, the snapshot `/api/workspace`, `/api/task` and the attachment route;
+`message show` is a command of the unmerged choices branch and goes through it once that
+is merged). An attachment is served to an agent only when a record the view kept grants
+it. The user sees all; the blind view stays
+as it is within that.
+
+**What stays readable by every agent:** everything that is not a conversation with the
+user: intents (planned and active, every workspace's and project's), units, tasks,
+findings, gates, chores, the task discussions (questions) and their threads, the agents.
+That is intended: a review reads another unit's work, `ask` reaches any task, a manager
+plans against the whole roadmap. The blind view still narrows it for an agent on a blind
+task. Scoping more than the conversations is not part of this (section 7). What the
+scope binds, and what it cannot, is under the limits (section 6).
 
 ## 4. The page
 
@@ -139,7 +188,9 @@ view stays as it is within that.
   has an active intent). That line moves here from every intent's. Under it its active
   intents with their units, as today. The project's **Roadmap** (planned intents are in no
   workspace; the order is the project's) and **Done** (folded; each done intent names the
-  workspace it ran in) follow its workspaces. A project's "+" adds a workspace; a
+  workspace it ran in) follow its workspaces. After the projects, "No project" holds the
+  planned intents of no project (old records only: section 1), with Start for the user
+  only; it is not shown when it is empty. A project's "+" adds a workspace; a
   workspace's menu: rename, manager, close. A closed workspace is not in the rail; Settings
   → Workspaces lists them (open again there). A link to an intent or unit opens its
   workspace's group.
@@ -166,37 +217,59 @@ view stays as it is within that.
 - **The product reads only the new form.** `Body` loses `workspace.linked`,
   `workspace.unlinked`, `workspace.project_set`, `manager.registered`, `intent.linked` and
   `intent.created`'s `runtime_ref`; `RuntimeRef` leaves the records. The store carries a
-  format mark (workriver-data's own); the service refuses a store with events and no mark,
-  naming the script. A new store is marked when made.
-- **Where:** `scripts/migrate-virtual-workspaces/`, a Cargo package of its own, not a
-  member of the workspace: never built, tested or shipped with the product. It is built
-  against workriver-core and workriver-data as of the last commit before this change (a
-  work tree under `.local/`), so old events are replayed by the very code that wrote them,
-  not by a copy of its matching. It is removed from the repository once the user's store
-  is migrated.
-- **Three steps, on a copy taken with the service stopped, the copy never written**
-  (opened read-only; the output is a new file, refused when it exists or is the live
-  store's path):
-  1. `plan <copy.db>` prints, and writes as a file the user may edit, the mapping: each
-     old record → its workspaces (name, project, open or closed), and every point it could
-     not tell, each a line the user fills in.
-  2. `apply <copy.db> <mapping> <out.db>` writes the new events; refused while a line of
-     the mapping is unfilled.
-  3. `check <copy.db> <state.json>` compares, below.
+  format mark: a schema step of workriver-data's (`MIGRATIONS`, counted by
+  `user_version`) that `Store::open` runs only on a store with no events, so a new store is
+  marked when made. A store with events and without that step is refused, naming the
+  script; the step is never run on it.
+- **Where:** `scripts/migrate-virtual-workspaces/`, two Cargo packages, `old/` and `new/`,
+  neither a member of the workspace: never built, tested or shipped with the product. Each
+  has an empty `[workspace]` table of its own (without one, Cargo takes a package under
+  the root for a part of the root's workspace and refuses to build it; the root's
+  `members = ["crates/*"]` stays as it is). Two packages because each is built against
+  one version of workriver-core and workriver-data, and reads only the form that version
+  knows:
+  - `old/` against the last commit before this change (a work tree under `.local/`), so
+    old events are replayed by the very code that wrote them, not by a copy of its
+    matching;
+  - `new/` against this branch, so the new events are decoded, checked and stored by the
+    product's own code.
+
+  Both are removed from the repository once the user's store is migrated.
+- **Four steps, on a copy taken with the service stopped, the copy never written**
+  (opened read-only; every output is a new file or folder, refused when it exists or is
+  the live store's path):
+  1. `old plan <copy.db> <mapping>` prints, and writes as a file the user may edit, the
+     mapping: each old record → its workspaces (name, project, open or closed), and every
+     point it could not tell, each a line the user fills in.
+  2. `old apply <copy.db> <mapping> <dir>` writes, refused while a line of the mapping is
+     unfilled: `<dir>/events.jsonl`, the new events in order, one `{at, actor, kind,
+     body}` per line, the new kinds' bodies written by the script in the new form's JSON
+     (old kinds' bodies as stored, byte for byte); `<dir>/seats.jsonl`, the old
+     registrations as seats (below); `<dir>/old-state.json`, the old state as the old code
+     replays the copy, with each old record's and message's mapped workspace.
+  3. `new write <dir> <out.db>`: `Store::open` makes `out.db` (empty, so it is marked);
+     then each line is decoded as the new `Body` (one that does not decode fails the run),
+     checked against the new rules (below), and inserted as a row with its own `at` and
+     `actor`, the way workriver-data's `events::insert` writes one (the same columns; kind,
+     body and refs from the new `Body`), all in one transaction. This insert is the one
+     write of the events table outside workriver-data, and it goes with the script.
+     `Store::open` of the result then replays it with the product's code.
+  4. `new check <dir> <out.db>` compares, below.
 - **What it maps**, replaying the old events one by one with the old code and taking, for
   each event, the record it wrote or resolved to then (event-time attribution: what an
   event meant when it was recorded, not today's answer):
 
   | Old | New |
   | --- | --- |
-  | A workspace record | `workspace.created` (as the user), just before the first event that made the record: name = its last label; project = its intents' recorded project. Proposed closed when it has no active intent. |
+  | A workspace record | `workspace.created` (as the user), just before the first event that made the record: name = its last label; project = the registered project of its intents' folders (after the folder lines below). Proposed closed when it has no active intent. |
   | A record whose intents are of several projects | one workspace per project, each taking that project's intents; a message goes with the intent it names. A message naming none, of such a record: a line of the mapping. |
   | A record whose project nothing says (no intent with a project) | a line of the mapping; an intent of no project in it takes the project written there, in its `intent.created`. |
-  | A project folder that is not registered | `project.added` (as the user), before the first workspace of it. |
+  | A folder an intent or `workspace.project_set` names that no registered project holds | never registered by the script on its own: a line of the mapping, which `plan` shows with every event that named the folder, its kind, time and who wrote it (the user, or which agent). The user writes one of three: `register` (a `project.added` as the user, before the first event that names it: the user's act, written in the mapping by the user); `into <project>` (its intents' `intent.created` name that registered project's folder); `none` (their `intent.created` names no project). An intent's project is decided by its folder's line before the record rows below read it. |
+  | A planned intent of no project, or whose folder became `none` | stays planned, in no workspace: the roadmap of "No project" (section 4), in its old order; only the user starts it. An active one of no project is in the workspace of its record's line. |
   | Records merged by label (a new id after a restart) | stay one workspace. |
   | A link | creates no workspace and no permission; the link events are dropped. While it held, the linked group's events go to the workspace it was linked into (they resolved to that record); before it and after the unlink, to the remote record's own workspace (closed unless it has an active intent). |
   | Same label, not linked (another machine, or two here) | each its own workspace. |
-  | `manager.registered` | dropped: the seats start empty (an agent's registration is not the user's seating). Needs you then offers each workspace with an active intent its last registered session, when it runs: one click. |
+  | `manager.registered` | dropped: the seats start empty (an agent's registration is not the user's seating); written only to `seats.jsonl`, for the check. Needs you then offers each workspace with an active intent its last registered session, when it runs: one click. |
   | A start, `intent.created` with a group, `intent.linked` | the start with the ws id; `intent.workspace_set`. |
   | `message.sent`, `message.said`, each copy to every manager | the ws id of the record the event resolved to then. A label that found no record: a closed workspace named as the label, its project from the intent the messages name, else a line of the mapping. |
   | `messages.read {label}` | one mark per workspace that carried the label then: the old mark was by label, so it read them all. |
@@ -206,19 +279,32 @@ view stays as it is within that.
   | Every other event | unchanged, byte for byte, in order: ids, authors, times, attachment ids. |
 
 - **How it is checked**, all on the copy:
-  1. The product's copied-database replay (`replays_a_copied_database`) of `out.db` gives
+  1. **Every new event passes the new rules** (in `new write`, before it is stored): the
+     state of the events before it, as the new code applies them, `prepare`s it under the
+     principal its actor names (`user`: the user; `workriver`: the service; else the agent
+     of that session, on the machine its `agent.seen` gives), and the prepared body must be
+     the line's (the ids and numbers `prepare` gives come out as written). The old
+     registrations are not records of the new form, yet an old manager's starts, says and
+     replies were allowed by them; so for this check only, the seats of `seats.jsonl` (each
+     workspace's registered session from where it registered, `since` the revision of the
+     last new event before that point) are set on that state in memory before each event, and written
+     nowhere. A refusal, or a body that comes out different, fails the run, listed with the
+     event and the rule's words; it is mended in the script or by a line of the mapping,
+     never by a looser rule in the product.
+  2. The product's copied-database replay (`replays_a_copied_database`) of `out.db` gives
      the new state: it replays at all, and the service starts on it.
-  2. `check` compares that state with the old one: everything that is not a workspace is
-     equal (intents but their workspace fields, units, tasks, findings, gates, chores,
-     questions, threads, the backlog, agents, projects but the ones added; every message's
-     text, replies, deliveries, answers and attachments); every intent's workspace is the
-     mapping of the old one; every message is in the conversation the mapping says; unread
-     counts per conversation add up to the old ones per label; the choices and sends of the
-     table's row are the ones `plan` listed. A difference no line of the mapping explains
-     fails the check, listed.
-  3. The user opens the page on the copy (its own home and port): the rail, each
+  3. `check` compares that state with `old-state.json`: everything that is not a workspace
+     is equal (intents but their workspace fields and the projects their folders' lines
+     changed, units, tasks, findings, gates, chores, questions, threads, the backlog,
+     agents, projects but the ones `register` added; every message's text, replies,
+     deliveries, answers and attachments); every intent's workspace is the mapping of the
+     old one; every message is in the conversation the mapping says; unread counts per
+     conversation add up to the old ones per label; the choices and sends of the table's
+     row are the ones `plan` listed. A difference no line of the mapping explains fails
+     the check, listed.
+  4. The user opens the page on the copy (its own home and port): the rail, each
      conversation, Needs you.
-  4. Then the service is stopped, the old store kept, `out.db` put in its place and the new
+  5. Then the service is stopped, the old store kept, `out.db` put in its place and the new
      version started. Going back is the old store with the old binary.
 
 ## 6. What goes, security, limits
@@ -254,9 +340,13 @@ none is on `machine_router`.
   anything it does in the runtime: making, naming, renaming or closing a group, running in
   one, or reporting a seated session from another terminal;
 - start an intent anywhere but in the workspace it was seated in, or one of another
-  project; read another workspace's conversation, in the snapshot or by any route; close
-  the user's question or block another manager by a name;
-- receive what was queued for an earlier appointment.
+  project; through any of the service's routes, read another workspace's conversation or
+  read marks, or, in a message to every manager, another manager's copy, replies, the
+  user's answers to them or their attachments (what this does not cover: the limits
+  below); close the user's question or block another manager by a name;
+- receive what was queued for an earlier appointment;
+- name, as an intent's project, a folder no registered project holds; or have a folder it
+  wrote registered as a project, the migration included (section 5).
 
 **Limits that stay** (the runtime's interface and the files are the user's account's):
 
@@ -265,11 +355,29 @@ none is on `machine_router`.
   of a seat never moving by itself.
 - **A session whose terminal is gone can still be taken** when it holds no seat
   (`caller-identity.md`, unchanged): a worker's session, never a manager's.
-- **Bait for the user's pick.** An agent's name and runtime group are what any program
-  reports; the select also shows the machine, the folder and what the records know. A
-  wrong pick is the user's to seat again.
-- A manager on another machine is found as any caller there is (weaker, as today: its pin
-  goes to the first root that calls); that machine's listener serves no seating.
+- **The read scope binds the service, not the machine.** It holds for every route of the
+  service, and so completely for agents on other machines, which reach the records only
+  through their machine's listener. An agent on this machine runs as the user: it can read
+  the store and the attachments in the data home from disk (as `docs/security.md` already
+  says for blind reviews), and under Herdr it can read any terminal's screen, the
+  manager's included, where the user's messages are typed. And by design every agent reads
+  every workspace's intents, units, tasks, questions and threads (section 3). The
+  security document written from this design says all of this, and promises no more.
+- **Bait for the user's pick.** An agent's name, session id and runtime group are what any
+  program reports; the select also shows the machine, the folder and what the records
+  know. This holds for the Needs you row's preset too: a program that reports the seated
+  session id at a root of its own before the real manager resumes is offered as that
+  session. The row says the terminal is new and shows both roots (section 2), and keeps
+  the appointment only when machine and folder are the old root's; a program in the same
+  folder on the same machine still gets it by the user's click. A wrong pick is the user's
+  to seat again.
+- **A manager on another machine** is pinned at its seating to the one root that
+  machine's runtime shows for the session, and is refused where it is shown at two
+  (section 2); the first root to call no longer decides. What stays weaker than here: the
+  process facts there come through the runner and the listing from that machine's
+  runtime, so they hold as far as that machine's account does; and between seatings a
+  remote worker's session is pinned to the first root that calls, as today. That
+  machine's listener serves no seating.
 - A command typed into a plain terminal is the user's (as today), seating included.
 - Closing the manager's terminal stops its workspace's deliveries; nobody gains them.
 - `session-roots.json` can be written from disk without the service (as today).
@@ -280,6 +388,9 @@ none is on `machine_router`.
   terminal taking the seat by itself.
 - Changing a workspace's project; merging two workspaces; moving a conversation.
 - Two managers in one workspace; one session managing two.
+- Scoping by workspace, for agents, anything but the conversations: intents, units, tasks,
+  questions, threads (section 3). If the user wants the threads scoped, it is a change of
+  its own.
 - Any reading of old-form events in the product.
 - workriver making or arranging the runtime's groups for a workspace, or starting agents.
 - Splitting what old events merged by label; recovering what the old log did not record.
@@ -289,20 +400,33 @@ none is on `machine_router`.
 
 The three review reproductions, as they now read: two workspaces of one name have two
 conversations and two sets of read marks, and neither manager reads the other's, through
-`message show` or the snapshot; a rename keeps a question open. The ownership probes: no
+`/api/state` or the snapshot (and `message show` once the choices branch that adds it is
+merged); a rename keeps a question open. A message to every manager: manager B's reply,
+the user's answer to it and an attachment of that reply are not in manager A's
+`/api/state`, snapshot or attachment route, nor is B's copy (its workspace, manager,
+delivery); A sees the message, its own copy and its own replies. The ownership probes: no
 agent event sets a seat, a workspace or a project; a start names only the seated
-workspace; a runtime group made, renamed or closed changes no record. The seat: one per
-session; a change against a seat other than the one shown is refused; the user seats over
-a running one; a seated session reported from another root is refused until the user
-confirms, and confirming keeps the appointment; a new session is not the manager until
-seated, and its seating closes the earlier appointment's choices; a session not listed on
-that machine, or pinned at two roots, is refused; a send queued for an appointment that
-was replaced is not delivered. A manager and units on another machine without a link; a
-worker with tasks in two workspaces is asked for the task. Closing refused with an active
-intent. The route-access guard for reading a message and an attachment granted by one. The
-store without a format mark refused. The script: each row of section 5 on a fixture of old
-events, among them an old link and a conversation the mapping must settle, and `check`
-failing on an unexplained difference.
+workspace; a runtime group made, renamed or closed changes no record; an `intent.created`
+naming a folder no registered project holds is refused (the review's probe, an agent's
+planned intent naming `/Users/someone/.ssh`, now refused). The seat: one per session; a
+change against a seat other than the one shown is refused; the user seats over a running
+one; a seated session reported from another root is refused until the user confirms;
+confirming keeps the appointment when the new root's machine and folder are the seat's,
+and is a new appointment (earlier choices closed, queued sends not delivered) when they
+are not; a new session is not the manager until seated, and its seating closes the
+earlier appointment's choices; a session not listed on that machine, or shown at two
+roots there, is refused; on another machine (a fake runtime with two machines), a session
+first called with from one root and shown by that machine's runtime at another is refused
+at seating, one shown at one root with no pin is pinned there, and a caller from another
+root is then refused; a send queued for an appointment that was replaced is not
+delivered. A manager and units on another machine without a link; a worker with tasks in
+two workspaces is asked for the task. Closing refused with an active intent. The
+route-access guard for reading a message and an attachment granted by one. The store
+without a format mark refused, and never marked by opening it. The script: each row of
+section 5 on a fixture of old events, among them an old link, a conversation the mapping
+must settle, and a folder an agent named (left unregistered unless the mapping says
+`register`); `write` failing on an event the new rules refuse and on a body that comes
+out different; `check` failing on an unexplained difference.
 
 ## 9. Where the two designs differed
 
@@ -317,13 +441,13 @@ store kept; the product reading only the new form.
 
 | Point | First design | Second design | Taken, and why |
 | --- | --- | --- | --- |
-| A workspace's project | a folder, as an intent's | a registered project's id; unregistered folders registered by the script | Second: the rail is by registered project, so no workspace hangs under a folder that is none. |
+| A workspace's project | a folder, as an intent's | a registered project's id; unregistered folders registered by the script | Second for the id: the rail is by registered project, so no workspace hangs under a folder that is none. Not the registering: an agent may have written the folder, so each is a line of the mapping for the user (section 5, after the security review). |
 | Closing a workspace | `closed` / `opened` | not said | First: the rail needs to drop finished workspaces without losing their conversation. |
 | A seat change racing another | the page asks once | the event names the seat the user saw; checked atomically | Second, with the first's question: a seat is never overwritten unseen. |
-| A seated session in a new terminal | the manager again by itself; "a session whose terminal is gone can be taken" left as a limit | the pin stays; a new root needs the user | Second: it closes the only way to a seat without the user; the click is the Needs you row the first design already had for a new session. Cost: one click per workspace after a runtime restart. |
+| A seated session in a new terminal | the manager again by itself; "a session whose terminal is gone can be taken" left as a limit | the pin stays; a new root needs the user | Second: it closes the only way to a seat without the user, on another machine too once the seating reads that machine's roots (section 2); the click is the Needs you row the first design already had for a new session, and keeps the appointment only where the new root is where the old one was. Cost: one click per workspace after a runtime restart. |
 | Who owns an open choice | the session holding the seat | the appointment (the seating event) | Second: seated, replaced and seated again is a new appointment; re-confirming the same session after a restart is not. |
 | Queued delivery after the seat changed | not said | checked against the appointment | Second: old work never reaches a new manager. |
-| Agents reading conversations | by route (`message show`) | the snapshot, direct reads and attachments filtered | Second: `App::view` gives every agent every workspace's messages today; the first design missed that. |
+| Agents reading conversations | by route (`message show`, a command of the unmerged choices branch) | the snapshot, direct reads and attachments filtered | Second: `App::view` gives every agent every workspace's messages today; the first design missed that. A message to every manager is cut down to the agent's own copy and replies (section 3). |
 | An agent's workspace when a command omits it | the newest task's | only when unique, else asked | Second: no guessing. |
 | Planned intents | in no workspace; Roadmap and Done per project | each in a workspace (the default); Active, Roadmap, Done per workspace | First: the roadmap is one ordered list per project and an intent is planned there until started; a closed workspace's done intents stay findable. |
 | A unit on another machine | the intent's manager places it | the user picks its destination | First: following a machine is already the user's act; a click per unit would be the link again in another shape. |
