@@ -120,7 +120,7 @@ impl App {
         }
     }
 
-    /// What only git can check or fill in before an event is recorded.
+    /// What the service checks or fills in before an event is recorded.
     fn complete(&self, actor: &str, body: Body, machine: Option<&str>) -> Result<Body, ApiError> {
         Ok(match body {
             // ponytail: a project is a folder of this machine. Give projects a machine when
@@ -214,12 +214,26 @@ impl App {
             }
             // An agent given by its name is recorded by its session.
             Body::TaskCreated(mut t) => {
-                t.agent = t.agent.map(|a| self.session_of(&a)).transpose()?;
+                t.agent = t.agent.map(|a| self.task_session(&a)).transpose()?;
                 Body::TaskCreated(t)
             }
-            Body::TaskStarted { unit, task, agent, model } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.session_of(&a)).transpose()?, model },
+            Body::TaskStarted { unit, task, agent, model } => Body::TaskStarted { unit, task, agent: agent.map(|a| self.task_session(&a)).transpose()?, model },
             other => other,
         })
+    }
+
+    /// Resolve a task's assignee from the runtime now: an exact session or a unique name.
+    fn task_session(&self, agent: &str) -> Result<String, ApiError> {
+        let live = self.runtime.agents().unwrap_or_default();
+        if live.iter().any(|a| a.session == agent) {
+            return Ok(agent.to_string());
+        }
+        let named: Vec<&RuntimeAgent> = live.iter().filter(|a| a.name == agent).collect();
+        match named[..] {
+            [] => Ok(agent.to_string()),
+            [one] => Ok(one.session.clone()),
+            _ => Err(several(agent, &named)),
+        }
     }
 
     /// Sends the message a user's input calls for, and records how far it got.

@@ -263,20 +263,14 @@ impl App {
         }
     }
 
-    /// A live agent's session, given as a session or by a name exactly one live agent has;
-    /// anything no live agent goes by, as it is. A name several live agents have is refused,
-    /// naming their sessions: nothing of the runtime's groups decides which one it is.
-    pub(super) fn session_of(&self, agent: &str) -> Result<String, ApiError> {
+    /// For focus and development `--as`: an exact session or the first matching name in
+    /// the last poll. If neither matches, keep the input.
+    pub(super) fn session_of(&self, agent: &str) -> String {
         let live = self.live().unwrap_or_default();
         if live.iter().any(|a| a.session == agent) {
-            return Ok(agent.to_string());
+            return agent.to_string();
         }
-        let named: Vec<&RuntimeAgent> = live.iter().filter(|a| a.name == agent).collect();
-        match named[..] {
-            [] => Ok(agent.to_string()),
-            [one] => Ok(one.session.clone()),
-            _ => Err(several(agent, &named)),
-        }
+        live.into_iter().find(|a| a.name == agent).map_or_else(|| agent.to_string(), |a| a.session)
     }
 }
 

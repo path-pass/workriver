@@ -1167,8 +1167,7 @@ fn a_held_notice_is_recorded_and_survives_a_restart() {
 }
 
 /// A task's agent given by its name is recorded by the session of the one running agent of
-/// that name. Two of that name are refused, naming their sessions, whichever runtime group
-/// the caller or either of them is in: nothing of the runtime's groups is read for a record.
+/// that name. Two of that name are refused even if the second started since the last poll.
 #[test]
 fn an_agent_named_by_two_running_agents_is_refused() {
     use workriver_core::runtime::AgentState::*;
@@ -1178,25 +1177,33 @@ fn an_agent_named_by_two_running_agents_is_refused() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let fake = std::sync::Arc::new(Fake::default());
-    let mut far = live("s-far", "impl", "w2", Idle);
-    far.group.as_mut().unwrap().label = "search".into();
-    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), far), ("p3".into(), live("s-near", "impl", "w1", Idle)), ("p4".into(), live("s-rev", "rev", "w1", Idle))];
-    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), live("s-near", "impl", "w1", Idle))];
+    let db = tmp.path().join("w.db");
+    let waits = crate::server::Waits { tick: std::time::Duration::from_secs(3600), ..Default::default() };
+    let d = daemon_with(fake.clone(), &db, waits);
     let boss = Daemon { place: Some("p1".into()), home: None, ..d.clone() };
     manage(&d, "p1", "s-boss");
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
+    wait_until("the initial poll saw the first worker", || d.get("/api/workspace").unwrap()["sessions"].as_array().is_some_and(|sessions| sessions.iter().any(|s| s["agent"] == "impl")));
     let task = |agent: &str| json!({ "unit": "u1", "kind": "implement", "title": "Check tokens", "inputs": [{ "from": "start" }], "agent": agent });
+    let start = |agent: &str| json!({ "unit": "u1", "task": 1, "agent": agent });
+    let first = boss.append("", "task.created", task("impl")).unwrap();
+    assert_eq!(first["body"]["agent"], "s-near");
 
-    // Two running agents are impl, one in the manager's own group: refused all the same.
-    let e = boss.append("", "task.created", task("impl")).unwrap_err().to_string();
-    assert!(e.contains("several running agents are impl: name one by its session") && e.contains("s-far") && e.contains("s-near"), "{e}");
-    // By its session; and a name only one has, by that one's session.
-    boss.append("", "task.created", task("s-near")).unwrap();
-    boss.append("", "task.created", task("rev")).unwrap();
-    let e = boss.append("", "task.started", json!({ "unit": "u1", "task": 1, "agent": "impl" })).unwrap_err().to_string();
-    assert!(e.contains("several running agents are impl"), "{e}");
-    let tasks = d.get("/api/state").unwrap()["units"][0]["tasks"].clone();
-    let agents: Vec<_> = tasks.as_array().unwrap().iter().map(|t| t["agent"].clone()).collect();
-    assert_eq!(agents, [json!("s-near"), json!("s-rev")], "{tasks}");
+    fake.agents.lock().unwrap().push(("p3".into(), live("s-far", "impl", "w2", Idle)));
+    let added = boss.append("", "task.created", task("impl"));
+    let started = boss.append("", "task.started", start("impl"));
+    let refused = |e: &anyhow::Error| {
+        let text = e.to_string();
+        text.contains("several running agents are impl: name one by its session") && text.contains("s-far") && text.contains("s-near")
+    };
+    let created = bodies(&db, "task.created");
+    let starts = bodies(&db, "task.started");
+    assert!(added.as_ref().is_err_and(refused) && started.as_ref().is_err_and(refused) && created == [first["body"].clone()] && starts.is_empty(),
+        "add: {added:?}, start: {started:?}, task.created: {created:?}, task.started: {starts:?}");
+
+    let added = boss.append("", "task.created", task("s-far")).unwrap();
+    let started = boss.append("", "task.started", start("s-far")).unwrap();
+    assert_eq!(added["body"]["agent"], "s-far");
+    assert_eq!(started["body"]["agent"], "s-far");
 }

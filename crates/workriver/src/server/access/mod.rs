@@ -80,7 +80,7 @@ impl App {
             if machine.is_none() && caller.chain.is_none() {
                 return Err(self.no_process(caller));
             }
-            return Ok(Principal::Agent { session: self.session_of(name)?, machine: machine.map(str::to_string) });
+            return Ok(Principal::Agent { session: self.session_of(name), machine: machine.map(str::to_string) });
         }
         let user = Principal::User;
         if caller.session {
