@@ -122,6 +122,11 @@ impl App {
         self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None, about: None });
     }
 
+    /// The user's message is for one appointment: its seat was given to another meanwhile.
+    fn seat_changed(&self, h: &Held) {
+        self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name))
+    }
+
     /// Gives a question's message to the agent that answers it (`to`: a session or a live
     /// agent's name). One waiting for a person in its terminal (blocked) cannot take
     /// it: it is held and given once the agent is free (`poll`), or the question fails with
@@ -129,9 +134,7 @@ impl App {
     /// (it refuses, or shows no state) is tried again at each poll, for `Waits::ready` from
     /// the first try; after that it waits for the user like a blocked one.
     pub(in crate::server) fn hand(&self, mut h: Held) {
-        // A notice and the user's message are for a session: an agent that only goes by it as
-        // a name is not it (any agent may take a seated manager's session id as its name).
-        let by_session = matches!(h.kind, For::Notice | For::Message | For::Broadcast);
+        let by_session = h.kind.by_session();
         let is = |a: &RuntimeAgent| a.session == h.to || (!by_session && a.name == h.to);
         let not_ready = |h: &mut Held| {
             h.not_ready.get_or_insert_with(|| std::time::Instant::now() + self.waits.ready);
@@ -145,7 +148,7 @@ impl App {
         if matches!(h.kind, For::Message | For::Broadcast) {
             match self.still_appointed(&h.question, &h.to) {
                 Some(true) => {}
-                Some(false) => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
+                Some(false) => return self.seat_changed(&h),
                 None => {
                     h.not_ready = None;
                     self.held.lock().unwrap().push(h);
@@ -178,7 +181,7 @@ impl App {
         // A notice and the user's message go to the session found, on its machine, and to no
         // other: what that machine's runtime answers is kept (one that drops before typing
         // stays one that typed nothing). Anything else by `to`.
-        let sent = |h: &Held| match found.filter(|_| matches!(h.kind, For::Notice | For::Message | For::Broadcast)) {
+        let sent = |h: &Held| match found.filter(|_| h.kind.by_session()) {
             Some(a) => self.send_to(&a.session, a.machine.as_deref(), &h.text),
             None => self.send(&h.to, &h.text),
         };
@@ -195,25 +198,21 @@ impl App {
             None if matches!(h.kind, For::Message | For::Broadcast) => h.not_ready = None,
             _ => {
                 // A discussion's question: the records are read again right before typing in, in
-                // order with a gate's record (`App::discussing`, held by both): one closed
+                // order with a gate's record (`App::last_check`, held by both): one closed
                 // meanwhile goes nowhere, one whose gate was submitted fails now, and with
                 // records that cannot be read it waits. A gate recorded later comes after the
                 // send, which then stands as asked before the user decided. The user's message
-                // alike with a seat change (`App::appointing`): its appointment ended meanwhile,
+                // alike with a seat change (the same lock): its appointment ended meanwhile,
                 // it is not delivered; a seat changed later comes after the send.
                 let message = matches!(h.kind, For::Message | For::Broadcast);
-                let _order = match h.kind {
-                    For::Discussion => Some(self.discussing.lock().unwrap()),
-                    _ if message => Some(self.appointing.lock().unwrap()),
-                    _ => None,
-                };
+                let _order = (h.kind == For::Discussion || message).then(|| self.last_check.lock().unwrap());
                 let asked = match h.kind {
                     For::Discussion => self.still_asked(&h.question),
                     _ if message => self.still_appointed(&h.question, &h.to),
                     _ => Some(true),
                 };
                 match asked {
-                    Some(false) if message => return self.message_not_delivered(&h.question, h.copy(), Some(&h.to), ReasonCode::SeatChanged, &format!("the seat was given anew before {} could be given the message; write to the manager again", h.name)),
+                    Some(false) if message => return self.seat_changed(&h),
                     Some(false) => return,
                     None => h.not_ready = None,
                     Some(true) => match sent(&h) {

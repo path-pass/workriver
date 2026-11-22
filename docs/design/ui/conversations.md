@@ -285,7 +285,7 @@ conversation, it replies with the task's link instead of relaying (`user-message
 - Right before typing in, held retries too, a question is checked against the records: one
   closed meanwhile goes nowhere, one whose gate was submitted fails then, and with records
   that cannot be read it waits. That last check and the send are in order with a gate's
-  record and its hook (one lock, `App::discussing`): a gate recorded during a slow runtime
+  record and its hook (one lock, `App::last_check`): a gate recorded during a slow runtime
   read is seen, and one recorded after the send finds the question asked before the user
   decided. Each poll also fails the open ones whose gate was submitted
   (`discussions_over`): a read that failed right after the gate's commit left them open.

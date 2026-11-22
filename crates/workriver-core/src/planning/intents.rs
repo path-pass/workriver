@@ -186,16 +186,12 @@ pub struct Edits {
     pub title: u32,
     pub goal: u32,
     pub note: u32,
-    #[serde(default, skip_serializing_if = "zero")]
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
     pub kind: u32,
-    #[serde(default, skip_serializing_if = "zero")]
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
     pub size: u32,
-    #[serde(default, skip_serializing_if = "zero")]
+    #[serde(default, skip_serializing_if = "crate::records::is_zero")]
     pub tags: u32,
-}
-
-fn zero(n: &u32) -> bool {
-    *n == 0
 }
 
 /// Which fields of an intent a version changed.

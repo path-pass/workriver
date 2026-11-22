@@ -212,55 +212,16 @@ pub trait WorkStore: Send {
     /// Messages given to their receiver and not seen picked up: tasks' and their findings'
     /// in the units' order, then chores'.
     fn delivered(&self) -> Result<Vec<Delivered>, DataError> {
-        let all = self.recorded()?;
-        let delivered = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Delivered);
-        let mut out = vec![];
-        for u in &all.units {
-            for t in &u.tasks {
-                if let Some(d) = delivered(&t.delivery) {
-                    out.push(Delivered { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d });
-                }
-                for f in &t.findings {
-                    if let Some(d) = delivered(&f.delivery) {
-                        out.push(Delivered { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
-                    }
-                }
-            }
-        }
-        for c in &all.chores {
-            if let Some(d) = delivered(&c.delivery) {
-                out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
-            }
-        }
-        Ok(out)
+        Ok(at_step(&*self.recorded()?, DeliveryStep::Delivered))
     }
 
     /// Deliveries held for a receiver on a blind task (`DeliveryStep::Held`): tasks' and their
     /// findings', of units, then chores', then backlog findings'.
     fn held_deliveries(&self) -> Result<Vec<Delivered>, DataError> {
         let all = self.recorded()?;
-        let held = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Held);
-        let mut out = vec![];
-        let owners = all.units.iter().map(|u| (&u.id, &u.tasks));
-        for (owner, tasks) in owners {
-            for t in tasks {
-                if let Some(d) = held(&t.delivery) {
-                    out.push(Delivered { unit: owner.clone(), task: t.n, finding: None, chore: None, delivery: d });
-                }
-                for f in &t.findings {
-                    if let Some(d) = held(&f.delivery) {
-                        out.push(Delivered { unit: owner.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
-                    }
-                }
-            }
-        }
-        for c in &all.chores {
-            if let Some(d) = held(&c.delivery) {
-                out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
-            }
-        }
+        let mut out = at_step(&all, DeliveryStep::Held);
         for b in &all.backlog {
-            if let Some(d) = held(&b.finding.delivery) {
+            if let Some(d) = b.finding.delivery.clone().filter(|d| d.step == DeliveryStep::Held) {
                 out.push(Delivered { unit: String::new(), task: 0, finding: Some(b.finding.found.id.clone()), chore: None, delivery: d });
             }
         }
@@ -299,4 +260,28 @@ pub trait WorkStore: Send {
     fn thread_agents(&self) -> Result<Vec<String>, DataError> {
         Ok(self.recorded()?.threads.iter().filter_map(|t| t.name.clone()).collect())
     }
+}
+
+/// The deliveries at `step`: tasks' and their findings', in the units' order, then chores'.
+fn at_step(all: &State, step: DeliveryStep) -> Vec<Delivered> {
+    let at = |d: &Option<Delivery>| d.clone().filter(|d| d.step == step);
+    let mut out = vec![];
+    for u in &all.units {
+        for t in &u.tasks {
+            if let Some(d) = at(&t.delivery) {
+                out.push(Delivered { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d });
+            }
+            for f in &t.findings {
+                if let Some(d) = at(&f.delivery) {
+                    out.push(Delivered { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
+                }
+            }
+        }
+    }
+    for c in &all.chores {
+        if let Some(d) = at(&c.delivery) {
+            out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
+        }
+    }
+    out
 }

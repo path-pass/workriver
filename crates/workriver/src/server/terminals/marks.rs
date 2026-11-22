@@ -72,8 +72,8 @@ impl App {
     /// `App::send_seated`), at that place and no other: its screen read there, and the message
     /// typed there only while it shows the session (`Runtime::send_at`), never wherever else
     /// the session shows. Under the agent's writer, so a press never comes between the read and
-    /// the message. A user's message holds `App::appointing` around this (`App::hand`): the
-    /// order is always appointing, then the writer, never the other way.
+    /// the message. A user's message holds `App::last_check` around this (`App::hand`): the
+    /// order is always that lock, then the writer, never the other way.
     pub(in crate::server) fn type_at(&self, session: &str, machine: Option<&str>, pin: Option<&str>, text: &str) -> Result<(), RuntimeError> {
         let writer = self.terminals.writer(session, machine);
         let _one = writer.lock().unwrap();

@@ -76,6 +76,12 @@ pub(super) fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, f
         Some(id) => t.findings.iter().filter(|f| f.found.id == id).flat_map(|f| &f.found.attachments).collect(),
         None => t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(t.findings.iter().flat_map(|f| &f.found.attachments)).collect(),
     };
+    attachments_line(state, home, ids)
+}
+
+/// " Attachments: <paths>." for these stored files, so the receiver can open them; empty
+/// when there are none.
+pub(super) fn attachments_line<'a>(state: &State, home: &std::path::Path, ids: impl IntoIterator<Item = &'a String>) -> String {
     let paths: Vec<String> = ids
         .into_iter()
         .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
@@ -86,7 +92,7 @@ pub(super) fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, f
 }
 
 /// The name an actor is shown by. A name is someone's choice: kept short and on one line.
-pub(super) fn who(state: &State, actor: &str) -> String {
+pub(in crate::server) fn who(state: &State, actor: &str) -> String {
     quote::name(state.name_of(actor).unwrap_or(actor))
 }
 

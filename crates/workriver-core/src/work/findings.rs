@@ -21,6 +21,18 @@ pub enum Decision {
     Defer,
 }
 
+impl Decision {
+    /// The state a finding is in once decided so.
+    fn state(self) -> FindingState {
+        match self {
+            Decision::Accept => FindingState::Accepted,
+            Decision::Revise => FindingState::Revised,
+            Decision::Reject => FindingState::Rejected,
+            Decision::Defer => FindingState::Deferred,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Who {
@@ -176,14 +188,8 @@ pub(super) fn numbered_after(mut add: Vec<NewFinding>, have: &[Finding]) -> Vec<
 }
 
 /// Ids per severity, as a reviewer numbers them: P1-1, P2-1, P2-2…
-pub(crate) fn numbered(mut findings: Vec<NewFinding>) -> Vec<NewFinding> {
-    let mut seen = [0; 3];
-    for f in &mut findings {
-        let k = f.severity as usize;
-        seen[k] += 1;
-        f.id = format!("{:?}-{}", f.severity, seen[k]);
-    }
-    findings
+pub(crate) fn numbered(findings: Vec<NewFinding>) -> Vec<NewFinding> {
+    numbered_after(findings, &[])
 }
 
 impl State {
@@ -288,12 +294,7 @@ impl State {
             FindingDecided { unit, task, finding, decision, note, .. } => {
                 let t = self.task(&unit, task)?;
                 let Some(f) = t.findings.iter().find(|f| f.found.id == finding) else { return no(format!("{unit}#{task} has no finding {finding}")) };
-                let to = match decision {
-                    Decision::Accept => FindingState::Accepted,
-                    Decision::Revise => FindingState::Revised,
-                    Decision::Reject => FindingState::Rejected,
-                    Decision::Defer => FindingState::Deferred,
-                };
+                let to = decision.state();
                 // A decision is made once; only the user changes one afterwards (the manager's,
                 // or their own), and only while nothing was built on its being put off.
                 let was = match f.state {
@@ -365,12 +366,7 @@ impl State {
             }
             FindingDecided { unit, task, finding, decision, note, by, .. } => {
                 if let Some(f) = self.task_mut(unit, *task).and_then(|t| t.findings.iter_mut().find(|f| &f.found.id == finding)) {
-                    f.state = match decision {
-                        Decision::Accept => FindingState::Accepted,
-                        Decision::Revise => FindingState::Revised,
-                        Decision::Reject => FindingState::Rejected,
-                        Decision::Defer => FindingState::Deferred,
-                    };
+                    f.state = decision.state();
                     f.decided_by = Some(*by);
                     f.note = (!note.is_empty()).then(|| note.clone());
                     f.decisions.push(Decided { state: f.state, by: *by, agent: agent_of(&e.actor), note: note.clone(), at: at.clone() });
