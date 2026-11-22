@@ -172,3 +172,21 @@ fn every_choice_takes_other_with_a_note() {
     assert_eq!(old.label(OTHER).as_deref(), Some("Something else"));
     assert!(!old.needs_note(OTHER) && old.check_answer(&[OTHER.into()], "").is_ok());
 }
+
+/// A note that shows nothing once cleaned for a terminal (only spaces, control characters and
+/// the marks that hide or reorder text, e.g. a pasted zero-width space) is no note: it would
+/// reach the agent as «». The same for Other and for an option that asks a note.
+#[test]
+fn a_note_of_only_invisible_marks_is_no_note() {
+    let c = three();
+    for note in ["\u{200b}", " \u{200b}\u{feff}\n", "\u{202e}\u{2066}\t", "\u{0}\u{1b}"] {
+        let refused = c.check_answer(&[OTHER.into()], note).unwrap_err().0;
+        assert!(refused.contains("Other") && refused.contains("note"), "{note:?}: {refused}");
+        assert!(c.check_answer(&["hold".into()], note).unwrap_err().0.contains("needs a note"), "{note:?}");
+    }
+    // A visible character among them is a note.
+    assert!(c.check_answer(&[OTHER.into()], "\u{200b}x").is_ok());
+    // What a terminal quote drops is this rule's own.
+    assert!(crate::shows_nothing("\u{200b}\u{200f}\u{202a}\u{202e}\u{2066}\u{2069}\u{feff} \n"));
+    assert!(!crate::shows_nothing("‹›"));
+}

@@ -8,7 +8,7 @@ import { focusAgent } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
 import type { Answer, AskContext, Asked, Copy, ManagerMessage, Thread, Turn } from './types'
 import { ChoiceSurface, Chose } from '@/content/choice/Choice'
-import { needsNote, noteWords, type Choice } from '@/content/choice/surface'
+import { needsNote, noteWords, showsNothing, type Choice } from '@/content/choice/surface'
 import { Input } from '@/ui/primitives/input'
 import { Who } from '@/agents/Mark'
 import { Prose } from '@/content/Prose'
@@ -336,7 +336,7 @@ function Question({ q, onAnswer }: { q: Asked; onAnswer: (selected: string, note
   const needed = !!picked && needsNote(choice, picked)
   const words = noteWords(choice, picked)
   const answer = () => {
-    if (!picked || (needed && !note.trim())) return setMissing(true)
+    if (!picked || (needed && showsNothing(note))) return setMissing(true)
     onAnswer(picked, note.trim())
   }
   return (

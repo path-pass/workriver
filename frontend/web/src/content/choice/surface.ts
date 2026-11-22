@@ -44,6 +44,13 @@ export const isOther = (c: Choice, value: string) => value === OTHER && labelOf(
 /** Whether picking this value needs a note: an option the asker marked, and Other. */
 export const needsNote = (c: Choice, value: string) => (c.needs_note ?? []).includes(value) || isOther(c, value)
 
+/**
+ * Whether a note shows nothing once cleaned for a terminal, as core counts it (`shows_nothing`):
+ * only spaces, control characters and marks that hide or reorder text (a pasted zero-width
+ * space reaches the agent as nothing). Such a note is no note.
+ */
+export const showsNothing = (note: string) => /^[\s\p{Cc}\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]*$/u.test(note)
+
 /** The note's words for the value picked: what to do for Other, why for an option that needs it, else the carrier's own. */
 export function noteWords(choice: Choice, picked: string | undefined) {
   if (!picked || !needsNote(choice, picked)) return undefined

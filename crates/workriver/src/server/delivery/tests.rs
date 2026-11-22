@@ -284,6 +284,37 @@ fn the_users_answer_to_a_choice_is_their_message() {
     assert!(m.ends_with("Other: «neither: ask the reviewer»") && !m.contains("The option") && !m.contains("The user says"), "{m}");
 }
 
+/// A note of Other too long for a terminal is quoted cut: the manager is told so, and where
+/// to read it whole before acting (`task show` for a gate, `message show` for a question),
+/// instead of to do what a part of it says.
+#[test]
+fn a_cut_other_note_says_where_it_is_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::open(&dir.path().join("w.db")).unwrap();
+    let w = json!({"id": "w1", "label": "chat"});
+    at(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Chat", "state": "planned"}}));
+    at(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Readme", "repo": "/r", "branch": "feat/r", "base": "main"}}));
+    at(&mut s, "boss", json!({"kind": "manager.registered", "body": {"workspace": w}}));
+    at(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w}}));
+    let long = format!("{} but only after Friday", "x".repeat(2000));
+    at(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "gate", "gate": "decide", "title": "Next?", "choice": choice()}}));
+    let e = at(&mut s, "user", json!({"kind": "gate.submitted", "body": {"unit": "u1", "task": 1, "result": "answered", "selected": ["other"], "note": long}}));
+    let p = plan(s.state(), Some(&[agent("boss")]), std::path::Path::new("/h"), &e).unwrap();
+    assert!(p.message.starts_with("[workriver] The user answered gate u1#1 \"Next?\" with none of its options: Other (`other`), with a note saying what to do instead. Next: the note is cut here; read it whole first with `workriver task show u1#1`, then do what it says, within the question (push, pull request and merge stay one task each); add its task with `--after 1`. Nothing follows from the answer by itself."), "{}", p.message);
+    assert!(p.message.ends_with("…(cut; read it whole: `workriver task show u1#1`)»") && !p.message.contains("Friday") && !p.message.contains("do what the note says"), "{}", p.message);
+    // In the conversation: the answer is a message of the user's, read whole with `message show`.
+    at(&mut s, "boss", json!({"kind": "message.said", "body": {"text": "Which?", "choice": choice()}}));
+    at(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": long, "answer": {"message": "m1", "selected": ["other"]}}}));
+    let m = user_message(s.state(), s.state().message("m2").unwrap(), dir.path(), None);
+    assert!(m.starts_with("[workriver] The user answered your question m1 in workriver's page (message m2, about intent i1 \"Chat\") with none of its options: Other (`other`), with a note saying what to do instead. Reply with `workriver reply m2 --text \"...\"` if there is something to say; the answer starts nothing by itself. The note is cut here; read it whole first with `workriver message show m2`, then do what it says, within the question. Other: «"), "{m}");
+    assert!(m.ends_with("…(cut; read it whole: `workriver message show m2`)»") && !m.contains("Friday") && !m.contains("do what the note says"), "{m}");
+    // Exactly as long as a quote holds: whole, and acted on as it is.
+    at(&mut s, "boss", json!({"kind": "message.said", "body": {"text": "Which?", "choice": choice()}}));
+    at(&mut s, "user", json!({"kind": "message.sent", "body": {"workspace": "chat", "text": "y".repeat(2000), "answer": {"message": "m3", "selected": ["other"]}}}));
+    let m = user_message(s.state(), s.state().message("m4").unwrap(), dir.path(), None);
+    assert!(m.contains("do what the note says") && !m.contains("cut"), "{m}");
+}
+
 /// The manager hears of the user's edit as it was committed: its version and what it
 /// changed, even when another edit landed right after it.
 #[test]

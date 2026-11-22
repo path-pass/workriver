@@ -31,6 +31,7 @@ local POST /api/run/r9/review  anonymous 401  agent 404  user 404
 local POST /api/here  anonymous 401  agent 200  user 200
 local POST /api/ask  anonymous 401  agent 422  user 422
 local POST /api/message  anonymous 401  agent 403  user 422
+local GET /api/message/m9  anonymous 401  agent 404  user 404
 local POST /api/messages/read  anonymous 401  agent 403  user 200
 local POST /api/discuss  anonymous 401  agent 403  user 422
 local POST /api/discuss/read  anonymous 401  agent 403  user 200
@@ -50,6 +51,7 @@ local HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 200
 local HEAD /api/status  anonymous 200  agent 200  user 200
 local HEAD /api/events  anonymous 401  agent 403  user 200
 local HEAD /api/run/r9  anonymous 401  agent 403  user 404
+local HEAD /api/message/m9  anonymous 401  agent 404  user 404
 local HEAD /api/attachments/x1  anonymous 401  agent 404  user 404
 machine GET /api/metrics  anonymous 401  agent 200  user 401
 machine GET /api/metrics/history?machine=local&hours=1  anonymous 401  agent 403  user 401
@@ -62,6 +64,7 @@ machine POST /api/append  anonymous 401  agent 200  user 401
 machine POST /api/run/r9/review  anonymous 401  agent 404  user 401
 machine POST /api/here  anonymous 401  agent 200  user 200
 machine POST /api/ask  anonymous 401  agent 422  user 401
+machine GET /api/message/m9  anonymous 401  agent 404  user 401
 machine POST /api/attachments?name=probe.txt  anonymous 401  agent 200  user 401
 machine POST /api/attachments/inbox  anonymous 401  agent 200  user 401
 machine GET /api/attachments/x1  anonymous 401  agent 404  user 401
@@ -72,4 +75,5 @@ machine HEAD /api/intent/i1/history  anonymous 401  agent 200  user 401
 machine HEAD /api/state  anonymous 401  agent 200  user 401
 machine HEAD /api/task?task=u1%231  anonymous 401  agent 200  user 401
 machine HEAD /api/status  anonymous 200  agent 200  user 200
+machine HEAD /api/message/m9  anonymous 401  agent 404  user 401
 machine HEAD /api/attachments/x1  anonymous 401  agent 404  user 401

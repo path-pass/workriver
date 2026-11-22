@@ -73,6 +73,7 @@ pub(super) fn router(app: Shared, via: Via) -> Router {
         .route("/api/here", post(here))
         .route("/api/ask", post(ask_why))
         .route("/api/message", post(message))
+        .route("/api/message/{id}", get(message_show))
         .route("/api/messages/read", post(messages_read))
         .route("/api/discuss", post(discuss))
         .route("/api/discuss/read", post(discussion_read))
@@ -108,7 +109,7 @@ async fn timing(req: Request, next: Next) -> Response {
 
 /// The routes of a followed machine's listener: only what an agent's CLI over there needs.
 /// An allow-list: who it is, recording as that agent, asking, attachments, reading the
-/// board and an intent's history (a manager may run there), and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
+/// board, an intent's history and one message whole (a manager may run there), and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
 /// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
 pub(super) fn machine_router(app: Shared, via: Via) -> Router {
     Router::new()
@@ -122,6 +123,7 @@ pub(super) fn machine_router(app: Shared, via: Via) -> Router {
         .route("/api/state", get(state))
         .route("/api/task", get(task_show))
         .route("/api/intent/{id}/history", get(intent_history))
+        .route("/api/message/{id}", get(message_show))
         .route("/api/status", get(status))
         // Its own load only (the handlers keep a machine's caller to that machine).
         .route("/api/metrics", get(metrics))

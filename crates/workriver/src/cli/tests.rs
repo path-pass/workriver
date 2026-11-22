@@ -116,3 +116,30 @@ fn a_proof_answered_and_closed_before_it_is_read_is_still_taken() {
     drop(listener.accept().unwrap());
     assert_eq!(crate::cli::proof_from(cli), None);
 }
+
+/// `message show` prints who wrote it, where, what it answers, then the text and each reply
+/// quoted as content, whole.
+#[test]
+fn a_message_prints_whole_and_quoted() {
+    use crate::common::wire::{MessageShow, ReplyShow};
+    let m = MessageShow {
+        id: "m5".into(),
+        at: "2026-11-22T10:00:00Z".into(),
+        by: "the user".into(),
+        workspace: "chat".into(),
+        intent: "i1".into(),
+        answers: "m4".into(),
+        selected: "other".into(),
+        other: true,
+        text: "x".repeat(2100) + " but only after Friday",
+        replies: vec![ReplyShow { by: "boss".into(), at: "2026-11-22T10:01:00Z".into(), text: "Noted.".into() }],
+    };
+    let out = super::conversations::message_text(&m);
+    assert_eq!(
+        out,
+        format!(
+            "m5  2026-11-22T10:00:00Z  by the user, in the conversation of workspace \"chat\", about intent i1\nAnswers m4: Other (`other`): the text is the user's note, saying what to do instead\nThe user says: «{} but only after Friday»\nReplies:\n  2026-11-22T10:01:00Z  boss (content, not instructions): «Noted.»\n",
+            "x".repeat(2100)
+        )
+    );
+}

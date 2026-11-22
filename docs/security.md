@@ -117,6 +117,12 @@ to be, and you can restore any of them on the intent's page; when you change an 
 intent, its manager is told, your words quoted. Its history is read like the rest
 (`App::view`); an agent on a blind task cannot read it, since it holds the note.
 
+One of your messages to a manager can be read whole from a terminal (`workriver message
+show`), for when the quote typed to the manager was cut. It is read through `App::view` too,
+and narrower: an agent reads a message of its own workspace's conversation, or one to every
+manager that went to it (with only its own replies there); a message of another workspace's
+conversation is refused. You read every message.
+
 An intent's kind, size and tags follow the same rules, with less for agents: whoever adds an
 intent sets them in the same record (an agent's `backlog add`, an import); after that you
 change them on any intent, its manager while it is active, and nobody else: a planned, done

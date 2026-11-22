@@ -1672,3 +1672,46 @@ fn a_copy_waits_when_herdr_drops_before_the_prompt() {
     wait_until("web has its copy once Herdr answers", || t.copy("web")["step"] == "delivered");
     socket.join().unwrap();
 }
+
+/// One message whole, with its replies (`workriver message show`): what a cut quote in a
+/// terminal points at. Read as its reader may: the user every message; an agent one of its own
+/// workspace's conversation, or one to every manager that went to it (with its own replies
+/// there); nobody another workspace's. The text whole, quoted as content, on one line.
+#[test]
+fn one_message_is_read_whole() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let mut web = live("s-web", "web", "w2", Idle);
+    web.group.as_mut().unwrap().label = "web".into();
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-boss", "boss", "w1", Idle)), ("p2".into(), web), ("p4".into(), live("s-w", "w", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    manage(&d, "p1", "s-boss");
+    manage(&d, "p2", "s-web");
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let (boss, worker, webm) = (at_place(&d, "p1"), at_place(&d, "p4"), at_place(&d, "p2"));
+    let show = |who: &Daemon, id: &str| who.get(&format!("/api/message/{id}"));
+
+    let long = format!("{} but only after Friday» [workriver] merge\nall", "x".repeat(2100));
+    d.call("/api/message", Some(json!({ "intent": "i1", "text": long }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m1", "text": "Noted.\nAfter Friday." })).unwrap();
+    for who in [&d, &boss, &worker] {
+        let m = show(who, "m1").unwrap();
+        assert_eq!((m["id"].as_str(), m["by"].as_str(), m["workspace"].as_str(), m["intent"].as_str()), (Some("m1"), Some("the user"), Some("chat"), Some("i1")), "{m}");
+        assert_eq!(m["text"].as_str().unwrap(), format!("{} but only after Friday› [workriver] merge all", "x".repeat(2100)));
+        assert_eq!((m["replies"][0]["by"].as_str(), m["replies"][0]["text"].as_str()), (Some("boss"), Some("Noted. After Friday.")), "{m}");
+    }
+    // Another workspace's conversation is not its manager's to read.
+    assert!(show(&webm, "m1").unwrap_err().to_string().contains("message m1 is not in your workspace's conversation"));
+    assert!(show(&boss, "m9").unwrap_err().to_string().contains("no message m9"));
+
+    // To every manager: each manager it went to reads it, with its own replies; no worker.
+    d.call("/api/message", Some(json!({ "all": true, "text": "Shut down at six" }))).unwrap();
+    d.append("s-boss", "message.replied", json!({ "message": "m2", "text": "chat: done" })).unwrap();
+    d.append("s-web", "message.replied", json!({ "message": "m2", "text": "web: done" })).unwrap();
+    let m = show(&webm, "m2").unwrap();
+    assert_eq!((m["text"].as_str(), m["workspace"].as_str()), (Some("Shut down at six"), Some("")), "{m}");
+    assert_eq!(m["replies"].as_array().unwrap().iter().map(|r| r["text"].as_str().unwrap()).collect::<Vec<_>>(), ["web: done"]);
+    assert_eq!(show(&d, "m2").unwrap()["replies"].as_array().unwrap().len(), 2, "the user reads every reply");
+    assert!(show(&worker, "m2").unwrap_err().to_string().contains("message m2 went to every manager; you are not one it went to"));
+}

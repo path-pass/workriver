@@ -1,10 +1,12 @@
 // What the service and the CLI (and the page) exchange: values and shapes only, no logic.
 mod machines;
+mod message;
 mod metrics;
 mod task;
 pub mod workspace;
 
 pub use machines::*;
+pub use message::*;
 pub use metrics::*;
 pub use task::*;
 

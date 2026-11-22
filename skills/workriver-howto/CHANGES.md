@@ -15,6 +15,15 @@ Newest first. A manager that was already running reads this once after an update
   question; nothing follows from it by itself. `task show` lists `other` after the options
   and shows `Chose: other (Other: the note says what to do)`. A design's gate and a `--go`
   gate are not choices: unchanged. (`ask-user`, `user-message`)
+- **A cut Other note says where it is whole** (managers): a note longer than the terminal's
+  quote (2,000 characters) arrives cut, and the message then says "the note is cut here;
+  read it whole first with `workriver task show u2#8`" (a gate) or "… with `workriver message
+  show m5`" (a question) instead of "do what the note says": read it whole before acting.
+  New: `workriver message show m5` prints one message whole with its replies (one of your
+  own workspace's conversation, or one to every manager that went to you; another
+  workspace's is refused). A note of only invisible characters (e.g. a pasted zero-width
+  space) is no note: refused like an empty one, for Other and for an option that asks a
+  note. (`ask-user`, `user-message`)
 - **A task shows its harness and model** (workers, managers): start a task with the model
   you work with, `workriver task start u1#3 --model claude-opus-5-5` (as your harness names
   it; optional: leave it out if you do not know it). `task show` now prints under `Agent:`

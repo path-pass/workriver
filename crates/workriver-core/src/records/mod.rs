@@ -98,6 +98,17 @@ pub(crate) fn blank(s: &str) -> bool {
     s.trim().is_empty()
 }
 
+/// A mark that reorders or hides text: a terminal quote drops it (the service's `quote.rs`).
+pub fn hidden_mark(c: char) -> bool {
+    matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+}
+
+/// Whether text shows nothing once cleaned for a terminal: only spaces, control characters
+/// and hidden marks, which a quote turns into nothing.
+pub fn shows_nothing(s: &str) -> bool {
+    s.chars().all(|c| c.is_whitespace() || c.is_control() || hidden_mark(c))
+}
+
 impl State {
 
     /// Checks a new event against the rules and fills in what is assigned here (ids and

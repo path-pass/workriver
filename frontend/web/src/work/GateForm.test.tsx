@@ -86,6 +86,14 @@ describe('a choice gate answered with Other', () => {
     answer()
     expect(sent).toEqual([])
     expect(el.querySelector('[role=alert]')?.textContent).toBe(en.choice.otherNeedNote)
+    // A note of only invisible marks (a pasted zero-width space) shows nothing: no note.
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(note, '\u200b\n\u202e')
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    answer()
+    expect(sent).toEqual([])
+    expect(el.querySelector('[role=alert]')?.textContent).toBe(en.choice.otherNeedNote)
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(note, 'Ask the reviewer first')
       note.dispatchEvent(new Event('input', { bubbles: true }))

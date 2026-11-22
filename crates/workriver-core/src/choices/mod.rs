@@ -121,13 +121,13 @@ impl Choice {
     pub(crate) fn check_answer(&self, selected: &[String], note: &str) -> Result<(), Rejected> {
         let [value] = selected else { return no("pick one option to answer") };
         if self.is_other(value) {
-            return if blank(note) { no(format!("Other ({OTHER}) needs a note: what to do instead of the options")) } else { Ok(()) };
+            return if shows_nothing(note) { no(format!("Other ({OTHER}) needs a note: what to do instead of the options")) } else { Ok(()) };
         }
         if self.label(value).is_none() {
             let values: Vec<_> = self.options().into_iter().map(|o| o.value).collect();
             return no(format!("{value:?} is not one of the options ({}), nor {OTHER} with a note", values.join(", ")));
         }
-        if self.needs_note(value) && blank(note) {
+        if self.needs_note(value) && shows_nothing(note) {
             return no(format!("option {value} needs a note saying why"));
         }
         Ok(())

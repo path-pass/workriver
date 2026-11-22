@@ -28,6 +28,14 @@ describe('a manager’s question answered with Other', () => {
     const answer = () => act(() => [...el.querySelectorAll('button')].find(b => b.textContent === en.choice.answer)!.click())
     answer()
     expect([sent, el.querySelector('[role=alert]')?.textContent]).toEqual([[], en.choice.otherNeedNote])
+    // A note of only invisible marks (a pasted zero-width space) shows nothing: no note.
+    const type = (text: string) => act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(note, text)
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    type('\u200b \ufeff')
+    answer()
+    expect([sent, el.querySelector('[role=alert]')?.textContent]).toEqual([[], en.choice.otherNeedNote])
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(note, 'Keyset paging')
       note.dispatchEvent(new Event('input', { bubbles: true }))

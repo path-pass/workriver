@@ -22,6 +22,7 @@ mod planning;
 mod work;
 
 pub(crate) use client::*;
+pub(crate) use conversations::MessageCmd;
 #[cfg(test)]
 pub(crate) use conversations::wait_answer;
 pub(crate) use display::*;
@@ -243,6 +244,9 @@ pub(crate) enum Cmd {
         #[arg(long, value_name = "ID")]
         require_note: Vec<String>,
     },
+    /// A message of a conversation with the user, as you may read it.
+    #[command(subcommand)]
+    Message(MessageCmd),
     /// Print the instructions for an agent working with workriver.
     ///
     /// What it prints matches this binary, which a copied skill file may not: `manager` (the
@@ -305,7 +309,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             | Cmd::Manager(ManagerCmd::Here { intent: None, .. })
             | Cmd::Intent(IntentCmd::Start { .. })
     );
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Message(MessageCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks where it is
     // for the commands that need the workspace or its current intent.
     let here = if records && needs_place { Some(d.call("/api/here", Some(json!({})))?) } else { None };
@@ -368,7 +372,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             println!("Opened workriver in your browser.");
             return Ok(());
         }
-        Cmd::Ask { .. } | Cmd::Answer { .. } | Cmd::Reply { .. } | Cmd::Say { .. } | Cmd::Manager(ManagerCmd::Tell { .. }) => match conversations::run(cli.cmd, &cx)? {
+        Cmd::Ask { .. } | Cmd::Answer { .. } | Cmd::Reply { .. } | Cmd::Say { .. } | Cmd::Message(_) | Cmd::Manager(ManagerCmd::Tell { .. }) => match conversations::run(cli.cmd, &cx)? {
             Some(out) => out,
             None => return Ok(()),
         },

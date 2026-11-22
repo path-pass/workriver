@@ -305,6 +305,13 @@ stored form, one renderer, the same rules.
   agent in place of an option. Its words are the page's (Other, "say what instead"), never
   the asker's. The agent reads the answer as Other with the note quoted after `Other:` (the
   gate's outcome, the answer to a question), and acts on the note within the question. A
+  note longer than a quote holds (2,000 characters) is quoted cut, and the message then
+  says so and where to read it whole before acting (`workriver task show` for a gate,
+  `workriver message show` for a question), never to do what the part says. A note that
+  shows nothing once cleaned for a terminal (only spaces, control characters and marks that
+  hide or reorder text, such as a pasted zero-width space) is no note: core refuses it
+  (`shows_nothing`, the same marks `quote.rs` drops) and both forms show the missing note
+  (`showsNothing` in `surface.ts`); the same for an option that asks a note. A
   choice recorded before this rule with an option of value `other` keeps it as the asker's
   option (shown once, its own words and note rule): records replay as they were. A design's
   gate and a `--go` gate are not choices and have no Other.

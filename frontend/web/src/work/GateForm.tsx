@@ -16,7 +16,7 @@ import { Icon } from '@/ui/Icon'
 import { Thumbs } from '@/attachments/Thumbs'
 import { DeliveryLine } from './Findings'
 import { ChoiceSurface } from '@/content/choice/Choice'
-import { needsNote, noteWords } from '@/content/choice/surface'
+import { needsNote, noteWords, showsNothing } from '@/content/choice/surface'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
@@ -86,7 +86,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const submit = () => {
     if (result === 'problem' && !findings.length) return setError(true)
     const asked = choice && result === 'answered'
-    if (asked && (!picked || (needsNote(choice, picked) && !note.trim()))) return setNoteMissing(true)
+    if (asked && (!picked || (needsNote(choice, picked) && showsNothing(note)))) return setNoteMissing(true)
     sent.current = true
     // The held draft goes with this result: its pictures this one no longer carries go too.
     const sending = [...files, ...(result === 'problem' ? drafts.flatMap(d => d.files) : [])]

@@ -13,6 +13,12 @@ const NAME_CAP: usize = 120;
 /// would act on them), no quote marks of ours (it could not close the quote and go on as
 /// workriver), at most `cap` characters.
 pub(in crate::server) fn clean(text: &str, cap: usize) -> String {
+    let (out, cut) = cut(text, cap);
+    if cut { out + "…(cut; see `workriver board`)" } else { out }
+}
+
+/// `clean` with no mark of its own: the text, at most `cap` characters, and whether it was cut.
+fn cut(text: &str, cap: usize) -> (String, bool) {
     let mut out = String::new();
     let mut space = false;
     for c in text.trim().chars() {
@@ -21,7 +27,7 @@ pub(in crate::server) fn clean(text: &str, cap: usize) -> String {
             '»' => '›',
             c if c.is_control() || c.is_whitespace() => ' ',
             // Marks that reorder or hide text.
-            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}' => continue,
+            c if workriver_core::hidden_mark(c) => continue,
             c => c,
         };
         if c == ' ' && space {
@@ -31,9 +37,14 @@ pub(in crate::server) fn clean(text: &str, cap: usize) -> String {
         out.push(c);
     }
     if out.chars().count() > cap {
-        out = out.chars().take(cap).collect::<String>() + "…(cut; see `workriver board`)";
+        return (out.chars().take(cap).collect(), true);
     }
-    out
+    (out, false)
+}
+
+/// Text whole, as `clean` makes it, never cut: for a reader that asked for all of it.
+pub(in crate::server) fn whole(text: &str) -> String {
+    cut(text, usize::MAX).0
 }
 
 /// A name someone gave (a title, an agent's name), shown inline: short, on one line, and
@@ -59,6 +70,14 @@ pub(in crate::server) fn quoted(lead: &str, text: &str) -> String {
 /// `lead: «text»`: what the user wrote. Only for text recorded by the user themselves.
 pub(in crate::server) fn users(lead: &str, text: &str) -> String {
     format!("{lead}: «{}»", clean(text, CAP))
+}
+
+/// `users`, for a note the reader must have whole to act on: cut, it says so and how to read
+/// it whole (`whole_at`, a command). With whether it was cut.
+pub(in crate::server) fn users_whole(lead: &str, text: &str, whole_at: &str) -> (String, bool) {
+    let (q, cut) = cut(text, CAP);
+    let q = if cut { format!("{q}…(cut; read it whole: `{whole_at}`)") } else { q };
+    (format!("{lead}: «{q}»"), cut)
 }
 
 #[cfg(test)]

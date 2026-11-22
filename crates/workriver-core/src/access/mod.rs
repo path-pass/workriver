@@ -56,6 +56,29 @@ impl From<&str> for Principal {
     }
 }
 
+impl crate::State {
+    /// One message as `who` may read it whole (`workriver message show`): the user, every
+    /// message with every reply; an agent, one of the conversation of the workspace it was
+    /// found in (`group`) or one that went to it; and one to every manager that went to it,
+    /// with its own replies only (the others answer for other workspaces).
+    pub fn message_for(&self, id: &str, who: &Principal, group: Option<&crate::RuntimeRef>) -> Result<crate::Message, Rejected> {
+        let m = self.message(id)?;
+        let session = match who {
+            Principal::User => return Ok(m.clone()),
+            Principal::Agent { session, .. } => session,
+            Principal::Service => return no("workriver reads no message for itself"),
+        };
+        if !m.to.is_empty() {
+            if !m.to.iter().any(|r| &r.manager == session) {
+                return no(format!("message {id} went to every manager; you are not one it went to"));
+            }
+            return Ok(crate::Message { replies: m.replies.iter().filter(|r| &r.by == session).cloned().collect(), ..m.clone() });
+        }
+        let ours = !m.workspace.is_empty() && group.and_then(|g| self.workspace_of(g)).is_some_and(|w| w.group.label == m.workspace);
+        if ours || &m.manager == session { Ok(m.clone()) } else { no(format!("message {id} is not in your workspace's conversation")) }
+    }
+}
+
 impl Body {
     /// What only the person may record: their decisions and results, and what changes
     /// where workriver reaches (projects, links between workspaces).

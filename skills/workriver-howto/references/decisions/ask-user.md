@@ -49,7 +49,9 @@ task each). Or "The user answered gate u2#8 … with none of its options: Other 
 a note saying what to do instead", the note quoted after `Other:`: the note is the user's
 instruction in place of an option; do what it says, within the question, the same way (add
 its task `--after 8`; a note that changes the goal or asks something you cannot do: ask
-again). Or "did not confirm gate …" with findings: the user decides each, and you
+again). A note too long for the terminal is quoted cut: the message says "the note is cut
+here; read it whole first with `workriver task show u2#8`", and so do that before acting:
+the end may hold a condition. Or "did not confirm gate …" with findings: the user decides each, and you
 hand out work for those accepted (`deciding-findings`). Only a gate that comes after a
 design reads "confirmed the design" (`design-gate`). Until then, wait; do not merge or deploy.
 
