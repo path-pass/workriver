@@ -155,12 +155,15 @@ its sections went.
   workers, Workspaces' projects, Machine alerts, Other machines. The tab names the group, so
   a group has no heading of its own. A group with nothing to set has no tab: Workspaces'
   projects while no workspace here or no project is known, Other machines on the sample
-  page. The dialog keeps one height whichever tab shows (each scrolls on its own); on a
-  narrow screen the tabs wrap. The arrow keys move between tabs. The tab picked is kept in
-  this browser (`workriver.settings.tab`) and Settings opens on it next time; a kept tab that
-  has no tab now opens General. A link to a setting opens Settings on its group's tab
-  (`openSettings` in `frontend/web/src/machines/Settings.tsx`). No setting does anything
-  else because of the tabs.
+  page. A tab whose setting comes from the service (Stopped workers, Machine alerts) is never
+  an empty panel: while the setting loads it says so in a quiet line, and when it cannot be
+  read it says why (`role=alert`). The dialog keeps one height whichever tab shows (each
+  scrolls on its own); on a narrow screen the tabs wrap. The arrow keys move between tabs.
+  The tab picked is kept in this browser (`workriver.settings.tab`) and the gear opens
+  Settings on it next time; a kept tab that has no tab now opens General. A link to a
+  setting opens Settings on its group's tab (`openSettings` in
+  `frontend/web/src/machines/Settings.tsx`) without changing the kept tab; nothing calls it
+  yet. No setting does anything else because of the tabs.
 
 ## Opening a terminal
 

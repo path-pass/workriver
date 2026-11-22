@@ -172,6 +172,8 @@ export const zhCN: OneForm<typeof en> = {
     notifyDenied: '浏览器不允许这个页面发通知。',
     sound: '“需要你”里有新内容时播放提示音',
     soundMissed: '浏览器没有让这个页面播放提示音；在页面上点一下就可以了。',
+    loading: '正在读取…',
+    readFailed: '读不到：{{error}}',
     stall: {
       title: '停下的 worker',
       sentence: '运行中任务的 agent 空闲 <minutes/> 分钟后提醒它；再过一半时间仍空闲，就告诉它的 manager 并显示在这里。',

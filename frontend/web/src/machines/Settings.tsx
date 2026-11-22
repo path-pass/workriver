@@ -162,6 +162,14 @@ function Count({ value, min, max, label, disabled, onCommit }: { value: number; 
   )
 }
 
+/** A group whose setting has not come: that it is loading, or why it cannot be read. */
+function Unread({ error }: { error: string }) {
+  const { t } = useT()
+  return error
+    ? <p role="alert" className="text-xs wrap-anywhere text-you-ink">{t('settings.readFailed', { error })}</p>
+    : <p aria-live="polite" className="text-xs text-ink-2">{t('settings.loading')}</p>
+}
+
 type Group = 'all' | 'mac' | 'linux'
 /** What each alert edits, by the system that has it. */
 const ALERTS: [Group, (keyof Thresholds)[]][] = [
@@ -181,9 +189,10 @@ const MAX = { percent: 100, gb: 1024, free: 100_000 }
 function MachineAlerts() {
   const { t } = useT()
   const [limits, setLimits] = useState<Thresholds | null>(null)
+  const [unread, setUnread] = useState('')
   const [error, setError] = useState('')
-  useEffect(() => { loadMetrics().then(r => setLimits(r.thresholds), () => {}) }, [])
-  if (!limits) return null
+  useEffect(() => { loadMetrics().then(r => setLimits(r.thresholds), e => setUnread(String(e))) }, [])
+  if (!limits) return <Unread error={unread} />
   const save = (next: Thresholds) => {
     setLimits(next)
     setThresholds(next).then(
@@ -263,9 +272,10 @@ function MachineAlerts() {
 function Stall() {
   const { t } = useT()
   const [minutes, setMinutes] = useState<number | null>(null)
+  const [unread, setUnread] = useState('')
   const [error, setError] = useState('')
-  useEffect(() => { stallMinutes().then(setMinutes, () => {}) }, [])
-  if (minutes == null) return null
+  useEffect(() => { stallMinutes().then(setMinutes, e => setUnread(String(e))) }, [])
+  if (minutes == null) return <Unread error={unread} />
   const save = (v: number) => {
     setMinutes(v)
     setStallMinutes(v).then(
@@ -356,7 +366,8 @@ const keepTab = (g: SettingsGroup) => { try { localStorage.setItem(TAB, g) } cat
 
 /** Each Settings on the page, to be opened on a group. */
 const openers = new Set<(g: SettingsGroup) => void>()
-/** Opens Settings on `group`'s tab: what a link to a setting calls. */
+/** Opens Settings on `group`'s tab: what a link to a setting calls. The tab the user picked
+ *  stays the one Settings opens on next time. */
 export function openSettings(group: SettingsGroup) { openers.forEach(open => open(group)) }
 
 /** `compact`: only the gear, for the folded rail. */
@@ -366,7 +377,7 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
   const [tab, setTab] = useState(readTab)
   const pick = (g: SettingsGroup) => { setTab(g); keepTab(g) }
   useEffect(() => {
-    const opener = (g: SettingsGroup) => { setTab(g); keepTab(g); setOpen(true) }
+    const opener = (g: SettingsGroup) => { setTab(g); setOpen(true) }
     openers.add(opener)
     return () => { openers.delete(opener) }
   }, [])
@@ -379,8 +390,9 @@ export function Settings({ compact = false, ws = null }: { compact?: boolean; ws
     alerts: t('alerts.title'),
     machines: t('machines.title'),
   }
+  // Opened by the gear, on the tab the user picked last (a link may have shown another).
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={o => { if (o) setTab(readTab()); setOpen(o) }}>
       <DialogTrigger asChild>
         {compact ? (
           <Button variant="ghost" size="icon-sm" aria-label={t('settings.title')} className="rounded-sm text-rail-ink-2 hover:bg-rail-2 hover:text-rail-ink">

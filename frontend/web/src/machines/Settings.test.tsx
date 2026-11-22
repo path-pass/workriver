@@ -1,15 +1,17 @@
 // Settings, mounted: one group shows at a time, as a tab; the tab picked is kept in this
-// browser; and a link to a setting opens Settings on its group's tab.
+// browser; a link to a setting opens Settings on its group's tab; a group whose setting has
+// not come says it is loading or why it cannot be read.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Workspace } from '@/workspace/types'
 
+/** The service's reads, each test's own: by default the stall minutes come; the rest never arrive. */
+const reads = vi.hoisted(() => ({ stall: (): Promise<number> => Promise.resolve(10), metrics: (): Promise<unknown> => new Promise(() => {}) }))
 vi.mock('@/api/actions', async original => ({
   ...(await original<typeof import('@/api/actions')>()),
-  // The service's values: the stall minutes come; the rest never arrive (nothing to draw).
-  stallMinutes: async () => 10,
-  metrics: () => new Promise(() => {}),
+  stallMinutes: () => reads.stall(),
+  metrics: () => reads.metrics(),
   machines: () => new Promise(() => {}),
 }))
 const { openSettings, Settings } = await import('./Settings')
@@ -22,7 +24,12 @@ const ws = { workspaces: [{ id: 'w1', label: 'main' }], projects: [{ id: 'p1', t
 
 let root: Root
 let host: HTMLDivElement
-beforeEach(() => { localStorage.clear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
+beforeEach(() => {
+  reads.stall = () => Promise.resolve(10)
+  reads.metrics = () => new Promise(() => {})
+  localStorage.clear()
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host)
+})
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
 const settle = () => act(async () => { await new Promise(r => setTimeout(r)) })
@@ -82,6 +89,44 @@ describe('Settings in tabs', () => {
     await settle()
     expect(selected()).toBe('Other machines')
     expect(text()).toContain('Add')
+  })
+
+  it('a link to a setting leaves the tab picked as it was', async () => {
+    await mount()
+    await open()
+    await pick('Stopped workers')
+    await act(async () => { openSettings('machines') })
+    await settle()
+    expect(selected()).toBe('Other machines')
+    expect(localStorage.getItem('workriver.settings.tab')).toBe('workers')
+
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    await settle()
+    expect(document.querySelector('[role=dialog]')).toBeNull()
+    await open()
+    expect(selected()).toBe('Stopped workers')
+  })
+
+  it('a group whose setting is still coming says it is loading', async () => {
+    reads.stall = () => new Promise(() => {})
+    await mount()
+    await open()
+    await pick('Stopped workers')
+    expect(panels()[0].textContent).toBe('Loading…')
+    await pick('Machine alerts')
+    expect(panels()[0].textContent).toBe('Loading…')
+    expect(document.querySelector('[role=dialog] [role=alert]')).toBeNull()
+  })
+
+  it('a group whose setting cannot be read says why', async () => {
+    reads.stall = () => Promise.reject(new Error('the service is gone'))
+    reads.metrics = () => Promise.reject(new Error('the session is gone'))
+    await mount()
+    await open()
+    await pick('Stopped workers')
+    expect(panels()[0].querySelector('[role=alert]')?.textContent).toBe('Cannot read it: Error: the service is gone')
+    await pick('Machine alerts')
+    expect(panels()[0].querySelector('[role=alert]')?.textContent).toBe('Cannot read it: Error: the session is gone')
   })
 
   it('moves between tabs with the arrow keys', async () => {
