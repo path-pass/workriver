@@ -21,6 +21,7 @@ import { ViewerContext } from '@/attachments/Viewer'
 import { IntentPage } from '@/planning/IntentPage'
 import { MOCK, watchWorkspace } from '@/workspace/source'
 import { blockedAgents, inbox } from '@/attention/select'
+import { useRowSound } from '@/attention/sound'
 import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
 import { repoOf } from '@/code/select'
@@ -140,7 +141,10 @@ export default function App() {
         notify(t('metrics.notice', { machine: a.here ? t('metrics.here') : a.machine, metric: t(`metrics.${a.metric}`), value: alertValue(t, lang, a) }), body, `alert:${key(a)}:${a.level}`, false)
       }
   }, [data, t, lang])
-  const blocking = useMemo(() => (ws ? inbox(ws).blocking.length : 0), [ws])
+  const box = useMemo(() => ws && inbox(ws), [ws])
+  const blocking = box?.blocking.length ?? 0
+  // A new row in Needs you: a short sound, if the user turned it on.
+  useRowSound(box)
   useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])
   // What each live session is about, for the agent marks' tooltips; a name that repeats
   // across workspaces is left out rather than guessed.

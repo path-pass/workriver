@@ -403,7 +403,7 @@ frontend/web/
     │                                 # classify.ts (kind, size, tags, the rail's filter) Sort.tsx (their chips and fields)
     ├── work/                         # types.ts select.ts growth.ts actions.ts layout.ts (select.test.ts)
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
-    ├── attention/                    # select.ts Inbox.tsx Backlog.tsx
+    ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
     ├── conversations/                # types.ts select.ts Manager.tsx Turns.tsx Discussion.tsx; never imports app/
     ├── code/                         # types.ts files.ts load.ts useCode.ts CodeLayer.tsx Commits.tsx select.ts

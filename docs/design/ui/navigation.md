@@ -237,6 +237,17 @@ its sections went.
      long ("u2 looks squash-merged into main"); the row opens the unit.
   Within a group the oldest comes first. A row of Blocking, Decisions or Gaps opens the
   unit at the node (a review at its first open finding). With nothing to show, one short line says so.
+- **A sound.** If the user turned it on in Settings ("Play a sound when something new comes
+  into Needs you", under the notifications switch, off by default), the page plays one short,
+  quiet sound (two soft notes, made with Web Audio; no file) when a row comes into Blocking,
+  Machines, Decisions or Messages that was not there before, whether or not the tab is in
+  front. Gaps and Not urgent stay quiet: they block nobody. Not for the rows there when the
+  page loads, not for a row that only changes (an alert turning critical, a second unread
+  reply in the same workspace), and not again within five seconds, however many come. Rows
+  that come while it is off are not played later. Turning it on plays it once. The browser
+  lets a page play only after a click or a key on it; a sound that cannot play is dropped,
+  not played late, and Settings then says so in one quiet line under the switch. Browser
+  notifications are separate and unchanged.
 
 ## Agents
 
