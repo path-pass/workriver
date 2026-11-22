@@ -5,7 +5,7 @@ import { HIDDEN_READ } from '@/config/defaults'
 
 const stream = new EventTarget() as EventTarget & { onopen?: () => void; onerror?: () => void; close(): void }
 stream.close = () => {}
-const read = vi.fn(async () => ({ runtime: 'herdr', intents: [], sessions: [], alerts: [], messages: [] }))
+const read = vi.fn(async () => ({ runtime: 'fake', intents: [], sessions: [], alerts: [], messages: [] }))
 vi.mock('@/api/http', () => ({ changes: () => stream, read: () => read() }))
 const { watchWorkspace } = await import('./source')
 
