@@ -2,6 +2,25 @@
 
 Newest first. A manager that was already running reads this once after an update.
 
+## 2026-11-22
+
+- **A task shows its harness and model** (workers, managers): start a task with the model
+  you work with, `workriver task start u1#3 --model claude-opus-5-5` (as your harness names
+  it; optional: leave it out if you do not know it). `task show` now prints under `Agent:`
+  the harness and the model, and the page's task detail shows the same two; the session id
+  and where the harness keeps the session are recorded, not shown there.
+  `workriver task session u1#3` prints the path of the session file, on the machine the
+  agent ran on, and `task show --json` keeps the whole trace (`trace`: the session, the
+  path) for tools (workriver never reads the file; it gives the path to whoever may read
+  the task). For managers: the worker instructions (`workriver guide worker`) ask for
+  `--model`; paste them as before. `--model` is the starting agent's own word: `task start
+  u1#3 --agent impl --model …` (a start for another) is refused; start it for another
+  without `--model`. Only a task that was started or delivered has this; one still to do
+  has none. A path marked "worked out, not seen there" is where the file would be, not one
+  found.
+  `agent.seen` is workriver's own record now: an agent or the user appending it is
+  refused. (`hand-off`)
+
 ## 2026-11-21
 
 - **Who sets an intent's project, workspace and manager** (managers): only the user, or a

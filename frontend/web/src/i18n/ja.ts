@@ -699,7 +699,10 @@ export const ja: OneForm<typeof en> = {
     dropReasonHint: '例：#17 に置き換え。担当のエージェントとマネージャーに伝わります',
     dropConfirm: '不要にする',
     dropCancel: 'キャンセル',
-    dropFailed: '記録できませんでした：{{error}}'
+    dropFailed: '記録できませんでした：{{error}}',
+    trace: '担当エージェント：ハーネスとモデル',
+    noHarness: 'ハーネス不明',
+    noModel: 'モデル未申告'
   },
   who: {
     writing: '{{name}}、作成中'

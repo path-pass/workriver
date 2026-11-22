@@ -23,6 +23,7 @@ pub struct RuntimeAgent {
     /// Which harness runs it, e.g. "claude" or "codex".
     pub harness: String,
     pub state: AgentState,
+    /// The directory the agent was started in (not where it went since).
     pub cwd: String,
     /// The group the agent works in; one group is one intent.
     pub group: Option<RuntimeRef>,

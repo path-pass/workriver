@@ -699,7 +699,10 @@ export const zhCN: OneForm<typeof en> = {
     dropReasonHint: '例如：已被 #17 取代；会通知做这件事的 agent 和 manager',
     dropConfirm: '标记为不再需要',
     dropCancel: '取消',
-    dropFailed: '没有记录：{{error}}'
+    dropFailed: '没有记录：{{error}}',
+    trace: '做这件事的 agent：harness 和模型',
+    noHarness: 'harness 未知',
+    noModel: '没有报模型'
   },
   who: {
     writing: '{{name}}，正在写'

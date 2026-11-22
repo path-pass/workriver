@@ -3,6 +3,9 @@ use crate::*;
 
 use super::findings::{numbered_after, open};
 
+/// The longest model name a task's start takes.
+const MAX_MODEL: usize = 100;
+
 /// A dropped task is no longer worked on: refused, saying why it was dropped.
 pub(super) fn not_dropped(unit: &str, t: &Task) -> Result<(), Rejected> {
     match &t.dropped {
@@ -217,7 +220,7 @@ impl State {
                 }
                 TaskCreated(self.prepare_task(t)?)
             }
-            TaskStarted { unit, task, agent } => {
+            TaskStarted { unit, task, agent, model } => {
                 let t = self.task(&unit, task)?;
                 not_dropped(&unit, t)?;
                 if t.kind == TaskKind::Gate {
@@ -226,7 +229,16 @@ impl State {
                 if t.state != TaskState::Todo {
                     return no(format!("{unit}#{task} is {}, not todo", name(&t.state)));
                 }
-                TaskStarted { unit, task, agent }
+                let model = match model.map(|m| m.trim().to_string()) {
+                    Some(m) if m.is_empty() => return no("--model names the model the agent works with (e.g. claude-opus-5-5); leave it out if you do not know it"),
+                    Some(m) if m.chars().count() > MAX_MODEL || m.chars().any(char::is_control) => return no(format!("a model is a name of at most {MAX_MODEL} characters on one line")),
+                    m => m,
+                };
+                // The model is the starting agent's own word, never another's for it.
+                if model.is_some() && (user || agent.as_deref().is_some_and(|a| a != actor && Some(a) != self.name_of(actor))) {
+                    return no("--model is said by the agent that starts its own task, from its own terminal; leave it out when you start a task for another agent");
+                }
+                TaskStarted { unit, task, agent, model }
             }
             TaskDelivered { unit, task, note, evidence, findings, attachments } => {
                 let t = self.task(&unit, task)?;
@@ -350,6 +362,7 @@ impl State {
                         by: e.actor.clone(),
                         at: at.clone(),
                         started: None,
+                        model: None,
                         done: None,
                         note: String::new(),
                         evidence: vec![],
@@ -378,10 +391,11 @@ impl State {
                     stuck.inputs.push(Input { from: t.n.to_string(), primary: false });
                 }
             }
-            TaskStarted { unit, task, agent } => {
+            TaskStarted { unit, task, agent, model } => {
                 if let Some(t) = self.task_mut(unit, *task) {
                     t.state = TaskState::Running;
                     t.started = Some(at.clone());
+                    t.model = model.clone();
                     t.agent = agent.clone().or_else(|| agent_of(&e.actor)).or(t.agent.take());
                 }
             }

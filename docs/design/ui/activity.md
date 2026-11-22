@@ -51,6 +51,22 @@ its sections went.
   running or still to do, the header names its agent and, while the session lives, a
   terminal button. Output corrected after delivery shows its latest values, with a quiet
   "amended" and the time next to the Output heading.
+  Work an agent started or delivered (any kind but a gate) has a quiet line under the
+  header, its **trace**, from the agent recorded with that start or delivery; a task still
+  to do has none (its assignee's session is other work's until it starts). The line holds
+  the harness as the runtime named it ("harness not known" before the agent was seen) and
+  the model the agent gave when it started the task itself ("model not given" when it gave
+  none; a start recorded for it by someone else carries none), and nothing else: no copy
+  button. The harness's own session id and where the harness keeps the session file are
+  recorded, not shown (the user asked for less): the page's JSON carries only the harness
+  and the model, and `task show` prints the same two under `Agent:`. Whoever needs the
+  file asks for it: `workriver task session u1#3` prints its path, and `task show --json`
+  keeps the whole trace for tools (the session, the path, the machine, why there is none).
+  The service works the path out only for those (one place, `server/views/trace.rs`;
+  Claude Code by the directory the agent was started in, or by its id among its folders
+  when it was begun elsewhere; Codex by listing its sessions and archived sessions folders
+  for the id; a session not found is looked for again only after a while) and never reads
+  the file; the line is there only where the task is (a blind agent sees its own).
   After Output, a **Questions** block holds the past questions about the task (the user's
   from when the page had its own Ask, agents' to each other), read-only, folded to rows (`conversations.md`,
   Past questions); a delivered design or research also has its discussion there, open, with

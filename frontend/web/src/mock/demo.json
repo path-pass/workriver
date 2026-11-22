@@ -2907,7 +2907,11 @@
        },
        "plans": [],
        "started": "2026-10-27 09:30",
-       "delivered": "2026-10-27 16:00"
+       "delivered": "2026-10-27 16:00",
+       "trace": {
+        "harness": "claude",
+        "model": "claude-opus-5-5"
+       }
       },
       {
        "id": "v1|code-review",
@@ -2989,7 +2993,10 @@
        },
        "plans": [],
        "started": "2026-10-28 09:00",
-       "delivered": "2026-10-28 14:00"
+       "delivered": "2026-10-28 14:00",
+       "trace": {
+        "harness": "codex"
+       }
       },
       {
        "id": "v2|code-review",

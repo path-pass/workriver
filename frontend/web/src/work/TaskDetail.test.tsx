@@ -68,3 +68,30 @@ describe('a gate’s attachments', () => {
     expect(pictures()).toEqual(['/api/attachments/a2', '/api/attachments/a3'])
   })
 })
+
+describe('a task’s trace', () => {
+  const work: Task = {
+    id: '1', kind: 'implement', state: 'done', taskId: '1', title: 'Do it', agent: 'impl', agentSession: 's-1', writing: false,
+    inputs: [{ from: 'start', primary: true }], input: { text: 'Do it', causes: [] }, output: { commits: [] }, plans: [],
+  }
+  const label = '[aria-label="Its agent: harness and model"]'
+  const trace = () => host.querySelector(label)?.textContent
+
+  it('names the harness and the model only: no session, no file, nothing to copy', () => {
+    show(unit({ ...work, trace: { harness: 'claude', model: 'claude-opus-5-5' } }))
+    expect(trace()).toBe('claude · claude-opus-5-5')
+    expect(host.querySelector(`${label} button`)).toBeNull()
+  })
+
+  it('says what was not known or not given', () => {
+    show(unit({ ...work, trace: { harness: 'codex' } }))
+    expect(trace()).toBe('codex · model not given')
+    show(unit({ ...work, trace: {} }))
+    expect(trace()).toBe('harness not known · model not given')
+  })
+
+  it('is not there for work no agent did', () => {
+    show(unit(gate))
+    expect(trace()).toBeUndefined()
+  })
+})

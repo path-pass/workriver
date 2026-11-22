@@ -496,7 +496,7 @@ fn intent_versions_and_conflicts() {
     let w1 = json!({"id": "w1", "label": "chat"});
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Mentions", "goal": "Tag", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "boss", json!({"kind": "manager.registered", "body": {"agent": "boss", "workspace": w1}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "agent.seen", "body": {"session": "boss", "name": "claude 1", "harness": "claude"}})).unwrap();
+    add(&mut s, "workriver", json!({"kind": "agent.seen", "body": {"session": "boss", "name": "claude 1", "harness": "claude"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.state_changed", "body": {"intent": "i1", "state": "active", "workspace": w1}})).unwrap();  // the first start of a new workspace is the user's
     let edits = |s: &Records| s.state().intent("i1").unwrap().edits.clone();
     assert_eq!((edits(&s).version, edits(&s).title, edits(&s).goal, edits(&s).note, edits(&s).by.as_str()), (1, 1, 1, 1, "user"), "created is v1");

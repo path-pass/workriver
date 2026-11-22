@@ -54,6 +54,9 @@ pub(super) struct Options {
     pub(super) procs: Arc<dyn Procs>,
     /// The proofs it gives on its caller socket, each for a process's chain.
     pub(super) callers: Arc<Callers>,
+    /// The user's home on this machine, where harnesses keep their sessions; none (tests):
+    /// nothing there is looked at, and a task's session file is shown from `~`.
+    pub(super) user_home: Option<std::path::PathBuf>,
 }
 
 /// Serves on an already bound listener until Ctrl-C.
@@ -86,7 +89,7 @@ pub(super) async fn serve_with(listener: tokio::net::TcpListener, store: Store, 
 /// The service over whatever keeps the work, as the data port, with its data directory
 /// (`store_home`: the token, the caller socket, the attachments, the settings).
 pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn WorkStore>, store_home: std::path::PathBuf, runtime: Arc<dyn Runtime>, options: Options) -> anyhow::Result<()> {
-    let Options { warning, waits, machines, allow_as, sample, procs, callers } = options;
+    let Options { warning, waits, machines, allow_as, sample, procs, callers, user_home } = options;
     let port = listener.local_addr()?.port();
     let (changed, _) = broadcast::channel(16);
     let shared = Arc::new(Mutex::new(views::Shared::default()));
@@ -140,6 +143,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         stopping: watch::channel(false).0,
         port,
         home: store_home,
+        sessions: views::trace::Sessions::new(user_home),
         watcher: Mutex::new(None),
         watched: Mutex::default(),
         runs: Mutex::default(),

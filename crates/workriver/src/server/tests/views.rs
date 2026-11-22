@@ -171,7 +171,7 @@ fn a_task_shown_in_full() {
     assert_eq!(s.commits.iter().map(|c| (c.subject.as_str(), c.linked)).collect::<Vec<_>>(), [("Expire tokens", false)]);
     // The JSON's fields, as agents and scripts read them.
     let keys = |v: &serde_json::Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>().join(",");
-    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,link,lostCommits,notes,output,place,plans,questions,ref,state,steps,text,title,unit,writtenBy");
+    assert_eq!(keys(&shown), "after,agent,blind,causes,commits,intent,kind,link,lostCommits,notes,output,place,plans,questions,ref,state,steps,text,title,trace,unit,writtenBy");
     assert_eq!(keys(&shown["causes"][0]["finding"]), "decisions,files,id,impact,notes,problem,reason,reportedBy,severity,state,suggestion,where");
     let text = crate::cli::text(&s);
     for part in ["u1#3  implement  running", "Intent i1 \"Login\": Safe login.", "Unit u1 \"Auth\" (working): Tokens that expire", "What it asks (written by boss):\n    1) Requirement 1:", "from u1#2:\n    P1-1 (P1, revised), reported by rev", "accepted by the manager (boss): Real risk", "revised by the user: Expire after 15 minutes", "added by rev: The fix needs a test with an expired token", "Suggested by the reporter: accept: Easy to fix", "      Problem: Token never expires", "Plans to change: src/auth", "Output: not delivered yet", "Commits:\n  "] {
@@ -463,4 +463,113 @@ fn overlaps_are_of_the_net_change() {
     git(&r, &["add", "."]);
     git(&r, &["commit", "-q", "-m", "base moves again"]);
     assert_eq!(overlaps(), want);
+}
+
+/// A task says which harness and model did it and where the harness keeps the session: on
+/// the page and in `task show`, as the agent was first seen working (its directory is kept),
+/// with the model it started the task with. Only workriver says what an agent is seen as,
+/// and a blind agent reads where its own session is, nobody else's.
+#[test]
+fn a_task_shows_who_did_it_and_where_its_session_is() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    let home = tmp.path().join("home");
+    let day = home.join(".codex/sessions/2026/11/22");
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::write(day.join("rollout-2026-11-22T10-00-00-0c0d-ex.jsonl"), "").unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let at_dir = |session: &str, name: &str, harness: &str, cwd: &str| {
+        let mut a = live(session, name, "w1", Idle);
+        (a.harness, a.cwd) = (harness.into(), cwd.into());
+        a
+    };
+    *fake.agents.lock().unwrap() = vec![
+        ("p1".into(), live("s-boss", "boss", "w1", Idle)),
+        ("p2".into(), at_dir("s-fix", "fix", "claude", "")),
+        ("p3".into(), at_dir("0c0d-ex", "cx", "codex", "/w/cx")),
+        ("p4".into(), at_dir("s-sec", "sec", "claude", "/w/sec")),
+        ("p5".into(), { let mut a = at_dir("s-far", "far", "claude", "/far/repo"); a.machine = Some("box".into()); a }),
+    ];
+    let store = workriver_data::Store::open(&tmp.path().join("w.db")).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let port = listener.local_addr().unwrap().port();
+    let runtime = fake.clone();
+    let options = crate::server::Options { user_home: Some(home.clone()), ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    let user = kernel.client(port, tmp.path());
+    let at = |place: &str| kernel.daemon(port, Some(place.into()), None);
+    let (boss, fix, cx, sec) = (at("p1"), at("p2"), at("p3"), at("p4"));
+    let group = json!({ "id": "w1", "label": "chat" });
+    user.append("", "intent.created", json!({ "title": "Login", "state": "planned" })).unwrap();
+    boss.append("", "manager.registered", json!({ "workspace": group })).unwrap();
+    user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": group })).unwrap();
+    boss.append("", "unit.created", json!({ "intent": "i1", "title": "Auth", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
+    for (title, agent) in [("Check tokens", "s-fix"), ("Expire tokens", "0c0d-ex")] {
+        boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": title, "agent": agent, "inputs": [{ "from": "start" }] })).unwrap();
+    }
+
+    // Assigned and not started: no trace (its agent's session is still other work's).
+    let shown = |who: &crate::cli::Daemon, n: u32| serde_json::from_value::<crate::common::wire::TaskShow>(who.get(&format!("/api/task?task=u1%23{n}")).unwrap()).unwrap();
+    assert_eq!(shown(&user, 1).trace, None);
+    assert!(user.get("/api/workspace").unwrap()["intents"][0]["units"][0]["tasks"][0].get("trace").is_none());
+
+    // Seen first with no directory: its file is not known until one is seen, and the first
+    // one seen is kept (a harness keeps the session by the directory it began in).
+    fix.append("", "task.started", json!({ "unit": "u1", "task": 1, "model": "claude-opus-5-5" })).unwrap();
+    let trace = |who: &crate::cli::Daemon, n: u32| shown(who, n).trace.unwrap();
+    assert_eq!(trace(&user, 1).unknown, Some(crate::common::wire::NoFile::Cwd));
+    for cwd in ["/w/fix_1.x", "/w/elsewhere"] {
+        fake.agents.lock().unwrap()[1].1.cwd = cwd.into();
+        fix.get("/api/task?task=u1%231").unwrap();
+    }
+    let t = trace(&user, 1);
+    let file = home.join(".claude/projects/-w-fix-1-x/s-fix.jsonl").display().to_string();
+    assert_eq!((t.harness.as_deref(), t.model.as_deref(), t.session.as_str(), t.file.as_deref(), t.machine), (Some("claude"), Some("claude-opus-5-5"), "s-fix", Some(file.as_str()), None));
+    let state: workriver_core::State = serde_json::from_value(user.get("/api/state").unwrap()).unwrap();
+    assert_eq!(state.agents.iter().filter(|a| a.session == "s-fix").map(|a| a.cwd.as_str()).collect::<Vec<_>>(), ["/w/fix_1.x"]);
+    let text = crate::cli::text(&serde_json::from_value(user.get("/api/task?task=u1%231").unwrap()).unwrap());
+    assert!(t.unconfirmed, "no such file in this home: worked out only");
+    // The text says the harness and the model only; the session and its file are kept for
+    // `--json` and `task session`.
+    assert!(text.contains("Agent: fix\n  harness claude, model claude-opus-5-5\n"), "{text}");
+    assert!(!text.contains("s-fix") && !text.contains(".jsonl"), "{text}");
+
+    // Codex's file is found by its id; a start that says no model has none.
+    // Nobody says another agent's model for it: a start recorded for it carries none.
+    let e = user.append("", "task.started", json!({ "unit": "u1", "task": 2, "agent": "cx", "model": "gpt-x" })).unwrap_err().to_string();
+    assert!(e.contains("--model"), "{e}");
+    cx.append("", "task.started", json!({ "unit": "u1", "task": 2 })).unwrap();
+    let t = trace(&user, 2);
+    assert_eq!((t.harness.as_deref(), t.model, t.file), (Some("codex"), None, Some(day.join("rollout-2026-11-22T10-00-00-0c0d-ex.jsonl").display().to_string())));
+    // The page reads the harness and the model only: no session, no file.
+    let ws = user.get("/api/workspace").unwrap();
+    let tasks = &ws["intents"][0]["units"][0]["tasks"];
+    assert_eq!((&tasks[0]["trace"], &tasks[1]["trace"]), (&json!({ "harness": "claude", "model": "claude-opus-5-5" }), &json!({ "harness": "codex" })));
+
+    // Only workriver says what an agent is seen as: not an agent, not the user.
+    for who in [&fix, &user] {
+        let e = who.append("", "agent.seen", json!({ "session": "s-fix", "name": "fix", "harness": "claude", "cwd": "/w/other" })).unwrap_err().to_string();
+        assert!(e.contains("only workriver records this (agent.seen)"), "{e}");
+    }
+    assert!(fix.append("", "task.started", json!({ "unit": "u1", "task": 1, "model": "  " })).is_err());
+
+    // A blind agent: where its own session is, nothing of anyone else's.
+    boss.append("", "task.created", json!({ "unit": "u1", "kind": "review", "reviewer": "security-review", "inputs": [{ "from": "1" }], "agent": "s-sec", "blind": true })).unwrap();
+    sec.append("", "task.started", json!({ "unit": "u1", "task": 3, "model": "claude-sonnet-5-5" })).unwrap();
+    assert_eq!(trace(&sec, 3).file, Some(home.join(".claude/projects/-w-sec/s-sec.jsonl").display().to_string()));
+    assert!(sec.get("/api/task?task=u1%231").is_err());
+    let seen = sec.get("/api/workspace").unwrap().to_string() + &sec.get("/api/state").unwrap().to_string();
+    for hidden in ["/w/fix", "/w/cx", "-w-fix", "0c0d-ex.jsonl", "/far/repo", "\"box\""] {
+        assert!(!seen.contains(hidden), "{hidden} is hidden from a blind agent");
+    }
+    // Others by name only: the far agent is listed, not where it runs.
+    let far = sec.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().find(|x| x["session"] == "s-far").cloned().unwrap();
+    assert_eq!((far["agent"].as_str(), far.get("machine")), (Some("far"), None));
+    assert_eq!(user.get("/api/workspace").unwrap()["sessions"].as_array().unwrap().iter().find(|x| x["session"] == "s-far").unwrap()["machine"], "box");
 }

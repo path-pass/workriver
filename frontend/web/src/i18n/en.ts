@@ -720,7 +720,10 @@ export const en = {
     dropReasonHint: 'e.g. superseded by #17; the agent on it and the manager are told',
     dropConfirm: 'Mark no longer needed',
     dropCancel: 'Cancel',
-    dropFailed: 'Not recorded: {{error}}'
+    dropFailed: 'Not recorded: {{error}}',
+    trace: 'Its agent: harness and model',
+    noHarness: 'harness not known',
+    noModel: 'model not given'
   },
   who: {
     writing: '{{name}}, writing now'
