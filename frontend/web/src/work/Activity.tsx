@@ -275,17 +275,15 @@ function Legend() {
   )
 }
 
-/** `title` and `hint`: another heading than "Activity", with a quiet line under it.
- *  `workspace`: the workspace of the unit's intent (a `Space.id`), when known. */
-export function Activity({ unit, pick, onPick, talk, fitKey, title, hint, workspace }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; title?: string; hint?: string; workspace?: string }) {
+/** `workspace`: the workspace of the unit's intent (a `Space.id`), when known. */
+export function Activity({ unit, pick, onPick, talk, fitKey, workspace }: { unit: Unit; pick: Pick; onPick: (p: Pick) => void; talk: Talk; fitKey: unknown; workspace?: string }) {
   const { t } = useT()
   const pickedId = pick?.kind === 'task' ? pick.id : null
   const picked = unit.tasks.find(n => n.id === pickedId)
   const pickNode = useMemo(() => (id: string | null) => onPick(id ? { kind: 'task', id } : null), [onPick])
   return (
     <section className="block-box">
-      <h2 className="mb-2 text-lg font-[650]">{title ?? t('block.activity')}</h2>
-      {hint && <p className="-mt-1 mb-2 text-sm text-ink-2">{hint}</p>}
+      <h2 className="mb-2 text-lg font-[650]">{t('block.activity')}</h2>
       {unit.tasks.length ? (
         <>
           <Graph unit={unit} picked={pickedId} finding={pick?.finding} onPick={pickNode} fitKey={fitKey} />

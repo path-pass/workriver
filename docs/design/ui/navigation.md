@@ -174,9 +174,7 @@ its sections went.
   and who decides its findings (the select that was in the rail). A planned intent says it
   is not started yet and has "Start" in its header (the same dialog). Then its units as a
   list, each a row that opens it: id, title, where it stands, its violet marks, quiet, and
-  when it last moved ("moved 2d ago", the date on hover). Last, when it has any, "Earlier
-  research and design": its own tasks from before research units, as a graph with the same
-  detail under it as a unit's, so `/i3/1` opens there with the task picked.
+  when it last moved ("moved 2d ago", the date on hover).
 
 ## Editing an intent, and its history
 
@@ -431,8 +429,7 @@ page keeps the path for ten minutes; the tab with the link follows once it is in
 
 Each unit, intent and task has its own path, never the fragment (it carries the sign-in
 code): `/u1`, `/u1/3` (the task picked, its detail open), `/i3` (the intent's page, planned ones
-too), `/i3/1` (a task of its earlier own work, picked on its page), and
-`?finding=P2-1`; the root opens the first unit of the project remembered in the rail (or of
+too), and `?finding=P2-1`; the root opens the first unit of the project remembered in the rail (or of
 all). The page follows the address on load and on back and forward, and sets it
 when a unit or task is picked; a path that names nothing says so in the main area, the rail
 as usual. The unit heading, the task detail and each intent in the rail have a quiet

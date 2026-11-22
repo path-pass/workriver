@@ -96,7 +96,7 @@ pub enum CheckResult {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct NewTask {
-    /// The unit it is in, or an intent for intent-level work (research, design).
+    /// The unit it is in.
     pub unit: String,
     /// The intent it serves; assigned when recorded.
     #[serde(default)]

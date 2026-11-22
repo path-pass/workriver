@@ -3,8 +3,7 @@
 //! event, default or serde attribute may change what a stored record means.
 //!
 //! `records/fixtures/events.jsonl` is the history, one stored event per line: old
-//! encodings first (no intent state, a task with no intent, an intent-level task, a
-//! decision with no `by`, a branch named before the rule), then every event kind of today.
+//! encodings first (no intent state, a task with no intent, a decision with no `by`, a branch named before the rule), then every event kind of today.
 //! `records/fixtures/expected-state.json` is what it adds up to: the state, the command
 //! runs and the intents' versions (never serialized with it), the blind view, how each event is written again, and
 //! the ids the rules hand out next. To write it again after a deliberate change of

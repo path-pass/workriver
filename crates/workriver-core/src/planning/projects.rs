@@ -96,8 +96,7 @@ impl State {
         let name = self.name_of(session);
         let mine = |t: &&Task| t.state == TaskState::Running && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
         let of_units = self.units.iter().filter(|u| u.tasks.iter().any(|t| mine(&t))).map(|u| u.intent.as_str());
-        let of_intents = self.intents.iter().filter(|i| i.tasks.iter().any(|t| mine(&t))).map(|i| i.id.as_str());
-        let mut found: Vec<&str> = of_units.chain(of_intents).filter_map(|i| self.intent_workspace(i)).map(|w| w.id.as_str()).collect();
+        let mut found: Vec<&str> = of_units.filter_map(|i| self.intent_workspace(i)).map(|w| w.id.as_str()).collect();
         found.sort_unstable();
         found.dedup();
         match found[..] {

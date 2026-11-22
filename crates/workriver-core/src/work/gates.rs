@@ -30,7 +30,7 @@ impl State {
     /// still to do, asks nobody for anything, and counts nowhere. It waits from then on.
     pub(crate) fn open_gates(&mut self, at: &str) {
         let todo = |ts: &[Task]| ts.iter().filter(|t| t.kind == TaskKind::Gate && t.state == TaskState::Todo).map(|t| t.n).collect::<Vec<_>>();
-        let owners: Vec<(String, Vec<u32>)> = self.units.iter().map(|u| (u.id.clone(), todo(&u.tasks))).chain(self.intents.iter().map(|i| (i.id.clone(), todo(&i.tasks)))).filter(|(_, g)| !g.is_empty()).collect();
+        let owners: Vec<(String, Vec<u32>)> = self.units.iter().map(|u| (u.id.clone(), todo(&u.tasks))).filter(|(_, g)| !g.is_empty()).collect();
         for (owner, gates) in owners {
             for n in gates {
                 let ready = self.task(&owner, n).is_ok_and(|t| self.unfinished_inputs(&owner, t).is_empty());

@@ -7,8 +7,7 @@ impl State {
     pub fn blind_tasks(&self, session: &str) -> Vec<(String, u32)> {
         let name = self.name_of(session);
         let mine = |t: &&Task| t.blind && !t.state.over() && t.agent.as_deref().is_some_and(|a| a == session || Some(a) == name);
-        let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(mine).map(|t| (u.id.clone(), t.n)));
-        units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(mine).map(|t| (i.id.clone(), t.n)))).collect()
+        self.units.iter().flat_map(|u| u.tasks.iter().filter(mine).map(|t| (u.id.clone(), t.n))).collect()
     }
 
     /// What an agent on a blind task may see until it delivers: its task (as handed out),
@@ -36,11 +35,11 @@ impl State {
         let intents: Vec<Intent> = self
             .intents
             .iter()
-            .filter(|i| mine.iter().any(|(o, _)| o == &i.id) || units.iter().any(|u| u.intent == i.id))
-            .map(|i| Intent { note: String::new(), reason: None, tasks: own(&i.id, &i.tasks), edits: Edits::default(), ..i.clone() })
+            .filter(|i| units.iter().any(|u| u.intent == i.id))
+            .map(|i| Intent { note: String::new(), reason: None, edits: Edits::default(), ..i.clone() })
             .collect();
         // What was added to its own task is part of what it asks, files included.
-        let added: Vec<String> = units.iter().flat_map(|u| &u.tasks).chain(intents.iter().flat_map(|i| &i.tasks)).flat_map(|t| &t.notes).flat_map(|n| n.attachments.iter().cloned()).collect();
+        let added: Vec<String> = units.iter().flat_map(|u| &u.tasks).flat_map(|t| &t.notes).flat_map(|n| n.attachments.iter().cloned()).collect();
         Some(State {
             intents,
             units,
@@ -99,14 +98,14 @@ impl State {
     }
 
     /// The attachments the records hold as attachments: a task's files, its checks' reports,
-    /// its findings' files and the notes added to them or to what it asks (of units and
-    /// intents), the backlog's findings', and what a question or a message points at (an
+    /// its findings' files and the notes added to them or to what it asks, the backlog's
+    /// findings', and what a question or a message points at (an
     /// "attachment" of its context). Never an id that only appears in words.
     fn held_attachments(&self) -> std::collections::HashSet<String> {
         fn finding(f: &Finding) -> impl Iterator<Item = &String> {
             f.found.attachments.iter().chain(f.notes.iter().flat_map(|n| &n.attachments))
         }
-        let tasks = self.units.iter().flat_map(|u| &u.tasks).chain(self.intents.iter().flat_map(|i| &i.tasks));
+        let tasks = self.units.iter().flat_map(|u| &u.tasks);
         let of_tasks = tasks.flat_map(|t| t.attachments.iter().chain(t.evidence.iter().filter_map(|e| e.attachment.as_ref())).chain(t.notes.iter().flat_map(|n| &n.attachments)).chain(t.findings.iter().flat_map(finding)));
         let of_backlog = self.backlog.iter().flat_map(|b| finding(&b.finding));
         let contexts = self.questions.iter().flat_map(|q| &q.context).chain(self.messages.iter().flat_map(|m| &m.context));

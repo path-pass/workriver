@@ -58,9 +58,8 @@ a **spike**: a unit with a `spike/<topic>` branch and its own worktree like a co
 any kind of task, never merged; closed with `workriver unit done <u> --reason "<what was
 learned>"`. `workriver guide how spike`.
 
-Tasks are always in a unit: `workriver task add i3 …` is refused. Older intents may have
-tasks of their own (`i3#1`): they still work as before (start, deliver, gates, findings,
-`--cause i3#2:P2-1` from a unit), but take no new tasks; follow-up goes into a research unit.
+Tasks are always in a unit: `workriver task add i3 …` is refused; research and design go
+into a research unit.
 
 The first task of a unit starts from it. Every later one says what it follows: `--after
 <n>` (the task it continues; repeat for several), `--after start` to run beside the first,

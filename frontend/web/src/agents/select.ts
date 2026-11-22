@@ -19,7 +19,7 @@ export const liveSession = (sessions: Session[], r: AgentRef) => sessions.find(x
  * The live session a task's agent runs in: its session (or, with none, its name), in the
  * task's workspace when it is known (a `Space.id`: the records put an agent there, by its
  * seat or its tasks), and, when the task's unit has a repository, on that repository's machine
- * (absent: this one). A unit with none (research, an intent's own work) names no machine, so
+ * (absent: this one). A unit with none (research) names no machine, so
  * its agent may be on any. Only when exactly one fits: the same session may show on two
  * machines and a name in several workspaces, and keys must never go to another instance.
  */

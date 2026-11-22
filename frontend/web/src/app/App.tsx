@@ -216,7 +216,7 @@ export default function App() {
   const [viewing, setViewing] = useState<Attachment | null>(null)
 
   const unit = useSame(unitsOf(ws).find(i => i.id === unitId) ?? null)
-  // An intent's page is open (`unitId` is its id); `unit` is then its own earlier work, if any.
+  // An intent's page is open (`unitId` is its id).
   const page = ws?.intents.find(i => i.id === unitId) ?? null
   const sel = useMemo(() => (unit ? selectionOf(unit, pick) : null), [unit, pick])
   // The same unit with its files' texts, for the code and the lines picked in it.
@@ -429,8 +429,8 @@ export default function App() {
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
   const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
 
-  // A command the user asked to run: the confirm dialog shows it. A gate or chore of the
-  // intent's own work has no work tree: it runs in the intent's project folder.
+  // A command the user asked to run: the confirm dialog shows it. A gate or chore of a
+  // research unit has no work tree: it runs in the intent's project folder.
   const [running, setRunning] = useState<RunAsk | null>(null)
   const run = useCallback((a: RunAsk) => {
     if (!ws) return
@@ -507,11 +507,6 @@ export default function App() {
           <IntentPage
             ws={ws}
             intent={page}
-            earlier={unit}
-            pick={pick}
-            onPick={onPick}
-            talk={talk}
-            fitKey={`${railOpen}:${railWidth}:${side ? sideWidth : 0}`}
             onUnit={id => pickUnit(ws, id)}
             onStart={setStarting}
             onTalk={() => showTalk()}

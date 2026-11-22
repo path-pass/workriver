@@ -105,9 +105,9 @@ fn planned_intents_merge() {
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Filters", "goal": "By date", "project": "/p", "state": "planned", "note": "see #12", "external": {"system": "jira", "key": "ABC-2", "url": "https://x/ABC-2"}}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Ranking", "project": "/p", "state": "planned"}})).unwrap();
     add(&mut s, "user", plan("Other project", "/q")).unwrap(); // i4
-    add(&mut s, "user", plan("Has a task", "/p")).unwrap(); // i5
-    // Tasks of the intent itself, from before research units.
-    let mut s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i5", "intent": "i5", "n": 1, "kind": "research", "title": "Look", "inputs": [{"from": "start"}]}}));
+    add(&mut s, "user", plan("Has a unit", "/p")).unwrap(); // i5
+    // A unit of a planned intent, as an intent put back in the roadmap keeps it.
+    let mut s = recorded_before(s, "boss", json!({"kind": "unit.created", "body": {"id": "u1", "intent": "i5", "title": "Look", "repo": "/p", "branch": "feat/look", "base": "main"}}));
     add(&mut s, "user", plan("Has a chore", "/p")).unwrap(); // i6
     add(&mut s, "user", json!({"kind": "chore.created", "body": {"intent": "i6", "title": "Rotate"}})).unwrap();
     add(&mut s, "user", plan("Has a finding", "/p")).unwrap(); // i7
@@ -127,7 +127,7 @@ fn planned_intents_merge() {
         ("i8", &["i2"][..], "i8 is dropped"),
         ("i1", &["i8"][..], "i8 is dropped"),
         ("i1", &["i4"][..], "another project"),
-        ("i1", &["i5"][..], "has tasks"),
+        ("i1", &["i5"][..], "has units"),
         ("i1", &["i6"][..], "has chores"),
         ("i1", &["i7"][..], "has backlog findings"),
     ] {
@@ -168,10 +168,9 @@ fn planned_intents_merge() {
 }
 
 /// Research and design are a unit of their own with no branch; research hands in a note or a
-/// report. Nothing new goes into an intent itself, but its tasks recorded before that replay
-/// and keep working.
+/// report. Nothing goes into an intent itself.
 #[test]
-fn research_units_and_old_intent_level_work() {
+fn research_units() {
     let mut s = Records::default();
     add(&mut s, "user", json!({"kind": "project.added", "body": {"path": "/p", "title": "P"}})).unwrap();
     add(&mut s, "user", json!({"kind": "intent.created", "body": {"title": "Sync", "project": "/p", "state": "planned"}})).unwrap();
@@ -211,21 +210,6 @@ fn research_units_and_old_intent_level_work() {
     add(&mut s, "user", json!({"kind": "unit.done", "body": {"unit": "u1", "reason": "decided"}})).unwrap();
     assert_eq!(s.state().unit("u1").unwrap().tasks.len(), 2);
 
-    // Recorded before research units: the intent's own tasks replay and still take the
-    // rest of their life (start, deliver, decide, a cause of work in a unit).
-    let s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "intent": "i1", "n": 1, "kind": "research", "title": "Look", "inputs": [{"from": "start"}]}}));
-    let s = recorded_before(s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "intent": "i1", "n": 2, "kind": "review", "reviewer": "code-review", "inputs": [{"from": "1"}]}}));
-    let mut s = s;
-    let t = s.state().task("i1", 1).unwrap();
-    assert_eq!((t.state, t.intent.as_str()), (TaskState::Todo, "i1"));
-    add(&mut s, "r", json!({"kind": "task.started", "body": {"unit": "i1", "task": 1}})).unwrap();
-    add(&mut s, "r", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 1, "note": "Found it"}})).unwrap();
-    add(&mut s, "r2", json!({"kind": "task.delivered", "body": {"unit": "i1", "task": 2, "findings": [{"severity": "P2", "problem": "p", "impact": "i", "where": ["a"]}]}})).unwrap();
-    add(&mut s, "user", json!({"kind": "finding.decided", "body": {"unit": "i1", "task": 2, "finding": "P2-1", "decision": "accept"}})).unwrap();
-    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Engine", "repo": "/r", "branch": "feat/b", "base": "main"}})).unwrap();
-    add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u2", "kind": "implement", "title": "Fix", "causes": [{"unit": "i1", "task": 2, "findings": ["P2-1"]}]}})).unwrap();
-    assert_eq!(s.state().task("u2", 1).unwrap().intent, "i1", "a unit's tasks record their intent too");
-    assert!(add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "i1", "kind": "research", "title": "More", "inputs": [{"from": "1"}]}})).unwrap_err().contains("tasks go into a unit"));
     assert_eq!(serde_json::to_value(replayed(&s)).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
 

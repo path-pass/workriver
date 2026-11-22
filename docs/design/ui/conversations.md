@@ -325,7 +325,7 @@ by `unit#task`. Rules (`prepare_questions`), each a refusal in the service's wor
   them replay. `/api/message` takes the same three; the state's `Message` keeps them; the
   page shows them under the message.
 - **Rules** (`MessageSent`, `State::picked`), each a refusal in the service's words:
-  - `unit` must be a unit (or an intent's own work) of the message's intent; with no intent
+  - `unit` must be a unit of the message's intent; with no intent
     named, of an intent that runs in the very workspace named (by its id). `task` must be one of the unit's tasks.
   - An attachment the user stored (`Attachment.user`) needs no unit: it may go to any
     workspace's manager, from Needs you, an intent's page or another workspace too.

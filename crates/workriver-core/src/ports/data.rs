@@ -236,12 +236,12 @@ pub trait WorkStore: Send {
     }
 
     /// Deliveries held for a receiver on a blind task (`DeliveryStep::Held`): tasks' and their
-    /// findings', of units and of intents' own work, then chores', then backlog findings'.
+    /// findings', of units, then chores', then backlog findings'.
     fn held_deliveries(&self) -> Result<Vec<Delivered>, DataError> {
         let all = self.recorded()?;
         let held = |d: &Option<Delivery>| d.clone().filter(|d| d.step == DeliveryStep::Held);
         let mut out = vec![];
-        let owners = all.units.iter().map(|u| (&u.id, &u.tasks)).chain(all.intents.iter().map(|i| (&i.id, &i.tasks)));
+        let owners = all.units.iter().map(|u| (&u.id, &u.tasks));
         for (owner, tasks) in owners {
             for t in tasks {
                 if let Some(d) = held(&t.delivery) {

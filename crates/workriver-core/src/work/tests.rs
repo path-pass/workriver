@@ -448,7 +448,7 @@ fn a_dropped_follow_up_answers_nothing() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[1].state, FindingState::Accepted);
 }
 
-/// The first task of a unit or intent starts at the start; a later one says what it follows
+/// The first task of a unit starts at the start; a later one says what it follows
 /// (a task, `start` to run beside the first, or a cause in the same unit), else it is refused
 /// rather than hung off the start away from the work it continues.
 #[test]

@@ -3695,10 +3695,10 @@
    "note": "可能要改成虚拟列表，也可能是后端分页的问题，先让调查任务测清楚瓶颈在哪，再拆单元。\n\n调研结论见 https://example.com/perf-report ：瓶颈在前端渲染，后端分页不用改。",
    "units": [
     {
-     "id": "perf",
-     "intentLevel": true,
-     "title": "消息列表性能",
-     "purpose": "一个频道里有十万条消息时，打开频道和往上翻历史都不卡：首屏 300 毫秒内出现，滚动保持 60 帧。",
+     "id": "perf-study",
+     "kind": "research",
+     "title": "瓶颈调研与列表方案",
+     "purpose": "测清楚打开大频道慢在哪，定下列表的方案。",
      "repo": "",
      "branch": null,
      "status": "active",

@@ -176,9 +176,9 @@ pub(in crate::server) fn user_message(state: &State, m: &workriver_core::Message
         }
         return said;
     }
-    let unit = (!m.unit.is_empty()).then(|| state.unit_or_intent(&m.unit)).flatten();
-    let mut at: Vec<String> = match (m.task, &unit) {
-        (0, Some(u)) => vec![format!("{} {} \"{}\"", if state.unit(&u.id).is_ok() { "unit" } else { "intent" }, u.id, quote::name(&u.title))],
+    let unit = state.unit(&m.unit).ok();
+    let mut at: Vec<String> = match (m.task, unit) {
+        (0, Some(u)) => vec![format!("unit {} \"{}\"", u.id, quote::name(&u.title))],
         (n, _) => state.task(&m.unit, n).ok().map(|t| task_named(state, &m.unit, t)).into_iter().collect(),
     };
     at.extend(pointed(state, &m.unit, &m.context, home));
@@ -293,10 +293,10 @@ pub(in crate::server) fn label(state: &State, unit: &str, t: &Task) -> String {
 
 /// `was`: the user changes a decision already made (the manager's, or their own).
 pub(super) fn decision_message(state: &State, unit: &str, n: u32, finding: &str, decision: Decision, note: &str, was: Option<workriver_core::FindingState>) -> Option<Msg> {
-    let u = state.unit_or_intent(unit)?;
+    let u = state.unit(unit).ok()?;
     let t = state.task(unit, n).ok()?;
     let f = t.findings.iter().find(|f| f.found.id == finding)?;
-    let from = format!("from {} in {} {unit} \"{}\"", label(state, unit, t), if state.unit(unit).is_err() { "intent" } else { "unit" }, quote::name(&u.title));
+    let from = format!("from {} in unit {unit} \"{}\"", label(state, unit, t), quote::name(&u.title));
     let mut m = Msg::default();
     m.own.push(match decision {
         Decision::Revise => format!("[workriver] The user wants finding {finding} {from} fixed their way: follow what the user wrote below, not the finding's suggestion."),

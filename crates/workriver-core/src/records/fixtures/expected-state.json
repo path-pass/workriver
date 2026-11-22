@@ -39,7 +39,6 @@
           "project": "/r/chat",
           "reason": null,
           "state": "active",
-          "tasks": [],
           "title": "Search and emoji",
           "workspace": "ws2"
         }
@@ -128,7 +127,7 @@
           "id": "ws2",
           "manager": {
             "session": "s-boss2",
-            "since": 31
+            "since": 30
           },
           "name": "search",
           "project": "p1"
@@ -137,7 +136,7 @@
           "id": "ws3",
           "manager": {
             "session": "s-far",
-            "since": 82
+            "since": 81
           },
           "name": "search",
           "project": "p1"
@@ -256,24 +255,6 @@
         "text": "",
         "title": "Find mentions",
         "unit": "u1"
-      },
-      "kind": "task.created"
-    },
-    {
-      "body": {
-        "agent": null,
-        "causes": [],
-        "gate": null,
-        "inputs": [],
-        "intent": "",
-        "kind": "research",
-        "n": 1,
-        "plans": [],
-        "reviewer": null,
-        "steps": [],
-        "text": "",
-        "title": "Which libraries",
-        "unit": "i1"
       },
       "kind": "task.created"
     },
@@ -1867,34 +1848,6 @@
         "project": "/r/chat",
         "reason": null,
         "state": "done",
-        "tasks": [
-          {
-            "agent": null,
-            "amended": null,
-            "at": "2025-12-01T03:05:00Z",
-            "attachments": [],
-            "by": "s-boss",
-            "causes": [],
-            "delivery": null,
-            "done": null,
-            "evidence": [],
-            "findings": [],
-            "gate": null,
-            "inputs": [],
-            "intent": "i1",
-            "kind": "research",
-            "n": 1,
-            "note": "",
-            "plans": [],
-            "result": null,
-            "reviewer": null,
-            "started": null,
-            "state": "todo",
-            "steps": [],
-            "text": "",
-            "title": "Which libraries"
-          }
-        ],
         "title": "Chat v1",
         "workspace": "ws1"
       },
@@ -1913,7 +1866,6 @@
         "project": "/r/chat",
         "reason": null,
         "state": "active",
-        "tasks": [],
         "title": "Search and emoji",
         "workspace": "ws2"
       },
@@ -1928,7 +1880,6 @@
         "project": "/r/chat",
         "reason": "merged into i2",
         "state": "dropped",
-        "tasks": [],
         "title": "Emoji",
         "workspace": null
       },
@@ -1943,7 +1894,6 @@
         "project": "/r/chat",
         "reason": "later",
         "state": "dropped",
-        "tasks": [],
         "title": "Threads",
         "workspace": null
       },
@@ -1961,7 +1911,6 @@
         "project": "/r/chat",
         "reason": null,
         "state": "planned",
-        "tasks": [],
         "title": "Later, maybe",
         "workspace": null
       }
@@ -1985,7 +1934,7 @@
             "text": "Fine."
           }
         ],
-        "since": 31,
+        "since": 30,
         "text": "How is it going?",
         "workspace": "ws2"
       },
@@ -1997,7 +1946,7 @@
         "intent": "i2",
         "manager": "s-boss2",
         "replies": [],
-        "since": 31,
+        "since": 30,
         "text": "Design confirmed.",
         "workspace": "ws2"
       },
@@ -2852,7 +2801,7 @@
         "manager": {
           "folder": "/r/chat",
           "session": "s-boss2",
-          "since": 31
+          "since": 30
         },
         "name": "search",
         "project": "p1"
@@ -2863,7 +2812,7 @@
           "folder": "/home/far/chat",
           "machine": "box",
           "session": "s-far",
-          "since": 82
+          "since": 81
         },
         "name": "search",
         "project": "p1"

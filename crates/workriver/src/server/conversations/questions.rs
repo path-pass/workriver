@@ -55,7 +55,7 @@ impl App {
         };
         let (q, unit, task_agent, manager) = {
             let Ok(q) = s.question(id).cloned() else { return };
-            let Some(u) = s.unit_or_intent(&q.unit) else { return };
+            let Ok(u) = s.unit(&q.unit).cloned() else { return };
             let task_agent = s.task(&q.unit, q.task).ok().and_then(|t| t.agent.clone());
             let intent = s.intents.iter().find(|i| i.id == u.intent);
             let manager = intent.and_then(|i| s.manager_of(&i.id)).map(str::to_string);
@@ -94,7 +94,7 @@ impl App {
             Ok(h) => h,
             Err(e) => return unread(e),
         };
-        // Intent-level work has no branch: its project folder is where to read.
+        // A research unit has no branch: its project folder is where to read.
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         let dir = self.work_tree(&unit);
         // A question about the whole unit reads its commits itself (its prompt says how).

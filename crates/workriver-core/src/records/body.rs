@@ -533,7 +533,7 @@ pub enum Body {
         #[serde(default)]
         manager: String,
         text: String,
-        /// The unit (or an intent's own work) the user had picked, if any.
+        /// The unit the user had picked, if any.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         unit: String,
         /// One of its tasks; 0: the unit, or none.

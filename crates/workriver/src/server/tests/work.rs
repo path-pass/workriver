@@ -90,7 +90,7 @@ fn daemon_smoke() {
         // A unit's, an intent's or a task's own link is the same page; it names its files
         // from the root, so they load from a nested path too.
         assert!(script.starts_with('/'), "{script}");
-        for path in ["/u1", "/u1/3", "/i1", "/i1/1", "/u1/3?finding=P2-1"] {
+        for path in ["/u1", "/u1/3", "/i1", "/u1/3?finding=P2-1"] {
             let (status, same) = http(port, "GET", path, &[], None);
             assert!(status == 200 && same.to_lowercase().contains("cache-control: no-cache") && same.contains(script), "{path}");
         }

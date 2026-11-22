@@ -291,7 +291,7 @@ impl Names {
 
 /// `blocked`: when each blocked live agent (by session) was first seen blocked; `idle`: idle
 /// (or done) the same way; `stalls`: the
-/// running tasks whose agent stopped, by (unit or intent, task).
+/// running tasks whose agent stopped, by (unit, task).
 pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[RuntimeAgent]>, blocked: &HashMap<String, String>, idle: &HashMap<String, String>, stalls: &HashMap<(String, u32), crate::common::wire::Stall>, proposals: &HashMap<String, Option<String>>) -> Workspace {
     let live = live.unwrap_or_default();
     cache.refs.clear();
@@ -324,10 +324,7 @@ pub(super) fn build(state: &core::State, cache: &mut Cache, live: Option<&[Runti
             kind: i.kind,
             size: i.size,
             tags: i.tags.clone(),
-            units: intent_unit(state, live, i, &names)
-                .into_iter()
-                .chain(state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names, false) }))
-                .collect(),
+            units: state.units.iter().filter(|u| u.intent == i.id).map(|u| if u.kind.is_code() { unit(state, live, u, cache, &names, state.manager_of(&i.id)) } else { branchless(state, live, u, &names) }).collect(),
             chores: state
                 .chores
                 .iter()
@@ -497,24 +494,11 @@ fn projects(state: &core::State) -> Vec<ProjectOut> {
     state.projects.iter().map(|p| ProjectOut { id: p.path.clone(), key: Some(p.id.clone()), title: p.title.clone(), repos: repos_in(&p.path) }).collect()
 }
 
-/// An intent's own tasks (research, design and their reviews and gates, recorded before
-/// research units) as a unit without a repository, listed first under the intent; none when
-/// it has none.
-fn intent_unit(state: &core::State, live: &[RuntimeAgent], i: &core::Intent, names: &Names) -> Option<Unit> {
-    if i.tasks.is_empty() {
-        return None;
-    }
-    let u = state.unit_or_intent(&i.id)?;
-    Some(branchless(state, live, &u, names, true))
-}
-
-/// A unit with no branch: a research unit, or (`intent_level`) an intent's own work. No
-/// commits, no code, nothing to merge.
-fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names: &Names, intent_level: bool) -> Unit {
+/// A unit with no branch: a research unit. No commits, no code, nothing to merge.
+fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names: &Names) -> Unit {
     let manager = state.manager_of(&u.intent);
     Unit {
         id: u.id.clone(),
-        intent_level,
         kind: (!u.kind.is_code()).then_some(u.kind),
         title: u.title.clone(),
         purpose: u.purpose.clone(),
@@ -533,7 +517,7 @@ fn branchless(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, names:
         code: String::new(),
         squash: None,
         overdue: None,
-        threads: if intent_level { vec![] } else { threads(state, live, names, &u.id, 0) },
+        threads: threads(state, live, names, &u.id, 0),
         overlaps: vec![],
     }
 }
@@ -665,7 +649,6 @@ fn unit(state: &core::State, live: &[RuntimeAgent], u: &core::Unit, cache: &mut 
     let progress_now = if !merged && cache.merged_now.iter().any(|(x, _)| x == &u.id) { core::Progress::Merged } else { state.progress(u) };
     Unit {
         id: u.id.clone(),
-        intent_level: false,
         kind: (!u.kind.merges()).then_some(u.kind),
         title: u.title.clone(),
         purpose: u.purpose.clone(),

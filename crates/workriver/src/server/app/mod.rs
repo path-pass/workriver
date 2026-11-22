@@ -80,7 +80,7 @@ pub(super) struct App {
     /// When each live agent was first seen idle or done, by session (and when, to measure it).
     // ponytail: in memory, like `blocked`; a restart starts every idle wait again.
     pub(super) idle_since: Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
-    /// Running tasks whose agent stopped (reminded, or escalated), by (unit or intent, task),
+    /// Running tasks whose agent stopped (reminded, or escalated), by (unit, task),
     /// as of the last poll.
     pub(super) stalls: Mutex<std::collections::HashMap<(String, u32), delivery::reminders::Watch>>,
     /// Minutes an agent may sit idle on a running task (settings.json; the user sets it).

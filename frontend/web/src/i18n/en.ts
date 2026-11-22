@@ -47,7 +47,6 @@ export const en = {
     addCancel: 'Cancel',
     drag: 'Drag to reorder',
     start: 'Start',
-    intentWork: 'Research and design',
     foldGroup: 'Show or hide the units of {{title}}',
     failed: 'Not saved: {{error}}',
     mergeOpen: 'Merge…',
@@ -71,7 +70,6 @@ export const en = {
     addKind: 'Kind',
     tags: 'Tags: {{tags}}',
     held: {
-      tasks: 'Has tasks of its own, so it cannot be merged (drop it with a reason instead).',
       units: 'Has units of its own, so it cannot be merged (drop it with a reason instead).',
       findings: 'Has backlog findings of its own, so it cannot be merged (drop it with a reason instead).',
       chores: 'Has chores of its own, so it cannot be merged (drop it with a reason instead).'
@@ -96,8 +94,6 @@ export const en = {
     units: 'Units',
     moved: 'moved {{time}} ago',
     neverMoved: 'nothing yet',
-    earlier: 'Earlier research and design',
-    earlierHint: 'Recorded on the intent itself, before research and design became units of their own.',
     kind: { feature: 'Feature', fix: 'Fix', chore: 'Chore', research: 'Research' },
     size: { s: 'S', m: 'M', l: 'L' },
     sizeHint: { s: 'S: one unit, one round of review; hours', m: 'M: one or two units, a few review rounds; a day or two', l: 'L: three units or more, or a design first; days' },

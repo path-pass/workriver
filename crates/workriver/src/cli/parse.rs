@@ -34,7 +34,7 @@ pub(super) fn task_ref(s: &str) -> anyhow::Result<(String, u32)> {
     parse_task_ref(s).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| anyhow!("{s:?} is not a task; write it as <unit>#<n>, e.g. u1#3"))
 }
 
-/// `4:P2-1,P3-1` (this unit), `u1#4:P2-1` (another unit or intent), `f3,f4` (backlog findings).
+/// `4:P2-1,P3-1` (this unit), `u1#4:P2-1` (another unit), `f3,f4` (backlog findings).
 pub(crate) fn parse_cause(s: &str) -> anyhow::Result<Value> {
     let ids = |x: &str| x.split(',').map(str::trim).filter(|i| !i.is_empty()).map(str::to_string).collect::<Vec<_>>();
     let Some((n, list)) = s.split_once(':') else {

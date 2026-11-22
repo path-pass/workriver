@@ -48,12 +48,10 @@ impl App {
             return delivery::broadcast_message(all, m, r, &self.home);
         }
         let code = m.context.iter().any(|c| matches!(c.kind.as_str(), "file" | "lines"));
-        let dir = all.unit_or_intent(&m.unit).filter(|_| code).map(|u| self.work_tree(&u));
+        let dir = all.unit(&m.unit).ok().filter(|_| code).map(|u| self.work_tree(u));
         delivery::user_message(all, m, &self.home, dir.as_deref())
     }
 
-    /// Where a unit's branch is checked out, else its repository (an intent's own work: its
-    /// project folder).
     /// Whether a message to a manager is still for the appointment it was sent to: the seat
     /// of its workspace (to every manager: of that copy's) holds `to` under the same
     /// `since`. None: the records cannot be read now.
@@ -66,6 +64,8 @@ impl App {
         })
     }
 
+    /// Where a unit's branch is checked out, else its repository (a research unit: its
+    /// project folder).
     pub(super) fn work_tree(&self, unit: &core::Unit) -> String {
         let at = self.runner(unit.machine.as_deref()).ok().filter(|_| !unit.branch.is_empty());
         at.and_then(|at| scan::worktree_of(&at, Path::new(&unit.repo), &unit.branch).ok().flatten()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| unit.repo.clone())

@@ -30,9 +30,7 @@ dropped. A workspace may run several active intents; the one started last is its
 intent, where new work goes. Research and design that belong to the intent rather than to
 one code unit are a **research unit**: a unit like any other in the rail, with no
 repository, branch or code layer, never merged ("Ready to close" where a code unit says
-"Ready to merge"; its manager closes it). Before research units such work was recorded on the
-intent itself (`i3#1`); those tasks still work, and show on the intent's page as "Earlier
-research and design", never in the rail. A **spike** is an experiment kept as code: a unit
+"Ready to merge"; its manager closes it). A **spike** is an experiment kept as code: a unit
 with a `spike/` branch, shown like a code unit (commits, code layer) with a small "Spike" tag
 in its rail line and heading, never merged ("Ready to close", no squash or merge reminder).
 

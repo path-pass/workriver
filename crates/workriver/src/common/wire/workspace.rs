@@ -392,9 +392,6 @@ pub(crate) struct Chore {
 #[derive(Serialize)]
 pub(crate) struct Unit {
     pub(crate) id: String,
-    /// The intent's own work (research, design) shown as a unit without a repository.
-    #[serde(rename = "intentLevel", skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) intent_level: bool,
     /// Research and design, with no branch, or a spike, never merged; absent: code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) kind: Option<core::UnitKind>,

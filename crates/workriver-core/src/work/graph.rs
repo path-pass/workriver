@@ -75,8 +75,7 @@ impl State {
         let hit = |at: &str, t: &Task| {
             t.kind == TaskKind::Design && t.dropped.is_none() && t.causes.iter().any(|c| c.unit.as_deref().unwrap_or(at) == owner && c.task != 0 && (c.task == d || self.designs_asked(owner, c.task).contains(&d)))
         };
-        let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(|t| hit(&u.id, t)).map(|t| (u.id.clone(), t)));
-        units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(|t| hit(&i.id, t)).map(|t| (i.id.clone(), t)))).collect()
+        self.units.iter().flat_map(|u| u.tasks.iter().filter(|t| hit(&u.id, t)).map(|t| (u.id.clone(), t))).collect()
     }
 
     /// The design that stands in place of design `d`: its newest delivered revision, and
@@ -97,8 +96,7 @@ impl State {
     /// The tasks handed out for a finding: those naming it as a cause, with their owner.
     pub fn follow_ups(&self, unit: &str, task: u32, finding: &str) -> Vec<(String, &Task)> {
         let hit = |owner: &str, t: &&Task| t.causes.iter().any(|c| c.task == task && c.unit.as_deref().unwrap_or(owner) == unit && c.findings.iter().any(|f| f == finding));
-        let units = self.units.iter().flat_map(|u| u.tasks.iter().filter(move |t| hit(&u.id, t)).map(move |t| (u.id.clone(), t)));
-        units.chain(self.intents.iter().flat_map(|i| i.tasks.iter().filter(move |t| hit(&i.id, t)).map(move |t| (i.id.clone(), t)))).collect()
+        self.units.iter().flat_map(|u| u.tasks.iter().filter(move |t| hit(&u.id, t)).map(move |t| (u.id.clone(), t))).collect()
     }
 
     /// The tasks a task follows that are not done yet (`start` is always done; a dropped

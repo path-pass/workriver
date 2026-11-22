@@ -101,7 +101,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
     }
     // A folder's name is from the records or git: named as workriver's words, on one line.
     let dir = &quote::path(dir);
-    let u = state.unit_or_intent(&q.unit)?;
+    let u = state.unit(&q.unit).ok()?;
     let t = state.task(&q.unit, q.task).ok()?;
     let code = if u.branch.is_empty() { format!("The code is in {dir}; read it there.") } else { format!("The code is in {dir} on branch {} (from {}); read it there.", quote::name(&u.branch), quote::name(&u.base)) };
     let r = format!("{}#{}", q.unit, q.task);
