@@ -44,8 +44,9 @@ impl App {
         let place = self.runtime.resolve(machine, session)?;
         // 4. The screen the user saw, or nothing is sent.
         let before = self.runtime.screen(machine, &place)?;
-        if self.terminals.digest(session, machine, &before.text) != shown {
-            let view = self.screen_view(session, machine, &place, before, false);
+        let count = self.terminals.count(session, machine);
+        if self.terminals.digest(session, machine, count, &before.text) != shown {
+            let view = self.screen_view(session, machine, &place, count, before, false);
             return Err(Refusal { screen: Some(Box::new(view)), ..Refusal::new(StatusCode::CONFLICT, "changed", "The screen changed; look again") });
         }
         let dialog = screens::parse(&before.text);
@@ -87,7 +88,8 @@ impl App {
             tracing::warn!("keys went to {session}, but the answer is not recorded: {}", e.1);
         }
         let _ = self.changed.send(());
-        let screen = now.filter(|_| outcome != Outcome::Answered).map(|s| self.screen_view(session, machine, &place, s, false));
+        let count = self.terminals.count(session, machine);
+        let screen = now.filter(|_| outcome != Outcome::Answered).map(|s| self.screen_view(session, machine, &place, count, s, false));
         Ok(Answered { outcome, keys, screen })
     }
 
@@ -140,10 +142,11 @@ impl App {
         }
     }
 
-    /// Reads after the keys until the dialog is gone and the runtime no longer reports the
-    /// agent blocked (answered), another dialog holds still there (a new question), or the
-    /// same one holds still after a change or for the whole wait (still open); with the
-    /// dialog gone and the runtime still reporting blocked at the end: sent.
+    /// Reads after the keys until the dialog is gone and the runtime, read successfully, no
+    /// longer reports the agent blocked (answered), another dialog holds still there (a new
+    /// question), or the same one holds still after a change or for the whole wait (still
+    /// open); with the dialog gone and the runtime still reporting blocked at the end, or its
+    /// state not read: sent.
     fn after(&self, machine: Option<&str>, place: &str, before: &str, was: Option<&screens::Dialog>) -> (Outcome, Option<Screen>) {
         let start = Instant::now();
         let mut last: Option<(String, Instant)> = None;
@@ -164,8 +167,10 @@ impl App {
             let over = start.elapsed() >= READ_FOR;
             match (&d, was) {
                 (None, _) => {
-                    let blocked = self.runtime.locate(machine, place).ok().and_then(|p| p.agent).is_some_and(|a| a.state == AgentState::Blocked);
-                    if !blocked {
+                    // Answered only when the runtime says, in a read that worked, that the agent
+                    // no longer waits; a failed read says nothing, and is read again.
+                    let goes_on = self.runtime.locate(machine, place).ok().and_then(|p| p.agent).is_some_and(|a| a.state != AgentState::Blocked);
+                    if goes_on {
                         return (Outcome::Answered, Some(now));
                     }
                     if over {

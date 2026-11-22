@@ -427,3 +427,20 @@ fn events_as_wake_ups() {
     assert!(c.is_some() && again, "a pane gone: subscribe again");
     assert_eq!(watch::event(&json!({ "event": "workspace.focused", "data": {} })), (None, false));
 }
+
+/// The code review's reproduction: a machine whose API socket path here is near the Unix
+/// socket limit kept working before the client socket was forwarded too. That forward's path
+/// is seven bytes longer: when it cannot be bound, it is left out, and the API's stays.
+#[test]
+fn a_long_socket_path_keeps_the_api_forward() {
+    let limit = remote::SOCKET_PATH_MAX;
+    let short = remote::forwards(std::path::Path::new("/data"), "box", "/home/me/.config/herdr/herdr.sock");
+    assert_eq!(short, [("/data/herdr-box.sock".to_string(), "/home/me/.config/herdr/herdr.sock".to_string()), ("/data/herdr-box-client.sock".to_string(), "/home/me/.config/herdr/herdr-client.sock".to_string())]);
+    // An API path of the limit's length, less a few bytes: it binds; its client path does not.
+    let fill = limit - 2 - "/herdr-box.sock".len();
+    let home = std::path::PathBuf::from(format!("/{}", "d".repeat(fill)));
+    let api = remote::socket_here(&home, "box").to_string_lossy().into_owned();
+    assert_eq!(api.len(), limit - 1);
+    let long = remote::forwards(&home, "box", "/home/me/.config/herdr/herdr.sock");
+    assert_eq!(long, [(api, "/home/me/.config/herdr/herdr.sock".to_string())]);
+}

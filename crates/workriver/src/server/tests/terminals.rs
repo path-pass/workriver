@@ -502,3 +502,159 @@ fn a_view_ends_with_its_reader() {
     wait_until("the slow reader's stream is ended", || t.fake.observing.load(SeqCst) == 0);
     drop(slow);
 }
+
+/// The code review's reproduction: a screen read just before a press is answered must not
+/// be signed with the count after it. The GET pauses after its read (in the runtime's
+/// reason); meanwhile a press answers the dialog and the same dialog comes back. The GET's
+/// digest then authorizes nothing.
+#[test]
+fn a_screen_read_is_signed_with_the_presses_before_it() {
+    use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+    let t = service(Duration::from_secs(2), Duration::from_secs(5));
+    let (_, first) = screen(&t, "s-a");
+    let paused = std::sync::Arc::new(AtomicU8::new(0));
+    *t.fake.on_why.lock().unwrap() = Some(Box::new({
+        let paused = paused.clone();
+        move |_| {
+            if paused.compare_exchange(0, 1, SeqCst, SeqCst).is_ok() {
+                std::thread::sleep(Duration::from_millis(1500));
+            }
+        }
+    }));
+    let late = std::thread::spawn({
+        let (port, token, proof) = (t.d.port, t.d.token().unwrap(), t.d.process(false).0.unwrap());
+        move || {
+            let (_, text) = http(port, "GET", "/api/agent/screen?agent=s-a", &[("authorization", &format!("Bearer {token}")), ("x-workriver-caller", &proof)], None);
+            serde_json::from_str::<Value>(text.split("\r\n\r\n").nth(1).unwrap_or_default()).unwrap()
+        }
+    });
+    wait_until("the late read has read the screen", || paused.load(SeqCst) == 1);
+    // The first dialog is answered; the same one is drawn again.
+    then(&t, "p2", &[(bash("⏺ Bash(touch a.txt)"), None)]);
+    let (code, r) = press(&t, "s-a", &first["digest"], json!({ "option": 1 }));
+    assert_eq!(code, 200, "{r}");
+    let late = late.join().unwrap();
+    assert_eq!(late["text"], first["text"], "it read the first dialog");
+    let (code, r) = press(&t, "s-a", &late["digest"], json!({ "option": 1 }));
+    assert_eq!((code, r["code"].as_str()), (409, Some("changed")), "{r}");
+    assert_eq!(pressed(&t).len(), 1, "the second dialog took no key");
+}
+
+/// A runtime that cannot answer the read before a message (its socket fails) is not one
+/// that cannot read screens: nothing is typed, and the message waits.
+#[test]
+fn a_failed_read_before_a_message_types_nothing() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let t = service(Duration::from_millis(300), Duration::from_secs(5));
+    t.fake.shown.lock().unwrap().insert("p1".into(), String::new());
+    for (down, what) in [(&t.fake.screen_down, "the screen"), (&t.fake.resolve_down, "the place")] {
+        down.store(true, SeqCst);
+        let text = format!("While {what} cannot be read");
+        t.d.call("/api/message", Some(json!({ "intent": "i1", "text": text }))).unwrap();
+        std::thread::sleep(Duration::from_millis(1000));
+        assert!(!t.fake.sent.lock().unwrap().iter().any(|(_, m)| m.contains(&text)), "{what}: typed");
+        assert!(!t.fake.typed_at.lock().unwrap().iter().any(|(_, m)| m.contains(&text)), "{what}: typed at");
+        down.store(false, SeqCst);
+        wait_until("given once it can be read", || t.fake.typed_at.lock().unwrap().iter().any(|(p, m)| p == "p1" && m.contains(&text)));
+    }
+}
+
+/// After a key, the dialog gone but the runtime's state cannot be read: not answered.
+#[test]
+fn a_failed_status_read_is_not_answered() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let t = service(Duration::from_secs(2), Duration::from_secs(5));
+    then(&t, "p2", &[(String::new(), None)]);
+    t.fake.locate_down.store(true, SeqCst);
+    let (_, s) = screen(&t, "s-a");
+    let (code, r) = press(&t, "s-a", &s["digest"], json!({ "option": 1 }));
+    assert_eq!(code, 200, "{r}");
+    assert_ne!(r["outcome"], "answered", "{r}");
+    assert!(r["screen"]["text"].is_string(), "the screen comes with it: {r}");
+    assert_ne!(bodies(&t.db, "agent.keys")[0]["outcome"], "answered");
+}
+
+/// A service whose agents are on this machine (`here`) and on the machine `box` (`far`), with
+/// this tick; `boss` manages i1 here.
+fn two_machines(here: Vec<(&str, workriver_core::runtime::RuntimeAgent)>, far: Vec<(&str, workriver_core::runtime::RuntimeAgent)>, tick: Duration) -> (T, std::sync::Arc<Fake>) {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = here.into_iter().map(|(p, a)| (p.to_string(), a)).collect();
+    let other = std::sync::Arc::new(Fake::default());
+    *other.agents.lock().unwrap() = far.into_iter().map(|(p, a)| (p.to_string(), a)).collect();
+    let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", other.clone())]);
+    let db = tmp.path().join("w.db");
+    let store = workriver_data::Store::open(&db).unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let d = kernel.client(listener.local_addr().unwrap().port(), tmp.path());
+    let waits = crate::server::Waits { tick, ..Default::default() };
+    let (runtime, machines) = (all.clone(), all);
+    let options = crate::server::Options { waits, allow_as: true, machines: Some(machines), ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    (T { _tmp: tmp, db, fake, d, kernel }, other)
+}
+
+/// The session as the page gets it on `machine` (none: here).
+fn session_on(t: &T, session: &str, machine: Option<&str>) -> Option<Value> {
+    let ws = t.d.get("/api/workspace").unwrap();
+    ws["sessions"].as_array().unwrap().iter().find(|s| s["session"] == session && s["machine"].as_str() == machine).cloned()
+}
+
+/// A resumed session seen on two machines: each is its own agent. The one here waits on its
+/// screen; the one over there, with a clear screen, does not take that mark away.
+#[test]
+fn the_same_session_on_two_machines() {
+    let (t, far) = two_machines(vec![("p1", live("s-x", "x", "w1", Idle))], vec![("w9:p1", live("s-x", "x", "w9", Idle))], Duration::from_millis(300));
+    t.fake.shown.lock().unwrap().insert("p1".into(), bash(""));
+    far.shown.lock().unwrap().insert("w9:p1".into(), String::new());
+    wait_until("the one here waits on its screen", || session_on(&t, "s-x", None).is_some_and(|s| s["onScreen"] == true));
+    // Several looks later, still.
+    std::thread::sleep(Duration::from_millis(1500));
+    let here = session_on(&t, "s-x", None).unwrap();
+    assert_eq!(here["onScreen"], true, "{here}");
+    let there = session_on(&t, "s-x", Some("box")).unwrap();
+    assert!(there["blockedSince"].is_null() && there["onScreen"].is_null(), "{there}");
+    // The screen route asks the machine named.
+    let (_, s) = ask(&t, "GET", "/api/agent/screen?agent=s-x&machine=box", None, &[]);
+    assert!(s["waiting"].is_null(), "{s}");
+    let (_, s) = screen(&t, "s-x");
+    assert_eq!(s["waiting"], "screen", "{s}");
+}
+
+/// A machine whose screens are slow to read never holds this machine's states back: its
+/// reads are made beside the poll, and what they find is shown when they end.
+#[test]
+fn a_slow_machine_never_holds_the_poll() {
+    let (t, far) = two_machines(vec![("p1", live("s-here", "here", "w1", Blocked))], vec![("w9:p1", live("s-far", "far", "w9", Idle))], Duration::from_millis(300));
+    far.shown.lock().unwrap().insert("w9:p1".into(), bash(""));
+    *far.on_read.lock().unwrap() = Some(Box::new(|_| std::thread::sleep(Duration::from_secs(3))));
+    wait_until("here waits", || session_on(&t, "s-here", None).is_some_and(|s| s["blockedSince"].is_string()));
+    t.fake.agents.lock().unwrap()[0].1.state = Working;
+    let start = std::time::Instant::now();
+    while session_on(&t, "s-here", None).is_some_and(|s| s["blockedSince"].is_string()) {
+        assert!(start.elapsed() < Duration::from_millis(1500), "here is still shown blocked after {:?}", start.elapsed());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // And the slow read's answer is shown when it comes.
+    *far.on_read.lock().unwrap() = None;
+    wait_until("far waits on its screen", || session_on(&t, "s-far", Some("box")).is_some_and(|s| s["onScreen"] == true));
+}
+
+/// The code review's reproduction: a whole frame too large to pass on is not followed by the
+/// changes after it, drawn on nothing: the stream ends there.
+#[test]
+fn a_view_ends_at_a_frame_it_cannot_pass_on() {
+    let t = service(Duration::from_secs(2), Duration::from_secs(5));
+    let big = "A".repeat(crate::common::config::defaults::VIEW_FRAME_MAX + 1);
+    *t.fake.frames.lock().unwrap() = vec![
+        workriver_core::screens::Frame { full: true, cols: 120, rows: 40, seq: 1, bytes: big },
+        workriver_core::screens::Frame { full: false, cols: 120, rows: 40, seq: 2, bytes: "aGVsbG8=".into() },
+    ];
+    let (token, proof) = (t.d.token().unwrap(), t.d.process(false).0.unwrap());
+    let (_s, code, got) = open_view(t.d.port, &token, &proof, "event: end");
+    assert_eq!(code, 200, "{got}");
+    assert!(got.contains("event: end"), "{got}");
+    assert!(!got.contains("event: frame"), "no change drawn on nothing: {got}");
+}

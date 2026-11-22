@@ -203,6 +203,13 @@ pub(in crate::server) struct Fake {
     /// The frames a view gives, then nothing but quiet; how many views are open now.
     pub(super) frames: std::sync::Mutex<Vec<workriver_core::screens::Frame>>,
     pub(super) observing: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// As Herdr's socket that does not answer, for one call only: resolving a session, reading
+    /// a screen, reading what is at a place. Everything else answers.
+    pub(super) resolve_down: std::sync::atomic::AtomicBool,
+    pub(super) screen_down: std::sync::atomic::AtomicBool,
+    pub(super) locate_down: std::sync::atomic::AtomicBool,
+    /// Called with the place as the runtime is asked why it calls an agent blocked.
+    pub(super) on_why: std::sync::Mutex<Option<Look>>,
 }
 
 /// An open view of the fake runtime: counted while it lives.
@@ -259,6 +266,14 @@ impl Fake {
     }
 }
 
+impl Fake {
+    /// What is at a place: its agent, if one.
+    fn at(&self, place: &str) -> workriver_core::runtime::Place {
+        let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
+        workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent }
+    }
+}
+
 impl workriver_core::runtime::Runtime for Fake {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
         let probe = self.on_agents.lock().unwrap().clone();
@@ -269,8 +284,10 @@ impl workriver_core::runtime::Runtime for Fake {
         Ok(self.agents.lock().unwrap().iter().map(|(_, a)| a.clone()).collect())
     }
     fn locate(&self, _: Option<&str>, place: &str) -> Result<workriver_core::runtime::Place, workriver_core::runtime::RuntimeError> {
-        let agent = self.agents.lock().unwrap().iter().find(|(p, _)| p == place).map(|(_, a)| a.clone());
-        Ok(workriver_core::runtime::Place { group: agent.as_ref().and_then(|a| a.group.clone()), agent })
+        if self.locate_down.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(workriver_core::runtime::RuntimeError::None);
+        }
+        Ok(self.at(place))
     }
     fn agent_roots(&self, machine: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
         if self.agent_roots_down.load(std::sync::atomic::Ordering::Relaxed) {
@@ -293,7 +310,7 @@ impl workriver_core::runtime::Runtime for Fake {
             .filter(|p| place.is_none_or(|x| x == p))
             .map(|p| {
                 let pid = root(&p);
-                workriver_core::runtime::Root { shell: (!no_shell.contains(&p)).then_some(pid), front: vec![pid], at: self.locate(None, &p).unwrap(), place: p }
+                workriver_core::runtime::Root { shell: (!no_shell.contains(&p)).then_some(pid), front: vec![pid], at: self.at(&p), place: p }
             })
             .collect())
     }
@@ -355,10 +372,14 @@ impl workriver_core::runtime::Runtime for Fake {
         Ok(())
     }
     /// As Herdr's: the places that show the session now (its agent's, and any `also`); a session
-    /// typed into through `through`, or a runtime that does not answer, as one that cannot.
+    /// typed into through `through` as a runtime that cannot resolve one; a runtime that does
+    /// not answer, as Herdr's socket that is not there.
     fn resolve(&self, _: Option<&str>, session: &str) -> Result<String, workriver_core::runtime::RuntimeError> {
         use workriver_core::runtime::RuntimeError;
-        if self.through.lock().unwrap().as_ref().is_some_and(|(to, _)| to == session) || self.down.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.through.lock().unwrap().as_ref().is_some_and(|(to, _)| to == session) {
+            return Err(RuntimeError::Unsupported);
+        }
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.resolve_down.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(RuntimeError::None);
         }
         let mut places: Vec<String> = self.agents.lock().unwrap().iter().filter(|(_, a)| a.session == session).map(|(p, _)| p.clone()).collect();
@@ -373,6 +394,9 @@ impl workriver_core::runtime::Runtime for Fake {
         self.reads.lock().unwrap().push(place.into());
         if let Some(look) = &*self.on_read.lock().unwrap() {
             look(place);
+        }
+        if self.screen_down.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(workriver_core::runtime::RuntimeError::None);
         }
         Ok(workriver_core::screens::Screen::of(self.shown.lock().unwrap().get(place).cloned().unwrap_or_default()))
     }
@@ -419,7 +443,10 @@ impl workriver_core::runtime::Runtime for Fake {
         self.observing.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Box::new(Viewing { frames: self.frames.lock().unwrap().clone().into(), open: self.observing.clone() }))
     }
-    fn why_blocked(&self, _: Option<&str>, _: &str) -> Result<Option<String>, workriver_core::runtime::RuntimeError> {
+    fn why_blocked(&self, _: Option<&str>, place: &str) -> Result<Option<String>, workriver_core::runtime::RuntimeError> {
+        if let Some(look) = &*self.on_why.lock().unwrap() {
+            look(place);
+        }
         Ok(self.why.lock().unwrap().clone())
     }
     fn run_shell(&self, machine: Option<&str>, group: &str, dir: &str, line: &str) -> Result<String, workriver_core::runtime::RuntimeError> {

@@ -176,7 +176,7 @@ impl App {
         views::mark_gone(&mut ws, &self.gone.lock().unwrap());
         let on_screen = self.on_screen();
         for s in ws.sessions.iter_mut().filter(|s| s.blocked_since.is_some()) {
-            s.on_screen = on_screen.contains(&s.session);
+            s.on_screen = on_screen.contains(&crate::server::terminals::agent_key(&s.session, s.machine.as_deref()));
         }
         cache.save();
         // Each task an agent started or delivered: that agent's harness and model (where the

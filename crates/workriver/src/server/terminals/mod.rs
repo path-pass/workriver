@@ -36,27 +36,32 @@ pub(in crate::server) struct Terminals {
     key: String,
     presses: Mutex<HashMap<String, u64>>,
     writers: Mutex<HashMap<String, Arc<Mutex<()>>>>,
-    pub(in crate::server) marks: Mutex<Marks>,
+    pub(in crate::server) marks: Arc<Mutex<Marks>>,
     views: Arc<AtomicUsize>,
 }
 
 /// An agent as these requests name it: its session on a machine (none: this one).
-fn agent_key(session: &str, machine: Option<&str>) -> String {
+pub(in crate::server) fn agent_key(session: &str, machine: Option<&str>) -> String {
     format!("{}\n{session}", machine.unwrap_or(""))
 }
 
 impl Terminals {
     pub(in crate::server) fn new() -> Terminals {
         let key = crate::server::access::auth::random_hex(32).unwrap_or_else(|_| format!("{:?}{}", std::time::SystemTime::now(), std::process::id()));
-        Terminals { key, presses: Mutex::default(), writers: Mutex::default(), marks: Mutex::default(), views: Arc::default() }
+        Terminals { key, presses: Mutex::default(), writers: Mutex::default(), marks: Arc::default(), views: Arc::default() }
+    }
+
+    /// The presses sent to the agent so far.
+    fn count(&self, session: &str, machine: Option<&str>) -> u64 {
+        self.presses.lock().unwrap().get(&agent_key(session, machine)).copied().unwrap_or(0)
     }
 
     /// What binds a press to the screen the user saw: SHA-256 over this run's key, the agent,
-    /// the presses sent to it so far and the whole visible screen as read. A request made
-    /// before a press never matches after it, even when the next dialog looks the same.
-    pub(in crate::server) fn digest(&self, session: &str, machine: Option<&str>, text: &str) -> String {
+    /// the presses sent to it before the screen was read (`count`, taken under its writer with
+    /// the read) and the whole visible screen as read. A request made before a press never
+    /// matches after it, even when the next dialog looks the same.
+    pub(in crate::server) fn digest(&self, session: &str, machine: Option<&str>, count: u64, text: &str) -> String {
         let agent = agent_key(session, machine);
-        let count = self.presses.lock().unwrap().get(&agent).copied().unwrap_or(0);
         let d = sha2::Sha256::new().chain_update(self.key.as_bytes()).chain_update([0]).chain_update(agent.as_bytes()).chain_update([0]).chain_update(count.to_string()).chain_update([0]).chain_update(text.as_bytes()).finalize();
         d.iter().map(|b| format!("{b:02x}")).collect()
     }
@@ -114,7 +119,7 @@ impl From<RuntimeError> for Refusal {
         match e {
             RuntimeError::NoAgent(_) => Refusal::new(StatusCode::NOT_FOUND, "gone", "It is gone: no live agent has that session there"),
             RuntimeError::Ambiguous(why) => Refusal::new(StatusCode::CONFLICT, "two", format!("It shows in two places; answer it in its terminal ({why})")),
-            RuntimeError::None => Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "runtime", "the runtime cannot read or answer an agent's terminal"),
+            RuntimeError::Unsupported => Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "runtime", "the runtime cannot read or answer an agent's terminal"),
             e => Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "runtime", e.to_string()),
         }
     }
@@ -179,19 +184,20 @@ impl App {
         let a = live.into_iter().find(|a| a.session == session && a.machine.as_deref() == machine)?;
         let marks = self.terminals.marks.lock().unwrap();
         let since = self.blocked.lock().unwrap().get(session).cloned();
-        match (marks.on.get(session), a.state) {
+        match (marks.on.get(&agent_key(session, machine)), a.state) {
             (Some(at), _) => Some(("screen", Some(at.clone()))),
             (None, AgentState::Blocked) => Some(("blocked", since)),
             _ => None,
         }
     }
 
-    /// The screen at `place` as the page gets it.
-    pub(in crate::server) fn screen_view(&self, session: &str, machine: Option<&str>, place: &str, screen: Screen, why: bool) -> ScreenView {
+    /// The screen at `place` as the page gets it, read when `count` presses had been sent: under
+    /// the agent's writer, so no press was under way then. The runtime's reason is asked after.
+    pub(in crate::server) fn screen_view(&self, session: &str, machine: Option<&str>, place: &str, count: u64, screen: Screen, why: bool) -> ScreenView {
         let (waiting, since) = self.waiting(session, machine).map(|(w, s)| (Some(w), s)).unwrap_or_default();
         let why = (why && waiting == Some("blocked")).then(|| self.runtime.why_blocked(machine, place).ok().flatten()).flatten();
         ScreenView {
-            digest: self.terminals.digest(session, machine, &screen.text),
+            digest: self.terminals.digest(session, machine, count, &screen.text),
             dialog: screens::parse(&screen.text).map(shown),
             text: screens::marked(&screen.text),
             cols: screen.cols,
@@ -211,8 +217,14 @@ pub(in crate::server) async fn agent_screen(State(app): State<Shared>, Extension
     let view = tokio::task::spawn_blocking(move || -> Result<ScreenView, Refusal> {
         let machine = q.machine();
         let place = app.runtime.resolve(machine, &q.agent)?;
-        let screen = app.runtime.screen(machine, &place)?;
-        Ok(app.screen_view(&q.agent, machine, &place, screen, true))
+        // The screen and the presses before it, together: a press under way ends first (it
+        // holds the writer until its keys took effect), and one after it counts past it.
+        let (count, screen) = {
+            let writer = app.terminals.writer(&q.agent, machine);
+            let _one = writer.lock().unwrap();
+            (app.terminals.count(&q.agent, machine), app.runtime.screen(machine, &place)?)
+        };
+        Ok(app.screen_view(&q.agent, machine, &place, count, screen, true))
     })
     .await
     .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "failed", e.to_string()))??;

@@ -425,7 +425,8 @@ pub enum Outcome {
     Open,
     /// Another dialog is there now.
     New,
-    /// The dialog is gone, but the runtime still reports the agent waiting.
+    /// The dialog is gone, but the runtime does not say the agent goes on: it still reports
+    /// it waiting, or its state could not be read.
     Sent,
     /// Something else changed while the selection was being moved: Enter was not sent.
     Changed,

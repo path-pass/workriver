@@ -38,5 +38,8 @@ pub const VIEWS_MAX: usize = 4;
 /// How many frames of a terminal view wait for a slow page before its stream is ended (it is
 /// opened again from a whole frame).
 pub const VIEW_QUEUE: usize = 256;
-/// A frame larger than this (base64) is not passed on: a whole 120×40 screen is 5–10 KB.
+/// A frame larger than this (base64) is not passed on, and its stream ends there (the changes
+/// after it would be drawn on nothing): a whole 120×40 screen is 5–10 KB.
 pub const VIEW_FRAME_MAX: usize = 1024 * 1024;
+/// How many frames a runtime's terminal stream reads ahead of the view that takes them.
+pub const VIEW_READ_AHEAD: usize = 64;

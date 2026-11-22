@@ -40,10 +40,15 @@ What workriver uses of Herdr for this, all through the same socket:
   "Implement this plan?" as done. The service reads the pane's screen when an agent becomes
   idle or done (and a tick later), and before typing any message into a pane: options with
   a key named under them make the agent waiting on its screen, counted and held like a
-  blocked one.
+  blocked one. Another machine's panes are read beside the poll, one read per agent at a
+  time, so a slow machine never holds this one's states back; what such a read finds shows
+  when it ends.
 - **The gate.** `agent.list` (through the session snapshot) turns a session into its one
   pane; `pane.read` (source `visible`, plain text) is the screen; `agent.explain` gives the
-  reason Herdr calls it blocked (its rule and evidence); `pane.send_keys` sends the keys, in
+  reason Herdr calls it blocked, of which workriver keeps the id of the rule that matched and
+  that rule's own fixed phrases (`bash_permission_prompt: …`), Herdr's
+  words, not the screen's: the evidence preview Herdr reads off the screen is left out, since
+  the gate shows the screen itself; `pane.send_keys` sends the keys, in
   Herdr's names (`up`, `down`, `enter`, `esc`, `tab`, digits); a message goes to that pane
   with `agent.prompt`.
 - **The terminal view.** Herdr streams a pane's terminal on its client socket,
@@ -82,7 +87,10 @@ If Herdr's socket is not at `~/.config/herdr/herdr.sock` there (a named session)
 The connection brings that machine's client socket here too (`herdr-<label>-client.sock` in
 the data directory, from `-client.sock` beside its Herdr socket there), so the page's
 terminal view of an agent over there works as here; without it, the view says so and the
-gate still answers (it needs only reads and keys). Only a loopback ssh was measured, not a
+gate still answers (it needs only reads and keys). That socket's path is seven bytes longer
+than the API socket's, and Herdr finds it only next to it: when it is too long for a socket
+(104 bytes on macOS, 108 on Linux, with a long data directory or machine name), it is not
+forwarded, the machine is followed as before, and its terminal view says why. Only a loopback ssh was measured, not a
 second machine over a network.
 
 "Open in terminal app" focuses the pane in that machine's Herdr; switch to the machine in
@@ -117,7 +125,8 @@ Herdr's sidebar yourself.
 - **A machine says *connected, but its Herdr does not answer***: Herdr is not running
   there, or its socket is elsewhere (`--herdr-socket`).
 - **The terminal view says it cannot be had**: the client socket is not there (a Herdr that serves no
-  terminal stream, or another machine connected before this version: disable and enable it), or
+  terminal stream, or another machine connected before this version: disable and enable it), its
+  path here is too long for a socket (a shorter data directory or machine name), or
   `herdr` on the service's `PATH` is missing or of another version than the server.
 - **"Not delivered: …"** on the page:
   - *Herdr is not reachable*: see the first item;

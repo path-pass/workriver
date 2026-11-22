@@ -34,8 +34,11 @@ Herdr 的 socket 是 `~/.config/herdr/herdr.sock`（或 `HERDR_SOCKET_PATH`）�
 - **Herdr 漏掉的确认框。** Herdr 0.9.5 把 Codex 的 "Hooks need review" 报成 idle，把 "Implement this
   plan?" 报成 done。agent 变成 idle 或 done 时（以及下一个周期），以及往任何窗格输入消息之前，服务都会读
   窗格的屏幕：有选项、下方又提示了按键的，agent 就算"屏幕上在等"，和 blocked 的一样计数、消息一样先留着。
+  其他机器上的窗格在轮询之外读，每个 agent 同时只读一次，所以慢的机器不会拖住本机的状态；读到的结果在读完时显示。
 - **门。** `agent.list`（通过 session 快照）把一个会话解析到它唯一的窗格；`pane.read`（source
-  `visible`，纯文本）就是屏幕；`agent.explain` 给出 Herdr 判定 blocked 的原因（规则和证据）；
+  `visible`，纯文本）就是屏幕；`agent.explain` 给出 Herdr 判定 blocked 的原因，workriver 只保留命中规则的 id 和这条规则自己的固定
+  短语（`bash_permission_prompt: …`），是 Herdr 的话，不是屏幕上的：Herdr 从屏幕上读出的
+  证据预览不保留，因为门里显示的就是屏幕本身；
   `pane.send_keys` 发键，用 Herdr 的键名（`up`、`down`、`enter`、`esc`、`tab`、数字）；消息用
   `agent.prompt` 发到那个窗格。
 - **终端视图。** Herdr 在它的 client socket 上推送窗格的终端画面：`herdr.sock` 旁边的
@@ -68,7 +71,9 @@ herdr agent prompt finder "<任务 u1#1、一句话目标、在哪里干、\"运
 
 这条连接也把那台机器的 client socket 带到这边（数据目录里的 `herdr-<名字>-client.sock`，来自那边 Herdr
 socket 旁边的 `-client.sock`），所以页面上对那台机器上 agent 的终端视图和本机一样能用；没有它时视图会说明，
-门照样能回应（它只需要读屏和按键）。只测过本机回环的 ssh，没有测过经网络的第二台机器。
+门照样能回应（它只需要读屏和按键）。这个 socket 的路径比 API socket 长 7 个字节，而 Herdr 只会在 API socket
+旁边找它：路径长到放不进 socket（macOS 104 字节，Linux 108 字节；数据目录或机器名很长时）就不转发它，这台机器
+照常跟踪，只有它的终端视图会说明原因。只测过本机回环的 ssh，没有测过经网络的第二台机器。
 
 "在终端应用中打开"会在那台机器的 Herdr 里聚焦到对应窗格；在 Herdr 侧栏里切到那台机器要你自己来。
 
@@ -96,7 +101,7 @@ socket 旁边的 `-client.sock`），所以页面上对那台机器上 agent 的
 - **某台机器显示 *connected, but its Herdr does not answer***：那边没有运行 Herdr，或者 socket
   在别处（`--herdr-socket`）。
 - **终端视图说打不开**：client socket 不在（Herdr 不提供终端画面流，或者这台机器在这个版本之前就连上了：停用再
-  启用它），或者服务 `PATH` 上没有 `herdr`、版本和服务端不同。
+  启用它），它在这边的路径对 socket 来说太长（换短一点的数据目录或机器名），或者服务 `PATH` 上没有 `herdr`、版本和服务端不同。
 - 页面上显示 **"没送出：…"**：
   - *连不上 Herdr*：见第一条；
   - *Herdr 没有接收*：通常是 `agent_not_ready`（agent 还在启动，或者不是窗格的前台程序）或

@@ -256,8 +256,10 @@ when you ask. Typing into an agent's terminal is acting as you, so:
 - **Only to the screen you saw, at one place, once.** The service, never the page, reads the
   screen, parses it and sends the keys. The page sends what you pressed with the digest the
   service gave for the screen it showed: SHA-256 of a key drawn at random when the service
-  starts, the agent, the number of presses already sent to it, and the whole visible
-  screen. One request resolves the agent's session to exactly one place (two places that
+  starts, the agent, the number of presses sent to it before the screen was read, and the
+  whole visible screen; the count and the read are taken together under the agent's one
+  writer, so a press under way ends (its keys taken effect) before the screen is read, and a
+  screen read before a press never signs the count after it. One request resolves the agent's session to exactly one place (two places that
   show it: refused, "answer it in its terminal") and reads and presses only there; it sends
   only when the whole screen it reads there matches the digest, so a second click, a retried
   request or a stale dialog that looks the same never goes; a list is walked one arrow at a

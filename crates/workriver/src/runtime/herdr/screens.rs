@@ -2,7 +2,7 @@
 // what it shows (`pane.read`), keys pressed there (`pane.send_keys`), a message typed there
 // (`agent.prompt`), why Herdr calls it blocked (`agent.explain`), and its frames (a
 // `herdr terminal session observe` child).
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
@@ -86,6 +86,9 @@ impl Herdr {
 
     pub(super) fn frames(&self, pane: &str) -> Result<Frames, RuntimeError> {
         let client = client_socket(&self.socket);
+        if client.as_os_str().len() >= super::remote::SOCKET_PATH_MAX {
+            return Err(RuntimeError::Failed(format!("no terminal stream: Herdr's client socket would be {}, too long a path for a socket; a shorter data directory or machine name brings it", client.display())));
+        }
         if !client.exists() {
             return Err(RuntimeError::Failed(format!("no terminal stream: Herdr's client socket {} is not there", client.display())));
         }
@@ -114,14 +117,28 @@ struct Observed {
 /// How long a quiet terminal goes before its reader is asked whether it is still wanted.
 const QUIET: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// The child's frames as they come, then why it ended (its last line on stderr), if it said.
+/// The longest line of the child's that is read: a frame the view passes on at most, and
+/// room for the JSON around it. A longer one ends the stream.
+const LINE_MAX: u64 = crate::common::config::defaults::VIEW_FRAME_MAX as u64 + 64 * 1024;
+
+/// The child's frames as they come, at most `VIEW_READ_AHEAD` of them read ahead of whoever
+/// takes them, then why it ended (its last line on stderr), if it said.
 fn read_frames(mut child: Child) -> Result<Observed, RuntimeError> {
     let out = child.stdout.take().ok_or_else(|| RuntimeError::Failed("herdr terminal session observe: no output".into()))?;
     let err = child.stderr.take();
-    let (tx, frames) = std::sync::mpsc::channel();
+    let (tx, frames) = std::sync::mpsc::sync_channel(crate::common::config::defaults::VIEW_READ_AHEAD);
     std::thread::spawn(move || {
-        for line in BufReader::new(out).lines() {
-            let Ok(line) = line else { break };
+        let mut out = BufReader::new(out);
+        loop {
+            let mut line = String::new();
+            match (&mut out).take(LINE_MAX).read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) if !line.ends_with('\n') && line.len() as u64 >= LINE_MAX => {
+                    let _ = tx.send(Err(RuntimeError::Failed("herdr terminal session observe: a frame too large to show".into())));
+                    return;
+                }
+                Ok(_) => {}
+            }
             let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
             if v["type"] != "terminal.frame" {
                 continue;
