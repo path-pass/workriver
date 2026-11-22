@@ -476,6 +476,7 @@ export const ja: OneForm<typeof en> = {
     dismiss: '閉じる',
     remove: '{{label}} を外す',
     send: '送信',
+    keys: '{{keys}} で送信',
     how: '上のチップとファイルと一緒に {{agent}} のターミナルに入力され、返信はここに表示されます。',
     workspace: 'ワークスペース',
     label: 'マネージャーへのメッセージ',

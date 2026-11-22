@@ -106,3 +106,63 @@ describe('Needs you', () => {
     expect(rows.map(r => [r.talk?.workspace, r.talk?.count, r.talk?.manager])).toEqual([[EVERY, 2, 'far']])
   })
 })
+
+describe('the box', () => {
+  const type = (text: string) => {
+    const box = host.querySelector('textarea')!
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => { set.call(box, text); box.dispatchEvent(new Event('input', { bubbles: true })) })
+    return box
+  }
+  /** Presses Enter in the box; whether the browser's own action (a new line) was let through. */
+  const enter = (box: HTMLTextAreaElement, keys: KeyboardEventInit = {}) => {
+    let free = true
+    act(() => { free = box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...keys })) })
+    return free
+  }
+  const platform = (name: string) => Object.defineProperty(navigator, 'platform', { value: name, configurable: true })
+  afterEach(() => platform(''))
+
+  it('sends with Cmd+Enter or Ctrl+Enter', () => {
+    show('chat', [])
+    expect(enter(type('First.'), { metaKey: true })).toBe(false)
+    expect(enter(type('Second.'), { ctrlKey: true })).toBe(false)
+    expect(told.map(a => a[1])).toEqual(['First.', 'Second.'])
+    expect(host.querySelector('textarea')!.value).toBe('')
+  })
+
+  it('breaks the line with Enter and Shift+Enter, sending nothing', () => {
+    show('chat', [])
+    const box = type('Two lines')
+    expect(enter(box)).toBe(true)
+    expect(enter(box, { shiftKey: true })).toBe(true)
+    expect(told).toEqual([])
+    expect(box.value).toBe('Two lines')
+  })
+
+  it('sends nothing while an input method composes', () => {
+    show('chat', [])
+    const box = type('にほんご')
+    expect(enter(box, { metaKey: true, isComposing: true })).toBe(true)
+    expect(enter(box, { ctrlKey: true, isComposing: true })).toBe(true)
+    expect(told).toEqual([])
+  })
+
+  it('never sends on the key that confirms an input method in Safari (keyCode 229, not composing)', () => {
+    show('chat', [])
+    const box = type('にほんご')
+    expect(enter(box, { metaKey: true, keyCode: 229 })).toBe(true)
+    expect(enter(box, { ctrlKey: true, keyCode: 229 })).toBe(true)
+    expect(told).toEqual([])
+  })
+
+  it('says under the box which keys send, as the platform names them', () => {
+    platform('MacIntel')
+    show('chat', [])
+    expect(host.textContent).toContain('⌘↵ sends')
+    act(() => root.unmount()); root = createRoot(host)
+    platform('Win32')
+    show('chat', [])
+    expect(host.textContent).toContain('Ctrl+Enter sends')
+  })
+})
