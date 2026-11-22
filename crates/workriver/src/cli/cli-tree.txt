@@ -200,6 +200,8 @@ workriver help machine remove
 workriver help manager
 workriver help manager here  hidden
 workriver help manager tell
+workriver help message
+workriver help message show
 workriver help open
 workriver help perf
 workriver help project
@@ -329,6 +331,14 @@ workriver manager tell
 workriver manager tell  arg help --help -h num=0 action=Help
 workriver manager tell  arg task index=1 value=["TASK"] num=1 action=Set required
 workriver manager tell  arg text --text value=["TEXT"] num=1 action=Set required
+workriver message
+workriver message  arg help --help -h num=0 action=Help
+workriver message help
+workriver message help help
+workriver message help show
+workriver message show
+workriver message show  arg help --help -h num=0 action=Help
+workriver message show  arg message index=1 value=["MESSAGE"] num=1 action=Set required
 workriver open
 workriver open  arg help --help -h num=0 action=Help
 workriver open  arg print --print value=["PRINT"] num=0 default=["false"] action=SetTrue

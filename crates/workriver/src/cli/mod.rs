@@ -22,6 +22,7 @@ mod planning;
 mod work;
 
 pub(crate) use client::*;
+pub(crate) use conversations::MessageCmd;
 #[cfg(test)]
 pub(crate) use conversations::wait_answer;
 pub(crate) use display::*;
@@ -241,6 +242,9 @@ pub(crate) enum Cmd {
         #[arg(long, value_name = "ID")]
         require_note: Vec<String>,
     },
+    /// A message of a conversation with the user, as you may read it.
+    #[command(subcommand)]
+    Message(MessageCmd),
     /// Print the instructions for an agent working with workriver.
     ///
     /// What it prints matches this binary, which a copied skill file may not: `manager` (the
@@ -297,7 +301,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
     // Who records, and in which intent, the service finds from the place this process runs in.
     // Which intent matters to these when none is given: the current one of the caller's workspace.
     let needs_place = matches!(cli.cmd, Cmd::Unit(UnitCmd::Add { intent: None, .. }) | Cmd::Chore(ChoreCmd::Add { intent: None, project: None, .. }));
-    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
+    let records = !matches!(cli.cmd, Cmd::Status | Cmd::Board { .. } | Cmd::Link { .. } | Cmd::Task(TaskCmd::Show { .. } | TaskCmd::Session { .. }) | Cmd::Intent(IntentCmd::History { .. }) | Cmd::Finding(FindingCmd::Show { .. }) | Cmd::Message(MessageCmd::Show { .. }) | Cmd::Machine(_) | Cmd::Workspace(WorkspaceCmd::List) | Cmd::Project(ProjectCmd::List) | Cmd::Backlog(BacklogCmd::List { .. } | BacklogCmd::Export { .. }));
     // Who records is the daemon's to find, from this place; the CLI only asks who it is and
     // which workspace is its own (by the records: its seat, else its tasks') for the commands
     // that need that workspace's current intent.
@@ -360,7 +364,7 @@ pub(crate) fn run(cli: Cli) -> anyhow::Result<()> {
             println!("Opened workriver in your browser.");
             return Ok(());
         }
-        Cmd::Ask { .. } | Cmd::Answer { .. } | Cmd::Reply { .. } | Cmd::Say { .. } | Cmd::Manager(ManagerCmd::Tell { .. }) => match conversations::run(cli.cmd, &cx)? {
+        Cmd::Ask { .. } | Cmd::Answer { .. } | Cmd::Reply { .. } | Cmd::Say { .. } | Cmd::Message(_) | Cmd::Manager(ManagerCmd::Tell { .. }) => match conversations::run(cli.cmd, &cx)? {
             Some(out) => out,
             None => return Ok(()),
         },

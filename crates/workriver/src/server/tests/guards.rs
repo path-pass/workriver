@@ -48,6 +48,7 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/here", &["POST"]),
     ("/api/ask", &["POST"]),
     ("/api/message", &["POST"]),
+    ("/api/message/{id}", &["GET"]),
     ("/api/messages/read", &["POST"]),
     ("/api/discuss", &["POST"]),
     ("/api/discuss/read", &["POST"]),
@@ -69,6 +70,7 @@ const MACHINE: &[(&str, &[&str])] = &[
     ("/api/state", &["GET"]),
     ("/api/task", &["GET"]),
     ("/api/intent/{id}/history", &["GET"]),
+    ("/api/message/{id}", &["GET"]),
     ("/api/status", &["GET"]),
     ("/api/metrics", &["GET"]),
     ("/api/metrics/history", &["GET"]),
@@ -212,6 +214,7 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/here", "{}"),
     ("POST", "/api/ask", r#"{"unit":"u1","task":9,"text":"why?"}"#),
     ("POST", "/api/message", r#"{"intent":"i9","text":"probe"}"#),
+    ("GET", "/api/message/m1", ""),
     ("POST", "/api/messages/read", r#"{"workspace":"ws1","at":"2026-01-01T00:00:00Z"}"#),
     ("POST", "/api/discuss", r#"{"unit":"u1","task":1,"text":"Why?"}"#),
     ("POST", "/api/discuss/read", r#"{"unit":"u1","task":1,"at":"2026-01-01T00:00:00Z"}"#),
@@ -252,6 +255,9 @@ fn who_may_use_each_route() {
     user.append("", "intent.state_changed", json!({ "intent": "i1", "state": "active", "workspace": ws })).unwrap();
     boss.append("", "unit.created", json!({ "intent": "i1", "title": "M", "repo": repo.to_string_lossy(), "branch": "feat/f", "base": "main" })).unwrap();
     boss.append("", "task.created", json!({ "unit": "u1", "kind": "implement", "title": "Do it" })).unwrap();
+    // A message of ws1's conversation, which far, an agent of box that holds no seat, does
+    // not read.
+    user.call("/api/message", Some(json!({ "intent": "i1", "text": "probe" }))).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
 
     let token = format!("Bearer {}", crate::common::home::read_token(tmp.path()).unwrap());

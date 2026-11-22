@@ -167,6 +167,23 @@ fn planned_intents_merge() {
     assert_eq!(serde_json::to_value(&replayed).unwrap(), serde_json::to_value(s.state()).unwrap());
 }
 
+/// An intent's project is the registered project holding the folder recorded on it, which
+/// may be one of its subfolders (the rules take any folder a project holds): two intents of
+/// that project merge whatever folder each recorded, and a research unit reads in the
+/// project's own folder.
+#[test]
+fn an_intents_project_is_the_one_holding_its_folder() {
+    let mut s = Records::default();
+    project(&mut s, "/p");
+    let plan = |title: &str, folder: &str| json!({"kind": "intent.created", "body": {"title": title, "project": folder, "state": "planned"}});
+    add(&mut s, "user", plan("Search", "/p")).unwrap();
+    add(&mut s, "user", plan("Filters", "/p/web")).unwrap();
+    add(&mut s, "user", plan("Sync", "/p/web")).unwrap();
+    add(&mut s, "user", json!({"kind": "intent.merged", "body": {"intent": "i1", "from": ["i2"]}})).unwrap();
+    add(&mut s, "user", json!({"kind": "unit.created", "body": {"intent": "i3", "title": "Compare sync engines", "kind": "research"}})).unwrap();
+    assert_eq!(s.state().unit("u1").unwrap().repo, "/p", "the project's folder");
+}
+
 /// Research and design are a unit of their own with no branch; research hands in a note or a
 /// report. Nothing goes into an intent itself.
 #[test]

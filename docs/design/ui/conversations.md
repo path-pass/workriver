@@ -135,8 +135,9 @@ context; everything else still goes to the manager.
 - **A manager's question with options** (`say` or `reply` with `--option`, see Choices in
   `activity.md`) shows its options under its words. While the user can answer it (not
   answered, and asked under the appointment that holds the workspace's seat now; a rename
-  of the workspace changes nothing) they are radio buttons, a one-line
-  note (required for an option marked "say why") and "Answer". The answer is a message of the
+  of the workspace changes nothing) they are radio buttons with Other last, a one-line note
+  (required for an option marked "say why" and for Other: the note is then what to do
+  instead) and "Answer". The answer is a message of the
   user's, through the same route and rules as one typed, naming the question and the value;
   it shows as "Chose: <the option's words>" with the note, and the question shows the pick.
   It is answered once, and it starts nothing: the manager is only told. A question asked under

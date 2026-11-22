@@ -76,7 +76,8 @@ Exact commands:
   a task already handed out is `workriver task note`, which tells its worker (`hand-off`).
 - **Questions with options** to the user carry one `--option ID=LABEL` each, never options
   typed into the text: a decide gate when work waits on the answer (`ask-user`), `say` or
-  `reply` when nothing does (`user-message`). The answer starts nothing by itself. The one
+  `reply` when nothing does (`user-message`). workriver adds Other last (the user's note in
+place of an option; the ID `other` is its own). The answer starts nothing by itself. The one
   exception is a design's gate: a `--go` gate, options in `--text`, done confirms the design
   (`design-gate`).
 - **What the user asks of you** in a message or your pane that takes time (a fix, a check,

@@ -4,7 +4,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Path as UrlPath, Query, State};
+use axum::http::StatusCode;
 use axum::{Extension, Json};
 use serde::Deserialize;
 use workriver_core::runtime::{AgentState, RuntimeAgent, RuntimeError};
@@ -82,6 +83,47 @@ pub(super) async fn message(State(app): State<Shared>, Extension(caller): Extens
         let to = if m.all { app.running_managers()? } else { vec![] };
         let body = Body::MessageSent { id: String::new(), intent: m.intent, workspace: m.workspace, manager: String::new(), text: m.text, unit: m.unit, task: m.task, context: m.context, to, answer: m.answer };
         app.record(&who, body).map(Json)
+    })
+    .await
+}
+
+/// One message whole, with its replies (`workriver message show`): what a cut quote in a
+/// manager's terminal points at. Of the records the caller may see (`App::view`: an agent,
+/// its own workspace's conversation by id), as `State::message_for` lets it read them; each
+/// text whole, made safe to quote.
+pub(super) async fn message_show(State(app): State<Shared>, Extension(caller): Extension<Caller>, UrlPath(id): UrlPath<String>, Query(r): Query<Reader>) -> Result<Json<crate::common::wire::MessageShow>, ApiError> {
+    blocking(move || {
+        let who = app.who(&caller, r.named.as_deref())?;
+        let state = app.view(&caller, &r)?;
+        // Not there and not the caller's are one answer: what is not its own it never sees.
+        let m = state.message_for(&id, &who).map_err(|e| ApiError(StatusCode::NOT_FOUND, e.0))?;
+        let name = |session: &str| delivery::quote::name(state.name_of(session).unwrap_or(session));
+        let (answers, selected) = match &m.answer {
+            Some(a) if a.reply == 0 => (a.message.clone(), a.selected.join(", ")),
+            Some(a) => (format!("reply {} to {}", a.reply, a.message), a.selected.join(", ")),
+            None => (String::new(), String::new()),
+        };
+        // Other: the value picked is workriver's, of the question it answers.
+        let other = m.answer.as_ref().is_some_and(|a| {
+            let asked = state.message(&a.message).ok();
+            let choice = match a.reply {
+                0 => asked.and_then(|q| q.choice.as_ref()),
+                k => asked.and_then(|q| q.replies.get(k as usize - 1)).and_then(|r| r.choice.as_ref()),
+            };
+            choice.is_some_and(|c| a.selected.first().is_some_and(|v| c.is_other(v)))
+        });
+        Ok(Json(crate::common::wire::MessageShow {
+            id: m.id.clone(),
+            at: m.at.clone(),
+            by: if m.by_manager { name(&m.manager) } else { "the user".into() },
+            workspace: m.workspace.clone(),
+            intent: m.intent.clone(),
+            answers,
+            selected: delivery::quote::name(&selected),
+            other,
+            text: delivery::quote::whole(&m.text),
+            replies: m.replies.iter().map(|x| crate::common::wire::ReplyShow { by: name(&x.by), at: x.at.clone(), text: delivery::quote::whole(&x.text) }).collect(),
+        }))
     })
     .await
 }

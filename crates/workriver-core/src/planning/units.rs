@@ -305,7 +305,7 @@ impl State {
                     if !blank(&branch) || !blank(&base) || !blank(&repo) || machine.is_some() {
                         return no("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
                     }
-                    let folder = self.projects.iter().find(|p| p.id == i.project).map_or(&i.project, |p| &p.path).clone();
+                    let folder = self.project_of(&i.project).map_or(&i.project, |p| &p.path).clone();
                     return Ok(UnitCreated { id, intent, title, purpose, repo: folder, branch, base, machine, kind });
                 }
                 for (field, v) in [("title", &title), ("repo", &repo), ("branch", &branch), ("base", &base)] {

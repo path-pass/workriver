@@ -16,7 +16,7 @@ import { Icon } from '@/ui/Icon'
 import { Thumbs } from '@/attachments/Thumbs'
 import { DeliveryLine } from './Findings'
 import { ChoiceSurface } from '@/content/choice/Choice'
-import { needsNote } from '@/content/choice/surface'
+import { needsNote, noteWords, showsNothing } from '@/content/choice/surface'
 
 /** The images among pasted or dropped files. Only images for now. */
 const images = (files: FileList | File[] | null | undefined) => [...(files ?? [])].filter(f => f.type.startsWith('image/')).map(attach)
@@ -86,7 +86,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
   const submit = () => {
     if (result === 'problem' && !findings.length) return setError(true)
     const asked = choice && result === 'answered'
-    if (asked && (!picked || (needsNote(choice, picked) && !note.trim()))) return setNoteMissing(true)
+    if (asked && (!picked || (needsNote(choice, picked) && showsNothing(note)))) return setNoteMissing(true)
     sent.current = true
     // The held draft goes with this result: its pictures this one no longer carries go too.
     const sending = [...files, ...(result === 'problem' ? drafts.flatMap(d => d.files) : [])]
@@ -94,10 +94,12 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
     act.submitGate(unit, gate, { result, ...(asked && { selected: [picked!] }), note: note.trim(), attachments: files, findings: result === 'problem' ? findings : [], at: new Date().toISOString() })
   }
   const noteNeeded = !!(choice && result === 'answered' && picked && needsNote(choice, picked))
+  // What the note is for: why, for an option that asks it; what to do instead, for Other.
+  const words = choice && result === 'answered' ? noteWords(choice, picked) : undefined
   const noteBlock = (
     <>
       <textarea
-        className="field" rows={2} value={note} placeholder={t(noteNeeded ? 'choice.noteNeeded' : 'gate.note')} aria-label={t(noteNeeded ? 'choice.noteNeeded' : 'gate.note')}
+        className="field" rows={2} value={note} placeholder={t(words?.prompt ?? 'gate.note')} aria-label={t(words?.prompt ?? 'gate.note')}
         aria-required={noteNeeded || undefined} aria-invalid={(noteMissing && noteNeeded) || undefined}
         onChange={e => { setNote(e.target.value); setNoteMissing(false) }} onPaste={pasted(addNote)}
       />
@@ -130,7 +132,7 @@ export function GateForm({ unit, gate }: { unit: Unit; gate: Task }) {
       {choice && result === 'answered' && (
         <ChoiceSurface choice={choice} picked={picked} onPick={v => { setPicked(v); setNoteMissing(false) }} onAnswer={submit}>
           {noteBlock}
-          {noteMissing && <p className="text-xs text-del" role="alert">{t('choice.needNote')}</p>}
+          {noteMissing && <p className="text-xs text-del" role="alert">{t(words?.missing ?? 'choice.needNote')}</p>}
         </ChoiceSurface>
       )}
       {!(choice && result === 'answered') && noteBlock}

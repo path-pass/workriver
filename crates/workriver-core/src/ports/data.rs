@@ -76,8 +76,8 @@ pub struct DataStatus {
     pub revision: Revision,
 }
 
-/// A message that was given to its receiver and not yet seen picked up: what it is about
-/// (a task, one of its findings, or a chore, then with no unit or task) and how far it got.
+/// A message's delivery as recorded: what it is about (a task, one of its findings, a chore
+/// or a backlog finding, the last two with no unit or task) and how far it got.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Delivered {
     pub unit: String,
@@ -85,6 +85,38 @@ pub struct Delivered {
     pub finding: Option<String>,
     pub chore: Option<String>,
     pub delivery: Delivery,
+}
+
+/// Every delivery at `step`: tasks' and their findings', in the units' order, then chores',
+/// then backlog findings' (a batch's message is recorded on its first finding). A chore's
+/// or a backlog finding's has no unit or task. What a start watches again and what it
+/// records as lost are both read here, so neither leaves out a kind.
+fn deliveries_at(all: &State, step: DeliveryStep) -> Vec<Delivered> {
+    let at = |d: &Option<Delivery>| d.clone().filter(|d| d.step == step);
+    let mut out = vec![];
+    for u in &all.units {
+        for t in &u.tasks {
+            if let Some(d) = at(&t.delivery) {
+                out.push(Delivered { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d });
+            }
+            for f in &t.findings {
+                if let Some(d) = at(&f.delivery) {
+                    out.push(Delivered { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
+                }
+            }
+        }
+    }
+    for c in &all.chores {
+        if let Some(d) = at(&c.delivery) {
+            out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
+        }
+    }
+    for b in &all.backlog {
+        if let Some(d) = at(&b.finding.delivery) {
+            out.push(Delivered { unit: String::new(), task: 0, finding: Some(b.finding.found.id.clone()), chore: None, delivery: d });
+        }
+    }
+    out
 }
 
 /// A question of a discussion neither answered nor failed: with the agent of its task (its
@@ -209,23 +241,16 @@ pub trait WorkStore: Send {
 
     // ---- what a previous run left, for the service's start ----
 
-    /// Messages given to their receiver and not seen picked up: tasks' and their findings'
-    /// in the units' order, then chores'.
+    /// Messages given to their receiver and not seen picked up (`DeliveryStep::Delivered`),
+    /// in the order of `deliveries_at`.
     fn delivered(&self) -> Result<Vec<Delivered>, DataError> {
-        Ok(at_step(&*self.recorded()?, DeliveryStep::Delivered))
+        Ok(deliveries_at(&*self.recorded()?, DeliveryStep::Delivered))
     }
 
-    /// Deliveries held for a receiver on a blind task (`DeliveryStep::Held`): tasks' and their
-    /// findings', of units, then chores', then backlog findings'.
+    /// Deliveries held for a receiver on a blind task (`DeliveryStep::Held`), in the order of
+    /// `deliveries_at`.
     fn held_deliveries(&self) -> Result<Vec<Delivered>, DataError> {
-        let all = self.recorded()?;
-        let mut out = at_step(&all, DeliveryStep::Held);
-        for b in &all.backlog {
-            if let Some(d) = b.finding.delivery.clone().filter(|d| d.step == DeliveryStep::Held) {
-                out.push(Delivered { unit: String::new(), task: 0, finding: Some(b.finding.found.id.clone()), chore: None, delivery: d });
-            }
-        }
-        Ok(out)
+        Ok(deliveries_at(&*self.recorded()?, DeliveryStep::Held))
     }
 
     /// The ids of the questions neither answered nor failed, but those of a discussion (their
@@ -242,11 +267,12 @@ pub trait WorkStore: Send {
     }
 
     /// The user's messages to a manager that got no delivery yet: each message's id and, for
-    /// one to every manager, the manager of each copy not given yet (else empty).
+    /// one to every manager, the manager of each copy not given yet (else empty). Not a
+    /// manager's, nor a line of workriver's own (a notice): neither goes anywhere.
     fn held_messages(&self) -> Result<Vec<(String, String)>, DataError> {
         let all = self.recorded()?;
         let mut out = vec![];
-        for m in all.messages.iter().filter(|m| !m.by_manager) {
+        for m in all.messages.iter().filter(|m| !m.by_manager && m.notice.is_none()) {
             match m.to.is_empty() {
                 true if m.delivery.is_none() => out.push((m.id.clone(), String::new())),
                 true => {}
@@ -260,28 +286,4 @@ pub trait WorkStore: Send {
     fn thread_agents(&self) -> Result<Vec<String>, DataError> {
         Ok(self.recorded()?.threads.iter().filter_map(|t| t.name.clone()).collect())
     }
-}
-
-/// The deliveries at `step`: tasks' and their findings', in the units' order, then chores'.
-fn at_step(all: &State, step: DeliveryStep) -> Vec<Delivered> {
-    let at = |d: &Option<Delivery>| d.clone().filter(|d| d.step == step);
-    let mut out = vec![];
-    for u in &all.units {
-        for t in &u.tasks {
-            if let Some(d) = at(&t.delivery) {
-                out.push(Delivered { unit: u.id.clone(), task: t.n, finding: None, chore: None, delivery: d });
-            }
-            for f in &t.findings {
-                if let Some(d) = at(&f.delivery) {
-                    out.push(Delivered { unit: u.id.clone(), task: t.n, finding: Some(f.found.id.clone()), chore: None, delivery: d });
-                }
-            }
-        }
-    }
-    for c in &all.chores {
-        if let Some(d) = at(&c.delivery) {
-            out.push(Delivered { unit: String::new(), task: 0, finding: None, chore: Some(c.id.clone()), delivery: d });
-        }
-    }
-    out
 }

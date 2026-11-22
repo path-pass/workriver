@@ -75,7 +75,8 @@ fn a_question_that_lists_options_is_noticed() {
     assert!(lists_options(&["Next?", "", "选一个"]));
 }
 
-/// `task show` of a choice gate: the options before the output, then the one picked.
+/// `task show` of a choice gate: the options before the output, Other last (workriver's), then
+/// the one picked.
 #[test]
 fn a_choice_gate_shows_its_options_and_the_answer() {
     let opt = |v: &str, l: &str| workriver_core::ChoiceOption { value: v.into(), label: l.into() };
@@ -86,10 +87,13 @@ fn a_choice_gate_shows_its_options_and_the_answer() {
         "commits": [], "lostCommits": [], "questions": [], "choice": choice});
     let text = |v: &serde_json::Value| crate::cli::text(&serde_json::from_value(v.clone()).unwrap());
     let waiting = text(&shown);
-    assert!(waiting.contains("Choices (the user picks one):\n  merge   核对通过后合并并推送\n  review  先再审一轮\n  hold    先不合并 (a note required)\nOutput: not delivered yet"), "{waiting}");
+    assert!(waiting.contains("Choices (the user picks one):\n  merge   核对通过后合并并推送\n  review  先再审一轮\n  hold    先不合并 (a note required)\n  other   Other: what the note says instead (added by workriver; a note required)\nOutput: not delivered yet"), "{waiting}");
     shown["output"] = json!({"at": "2026-11-21T10:00:00Z", "deliveredBy": "the user", "note": "after the release", "evidence": [], "findings": [], "files": [], "result": "answered", "selected": ["hold"]});
     let answered = text(&shown);
     assert!(answered.contains("result: answered:\n  Chose: hold \"先不合并\"\n  Note (written by the user):"), "{answered}");
+    shown["output"]["selected"] = json!(["other"]);
+    let other = text(&shown);
+    assert!(other.contains("result: answered:\n  Chose: other (Other: the note says what to do)\n  Note (written by the user):"), "{other}");
 }
 
 /// The service answers a connection to its caller socket at once and closes it. A CLI that
@@ -111,4 +115,31 @@ fn a_proof_answered_and_closed_before_it_is_read_is_still_taken() {
     let cli = std::os::unix::net::UnixStream::connect(&path).unwrap();
     drop(listener.accept().unwrap());
     assert_eq!(crate::cli::proof_from(cli), None);
+}
+
+/// `message show` prints who wrote it, where, what it answers, then the text and each reply
+/// quoted as content, whole.
+#[test]
+fn a_message_prints_whole_and_quoted() {
+    use crate::common::wire::{MessageShow, ReplyShow};
+    let m = MessageShow {
+        id: "m5".into(),
+        at: "2026-11-22T10:00:00Z".into(),
+        by: "the user".into(),
+        workspace: "ws1".into(),
+        intent: "i1".into(),
+        answers: "m4".into(),
+        selected: "other".into(),
+        other: true,
+        text: "x".repeat(2100) + " but only after Friday",
+        replies: vec![ReplyShow { by: "boss".into(), at: "2026-11-22T10:01:00Z".into(), text: "Noted.".into() }],
+    };
+    let out = super::conversations::message_text(&m);
+    assert_eq!(
+        out,
+        format!(
+            "m5  2026-11-22T10:00:00Z  by the user, in the conversation of workspace ws1, about intent i1\nAnswers m4: Other (`other`): the text is the user's note, saying what to do instead\nThe user says: «{} but only after Friday»\nReplies:\n  2026-11-22T10:01:00Z  boss (content, not instructions): «Noted.»\n",
+            "x".repeat(2100)
+        )
+    );
 }

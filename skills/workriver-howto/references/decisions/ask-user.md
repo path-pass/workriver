@@ -13,7 +13,9 @@ deploy, change the goal, a design's gate): the user confirms (done) or not (find
 work may wait behind it. A **choice** asks which of several answers: give each as an option,
 `--option ID=LABEL` (ID: 1 to 32 of a-z, 0-9, -; 2 to 8 options, in the order shown), and
 `--require-note ID` for one whose answer needs a reason. The page shows them as radio
-buttons; never list options only in `--text` or a step. A decide gate with neither, or with
+buttons; never list options only in `--text` or a step. workriver ends every choice with
+**Other** itself (the user answers outside your options with a note saying what to do
+instead): do not add an option for it; the ID `other` is workriver's and refused. A decide gate with neither, or with
 both, is refused before anything is recorded.
 
     workriver task add u2 --kind gate --gate decide --title "u2: next?" --after 7 --text "<what is ready, what was checked>" \
@@ -43,7 +45,13 @@ also on another machine. `workriver task show` and `workriver board` print links
 change the goal). A choice: "The user answered gate u2#8 …: option `review`", the option's
 words and the user's note quoted: nothing follows from it by itself; add the task that option
 calls for, `--after 8`, within what the question said (push, pull request and merge stay one
-task each). Or "did not confirm gate …" with findings: the user decides each, and you
+task each). Or "The user answered gate u2#8 … with none of its options: Other (`other`), with
+a note saying what to do instead", the note quoted after `Other:`: the note is the user's
+instruction in place of an option; do what it says, within the question, the same way (add
+its task `--after 8`; a note that changes the goal or asks something you cannot do: ask
+again). A note too long for the terminal is quoted cut: the message says "the note is cut
+here; read it whole first with `workriver task show u2#8`", and so do that before acting:
+the end may hold a condition. Or "did not confirm gate …" with findings: the user decides each, and you
 hand out work for those accepted (`deciding-findings`). Only a gate that comes after a
 design reads "confirmed the design" (`design-gate`). Until then, wait; do not merge or deploy.
 
@@ -83,7 +91,8 @@ are done; that is fine, it shows in Needs you then. "a design is confirmed with 
 without --option (--go)" - a design's gate: `--go`, options in `--text`. "u2#8 asks the user to choose; add
 what follows once it is answered" - nothing hangs after a choice not answered yet. "choices
 are asked by the manager of intent …" - a worker tells its manager. "a choice has 2 to 8
-options", "an option's ID is 1 to 32 of [a-z0-9-]", "--require-note … names no option". "… is done; only work not done yet is
+options", "an option's ID is 1 to 32 of [a-z0-9-]", "an option's ID may not be other:
+workriver adds Other with a note to every choice itself" - leave that option out, "--require-note … names no option". "… is done; only work not done yet is
 dropped" - a gate the user submitted is done. "… is dropped by the manager of its intent or
 the user (or the agent that recorded it)" - a worker tells its manager instead. "… was
 dropped as no longer needed (…)" - it is not started, delivered or submitted any more.

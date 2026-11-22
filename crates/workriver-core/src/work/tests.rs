@@ -587,6 +587,7 @@ fn a_choice_gate_is_answered_and_unlocks_nothing() {
     assert!(refused(&mut s, "user", submit("answered", json!({}))).contains("pick one"));
     assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["later"]}))).contains("not one of"));
     assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["hold"]}))).contains("needs a note"));
+    assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["other"], "note": " "}))).contains("needs a note"));
     let finding = json!([{"severity": "P2", "problem": "x"}]);
     assert!(refused(&mut s, "user", submit("answered", json!({"selected": ["review"], "findings": finding}))).contains("carries no findings"));
     assert!(refused(&mut s, "user", submit("problem", json!({"selected": ["review"], "findings": finding}))).contains("--select goes with answered"));

@@ -69,24 +69,18 @@ impl State {
     /// Intents, units, tasks, findings, gates, chores, questions, threads and agents stay as
     /// they are: only the conversations are scoped by workspace.
     pub fn conversations_of(mut self, session: &str) -> State {
-        let seat = self.seat_of(session).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)));
+        let seat = self.appointment_of(session);
         let mine = |id: &str| seat.as_ref().is_some_and(|(w, _)| w == id);
-        let copied = |r: &Recipient| r.manager == session && seat.as_ref().is_some_and(|(w, since)| *w == r.workspace && *since == r.since);
         // What the parts cut away point at, before they go.
         let named = |c: &[AskContext]| c.iter().filter(|c| c.kind == "attachment").filter_map(|c| c.id.clone()).collect::<Vec<_>>();
         let mut cut: Vec<String> = vec![];
         let mut kept = vec![];
-        for mut m in std::mem::take(&mut self.messages) {
-            let keep = if m.to.is_empty() { mine(&m.workspace) } else { m.to.iter().any(copied) };
-            if !keep {
-                cut.extend(named(&m.context));
-                continue;
+        for m in std::mem::take(&mut self.messages) {
+            let context = named(&m.context);
+            match copy_for(m, session, seat.as_ref()) {
+                Some(m) => kept.push(m),
+                None => cut.extend(context),
             }
-            if !m.to.is_empty() {
-                m.to.retain(copied);
-                m.replies.retain(|r| r.by == session);
-            }
-            kept.push(m);
         }
         self.messages = kept;
         self.read.retain(|w, _| mine(w));
@@ -95,6 +89,11 @@ impl State {
             self.attachments.retain(|a| a.by == session || !cut.contains(&a.id) || held.contains(&a.id));
         }
         self
+    }
+
+    /// The workspace whose seat `session` holds and its appointment, if it holds one.
+    pub(crate) fn appointment_of(&self, session: &str) -> Option<(String, u64)> {
+        self.seat_of(session).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)))
     }
 
     /// The attachments the records hold as attachments: a task's files, its checks' reports,
@@ -112,4 +111,21 @@ impl State {
         let pointed = contexts.filter(|c| c.kind == "attachment").filter_map(|c| c.id.as_ref());
         of_tasks.chain(of_backlog).chain(pointed).cloned().collect()
     }
+}
+
+/// Message `m` as `session` reads it in its conversations (`seat`: the workspace whose seat it
+/// holds, and the appointment): one of that workspace's conversation whole; of one to every
+/// manager, only when a copy went to that appointment, with that copy and its own replies
+/// only; nothing else.
+pub(crate) fn copy_for(mut m: Message, session: &str, seat: Option<&(String, u64)>) -> Option<Message> {
+    if m.to.is_empty() {
+        return seat.is_some_and(|(w, _)| *w == m.workspace).then_some(m);
+    }
+    let copied = |r: &Recipient| r.manager == session && seat.is_some_and(|(w, since)| *w == r.workspace && *since == r.since);
+    if !m.to.iter().any(copied) {
+        return None;
+    }
+    m.to.retain(copied);
+    m.replies.retain(|r| r.by == session);
+    Some(m)
 }

@@ -643,9 +643,9 @@ fn allow_as_names_agents_and_drops_the_terminal() {
     use workriver_core::runtime::AgentState::*;
     let tmp = tempfile::tempdir().unwrap();
     let fake = std::sync::Arc::new(Fake::default());
-    *fake.agents.lock().unwrap() = vec![("p2".into(), live("s-two", "two", "w1", Idle))];
-    let (d, kernel) = daemon_and(fake.clone(), &tmp.path().join("w.db"), Default::default());
-    wait_until("the service", || http(d.port, "GET", "/api/status", &[], None).0 == 200);
+    *fake.agents.lock().unwrap() = vec![("p2".into(), live("s-two", "two", "w1", Idle)), ("p3".into(), live("s-other", "s-second", "w2", Idle)), ("p4".into(), live("s-second", "two", "w2", Idle)), ("p5".into(), live("s-one", "one", "w1", Idle))];
+    let (d, kernel) = daemon_and(fake, &tmp.path().join("w.db"), Default::default());
+    wait_until("the initial poll saw the agents", || d.get("/api/workspace").is_ok_and(|view| view["sessions"].as_array().is_some_and(|s| s.iter().any(|a| a["agent"] == "one"))));
     let port = d.port;
     let bare = || kernel.proof(vec![proc(4714, 1, None, "cargo-test")]);
     let (code, text) = try_record(port, tmp.path(), true, None, Some(&bare()));
@@ -660,10 +660,29 @@ fn allow_as_names_agents_and_drops_the_terminal() {
         headers.extend(given.as_deref().map(|p| ("x-workriver-caller", p)));
         http(port, "POST", "/api/append", &headers, Some(&json!({ "as": name, "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()))
     };
-    assert!(named("two", Some(bare())).1.contains("\"actor\":\"s-two\""));
+    for (target, session) in [("two", "s-two"), ("s-second", "s-second"), ("one", "s-one"), ("unlisted", "unlisted")] {
+        let (code, text) = named(target, Some(bare()));
+        assert!(code == 200 && text.contains(&format!("\"actor\":\"{session}\"")), "{target}: {code} {text}");
+    }
     let (code, text) = named("two", None);
     assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
     assert!(named("user", Some(bare())).1.contains("nobody records as \"user\" by saying so"));
+}
+
+#[test]
+fn focus_keeps_its_first_name_match_and_exact_session() {
+    use workriver_core::runtime::AgentState::Idle;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    *fake.agents.lock().unwrap() = vec![("p1".into(), live("s-first", "worker", "w1", Idle)), ("p2".into(), live("s-other", "s-second", "w2", Idle)), ("p3".into(), live("s-second", "worker", "w2", Idle)), ("p4".into(), live("s-one", "one", "w1", Idle))];
+    let d = daemon_with(fake.clone(), &tmp.path().join("w.db"), Default::default());
+    wait_until("the initial poll saw the agents", || d.get("/api/workspace").is_ok_and(|view| view["sessions"].as_array().is_some_and(|s| s.iter().any(|a| a["agent"] == "one"))));
+    let auth = format!("Bearer {}", d.token().unwrap());
+    for (target, session) in [("worker", "s-first"), ("s-second", "s-second"), ("one", "s-one"), ("unlisted", "unlisted")] {
+        let (code, text) = http_at(&d, d.port, "user-terminal", "POST", "/api/focus", &[("authorization", &auth)], Some(&json!({ "agent": target }).to_string()));
+        assert_eq!(code, 204, "{target}: {text}");
+        assert_eq!(fake.focused.lock().unwrap().last().unwrap(), session);
+    }
 }
 
 /// Another machine (caller-identity.md, section 4): no socket of the kernel's vouches there, so the CLI sends its
