@@ -233,6 +233,12 @@ cargo build --release
 那边 agent 用的 `workriver` 命令要和服务是同一个版本。在这边和那边运行 `workriver status`，
 都会显示服务的版本和提交号；如果运行它的命令是另一个构建，会明说。
 
+在工作区成为 workriver 自己的记录之前写下的库，启动时会被拒绝（"holds events in the form
+from before virtual workspaces"；库里什么也不改）。用仓库里已经不再带的脚本把它的一份副本
+转换一次：提交 `7cdf576` 里有它，在 `scripts/migrate-virtual-workspaces/`，它的 `README.md`
+写了怎么运行。在任何一台有克隆的机器上，把那个提交取到一个单独的 worktree 里（`git worktree
+add --detach .local/migrate-script 7cdf576`），再照那里的 README 做。
+
 Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` 可能超过 20 GB。
 `cargo clean --profile dev` 只删 `target/debug`，服务运行所用的 `target/release/workriver`
 不受影响。每个 git worktree 有自己的 `target/`（构建并编译测试后约 1.5 GB），随 worktree

@@ -1,2 +1,0 @@
-record 0 p1 = name "chat", closed
-record 1 /r/chat = name "search", open

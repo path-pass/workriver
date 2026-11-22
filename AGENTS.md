@@ -97,10 +97,6 @@ skills/             what agents read; the binary embeds all of it (`workriver gu
                     references/<group>/, the groups planning, workers, decisions, reviews,
                     communication, operations; and CHANGES.md), workriver-backlog-import.
                     A change in what agents must do goes into the recipe and CHANGES.md.
-scripts/            migrate-virtual-workspaces/: the one-off conversion of a store of the
-                    earlier form (two Cargo packages of their own, not in the workspace, not
-                    built or shipped; README.md says how the user runs it once). Removed
-                    once the user's store is migrated.
 .local/             local-only working material; ignored by git, never commit it
 ```
 

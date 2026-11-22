@@ -1,9 +1,0 @@
-folder "/home/x/.ssh" = none
-folder "/r/tools" = register
-record 0 /r/app = name "app", open
-record 0 /r/lib = name "app", open
-record 1 /r/lib = name "web", open
-record 2 /r/app = name "app", closed
-label "ghost" p1 = name "ghost", closed
-message m2 = p1    # record 0, names no intent
-message m4 = /r/app    # its copy to record 0, to every manager

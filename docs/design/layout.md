@@ -482,16 +482,6 @@ skills/
         ├── reviews/         architecture-review, blind-review, contract, finding-additions
         ├── communication/   ask, user-message, not-delivered, blocked, attachments
         └── operations/      machines, updating
-scripts/
-└── migrate-virtual-workspaces/       # One-off: a store of the earlier form (workspaces as the runtime's
-    │                                 # groups) to workriver's own workspaces. Not in the Cargo workspace,
-    │                                 # never built, tested or shipped with the product; removed once the
-    │                                 # user's store is migrated.
-    ├── README.md / README.zh-CN.md   # How the user runs it once; what each old event becomes.
-    ├── old/                          # Own [workspace]; workriver-core as of the last commit before the
-    │                                 # change (.local/migrate-old): `plan` (the mapping), `apply`.
-    └── new/                          # Own [workspace]; this tree's core and data: `write` (the one insert
-                                      # into the events table outside workriver-data), `check`.
 docs/
 ├── README.zh-CN.md, getting-started(.zh-CN).md, security(.zh-CN).md, images/
 ├── architecture.md / architecture.zh-CN.md   # A short code map for people.

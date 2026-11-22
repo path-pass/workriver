@@ -74,6 +74,12 @@ Newest first. A manager that was already running reads this once after an update
   found.
   `agent.seen` is workriver's own record now: an agent or the user appending it is
   refused. (`hand-off`)
+- **The store's migration script left the repository** (nothing to do unless a user asks
+  how to convert an old store). `scripts/migrate-virtual-workspaces/`, which converts a
+  store written before workspaces were workriver's own, is no longer in the tree: commit
+  `7cdf576` holds it, and its `README.md` there says how to run it, on any machine with a
+  clone (`docs/getting-started.md`, "Update"). A service refusing such a store names that
+  commit.
 
 ## 2026-11-21
 

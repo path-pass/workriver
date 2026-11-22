@@ -335,7 +335,8 @@ Agents run under the user's account, and this check does not change that.
   questions and their threads stay readable by every agent); scoping the threads would be
   a change of its own.
 - Reading events of the form from before workriver's own workspaces: a store with them is
-  refused (`Store::open`) and is converted once, outside the product
-  (`scripts/migrate-virtual-workspaces/`, removed once the user's store is migrated).
+  refused (`Store::open`) and is converted once, outside the product, by
+  `scripts/migrate-virtual-workspaces/` as commit 7cdf576 holds it (removed from the tree
+  since).
 - workriver making or arranging the runtime's groups for a workspace, or starting agents.
 - Machines known by anything but their label; agents outside the supported runtime.

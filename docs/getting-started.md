@@ -275,6 +275,13 @@ Do the same build on **every other machine** you follow (`git pull`, `cargo buil
 `workriver status`, here and on each of them, shows the version and the commit of the
 service and says so when the command it was run with is another build.
 
+A store written before workspaces were workriver's own is refused at start ("holds events
+in the form from before virtual workspaces"; nothing in it is changed). Convert a copy of
+it once with the script the repository no longer carries: commit `7cdf576` holds it, as
+`scripts/migrate-virtual-workspaces/`, and its `README.md` says how to run it. On any
+machine with a clone, take that commit into a worktree of its own (`git worktree add
+--detach .local/migrate-script 7cdf576`) and follow the README there.
+
 Cargo never removes old builds from `target/`: after some weeks of updates `target/debug`
 can pass 20 GB. `cargo clean --profile dev` removes `target/debug` only; the
 `target/release/workriver` the service runs from stays. Each git worktree has its own
