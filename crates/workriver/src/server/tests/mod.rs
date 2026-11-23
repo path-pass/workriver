@@ -6,11 +6,15 @@ mod conversations;
 mod files;
 // Guards that hold behaviour while code moves (docs/design/guards.md).
 mod guards;
+// The attachment rule as the service runs it.
+mod lifecycle;
 mod machines;
 mod ownership;
 mod planning;
 // Conversations read by their workspace only; a manager's seat (docs/security.md).
 mod scope;
+// Jobs by the clock (server/schedule/).
+mod schedule;
 mod seats;
 mod starts;
 pub(super) mod support;

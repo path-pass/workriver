@@ -1816,6 +1816,71 @@
         "unit": "code"
       },
       "kind": "template.set"
+    },
+    {
+      "body": {
+        "id": "00000000000000f1",
+        "name": "shot.png",
+        "size": 2048,
+        "type": "image/png"
+      },
+      "kind": "attachment.added"
+    },
+    {
+      "body": {
+        "id": "00000000000000f2",
+        "name": "report.txt",
+        "size": 512,
+        "type": "text/plain"
+      },
+      "kind": "attachment.added"
+    },
+    {
+      "body": {
+        "how": "deleted",
+        "ids": [
+          "00000000000000f1"
+        ],
+        "rule": {
+          "days": 30,
+          "minMb": 0,
+          "only": "pictures"
+        }
+      },
+      "kind": "attachment.removed"
+    },
+    {
+      "body": {
+        "how": "moved",
+        "ids": [
+          "00000000000000f2"
+        ],
+        "rule": {
+          "days": 30,
+          "minMb": 0,
+          "only": "all"
+        },
+        "to": {
+          "kind": "folder",
+          "path": "/Users/me/OneDrive/wr"
+        }
+      },
+      "kind": "attachment.removed"
+    },
+    {
+      "body": {
+        "id": "00000000000000f2",
+        "name": "report.txt",
+        "size": 512,
+        "type": "text/plain"
+      },
+      "kind": "attachment.added"
+    },
+    {
+      "body": {
+        "id": "00000000000000f1"
+      },
+      "kind": "attachment.restored"
     }
   ],
   "managers": {
@@ -1971,6 +2036,18 @@
     },
     {
       "rejected": "u2#2 is already delivered; to correct it, run `workriver task deliver u2#2 --amend` with what replaces it"
+    },
+    {
+      "rejected": "attachment a1 is still held by open work"
+    },
+    {
+      "rejected": "only workriver records this (attachment.restored): it says what the service did, and is not reported by an agent or the user"
+    },
+    {
+      "body": {
+        "id": "00000000000000f2"
+      },
+      "kind": "attachment.restored"
     }
   ],
   "runs": [
@@ -2036,10 +2113,37 @@
         "at": "2025-12-02T12:00:00Z",
         "by": "s-d",
         "id": "a1",
+        "last": "2025-12-02T15:01:00Z",
         "name": "design.md",
         "size": 120,
         "type": "text/markdown",
         "user": true
+      },
+      {
+        "at": "2026-01-11T10:05:00Z",
+        "by": "user",
+        "id": "00000000000000f1",
+        "name": "shot.png",
+        "size": 2048,
+        "type": "image/png",
+        "user": true
+      },
+      {
+        "at": "2025-12-04T10:00:01Z",
+        "by": "s-d",
+        "gone": {
+          "at": "2026-01-10T09:00:01Z",
+          "how": "moved",
+          "to": {
+            "kind": "folder",
+            "path": "/Users/me/OneDrive/wr"
+          }
+        },
+        "id": "00000000000000f2",
+        "last": "2026-01-11T10:00:00Z",
+        "name": "report.txt",
+        "size": 512,
+        "type": "text/plain"
       }
     ],
     "backlog": [
@@ -2128,6 +2232,7 @@
       {
         "at": "2025-12-01T00:00:00Z",
         "by": "user",
+        "closed": "2025-12-03T13:00:00Z",
         "external": null,
         "findings": "manager",
         "goal": "",
@@ -2160,6 +2265,7 @@
       {
         "at": "2025-12-02T03:00:00Z",
         "by": "s-boss",
+        "closed": "2025-12-02T06:00:00Z",
         "external": null,
         "findings": "manager",
         "goal": "",
@@ -2174,6 +2280,7 @@
       {
         "at": "2025-12-02T04:00:00Z",
         "by": "user",
+        "closed": "2025-12-03T13:01:00Z",
         "external": null,
         "findings": "manager",
         "goal": "",

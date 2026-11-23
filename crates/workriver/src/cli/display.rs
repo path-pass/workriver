@@ -425,6 +425,41 @@ pub(super) fn print_machines(list: &Value) {
     }
 }
 
+/// One line per scheduled job, as `/api/status` gives them: when it is next due, its last
+/// result and who started it. Knows no job: names and words are the service's. Times are
+/// the service's (UTC), to the minute. None when the service runs no jobs.
+pub(super) fn jobs_lines(list: &Value) -> Vec<String> {
+    let minute = |t: &Value| t.as_str().map(|t| t.replace('T', " ").chars().take(16).collect::<String>());
+    let jobs = list.as_array().map(Vec::as_slice).unwrap_or_default();
+    let width = jobs.iter().filter_map(|j| j["name"].as_str()).map(str::len).max().unwrap_or(0);
+    let mut out: Vec<String> = jobs
+        .iter()
+        .map(|j| {
+            let next = minute(&j["next"]).map_or_else(|| "nothing due".to_string(), |t| format!("next {t}"));
+            let last = &j["last"];
+            let last = match minute(&last["at"]) {
+                None => "not run since the service started".to_string(),
+                Some(at) => {
+                    let failed = if last["ok"] == true { "" } else { "FAILED: " };
+                    format!("last {at} ({}, {:.1} s): {failed}{}", last["by"].as_str().unwrap_or("?"), last["ms"].as_f64().unwrap_or(0.0) / 1000.0, last["words"].as_str().unwrap_or(""))
+                }
+            };
+            let running = if j["running"] == true { "  running now" } else { "" };
+            format!("  {:width$}  {next}  {last}{running}", j["name"].as_str().unwrap_or("?"))
+        })
+        .collect();
+    if !out.is_empty() {
+        out.insert(0, "jobs (times in UTC):".into());
+    }
+    out
+}
+
+pub(super) fn print_jobs(list: &Value) {
+    for line in jobs_lines(list) {
+        println!("{line}");
+    }
+}
+
 /// The page's address where the user opens it, as the service says (also through a tunnel).
 pub(crate) fn page(d: &Daemon) -> anyhow::Result<String> {
     d.get("/api/status")?["url"].as_str().map(str::to_string).ok_or_else(|| anyhow!("the service does not say its address: it is an older build; restart `workriver serve`"))
@@ -529,6 +564,9 @@ pub(crate) fn text(s: &TaskShow) -> String {
     }
     if !s.text.is_empty() && s.text != s.title {
         block(&mut out, &format!("What it asks (written by {})", s.written_by), &s.text);
+    }
+    if !s.no_longer_stored.is_empty() {
+        let _ = writeln!(out, "Named in the text, no longer in the store: {}", s.no_longer_stored.join(", "));
     }
     if let Some(g) = &s.template_steps {
         for l in gate_steps_lines(g, &|b: &str| b.to_string()) {

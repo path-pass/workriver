@@ -276,7 +276,10 @@ fn a_machines_listener_serves_only_agents() {
         assert_eq!(http(box_port, "GET", &format!("{path}?place=w1:p1"), &[("x-workriver-place", "w1:p1")], None).0, 401, "{path} by saying so");
         assert_eq!(http_at(&user, box_port, "w1:p1", "GET", path, &[], None).0, 200, "{path}");
     }
-    assert_eq!(http(box_port, "GET", "/api/status", &[], None).0, 200);
+    let (code, text) = http(box_port, "GET", "/api/status", &[], None);
+    // Anyone over there reads it: the jobs' results are left out (no CLI there reads them).
+    assert!(code == 200 && !text.contains("\"jobs\""), "{text}");
+    assert!(http(port, "GET", "/api/status", &[], None).1.contains("\"jobs\":[]"));
     // Its own load, read-only: that machine alone, never this one; its own history only.
     let (code, text) = http_at(&user, box_port, "w1:p1", "GET", "/api/metrics", &[], None);
     let seen: serde_json::Value = serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap_or(&text)).unwrap_or_default();

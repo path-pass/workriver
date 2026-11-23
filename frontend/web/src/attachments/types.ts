@@ -9,4 +9,6 @@ export interface Attachment {
   url: string;
   /** Its type: pictures, Markdown and plain text preview, anything else downloads. Absent means a picture. */
   type?: string;
+  /** Taken by the attachment rule: when, how, and (moved) the target as recorded (a folder's `path`). */
+  gone?: { how: 'deleted' | 'moved'; at: string; to?: { kind: string; path?: string; [key: string]: unknown } };
 }

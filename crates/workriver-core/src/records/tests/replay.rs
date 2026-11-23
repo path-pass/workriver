@@ -71,6 +71,9 @@ fn seen(state: &State, events: &[Event]) -> Value {
             next(Principal::User, json!({ "kind": "message.sent", "body": { "intent": "i2", "text": "Hello" } })),
             next(Principal::User, json!({ "kind": "question.asked", "body": { "unit": "u3", "task": 1, "text": "And a fourth?", "discuss": true } })),
             next(Principal::Agent { session: "s-r2".into(), machine: None }, json!({ "kind": "task.delivered", "body": { "unit": "u2", "task": 2 } })),
+            next(Principal::Service, json!({ "kind": "attachment.removed", "body": { "ids": ["a1"], "how": "deleted", "rule": { "days": 1, "only": "all", "minMb": 0 } } })),
+            next(Principal::Agent { session: "s-i".into(), machine: None }, json!({ "kind": "attachment.restored", "body": { "id": "00000000000000f2" } })),
+            next(Principal::Service, json!({ "kind": "attachment.restored", "body": { "id": "00000000000000f2" } })),
         ],
     })
 }
@@ -88,4 +91,14 @@ fn a_synthetic_history_replays_to_the_same_state() {
     for key in ["state", "runs", "edits", "blind", "managers", "encoded", "next"] {
         assert_eq!(serde_json::to_string_pretty(&got[key]).unwrap(), serde_json::to_string_pretty(&want[key]).unwrap(), "{key} differs from {}", path.display());
     }
+}
+
+/// One enumeration of who holds a file: what the blind view keeps "as an attachment" is the
+/// attached part of `attachment_holders`, on a history with every kind of record.
+#[test]
+fn the_blind_views_held_files_are_the_attached_holders() {
+    let state = folded(&history());
+    let attached: std::collections::HashSet<String> = state.attachment_holders().into_iter().filter(|h| h.how == Named::Attached).map(|h| h.id.to_string()).collect();
+    assert!(!attached.is_empty());
+    assert_eq!(state.held_attachments(), attached);
 }

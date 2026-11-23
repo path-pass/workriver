@@ -14,7 +14,8 @@ its sections went.
   wherever they belong: with a task's output, a finding, or a check (next to its line).
   Images preview as thumbnails; any other file is a small chip. Pictures, Markdown and plain
   text (logs, JSON, YAML, CSV…) open in the **viewer**; any other file (and SVG) downloads.
-  The store keeps every file for good, like the records.
+  The store keeps every file for good, like the records, unless the user sets an
+  attachment rule (The attachment rule, below).
   The viewer shows one place's previewable attachments one at a time, in their order: the
   name (mono) as its title, "2 / 5" with previous / next (← and → too, wrapping round; the
   position and name are read out), for a picture the zoom toggle and "open original",
@@ -117,3 +118,48 @@ its sections went.
     (mermaid's `neutral` in light, `dark` in dark) and again when the theme changes; it keeps
     its own size, on the code block's ground, scrolled sideways when wider than the text, as
     code and tables are.
+
+## The attachment rule
+
+The service's side, which the page reads and sets (the Settings tab "Attachments" and the
+marks on a file that went are the page's, written with them). One rule, global, kept in
+`settings.json` under `attachments` and never as an event; `docs/security.md` says who may
+do what.
+
+- **The rule**: `{ after: "keep" | "delete" | "move", days: 1–3650 (30), only: "all" |
+  "pictures", minMb: 0–50000 (0: any size, an empty file too), target?: { kind:
+  "folder", path } }`. `keep` is the default and is not written while it is. `target` is
+  read only for `move`; the folder must be absolute, exist, be a folder, be neither the
+  data directory, the store's folder or its inbox (each followed through its links) nor
+  inside one of them (by what the folders are, not by the spelling of their paths), and be
+  writable; it is saved canonical, and the service never makes it. A rule
+  out of range in the file is never brought into range: it runs nothing and says why.
+- **When a file goes**: once every record that names it (as an attachment, or by its id in
+  any text) is closed: its intent done or dropped, its workspace with no active intent, a
+  chore done, a question answered, a backlog finding dropped; then `days` after the latest
+  of those closes and the last time the file was stored or named. A file of an active
+  intent never goes. Under `move`, a file with no bytes in the store is skipped and
+  counted in the run's `words`, never recorded as gone (a file never stored and a disk not
+  mounted at the store look the same); under `delete` it is recorded as deleted.
+- **`GET /api/settings/attachments`** → `{ rule, error, usage: { files, bytes }, lastRun,
+  running, next }`. `rule` is null and `error` says why when the file's rule is out of
+  range. `lastRun` is the last run since the service started (null before one): `{ at, by:
+  "timer" | "user", ms, ok, words, detail: { how: "deleted" | "moved" | null, files, bytes,
+  failed } }`; `words` is one English line with counts only. `next` is when the timer runs
+  it next.
+- **`POST /api/settings/attachments`** `{ rule, dryRun? }` → `{ rule, due: { files, bytes }
+  }`: the rule as saved (its folder canonical) and what it would take now. With `dryRun`
+  nothing is saved. A refused rule or folder answers 422 with the reason in words.
+- **`POST /api/settings/attachments/run`** → the run's result, the shape of `lastRun`; 409
+  while a run is on (its result shows when it ends); 404 on a service that does not run
+  the rule. (Not under `/api/attachments/…`, where a machine's listener would take `run`
+  for an attachment's id.) The service also runs it a minute after it starts, then every
+  hour.
+- All three are the user's (`App::user`) and none is on a machine's listener.
+- **A file that went**: an attachment in the page's JSON has `gone?: { how: "deleted" |
+  "moved", at, to? }`, `to` the target as recorded with the move (`{ kind, … }`; the page
+  shows a folder's `path`, and the kind's name for a kind it does not know).
+  `GET /api/attachments/{id}` serves a moved file from its folder, only if its size and
+  content are what was stored; a moved one that cannot be read there is 404 in words; a
+  deleted one is 410. Agents are given a moved file's fetch command, never a path into the
+  folder.

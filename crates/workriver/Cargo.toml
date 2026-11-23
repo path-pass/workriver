@@ -34,9 +34,9 @@ tempfile = "3"
 # The user's templates are YAML (server/planning/templates.rs): nodes with their place, for
 # the line of every refusal. Without its encoding feature: the text comes as UTF-8.
 saphyr = { version = "0.4.0", default-features = false }
-
-[dev-dependencies]
-# `setsid` for a child with no terminal (tests/caller.rs); already in the lock file.
+# O_NOFOLLOW and O_NONBLOCK for the read of a moved attachment (server/files/target.rs), and
+# `setsid` for a child with no terminal (tests/caller.rs); already in the lock file, built
+# for tokio.
 libc = "0.2"
 
 # The chain of a caller's process (caller.rs): what `ps` reads, per system.

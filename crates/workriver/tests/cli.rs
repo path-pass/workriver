@@ -101,6 +101,10 @@ fn lists_findings_and_machines_from_the_cli() {
         assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).into_owned()
     };
+    // The service's jobs, each on a line of its own: the attachment rule's run, not run yet.
+    let status = run(&["status"]);
+    let jobs = status.split_once("jobs (times in UTC):").map(|(_, j)| j.to_string()).unwrap_or_default();
+    assert!(jobs.lines().any(|l| l.trim_start().starts_with("attachments ") && l.contains("not run since the service started")), "{status}");
 
     let repo = tmp.path().join("chat");
     std::fs::create_dir(&repo).unwrap();

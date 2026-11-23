@@ -491,6 +491,24 @@ pub enum Body {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         finding: Option<String>,
     },
+    /// The attachment rule took these files out of the store (one event per run and way):
+    /// deleted, or moved to `to`, the target as the settings gave it (kind and all; core
+    /// keeps it and reads nothing of it). `rule` is what made them go. workriver's own
+    /// (`Body::service_only`): only the service's run records it, after a verified copy and
+    /// before the local delete.
+    #[serde(rename = "attachment.removed")]
+    AttachmentRemoved {
+        ids: Vec<String>,
+        how: Removed,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<Target>,
+        rule: Conditions,
+    },
+    /// A removed file's bytes are in the store again: the service wrote them (an upload of
+    /// the same content). workriver's own (`Body::service_only`); the only event that clears
+    /// `gone`.
+    #[serde(rename = "attachment.restored")]
+    AttachmentRestored { id: String },
     /// The user ran a command in a shell of their own, from the page, after confirming its
     /// exact text: what, where, and who wrote it. Recorded before it runs; never its output.
     #[serde(rename = "command.ran")]
@@ -750,6 +768,7 @@ impl Body {
             ChoreCreated { intent, unit, .. } => ((!intent.is_empty()).then(|| intent.clone()), unit.clone(), None),
             ChoreDone { .. } => (None, None, None),
             AttachmentAdded { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),
+            AttachmentRemoved { .. } | AttachmentRestored { .. } => (None, None, None),
             CommandRan { unit, .. } => (None, unit.clone(), None),
             CommandEnded { .. } | CommandReviewed { .. } => (None, None, None),
             AgentKeys { unit, task: n, .. } => (None, unit.clone(), unit.as_ref().zip(*n).and_then(|(u, n)| task(u, n))),

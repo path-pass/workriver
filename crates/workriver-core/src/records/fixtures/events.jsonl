@@ -129,3 +129,9 @@
 {"seq":129,"at":"2025-12-04T09:04:00Z","actor":"s-boss2","kind":"task.filled","body":{"unit":"u5","task":1,"title":"Build it","text":"The change, with tests.","agent":"s-dev","plans":["src/a.rs"]}}
 {"seq":130,"at":"2025-12-04T09:05:00Z","actor":"s-boss2","kind":"task.dropped","body":{"unit":"u5","task":2,"reason":"nothing to look at"}}
 {"seq":131,"at":"2025-12-04T09:06:00Z","actor":"user","kind":"template.set","body":{"name":"checks","description":"Code and two looks at it.","unit":"code","steps":[{"id":"build","kind":"implement","description":"The change."}],"source":"name: checks\n"}}
+{"seq":132,"at":"2025-12-04T10:00:00Z","actor":"user","kind":"attachment.added","body":{"id":"00000000000000f1","name":"shot.png","type":"image/png","size":2048}}
+{"seq":133,"at":"2025-12-04T10:00:01Z","actor":"s-d","kind":"attachment.added","body":{"id":"00000000000000f2","name":"report.txt","type":"text/plain","size":512}}
+{"seq":134,"at":"2026-01-10T09:00:00Z","actor":"workriver","kind":"attachment.removed","body":{"ids":["00000000000000f1"],"how":"deleted","rule":{"days":30,"only":"pictures","minMb":0}}}
+{"seq":135,"at":"2026-01-10T09:00:01Z","actor":"workriver","kind":"attachment.removed","body":{"ids":["00000000000000f2"],"how":"moved","to":{"kind":"folder","path":"/Users/me/OneDrive/wr"},"rule":{"days":30,"only":"all","minMb":0}}}
+{"seq":136,"at":"2026-01-11T10:00:00Z","actor":"s-i","kind":"attachment.added","body":{"id":"00000000000000f2","name":"report.txt","type":"text/plain","size":512}}
+{"seq":137,"at":"2026-01-11T10:05:00Z","actor":"workriver","kind":"attachment.restored","body":{"id":"00000000000000f1"}}

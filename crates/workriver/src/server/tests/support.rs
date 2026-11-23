@@ -99,7 +99,7 @@ type Minted = std::collections::HashMap<Option<String>, (String, u32)>;
 impl Kernel {
     /// A service's options with this kernel, nothing else asked for.
     pub(super) fn options(&self) -> crate::server::Options {
-        crate::server::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false, procs: self.procs.clone(), callers: self.callers.clone(), user_home: None }
+        crate::server::Options { warning: None, waits: Default::default(), machines: None, allow_as: false, sample: false, procs: self.procs.clone(), callers: self.callers.clone(), user_home: None, jobs: vec![] }
     }
 
     /// The CLI's client as the user's: with the user token of the daemon's home (made here if
@@ -994,4 +994,130 @@ pub(super) fn try_record(port: u16, home: &std::path::Path, token: bool, says: O
     headers.extend(proof.map(|p| ("x-workriver-caller", p)));
     let (code, text) = http(port, "POST", "/api/append", &headers, Some(&json!({ "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()));
     (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
+}
+
+/// The real store, read as if every recorded time were `days` earlier (none while it is 0):
+/// how a test sees what the attachment rule does after days without waiting them. What is
+/// recorded is the store's, checked against its own state; only reads are aged. `Aging`
+/// also lets a test make reads or writes fail, and hold one of the attachment run's reads.
+pub(super) struct Aged {
+    inner: workriver_data::Store,
+    aging: std::sync::Arc<Aging>,
+}
+
+impl Aged {
+    pub(super) fn new(db: &std::path::Path, aging: std::sync::Arc<Aging>) -> Aged {
+        Aged { inner: opened(db), aging }
+    }
+}
+
+/// What a test does to an `Aged` store.
+#[derive(Default)]
+pub(super) struct Aging {
+    /// How many days every read is aged by.
+    pub(super) days: std::sync::atomic::AtomicU64,
+    /// Every read fails while this is set.
+    pub(super) down: std::sync::atomic::AtomicBool,
+    /// Nothing can be recorded while this is set.
+    pub(super) writes_down: std::sync::atomic::AtomicBool,
+    /// The read of the attachment run (`in_run`) of this number (1: its first) waits, with the
+    /// store held, until `open`; `reached` says it is waiting. 0: none waits.
+    pub(super) pause_at: std::sync::atomic::AtomicUsize,
+    pub(super) reached: std::sync::atomic::AtomicBool,
+    pub(super) open: std::sync::atomic::AtomicBool,
+    run_reads: std::sync::atomic::AtomicUsize,
+}
+
+thread_local! {
+    /// Set on the thread of an attachment run started through `in_run`.
+    static IN_RUN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The attachment run, its reads seen by an `Aged` store's `pause_at`: the job a test gives
+/// the service in place of the real one (same name, so "Run now" runs it).
+pub(super) fn in_run(app: &crate::server::app::App) -> crate::server::schedule::Report {
+    IN_RUN.with(|r| r.set(true));
+    let report = (crate::server::files::lifecycle::JOB.run)(app);
+    IN_RUN.with(|r| r.set(false));
+    report
+}
+
+/// The attachment job with `in_run` as its run, never due by the timer in a test.
+pub(super) fn held_job() -> crate::server::schedule::Job {
+    let day = std::time::Duration::from_secs(86_400);
+    crate::server::schedule::Job { run: in_run, due: crate::server::schedule::Due::Every { first: day, every: day }, ..crate::server::files::lifecycle::JOB }
+}
+
+/// Every recorded time (`2026-01-02T03:04:05Z`) in `v` moved `days` back.
+fn earlier(v: &mut serde_json::Value, days: u64) {
+    match v {
+        serde_json::Value::String(s) if s.len() == 20 && s.ends_with('Z') && s.as_bytes()[10] == b'T' => {
+            if let Ok(t) = humantime::parse_rfc3339(s) {
+                *s = humantime::format_rfc3339_seconds(t - std::time::Duration::from_secs(days * 24 * 3600)).to_string();
+            }
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|x| earlier(x, days)),
+        serde_json::Value::Object(o) => o.values_mut().for_each(|x| earlier(x, days)),
+        _ => {}
+    }
+}
+
+impl workriver_core::ports::WorkStore for Aged {
+    fn recorded(&self) -> Result<workriver_core::ports::Recorded, workriver_core::ports::DataError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.aging.down.load(SeqCst) {
+            return gone();
+        }
+        if IN_RUN.with(|r| r.get()) && self.aging.run_reads.fetch_add(1, SeqCst) + 1 == self.aging.pause_at.load(SeqCst) {
+            self.aging.reached.store(true, SeqCst);
+            while !self.aging.open.load(SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        let now = self.inner.recorded()?;
+        let days = self.aging.days.load(SeqCst);
+        if days == 0 {
+            return Ok(now);
+        }
+        let mut v = serde_json::to_value(&*now).unwrap();
+        earlier(&mut v, days);
+        let state: workriver_core::State = serde_json::from_value(v).unwrap();
+        Ok(workriver_core::ports::Recorded::new(now.revision(), std::sync::Arc::new(state)))
+    }
+    fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
+        if self.aging.writes_down.load(std::sync::atomic::Ordering::SeqCst) {
+            return gone();
+        }
+        self.inner.record(who, request)
+    }
+    fn history(&self, after: workriver_core::ports::Revision, limit: usize) -> Result<workriver_core::ports::History, workriver_core::ports::DataError> {
+        self.inner.history(after, limit)
+    }
+    fn status(&self) -> Result<workriver_core::ports::DataStatus, workriver_core::ports::DataError> {
+        self.inner.status()
+    }
+    fn intent_events(&self, id: &str) -> Result<Vec<workriver_core::Event>, workriver_core::ports::DataError> {
+        self.inner.intent_events(id)
+    }
+}
+
+/// A daemon over an `Aged` store, running `jobs`: its client as the user and what ages it.
+pub(super) fn aged_service(db: &std::path::Path, jobs: Vec<crate::server::schedule::Job>, waits: crate::server::Waits) -> (Daemon, std::sync::Arc<Aging>) {
+    let (port, kernel, aging) = aged_over(std::sync::Arc::new(Fake::default()), None, db, jobs, waits);
+    (kernel.client(port, db.parent().unwrap()), aging)
+}
+
+/// The same over `runtime`, following `machines` when given: its port and its kernel.
+pub(super) fn aged_over(runtime: std::sync::Arc<dyn workriver_core::runtime::Runtime>, machines: Option<std::sync::Arc<crate::runtime::follow::Machines>>, db: &std::path::Path, jobs: Vec<crate::server::schedule::Job>, waits: crate::server::Waits) -> (u16, Kernel, std::sync::Arc<Aging>) {
+    let aging = std::sync::Arc::new(Aging::default());
+    let store = Aged::new(db, aging.clone());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let kernel = Kernel::default();
+    let home = db.parent().unwrap().to_path_buf();
+    crate::server::access::auth::Auth::open(&home).unwrap();
+    let options = crate::server::Options { allow_as: true, jobs, waits, machines, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_over(listener, Box::new(store), home, runtime, options)));
+    (port, kernel, aging)
 }

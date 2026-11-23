@@ -22,6 +22,8 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/metrics/thresholds", &["POST"]),
     ("/api/settings/stall", &["GET", "POST"]),
     ("/api/settings/start", &["GET", "POST"]),
+    ("/api/settings/attachments", &["GET", "POST"]),
+    ("/api/settings/attachments/run", &["POST"]),
     ("/api/workspace", &["GET"]),
     ("/api/unit/{id}/code", &["GET"]),
     ("/api/intent/{id}/history", &["GET"]),
@@ -192,6 +194,11 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/settings/stall", r#"{"minutes":30}"#),
     ("GET", "/api/settings/start", ""),
     ("POST", "/api/settings/start", r#"{"harness":"nope","model":""}"#),
+    ("GET", "/api/settings/attachments", ""),
+    // A dry run: nothing is saved.
+    ("POST", "/api/settings/attachments", r#"{"rule":{"after":"delete","days":30},"dryRun":true}"#),
+    // The guard's service runs no jobs: the user is answered that it does not run the rule.
+    ("POST", "/api/settings/attachments/run", "{}"),
     ("GET", "/api/workspace", ""),
     ("GET", "/api/unit/u1/code", ""),
     ("GET", "/api/intent/i1/history", ""),
@@ -402,8 +409,8 @@ fn shape(v: &Value, at: &str, out: &mut BTreeSet<String>) {
 /// intent with its manager, a code unit with committed, unregistered and uncommitted work,
 /// a research unit, a design, its review with decided findings, a waiting gate, a chore, an
 /// attachment, a question with its temporary agent, a discussion of a delivered research, a
-/// conversation with the manager, a second machine, and a unit made with a template (a step
-/// done, one left out, the rest to fill).
+/// conversation with the manager, a second machine, a file the attachment rule moved, and a
+/// unit made with a template (a step done, one left out, the rest to fill).
 fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     use workriver_core::runtime::AgentState::*;
     let repo = tmp.join("repo");
@@ -433,15 +440,30 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     let far = std::sync::Arc::new(Fake::default());
     *far.agents.lock().unwrap() = vec![("p1".into(), live("s-far", "far", "w1", Idle))];
     let all = crate::runtime::follow::Machines::with(fake.clone(), vec![("box", far)]);
-    let store = opened(&tmp.join("w.db"));
+    // Aged: a file the attachment rule took is shown too.
+    let aging = std::sync::Arc::new(Aging::default());
+    let store = Aged::new(&tmp.join("w.db"), aging.clone());
     let rt = tokio::runtime::Runtime::new().unwrap();
     let listener = rt.block_on(crate::server::bind(0)).unwrap();
     let kernel = Kernel::default();
     let d = kernel.client(listener.local_addr().unwrap().port(), tmp);
     let (runtime, waits) = (fake.clone(), crate::server::Waits { answer: std::time::Duration::from_secs(60), ..Default::default() });
-    let options = crate::server::Options { machines: Some(all.clone()), waits, allow_as: true, ..kernel.options() };
-    std::thread::spawn(move || rt.block_on(crate::server::serve_with(listener, store, runtime, options)));
+    let options = crate::server::Options { machines: Some(all.clone()), waits, allow_as: true, jobs: vec![held_job()], ..kernel.options() };
+    let home = tmp.to_path_buf();
+    std::thread::spawn(move || rt.block_on(crate::server::serve_over(listener, Box::new(store), home, runtime, options)));
     wait_until("the machine's listener", || all.local_port("box").is_some());
+    // Moved before anything else is recorded (what is aged then is that file alone).
+    let old = tmp.join("old.png");
+    std::fs::write(&old, b"\x89PNG old").unwrap();
+    let old = d.upload(&old, "s-impl", None).unwrap();
+    // A folder outside the data directory; what it holds is not read here.
+    let moved = tempfile::tempdir().unwrap();
+    let rule = json!({ "rule": { "after": "move", "days": 1, "target": { "kind": "folder", "path": moved.path() } } });
+    assert_eq!(as_user(&d, "POST", "/api/settings/attachments", Some(&rule)).0, 200);
+    aging.days.store(2, std::sync::atomic::Ordering::SeqCst);
+    let ran = as_user(&d, "POST", "/api/settings/attachments/run", Some(&json!({}))).1;
+    assert!(ran.contains("\"files\":1"), "{ran}");
+    aging.days.store(0, std::sync::atomic::Ordering::SeqCst);
 
     d.append("user", "project.added", json!({ "path": repo, "title": "Chat" })).unwrap();
     // The project's own workspace (ws1), closed; boss manages another of it (ws2, "chat").
@@ -470,6 +492,8 @@ fn a_full_workspace(tmp: &std::path::Path) -> (Daemon, std::sync::Arc<Fake>) {
     std::fs::write(&shot, b"\x89PNG shape").unwrap();
     let shot = d.upload(&shot, "s-impl", Some(("u1", 2, None))).unwrap();
     d.append("s-boss", "task.noted", json!({ "unit": "u2", "task": 1, "text": "Include the cost", "attachments": [shot["id"]] })).unwrap();
+    // The moved file, linked to the task afterwards: it stays gone.
+    d.append("s-impl", "attachment.added", json!({ "id": old["id"], "name": "old.png", "type": "image/png", "size": old["size"], "unit": "u1", "task": 2 })).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(2500)); // a poll sees the agents
     d.call("/api/ask", Some(json!({ "unit": "u1", "task": 2, "text": "Why one table?", "context": [{ "kind": "file", "label": "a.txt", "path": "a.txt" }] }))).unwrap();
     wait_until("the question's agent is asked", || fake.sent.lock().unwrap().iter().any(|(to, _)| to == "s-why-q1"));
@@ -533,4 +557,39 @@ fn the_json_the_page_reads_keeps_its_shape() {
     let want = std::fs::read_to_string(&path).unwrap();
     let (g, w): (BTreeSet<&str>, BTreeSet<&str>) = (got.lines().collect(), want.lines().collect());
     assert!(g == w, "the page's JSON changed; gone: {:?}; new: {:?}", w.difference(&g).collect::<Vec<_>>(), g.difference(&w).collect::<Vec<_>>());
+}
+
+/// The schedule names no domain of the service: each domain gives its job as a constant and
+/// `server::jobs()` lists them, so a job is never added by editing the module. Searched by
+/// module path (`files::`, `super::files::`, `crate::server::files::`), not by bare word:
+/// the module's own words ("between two files") are no import.
+#[test]
+fn the_schedule_names_no_domain() {
+    const DOMAINS: [&str; 9] = ["files", "work", "planning", "conversations", "commands", "machines", "terminals", "delivery", "views"];
+    let files = sources(&crate_dir().join("src/server/schedule"), &["rs"]);
+    assert!(!files.is_empty());
+    for f in files {
+        let text = std::fs::read_to_string(&f).unwrap();
+        for d in DOMAINS {
+            let path = format!("{d}::");
+            let named = text.match_indices(&path).any(|(k, _)| !text[..k].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
+            assert!(!named, "{} names the service's {d} module: a job is a constant of its domain, listed in server::jobs()", f.display());
+        }
+    }
+}
+
+/// A move's target is `target.rs`'s alone: what makes a folder usable and safe to read
+/// (`canonicalize`, `O_NOFOLLOW`) appears nowhere else among the attachments' code, whose
+/// other files pass the target's value along. The tests beside it may use them to check.
+#[test]
+fn the_target_is_checked_in_one_file() {
+    let dir = crate_dir().join("src/server/files");
+    let files = sources(&dir, &["rs"]);
+    assert!(files.iter().any(|f| f.ends_with("target.rs")));
+    for f in files.iter().filter(|f| !f.ends_with("target.rs") && !f.ends_with("tests.rs")) {
+        let text = std::fs::read_to_string(f).unwrap();
+        for word in ["canonicalize", "O_NOFOLLOW"] {
+            assert!(!text.contains(word), "{} uses {word}: a target's checks are files/target.rs's (check, put, get)", f.display());
+        }
+    }
 }

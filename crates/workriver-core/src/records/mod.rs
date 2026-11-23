@@ -157,7 +157,7 @@ impl State {
             QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } | QuestionsRead { .. } => self.prepare_questions(who, body),
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.prepare_messages(who, body),
             DeliveryUpdated { .. } => self.prepare_deliveries(who, body),
-            AttachmentAdded { .. } => self.prepare_attachments(who, body),
+            AttachmentAdded { .. } | AttachmentRemoved { .. } | AttachmentRestored { .. } => self.prepare_attachments(who, body),
         }
     }
 
@@ -182,7 +182,7 @@ impl State {
             QuestionAsked { .. } | QuestionStarted { .. } | QuestionAnswered { .. } | ThreadEnded { .. } | QuestionFailed { .. } | QuestionsRead { .. } => self.apply_questions(e),
             MessageSent { .. } | MessageDelivery { .. } | MessageReplied { .. } | MessageSaid { .. } | MessagesRead { .. } | ManagerTold { .. } | AgentSeen { .. } => self.apply_messages(e),
             DeliveryUpdated { .. } => self.apply_deliveries(e),
-            AttachmentAdded { .. } => self.apply_attachments(e),
+            AttachmentAdded { .. } | AttachmentRemoved { .. } | AttachmentRestored { .. } => self.apply_attachments(e),
         }
         self.open_gates(at);
     }

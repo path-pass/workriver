@@ -95,8 +95,13 @@ workriver/
 │   │       │   ├── questions.rs      # Ask/answer/conclude/end, attachment context checks; the
 │   │       │   │                     # user's discussion of a delivered result, its read mark.
 │   │       │   ├── messages.rs       # Manager messages, replies, read position, agents seen.
-│   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO.
-│   │       │   └── tests.rs
+│   │       │   ├── attachments.rs    # Attachment metadata, links, lookup; no file IO. MAX_ATTACHMENT;
+│   │       │   │                     # who holds a file (attachment_holders, one walk of the records:
+│   │       │   │                     # as an attachment, or its id in any text), held_attachments
+│   │       │   │                     # (the blind view's part, no text read), attachments_due under
+│   │       │   │                     # a rule's Conditions; attachment.removed/restored (Gone, Target).
+│   │       │   ├── tests.rs
+│   │       │   └── tests/attachments.rs  # Holders, due, removal and restore; the guard for texts.
 │   │       ├── access/               # Authority and visibility.
 │   │       │   ├── mod.rs            # Principal/Rejected, reserved actors, Body::user_only, Body::service_only,
 │   │       │   │                     # message_for (who reads one message whole: as conversations_of cuts it).
@@ -259,7 +264,8 @@ crates/workriver/
 │   │   └── cli-tree.txt              # The command tree it pins.
 │   ├── server/                       # The service process.
 │   │   ├── mod.rs                    # Start/bind/serve, Options; the one place that assembles
-│   │   │                             # the concrete storage and runtime.
+│   │   │                             # the concrete storage and runtime, and lists the jobs
+│   │   │                             # by the clock (`jobs()`: each domain's constant).
 │   │   ├── app/
 │   │   │   ├── mod.rs                # App, the store, shared in-memory state, `got`.
 │   │   │   ├── lifecycle.rs          # Start-up/recovery/watch/poll/shutdown.
@@ -275,6 +281,11 @@ crates/workriver/
 │   │   │   ├── caller.rs             # Unix peer identity, proof store and listener (caller-identity.md).
 │   │   │   ├── pins.rs               # Session-root pins (caller-identity.md, rule 5).
 │   │   │   └── tests.rs
+│   │   ├── schedule/                 # Jobs by the clock: part of the spine, names no domain.
+│   │   │   ├── mod.rs                # Job, Due (an interval, or the next time the job answers),
+│   │   │   │                         # Report, the timers (one task per job, off the poll), one
+│   │   │   │                         # run at a time (App::run_job), the last result (status).
+│   │   │   └── tests.rs              # The list alone (two of one name); timers: tests/schedule.rs.
 │   │   ├── http/                     # Transport wiring only; no domain policy.
 │   │   │   ├── mod.rs                # router() and the machine_router() allow-list; no route discovery.
 │   │   │   ├── guard.rs              # Host/Origin/proof/header extraction: what fills the Caller.
@@ -330,9 +341,17 @@ crates/workriver/
 │   │   │       ├── history.rs        # Minute folding, JSONL read/retention, modes.
 │   │   │       └── tests.rs
 │   │   ├── files/                    # Attachments: handlers and the bytes on disk.
-│   │   │   ├── mod.rs                # Upload/inbox/fetch handlers, scoped checks, links for
-│   │   │   │                         # an agent on another machine.
+│   │   │   ├── mod.rs                # Upload (one file per id, under the upload's lock; the
+│   │   │   │                         # service's restore of a file that went)/inbox/fetch handlers
+│   │   │   │                         # (a moved file read from its target, a deleted one 410),
+│   │   │   │                         # scoped checks; how an agent reaches a file (`Reach`: a path,
+│   │   │   │                         # a fetch command, removed), links for another machine; the
+│   │   │   │                         # attachment rule's routes.
 │   │   │   ├── store.rs              # Paths, content ids, atomic put, usage.
+│   │   │   ├── lifecycle.rs          # The attachment rule's run (JOB, the schedule's first job):
+│   │   │   │                         # sweep, due, copy, one removal under the upload's lock, deletes.
+│   │   │   ├── target.rs             # A move's target, by kind (a folder): check, put, get; the only
+│   │   │   │                         # place of canonicalize and O_NOFOLLOW (guards.md).
 │   │   │   └── tests.rs
 │   │   ├── views/                    # What the page and the CLI read; git attribution; caches.
 │   │   │   ├── mod.rs                # Snapshot build (workspaces with their seats), the files
@@ -365,6 +384,8 @@ crates/workriver/
 │   │       ├── planning.rs  work.rs  access.rs  conversations.rs
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
+│   │       ├── schedule.rs           # Jobs by the clock in a running service (test jobs, short waits).
+│   │       ├── lifecycle.rs          # The attachment rule as the service runs it (an aged store).
 │   │       ├── templates.rs          # The template library through the service; a unit's steps filled,
 │   │       │                         # warned of and named in the manager's notices.
 │   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
@@ -390,9 +411,12 @@ crates/workriver/
 │       ├── config/
 │       │   ├── mod.rs                # Settings file read/update, generic over the adapter's options
 │       │   │                         # for a machine; the alert thresholds' types; a start's default.
+│       │   ├── attachments.rs        # The attachment rule (after, days, only, minMb, target), checked
+│       │   │                         # where it is read.
 │       │   ├── harness.rs            # The harnesses a manager is started with (kind, model flag,
 │       │   │                         # aliases) and the forms of a model.
-│       │   └── defaults.rs           # Tunable defaults (timeouts, caps).
+│       │   ├── defaults.rs           # Tunable defaults (timeouts, caps).
+│       │   └── tests.rs              # The settings file as edited by hand (the attachment rule).
 │       ├── home.rs                   # The data directory and the name of every file in it, in one
 │       │                             # place; it makes the directory (0700) and the database file
 │       │                             # (0600) before the store opens. (The ssh control sockets are
