@@ -27,6 +27,8 @@ its sections went.
   block is drawn as a diagram (Diagrams in Markdown, below). Plain text is
   monospace (whole JSON indented). Markdown is rendered up to its first 256 kB (about 1 s to
   render, measured), plain text up to 1 MB; past that a line says how much is shown.
+  The Markdown preview fills the viewer's width, and any diagram, table or code block wider
+  than the preview scrolls sideways within its own box.
   It is not modal: a large panel over the rail and the main area that stops at the side
   panel (open or folded), so the side panel stays in use; a click outside leaves it open, and
   Escape closes it unless typed in a field outside it. Focus starts in the file (↑ ↓ scroll)

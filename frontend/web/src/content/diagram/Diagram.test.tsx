@@ -38,6 +38,12 @@ async function show(text: string) {
 }
 
 describe('a mermaid block in Markdown', () => {
+  it('puts a wide image at its drawn width inside the diagram wrapper', async () => {
+    draw.answer = () => Promise.resolve({ svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 180"/>', width: 1800, height: 180 })
+    await show(FLOW)
+    expect(host.querySelector('.md > .md-diagram > img')?.getAttribute('width')).toBe('1800')
+  })
+
   it('is handed to the diagram renderer; no other code block is', async () => {
     draw.answer = () => new Promise(() => {})
     await show(`${FLOW}\n\n\`\`\`js\nconst a = 1\n\`\`\`\n\n\`\`\`\nplain\n\`\`\`\n\nand \`mermaid\` inline`)
