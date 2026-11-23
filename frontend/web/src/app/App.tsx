@@ -32,8 +32,8 @@ import { NavigateContext } from '@/content/navigation'
 import { IntentPage } from '@/planning/IntentPage'
 import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
-import { inbox, managerQuestions, type InboxRow } from '@/attention/select'
-import { blockingNews, noticeOf } from '@/attention/notice'
+import { inbox, type WaitingAgentRow } from '@/attention/select'
+import { waitingAgentNews } from '@/attention/notice'
 import { NeedsBar } from '@/attention/NeedsBar'
 import { soundWanted, useRowSound } from '@/attention/sound'
 import { selectionOf, waitsOn } from '@/work/select'
@@ -74,7 +74,7 @@ const NO_SPACES: Space[] = []
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
 export default function App() {
-  const { t, lang, waited } = useT()
+  const { t, lang } = useT()
   const [data, setData] = useState<Workspace | null>(null)
   // The service cannot be reached right now; what was shown stays.
   const [down, setDown] = useState(false)
@@ -172,18 +172,14 @@ export default function App() {
   }, [data, t, lang])
   const box = useMemo(() => ws && inbox(ws), [ws])
   const blocking = box?.blocking.length ?? 0
-  // What comes into Blocking (an agent newly waiting in its terminal, a gate, a stalled
-  // worker): a notification, if wanted, once per coming; it stays until clicked, and a click
-  // goes where its row goes. And the count in the tab's title.
-  const news = useRef(blockingNews())
-  const goRow = useRef<(r: InboxRow) => void>(() => {})
+  const waiting = useMemo(() => box?.blocking.filter((r): r is WaitingAgentRow => r.kind === 'agent') ?? [], [box])
+  // An agent newly waiting in its terminal: a notification that opens its answer gate.
+  const news = useRef(waitingAgentNews())
   useEffect(() => {
     if (!box) return
-    for (const r of news.current(box.blocking)) {
-      const { title, body } = noticeOf(t, waited, r)
-      notify(title, body, r.key, () => goRow.current(r))
-    }
-  }, [box, t, waited])
+    for (const { key, agent } of news.current(waiting))
+      notify(t('agents.notice', { agent: agent.name }), agent.topic, key, () => agentActions.answer(agent))
+  }, [box, waiting, t, agentActions])
   // A new row in Needs you: a short sound, if the user turned it on.
   useRowSound(box)
   useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])
@@ -355,7 +351,6 @@ export default function App() {
   const here = unitId ? { unit: unitId, pick } : null
   // A row in the panel opens its unit and task; the panel stays, the sheet gets out of the way.
   const open = (id: string, next: Pick) => { if (ws) pickUnit(ws, id, next); setSheet(null) }
-  goRow.current = r => (r.agent ? agentActions.answer({ name: r.agent.name, session: r.agent.session, machine: r.agent.machine }) : open(r.unit!.id, r.pick))
   // A commit opened from the panel: its unit and task, and the code block brings it into view.
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
@@ -452,7 +447,7 @@ export default function App() {
 
   // The Manager section's chips: the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
-  const needs = <NeedsBar rows={[...(box?.blocking ?? []), ...managerQuestions(ws?.messages ?? [])]} onOpen={open} onTalk={setTalkTo} />
+  const needs = <NeedsBar rows={waiting} />
   const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} needs={needs} /> }
 
   // A gate or chore of a research unit has no work tree: it runs in the intent's project folder.

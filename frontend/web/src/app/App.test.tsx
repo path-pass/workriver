@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
+import type { Task } from '@/work/types'
 import type { Workspace } from '@/workspace/types'
 import { watchWorkspace } from '@/workspace/source'
 import App from './App'
@@ -63,6 +64,7 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   localStorage.removeItem('workriver.side')
+  localStorage.removeItem('workriver.notify')
   history.replaceState(null, '', before)
   vi.unstubAllGlobals()
   globalThis.IS_REACT_ACT_ENVIRONMENT = actEnvironment ?? false
@@ -114,17 +116,16 @@ it('closes the Manager sheet after following its Markdown link', async () => {
   expect(heading()).toContain('First intent')
 })
 
-it('keeps answerable manager questions in the bar and opens the exact question', async () => {
+it('keeps manager questions answerable in the conversation without adding them to the bar', async () => {
   const choice = { surface: { version: '1.0', createSurface: { components: [{}, { component: 'ChoicePicker', options: [{ value: 'yes', label: 'Yes' }] }] } } }
   const readQuestion = { choice, open: true, unread: false }
   const snapshot: Workspace = {
     ...ws,
-    workspaces: [...ws.workspaces!, { id: 'ws2', name: 'other', project: '/project' }],
     messages: [
       { id: 'm1', workspace: 'ws1', manager: 'boss', at, step: 'delivered', byManager: true, text: 'First question?', replies: [], ...readQuestion, unread: true },
-      { id: 'm2', workspace: 'ws2', manager: 'other-boss', at, step: 'delivered', text: 'My message', replies: [
-        { by: 'other-boss', text: 'Already closed?', at, ...readQuestion, open: false },
-        { by: 'other-boss', text: 'Second question?', at, ...readQuestion },
+      { id: 'm2', workspace: 'ws1', manager: 'boss', at, step: 'delivered', text: 'My message', replies: [
+        { by: 'boss', text: 'Already closed?', at, ...readQuestion, open: false },
+        { by: 'boss', text: 'Second question?', at, ...readQuestion },
       ] },
     ],
   }
@@ -140,28 +141,80 @@ it('keeps answerable manager questions in the bar and opens the exact question',
   await act(async () => { mainButton('Manager').click() })
   expect(sheet()?.getAttribute('data-state')).toBe('open')
   expect(host.querySelector('aside section[aria-labelledby="side-talk"]')).not.toBeNull()
-  expect(sheet()?.querySelector('[role=radio][value=yes]')).not.toBeNull()
-  const bar = () => sheet()?.querySelector('section[aria-label="Needs you"]')
-  const rows = () => [...(bar()?.querySelectorAll<HTMLButtonElement>('li button') ?? [])]
-  expect(bar()?.querySelector('h3')?.textContent).toBe('Needs you2')
-  expect(rows().map(r => r.querySelector('.title')?.textContent)).toEqual(['First question?', 'Second question?'])
-
-  const answer = async (row: HTMLButtonElement, question: string) => {
-    act(() => row.click())
-    await vi.waitFor(() => expect(document.activeElement?.textContent).toContain(question))
-    const bubble = document.activeElement!
-    expect(sheet()?.contains(bubble)).toBe(true)
+  expect(sheet()?.querySelector('section[aria-label="Needs you"]')).toBeNull()
+  const answer = async (question: string) => {
+    const bubble = [...sheet()!.querySelectorAll('.msg')].find(b => b.textContent?.includes(question))!
     act(() => bubble.querySelector<HTMLButtonElement>('[role=radio][value=yes]')!.click())
     await act(async () => { button(bubble, 'Answer').click() })
   }
-  await answer(rows()[1], 'Second question?')
-  expect(bar()?.querySelector('h3')?.textContent).toBe('Needs you1')
-  await answer(rows()[0], 'First question?')
-  expect(bar()).toBeNull()
+  await answer('Second question?')
+  await answer('First question?')
   expect(received).toEqual([
-    { workspace: 'ws2', text: '', answer: { message: 'm2', reply: 2, selected: ['yes'] } },
+    { workspace: 'ws1', text: '', answer: { message: 'm2', reply: 2, selected: ['yes'] } },
     { workspace: 'ws1', text: '', answer: { message: 'm1', selected: ['yes'] } },
   ])
+})
+
+const task = { agent: null, since: at, writing: false, inputs: [], input: { text: '', causes: [] }, output: {}, plans: [] }
+const gate: Task = { ...task, id: '2', taskId: '2', kind: 'gate', gate: 'test', state: 'waiting', title: 'Try the login' }
+const stalled: Task = { ...task, id: '3', taskId: '3', kind: 'implement', state: 'running', title: 'Implement', agent: 'impl', stalled: { since: at, escalated: true } }
+const held: Workspace = { ...ws, intents: [
+  { ...ws.intents[0], units: [{ id: 'u1', title: 'Login', purpose: '', repo: '', branch: null, kind: 'research', status: 'active', commits: [], tasks: [gate, stalled] }] },
+  ws.intents[1],
+] }
+const stuck = { agent: 'ja-impl', session: 's1', machine: 'box', workspace: 'ws1', intent: 'i1', topic: 'Japanese copy', blockedSince: at, ended: false } as const
+
+function listen(initial: Workspace) {
+  let emit: (data: Workspace) => void
+  vi.mocked(watchWorkspace).mockImplementation(onData => { emit = onData; onData(initial); return () => {} })
+  return (next: Workspace) => act(() => emit(next))
+}
+
+it('shows only agents stuck in their terminals in the Manager bar and hides it when they resume', () => {
+  const push = listen({ ...held, sessions: [stuck] })
+  localStorage.setItem('workriver.side', 'talk')
+  render()
+  const bar = () => host.querySelector('aside section[aria-label="Needs you"]')
+  expect(bar()?.querySelector('h3')?.textContent).toBe('Needs you1')
+  expect([...bar()!.querySelectorAll('li button .title')].map(r => r.textContent)).toEqual(['ja-impl is waiting for you in its terminal'])
+  expect(document.title).toBe('(3) workriver')
+
+  push(held)
+  expect(bar()).toBeNull()
+  expect(document.title).toBe('(2) workriver')
+})
+
+it('notifies once per new terminal wait and opens that agent’s terminal answer gate', async () => {
+  const notices: { title: string; options: NotificationOptions; onclick?: () => void; close: () => void }[] = []
+  vi.stubGlobal('Notification', class {
+    static permission = 'granted'
+    onclick?: () => void
+    close = vi.fn()
+    constructor(public title: string, public options: NotificationOptions) { notices.push(this) }
+  })
+  localStorage.setItem('workriver.notify', '1')
+  const waiting = { ...held, sessions: [stuck] }
+  const push = listen({ ...ws, sessions: [stuck] })
+  render()
+  expect(notices).toEqual([])
+
+  push(waiting)
+  expect(notices).toEqual([])
+  push(held)
+  push(waiting)
+  push({ ...held, sessions: [{ ...stuck, topic: 'Updated topic' }] })
+  expect(notices.map(n => [n.title, n.options])).toEqual([
+    ['ja-impl is waiting for you', { body: 'Japanese copy', tag: 'workriver:agent:s1:box', requireInteraction: true }],
+  ])
+  push(held)
+  push(waiting)
+  expect(notices).toHaveLength(2)
+
+  const fetch = vi.fn(async () => Response.json({ text: 'Continue?', cols: 40, rows: 1, digest: 'd1', dialog: null }))
+  vi.stubGlobal('fetch', fetch)
+  await act(async () => { notices[1].onclick!() })
+  expect(fetch).toHaveBeenCalledWith('/api/agent/screen?agent=s1&machine=box', { cache: 'no-store' })
+  expect(notices[1].close).toHaveBeenCalledOnce()
 })
 
 it('closes the attachment viewer when its Markdown link points to the current address', async () => {

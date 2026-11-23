@@ -61,26 +61,7 @@ export interface InboxRow {
   words?: string[]
 }
 
-export interface ManagerQuestionRow {
-  kind: 'question'
-  key: string
-  workspace: string
-  text: string
-  since: number
-}
-
-/** Questions the user can still answer, whether or not they have read them. */
-export function managerQuestions(messages: ManagerMessage[]): ManagerQuestionRow[] {
-  return messages.flatMap(m => {
-    const row = (q: { text: string; at: string }, reply: number): ManagerQuestionRow => ({
-      kind: 'question', key: `${m.id}:${reply}`, workspace: m.workspace, text: q.text.trim().split('\n')[0], since: ms(q.at),
-    })
-    return [
-      ...(m.open ? [row(m, 0)] : []),
-      ...m.replies.flatMap((r, k) => r.open ? [row(r, k + 1)] : []),
-    ]
-  })
-}
+export type WaitingAgentRow = InboxRow & { kind: 'agent'; agent: NonNullable<InboxRow['agent']> }
 
 /** Live agents waiting for a person in their terminal (a question, an approval). */
 export const blockedAgents = (ws: Workspace | null) => (ws?.sessions ?? []).filter(s => !s.ended && s.blockedSince)
@@ -138,7 +119,7 @@ export function inbox(ws: Workspace): Inbox {
   const oldest = (a: InboxRow, b: InboxRow) => a.since - b.since
   const top = (r: InboxRow) => SEVERITIES.indexOf(openFindings(r.node!)[0].severity)
   // Agents waiting for a person in their terminal come first: nothing moves until someone looks.
-  const waiting = blockedAgents(ws).map((s): InboxRow => {
+  const waiting = blockedAgents(ws).map((s): WaitingAgentRow => {
     const intent = ws.intents.find(i => i.id === s.intent) ?? null
     return {
       key: `agent:${s.session ?? s.agent}${s.machine ? `:${s.machine}` : ''}`, kind: 'agent', intent, unit: null, node: null, pick: null, chore: null, since: ms(s.blockedSince),
