@@ -1904,3 +1904,27 @@ fn a_dropped_task_given_by_name_reaches_its_agent_once_listed() {
     fake.agents.lock().unwrap().push(("p4".into(), live("s-later", "later", "w1", Idle)));
     wait_until("told by its name", || sent(&fake, "s-later").iter().any(|m| m.contains("DROPPED_BY_NAME")));
 }
+
+/// A notice held for a name (a task given by name, dropped before its agent ran); the agent
+/// of that name then runs and starts a blind task given to its session. Nothing of other work
+/// reaches it while blind: the blind check is of the agent it would be typed into. Once that
+/// task is delivered, the notice arrives.
+#[test]
+fn a_notice_by_name_waits_for_a_blind_agent() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Later", "agent": "later", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    d.append("user", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROP_WHILE_BLIND" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    fake.agents.lock().unwrap().push(("p4".into(), live("s-later", "later", "w1", Blocked)));
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Blind look", "agent": "s-later", "blind": true, "inputs": [{ "from": "1" }] })).unwrap(); // u1#4
+    d.append("s-later", "task.started", json!({ "unit": "u1", "task": 4 })).unwrap();
+    fake.agents.lock().unwrap().last_mut().unwrap().1.state = Idle;
+    std::thread::sleep(std::time::Duration::from_millis(4500)); // two polls
+    assert!(sent(&fake, "s-later").iter().all(|m| !m.contains("DROP_WHILE_BLIND")), "typed into an agent on a blind task: {:?}", sent(&fake, "s-later"));
+    d.append("s-later", "task.delivered", json!({ "unit": "u1", "task": 4, "note": "seen" })).unwrap();
+    wait_until("given once its blind task is delivered", || sent(&fake, "s-later").iter().any(|m| m.contains("DROP_WHILE_BLIND")));
+}

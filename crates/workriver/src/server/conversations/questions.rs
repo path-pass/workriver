@@ -150,12 +150,16 @@ impl App {
             let why = format!("{} is on a blind task: it is told once that task is delivered", h.name);
             return self.hold(h, why);
         }
-        // 3. Its receiver in this read.
+        // 3. Its receiver in this read; blind too, the agent a name found (step 2 again).
         let row = match self.receiver(&all, &h.to, p.by_session, live) {
             Ok(Some(row)) => row,
             Ok(None) => return self.failed(h, RuntimeError::NoAgent(String::new())),
             Err(e) => return self.failed(h, e),
         };
+        if p.by_session && row.session != h.to && !own_blind(&all, &h, live) && delivery::blind(&all, live, &row.session) {
+            let why = format!("{} is on a blind task: it is told once that task is delivered", h.name);
+            return self.hold(h, why);
+        }
         drop(all);
         if h.kind == For::Discussion {
             h.name = row.name.clone();
