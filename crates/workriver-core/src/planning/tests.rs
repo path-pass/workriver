@@ -898,3 +898,33 @@ fn intent_took_counts_one_round_per_reviewed_work_task() {
     assert_eq!(got["dropped_tasks"], 1);
     assert_eq!(got["review_rounds"], json!({"u1": 2, "u2": 0}));
 }
+
+#[test]
+fn intent_took_counts_template_steps_only_once_filled() {
+    let mut records = Records::default();
+    seeded(&mut records);
+    add(&mut records, "user", json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Next", "template": "development", "repo": "/r", "branch": "feat/next", "base": "main"}})).unwrap();
+
+    let counts = |records: &Records| {
+        let state = replayed(records);
+        let took = state.intent_took(state.intent("i1").unwrap(), std::time::SystemTime::now()).unwrap();
+        (took.tasks, serde_json::to_value(took.tasks_by_kind).unwrap(), took.dropped_tasks)
+    };
+    let placed = counts(&records);
+    add(&mut records, "user", json!({"kind": "task.filled", "body": {"unit": "u2", "task": 1, "title": "Design next change", "agent": "designer"}})).unwrap();
+    let filled = counts(&records);
+    add(&mut records, "user", json!({"kind": "task.dropped", "body": {"unit": "u2", "task": 2, "reason": "Design review left out"}})).unwrap();
+    let left_out = counts(&records);
+    add(&mut records, "user", json!({"kind": "task.dropped", "body": {"unit": "u2", "task": 1, "reason": "Design cancelled"}})).unwrap();
+    let dropped = counts(&records);
+
+    assert_eq!(
+        [placed, filled, left_out, dropped],
+        [
+            (2, json!({"implement": 1, "review": 1}), 0),
+            (3, json!({"design": 1, "implement": 1, "review": 1}), 0),
+            (3, json!({"design": 1, "implement": 1, "review": 1}), 0),
+            (3, json!({"design": 1, "implement": 1, "review": 1}), 1),
+        ]
+    );
+}

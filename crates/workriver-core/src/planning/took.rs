@@ -47,8 +47,8 @@ impl State {
         for unit in self.units.iter().filter(|u| u.intent == intent.id) {
             took.units += 1;
             *took.units_by_kind.entry(name(&unit.kind)).or_default() += 1;
-            took.tasks += unit.tasks.len();
-            for task in &unit.tasks {
+            for task in unit.tasks.iter().filter(|task| !task.unfilled()) {
+                took.tasks += 1;
                 *took.tasks_by_kind.entry(name(&task.kind)).or_default() += 1;
                 took.dropped_tasks += usize::from(task.state == TaskState::Dropped);
             }

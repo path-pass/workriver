@@ -1909,7 +1909,7 @@
       "active_days": 40.666666666666664,
       "closed": null,
       "created": "2025-12-02T02:00:00Z",
-      "dropped_tasks": 2,
+      "dropped_tasks": 1,
       "intent": "i2",
       "kind": null,
       "review_rounds": {
@@ -1919,13 +1919,13 @@
         "u5": 0
       },
       "size": null,
-      "tasks": 13,
+      "tasks": 11,
       "tasks_by_kind": {
         "design": 1,
-        "gate": 3,
+        "gate": 2,
         "implement": 3,
         "research": 2,
-        "review": 2,
+        "review": 1,
         "tests": 2
       },
       "units": 4,

@@ -63,6 +63,7 @@ workriver/
 │   │       │   │                     # who edits an intent's text, its versions (Edits), the base check,
 │   │       │   │                     # an intent's project, the workspace it starts or moves in.
 │   │       │   ├── history.rs        # An intent's versions and a version's text, rebuilt from its events.
+│   │       │   ├── took.rs           # Work counts, review rounds and active days derived for an intent.
 │   │       │   ├── units.rs          # Code/research/spike units, relocation, merges, commit links; a new
 │   │       │   │                     # unit's template and the steps it places (`placing`).
 │   │       │   ├── templates.rs      # Templates as values: their rules (`Template::checked`, with the
