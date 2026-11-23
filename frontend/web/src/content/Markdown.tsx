@@ -18,11 +18,10 @@ const WHOLE_PATH = new RegExp(`^${PATH.source}$`)
 /** A link to a file of the unit, made by `filePaths`; never fetched. */
 const FILE = '#file:'
 const WORKRIVER_PATH = /^\/(?:[iu]\d+\/?|u\d+\/\d+\/?(?:\?finding=[^&#]+)?)$/
-const CJK_BOUNDARY = /[·—‘’“”…\p{Script=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]/u
+const CJK_BOUNDARY = /[—‘’“”…\p{Script=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\u3000-\u303f\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]/u
 const NEXT_BARE_URL = /(?<!\w)(?:https?:\/\/|www\.)(?=[\p{L}\p{N}])/iu
 // Host labels can be internationalized. An ASCII final label can run into CJK prose.
-// A middle dot between two l's can belong to a Catalan host label.
-const HOST_PREFIX = /^(?:https?:\/\/)?(?:(?:[\p{L}\p{M}\p{N}-]|(?<=l)·(?=l))+\.)*(?:[a-z0-9-]+|(?=\P{ASCII})[\p{L}\p{M}\p{N}-]+)/iu
+const HOST_PREFIX = /^(?:https?:\/\/)?(?:[\p{L}\p{M}\p{N}-]+\.)*(?:[a-z0-9-]+|(?=\P{ASCII})[\p{L}\p{M}\p{N}-]+)/iu
 
 function workriverPath(href: string | undefined): string | undefined {
   if (!href || href.startsWith('#')) return
