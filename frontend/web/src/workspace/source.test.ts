@@ -2,12 +2,10 @@
 // or be told of what comes (then at most once every few seconds); shown again, it catches up.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HIDDEN_READ } from '@/config/defaults'
-import type { Workspace } from './types'
 
 const stream = new EventTarget() as EventTarget & { onopen?: () => void; onerror?: () => void; close(): void }
 stream.close = () => {}
-const snapshot: Workspace = { runtime: 'some-runtime', builtAt: '2026-11-21T10:00:00Z', repos: [], intents: [], sessions: [], alerts: [], messages: [] }
-const read = vi.fn(async () => snapshot)
+const read = vi.fn(async () => ({ runtime: 'some-runtime', intents: [], sessions: [], alerts: [], messages: [] }))
 vi.mock('@/api/http', () => ({ changes: () => stream, read: () => read() }))
 const { watchWorkspace } = await import('./source')
 

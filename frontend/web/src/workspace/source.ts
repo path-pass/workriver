@@ -80,22 +80,14 @@ export function watchWorkspace(onData: (ws: Workspace) => void, onDown: () => vo
     lastRead = Date.now()
     missed = again = false
     loadWorkspace()
-      .then(ws => {
-        if (stopped) return
-        if (MOCK) shown = ws
-        onData(ws)
-      }, () => { if (!stopped) onDown() })
+      .then(ws => { if (!stopped) onData((shown = ws)) }, () => { if (!stopped) onDown() })
       .finally(() => { reading = false; if (again) get() })
   }
   const visible = () => { if (!document.hidden && missed) get() }
   document.addEventListener('visibilitychange', visible)
   get()
   if (MOCK) {
-    const changed = (e: Event) => {
-      if (!shown || stopped) return
-      shown = (e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown)
-      onData(shown)
-    }
+    const changed = (e: Event) => { if (shown && !stopped) onData((shown = (e as CustomEvent<(ws: Workspace) => Workspace>).detail(shown))) }
     window.addEventListener(MOCK_CHANGED, changed)
     return () => { stopped = true; clearTimeout(later); document.removeEventListener('visibilitychange', visible); window.removeEventListener(MOCK_CHANGED, changed) }
   }
