@@ -4,6 +4,14 @@ Newest first. A manager that was already running reads this once after an update
 
 ## 2026-11-23
 
+- **Attachments may be gone** (managers and workers): the user can set a rule that deletes
+  or moves stored files some days after the work they belong to is closed (never a file
+  open work names). A task still says what each was: a deleted one as `name (removed
+  DATE)`, a moved one as `workriver attach fetch <id>.<ext>` (on this machine too; the
+  service checks it), and `task show` adds "Named in the text, no longer in the store: …"
+  for files its text names that went. Do not ask for one again unless the work needs it. A
+  file someone else must read is attached to a task or named in its text, never only typed
+  into a terminal. (`attachments`)
 - **The user can start a manager from the page** (managers): the workspace's line, "Start
   manager": workriver opens a terminal in the project's folder, starts the harness the user
   picked (Claude Code or Codex, with a model) and seats it once it is ready with a session

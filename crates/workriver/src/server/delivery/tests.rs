@@ -381,3 +381,30 @@ fn a_finished_notice_replies_to_the_message_that_asked_else_says() {
     let notices = finished(s.state(), Some(&[agent("boss")]), &merged);
     assert_eq!(notices, [("boss".to_string(), "[workriver] u1 is merged. Tell the user what was merged and what they should do now, if anything (restart a service, re-open the page, update other machines): if the user asked for this work in a message, reply to that message with `workriver reply <message> --text \"...\"`; otherwise with `workriver say --text \"...\"`.".to_string())]);
 }
+
+/// What an agent is told of an attachment that went: a moved one by the command that fetches
+/// it through the service (never a path into where it was moved), a deleted one by its name
+/// and the day it went; a stored one by its path, as before.
+#[test]
+fn a_gone_attachment_is_named_without_a_path() {
+    let state: State = serde_json::from_value(json!({ "intents": [], "units": [], "chores": [], "attachments": [
+        { "id": "aaaaaaaaaaaaaaaa", "name": "shot.png", "type": "image/png", "size": 3, "by": "user", "at": "2026-11-01T00:00:00Z" },
+        { "id": "bbbbbbbbbbbbbbbb", "name": "moved.png", "type": "image/png", "size": 3, "by": "user", "at": "2026-11-01T00:00:00Z",
+          "gone": { "at": "2026-12-20T10:00:00Z", "how": "moved", "to": { "kind": "folder", "path": "/Volumes/far" } } },
+        { "id": "cccccccccccccccc", "name": "log.txt", "type": "text/plain", "size": 3, "by": "user", "at": "2026-11-01T00:00:00Z",
+          "gone": { "at": "2026-12-20T10:00:00Z", "how": "deleted" } } ] }))
+    .unwrap();
+    let home = Path::new("/data");
+    let moved = "the attachment \"moved.png\": run `workriver attach fetch bbbbbbbbbbbbbbbb.png` (the file is saved in the folder you are in)";
+    let deleted = "the attachment \"log.txt\" (removed 2026-12-20, no longer stored)";
+    let context: Vec<AskContext> = serde_json::from_value(json!([
+        { "kind": "attachment", "label": "shot.png", "id": "aaaaaaaaaaaaaaaa" },
+        { "kind": "attachment", "label": "moved.png", "id": "bbbbbbbbbbbbbbbb" },
+        { "kind": "attachment", "label": "log.txt", "id": "cccccccccccccccc" } ]))
+    .unwrap();
+    assert_eq!(pointed(&state, "u1", &context, home), ["the attachment \"shot.png\" at /data/attachments/aaaaaaaaaaaaaaaa.png", moved, deleted]);
+    let ids: Vec<String> = ["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", "cccccccccccccccc"].map(String::from).to_vec();
+    let line = attachments_line(&state, home, &ids);
+    assert_eq!(line, format!(" Attachments: /data/attachments/aaaaaaaaaaaaaaaa.png, {moved}, {deleted}."));
+    assert!(!line.contains("/Volumes/far"));
+}

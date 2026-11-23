@@ -320,8 +320,12 @@ crates/workriver/
 │   │   │       ├── history.rs        # Minute folding, JSONL read/retention, modes.
 │   │   │       └── tests.rs
 │   │   ├── files/                    # Attachments: handlers and the bytes on disk.
-│   │   │   ├── mod.rs                # Upload/inbox/fetch handlers, scoped checks, links for
-│   │   │   │                         # an agent on another machine; the attachment rule's routes.
+│   │   │   ├── mod.rs                # Upload (one file per id, under the upload's lock; the
+│   │   │   │                         # service's restore of a file that went)/inbox/fetch handlers
+│   │   │   │                         # (a moved file read from its target, a deleted one 410),
+│   │   │   │                         # scoped checks; how an agent reaches a file (`Reach`: a path,
+│   │   │   │                         # a fetch command, removed), links for another machine; the
+│   │   │   │                         # attachment rule's routes.
 │   │   │   ├── store.rs              # Paths, content ids, atomic put, usage.
 │   │   │   ├── lifecycle.rs          # The attachment rule's run (JOB, the schedule's first job):
 │   │   │   │                         # sweep, due, copy, one removal under the upload's lock, deletes.

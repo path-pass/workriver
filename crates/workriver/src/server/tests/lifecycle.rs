@@ -17,7 +17,7 @@ struct Setup {
     home: PathBuf,
     files: PathBuf,
     d: Daemon,
-    days: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    aging: std::sync::Arc<Aging>,
 }
 
 fn setup(jobs: Vec<Job>) -> Setup {
@@ -30,9 +30,9 @@ fn setup_with(jobs: Vec<Job>, waits: crate::server::Waits) -> Setup {
     let files = tmp.path().join("files");
     std::fs::create_dir(&home).unwrap();
     std::fs::create_dir(&files).unwrap();
-    let (d, days) = aged_service(&home.join("w.db"), jobs, waits);
+    let (d, aging) = aged_service(&home.join("w.db"), jobs, waits);
     wait_until("the service", || http(d.port, "GET", "/api/status", &[], None).0 == 200);
-    Setup { _tmp: tmp, home, files, d, days }
+    Setup { _tmp: tmp, home, files, d, aging }
 }
 
 impl Setup {
@@ -44,7 +44,7 @@ impl Setup {
     }
 
     fn stored(&self) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(crate::common::home::attachments_dir(&self.home)).unwrap().flatten().filter(|e| e.file_type().unwrap().is_file()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        let mut names: Vec<String> = std::fs::read_dir(crate::common::home::attachments_dir(&self.home)).into_iter().flatten().flatten().filter(|e| e.file_type().unwrap().is_file()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         names
     }
@@ -64,7 +64,7 @@ impl Setup {
     }
 
     fn age(&self, days: u64) {
-        self.days.store(days, Ordering::SeqCst);
+        self.aging.days.store(days, Ordering::SeqCst);
     }
 }
 
@@ -303,4 +303,227 @@ fn run_now_during_a_run_is_refused_and_the_timer_keeps_nothing() {
     assert_eq!(code, 200, "{ran}");
     let ran: Value = serde_json::from_str(&ran).unwrap();
     assert_eq!(ran["by"], "user");
+}
+
+impl Setup {
+    /// An active intent with a research unit and its task, `u1#1`, whose text is `text`.
+    fn work(&self, text: &str) {
+        self.d.append("", "intent.created", json!({ "title": "Work" })).unwrap();
+        self.d.append("", "unit.created", json!({ "intent": "i1", "title": "Look", "kind": "research" })).unwrap();
+        self.d.append("", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Look", "text": text })).unwrap();
+    }
+
+    /// Stores a file as the user, linked to `u1#1`: what the service answers.
+    fn store_for_task(&self, name: &str, bytes: &[u8]) -> Value {
+        let at = self.files.join(name);
+        std::fs::write(&at, bytes).unwrap();
+        self.d.upload(&at, "", Some(("u1", 1, None))).unwrap()
+    }
+
+    /// `GET /api/attachments/{id}` as the user.
+    fn read(&self, id: &str) -> (u16, String) {
+        as_user(&self.d, "GET", &format!("/api/attachments/{id}"), None)
+    }
+
+    /// The kinds of the events stored after the last removal, in order.
+    fn after_removal(&self) -> Vec<String> {
+        let events = stored(&self.home.join("w.db"));
+        let kinds: Vec<String> = events.iter().map(|e| serde_json::to_value(e).unwrap()["kind"].as_str().unwrap().to_string()).collect();
+        let from = kinds.iter().rposition(|k| k == "attachment.removed").expect("a removal");
+        kinds[from + 1..].to_vec()
+    }
+}
+
+/// One file per content: the same content under another name writes nothing and is answered
+/// with the file already there; a double made before that rule goes with the removal; once
+/// removed, the content uploaded again is stored under its recorded name, the service's
+/// restore recorded before the caller's own record, and read again.
+#[test]
+fn a_file_is_kept_once_under_its_recorded_name_and_stored_again_after_it_went() {
+    let s = setup(vec![lifecycle::JOB]);
+    let id = s.store("out.txt", b"the same log");
+    std::fs::write(s.files.join("out.log"), b"the same log").unwrap();
+    let again = s.d.upload(&s.files.join("out.log"), "", None).unwrap();
+    assert_eq!(again["id"], json!(id));
+    assert!(again["path"].as_str().unwrap().ends_with(&format!("{id}.txt")), "{again}");
+    assert_eq!(s.stored(), [format!("{id}.txt")]);
+    let dir = crate::common::home::attachments_dir(&s.home);
+    std::fs::write(dir.join(format!("{id}.log")), b"the same log").unwrap();
+    assert_eq!(s.rule(json!({ "after": "delete", "days": 1 })).0, 200);
+    s.age(2);
+    let (_, ran) = s.run();
+    assert_eq!(ran["detail"]["files"], 1, "{ran}");
+    assert!(s.stored().is_empty(), "every file of the id goes");
+    let (code, why) = s.read(&id);
+    assert_eq!(code, 410, "{why}");
+    assert!(why.contains(&format!("attachment {id} was removed on ")) && why.ends_with("(the attachment rule)"), "{why}");
+    let back = s.d.upload(&s.files.join("out.log"), "", None).unwrap();
+    assert!(back["path"].as_str().unwrap().ends_with(&format!("{id}.txt")), "{back}");
+    assert_eq!(s.stored(), [format!("{id}.txt")]);
+    assert_eq!(s.read(&id), (200, "the same log".to_string()));
+    assert_eq!(s.after_removal(), ["attachment.restored", "attachment.added"]);
+}
+
+/// An upload is refused when the records cannot be read to look its id up (and writes no
+/// file), or when the restore of a file that went cannot be recorded: then nothing says
+/// "stored", and the next run's sweep takes what was written.
+#[test]
+fn an_upload_that_cannot_look_up_or_restore_fails() {
+    let s = setup(vec![lifecycle::JOB]);
+    s.aging.down.store(true, Ordering::SeqCst);
+    std::fs::write(s.files.join("x.txt"), b"never stored").unwrap();
+    assert!(s.d.upload(&s.files.join("x.txt"), "", None).is_err());
+    s.aging.down.store(false, Ordering::SeqCst);
+    assert!(s.stored().is_empty(), "no file written");
+    let id = s.store("y.txt", b"gone soon");
+    assert_eq!(s.rule(json!({ "after": "delete", "days": 1 })).0, 200);
+    s.age(2);
+    s.run();
+    assert!(s.stored().is_empty());
+    s.aging.writes_down.store(true, Ordering::SeqCst);
+    let e = s.d.upload(&s.files.join("y.txt"), "", None).unwrap_err().to_string();
+    s.aging.writes_down.store(false, Ordering::SeqCst);
+    assert!(e.contains("the disk is gone"), "{e}");
+    assert!(s.after_removal().is_empty(), "nothing recorded");
+    assert_eq!(s.run().1["ok"], true);
+    assert!(s.stored().is_empty(), "the sweep took it");
+    assert_eq!(s.read(&id).0, 410);
+}
+
+/// An upload of a due file's content between the run's look at what is due and its record
+/// (the run holds its first read; the upload waits for the store, then links the file to
+/// open work): the run takes what is due again under the upload's lock and leaves the file.
+#[test]
+fn an_upload_between_what_is_due_and_its_removal_is_kept() {
+    let s = setup(vec![held_job()]);
+    s.work("");
+    let id = s.store("r.txt", b"12 passed");
+    assert_eq!(s.rule(json!({ "after": "delete", "days": 1 })).0, 200);
+    s.age(2);
+    s.aging.pause_at.store(1, Ordering::SeqCst);
+    let (ran, up) = std::thread::scope(|sc| {
+        let ran = sc.spawn(|| s.run());
+        wait_until("the run's first read", || s.aging.reached.load(Ordering::SeqCst));
+        let up = sc.spawn(|| s.store_for_task("r.txt", b"12 passed"));
+        std::thread::sleep(Duration::from_millis(300));
+        s.aging.open.store(true, Ordering::SeqCst);
+        (ran.join().unwrap(), up.join().unwrap())
+    });
+    assert_eq!((ran.0, ran.1["ok"].clone(), ran.1["words"].clone()), (200, json!(true), json!("nothing due")), "{ran:?}");
+    assert_eq!(up["id"], json!(id));
+    assert!(s.removals().is_empty());
+    assert_eq!(s.stored(), [format!("{id}.txt")]);
+    assert_eq!(s.read(&id), (200, "12 passed".to_string()));
+}
+
+/// An upload of the same content while the run records its removal (the run holds its read
+/// under the upload's lock): the upload comes after, finds it gone, stores it again and
+/// says so before its own record.
+#[test]
+fn an_upload_during_the_removal_stores_the_file_again() {
+    let s = setup(vec![held_job()]);
+    let id = s.store("r.txt", b"12 passed");
+    assert_eq!(s.rule(json!({ "after": "delete", "days": 1 })).0, 200);
+    s.age(2);
+    s.aging.pause_at.store(2, Ordering::SeqCst);
+    let (ran, up) = std::thread::scope(|sc| {
+        let ran = sc.spawn(|| s.run());
+        wait_until("the run's read under the lock", || s.aging.reached.load(Ordering::SeqCst));
+        let up = sc.spawn(|| s.store("r.txt", b"12 passed"));
+        std::thread::sleep(Duration::from_millis(300));
+        s.aging.open.store(true, Ordering::SeqCst);
+        (ran.join().unwrap(), up.join().unwrap())
+    });
+    assert_eq!((ran.0, ran.1["detail"]["files"].clone()), (200, json!(1)), "{ran:?}");
+    assert_eq!(up, id);
+    assert_eq!(s.after_removal(), ["attachment.restored", "attachment.added"]);
+    assert_eq!(s.stored(), [format!("{id}.txt")]);
+    assert_eq!(s.read(&id), (200, "12 passed".to_string()));
+}
+
+/// A moved file is read from where it went, checked; one changed there is not served.
+#[test]
+fn a_moved_file_is_served_from_its_folder_only_as_it_was() {
+    let s = setup(vec![lifecycle::JOB]);
+    let out = tempfile::tempdir().unwrap();
+    let id = s.store("a.png", b"picture a");
+    assert_eq!(s.rule(json!({ "after": "move", "days": 1, "target": folder(out.path()) })).0, 200);
+    s.age(2);
+    assert_eq!(s.run().1["ok"], true);
+    assert!(s.stored().is_empty());
+    assert_eq!(s.read(&id), (200, "picture a".to_string()));
+    let copy = out.path().canonicalize().unwrap().join(format!("{id}.png"));
+    std::fs::write(&copy, b"picture b").unwrap();
+    let (code, why) = s.read(&id);
+    assert_eq!(code, 404, "{why}");
+    assert!(why.contains(&format!("attachment {id} was moved to {} on ", out.path().canonicalize().unwrap().display())) && why.ends_with("it cannot be read there now"), "{why}");
+}
+
+/// What an agent reads of files that went: a moved one by the command that fetches it (never
+/// a path into its folder), a deleted one by its name and date, and a file only named in
+/// the task's text by a line after it.
+#[test]
+fn task_show_names_gone_files_without_a_path_into_their_folder() {
+    let s = setup(vec![lifecycle::JOB]);
+    let out = tempfile::tempdir().unwrap();
+    let named = s.store("c.png", b"picture c");
+    let dir = crate::common::home::attachments_dir(&s.home);
+    s.work(&format!("See {}", dir.join(format!("{named}.png")).display()));
+    let moved = s.store_for_task("a.png", b"picture a")["id"].as_str().unwrap().to_string();
+    let deleted = s.store_for_task("b.txt", b"a log")["id"].as_str().unwrap().to_string();
+    s.d.append("", "intent.state_changed", json!({ "intent": "i1", "state": "done" })).unwrap();
+    assert_eq!(s.rule(json!({ "after": "move", "days": 1, "only": "pictures", "target": folder(out.path()) })).0, 200);
+    s.age(2);
+    assert_eq!(s.run().1["detail"]["files"], 2);
+    assert_eq!(s.rule(json!({ "after": "delete", "days": 1 })).0, 200);
+    assert_eq!(s.run().1["detail"]["files"], 1);
+    assert_eq!(bodies(&s.home.join("w.db"), "attachment.removed")[1]["ids"], json!([deleted]));
+    // Read through the aged store: removed two days "ago".
+    let today = humantime::format_rfc3339_seconds(std::time::SystemTime::now() - Duration::from_secs(2 * 86_400)).to_string()[..10].to_string();
+    let out_dir = out.path().canonicalize().unwrap().display().to_string();
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(s.d.get("/api/task?task=u1%231").unwrap()).unwrap();
+    assert!(!serde_json::to_string(&shown).unwrap().contains(&out_dir), "{shown:?}");
+    assert_eq!(shown.no_longer_stored, [format!("c.png (moved: `workriver attach fetch {named}.png`)")]);
+    // The task's own files, as its delivery lists them.
+    s.d.append("", "task.delivered", json!({ "unit": "u1", "task": 1, "note": "Seen" })).unwrap();
+    let shown: crate::common::wire::TaskShow = serde_json::from_value(s.d.get("/api/task?task=u1%231").unwrap()).unwrap();
+    assert!(!serde_json::to_string(&shown).unwrap().contains(&out_dir), "{shown:?}");
+    let mut files = shown.output.unwrap().files;
+    files.sort();
+    let mut want = vec![format!("`workriver attach fetch {moved}.png`"), format!("b.txt (removed {today})")];
+    want.sort();
+    assert_eq!(files, want);
+}
+
+/// `attachment.added` for a file that went, recorded by an agent here or on another machine,
+/// links it and leaves it gone: nothing but the service's own restore says it is stored.
+#[test]
+fn an_agents_record_of_a_gone_file_leaves_it_gone() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    let local = std::sync::Arc::new(Fake::default());
+    *local.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-here", "here", "w1", Idle))];
+    let far = std::sync::Arc::new(Fake::default());
+    *far.agents.lock().unwrap() = vec![("w1:p1".into(), live("s-far", "far", "w1", Idle))];
+    let all = crate::runtime::follow::Machines::with(local, vec![("box", far)]);
+    let (port, kernel, aging) = aged_over(all.clone(), Some(all.clone()), &home.join("w.db"), vec![lifecycle::JOB], Default::default());
+    wait_until("the service", || http(port, "GET", "/api/status", &[], None).0 == 200);
+    wait_until("the machine's listener", || all.local_port("box").is_some());
+    let user = kernel.client(port, &home);
+    let file = tmp.path().join("a.png");
+    std::fs::write(&file, b"picture a").unwrap();
+    let id = user.upload(&file, "", None).unwrap()["id"].as_str().unwrap().to_string();
+    as_user(&user, "POST", "/api/settings/attachments", Some(&json!({ "rule": { "after": "delete", "days": 1 } })));
+    aging.days.store(2, Ordering::SeqCst);
+    assert_eq!(as_user(&user, "POST", "/api/settings/attachments/run", Some(&json!({}))).0, 200);
+    let added = json!({ "id": id, "name": "a.png", "type": "image/png", "size": 9 });
+    let here = kernel.daemon(port, Some("w1:p1".into()), None);
+    let there = kernel.daemon(all.local_port("box").unwrap(), Some("w1:p1".into()), None);
+    for agent in [here, there] {
+        wait_until("the agent is known", || agent.append("", "attachment.added", added.clone()).is_ok());
+        assert_eq!(as_user(&user, "GET", &format!("/api/attachments/{id}"), None).0, 410);
+    }
+    assert!(bodies(&home.join("w.db"), "attachment.restored").is_empty());
 }

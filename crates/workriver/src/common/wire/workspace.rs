@@ -611,7 +611,8 @@ pub(crate) struct EvidenceOut {
     pub(crate) attachment: Option<AttachmentOut>,
 }
 
-/// A stored file as the page shows it: an image previews, anything else is a link.
+/// A stored file as the page shows it: an image previews, anything else is a link; one the
+/// attachment rule took says so (`gone`).
 #[derive(Serialize, Clone)]
 pub(crate) struct AttachmentOut {
     pub(crate) id: String,
@@ -619,6 +620,9 @@ pub(crate) struct AttachmentOut {
     pub(crate) url: String,
     #[serde(rename = "type")]
     pub(crate) mime: String,
+    /// Taken by the attachment rule: when, how, and (moved) the target as recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) gone: Option<core::Gone>,
 }
 
 #[derive(Serialize)]

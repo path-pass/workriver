@@ -1,5 +1,5 @@
 // The attachment store: `<data dir>/attachments/<id>.<ext>`, one file per content (the id is
-// a short hash of it), never deleted. Agents stage files per task in `attachments/inbox/`.
+// a short hash of it), kept until the attachment rule takes it (lifecycle.rs). Agents stage files per task in `attachments/inbox/`.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -26,13 +26,18 @@ pub(in crate::server) fn file_name(id: &str, name: &str) -> Option<String> {
     })
 }
 
-/// Stores `bytes` (once per content) and returns its id and path. Safe for the same content
-/// written by several at once (two uploads of one file): each write has a temporary file of
-/// its own (tempfile: private, a random name), renamed into place whole; whichever lands
-/// last replaces the same bytes.
-pub(super) fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(String, PathBuf)> {
-    let id: String = Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let target = path(home, &id, name).expect("an id made here is of the store's form");
+/// The id of a file of these bytes: a short SHA-256 of them.
+pub(super) fn id(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Stores `bytes`, whose id is `id`, as `<id>.<ext>` of `name` (the name recorded for the id,
+/// when it has one: one file per id), unless that file is there; returns its path. Safe for
+/// the same content written by several at once (two uploads of one file): each write has a
+/// temporary file of its own (tempfile: private, a random name), renamed into place whole;
+/// whichever lands last replaces the same bytes.
+pub(super) fn put(home: &Path, id: &str, bytes: &[u8], name: &str) -> std::io::Result<PathBuf> {
+    let target = path(home, id, name).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{id:?} is not an attachment id")))?;
     if !target.exists() {
         crate::common::home::mkdir(&crate::common::home::attachments_dir(home))?;
         let mut f = tempfile::NamedTempFile::new_in(crate::common::home::attachments_dir(home))?;
@@ -40,7 +45,7 @@ pub(super) fn put(home: &Path, bytes: &[u8], name: &str) -> std::io::Result<(Str
         f.as_file().sync_all()?;
         f.persist(&target).map_err(|e| e.error)?;
     }
-    Ok((id, target))
+    Ok(target)
 }
 
 /// How many files the store holds and their size, for `workriver status`.

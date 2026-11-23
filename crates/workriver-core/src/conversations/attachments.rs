@@ -135,31 +135,37 @@ fn serialized<T: Serialize>(t: &T) -> Box<dyn Fn() -> Value + '_> {
     Box::new(move || serde_json::to_value(t).unwrap_or(Value::Null))
 }
 
-/// Every run of exactly 16 lowercase hex characters in the strings (and keys) of `v`.
-fn hex_ids<'v>(v: &'v Value, out: &mut Vec<&'v str>) {
-    fn runs<'s>(s: &'s str, out: &mut Vec<&'s str>) {
-        let hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
-        let bytes = s.as_bytes();
-        let mut k = 0;
-        while k < bytes.len() {
-            if !hex(bytes[k]) {
-                k += 1;
-                continue;
-            }
-            let start = k;
-            while k < bytes.len() && hex(bytes[k]) {
-                k += 1;
-            }
-            if k - start == 16 {
-                out.push(&s[start..k]);
-            }
+/// Every run of exactly 16 lowercase hex characters in `text` (not part of a longer run, so
+/// a commit hash holds none): what may be an attachment's id written in words (its path,
+/// the command that fetches it, the page's link).
+pub fn ids_in(text: &str) -> Vec<&str> {
+    let hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+    let bytes = text.as_bytes();
+    let mut out = vec![];
+    let mut k = 0;
+    while k < bytes.len() {
+        if !hex(bytes[k]) {
+            k += 1;
+            continue;
+        }
+        let start = k;
+        while k < bytes.len() && hex(bytes[k]) {
+            k += 1;
+        }
+        if k - start == 16 {
+            out.push(&text[start..k]);
         }
     }
+    out
+}
+
+/// Every such run in the strings (and keys) of `v`.
+fn hex_ids<'v>(v: &'v Value, out: &mut Vec<&'v str>) {
     match v {
-        Value::String(s) => runs(s, out),
+        Value::String(s) => out.extend(ids_in(s)),
         Value::Array(a) => a.iter().for_each(|x| hex_ids(x, out)),
         Value::Object(o) => o.iter().for_each(|(k, x)| {
-            runs(k, out);
+            out.extend(ids_in(k));
             hex_ids(x, out)
         }),
         _ => {}

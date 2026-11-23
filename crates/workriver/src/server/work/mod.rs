@@ -10,7 +10,7 @@ use serde_json::json;
 use workriver_core::{self as core, Body, Principal};
 
 use crate::server::delivery;
-use crate::server::files::{self, store};
+use crate::server::files;
 use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
@@ -54,16 +54,22 @@ pub(super) async fn task_show(State(app): State<Shared>, Extension(caller): Exte
         // A reader on another machine cannot open this machine's files: it gets a link it
         // can fetch through its tunnel, as the reader it is.
         let remote = caller.machine.is_some();
+        // One the attachment rule took: moved, the command that fetches it (on any machine:
+        // never a path into where it went); deleted, its name and day.
         let file = |id: &str| {
             let a = state.attachments.iter().find(|a| a.id == id)?;
-            let path = store::path(&app.home, &a.id, &a.name)?;
-            Some(if remote {
-                files::fetch_command(&path.file_name()?.to_string_lossy())
-            } else {
-                path.display().to_string()
+            Some(match files::reach(&app.home, a)? {
+                files::Reach::Path(path) if remote => files::fetch_command(&path.file_name()?.to_string_lossy()),
+                files::Reach::Path(path) => path.display().to_string(),
+                files::Reach::Fetch(command) => command,
+                files::Reach::Removed(day) => format!("{} (removed {day})", delivery::quote::name(&a.name)),
             })
         };
         let mut shown = crate::server::views::task::task(&state, &ws, &unit, n, &file)?;
+        // What its text names by id that went: said after the text, not left as a dead path.
+        if let Ok(t) = state.task(&unit, n) {
+            shown.no_longer_stored = files::no_longer_stored(&state, &app.home, std::iter::once(t.text.as_str()).chain(t.notes.iter().map(|x| x.text.as_str())));
+        }
         // Started or delivered: its agent's harness and model, and where the harness keeps
         // the session (one still to do has none: its agent's session is other work's).
         let begun = state.task(&unit, n).ok().filter(|t| t.started.is_some() || t.done.is_some());

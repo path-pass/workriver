@@ -199,6 +199,12 @@ workspace.intents[].units[].tasks[].inputs[].primary: bool
 workspace.intents[].units[].tasks[].inputs[]: object
 workspace.intents[].units[].tasks[].kind: string
 workspace.intents[].units[].tasks[].output.attachments: array
+workspace.intents[].units[].tasks[].output.attachments[].gone.at: string
+workspace.intents[].units[].tasks[].output.attachments[].gone.how: string
+workspace.intents[].units[].tasks[].output.attachments[].gone.to.kind: string
+workspace.intents[].units[].tasks[].output.attachments[].gone.to.path: string
+workspace.intents[].units[].tasks[].output.attachments[].gone.to: object
+workspace.intents[].units[].tasks[].output.attachments[].gone: object
 workspace.intents[].units[].tasks[].output.attachments[].id: string
 workspace.intents[].units[].tasks[].output.attachments[].name: string
 workspace.intents[].units[].tasks[].output.attachments[].type: string

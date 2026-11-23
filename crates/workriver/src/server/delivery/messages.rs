@@ -79,15 +79,28 @@ pub(super) fn files(state: &State, home: &std::path::Path, unit: &str, n: u32, f
     attachments_line(state, home, ids)
 }
 
+/// How an agent is told of a stored attachment: its path (`Ok`), or for one the attachment
+/// rule took, words in place of one (`Err`): a moved one by the command that fetches it
+/// through the service, never a path into where it went; a deleted one by its name and day.
+/// None for an id not of the store's form.
+pub(in crate::server) fn reached(home: &Path, a: &workriver_core::Attachment) -> Option<Result<std::path::PathBuf, String>> {
+    use crate::server::files::Reach;
+    Some(match crate::server::files::reach(home, a)? {
+        Reach::Path(p) => Ok(p),
+        Reach::Fetch(command) => Err(format!("the attachment \"{}\": run {command} (the file is saved in the folder you are in)", quote::name(&a.name))),
+        Reach::Removed(day) => Err(format!("the attachment \"{}\" (removed {day}, no longer stored)", quote::name(&a.name))),
+    })
+}
+
+/// These stored files as a message lists them: a path to open, or `reached`'s words.
+pub(in crate::server) fn listed<'a>(state: &State, home: &Path, ids: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    ids.into_iter().filter_map(|id| state.attachments.iter().find(|a| a.id == id)).filter_map(|a| reached(home, a)).map(|r| r.map_or_else(|words| words, |p| p.display().to_string())).collect()
+}
+
 /// " Attachments: <paths>." for these stored files, so the receiver can open them; empty
 /// when there are none.
 pub(super) fn attachments_line<'a>(state: &State, home: &std::path::Path, ids: impl IntoIterator<Item = &'a String>) -> String {
-    let paths: Vec<String> = ids
-        .into_iter()
-        .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
-        .filter_map(|a| crate::server::files::store::path(home, &a.id, &a.name))
-        .map(|p| p.display().to_string())
-        .collect();
+    let paths = listed(state, home, ids.into_iter().map(String::as_str));
     if paths.is_empty() { String::new() } else { format!(" Attachments: {}.", paths.join(", ")) }
 }
 
@@ -261,11 +274,12 @@ pub(in crate::server) fn pointed(state: &State, unit: &str, context: &[AskContex
                 ("file", Some(p), _, _) => format!("the file {}", quote::name(p)),
                 ("finding", _, _, _) => format!("finding {}", quote::name(&c.label)),
                 ("attachment", _, _, _) => match stored(&c.id) {
-                    Some(a) => match crate::server::files::store::path(home, &a.id, &a.name) {
+                    Some(a) => match reached(home, a) {
                         // Raw: made of the configured home, a hex id and an alphanumeric
                         // extension, so `App::send` still finds the store's prefix in it and
                         // turns it into a fetch command for an agent on another machine.
-                        Some(p) => format!("the attachment \"{}\" at {}", quote::name(&a.name), p.display()),
+                        Some(Ok(p)) => format!("the attachment \"{}\" at {}", quote::name(&a.name), p.display()),
+                        Some(Err(words)) => words,
                         None => format!("the attachment \"{}\"", quote::name(&a.name)),
                     },
                     None => format!("the attachment \"{}\"", quote::name(&c.label)),

@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::json;
 use workriver_core::ports::Recorded;
-use workriver_core::{Attachment, Body, Principal, Removed, State, Target};
+use workriver_core::{Attachment, Body, Principal, Removed, State};
 
 use crate::common::config::attachments::{After, Rule};
 use crate::server::app::{App, Unread, got};
@@ -49,7 +49,7 @@ pub(in crate::server) fn run(app: &App) -> Report {
         let saved = rule.target.clone().expect("a move's rule has its target");
         match target::check(&saved, &app.home) {
             Ok(now) if now == saved => {}
-            Ok(_) => return failed(format!("the folder {} is not the one saved; nothing was moved", shown(&saved))),
+            Ok(_) => return failed(format!("the folder {} is not the one saved; nothing was moved", target::shown(&saved))),
             Err(why) => return failed(format!("{why}; nothing was moved")),
         }
     }
@@ -77,11 +77,6 @@ fn read(app: &App) -> Result<Recorded, String> {
 
 fn stopping(app: &App) -> bool {
     *app.stopping.borrow()
-}
-
-/// A target as the run's words show it: a folder's path, else its kind.
-fn shown(t: &Target) -> String {
-    t.rest.get("path").and_then(|p| p.as_str()).map_or_else(|| format!("of kind {}", t.kind), str::to_string)
 }
 
 /// The store's files by id: every regular file named `<id>` or `<id>.<anything>` (one look

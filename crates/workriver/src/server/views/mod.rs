@@ -165,7 +165,7 @@ fn chore(c: &core::Chore, names: &Names, project: Option<String>) -> Chore {
 fn attachments_of(state: &core::State, ids: &[String]) -> Vec<AttachmentOut> {
     ids.iter()
         .filter_map(|id| state.attachments.iter().find(|a| &a.id == id))
-        .map(|a| AttachmentOut { id: a.id.clone(), name: a.name.clone(), url: format!("/api/attachments/{}", a.id), mime: a.mime.clone() })
+        .map(|a| AttachmentOut { id: a.id.clone(), name: a.name.clone(), url: format!("/api/attachments/{}", a.id), mime: a.mime.clone(), gone: a.gone.clone() })
         .collect()
 }
 

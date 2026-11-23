@@ -459,6 +459,9 @@ pub(crate) fn text(s: &TaskShow) -> String {
     if !s.text.is_empty() && s.text != s.title {
         block(&mut out, &format!("What it asks (written by {})", s.written_by), &s.text);
     }
+    if !s.no_longer_stored.is_empty() {
+        let _ = writeln!(out, "Named in the text, no longer in the store: {}", s.no_longer_stored.join(", "));
+    }
     // Added since: part of what it asks, each with whose it is and when.
     for x in &s.notes {
         let files = if x.files.is_empty() { String::new() } else { format!("\nFiles: {}", x.files.join(", ")) };

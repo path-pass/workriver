@@ -46,7 +46,9 @@ workriver serve              # http://127.0.0.1:47820
 
 - 数据：`~/workriver-data/workriver.db`（设 `WORKRIVER_HOME` 换位置）。只有一个 SQLite
   文件；备份时先停掉服务再复制它。附件（截图、报告）放在旁边的 `attachments/` 里，同样的
-  内容只存一份，和记录一样永不删除；`workriver status` 会显示它们占了多少空间。
+  内容只存一份；除非你设了附件规则（在它们所属的工作结束若干天后删除或移走，见
+  `docs/security.zh-CN.md` 的“附件规则”），否则一直保留；无论哪种，关于文件的记录都会留着。
+  `workriver status` 会显示它们占了多少空间，以及规则上次执行的结果。
 - 页面上的终端按钮会在运行时里把 agent 的终端切到前面，再把终端应用切到前台（默认
   Ghostty；用 `workriver serve --terminal-app iTerm` 改，传 `''` 表示不切）。
 

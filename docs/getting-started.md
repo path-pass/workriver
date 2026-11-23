@@ -48,7 +48,10 @@ printed, since agents can read the runtime's terminals; on a machine without a b
 - Data: `~/workriver-data/workriver.db` (set `WORKRIVER_HOME` to put it elsewhere). One
   SQLite file; copy it while the service is stopped to back it up. Attachments
   (screenshots, reports) live next to it in `attachments/`, one file per content, and are
-  never deleted, like the records; `workriver status` shows how much they take.
+  kept for good unless you set an attachment rule (delete or move them some days after the
+  work they belong to is closed; see "The attachment rule" in `docs/security.md`); what
+  is recorded about a file stays either way. `workriver status` shows how much they take
+  and the rule's last run.
 - The page's terminal button brings the agent's terminal to the front in the runtime, then
   the terminal app (Ghostty by default; `workriver serve --terminal-app iTerm`, or `''` for none).
 

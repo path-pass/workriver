@@ -31,6 +31,10 @@ pub struct TaskShow {
     /// Requirements added to it since (`workriver task note`), oldest first: part of what it asks.
     #[serde(default)]
     pub notes: Vec<NoteShow>,
+    /// Files its text (or what was added to it) names that the attachment rule took: each
+    /// "name (removed DATE)" or "name (moved: `fetch command`)".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub no_longer_stored: Vec<String>,
     /// The tasks it comes after (`start`: it can begin at once).
     pub after: Vec<String>,
     pub causes: Vec<CauseShow>,

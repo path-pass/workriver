@@ -18,6 +18,14 @@ fn unknown(t: &Target) -> String {
     format!("no target of kind {:?}", t.kind)
 }
 
+/// A target as words show it: a folder's path, else its kind.
+pub(in crate::server) fn shown(t: &Target) -> String {
+    match t.kind.as_str() {
+        "folder" => path_of(t).map_or_else(|e| e, |p| p.display().to_string()),
+        kind => format!("a target of kind {kind}"),
+    }
+}
+
 /// A folder target's path, as given.
 fn path_of(t: &Target) -> Result<PathBuf, String> {
     t.rest.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(PathBuf::from).ok_or_else(|| "a folder target needs its path".to_string())
