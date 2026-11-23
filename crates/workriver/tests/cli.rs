@@ -24,9 +24,14 @@ impl Drop for Serve {
     }
 }
 
-/// The runtime's socket, as much as the service asks of it: one workspace, `exp`, empty.
-fn runtime(path: &Path) {
+/// The runtime's socket, as much as the service asks of it: one agent in the `exp` group.
+fn runtime(path: &Path, repo: &Path) {
     let listener = UnixListener::bind(path).unwrap();
+    let snapshot = json!({
+        "workspaces": [{ "workspace_id": "w1", "label": "exp" }],
+        "panes": [],
+        "agents": [{ "pane_id": "w1:p1", "workspace_id": "w1", "agent": "codex", "name": "Lead", "agent_status": "idle", "agent_session": { "value": "s-lead" }, "cwd": repo }],
+    });
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { break };
@@ -37,7 +42,7 @@ fn runtime(path: &Path) {
             let req: Value = serde_json::from_str(&line).unwrap_or_default();
             let answer = match req["method"].as_str().unwrap_or_default() {
                 "ping" => json!({ "id": req["id"], "result": { "version": "0.9.0", "protocol": 22 } }),
-                "session.snapshot" => json!({ "id": req["id"], "result": { "snapshot": { "workspaces": [{ "workspace_id": "w1", "label": "exp" }], "panes": [], "agents": [] } } }),
+                "session.snapshot" => json!({ "id": req["id"], "result": { "snapshot": snapshot } }),
                 _ => json!({ "id": req["id"], "error": { "code": "not_in_this_stand_in", "message": "not in this stand-in" } }),
             };
             let _ = (&stream).write_all(format!("{answer}\n").as_bytes());
@@ -77,7 +82,8 @@ fn lists_findings_and_machines_from_the_cli() {
     let home = tmp.path().join("home");
     std::fs::create_dir(&home).unwrap();
     let socket = tmp.path().join("rt.sock");
-    runtime(&socket);
+    let repo = tmp.path().canonicalize().unwrap().join("chat");
+    runtime(&socket, &repo);
     let bin = tmp.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
     std::fs::write(bin.join("ssh"), ssh()).unwrap();
@@ -94,7 +100,10 @@ fn lists_findings_and_machines_from_the_cli() {
     };
     let log = std::fs::File::create(tmp.path().join("serve.log")).unwrap();
     let _serve = Serve(cli().args(["serve", "--terminal-app", ""]).env("WORKRIVER_ALLOW_AS", "1").stdout(log.try_clone().unwrap()).stderr(log).spawn().unwrap());
-    eventually("the service starts", || cli().arg("status").output().unwrap().status.success());
+    eventually("the service starts and reads the agent runtime", || {
+        let out = cli().arg("status").output().unwrap();
+        out.status.success() && String::from_utf8_lossy(&out.stdout).lines().any(|line| line == "agent runtime: connected")
+    });
     // One command: what it printed, or why it failed.
     let run = |args: &[&str]| {
         let out = cli().args(args).output().unwrap();
@@ -106,7 +115,6 @@ fn lists_findings_and_machines_from_the_cli() {
     let jobs = status.split_once("jobs (times in UTC):").map(|(_, j)| j.to_string()).unwrap_or_default();
     assert!(jobs.lines().any(|l| l.trim_start().starts_with("attachments ") && l.contains("not run since the service started")), "{status}");
 
-    let repo = tmp.path().join("chat");
     std::fs::create_dir(&repo).unwrap();
     for args in [&["init", "-q", "-b", "main"][..], &["-c", "user.name=a", "-c", "user.email=a@example.invalid", "commit", "-q", "--allow-empty", "-m", "base"]] {
         assert!(Command::new("git").arg("-C").arg(&repo).args(args).status().unwrap().success());
@@ -126,6 +134,8 @@ fn lists_findings_and_machines_from_the_cli() {
     assert_eq!(run(&["workspace", "close", "ws2"]), "ws2 closed\n");
     assert_eq!(run(&["workspace", "list"]), "ws1  Chat  project Chat (p1)  no manager\nws2  Side  project Chat (p1)  no manager  (closed)\n");
     assert_eq!(run(&["workspace", "open", "ws2"]), "ws2 open\n");
+    run(&["workspace", "manager", "ws2", "s-lead"]);
+    assert_eq!(run(&["workspace", "list"]), "ws1  Chat  project Chat (p1)  no manager\nws2  Side  project Chat (p1)  manager Lead (idle)\n");
     let listed = format!("Chat  {repo}  (p1)\n  roadmap:\n    1. i1 Search — Find messages [jira:CH-1]\n    2. i2 Emoji — React to messages\n  deferred findings:\n    P2 f1 from audit: Old dependency\n");
     assert_eq!(run(&["backlog", "list"]), listed);
     assert_eq!(run(&["backlog", "list", "--project", "p1"]), listed);
