@@ -129,9 +129,8 @@ workriver workspace manager ws1 boss     # the agent's name, or its session
 ```
 
 workriver types into that agent's terminal that it is now the manager of the workspace,
-with where its role is written. Only you seat a manager: an agent cannot make itself one
-(there is no `workriver manager here`), and the seat does not follow a name or a place in
-the runtime. Seat someone else at any time (the one replaced is told), or empty the seat
+with where its role is written. Only you seat a manager: an agent cannot make itself one,
+and the seat does not follow a name or a place in the runtime. Seat someone else at any time (the one replaced is told), or empty the seat
 (`--none`).
 
 When a manager's terminal closes, its workspace shows "manager not running". The same
@@ -241,7 +240,7 @@ the runtime over there is not where workriver looks for it, `machine add` takes 
 Agents over there show up with the machine's name. They work in the same workspaces as
 agents here: a workspace has no machine. A worker over there is in a workspace through the
 tasks it is given, and you can seat an agent over there as a workspace's manager like any
-other. There is nothing to link.
+other.
 
 A unit is recorded where its work happens: an agent over there
 records it there as usual; a manager on this machine names the machine, with the path and
@@ -255,8 +254,9 @@ made without its `Task:` trailer is linked to its task afterwards, by its agent,
 manager or you: `workriver commit link <hash> u1#3`, or the "It belongs to task" select on
 the unregistered node; the link follows the commit through a rebase. For a unit over there,
 workriver reads its commits with git over ssh, every 15 seconds. Screenshots attached
-there are uploaded through the connection; messages to agents there link to them
-(`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`). The terminal button focuses the agent's terminal in that
+there are uploaded through the connection; messages to agents there give the command that
+fetches each one into the folder the agent is in (`workriver attach fetch <id>.<ext>`; a
+`curl` to the service is refused). The terminal button focuses the agent's terminal in that
 machine's runtime ([runtimes/herdr.md](runtimes/herdr.md#other-machines) says what is left
 to you).
 
@@ -274,6 +274,13 @@ Do the same build on **every other machine** you follow (`git pull`, `cargo buil
 --release` there): the `workriver` command agents run there must match the service.
 `workriver status`, here and on each of them, shows the version and the commit of the
 service and says so when the command it was run with is another build.
+
+A store written before workspaces were workriver's own is refused at start ("holds events
+in the form from before virtual workspaces"; nothing in it is changed). Convert a copy of
+it once with the script the repository no longer carries: commit `7cdf576` holds it, as
+`scripts/migrate-virtual-workspaces/`, and its `README.md` says how to run it. On any
+machine with a clone, take that commit into a worktree of its own (`git worktree add
+--detach .local/migrate-script 7cdf576`) and follow the README there.
 
 Cargo never removes old builds from `target/`: after some weeks of updates `target/debug`
 can pass 20 GB. `cargo clean --profile dev` removes `target/debug` only; the

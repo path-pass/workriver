@@ -258,8 +258,7 @@ fn a_gate_waits_only_once_what_it_follows_is_done() {
 }
 
 /// A unit closed as done takes a new task as more work: it is open again, its state worked out
-/// from its tasks as before (the closing is kept as what it was, `reopened`); a merged one
-/// takes none.
+/// from its tasks as before; a merged one takes none.
 #[test]
 fn a_task_added_to_a_done_unit_opens_it_again() {
     let mut s = Records::default();
@@ -273,7 +272,6 @@ fn a_task_added_to_a_done_unit_opens_it_again() {
     add(&mut s, "boss", json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "One more", "inputs": [{"from": "1"}]}})).unwrap();
     let u = s.state().units[0].clone();
     assert_eq!((u.done.is_none(), s.state().progress(&u)), (true, Progress::Working), "open again, working on the new task");
-    assert_eq!(u.reopened.as_ref().map(|c| c.reason.as_str()), Some("enough"), "what it was closed as is kept");
     assert_eq!(replayed(&s).progress(&replayed(&s).units[0]), Progress::Working);
     // Closed again once that is through.
     add(&mut s, "w", json!({"kind": "task.started", "body": {"unit": "u1", "task": 2}})).unwrap();
@@ -448,7 +446,7 @@ fn a_dropped_follow_up_answers_nothing() {
     assert_eq!(s.state().task("u1", 2).unwrap().findings[1].state, FindingState::Accepted);
 }
 
-/// The first task of a unit or intent starts at the start; a later one says what it follows
+/// The first task of a unit starts at the start; a later one says what it follows
 /// (a task, `start` to run beside the first, or a cause in the same unit), else it is refused
 /// rather than hung off the start away from the work it continues.
 #[test]

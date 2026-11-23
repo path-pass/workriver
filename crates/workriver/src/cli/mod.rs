@@ -267,7 +267,7 @@ pub(crate) enum Cmd {
     /// Print the link that opens an intent, unit or task in the user's browser, on the
     /// machine workriver runs on: to point the user at it.
     Link {
-        /// An intent (i3), unit (u1), task (u1#3, i3#1), or a finding of a task (u1#3:P2-1).
+        /// An intent (i3), unit (u1), task (u1#3), or a finding of a task (u1#3:P2-1).
         target: String,
     },
 }

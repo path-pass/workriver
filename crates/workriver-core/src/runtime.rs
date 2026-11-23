@@ -31,7 +31,7 @@ pub enum AgentState {
 #[derive(Serialize, Clone, PartialEq, Debug)]
 pub struct RuntimeAgent {
     /// The harness's own session id; what workriver records as the actor, and what
-    /// `focus` and `send` take.
+    /// `focus`, `resolve` and `send_at` take.
     pub session: String,
     /// Which harness runs it, e.g. "claude" or "codex".
     pub harness: String,
@@ -54,7 +54,6 @@ pub struct RuntimeAgent {
 pub struct Place {
     /// The agent running there, if any (a plain shell has none).
     pub agent: Option<RuntimeAgent>,
-    pub group: Option<RuntimeRef>,
 }
 
 /// A place with the processes at its root, as the ids its operating system gives them:
@@ -131,22 +130,12 @@ pub trait Runtime: Send + Sync {
     fn locate(&self, machine: Option<&str>, place: &str) -> Result<Place, RuntimeError>;
     /// Bring the agent's terminal to the front.
     fn focus(&self, session: &str) -> Result<(), RuntimeError>;
-    /// Type a message into the agent's terminal and submit it; does not wait for an answer.
-    /// `agent` is a session or a live agent's name.
-    fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError>;
-    /// As `send`, to the agent that has exactly this session on `machine` (none: this one),
-    /// and to no other: `NoAgent` when no live agent has it, whatever another one is called.
-    fn send_to(&self, machine: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
-        if !self.agents()?.iter().any(|a| a.session == session && a.machine.as_deref() == machine) {
-            return Err(RuntimeError::NoAgent(session.into()));
-        }
-        self.send(session, text)
-    }
-    /// As `send`, into `place` on `machine` (none: this one), and only while that place shows
-    /// exactly this session, read fresh: `NoAgent` otherwise, whatever other place shows it.
-    /// Every message workriver types goes this way, once its place is known: the one place
-    /// `resolve` gave, or the place a seated manager is held to, never wherever its session
-    /// shows. By default, no runtime can (`Unsupported`).
+    /// Types a message into `place` on `machine` (none: this one) and submits it, without
+    /// waiting for an answer; only while that place shows exactly this session, read fresh:
+    /// `NoAgent` otherwise, whatever other place shows it. Every message workriver types goes
+    /// this way, once its place is known: the one place `resolve` gave, or the place a seated
+    /// manager is held to, never wherever its session shows. By default, no runtime can
+    /// (`Unsupported`).
     fn send_at(&self, _machine: Option<&str>, _place: &str, _session: &str, _text: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::Unsupported)
     }
@@ -256,9 +245,6 @@ impl Runtime for NoRuntime {
     fn focus(&self, _: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::None)
     }
-    fn send(&self, _: &str, _: &str) -> Result<(), RuntimeError> {
-        Err(RuntimeError::None)
-    }
     fn start_temporary(&self, _: &str, _: &str, _: &str, _: &str) -> Result<RuntimeAgent, RuntimeError> {
         Err(RuntimeError::None)
     }
@@ -266,6 +252,9 @@ impl Runtime for NoRuntime {
         Err(RuntimeError::None)
     }
     fn roots(&self, _: Option<&str>, _: Option<&str>) -> Result<Vec<Root>, RuntimeError> {
+        Err(RuntimeError::None)
+    }
+    fn resolve(&self, _: Option<&str>, _: &str) -> Result<String, RuntimeError> {
         Err(RuntimeError::None)
     }
 }

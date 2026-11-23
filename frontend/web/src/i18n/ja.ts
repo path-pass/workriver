@@ -45,7 +45,6 @@ export const ja: OneForm<typeof en> = {
     addCancel: 'キャンセル',
     drag: 'ドラッグで並べ替え',
     start: '開始',
-    intentWork: '調査と設計',
     foldGroup: '「{{title}}」のユニットを表示／非表示',
     failed: '保存できませんでした：{{error}}',
     mergeOpen: '統合…',
@@ -68,7 +67,6 @@ export const ja: OneForm<typeof en> = {
     addKind: '種類',
     tags: 'タグ：{{tags}}',
     held: {
-      tasks: '独自のタスクがあるため統合できません（理由を添えて取り下げることはできます）。',
       units: '独自のユニットがあるため統合できません（理由を添えて取り下げることはできます）。',
       findings: 'バックログに独自の指摘があるため統合できません（理由を添えて取り下げることはできます）。',
       chores: 'あなたへの独自の依頼があるため統合できません（理由を添えて取り下げることはできます）。'
@@ -93,8 +91,6 @@ export const ja: OneForm<typeof en> = {
     units: 'ユニット',
     moved: '{{time}}前に動きあり',
     neverMoved: 'まだ動きなし',
-    earlier: '以前の調査と設計',
-    earlierHint: '調査と設計がそれぞれのユニットになる前に、インテント自体に記録されたものです。',
     kind: { feature: '機能', fix: '修正', chore: '保守', research: '調査' },
     size: { s: 'S', m: 'M', l: 'L' },
     sizeHint: { s: 'S：1 ユニット、レビュー 1 回；数時間', m: 'M：1〜2 ユニット、レビュー数回；1〜2 日', l: 'L：3 ユニット以上、または先に設計；数日' },
@@ -528,13 +524,10 @@ export const ja: OneForm<typeof en> = {
       held: '{{agent}} を待っています。空いたら質問が入ります。',
       starting: 'エージェントを起動中…',
       reading: '記録とコードを読んでいます…',
-      asking: '{{agent}} に確認中…',
       blocked: '{{runtime}} であなたを待っています：{{agent}} がターミナルで回答を必要としています。空いたら質問が入ります。'
     },
     toTerminal: 'ターミナルへ',
     asked: '{{agent}} に確認済み',
-    busy: '{{agent}} が作業中のため、記録から回答しました',
-    ended: '{{agent}} のセッションは終了しているため、記録から回答しました',
     cannot: '回答するエージェントを起動できませんでした：{{reason}}',
     threadEnded: '終了',
     concludeAsked: '結論を依頼しました',
@@ -848,7 +841,6 @@ export const ja: OneForm<typeof en> = {
     lostCommits: 'コミットが現在のブランチにありません：{{commits}}（このユニットが離れたブランチ上）',
     uncommitted: '作成中、未コミット',
     notStarted: 'まだ開始していません。',
-    notDone: 'まだ完了していません。',
     willChange: '変更予定：{{paths}}'
   },
   stat: {

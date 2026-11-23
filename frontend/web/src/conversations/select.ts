@@ -15,10 +15,8 @@ export const EVERY = ''
 /** A message's replies: its manager's, or (to every manager) each copy's. */
 export const repliesOf = (m: ManagerMessage) => [...m.replies, ...(m.to ?? []).flatMap(c => c.replies)]
 
-/** A task's conversations: from the service, or the sample's single one. */
-export function threadsOf(n: Task): Thread[] {
-  return n.threads ?? (n.thread?.length ? [{ id: '', ended: false, live: false, turns: n.thread }] : [])
-}
+/** A task's conversations. */
+export const threadsOf = (n: Task): Thread[] => n.threads ?? []
 
 export const turnsOf = (n: Task) => threadsOf(n).flatMap(t => t.turns)
 

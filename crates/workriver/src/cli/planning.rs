@@ -430,7 +430,7 @@ pub(crate) enum WorkspaceCmd {
 #[derive(Subcommand)]
 pub(crate) enum ProjectCmd {
     /// Register a folder as a project: its repositories are its direct subfolders with a
-    /// .git, or the folder itself. A repository outside every project is a project of its own.
+    /// .git, or the folder itself. A repository outside every project is in none until registered.
     Add {
         folder: String,
         /// Default: the folder's name.

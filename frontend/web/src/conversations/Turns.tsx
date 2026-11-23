@@ -137,8 +137,8 @@ function TurnView({ turn, agent, discuss, onFile }: { turn: Turn; agent: string 
           <Answer text={turn.answer!} onFile={onFile} />
           {turn.consulted && (
             <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-2">
-              {turn.consulted.outcome === 'asked' && <Who name={turn.consulted.agent} />}
-              {t(`ask.${turn.consulted.outcome}`, { agent: turn.consulted.agent })}
+              <Who name={turn.consulted.agent} />
+              {t('ask.asked', { agent: turn.consulted.agent })}
             </p>
           )}
         </Theirs>

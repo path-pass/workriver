@@ -15,7 +15,8 @@ pub(crate) fn link_path(s: &str) -> anyhow::Result<String> {
     let (at, finding) = s.split_once(':').map_or((s, None), |(a, f)| (a, Some(f)));
     let (id, n) = at.split_once('#').map_or((at, None), |(u, n)| (u, Some(n)));
     let digits = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit());
-    if !(id.strip_prefix('u').or_else(|| id.strip_prefix('i')).is_some_and(digits) && n.is_none_or(digits)) {
+    let id_digits = id.strip_prefix('u').or_else(|| id.strip_prefix('i').filter(|_| n.is_none()));
+    if !(id_digits.is_some_and(digits) && n.is_none_or(digits)) {
         return Err(bad());
     }
     let mut path = format!("/{id}");
@@ -34,7 +35,7 @@ pub(super) fn task_ref(s: &str) -> anyhow::Result<(String, u32)> {
     parse_task_ref(s).map(|(u, n)| (u.to_string(), n)).ok_or_else(|| anyhow!("{s:?} is not a task; write it as <unit>#<n>, e.g. u1#3"))
 }
 
-/// `4:P2-1,P3-1` (this unit), `u1#4:P2-1` (another unit or intent), `f3,f4` (backlog findings).
+/// `4:P2-1,P3-1` (this unit), `u1#4:P2-1` (another unit), `f3,f4` (backlog findings).
 pub(crate) fn parse_cause(s: &str) -> anyhow::Result<Value> {
     let ids = |x: &str| x.split(',').map(str::trim).filter(|i| !i.is_empty()).map(str::to_string).collect::<Vec<_>>();
     let Some((n, list)) = s.split_once(':') else {

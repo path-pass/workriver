@@ -71,9 +71,9 @@ fn reads_agents_one_request_per_connection() {
     assert_eq!(a.group, Some(RuntimeRef { id: "w5".into(), label: "chat".into(), machine: None }));
     let b = &list[1];
     assert_eq!((b.session.as_str(), b.name.as_str(), b.state), ("herdr:w5:p2", "reviewer", AgentState::Done), "the Herdr name before the pane label");
-    // A shell pane: its workspace, no agent.
+    // A shell pane: no agent.
     let shell = herdr.locate(None, "w5:p3").unwrap();
-    assert_eq!((shell.agent, shell.group.map(|g| g.label)), (None, Some("chat".into())));
+    assert_eq!(shell.agent, None);
     let seen = server.join().unwrap();
     assert_eq!(seen.len(), 2);
     assert_eq!(seen[0]["method"], "session.snapshot");
@@ -81,29 +81,16 @@ fn reads_agents_one_request_per_connection() {
 }
 
 #[test]
-fn sends_to_the_sessions_pane_and_reports_errors() {
+fn sends_at_the_sessions_pane_and_reports_errors() {
     let error = json!({ "error": { "code": "agent_blocked", "message": "agent is blocked" } });
-    let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), error]);
-    herdr.send("s-1", "hello").unwrap();
+    let (_dir, herdr, server) = fake(vec![snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } }), snapshot(), error]);
+    herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap();
     // Blocked is its own error: the message waits rather than fails.
-    let err = herdr.send("s-1", "again").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "again").unwrap_err();
     assert!(matches!(&err, RuntimeError::Blocked(w) if w.contains("agent_blocked") && w.contains("agent is blocked")), "{err}");
     let seen = server.join().unwrap();
     assert_eq!(seen[1]["method"], "agent.prompt");
     assert_eq!(seen[1]["params"], json!({ "target": "w5:p1", "text": "hello" }));
-}
-
-/// A message for a session goes to the pane that holds it, read fresh; a pane whose agent
-/// only goes by that as a name gets nothing: nothing is asked of Herdr but who is there.
-#[test]
-fn sends_to_a_session_never_to_a_name() {
-    let (_dir, herdr, server) = fake(vec![snapshot(), snapshot(), json!({ "result": { "type": "agent_prompted", "agent": {} } })]);
-    let err = herdr.send_to(None, "reviewer", "hello").unwrap_err();
-    assert!(matches!(&err, RuntimeError::NoAgent(a) if a == "reviewer"), "{err}");
-    herdr.send_to(None, "herdr:w5:p2", "hello").unwrap();
-    let seen = server.join().unwrap();
-    assert_eq!(seen.iter().map(|r| r["method"].as_str().unwrap()).collect::<Vec<_>>(), ["session.snapshot", "session.snapshot", "agent.prompt"]);
-    assert_eq!(seen[2]["params"], json!({ "target": "w5:p2", "text": "hello" }));
 }
 
 /// A message for a seated session goes into the pane it is held to, read fresh, and only
@@ -209,20 +196,14 @@ fn dropping(answers: Vec<Option<Value>>) -> (tempfile::TempDir, Herdr, std::thre
 #[test]
 fn a_drop_before_the_prompt_is_unreachable_after_it_failed() {
     let (_dir, herdr, server) = dropping(vec![None]);
-    let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot"]);
 
     let (_dir, herdr, server) = dropping(vec![Some(snapshot()), None]);
-    let err = herdr.send_to(None, "s-1", "hello").unwrap_err();
+    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
     assert!(matches!(&err, RuntimeError::Failed(w) if w.contains("agent.prompt")), "{err:?}");
     assert_eq!(server.join().unwrap(), ["session.snapshot", "agent.prompt"]);
-
-    // The same typing at a place.
-    let (_dir, herdr, server) = dropping(vec![None]);
-    let err = herdr.send_at(None, "w5:p1", "s-1", "hello").unwrap_err();
-    assert!(matches!(&err, RuntimeError::Unreachable(w) if w.contains("session.snapshot")), "{err:?}");
-    assert_eq!(server.join().unwrap(), ["session.snapshot"]);
 }
 
 #[test]
@@ -270,7 +251,7 @@ fn reads_the_root_of_a_place() {
     let got = herdr.roots(None, Some("w5:p1")).unwrap();
     assert_eq!(got.len(), 1);
     assert_eq!((got[0].place.as_str(), got[0].shell, &got[0].front, got[0].pids()), ("w5:p1", Some(100), &vec![101], vec![100]));
-    assert_eq!((got[0].at.agent.as_ref().map(|a| a.session.as_str()), got[0].at.group.as_ref().map(|g| g.label.as_str())), (Some("s-1"), Some("chat")));
+    assert_eq!(got[0].at.agent.as_ref().map(|a| a.session.as_str()), Some("s-1"));
     assert_eq!(server.join().unwrap()[1]["params"], json!({ "pane_id": "w5:p1" }));
     // A pane that is gone: asked of nobody, or refused by Herdr, it is not there.
     let (_dir, herdr, server) = fake(vec![snapshot()]);
@@ -335,13 +316,13 @@ fn a_machines_socket_keeps_its_key() {
         Settings::set_stall_minutes(dir.path(), 74).unwrap();
         assert_eq!(std::fs::read_to_string(dir.path().join(SETTINGS)).unwrap(), row["written"].as_str().unwrap(), "{case}");
     }
-    // One entry alone: the port of older files is read and never written.
+    // One entry alone: the port of older files is not read, never written, and refuses nothing.
     let old = r#"{"ssh":"box","herdrSocket":"/run/herdr.sock","enabled":true}"#;
     let s: Setting = serde_json::from_str(old).unwrap();
-    assert_eq!(s, Setting { ssh: "box".into(), options: remote::Options { socket: Some("/run/herdr.sock".into()) }, port: 0, enabled: true });
+    assert_eq!(s, Setting { ssh: "box".into(), options: remote::Options { socket: Some("/run/herdr.sock".into()) }, enabled: true });
     assert_eq!(serde_json::to_string(&s).unwrap(), old);
     let plain: Setting = serde_json::from_str(r#"{"ssh":"box","port":47821,"enabled":false}"#).unwrap();
-    assert_eq!((plain.options.socket.as_deref(), plain.port), (None, 47821));
+    assert_eq!(plain.options.socket.as_deref(), None);
     assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"ssh":"box","enabled":false}"#);
 }
 

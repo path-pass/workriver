@@ -323,7 +323,9 @@ fn a_machines_listener_serves_only_agents() {
     let view = there.get("/api/state").unwrap();
     let mine = view["units"].as_array().unwrap();
     assert_eq!((view["reduced"].as_bool(), mine.len(), mine[0]["tasks"].as_array().unwrap().len()), (Some(true), 1, 1), "{view}");
-    assert_eq!(there.get("/api/workspace").unwrap()["reduced"], true);
+    let ws = there.get("/api/workspace").unwrap();
+    let tasks: usize = ws["intents"].as_array().unwrap().iter().flat_map(|i| i["units"].as_array().unwrap()).map(|u| u["tasks"].as_array().unwrap().len()).sum();
+    assert_eq!(tasks, 1, "the page's view is cut down the same way: {ws}");
     // Not the user's events, with or without a place, token and all.
     for d in [&there, &kernel.daemon(box_port, None, Some(tmp.path().to_path_buf())), &kernel.daemon(box_port, Some("w1:p9".into()), Some(tmp.path().to_path_buf()))] {
         for (kind, body) in [("gate.submitted", json!({ "unit": "u1", "task": 1, "result": "done" })), ("workspace.created", json!({ "name": "a", "project": "p1" })), ("workspace.manager_set", json!({ "workspace": "ws1", "manager": "s-far" })), ("project.added", json!({ "path": "/p", "title": "P" })), ("intent.created", json!({ "title": "As the user?" }))] {
@@ -389,7 +391,7 @@ fn blind_reviews() {
     assert_eq!((state["units"][0]["branch"].as_str(), state["units"][0]["base"].as_str(), state["intents"][0]["goal"].as_str()), (Some("feat/f"), Some("main"), Some("Safe login")));
     let ws = sec.get("/api/workspace").unwrap();
     let unit = &ws["intents"][0]["units"][0];
-    assert_eq!((ws["reduced"].as_bool(), unit["tasks"].as_array().unwrap().len(), unit["commits"].as_array().unwrap().len()), (Some(true), 1, 1));
+    assert_eq!((unit["tasks"].as_array().unwrap().len(), unit["commits"].as_array().unwrap().len()), (1, 1));
     assert!(unit["commits"][0]["id"].as_str().unwrap().len() >= 7 && unit["commits"][0]["subject"] == "" && unit["commits"][0]["files"].as_array().unwrap().is_empty(), "{}", unit["commits"]);
     assert_eq!(unit["tasks"][0]["blind"], true);
     // Nor the code's texts, uncommitted work included: the code is read from git, by hash.
@@ -552,13 +554,13 @@ fn here_is_where_the_process_is() {
     for says in [None, Some("p2")] {
         let (code, text) = here(says, Some(in_p2()));
         let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{code} {text}"));
-        assert_eq!((v["actor"].as_str(), v["name"].as_str(), v["group"]["id"].as_str()), (Some("s-two"), Some("two"), Some("w1")), "{v}");
+        assert_eq!((v["actor"].as_str(), v["name"].as_str()), (Some("s-two"), Some("two")), "{v}");
     }
     let (code, text) = here(Some("p3"), Some(in_p2()));
     assert!(code == 403 && text.contains("says it runs in pane p3") && text.contains("runs in pane p2"), "{text}");
     // In no pane: nobody and no group; answered without the token, but not without a process.
     let (code, text) = here(None, Some(vec![proc(4800, 1, Some("ttys000"), "zsh")]));
-    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null, "name": null, "group": null, "workspace": null, "manager": false, "intent": null })));
+    assert_eq!((code, serde_json::from_str::<serde_json::Value>(&text).unwrap()), (200, json!({ "actor": null, "name": null, "workspace": null, "manager": false, "intent": null })));
     let (code, text) = here(Some("p2"), None);
     assert!(code == 401 && text.contains("does not show which process sends it"), "{text}");
 }

@@ -1,6 +1,6 @@
 // The Herdr runtime: Herdr's socket API in workriver's terms. The only place that knows
 // Herdr's names (workspace, pane), its socket and its environment variables. Elsewhere an
-// agent is its session id and a workspace is a runtime group.
+// agent is its session id and Herdr's workspace is a runtime group, shown as a hint only.
 //
 // Protocol: newline-delimited JSON over a Unix socket, one request per connection
 // (`{"id","method","params"}` -> `{"id","result"}` or `{"id","error":{"code","message"}}`).
@@ -25,7 +25,6 @@ mod terminals;
 mod watch;
 pub mod words;
 
-use agents::group;
 
 /// This machine's Herdr, and a line on what is wrong with the connection when it does not
 /// answer with our protocol.
@@ -64,10 +63,9 @@ impl Runtime for Herdr {
     }
 
     fn locate(&self, _: Option<&str>, place: &str) -> Result<Place, RuntimeError> {
-        let (snap, list) = self.read()?;
+        let (_, list) = self.read()?;
         let agent = list.into_iter().find(|(p, _)| p == place).map(|(_, a)| a);
-        let group = snap.panes.iter().find(|p| p.pane_id == place).and_then(|p| group(&snap, &p.workspace_id, self.label()));
-        Ok(Place { agent, group })
+        Ok(Place { agent })
     }
 
     fn focus(&self, session: &str) -> Result<(), RuntimeError> {
@@ -79,27 +77,9 @@ impl Runtime for Herdr {
         Ok(())
     }
 
-    fn send(&self, agent: &str, text: &str) -> Result<(), RuntimeError> {
-        let pane = self.pane_of(agent)?;
-        self.call("agent.prompt", json!({ "target": pane, "text": text }))?;
-        Ok(())
-    }
-
-    /// The pane that holds this session now, read fresh; a pane whose agent only goes by it
-    /// as a name is not it. A read that fails asked for no prompt: nothing was typed, so
-    /// Herdr cannot be reached now (`Unreachable`); only what fails once the prompt is asked
-    /// for may have typed it.
-    fn send_to(&self, _: Option<&str>, session: &str, text: &str) -> Result<(), RuntimeError> {
-        let (_, list) = self.read().map_err(|e| match e {
-            RuntimeError::Failed(words) => RuntimeError::Unreachable(words),
-            e => e,
-        })?;
-        let pane = list.into_iter().find(|(_, a)| a.session == session).map(|(p, _)| p).ok_or_else(|| RuntimeError::NoAgent(session.into()))?;
-        self.call("agent.prompt", json!({ "target": pane, "text": text }))?;
-        Ok(())
-    }
-
-    /// Into this pane only, while it holds this session, read fresh as for `send_to`.
+    /// Into this pane only, while it holds this session, read fresh. A read that fails asked
+    /// for no prompt: nothing was typed, so Herdr cannot be reached now (`Unreachable`); only
+    /// what fails once the prompt is asked for may have typed it.
     fn send_at(&self, _: Option<&str>, place: &str, session: &str, text: &str) -> Result<(), RuntimeError> {
         let (_, list) = self.read().map_err(|e| match e {
             RuntimeError::Failed(words) => RuntimeError::Unreachable(words),

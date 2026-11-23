@@ -116,8 +116,6 @@ export interface Thread {
   id: string;
   /** The user ended it; a new question starts a new thread. */
   ended: boolean;
-  /** Its temporary agent runs, so a follow-up keeps its context. */
-  live: boolean;
   conclusion?: string;
   turns: Turn[];
   /** The user's discussion of a delivered design or research with the agent that did it:
@@ -143,8 +141,8 @@ export interface Turn {
   step?: AskStep;
   /** step 'blocked': the agent that waits for a person in its terminal; the question waits too. */
   blocked?: { agent: string; session: string };
-  /** The agent that did the work: asked, or not asked because it was busy or gone. */
-  consulted?: { agent: string; outcome: 'asked' | 'busy' | 'ended' };
+  /** The agent that did the work, asked. */
+  consulted?: { agent: string; outcome: 'asked' };
   at: string;
   /** No answer will come, and why. */
   failed?: { code: ReasonCode; reason: string };
@@ -161,7 +159,7 @@ export type ReasonCode = 'no-manager' | 'manager-gone' | 'runtime-down' | 'runti
 
 /** A discussion's question goes straight to its task's agent: "starting" is its "sending",
  *  "held" waits while that agent works or is on a blind task. */
-export type AskStep = 'starting' | 'reading' | 'asking' | 'blocked' | 'held';
+export type AskStep = 'starting' | 'reading' | 'blocked' | 'held';
 
 /** What the side panel's Manager section and the task detail need from the page. */
 export interface Talk {

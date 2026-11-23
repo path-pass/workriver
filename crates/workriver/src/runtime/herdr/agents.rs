@@ -86,14 +86,14 @@ impl Herdr {
     /// it still shows its session, with no known shell (rule 5 then pins nobody there).
     pub(super) fn roots_of(&self, place: Option<&str>, agents: bool) -> Result<Vec<Root>, RuntimeError> {
         let (snap, list) = self.read()?;
-        let mut panes: Vec<(&str, &str)> = snap.panes.iter().map(|p| (p.pane_id.as_str(), p.workspace_id.as_str())).collect();
+        let mut panes: Vec<&str> = snap.panes.iter().map(|p| p.pane_id.as_str()).collect();
         for a in &snap.agents {
-            if !panes.iter().any(|(p, _)| *p == a.pane_id) {
-                panes.push((&a.pane_id, &a.workspace_id));
+            if !panes.contains(&a.pane_id.as_str()) {
+                panes.push(&a.pane_id);
             }
         }
         let mut out = vec![];
-        for (pane, workspace) in panes.into_iter().filter(|(p, _)| place.is_none_or(|x| x == *p)) {
+        for pane in panes.into_iter().filter(|p| place.is_none_or(|x| x == *p)) {
             let agent = list.iter().find(|(p, _)| p == pane).map(|(_, a)| a.clone());
             if agents && agent.is_none() {
                 continue;
@@ -105,7 +105,7 @@ impl Herdr {
             };
             let info = &r["process_info"];
             let front = info["foreground_processes"].as_array().into_iter().flatten().filter_map(|p| p["pid"].as_u64()).map(|p| p as u32).collect();
-            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent, group: group(&snap, workspace, self.label()) } });
+            out.push(Root { place: pane.to_string(), shell: info["shell_pid"].as_u64().map(|p| p as u32), front, at: Place { agent } });
         }
         Ok(out)
     }

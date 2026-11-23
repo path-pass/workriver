@@ -8,7 +8,7 @@ use std::path::Path;
 use workriver_core::{Question, State, TaskKind, name};
 
 use crate::runtime::words;
-use crate::server::delivery::quote::{self, quoted, users};
+use crate::server::delivery::{self, quote::{self, quoted, users}};
 
 /// How long a new agent's first prompt is retried while it is not ready; after that it is
 /// taken to wait for the user (a first-run prompt) and the question waits with it.
@@ -40,12 +40,8 @@ fn question(state: &State, q: &Question) -> String {
     match (q.conclude, q.by.as_str()) {
         (true, _) => String::new(),
         (false, "user") => users(&format!("Question {}, the user asks", q.id), &q.text),
-        (false, by) => quoted(&format!("Question {}, quoted from the agent {}", q.id, named(state, by)), &q.text),
+        (false, by) => quoted(&format!("Question {}, quoted from the agent {}", q.id, delivery::who(state, by)), &q.text),
     }
-}
-
-fn named(state: &State, s: &str) -> String {
-    quote::name(state.name_of(s).unwrap_or(s))
 }
 
 /// A follow-up in a thread, to the agent that answered the earlier questions.
@@ -101,7 +97,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
     }
     // A folder's name is from the records or git: named as workriver's words, on one line.
     let dir = &quote::path(dir);
-    let u = state.unit_or_intent(&q.unit)?;
+    let u = state.unit(&q.unit).ok()?;
     let t = state.task(&q.unit, q.task).ok()?;
     let code = if u.branch.is_empty() { format!("The code is in {dir}; read it there.") } else { format!("The code is in {dir} on branch {} (from {}); read it there.", quote::name(&u.branch), quote::name(&u.base)) };
     let r = format!("{}#{}", q.unit, q.task);
@@ -112,7 +108,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
             "This one is about task {r} \"{}\" ({}{}, {}) in {} {} \"{}\". {code}",
             quote::name(&t.title),
             name(&t.kind),
-            t.agent.as_deref().map(|a| format!(", by {}", named(state, a))).unwrap_or_default(),
+            t.agent.as_deref().map(|a| format!(", by {}", delivery::who(state, a))).unwrap_or_default(),
             name(&t.state),
             if state.unit(&q.unit).is_err() { "intent" } else { "unit" },
             q.unit,
@@ -142,7 +138,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
         m.push(format!("The question points at: {}.", about.join("; ")));
     }
     if let Some(a) = &t.agent {
-        m.push(words::ask_hint(&named(state, a)));
+        m.push(words::ask_hint(&delivery::who(state, a)));
     }
     m.push(format!("{} Then wait; more may come.", how_to_answer(q)));
 
@@ -160,7 +156,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
             if let Some(f) = state.task(&q.unit, c.task).ok().and_then(|x| x.findings.iter().find(|f| &f.found.id == id)) {
                 records.push(format!("It answers finding {id} of {}#{}: {} If left: {} Where: {}.", q.unit, c.task, f.found.problem, f.found.impact, f.found.r#where.join(", ")));
                 for n in &f.notes {
-                    records.push(format!("Added to finding {id} by {} later: {}", named(state, &n.by), n.text));
+                    records.push(format!("Added to finding {id} by {} later: {}", delivery::who(state, &n.by), n.text));
                 }
             }
         }
@@ -174,7 +170,7 @@ pub(super) fn prompt(state: &State, q: &Question, dir: &str, commits: &[(String,
     for f in &t.findings {
         records.push(format!("Finding {} ({}, {}): {} If left: {} Where: {}.", f.found.id, name(&f.found.severity), name(&f.state), f.found.problem, f.found.impact, f.found.r#where.join(", ")));
         for n in &f.notes {
-            records.push(format!("Added to finding {} by {} later: {}", f.found.id, named(state, &n.by), n.text));
+            records.push(format!("Added to finding {} by {} later: {}", f.found.id, delivery::who(state, &n.by), n.text));
         }
     }
     for (id, subject) in commits {
@@ -245,7 +241,7 @@ fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<St
         records.push(format!("The unit is for: {}", u.purpose));
     }
     for t in &u.tasks {
-        let by = t.agent.as_deref().map(|a| format!(", by {}", named(state, a))).unwrap_or_default();
+        let by = t.agent.as_deref().map(|a| format!(", by {}", delivery::who(state, a))).unwrap_or_default();
         let note = if t.note.is_empty() { String::new() } else { format!(" Delivered: {}", quote::clean(&t.note, NOTE_CAP)) };
         records.push(format!("Task {}: {}, {}{by}.{note}", crate::server::delivery::label(state, &u.id, t), name(&t.kind), name(&t.state)));
         for f in &t.findings {
@@ -259,7 +255,7 @@ fn unit_prompt(state: &State, q: &Question, dir: &str, home: &Path) -> Option<St
 
 /// The answer, back to the agent that asked.
 pub(super) fn answer_back(state: &State, q: &Question) -> String {
-    let who = q.answered_by.as_deref().map(|a| named(state, a)).unwrap_or_default();
+    let who = q.answered_by.as_deref().map(|a| delivery::who(state, a)).unwrap_or_default();
     // The user answers in their own words; an agent's answer is content like any other.
     let answer = q.answer.as_deref().unwrap_or_default();
     let said = if q.answered_by.as_deref() == Some("user") { users("The user answered", answer) } else { quoted(&format!("The answer, quoted from {who}"), answer) };

@@ -69,7 +69,7 @@ pub struct Input {
 /// Findings of a review, tests task or gate (by task number) that a task answers.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Cause {
-    /// The unit (or intent) of that task, when it is not this task's own.
+    /// The unit of that task, when it is not this task's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     pub task: u32,
@@ -96,7 +96,7 @@ pub enum CheckResult {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct NewTask {
-    /// The unit it is in, or an intent for intent-level work (research, design).
+    /// The unit it is in.
     pub unit: String,
     /// The intent it serves; assigned when recorded.
     #[serde(default)]

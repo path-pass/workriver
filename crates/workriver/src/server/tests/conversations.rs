@@ -1659,6 +1659,41 @@ fn a_gate_submitted_during_the_send_stops_the_prompt() {
     assert!(prompts.iter().all(|m| !m.contains("Wait for gate race")), "the committed gate already failed the question before the blocked poll was released, but it sent: {prompts:?}");
 }
 
+/// Closing another workspace can finish while a discussion's prompt is still being sent.
+#[test]
+fn unrelated_workspace_close_can_commit_during_a_discussion_send() {
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    let other = workspace_named(&d, "other");
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    *fake.on_send.lock().unwrap() = Some(Box::new(move |session| {
+        if session == "s-r" {
+            paused_tx.send(()).unwrap();
+            resume_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+    }));
+
+    let d = &d;
+    std::thread::scope(|scope| {
+        let discussion = scope.spawn(|| d.call("/api/discuss", Some(json!({ "unit": "u1", "task": 1, "text": "Why SQLite?" }))));
+        paused_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let close = scope.spawn(move || {
+            closed_tx.send(d.call("/api/workspaces", Some(json!({ "action": "close", "workspace": other })))).unwrap();
+        });
+        let closed = closed_rx.recv_timeout(Duration::from_secs(5));
+        resume_tx.send(()).unwrap();
+        discussion.join().unwrap().unwrap();
+        close.join().unwrap();
+        assert_eq!(closed.expect("workspace close waited for the discussion prompt").unwrap()["kind"], "workspace.closed");
+    });
+}
+
 /// A question's options, both ways it is asked: a decide gate and a manager's message. The user
 /// answers through the page's own routes; the page reads the options, the pick and whether a
 /// conversation's question is still open; the manager is told the option. `task show` prints
@@ -1709,52 +1744,6 @@ fn choices_go_to_the_page_and_the_answer_to_the_manager() {
     seat(&d, "ws1", Some("s-new")).unwrap();
     assert!(said(1)["replies"][0].get("open").is_none() && said(1)["replies"][0].get("answered").is_none());
     assert!(d.call("/api/message", Some(json!({ "workspace": "ws1", "answer": { "message": "m2", "reply": 1, "selected": ["merge"] } }))).unwrap_err().to_string().contains("asked by an earlier manager"));
-}
-
-/// Herdr's connection drops after the copy is handed over but before its prompt is asked
-/// for (no answer to the snapshot read first): nothing was typed, so the copy waits and is
-/// given at a later poll, once Herdr answers.
-#[test]
-fn a_copy_waits_when_herdr_drops_before_the_prompt() {
-    use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixListener;
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering::SeqCst}};
-
-    let t = every_manager();
-    let path = t._tmp.path().join("probe.sock");
-    let listener = UnixListener::bind(&path).unwrap();
-    let dropped = Arc::new(AtomicBool::new(false));
-    let observed = dropped.clone();
-    let socket = std::thread::spawn(move || {
-        // The snapshot is asked for, then the connection closes without an answer. No prompt
-        // can have been asked for: the adapter needs that answer to find where to type.
-        let (stream, _) = listener.accept().unwrap();
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).unwrap();
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&line).unwrap()["method"], "session.snapshot");
-        observed.store(true, SeqCst);
-        // Then the snapshot and the prompt are answered.
-        for method in ["session.snapshot", "agent.prompt"] {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut line = String::new();
-            BufReader::new(&stream).read_line(&mut line).unwrap();
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["method"], method);
-            let reply = json!({ "id": request["id"], "result": { "snapshot": {
-                "workspaces": [{"workspace_id": "w2", "label": "web"}],
-                "agents": [{"workspace_id": "w2", "pane_id": "p2", "agent": "claude",
-                    "agent_session": {"value": "s-web"}, "agent_status": "idle"}]
-            } } });
-            writeln!(stream, "{reply}").unwrap();
-        }
-    });
-    *t.local.through.lock().unwrap() = Some(("s-web".into(), crate::runtime::adapter_at(path)));
-    t.d.call("/api/message", Some(json!({ "all": true, "text": "Maintenance in ten minutes." }))).unwrap();
-    assert!(dropped.load(SeqCst));
-    let copy = t.copy("web");
-    assert_ne!(copy["step"], "not-delivered", "only the snapshot was asked for: {copy}");
-    wait_until("web has its copy once Herdr answers", || t.copy("web")["step"] == "delivered");
-    socket.join().unwrap();
 }
 
 /// One message whole, with its replies (`workriver message show`): what a cut quote in a

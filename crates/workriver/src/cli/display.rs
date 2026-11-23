@@ -135,10 +135,6 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
             core::FindingsPolicy::Manager => {}
             core::FindingsPolicy::User => { let _ = writeln!(out, "  findings: the user decides them, not the manager"); }
         }
-        // The intent's own work, from before research units: research and design that belong to no unit.
-        if wanted(&i.id, None) {
-            i.tasks.iter().for_each(|t| out += &line(t));
-        }
         for u in units {
             let seen = shown(&u.id);
             let progress = seen["progress"].as_str().map(str::to_string).unwrap_or_else(|| name(&state.progress(u)));
@@ -203,10 +199,9 @@ pub(crate) fn board_text(d: &Daemon, target: Option<&str>) -> anyhow::Result<Str
     Ok(out)
 }
 
-/// The unit (or intent) a task is in: where its causes are, unless they say otherwise.
+/// The unit a task is in: where its causes are, unless they say otherwise.
 pub(super) fn t_owner(state: &core::State, t: &core::Task) -> String {
-    let has = |tasks: &[core::Task]| tasks.iter().any(|x| std::ptr::eq(x, t));
-    state.units.iter().find(|u| has(&u.tasks)).map(|u| u.id.clone()).or_else(|| state.intents.iter().find(|i| has(&i.tasks)).map(|i| i.id.clone())).unwrap_or_default()
+    state.units.iter().find(|u| u.tasks.iter().any(|x| std::ptr::eq(x, t))).map(|u| u.id.clone()).unwrap_or_default()
 }
 
 /// Since when a machine is disconnected, as the snapshot `ws` says; none while connected.

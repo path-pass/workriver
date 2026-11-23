@@ -1,10 +1,8 @@
 // An intent's own page (`/i3`): what it is for and what more was said about it, where it runs
-// and who manages it, its units with where each stands, and the research and design recorded
-// on the intent itself before those became units of their own.
+// and who manages it, and its units with where each stands.
 import { useState, type ReactNode } from 'react'
 import { Button } from '@/ui/primitives/button'
 import { lastMove, quietSince } from './select'
-import type { Pick } from '@/work/types'
 import { contentLang, useT } from '@/i18n'
 import { linkTo, pathOf } from '@/app/link'
 import { record, setSpace } from '@/api/actions'
@@ -12,7 +10,6 @@ import { runs } from './spaces'
 import { openSeat } from './Seat'
 import type { Intent, Unit } from './types'
 import type { Workspace } from '@/workspace/types'
-import type { Talk } from '@/conversations/types'
 import { Progress, ManagerState, Marks, needs, Quiet } from './Rail'
 import { TerminalButton } from '@/agents/Mark'
 import { MachineChip } from '@/machines/format'
@@ -22,7 +19,6 @@ import { CopyButton } from '@/ui/CopyButton'
 import { Icon } from '@/ui/Icon'
 import { Tip } from '@/ui/Tip'
 import { Choice } from '@/ui/Choice'
-import { Activity } from '@/work/Activity'
 import { EditIntentDialog } from './EditIntent'
 import { HistoryDialog, HistoryLine } from './IntentHistory'
 import { draftOf, type Draft } from './edit'
@@ -64,15 +60,9 @@ function UnitRow({ ws, unit, onUnit }: { ws: Workspace; unit: Unit; onUnit: (id:
   )
 }
 
-export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, onUnit, onStart, onTalk, aside }: {
+export function IntentPage({ ws, intent, onUnit, onStart, onTalk, aside }: {
   ws: Workspace
   intent: Intent
-  /** Its own tasks from before research units, as a unit; null when it has none. */
-  earlier: Unit | null
-  pick: Pick
-  onPick: (p: Pick) => void
-  talk: Talk | null
-  fitKey: unknown
   onUnit: (id: string) => void
   onStart: (i: Intent) => void
   /** Opens the conversation with its manager in the side panel. */
@@ -82,7 +72,7 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
 }) {
   const { t } = useT()
   const state = intent.state ?? 'active'
-  const units = intent.units.filter(u => !u.intentLevel)
+  const units = intent.units
   const session = intent.manager ? ws.sessions.find(s => s.manager && !s.ended && s.agent === intent.manager) : undefined
   const space = ws.workspaces?.find(w => w.id === intent.workspace)
   // An active intent may move to another open workspace of its project.
@@ -188,7 +178,6 @@ export function IntentPage({ ws, intent, earlier, pick, onPick, talk, fitKey, on
       {editing && <EditIntentDialog key={`${intent.id}:${editing.restoring ?? ''}`} intent={intent} draft={editing.draft} restoring={editing.restoring} offered={tagsOf(ws.intents.filter(i => i.project === intent.project))} onClose={() => setEditing(null)} />}
       {history && <HistoryDialog intent={intent} onClose={() => setHistory(false)} onRestore={(text, n) => { setHistory(false); setEditing({ draft: draftOf(text), restoring: n }) }} />}
 
-      {earlier && talk && <Activity unit={earlier} pick={pick} onPick={onPick} talk={talk} workspace={intent.workspace} fitKey={fitKey} title={t('intent.earlier')} hint={t('intent.earlierHint')} />}
     </>
   )
 }

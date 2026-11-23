@@ -22,6 +22,11 @@ pub(in crate::server) struct Held {
 }
 
 impl Held {
+    /// What a receiver must act on (`For::Duty`), to `agent`.
+    pub(in crate::server) fn duty(agent: String, text: String) -> Held {
+        Held { question: String::new(), kind: For::Duty, to: agent.clone(), name: agent, text, not_ready: None, about: None }
+    }
+
     /// Which copy of a user's message it is: to every manager, its manager's; else none.
     pub(in crate::server) fn copy(&self) -> &str {
         if self.kind == For::Broadcast { &self.to } else { "" }
@@ -48,6 +53,15 @@ pub(in crate::server) enum For {
     /// conclusion): held like a notice, and also while the manager is not listed or a send
     /// fails, until it is given; never dropped while the service runs.
     Duty,
+}
+
+impl For {
+    /// A notice and the user's message (or a copy of it) are for a session: an agent that only
+    /// goes by it as a name is not it (any agent may take a seated manager's session id as its
+    /// name).
+    pub(in crate::server) fn by_session(self) -> bool {
+        matches!(self, For::Notice | For::Message | For::Broadcast)
+    }
 }
 
 /// A delivered message: picked up once its receiver is seen working after it arrived.
@@ -220,7 +234,7 @@ impl App {
 
     /// A manager that was at work before this build of the service is told, once, to read
     /// what changed: the skill it follows was read from an older workriver, and nothing else
-    /// would tell it. `fresh`: it registers now, having just read this build's guide.
+    /// would tell it. `fresh`: it is seated now, and the seating message has it read this build's guide.
     // Which manager was told of which build is kept in a small file next to the database.
     pub(in crate::server) fn tell_of_update(&self, session: &str, fresh: bool) {
         if !fresh && !got(self.store.lock().unwrap().manages(session)).ok().flatten().unwrap_or(false) {

@@ -242,7 +242,6 @@ workspace.intents[].units[].tasks[].output.selected: array
 workspace.intents[].units[].tasks[].output.selected[]: string
 workspace.intents[].units[].tasks[].output: object
 workspace.intents[].units[].tasks[].plans: array
-workspace.intents[].units[].tasks[].raisedBy: string
 workspace.intents[].units[].tasks[].research: bool
 workspace.intents[].units[].tasks[].result: string
 workspace.intents[].units[].tasks[].reviewer: string
@@ -255,7 +254,6 @@ workspace.intents[].units[].tasks[].threads: array
 workspace.intents[].units[].tasks[].threads[].discuss: bool
 workspace.intents[].units[].tasks[].threads[].ended: bool
 workspace.intents[].units[].tasks[].threads[].id: string
-workspace.intents[].units[].tasks[].threads[].live: bool
 workspace.intents[].units[].tasks[].threads[].turns: array
 workspace.intents[].units[].tasks[].threads[].turns[].answer: null
 workspace.intents[].units[].tasks[].threads[].turns[].answer: string

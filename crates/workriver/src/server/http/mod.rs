@@ -114,7 +114,7 @@ async fn timing(req: Request, next: Next) -> Response {
 /// The routes of a followed machine's listener: only what an agent's CLI over there needs.
 /// An allow-list: who it is, recording as that agent, asking, attachments, reading the
 /// board, an intent's history and one message whole (a manager may run there), and a command's review from the agent started for it there. Nothing here is ever done as the user (no session, no token), and what the user
-/// alone does (decisions, gates, machines, links, projects, focus) is not routed at all.
+/// alone does (decisions, gates, machines, projects, focus) is not routed at all.
 pub(super) fn machine_router(app: Shared, via: Via) -> Router {
     Router::new()
         .route("/api/here", post(here))

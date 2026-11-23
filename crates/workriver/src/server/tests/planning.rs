@@ -29,7 +29,7 @@ fn identity_intents_and_delivery() {
 
     // An agent is in no workspace until the user seats it, or it has a task in one.
     let here = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["group"]["id"].as_str(), here["workspace"].is_null()), (Some("s-boss"), None, Some("w1"), true), "{here}");
+    assert_eq!((here["actor"].as_str(), here["intent"].as_str(), here["workspace"].is_null()), (Some("s-boss"), None, true), "{here}");
     manage(&d, "p1", "s-boss");
     // The runtime gives its group a new id and another name: nothing of the workspace
     // changes, which is workriver's own. The manager is in it by its seat; an agent with no
@@ -38,7 +38,7 @@ fn identity_intents_and_delivery() {
     renamed.group.as_mut().unwrap().label = "other".into();
     *fake.agents.lock().unwrap() = vec![("p1".into(), renamed), ("p2".into(), live("s-rev", "rev", "w9", Idle))];
     let again = at_place(&d, "p1").call("/api/here", Some(json!({}))).unwrap();
-    assert_eq!((again["actor"].as_str(), again["intent"].as_str(), again["workspace"]["id"].as_str(), again["manager"].as_bool(), again["group"]["id"].as_str()), (Some("s-boss"), Some("i1"), Some("ws1"), Some(true), Some("w9")), "{again}");
+    assert_eq!((again["actor"].as_str(), again["intent"].as_str(), again["workspace"]["id"].as_str(), again["manager"].as_bool()), (Some("s-boss"), Some("i1"), Some("ws1"), Some(true)), "{again}");
     let worker = at_place(&d, "p2").call("/api/here", Some(json!({}))).unwrap();
     assert_eq!((worker["actor"].as_str(), worker["intent"].as_str(), worker["workspace"].is_null()), (Some("s-rev"), None, true), "{worker}");
 

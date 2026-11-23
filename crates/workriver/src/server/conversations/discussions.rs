@@ -61,22 +61,6 @@ impl App {
         }
     }
 
-    /// A gate was submitted: the open questions of the discussions it ends fail, so no answer
-    /// or amendment of a discussion comes after what the user confirmed.
-    pub(in crate::server) fn gate_submitted(&self, unit: &str, gate: u32) {
-        let Ok(Some(all)) = got(self.store.lock().unwrap().recorded()) else { return };
-        let ended: Vec<(String, String)> = all
-            .questions
-            .iter()
-            .filter(|q| q.discuss && q.open() && q.unit == unit && all.result_gate(&q.unit, q.task).is_some_and(|g| g.n == gate))
-            .filter_map(|q| Some((q.id.clone(), over(&all, q)?)))
-            .collect();
-        drop(all);
-        for (id, why) in ended {
-            self.drop_question(&id, ReasonCode::GateSubmitted, &why);
-        }
-    }
-
     /// Open discussion questions whose agent is gone (`gone_from`) fail, held or given.
     pub(in crate::server) fn discussions_gone(&self, gone: &HashSet<String>) {
         let Ok(Some(open)) = got(self.store.lock().unwrap().open_discussions()) else { return };
@@ -143,7 +127,7 @@ impl App {
         let to = delivery::discussed(&all, live.as_deref(), e);
         drop(all);
         for (agent, text) in to {
-            self.hand(Held { question: String::new(), kind: For::Duty, to: agent.clone(), name: agent, text, not_ready: None, about: None });
+            self.hand(Held::duty(agent, text));
         }
     }
 }

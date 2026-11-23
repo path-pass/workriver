@@ -18,7 +18,7 @@ pub struct TaskShow {
     pub state: String,
     pub title: String,
     pub intent: Part,
-    /// None for work of the intent itself (research, design across units).
+    /// None from a service of an earlier build, for work recorded on the intent itself.
     pub unit: Option<Part>,
     /// Where the work is, as it is on the machine it is on.
     pub place: Option<Place>,

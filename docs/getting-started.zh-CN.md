@@ -114,7 +114,7 @@ workriver workspace manager ws1 boss     # agent 的名字，或它的会话
 ```
 
 workriver 会在那个 agent 的终端里告诉它：它现在是这个工作区的管理者，以及它的职责写在哪里。只有你能
-指定管理者：agent 不能自己当（`workriver manager here` 已经没有了），席位也不跟着名字或运行时里的位置走。
+指定管理者：agent 不能自己当，席位也不跟着名字或运行时里的位置走。
 随时可以换人（被换下的会收到通知），或者清空席位（`--none`）。
 
 管理者的终端关掉后，它的工作区显示"管理者未运行"。同一个会话在同一台机器、同一个文件夹里恢复，会自己
@@ -206,7 +206,6 @@ workriver status                              # 回答来自你这台机器上�
 
 那边的 agent 会带着机器名显示。它们和这边的 agent 在同样的工作区里工作：工作区没有机器之分。那边的
 worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可以像别的 agent 一样被你指定为工作区的管理者。
-没有什么需要关联的。
 
 单元登记在干活的地方：那边的 agent 照常在那边登记；这边的管理者要指明机器，
 并给出那边的路径和分支名（`workriver unit add --machine box --repo /home/me/app --branch feat/queue`）；
@@ -215,8 +214,8 @@ worker 通过拿到的任务在某个工作区里工作；那边的 agent 也可
 任务和发现都留着，提交从新分支读，页面上写"之前在 feat/queue"，提交留在旧分支上的任务会如实标出来。
 没写 `Task:` 尾注的提交可以事后关联到任务，由做这个任务的 agent、管理者或你来做：
 `workriver commit link <hash> u1#3`，或者在未登记节点上的"它属于任务"里选；变基之后关联仍然有效。对那边的单元，workriver 通过 ssh 跑 git 读它的提交，
-每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是链接
-（`http://127.0.0.1:$(cat ~/.config/workriver/port)/api/attachments/…`）。终端按钮会在那台机器的运行时里聚焦到 agent 的终端；
+每 15 秒一次。那边附上的截图通过这条连接上传；发给那边 agent 的消息里给的是把每个文件取到
+agent 当前文件夹的命令（`workriver attach fetch <id>.<ext>`；用 `curl` 访问服务会被拒绝）。终端按钮会在那台机器的运行时里聚焦到 agent 的终端；
 还要你自己做什么，见 [runtimes/herdr.zh-CN.md](runtimes/herdr.zh-CN.md#其他机器)。
 
 ## 7. 更新
@@ -232,6 +231,12 @@ cargo build --release
 你跟踪的**每一台其他机器**上也要做同样的构建（在那边 `git pull`、`cargo build --release`）：
 那边 agent 用的 `workriver` 命令要和服务是同一个版本。在这边和那边运行 `workriver status`，
 都会显示服务的版本和提交号；如果运行它的命令是另一个构建，会明说。
+
+在工作区成为 workriver 自己的记录之前写下的库，启动时会被拒绝（"holds events in the form
+from before virtual workspaces"；库里什么也不改）。用仓库里已经不再带的脚本把它的一份副本
+转换一次：提交 `7cdf576` 里有它，在 `scripts/migrate-virtual-workspaces/`，它的 `README.md`
+写了怎么运行。在任何一台有克隆的机器上，把那个提交取到一个单独的 worktree 里（`git worktree
+add --detach .local/migrate-script 7cdf576`），再照那里的 README 做。
 
 Cargo 从不清理 `target/` 里的旧构建：更新几周后 `target/debug` 可能超过 20 GB。
 `cargo clean --profile dev` 只删 `target/debug`，服务运行所用的 `target/release/workriver`
