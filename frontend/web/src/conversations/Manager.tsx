@@ -137,7 +137,7 @@ const ALL = 'all'
  * into the manager's terminal (held while it waits for a person there); it replies with
  * `workriver reply`. To every manager: each running one gets its copy, and replies under it.
  */
-export function Manager({ unit, n, finding, talk }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null }) {
+export function Manager({ unit, n, finding, talk, needs }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null; needs?: ReactNode }) {
   const { t } = useT()
   // Files dropped anywhere on the panel go with the message being written.
   const takeFiles = useRef<((files: File[]) => void) | null>(null)
@@ -148,6 +148,8 @@ export function Manager({ unit, n, finding, talk }: { unit: Unit | null; n: Task
       onDrop={e => { if (hasFiles(e)) { e.preventDefault(); takeFiles.current?.([...e.dataTransfer.files]) } }}
     >
       <h2 id="side-talk" className="mb-2 flex-none px-4.5 text-sm font-[650]">{t('talk.title')}</h2>
+      {/* What blocks on the user stays in sight while they talk (attention/NeedsBar). */}
+      {needs}
       {talk && <ManagerTalk unit={unit} n={n} finding={finding} talk={talk} takeFiles={takeFiles} />}
     </section>
   )

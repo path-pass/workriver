@@ -32,7 +32,9 @@ import { NavigateContext } from '@/content/navigation'
 import { IntentPage } from '@/planning/IntentPage'
 import { openTemplates, TemplatesDialog } from '@/planning/Templates'
 import { MOCK, watchWorkspace } from '@/workspace/source'
-import { blockedAgents, inbox } from '@/attention/select'
+import { inbox, type InboxRow } from '@/attention/select'
+import { blockingNews, noticeOf } from '@/attention/notice'
+import { NeedsBar } from '@/attention/NeedsBar'
 import { soundWanted, useRowSound } from '@/attention/sound'
 import { selectionOf, waitsOn } from '@/work/select'
 import { firstUnit, intentOf, noCode, unitsOf } from '@/planning/select'
@@ -72,7 +74,7 @@ const NO_SPACES: Space[] = []
 const recall = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
 
 export default function App() {
-  const { t, lang } = useT()
+  const { t, lang, waited } = useT()
   const [data, setData] = useState<Workspace | null>(null)
   // The service cannot be reached right now; what was shown stays.
   const [down, setDown] = useState(false)
@@ -152,18 +154,6 @@ export default function App() {
     const find = (r: AgentRef): Session => liveSession(sessions.current, r) ?? { agent: r.name, session: r.session ?? undefined, machine: r.machine, ended: true }
     return { answer: r => setGate(find(r)), view: r => setTerm(find(r)) }
   }, [])
-  // Agents newly waiting in their terminal: a notification (if wanted) that opens its gate,
-  // and the count in the tab's title with the gates waiting.
-  const seen = useRef<Set<string> | null>(null)
-  useEffect(() => {
-    if (!data) return
-    const now = blockedAgents(data)
-    const before = seen.current
-    const key = (s: Session) => `${s.session ?? s.agent}${s.machine ? `@${s.machine}` : ''}`
-    seen.current = new Set(now.map(key))
-    // The first data only sets what is known; it is not news.
-    if (before) for (const s of now) if (!before.has(key(s))) notify(t('agents.notice', { agent: s.agent }), s.topic, key(s), () => setGate(s))
-  }, [data, t])
   // A machine alert: a notification when it rises, and again only when it becomes critical;
   // never again while it stays (nor when it steps back to a warning).
   const alerted = useRef<Set<string> | null>(null)
@@ -182,6 +172,18 @@ export default function App() {
   }, [data, t, lang])
   const box = useMemo(() => ws && inbox(ws), [ws])
   const blocking = box?.blocking.length ?? 0
+  // What comes into Blocking (an agent newly waiting in its terminal, a gate, a stalled
+  // worker): a notification, if wanted, once per coming; it stays until clicked, and a click
+  // goes where its row goes. And the count in the tab's title.
+  const news = useRef(blockingNews())
+  const goRow = useRef<(r: InboxRow) => void>(() => {})
+  useEffect(() => {
+    if (!box) return
+    for (const r of news.current(box.blocking)) {
+      const { title, body } = noticeOf(t, waited, r)
+      notify(title, body, r.key, () => goRow.current(r))
+    }
+  }, [box, t, waited])
   // A new row in Needs you: a short sound, if the user turned it on.
   useRowSound(box)
   useEffect(() => { document.title = blocking ? `(${blocking}) workriver` : 'workriver' }, [blocking])
@@ -353,6 +355,7 @@ export default function App() {
   const here = unitId ? { unit: unitId, pick } : null
   // A row in the panel opens its unit and task; the panel stays, the sheet gets out of the way.
   const open = (id: string, next: Pick) => { if (ws) pickUnit(ws, id, next); setSheet(null) }
+  goRow.current = r => (r.agent ? agentActions.answer({ name: r.agent.name, session: r.agent.session, machine: r.agent.machine }) : open(r.unit!.id, r.pick))
   // A commit opened from the panel: its unit and task, and the code block brings it into view.
   const [commit, setCommit] = useState<CommitFocus | null>(null)
   const onCommit = (u: string, task: string, id: string) => { open(u, { kind: 'task', id: task }); setCommit({ unit: u, id, at: Date.now() }) }
@@ -449,7 +452,7 @@ export default function App() {
 
   // The Manager section's chips: the picked task, in the unit on screen.
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
-  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
+  const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} needs={<NeedsBar rows={box?.blocking ?? []} onOpen={open} />} /> }
 
   // A gate or chore of a research unit has no work tree: it runs in the intent's project folder.
   const run = useCallback((a: RunAsk) => {

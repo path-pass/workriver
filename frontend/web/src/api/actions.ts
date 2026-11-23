@@ -134,13 +134,14 @@ export async function wantNotify(on: boolean): Promise<boolean> {
   return ok
 }
 /**
- * One notification; clicking it brings this tab forward and does `open` (for an agent, opens
- * its gate). `key` names what it is about (an agent, or a machine's alert), so one is not
- * shown twice.
+ * One notification, which stays until clicked (on macOS only when the browser's notification
+ * style is Alerts); clicking it brings this tab forward and does `open` (for an agent, opens
+ * its gate). `key` names what it is about (a row of Blocking, or a machine's alert), so one is
+ * not shown twice.
  */
 export function notify(title: string, body: string | undefined, key: string, open?: () => void) {
   if (!notifyWanted() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  const n = new Notification(title, { body, tag: `workriver:${key}` })
+  const n = new Notification(title, { body, tag: `workriver:${key}`, requireInteraction: true })
   n.onclick = () => { window.focus(); open?.(); n.close() }
 }
 

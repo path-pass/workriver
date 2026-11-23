@@ -323,7 +323,17 @@ its sections went.
      gates waiting for the user; an agent cannot go on. Violet. Rows with a background stand 2 px apart. Both
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
-     Settings, a newly waiting agent raises a browser notification that opens its gate.
+     Settings, every row that comes into Blocking raises a browser notification, once per
+     coming (a row that only changes raises none; one that left and comes back, an agent
+     asking again, raises another; the rows there when the page loads raise none): a newly
+     waiting agent ("ja-impl is waiting for you", its topic), a gate ("A gate is waiting for
+     you: <title>", its intent and unit), a stalled worker (its row's words, its intent and
+     unit). A click goes where the row goes: the agent's gate, the task. Every notification of
+     the page (these and the Machines ones) stays until clicked (`requireInteraction`), one
+     per thing it is about (its tag: a second of the same replaces it quietly); on macOS only
+     when the browser's notification style is Alerts, which Settings says. They do not close
+     by themselves when the row leaves. Blocking also stands at the top of the Manager
+     conversation (`conversations.md`, The Needs you bar).
   2. **Managers** – one row per open workspace that has an active intent and no manager
      running: an amber crown, "<workspace>: no manager" or "<workspace>: its manager is not
      running" with the workspace's id in mono, the seated manager's mark and name when there
