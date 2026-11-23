@@ -37,11 +37,14 @@ impl App {
         if self.waiting(session, machine).is_none() {
             return Err(Refusal::new(StatusCode::CONFLICT, "not-waiting", "It is no longer waiting"));
         }
-        // 2. One writer per agent: a second press, or a message being typed, comes first.
+        // 2. The one place, once: every read and key of this request goes there. A seated
+        // manager's is where its seat is held to, its machine read now (`place_of`); found
+        // before the writer is taken, which orders workriver's own writes and never held the
+        // terminal still: what binds the keys to the place is the screen read there below.
+        let place = self.place_of(session, machine)?;
+        // 3. One writer per agent: a second press, or a message being typed, comes first.
         let writer = self.terminals.writer(session, machine);
         let Ok(_one) = writer.try_lock() else { return Err(Refusal::new(StatusCode::CONFLICT, "busy", "Something is being sent to it now; look again")) };
-        // 3. The one place, once: every read and key of this request goes there.
-        let place = self.runtime.resolve(machine, session)?;
         // 4. The screen the user saw, or nothing is sent.
         let before = self.runtime.screen(machine, &place)?;
         let count = self.terminals.count(session, machine);

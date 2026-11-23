@@ -175,6 +175,10 @@ pub(in crate::server) struct Fake {
     pub(super) no_shell: std::sync::Mutex<Vec<String>>,
     /// Which places hold an agent cannot be asked (the runtime errs), the rest can.
     pub(super) agent_roots_down: std::sync::atomic::AtomicBool,
+    /// How often which places hold an agent was asked.
+    pub(super) roots_read: std::sync::atomic::AtomicUsize,
+    /// The agents cannot be listed (the runtime errs); everything else answers.
+    pub(super) agents_down: std::sync::atomic::AtomicBool,
     /// Called with the receiver as a message is taken, before `send` returns: what a test
     /// wants to look at at that very moment.
     pub(super) on_send: std::sync::Mutex<Option<Look>>,
@@ -346,7 +350,7 @@ impl workriver_core::runtime::Runtime for Fake {
     fn agents(&self) -> Result<Vec<workriver_core::runtime::RuntimeAgent>, workriver_core::runtime::RuntimeError> {
         let probe = self.on_agents.lock().unwrap().clone();
         if let Some(probe) = probe { probe(); }
-        if self.down.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.down.load(std::sync::atomic::Ordering::Relaxed) || self.agents_down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::None);
         }
         Ok(self.agents.lock().unwrap().iter().map(|(_, a)| a.clone()).collect())
@@ -358,6 +362,7 @@ impl workriver_core::runtime::Runtime for Fake {
         Ok(self.at(place))
     }
     fn agent_roots(&self, machine: Option<&str>) -> Result<Vec<workriver_core::runtime::Root>, workriver_core::runtime::RuntimeError> {
+        self.roots_read.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.agent_roots_down.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(workriver_core::runtime::RuntimeError::Failed("herdr does not answer".into()));
         }

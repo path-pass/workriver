@@ -361,26 +361,37 @@ impl Machines {
     /// Reads again, now, the agents of every machine whose connection is up, each on a
     /// thread of its own so that a slow one holds up no other: for whoever looks for an
     /// agent the last read did not have, which may have started since. `found` is called
-    /// here after each machine was read, until it says the search is over. It returns once
-    /// every read ended, which a slow machine makes long: never call it while a request waits.
-    pub fn refresh(&self, mut found: impl FnMut() -> bool) {
+    /// here after each machine was read, until it says the search is over. It returns then,
+    /// or once every read ended, or once `within` has passed (a slow machine's read goes on
+    /// by itself); with no `within`, a slow machine makes it long: never call it so while a
+    /// request waits. What it gives: the machines whose read did not end well in that time.
+    pub fn refresh(&self, within: Option<Duration>, mut found: impl FnMut() -> bool) -> Vec<String> {
         let entries: Vec<Arc<Entry>> = self.entries.lock().unwrap().iter().filter(|e| e.tunnel.lock().unwrap().up).cloned().collect();
+        let mut unread: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
         let (read, reads) = std::sync::mpsc::channel();
-        std::thread::scope(|s| {
-            for e in &entries {
-                let read = read.clone();
-                s.spawn(move || {
-                    poll_once(e, false);
-                    let _ = read.send(());
-                });
+        for e in entries {
+            let read = read.clone();
+            std::thread::spawn(move || {
+                let ok = poll_once(&e, false);
+                let _ = read.send((e.label.clone(), ok));
+            });
+        }
+        drop(read);
+        let end = within.map(|w| Instant::now() + w);
+        loop {
+            let next = match end {
+                Some(end) => reads.recv_timeout(end.saturating_duration_since(Instant::now())).ok(),
+                None => reads.recv().ok(),
+            };
+            let Some((label, ok)) = next else { break };
+            if ok {
+                unread.retain(|l| *l != label);
             }
-            drop(read);
-            for () in reads {
-                if found() {
-                    break;
-                }
+            if found() {
+                break;
             }
-        });
+        }
+        unread
     }
 
     #[cfg(test)]

@@ -204,10 +204,14 @@ are checked by the event rules against what is recorded, when the event is recor
   The same while the seated session is shown in its own terminal and in another one at
   once, on this machine or another: neither is the manager, and nothing is typed to it
   until only its own terminal shows it again or you seat it. What goes to a manager is
-  typed into the terminal it is held to, never into whichever terminal reports its session,
-  nor into an agent that takes the manager's session id as its name; its screen is read
-  there first, as for every message (below, "A dialog the runtime misses"), and a message
-  you sent holds the order of seat changes, then the agent's one writer, never the reverse.
+  typed, pressed and read at the terminal it is held to, never at whichever terminal
+  reports its session, nor into an agent that takes the manager's session id as its name:
+  the page shows a lost seat's screen as gone, offers no dialog on its row and sends no key.
+  A seating where the runtime knew no shell has no terminal to hold to yet: the manager is
+  then the one terminal of the seat's machine that shows the session in the seat's folder,
+  and the first read that knows that terminal's shell holds the seat to it. Its screen is
+  read there first, as for every message (below, "A dialog the runtime misses"), and a
+  message holds the order of seat changes, then the agent's one writer, never the reverse.
 - **What belongs to an appointment never reaches the next.** A message you sent, a question
   a manager asked you with options, a reply: each belongs to the appointment it was sent to
   or asked under. A message still waiting when the seat is given anew is recorded as not
@@ -358,7 +362,9 @@ when you ask. Typing into an agent's terminal is acting as you, so:
   whole visible screen; the count and the read are taken together under the agent's one
   writer, so a press under way ends (its keys taken effect) before the screen is read, and a
   screen read before a press never signs the count after it. One request resolves the agent's session to exactly one place (two places that
-  show it: refused, "answer it in its terminal") and reads and presses only there; it sends
+  show it: refused, "answer it in its terminal"; a seated manager's is the terminal its
+  seat is held to, its machine read again for the press, and a lost seat is refused as
+  gone) and reads and presses only there; it sends
   only when the whole screen it reads there matches the digest, so a second click, a retried
   request or a stale dialog that looks the same never goes; a list is walked one arrow at a
   time with the whole screen read again after each, and Enter goes only when the marked line

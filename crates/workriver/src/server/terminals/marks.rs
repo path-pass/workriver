@@ -3,7 +3,8 @@
 // blocked one. Read when its state becomes idle or done (and again at the first poll half a
 // tick or more after that read began, however many polls came between), every poll while it
 // is so marked, and before every message workriver types into any agent, at the place the
-// message then goes to. An agent is its session on its machine: the same session resumed on
+// message then goes to. A seated manager's screen is read where its seat is held to, and a
+// lost seat's is not read at all. An agent is its session on its machine: the same session resumed on
 // two machines is two agents. Another machine's screens are read beside the poll, never in
 // it: a slow machine holds nothing of this one back.
 use std::collections::{HashMap, HashSet};
@@ -52,9 +53,16 @@ impl Marks {
     }
 }
 
-/// Whether the agent's screen shows a question, read at the one place that shows it.
-fn read_shows(runtime: &dyn workriver_core::runtime::Runtime, session: &str, machine: Option<&str>) -> Result<bool, RuntimeError> {
-    runtime.resolve(machine, session).and_then(|p| runtime.screen(machine, &p)).map(|s| shows_a_question(&s.text))
+/// Whether the agent's screen shows a question, read at its place: a seated manager's as
+/// the poll found it (`at`, `App::seat_place`), whose lost seat shows none; any other's, the
+/// one place that shows it.
+fn read_shows(runtime: &dyn workriver_core::runtime::Runtime, session: &str, machine: Option<&str>, at: Option<Result<String, RuntimeError>>) -> Result<bool, RuntimeError> {
+    let place = match at {
+        None => runtime.resolve(machine, session)?,
+        Some(Err(RuntimeError::NoAgent(_))) => return Ok(false),
+        Some(at) => at?,
+    };
+    runtime.screen(machine, &place).map(|s| shows_a_question(&s.text))
 }
 
 /// Whether a screen shows a dialog that waits: options, and a key named under them.
@@ -64,27 +72,21 @@ fn shows_a_question(text: &str) -> bool {
 
 impl App {
     /// Types a message into the agent with this session on `machine` (none: this one): its
-    /// place resolved once, its screen read there, and the message typed at that same place;
-    /// a screen that shows a question takes no message (`Blocked`; the agent is marked waiting
-    /// on its screen). Until the message is asked for nothing is typed: a read that fails then
-    /// (the runtime does not answer, or its answer failed; or it cannot resolve a session at
-    /// all) is that error, and the message waits. With `pin` (a seated manager's place,
-    /// `App::send_seated`), at that place and no other: its screen read there, and the message
-    /// typed there only while it shows the session (`Runtime::send_at`), never wherever else
-    /// the session shows. Under the agent's writer, so a press never comes between the read and
-    /// the message. A user's message holds `App::appointing` around this (`App::hand`): the
-    /// order is always appointing, then the writer, never the other way.
-    pub(in crate::server) fn type_at(&self, session: &str, machine: Option<&str>, pin: Option<&str>, text: &str) -> Result<(), RuntimeError> {
+    /// place found once (`place_of`: a seated manager's is the place its seat is held to,
+    /// read now, and nowhere else), its screen read there, and the message typed at that
+    /// same place only while it shows the session (`Runtime::send_at`); a screen that shows a
+    /// question takes no message (`Blocked`; the agent is marked waiting on its screen). Until
+    /// the message is asked for nothing is typed: a read that fails then (the runtime does not
+    /// answer, or its answer failed; or it cannot resolve a session at all) is that error,
+    /// and the message waits. Files as the agent's machine can get them (`readable_on`). The
+    /// place is found before the agent's writer is taken; under the writer, the read and the
+    /// message, so a press never comes between them. A message's send holds
+    /// `App::appointing` (or `App::discussing`) around this (`App::hand`): the order is always
+    /// that, then the writer, never the other way.
+    pub(in crate::server) fn type_at(&self, session: &str, machine: Option<&str>, text: &str) -> Result<(), RuntimeError> {
+        let place = self.place_of(session, machine).map_err(untyped)?;
         let writer = self.terminals.writer(session, machine);
         let _one = writer.lock().unwrap();
-        let untyped = |e: RuntimeError| match e {
-            RuntimeError::Failed(why) => RuntimeError::Unreachable(why),
-            e => e,
-        };
-        let place = match pin {
-            Some(p) => p.to_string(),
-            None => self.runtime.resolve(machine, session).map_err(untyped)?,
-        };
         match self.runtime.screen(machine, &place) {
             Ok(s) if shows_a_question(&s.text) => {
                 self.terminals.marks.lock().unwrap().on.entry(agent_key(session, machine)).or_insert_with(workriver_core::now);
@@ -93,7 +95,7 @@ impl App {
             Ok(_) | Err(RuntimeError::Unsupported) => {}
             Err(e) => return Err(untyped(e)),
         }
-        self.runtime.send_at(machine, &place, session, text)
+        self.runtime.send_at(machine, &place, session, &self.readable_on(machine, text))
     }
 
     /// At each poll, before anything is worked out from the agents: reads the screens of the
@@ -107,6 +109,9 @@ impl App {
     /// the mark.
     pub(in crate::server) fn look_at_screens(&self, now: &mut [RuntimeAgent]) {
         let mut here = vec![];
+        // A seated manager is read where its seat is held to, as this tick's read found;
+        // worked out before the marks are taken.
+        let mut seated: HashMap<String, Result<String, RuntimeError>> = now.iter().filter_map(|a| Some((agent_key(&a.session, a.machine.as_deref()), self.seat_place(&a.session, a.machine.as_deref())?))).collect();
         {
             let mut m = self.terminals.marks.lock().unwrap();
             let listed: HashSet<String> = now.iter().map(|a| agent_key(&a.session, a.machine.as_deref())).collect();
@@ -131,8 +136,9 @@ impl App {
                 if !(first || again || m.on.contains_key(&key)) {
                     continue;
                 }
+                let at = seated.remove(&key);
                 match a.machine.clone() {
-                    None => here.push((key.clone(), a.session.clone())),
+                    None => here.push((key.clone(), a.session.clone(), at)),
                     // Still being read: this look waits for that read.
                     Some(_) if m.reading.contains(&key) => continue,
                     Some(machine) => {
@@ -140,7 +146,7 @@ impl App {
                         let (runtime, marks, wake, session) = (self.runtime.clone(), self.terminals.marks.clone(), self.wake.clone(), a.session.clone());
                         let k = key.clone();
                         std::thread::spawn(move || {
-                            let shows = read_shows(runtime.as_ref(), &session, Some(&machine));
+                            let shows = read_shows(runtime.as_ref(), &session, Some(&machine), at);
                             let mut m = marks.lock().unwrap();
                             m.reading.remove(&k);
                             let changed = m.found(&k, shows);
@@ -156,8 +162,8 @@ impl App {
                 }
             }
         }
-        for (key, session) in here {
-            let shows = read_shows(self.runtime.as_ref(), &session, None);
+        for (key, session, at) in here {
+            let shows = read_shows(self.runtime.as_ref(), &session, None, at);
             self.terminals.marks.lock().unwrap().found(&key, shows);
         }
         let m = self.terminals.marks.lock().unwrap();

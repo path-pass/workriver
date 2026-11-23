@@ -2,6 +2,9 @@
 // record once it is committed: who is told.
 use super::*;
 
+/// How long an assignment by name waits for the followed machines' agents read again.
+const NAME_READ: Duration = Duration::from_secs(1);
+
 impl App {
     /// Records the name a live agent goes by, the first time and when it changes; with the
     /// working directory it was first seen in (a harness may keep the session by it, so a
@@ -137,7 +140,7 @@ impl App {
         let now = w.manager.as_ref();
         if let Some(old) = before.filter(|old| now.is_none_or(|m| m.session != old.session)) {
             let text = delivery::unseated(all, w);
-            if let Err(e) = self.send_to(&old.session, old.machine.as_deref(), &text) {
+            if let Err(e) = self.type_at(&old.session, old.machine.as_deref(), &text) {
                 tracing::info!("cannot tell {} that it no longer manages {workspace}: {e}", old.session);
             }
         }
@@ -263,17 +266,27 @@ impl App {
         })
     }
 
-    /// Resolve a task's assignee from the runtime now: an exact session or a unique name.
+    /// Resolve a task's assignee from the runtime now: an exact session or a unique name
+    /// (`named`). A name is looked for after every followed machine whose connection is up
+    /// was read again (`Machines::refresh`), for a second at most: a second agent of that
+    /// name that appeared there since its last read is seen. One that does not answer in time
+    /// refuses the name, never resolved from its older list: the agent is then named by its
+    /// session. With no machine followed nothing is read again and nothing waits.
     fn task_session(&self, agent: &str) -> Result<String, ApiError> {
-        let live = self.runtime.agents().unwrap_or_default();
+        let mut live = self.runtime.agents().unwrap_or_default();
         if live.iter().any(|a| a.session == agent) {
             return Ok(agent.to_string());
         }
-        let named: Vec<&RuntimeAgent> = live.iter().filter(|a| a.name == agent).collect();
-        match named[..] {
+        if let Some(machines) = &self.machines {
+            if let Some(m) = machines.refresh(Some(NAME_READ), || false).first() {
+                return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("machine {m} did not answer: name the agent by its session (`workriver agents` lists them)")));
+            }
+            live = self.runtime.agents().unwrap_or_default();
+        }
+        match named(&live, agent)[..] {
             [] => Ok(agent.to_string()),
             [one] => Ok(one.session.clone()),
-            _ => Err(several(agent, &named)),
+            ref more => Err(several(agent, more)),
         }
     }
 
@@ -358,7 +371,7 @@ impl App {
         let (_, unit, task) = e.body.refs();
         let about = task.or(unit).unwrap_or_default();
         let mut unseen = true;
-        machines.refresh(|| {
+        machines.refresh(None, || {
             match self.give_note(e, None) {
                 Note::Unseen(_) => return false,
                 Note::Told(_) => {}
@@ -422,7 +435,7 @@ impl App {
             return Note::Waits(Some(n.to), format!("{} is on a blind task: it is told once that task is delivered", n.name));
         }
         drop(all);
-        match self.send_to(&n.to.session, n.to.machine.as_deref(), &n.message) {
+        match self.type_at(&n.to.session, n.to.machine.as_deref(), &n.message) {
             Ok(()) => Note::Told(n.name),
             // Waiting for a person in its terminal: one that is kept is tried again.
             Err(RuntimeError::Blocked(why) | RuntimeError::NotReady(why)) if held.is_some() => Note::Waits(Some(n.to), why),

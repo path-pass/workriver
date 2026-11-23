@@ -34,7 +34,7 @@ impl Held {
 }
 
 /// What a held message is for.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::server) enum For {
     Question,
     /// The user's message to a manager.
@@ -58,7 +58,7 @@ pub(in crate::server) enum For {
 impl For {
     /// A notice and the user's message (or a copy of it) are for a session: an agent that only
     /// goes by it as a name is not it (any agent may take a seated manager's session id as its
-    /// name).
+    /// name). A duty and a discussion's question are when their `to` is one (`App::by_session`).
     pub(in crate::server) fn by_session(self) -> bool {
         matches!(self, For::Notice | For::Message | For::Broadcast)
     }

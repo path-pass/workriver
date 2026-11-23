@@ -424,9 +424,10 @@ then the user's text quoted. For example:
   waits and is tried again at each poll until the manager takes it, or is gone (not
   delivered). That holds from the first try: a runtime whose agents cannot be read as the
   message is first given (`App::tell_manager`) holds it too. It is typed into the session
-  found, on its machine (`send_to`: its one place resolved, `send_at` there; a seated
-  manager only at the place it is pinned to, never resolved, and not while another place
-  shows its session too: not delivered, as gone), its screen read at that place first under
+  found, by that session alone (`send_by_session`, then `type_at`: its place from
+  `place_of`, `send_at` there; a seated manager only at the place its seat is held to, on
+  the seat's machine, never resolved, and not while another place shows its session too:
+  not delivered, as gone), its screen read at that place first under
   the agent's writer (a dialog there holds the message, as a blocked manager does),
   never re-routed by name, so a send connection that
   drops before the prompt is written stays `None` and the message waits. Gone is said only

@@ -43,8 +43,9 @@ impl App {
     /// Reads the runtime's agents; says "changed" when they differ, and marks delivered
     /// messages picked up when their receiver starts working.
     pub(in crate::server) fn poll(&self) {
-        self.see_roots();
         let mut now = self.runtime.agents().ok();
+        // Where each seat is, against this read: before anything reads a screen.
+        self.see_roots(now.as_deref());
         // A held question's new agent still not ready after its window waits for the user
         // (e.g. on a first-run prompt the runtime does not report): shown blocked.
         {
@@ -116,8 +117,13 @@ impl App {
         }
         // Held questions whose agent is free now are given to it; one whose agent is gone fails.
         if let Some(agents) = &now {
-            // As `hand` finds them (`For::by_session`).
-            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (!h.kind.by_session() && a.name == h.to)).map(|a| a.state);
+            // As `hand` finds them (`App::by_session`), worked out before `held` is taken: one
+            // held meanwhile goes by its session.
+            let by_name: HashSet<(For, String)> = {
+                let held: Vec<(For, String)> = self.held.lock().unwrap().iter().map(|h| (h.kind, h.to.clone())).collect();
+                held.into_iter().filter(|(kind, to)| !self.by_session(*kind, to)).collect()
+            };
+            let state = |h: &Held| agents.iter().find(|a| a.session == h.to || (by_name.contains(&(h.kind, h.to.clone())) && a.name == h.to)).map(|a| a.state);
             let ready: Vec<Held> = {
                 let mut held = self.held.lock().unwrap();
                 let at = std::time::Instant::now();

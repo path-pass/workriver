@@ -23,8 +23,9 @@ impl Drop for Slot {
     }
 }
 
-/// `GET /api/agent/view`: the terminal of the one place that shows the session, as it is
-/// drawn, from a whole frame on; it ends when the place goes.
+/// `GET /api/agent/view`: the terminal of the one place that shows the session (a seated
+/// manager's: where its seat is held to, as the last tick found it), as it is drawn, from a
+/// whole frame on; it ends when the place goes.
 pub(in crate::server) async fn agent_view(State(app): State<Shared>, Extension(caller): Extension<Caller>, headers: HeaderMap, Query(q): Query<Which>) -> Result<Response, Refusal> {
     app.user(&caller)?;
     from_our_page(&caller, &headers)?;
@@ -33,11 +34,11 @@ pub(in crate::server) async fn agent_view(State(app): State<Shared>, Extension(c
         return Err(Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "views", format!("{VIEWS_MAX} terminal views are open already; close one")));
     }
     let slot = Slot(views);
-    let runtime = app.runtime.clone();
+    let at = app.clone();
     let frames = tokio::task::spawn_blocking(move || -> Result<_, Refusal> {
         let machine = q.machine();
-        let place = runtime.resolve(machine, &q.agent)?;
-        Ok(runtime.observe(machine, &place)?)
+        let place = at.seat_place(&q.agent, machine).unwrap_or_else(|| at.runtime.resolve(machine, &q.agent))?;
+        Ok(at.runtime.observe(machine, &place)?)
     })
     .await
     .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "failed", e.to_string()))??;
