@@ -25,6 +25,8 @@ its sections went.
   the page, and the text is an agent's). Raw HTML is dropped. Links to workriver's own
   intent, unit or task pages on the current origin or at the CLI's loopback address
   open in place. Other links open in a new tab with `noopener noreferrer`.
+  Following a link in place from Edit Intent's preview, intent history, or a command
+  review closes its dialog, including when the link names the page already shown.
   Images are shown as links without fetching them, and a mermaid block is drawn as a
   diagram (Diagrams in Markdown, below). Plain text is
   monospace (whole JSON indented). Markdown is rendered up to its first 256 kB (about 1 s to

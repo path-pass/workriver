@@ -114,6 +114,8 @@ export default function App() {
   }
   // A planned intent whose start steps are shown.
   const [starting, setStarting] = useState<Intent | null>(null)
+  // A command the user asked to run: the confirm dialog shows it.
+  const [running, setRunning] = useState<RunAsk | null>(null)
   const showSide = (next: Section | null) => { setSide(next); remember(SIDE, next ?? 'closed') }
   // Narrow screens: the same content as a sheet over the page; not remembered.
   const [sheet, setSheet] = useState<Section | null>(null)
@@ -265,6 +267,7 @@ export default function App() {
   // A Markdown link leaves the destination visible, even when it names the current page.
   const navigate = useCallback((path: string) => {
     setSheet(null)
+    setRunning(null)
     for (const close of activeViewers.current) close()
     if (path === location.pathname + location.search + location.hash) return
     history.pushState(null, '', path)
@@ -448,9 +451,7 @@ export default function App() {
   const asking = unit?.tasks.find(n => n.id === pick?.id) ?? null
   const panel = { ws: ws!, here, onOpen: open, onCommit, commit, project, onTalk: showTalk, talk: <Manager unit={unit} n={asking} finding={pick?.finding} talk={talk} /> }
 
-  // A command the user asked to run: the confirm dialog shows it. A gate or chore of a
-  // research unit has no work tree: it runs in the intent's project folder.
-  const [running, setRunning] = useState<RunAsk | null>(null)
+  // A gate or chore of a research unit has no work tree: it runs in the intent's project folder.
   const run = useCallback((a: RunAsk) => {
     if (!ws) return
     const at0 = a.unit && unitsOf(ws).find(u => u.id === a.unit)
@@ -525,6 +526,7 @@ export default function App() {
         {ws && !unit && !missing && unitsOf(ws).length > 0 && !firstUnit(ws, project) && <Start project={ws.projects?.find(p => p.id === project)?.title} />}
         {ws && page && (
           <IntentPage
+            key={page.id}
             ws={ws}
             intent={page}
             onUnit={id => pickUnit(ws, id)}
