@@ -17,7 +17,9 @@ use crate::server::access::*;
 use crate::server::app::*;
 use crate::server::http::*;
 
+pub(super) mod lifecycle;
 pub(super) mod store;
+pub(super) mod target;
 
 /// Where a file in the daemon's store is for an agent on a machine: through its tunnel, on
 /// the port of the connection there is when it is fetched (a shell fills it in).
@@ -122,6 +124,73 @@ pub(super) async fn inbox(State(app): State<Shared>, Extension(via): Extension<C
         let d = crate::common::home::inbox(&app.home, &i.unit, i.task);
         crate::common::home::mkdir(&d).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("cannot make {}: {e}", d.display())))?;
         Ok(Json(json!({ "dir": d })))
+    })
+    .await
+}
+
+// ---- the attachment rule: the user's ----
+
+/// How many files and bytes the rule would take now from the records as they are.
+fn due_now(app: &App, rule: &crate::common::config::attachments::Rule) -> Result<serde_json::Value, ApiError> {
+    if rule.after == crate::common::config::attachments::After::Keep {
+        return Ok(json!({ "files": 0, "bytes": 0 }));
+    }
+    let state = app.store.lock().unwrap().recorded()?;
+    let due = state.attachments_due(&rule.conditions(), std::time::SystemTime::now());
+    Ok(json!({ "files": due.len(), "bytes": due.iter().map(|a| a.size).sum::<u64>() }))
+}
+
+/// The Attachments tab: the rule (or why the one in the settings runs nothing), what the
+/// store holds, and the run: its last result, whether one is on, when the next is due.
+pub(super) async fn rule_get(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || {
+        app.user(&caller)?;
+        let (rule, error) = match crate::runtime::Settings::attachment_rule(&app.home) {
+            Ok(r) => (json!(r), None),
+            Err(why) => (serde_json::Value::Null, Some(why)),
+        };
+        let (files, bytes) = store::usage(&app.home);
+        let job = app.schedule.last().into_iter().find(|j| j.name == lifecycle::JOB.name);
+        let job = serde_json::to_value(job).unwrap_or_default();
+        Ok(Json(json!({ "rule": rule, "error": error, "usage": { "files": files, "bytes": bytes }, "lastRun": job["last"], "running": job["running"].as_bool().unwrap_or(false), "next": job["next"] })))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RuleSet {
+    rule: serde_json::Value,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// Saves the rule, checked as it is read and with its folder checked (and saved canonical);
+/// with `dryRun`, nothing is saved. Either way, what it would take now.
+pub(super) async fn rule_set(State(app): State<Shared>, Extension(caller): Extension<Caller>, Json(r): Json<RuleSet>) -> Result<Json<serde_json::Value>, ApiError> {
+    blocking(move || {
+        app.user(&caller)?;
+        let mut rule = crate::common::config::attachments::Rule::of(&r.rule).map_err(bad)?;
+        if let Some(t) = rule.target.take() {
+            rule.target = Some(target::check(&t, &app.home).map_err(bad)?);
+        }
+        if !r.dry_run {
+            crate::runtime::Settings::set_attachment_rule(&app.home, &rule).map_err(bad)?;
+        }
+        Ok(Json(json!({ "rule": rule, "due": due_now(&app, &rule)? })))
+    })
+    .await
+}
+
+/// Runs the rule now: the run's result, or 409 while one is on.
+pub(super) async fn rule_run(State(app): State<Shared>, Extension(caller): Extension<Caller>) -> Result<Json<crate::server::schedule::Ran>, ApiError> {
+    blocking(move || {
+        app.user(&caller)?;
+        match app.run_job(lifecycle::JOB.name, crate::server::schedule::By::User) {
+            Ok(ran) => Ok(Json(ran)),
+            Err(crate::server::schedule::NotRun::Busy) => Err(ApiError(StatusCode::CONFLICT, "a run is in progress; its result shows when it ends".into())),
+            Err(crate::server::schedule::NotRun::NoJob) => Err(ApiError(StatusCode::NOT_FOUND, "this service does not run the attachment rule".into())),
+        }
     })
     .await
 }

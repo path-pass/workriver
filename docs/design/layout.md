@@ -321,8 +321,12 @@ crates/workriver/
 │   │   │       └── tests.rs
 │   │   ├── files/                    # Attachments: handlers and the bytes on disk.
 │   │   │   ├── mod.rs                # Upload/inbox/fetch handlers, scoped checks, links for
-│   │   │   │                         # an agent on another machine.
+│   │   │   │                         # an agent on another machine; the attachment rule's routes.
 │   │   │   ├── store.rs              # Paths, content ids, atomic put, usage.
+│   │   │   ├── lifecycle.rs          # The attachment rule's run (JOB, the schedule's first job):
+│   │   │   │                         # sweep, due, copy, one removal under the upload's lock, deletes.
+│   │   │   ├── target.rs             # A move's target, by kind (a folder): check, put, get; the only
+│   │   │   │                         # place of canonicalize and O_NOFOLLOW (guards.md).
 │   │   │   └── tests.rs
 │   │   ├── views/                    # What the page and the CLI read; git attribution; caches.
 │   │   │   ├── mod.rs                # Snapshot build (workspaces with their seats), the files
@@ -352,6 +356,7 @@ crates/workriver/
 │   │       ├── commands.rs  machines.rs  files.rs  views.rs
 │   │       ├── terminals.rs          # Reading, answering and watching an agent's terminal.
 │   │       ├── schedule.rs           # Jobs by the clock in a running service (test jobs, short waits).
+│   │       ├── lifecycle.rs          # The attachment rule as the service runs it (an aged store).
 │   │       └── ownership.rs          # Who sets an intent's project, workspace and manager.
 │   ├── runtime/                      # Adapting outside programs: the facade and composition.
 │   │   ├── mod.rs                    # Neutral construction/context/wording facade (connect,
@@ -375,9 +380,12 @@ crates/workriver/
 │       ├── config/
 │       │   ├── mod.rs                # Settings file read/update, generic over the adapter's options
 │       │   │                         # for a machine; the alert thresholds' types; a start's default.
+│       │   ├── attachments.rs        # The attachment rule (after, days, only, minMb, target), checked
+│       │   │                         # where it is read.
 │       │   ├── harness.rs            # The harnesses a manager is started with (kind, model flag,
 │       │   │                         # aliases) and the forms of a model.
-│       │   └── defaults.rs           # Tunable defaults (timeouts, caps).
+│       │   ├── defaults.rs           # Tunable defaults (timeouts, caps).
+│       │   └── tests.rs              # The settings file as edited by hand (the attachment rule).
 │       ├── home.rs                   # The data directory and the name of every file in it, in one
 │       │                             # place; it makes the directory (0700) and the database file
 │       │                             # (0600) before the store opens. (The ssh control sockets are

@@ -7,8 +7,11 @@ use std::sync::Mutex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+pub mod attachments;
 pub mod defaults;
 pub mod harness;
+#[cfg(test)]
+mod tests;
 
 use defaults::{IDLE_MINUTES, READY_HOURS, STALL_MAX, STALL_MINUTES};
 
@@ -46,6 +49,11 @@ pub struct Settings<O> {
     /// written while it is the default, so a file the user never set it in stays as it was.
     #[serde(default, skip_serializing_if = "StartDefault::is_default")]
     start: StartDefault,
+    /// The attachment rule, as written: read through `attachment_rule`, which checks it. Kept
+    /// as a value so that a word out of place is the rule's error, not a file that does not
+    /// parse. Not written while it is the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachments: Option<serde_json::Value>,
 }
 
 /// The harness and model a start takes unless the user changes them in its dialog.
@@ -72,7 +80,7 @@ impl Default for StartDefault {
 
 impl<O> Default for Settings<O> {
     fn default() -> Self {
-        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES, start: StartDefault::default() }
+        Settings { machines: BTreeMap::new(), alerts: Thresholds::default(), stall_minutes: STALL_MINUTES, ready_hours: READY_HOURS, idle_minutes: IDLE_MINUTES, start: StartDefault::default(), attachments: None }
     }
 }
 
@@ -140,6 +148,22 @@ impl<O: Serialize + DeserializeOwned> Settings<O> {
         let _held = SETTINGS.lock().unwrap();
         let mut all = Self::read(home);
         all.start = start;
+        all.write(home)
+    }
+
+    /// The attachment rule, checked: the default (keep) until the user sets one; a rule out
+    /// of range is an error naming its key, so that nothing is removed under it.
+    pub fn attachment_rule(home: &Path) -> Result<attachments::Rule, String> {
+        Self::read(home).attachments.as_ref().map_or_else(|| Ok(attachments::Rule::default()), attachments::Rule::of)
+    }
+
+    /// Saves the attachment rule, once checked as it is read; the rest of the file stays.
+    pub fn set_attachment_rule(home: &Path, rule: &attachments::Rule) -> Result<(), String> {
+        let value = serde_json::to_value(rule).map_err(|e| e.to_string())?;
+        attachments::Rule::of(&value)?;
+        let _held = SETTINGS.lock().unwrap();
+        let mut all = Self::read(home);
+        all.attachments = (*rule != attachments::Rule::default()).then_some(value);
         all.write(home)
     }
 

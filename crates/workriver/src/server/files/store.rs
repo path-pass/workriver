@@ -9,14 +9,21 @@ use sha2::{Digest, Sha256};
 /// id that is not the store's own form (16 lowercase hex), which could name a file elsewhere
 /// (the rules record no other, but a path is never built from one).
 pub(in crate::server) fn path(home: &Path, id: &str, name: &str) -> Option<PathBuf> {
+    Some(crate::common::home::attachments_dir(home).join(file_name(id, name)?))
+}
+
+/// A stored file's name, in the store and in a move's target: `<id>.<ext>`, the extension
+/// from its recorded name when it is alphanumeric; none for an id not of the store's form.
+/// Never the recorded name itself, so nothing is written outside the folder.
+pub(in crate::server) fn file_name(id: &str, name: &str) -> Option<String> {
     if !workriver_core::attachment_id(id) {
         return None;
     }
     let ext = Path::new(name).extension().map(|e| e.to_string_lossy().to_lowercase()).filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()));
-    Some(crate::common::home::attachments_dir(home).join(match ext {
+    Some(match ext {
         Some(e) => format!("{id}.{e}"),
         None => id.to_string(),
-    }))
+    })
 }
 
 /// Stores `bytes` (once per content) and returns its id and path. Safe for the same content

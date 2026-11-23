@@ -973,3 +973,66 @@ pub(super) fn try_record(port: u16, home: &std::path::Path, token: bool, says: O
     let (code, text) = http(port, "POST", "/api/append", &headers, Some(&json!({ "kind": "intent.created", "body": { "title": "x", "state": "planned" } }).to_string()));
     (code, text.split("\r\n\r\n").nth(1).unwrap_or_default().to_string())
 }
+
+/// The real store, read as if every recorded time were `days` earlier (none while it is 0):
+/// how a test sees what the attachment rule does after days without waiting them. What is
+/// recorded is the store's, checked against its own state; only reads are aged.
+pub(super) struct Aged {
+    inner: workriver_data::Store,
+    days: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// Every recorded time (`2026-01-02T03:04:05Z`) in `v` moved `days` back.
+fn earlier(v: &mut serde_json::Value, days: u64) {
+    match v {
+        serde_json::Value::String(s) if s.len() == 20 && s.ends_with('Z') && s.as_bytes()[10] == b'T' => {
+            if let Ok(t) = humantime::parse_rfc3339(s) {
+                *s = humantime::format_rfc3339_seconds(t - std::time::Duration::from_secs(days * 24 * 3600)).to_string();
+            }
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|x| earlier(x, days)),
+        serde_json::Value::Object(o) => o.values_mut().for_each(|x| earlier(x, days)),
+        _ => {}
+    }
+}
+
+impl workriver_core::ports::WorkStore for Aged {
+    fn recorded(&self) -> Result<workriver_core::ports::Recorded, workriver_core::ports::DataError> {
+        let now = self.inner.recorded()?;
+        let days = self.days.load(std::sync::atomic::Ordering::SeqCst);
+        if days == 0 {
+            return Ok(now);
+        }
+        let mut v = serde_json::to_value(&*now).unwrap();
+        earlier(&mut v, days);
+        let state: workriver_core::State = serde_json::from_value(v).unwrap();
+        Ok(workriver_core::ports::Recorded::new(now.revision(), std::sync::Arc::new(state)))
+    }
+    fn record(&mut self, who: &workriver_core::Principal, request: workriver_core::Body) -> Result<workriver_core::ports::Committed, workriver_core::ports::DataError> {
+        self.inner.record(who, request)
+    }
+    fn history(&self, after: workriver_core::ports::Revision, limit: usize) -> Result<workriver_core::ports::History, workriver_core::ports::DataError> {
+        self.inner.history(after, limit)
+    }
+    fn status(&self) -> Result<workriver_core::ports::DataStatus, workriver_core::ports::DataError> {
+        self.inner.status()
+    }
+    fn intent_events(&self, id: &str) -> Result<Vec<workriver_core::Event>, workriver_core::ports::DataError> {
+        self.inner.intent_events(id)
+    }
+}
+
+/// A daemon over an `Aged` store, running `jobs`: its client as the user and the days its
+/// reads are aged by.
+pub(super) fn aged_service(db: &std::path::Path, jobs: Vec<crate::server::schedule::Job>, waits: crate::server::Waits) -> (Daemon, std::sync::Arc<std::sync::atomic::AtomicU64>) {
+    let days = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let store = Aged { inner: workriver_data::Store::open(db).unwrap(), days: days.clone() };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let listener = rt.block_on(crate::server::bind(0)).unwrap();
+    let kernel = Kernel::default();
+    let home = db.parent().unwrap().to_path_buf();
+    let d = kernel.client(listener.local_addr().unwrap().port(), &home);
+    let options = crate::server::Options { allow_as: true, jobs, waits, ..kernel.options() };
+    std::thread::spawn(move || rt.block_on(crate::server::serve_over(listener, Box::new(store), home, std::sync::Arc::new(Fake::default()), options)));
+    (d, days)
+}

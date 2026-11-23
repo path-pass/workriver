@@ -66,7 +66,7 @@ pub(super) struct Options {
 /// The service's jobs by the clock: each domain's constant, listed here where the service
 /// is put together (`schedule/` names no domain).
 pub(super) fn jobs() -> Vec<schedule::Job> {
-    vec![]
+    vec![files::lifecycle::JOB]
 }
 
 /// Serves on an already bound listener until Ctrl-C.
@@ -129,6 +129,7 @@ pub(super) async fn serve_over(listener: tokio::net::TcpListener, store: Box<dyn
         procs,
         pins: Pins::open(&store_home),
         told: Mutex::default(),
+        attachments: Mutex::default(),
         store: Mutex::new(store),
         cache: Mutex::new(Cache::following(machines.clone()).sharing(shared.clone()).remembering(store_home.join(crate::common::home::SCAN_CACHE).join(crate::common::home::SCAN_CACHE_LOCAL))),
         remote_kick: kick,

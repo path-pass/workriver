@@ -48,8 +48,6 @@ pub(crate) struct Job {
 pub(in crate::server) enum Due {
     /// `first` after the service started, then `every` after its last run started (the
     /// user's or the timer's).
-    // The attachment run, the service's first job, is one.
-    #[cfg_attr(not(test), allow(dead_code))]
     Every { first: Duration, every: Duration },
     /// The job says: the next time it is due, by the wall clock; `None`: nothing now (asked
     /// again at the next look). A time already past runs at once. Blocking, it may read the
@@ -83,8 +81,6 @@ pub(in crate::server) struct Report {
 #[serde(rename_all = "lowercase")]
 pub(in crate::server) enum By {
     Timer,
-    // A job's own "Run now" route: the attachment run's is the first.
-    #[cfg_attr(not(test), allow(dead_code))]
     User,
 }
 
@@ -110,7 +106,7 @@ pub(in crate::server) enum NotRun {
 /// A job as `last` shows it.
 #[derive(Serialize)]
 pub(in crate::server) struct JobOut {
-    name: &'static str,
+    pub(in crate::server) name: &'static str,
     /// When it is due, as last worked out; none: nothing due now, or not worked out yet.
     next: Option<String>,
     running: bool,

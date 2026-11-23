@@ -31,9 +31,9 @@ humantime = "2"
 # The note's diff in `intent history --diff` (workriver-scan has it already).
 similar = { version = "3.2.1", default-features = false, features = ["std", "text"] }
 tempfile = "3"
-
-[dev-dependencies]
-# `setsid` for a child with no terminal (tests/caller.rs); already in the lock file.
+# O_NOFOLLOW and O_NONBLOCK for the read of a moved attachment (server/files/target.rs), and
+# `setsid` for a child with no terminal (tests/caller.rs); already in the lock file, built
+# for tokio.
 libc = "0.2"
 
 # The chain of a caller's process (caller.rs): what `ps` reads, per system.

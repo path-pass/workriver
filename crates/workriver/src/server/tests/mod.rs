@@ -6,6 +6,8 @@ mod conversations;
 mod files;
 // Guards that hold behaviour while code moves (docs/design/guards.md).
 mod guards;
+// The attachment rule as the service runs it.
+mod lifecycle;
 mod machines;
 mod ownership;
 mod planning;

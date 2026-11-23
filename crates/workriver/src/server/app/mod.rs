@@ -131,6 +131,10 @@ pub(super) struct App {
     pub(super) procs: Arc<dyn Procs>,
     /// One session, one place: the root each session was first seen at.
     pub(super) pins: Pins,
+    /// Orders an upload of a file against the attachment rule's removal of the same content:
+    /// held by `attach` across its look-up, write and records, and by the run across taking
+    /// again what is due, its record and the deletes (`files::lifecycle`).
+    pub(in crate::server) attachments: Mutex<()>,
     /// Held while the list of managers told of this build is read and written.
     pub(super) told: Mutex<()>,
     /// Commands the user is about to run (prepared, shown in the confirm dialog) and those run,

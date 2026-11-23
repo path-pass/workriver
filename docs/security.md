@@ -486,6 +486,25 @@ is for that session on its machine alone: if it closes meanwhile, nothing is giv
 agent that came since, whatever it is called; and an addition whose task was dropped or
 handed to someone else meanwhile is not given at all.
 
+## The attachment rule
+
+What happens to stored files after a time (Settings → Attachments: kept for good, deleted, or
+moved to a folder) is yours: the rule and its folder are set only by you (the routes ask for
+you, and none is served on another machine's listener), in `settings.json`, and checked
+where they are read, so a rule edited out of range by hand runs nothing. That a file was
+removed is recorded by workriver alone (`attachment.removed`, and `attachment.restored` when
+the same content is stored again), and the rules check it against the records: a file that
+open work names, as an attachment or by its id in any text, is never removed, whoever asks.
+No agent starts a run or names a file to remove; what an agent can do is what it could
+before, close an intent it manages, which starts a clock of at least a day under the rule
+you chose. The folder a file is moved to is trusted for being there, not for what it holds:
+a moved file is read back through the service, a regular file of the recorded size whose
+content must be the attachment's, never through a link; anything else is not served. No
+agent is given a path into that folder. workriver keeps no secret for it: a folder that a
+sync client keeps (OneDrive, iCloud) is that client's business. The run's result
+(`workriver status`, which anyone on this machine may read) holds counts and the system's
+words, never a record's text.
+
 ## What this does not protect against
 
 Agents run under your account, and the check above does not change that. It stops the

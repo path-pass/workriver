@@ -22,6 +22,8 @@ const LOCAL: &[(&str, &[&str])] = &[
     ("/api/metrics/thresholds", &["POST"]),
     ("/api/settings/stall", &["GET", "POST"]),
     ("/api/settings/start", &["GET", "POST"]),
+    ("/api/settings/attachments", &["GET", "POST"]),
+    ("/api/settings/attachments/run", &["POST"]),
     ("/api/workspace", &["GET"]),
     ("/api/unit/{id}/code", &["GET"]),
     ("/api/intent/{id}/history", &["GET"]),
@@ -190,6 +192,11 @@ const PROBES: &[(&str, &str, &str)] = &[
     ("POST", "/api/settings/stall", r#"{"minutes":30}"#),
     ("GET", "/api/settings/start", ""),
     ("POST", "/api/settings/start", r#"{"harness":"nope","model":""}"#),
+    ("GET", "/api/settings/attachments", ""),
+    // A dry run: nothing is saved.
+    ("POST", "/api/settings/attachments", r#"{"rule":{"after":"delete","days":30},"dryRun":true}"#),
+    // The guard's service runs no jobs: the user is answered that it does not run the rule.
+    ("POST", "/api/settings/attachments/run", "{}"),
     ("GET", "/api/workspace", ""),
     ("GET", "/api/unit/u1/code", ""),
     ("GET", "/api/intent/i1/history", ""),
@@ -510,6 +517,22 @@ fn the_schedule_names_no_domain() {
             let path = format!("{d}::");
             let named = text.match_indices(&path).any(|(k, _)| !text[..k].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
             assert!(!named, "{} names the service's {d} module: a job is a constant of its domain, listed in server::jobs()", f.display());
+        }
+    }
+}
+
+/// A move's target is `target.rs`'s alone: what makes a folder usable and safe to read
+/// (`canonicalize`, `O_NOFOLLOW`) appears nowhere else among the attachments' code, whose
+/// other files pass the target's value along. The tests beside it may use them to check.
+#[test]
+fn the_target_is_checked_in_one_file() {
+    let dir = crate_dir().join("src/server/files");
+    let files = sources(&dir, &["rs"]);
+    assert!(files.iter().any(|f| f.ends_with("target.rs")));
+    for f in files.iter().filter(|f| !f.ends_with("target.rs") && !f.ends_with("tests.rs")) {
+        let text = std::fs::read_to_string(f).unwrap();
+        for word in ["canonicalize", "O_NOFOLLOW"] {
+            assert!(!text.contains(word), "{} uses {word}: a target's checks are files/target.rs's (check, put, get)", f.display());
         }
     }
 }
