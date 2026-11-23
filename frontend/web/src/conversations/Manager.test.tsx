@@ -4,7 +4,7 @@
 // Needs you counts those replies under the same conversation.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/ui/primitives/tooltip'
 import { inbox } from '@/attention/select'
 import type { Space } from '@/agents/types'
@@ -108,6 +108,34 @@ describe('Needs you', () => {
     const ws = { intents: [], sessions: [], messages: [own, broadcast], chores: [], alerts: [], backlog: [] } as unknown as Workspace
     const rows = inbox(ws).messages
     expect(rows.map(r => [r.talk?.workspace, r.talk?.count, r.talk?.manager])).toEqual([[EVERY, 2, 'far']])
+  })
+})
+
+describe('the manager’s state above the input', () => {
+  const line = () => host.querySelector('p[data-manager]')
+
+  it.each([
+    ['idle', 'Manager idle'],
+    ['done', 'Manager done'],
+    ['blocked', 'Manager blocked'],
+    ['gone', 'Manager not running'],
+  ] as const)('shows the workspace manager’s %s state', (state, words) => {
+    show('ws1', [], [{ ...sessions[0], manager: { ...sessions[0].manager!, state } }])
+    expect(line()?.textContent).toBe(words)
+  })
+
+  it('shows and updates the selected manager’s working time above the input', () => {
+    vi.useFakeTimers()
+    try {
+      const workingSince = Date.now() - 3 * 60_000
+      show('ws2', [], [sessions[0], { ...sessions[1], manager: { ...sessions[1].manager!, state: 'working', workingSince } }])
+      expect(line()?.textContent).toBe('Manager working… 3m')
+      expect(line()!.compareDocumentPosition(host.querySelector('textarea')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      act(() => { vi.advanceTimersByTime(60_000) })
+      expect(line()?.textContent).toBe('Manager working… 4m')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

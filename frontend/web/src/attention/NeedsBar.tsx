@@ -24,7 +24,7 @@ export function NeedsBar({ rows, onOpen, onTalk }: {
       // The conversation may have switched workspaces. Jump after its log is laid out.
       requestAnimationFrame(() => {
         const question = manager?.querySelector<HTMLElement>(`[data-question="${CSS.escape(r.key)}"]`)
-        question?.scrollIntoView({ block: 'start' })
+        question?.scrollIntoView({ block: 'nearest' })
         question?.focus({ preventScroll: true })
       })
     } else if (r.agent) agents.answer({ name: r.agent.name, session: r.agent.session, machine: r.agent.machine })
