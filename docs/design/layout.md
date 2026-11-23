@@ -504,6 +504,8 @@ frontend/web/
     │                                 # Activity.tsx Nodes.tsx TaskDetail.tsx GateForm.tsx Findings.tsx
     │                                 # GateSteps.tsx (a placed task's step, a gate's list of the steps)
     ├── attention/                    # select.ts Inbox.tsx Backlog.tsx sound.ts (the sound for a new row)
+    │                                 # notice.ts (Blocking's rows in one line, which are news)
+    │                                 # NeedsBar.tsx (Blocking at the top of the Manager conversation)
     ├── agents/                       # types.ts select.ts Agents.tsx Mark.tsx (workriver's agents, not Herdr's)
     │                                 # Gate.tsx (a stuck agent answered: its screen, options, keys)
     │                                 # TerminalView.tsx (the dock, xterm.js loaded on first use) context.tsx

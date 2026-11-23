@@ -111,6 +111,28 @@ describe('Needs you', () => {
   })
 })
 
+describe('the manager’s state above the input', () => {
+  const line = () => host.querySelector('p[data-manager]')
+
+  it.each([
+    ['idle', 'Manager idle'],
+    ['done', 'Manager idle'],
+    ['blocked', 'Manager blocked'],
+    ['gone', 'Manager not running'],
+  ] as const)('shows the workspace manager’s %s state', (state, words) => {
+    show('ws1', [], [{ ...sessions[0], manager: { ...sessions[0].manager!, state } }])
+    expect(line()?.textContent).toBe(words)
+    expect(line()?.querySelector('.pending')).toBeNull()
+  })
+
+  it('shows the selected manager’s working state with a moving mark above the input', () => {
+    show('ws2', [], [sessions[0], { ...sessions[1], manager: { ...sessions[1].manager!, state: 'working' } }])
+    expect(line()?.textContent).toBe('Manager working')
+    expect(line()!.compareDocumentPosition(host.querySelector('textarea')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(line()?.querySelector('.pending')).not.toBeNull()
+  })
+})
+
 describe('the box', () => {
   const type = (text: string) => {
     const box = host.querySelector('textarea')!

@@ -10,6 +10,7 @@ import { ms } from '@/planning/select'
 import { useT } from '@/i18n'
 import { attach, detach, MAX_ATTACHMENT } from '@/api/actions'
 import type { Attachment } from '@/attachments/types'
+import type { Seat } from '@/agents/types'
 import type { Task } from '@/work/types'
 import type { Unit } from '@/planning/types'
 import type { Talk, Answer } from './types'
@@ -130,6 +131,16 @@ const READ_AFTER = 1500
 /** The select's value for the conversation with every manager (a workspace's is `w:` and its id). */
 const ALL = 'all'
 
+function ManagerStatus({ state }: Seat) {
+  const { t } = useT()
+  return (
+    <p className="mb-1.5 text-xs text-ink-2 data-[manager=blocked]:text-hold-ink" data-manager={state}>
+      {state === 'working' && <span aria-hidden className="pending bg-amber" />}
+      {t('talk.managerState', { state: t(`manager.state.${state}`) })}
+    </p>
+  )
+}
+
 /**
  * The conversation with a workspace's manager: the picked unit's intent's workspace, or one
  * picked from those with a manager (the page holds the pick: `talk.to`; a project switch may
@@ -137,7 +148,7 @@ const ALL = 'all'
  * into the manager's terminal (held while it waits for a person there); it replies with
  * `workriver reply`. To every manager: each running one gets its copy, and replies under it.
  */
-export function Manager({ unit, n, finding, talk }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null }) {
+export function Manager({ unit, n, finding, talk, needs }: { unit: Unit | null; n: Task | null; finding?: string; talk: Talk | null; needs?: ReactNode }) {
   const { t } = useT()
   // Files dropped anywhere on the panel go with the message being written.
   const takeFiles = useRef<((files: File[]) => void) | null>(null)
@@ -148,6 +159,8 @@ export function Manager({ unit, n, finding, talk }: { unit: Unit | null; n: Task
       onDrop={e => { if (hasFiles(e)) { e.preventDefault(); takeFiles.current?.([...e.dataTransfer.files]) } }}
     >
       <h2 id="side-talk" className="mb-2 flex-none px-4.5 text-sm font-[650]">{t('talk.title')}</h2>
+      {/* What blocks on the user stays in sight while they talk (attention/NeedsBar). */}
+      {needs}
       {talk && <ManagerTalk unit={unit} n={n} finding={finding} talk={talk} takeFiles={takeFiles} />}
     </section>
   )
@@ -251,7 +264,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
         disabled={all ? !running.length : !manager}
         onSend={send}
         onFiles={addFiles}
-        above={(context.length > 0 || files.length > 0 || refused.length > 0) && (
+        above={(
           <>
             {(context.length > 0 || files.length > 0) && (
               <div className="mb-1.5"><Chips chips={context} onDrop={c => { setOut(o => [...o, chipKey(c)]); setRefused([]) }} files={files} onRemove={remove} /></div>
@@ -262,6 +275,7 @@ function ManagerTalk({ unit, n, finding, talk, takeFiles }: { unit: Unit | null;
                 <button type="button" className="flex-none rounded-sm hover:text-ink" aria-label={t('talk.dismiss')} onClick={() => setRefused([])}><Icon name="no" className="size-3.5" /></button>
               </p>
             )}
+            {!space?.closed && space?.manager && <ManagerStatus {...space.manager} />}
           </>
         )}
         below={all ? (running.length ? t('talk.everyHow', { count: running.length }) : t('talk.everyNone')) : space?.closed ? t('talk.readOnly') : manager ? t('talk.how', { agent: manager.name }) : (

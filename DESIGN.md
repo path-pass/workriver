@@ -53,7 +53,7 @@ anything in `frontend/`.
 | [`navigation.md`](docs/design/ui/navigation.md) | The rail (project → workspace → intent → unit), the manager select, an intent's page, editing an intent and its history, merging planned intents, the side panel and its Needs you, Agents and Backlog sections, signing in, addresses |
 | [`activity.md`](docs/design/ui/activity.md) | The main area and its first layer (the graph), a node's detail, findings, gates and chores, what the user puts in, evidence, where the scope grew |
 | [`code.md`](docs/design/ui/code.md) | The code layer, the Commits section, the view by function (postponed) |
-| [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (what is picked and attached goes with a message), past questions, discussing a delivered result with its agent, agents asking each other |
+| [`conversations.md`](docs/design/ui/conversations.md) | The manager conversation (the Needs you bar at its top; what is picked and attached goes with a message), past questions, discussing a delivered result with its agent, agents asking each other |
 | [`operations.md`](docs/design/ui/operations.md) | Running a command as the user, Machines, other machines, stopped workers, machine alerts, Settings (with its list of workspaces), the jobs `workriver status` lists, opening a terminal |
 | [`attachments.md`](docs/design/ui/attachments.md) | Attachments and the viewer; the attachment rule (its routes and what a file that went looks like) |
 | [`templates.md`](docs/design/ui/templates.md) | A unit's template and the steps it places: the Templates page (the library, one template, editing its text, removing), a placed task and a gate's list of the steps |

@@ -350,7 +350,8 @@ function General() {
           onCheckedChange={on => { wantNotify(on).then(ok => { setNotifying(ok); setDenied(on && !ok) }) }}
         />
       </Row>
-      {denied && <p className="text-xs text-ink-2">{t('settings.notifyDenied')}</p>}
+      {/* Blocking notifications stay until clicked, on macOS only in the Alerts style. */}
+      <p className="text-xs text-ink-2">{denied ? t('settings.notifyDenied') : t('settings.notifyStays')}</p>
       <Sound />
     </div>
   )

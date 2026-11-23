@@ -323,7 +323,17 @@ its sections went.
      gates waiting for the user; an agent cannot go on. Violet. Rows with a background stand 2 px apart. Both
      count in the filled violet marks (the intent's in the rail, the folded rail's), the
      tab's title starts with their number ("(2) workriver"), and, if the user turned it on in
-     Settings, a newly waiting agent raises a browser notification that opens its gate.
+     Settings, every row that comes into Blocking raises a browser notification, once per
+     coming (a row that only changes raises none; one that left and comes back, an agent
+     asking again, raises another; the rows there when the page loads raise none): a newly
+     waiting agent ("ja-impl is waiting for you", its topic), a gate ("A gate is waiting for
+     you: <title>", its intent and unit), a stalled worker (its row's words, its intent and
+     unit). A click goes where the row goes: the agent's gate, the task. A Blocking
+     notification stays until clicked (`requireInteraction`), one per thing it is about (a
+     second with the same tag replaces it quietly). On macOS it stays when the browser's
+     notification style is Alerts, which Settings says. It stays even if the row leaves.
+     Blocking also stands at the top of the Manager conversation (`conversations.md`, The
+     Needs you bar).
   2. **Managers** – one row per open workspace that has an active intent and no manager
      running: an amber crown, "<workspace>: no manager" or "<workspace>: its manager is not
      running" with the workspace's id in mono, the seated manager's mark and name when there
@@ -341,8 +351,9 @@ its sections went.
      · chat), …"). An alert that rises from warning to critical stays the same row. It
      counts in no mark and not in the tab's title (those count work stuck on the user); a
      newly raised one sends a browser notification under the same switch, and one that
-     becomes critical sends another; never again while it stays. The row opens the
-     Machines section and leaves by itself once the alert clears.
+     becomes critical sends another; never again while it stays. The browser controls how
+     long these notifications stay. The row opens the Machines section and leaves by itself
+     once the alert clears.
   4. **Decisions** – one row per review or gate with open findings, with the open ones
      per severity and how many carry an agent's suggestion; the highest severity first.
   5. **Messages** – what was said to the user and not read yet, the newest first: one row

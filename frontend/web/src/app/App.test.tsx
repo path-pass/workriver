@@ -114,6 +114,56 @@ it('closes the Manager sheet after following its Markdown link', async () => {
   expect(heading()).toContain('First intent')
 })
 
+it('keeps answerable manager questions in the bar and opens the exact question', async () => {
+  const choice = { surface: { version: '1.0', createSurface: { components: [{}, { component: 'ChoicePicker', options: [{ value: 'yes', label: 'Yes' }] }] } } }
+  const readQuestion = { choice, open: true, unread: false }
+  const snapshot: Workspace = {
+    ...ws,
+    workspaces: [...ws.workspaces!, { id: 'ws2', name: 'other', project: '/project' }],
+    messages: [
+      { id: 'm1', workspace: 'ws1', manager: 'boss', at, step: 'delivered', byManager: true, text: 'First question?', replies: [], ...readQuestion, unread: true },
+      { id: 'm2', workspace: 'ws2', manager: 'other-boss', at, step: 'delivered', text: 'My message', replies: [
+        { by: 'other-boss', text: 'Already closed?', at, ...readQuestion, open: false },
+        { by: 'other-boss', text: 'Second question?', at, ...readQuestion },
+      ] },
+    ],
+  }
+  vi.mocked(watchWorkspace).mockImplementation(onData => { onData(snapshot); return () => {} })
+  const received: unknown[] = []
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    if (url !== '/api/message') throw new Error(`Unexpected fetch: ${url}`)
+    received.push(JSON.parse(String(init.body)))
+    return Response.json({})
+  })
+  localStorage.setItem('workriver.side', 'talk')
+  render()
+  await act(async () => { mainButton('Manager').click() })
+  expect(sheet()?.getAttribute('data-state')).toBe('open')
+  expect(host.querySelector('aside section[aria-labelledby="side-talk"]')).not.toBeNull()
+  expect(sheet()?.querySelector('[role=radio][value=yes]')).not.toBeNull()
+  const bar = () => sheet()?.querySelector('section[aria-label="Needs you"]')
+  const rows = () => [...(bar()?.querySelectorAll<HTMLButtonElement>('li button') ?? [])]
+  expect(bar()?.querySelector('h3')?.textContent).toBe('Needs you2')
+  expect(rows().map(r => r.querySelector('.title')?.textContent)).toEqual(['First question?', 'Second question?'])
+
+  const answer = async (row: HTMLButtonElement, question: string) => {
+    act(() => row.click())
+    await vi.waitFor(() => expect(document.activeElement?.textContent).toContain(question))
+    const bubble = document.activeElement!
+    expect(sheet()?.contains(bubble)).toBe(true)
+    act(() => bubble.querySelector<HTMLButtonElement>('[role=radio][value=yes]')!.click())
+    await act(async () => { button(bubble, 'Answer').click() })
+  }
+  await answer(rows()[1], 'Second question?')
+  expect(bar()?.querySelector('h3')?.textContent).toBe('Needs you1')
+  await answer(rows()[0], 'First question?')
+  expect(bar()).toBeNull()
+  expect(received).toEqual([
+    { workspace: 'ws2', text: '', answer: { message: 'm2', reply: 2, selected: ['yes'] } },
+    { workspace: 'ws1', text: '', answer: { message: 'm1', selected: ['yes'] } },
+  ])
+})
+
 it('closes the attachment viewer when its Markdown link points to the current address', async () => {
   localStorage.setItem('workriver.side', 'talk')
   render()

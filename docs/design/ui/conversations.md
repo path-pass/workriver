@@ -41,6 +41,20 @@ context; everything else still goes to the manager.
   manager not running (the box is then disabled, says nobody would read it, and "Manager…"
   beside it opens the manager select, `navigation.md`), and a manager seated later sees it
   all. A workspace picked there, or asked for, stays while other sections are open.
+- **The Needs you bar.** While the user works in the conversation, what blocks on them
+  stays in sight: under the section's heading, above the workspace select (in the side panel
+  and the narrow sheet alike), a framed bar with "Needs you" and a count. It lists Blocking's
+  rows (`navigation.md`, Needs you) in its order, followed by the managers' questions that
+  can still be answered. Each line shows the kind as an icon, the row's words cut to one
+  line, and how long it has waited (the time in a tooltip), in the inbox's colours (orange
+  for an agent waiting, violet for a gate). Past about four rows it scrolls inside itself.
+  A click on a Blocking row goes where Needs you's row goes. A click on a question opens
+  its workspace's conversation and takes the user to that question. Reading it leaves it
+  in the bar until it is answered or closes. The bar reads the same snapshot as Needs you
+  and Manager. With no rows there is no bar.
+- **The manager's state.** Above the input of an open workspace's conversation, a line shows
+  its seated manager's runtime state in the same words as the rail, from the same snapshot,
+  with a moving mark while the manager is working.
 - **A line of workriver's own.** A message with `notice` is not anyone's words: it is one
   quiet centred line in the conversation, with a crown and its age, never a bubble, never
   unread, never a row in Needs you. One kind for now, `manager-back`: "<manager> is back in

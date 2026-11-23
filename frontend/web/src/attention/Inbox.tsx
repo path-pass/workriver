@@ -6,6 +6,7 @@ import { useAct } from '@/work/actions'
 import { Button } from '@/ui/primitives/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/primitives/collapsible'
 import { inbox, type InboxRow } from './select'
+import { blockingLine } from './notice'
 import { EVERY } from '@/conversations/select'
 import { finderLabel, openFindings, severityCounts } from '@/work/select'
 import type { Pick } from '@/work/types'
@@ -111,7 +112,7 @@ function Row({ r, sessions, onOpen, onMachines, onTalk }: { r: InboxRow; session
       <div className="irow-pair hold flex items-center gap-1 pr-1">
         <button type="button" className="irow min-w-0" data-kind="agent" onClick={() => agents.answer({ name: a.name, session: a.session, machine: a.machine })}>
           <Icon name="terminal" />
-          <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{t('inbox.blockedAgent', { agent: a.name })}</span></span>
+          <span className="title flex min-w-0 items-center gap-1.5"><Who name={a.name} topic={a.topic} /><span className="truncate">{blockingLine(t, waited, r)}</span></span>
           <span className="meta">
             {a.topic && <span className="truncate" lang={contentLang(a.topic)}>{a.topic}</span>}
             <span className="unit opacity-70" lang={contentLang(a.place)}>{a.place}</span>
@@ -126,15 +127,13 @@ function Row({ r, sessions, onOpen, onMachines, onTalk }: { r: InboxRow; session
   if (r.kind === 'stalled') {
     const n = r.node!
     const s = n.stalled!
-    const agent = n.agent ?? ''
-    const ref = `${r.unit!.id}#${n.taskId ?? n.id}`
     // Its instance in its intent's workspace (on its unit's machine, for code): none, or not one alone, no button.
     const live = s.gone ? undefined : taskSession(sessions, n, r.unit!, r.intent?.workspace)
     return (
       <div className="irow-pair flex items-center gap-1 pr-1">
         <button type="button" className="irow min-w-0" data-kind="stalled" onClick={() => onOpen(r.unit!.id, r.pick)}>
           <Icon name="terminal" />
-          <span className="title">{s.gone ? t('inbox.stalledGone', { task: ref, agent }) : t('inbox.stalled', { task: ref, agent, ago: waited(r.since) })}</span>
+          <span className="title">{blockingLine(t, waited, r)}</span>
           <span className="meta">
             {s.reminded && <span className="flex-none">{t('inbox.reminded', { time: date(s.reminded) })}</span>}
             <span className="unit"><span className="opacity-70"><span lang={contentLang(r.intent?.title)}>{r.intent?.title}</span>{' / '}</span><span lang={contentLang(r.unit?.title)}>{r.unit?.title}</span></span>
