@@ -31,6 +31,64 @@ describe('Markdown an agent wrote', () => {
   })
 
   it.each([
+    ['http://127.0.0.1:8000/u1/3。在 11/20 更新', '/u1/3', 'http://127.0.0.1:8000/u1/3', '。在 11/20 更新'],
+    ['（https://example.invalid/docs）', 'https://example.invalid/docs', 'https://example.invalid/docs', '）'],
+    ['https://example.invalid/docsはこちら', 'https://example.invalid/docs', 'https://example.invalid/docs', 'はこちら'],
+    ['https://example.invalid日本', 'https://example.invalid', 'https://example.invalid', '日本'],
+    ['https://example.invalid。次へ', 'https://example.invalid', 'https://example.invalid', '。次へ'],
+    ['www.example.invalid/docs【続き】', 'http://www.example.invalid/docs', 'www.example.invalid/docs', '【続き】'],
+    ['https&colon;//example.invalid/docs日本', 'https://example.invalid/docs', 'https://example.invalid/docs', '日本'],
+    ['https://a日本.jp/docsはこちら', 'https://a%E6%97%A5%E6%9C%AC.jp/docs', 'https://a日本.jp/docs', 'はこちら'],
+    ['https://例え.テスト/docsはこちら', 'https://%E4%BE%8B%E3%81%88.%E3%83%86%E3%82%B9%E3%83%88/docs', 'https://例え.テスト/docs', 'はこちら'],
+    ['https://example.invalid/docs.', 'https://example.invalid/docs', 'https://example.invalid/docs', '.'],
+    ['“https://example.invalid/docs”', 'https://example.invalid/docs', 'https://example.invalid/docs', '”'],
+    ['‘https://example.invalid/docs’', 'https://example.invalid/docs', 'https://example.invalid/docs', '’'],
+    ['https://example.invalid/docs“说明”', 'https://example.invalid/docs', 'https://example.invalid/docs', '“说明”'],
+    ['https://example.invalid/docs‘说明’', 'https://example.invalid/docs', 'https://example.invalid/docs', '‘说明’'],
+    ['https://example.invalid/docs——说明', 'https://example.invalid/docs', 'https://example.invalid/docs', '——说明'],
+    ['https://example.invalid/docs……', 'https://example.invalid/docs', 'https://example.invalid/docs', '……'],
+  ])('ends a bare link at its boundary in %s', (markdown, href, label, trailing) => {
+    const host = document.createElement('div')
+    host.innerHTML = html(markdown)
+    const link = host.querySelector('a')!
+    expect(link.getAttribute('href')).toBe(href)
+    expect(link.textContent).toBe(label)
+    expect(link.nextSibling?.textContent).toBe(trailing)
+  })
+
+  it.each([
+    ['https://one.invalid/docs、https://two.invalid/docs', [
+      ['https://one.invalid/docs', 'https://one.invalid/docs'],
+      ['https://two.invalid/docs', 'https://two.invalid/docs'],
+    ]],
+    ['https://one.invalid/docs和www.two.invalid/docs，http://three.invalid/docs。', [
+      ['https://one.invalid/docs', 'https://one.invalid/docs'],
+      ['http://www.two.invalid/docs', 'www.two.invalid/docs'],
+      ['http://three.invalid/docs', 'http://three.invalid/docs'],
+    ]],
+  ])('links each bare URL in %s', (markdown, links) => {
+    const host = document.createElement('div')
+    host.innerHTML = html(markdown)
+    expect(Array.from(host.querySelectorAll('a'), link => [link.getAttribute('href'), link.textContent])).toEqual(links)
+    expect(host.textContent).toBe(markdown)
+  })
+
+  it.each([
+    ['https://日本/', 'https://%E6%97%A5%E6%9C%AC/'],
+    ['https://日本.jp/', 'https://%E6%97%A5%E6%9C%AC.jp/'],
+    ['https://www.日本.jp/', 'https://www.%E6%97%A5%E6%9C%AC.jp/'],
+  ])('keeps the complete internationalized host in %s', (markdown, href) => {
+    expect(html(markdown)).toContain(`<a href="${href}" target="_blank" rel="noopener noreferrer">${markdown}</a>`)
+  })
+
+  it.each([
+    '[docs](https://example.invalid/日本)',
+    '<https://example.invalid/日本>',
+  ])('keeps the complete explicit link in %s', markdown => {
+    expect(html(markdown)).toContain('href="https://example.invalid/%E6%97%A5%E6%9C%AC" target="_blank"')
+  })
+
+  it.each([
     'http://127.0.0.1:8000/u1/3?view=docs',
     'http://127.0.0.1:8000/u1/3#install',
     'http://127.0.0.1:8000/u1/3?view=docs#install',
@@ -40,6 +98,7 @@ describe('Markdown an agent wrote', () => {
 
   it.each([
     ['http://127.0.0.1:8000/u1/3?finding=P2-1', '/u1/3?finding=P2-1'],
+    ['http://127.0.0.1:8000/u1/3。続き', '/u1/3'],
     [`[open](${location.origin}/u1/)`, '/u1'],
     ['[open](/i3)', '/i3'],
     ['[open](/u1/3/?finding=two+words)', '/u1/3?finding=two%20words'],
