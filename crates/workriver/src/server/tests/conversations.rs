@@ -1887,3 +1887,20 @@ fn nothing_reaches_a_blind_manager_until_it_delivers() {
     wait_until("the message is delivered", || message()["step"] == "delivered");
     wait_until("the delivery is recorded delivered", || d.get("/api/state").unwrap()["units"][0]["tasks"][2]["delivery"]["step"] == "delivered");
 }
+
+/// A task given to a name no live agent had (recorded as that name) is dropped while no agent
+/// goes by it; an agent of that name then runs: it is told to stop, by that name (a `to` the
+/// records know no session by is found as `send` finds it, design 2.2).
+#[test]
+fn a_dropped_task_given_by_name_reaches_its_agent_once_listed() {
+    use workriver_core::runtime::AgentState::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = std::sync::Arc::new(Fake::default());
+    let d = researched(&fake, &tmp.path().join("w.db"));
+    d.append("s-boss", "task.created", json!({ "unit": "u1", "kind": "research", "title": "Later", "agent": "later", "inputs": [{ "from": "1" }] })).unwrap(); // u1#3
+    assert_eq!(d.get("/api/state").unwrap()["units"][0]["tasks"][2]["agent"], "later");
+    d.append("user", "task.dropped", json!({ "unit": "u1", "task": 3, "reason": "DROPPED_BY_NAME" })).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    fake.agents.lock().unwrap().push(("p4".into(), live("s-later", "later", "w1", Idle)));
+    wait_until("told by its name", || sent(&fake, "s-later").iter().any(|m| m.contains("DROPPED_BY_NAME")));
+}

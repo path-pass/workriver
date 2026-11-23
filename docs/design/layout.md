@@ -297,10 +297,11 @@ crates/workriver/
 │   │   ├── conversations/
 │   │   │   ├── mod.rs                # Ask/discuss/end/reply/message/read handlers, one message
 │   │   │   │                         # whole (App::view, then core's message_for), shared state.
-│   │   │   ├── questions.rs          # Start/hold/retry/answer/deadline/idle close.
+│   │   │   ├── questions.rs          # The one delivery path (hand, give, receiver, failed,
+│   │   │   │                         # given, ended); start/answer/deadline/idle close.
 │   │   │   ├── discussions.rs        # A discussion's question to its task's agent: hand, gone,
 │   │   │   │                         # gate submitted, restart; what the manager hears of it.
-│   │   │   ├── messages.rs           # Manager conversation send/hold/delivery/failure.
+│   │   │   ├── messages.rs           # The user's message to a manager: handed, recorded.
 │   │   │   └── prompts.rs            # Ask, follow-up, answer-back and discussion prompts.
 │   │   ├── commands/
 │   │   │   ├── mod.rs                # Prepare/run/read/focus handlers; the user check in each.

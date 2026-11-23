@@ -282,11 +282,8 @@ impl App {
         if live.iter().any(|a| a.session == agent) {
             return Ok(agent.to_string());
         }
-        let known = {
-            let store = self.store.lock().unwrap();
-            store.agent(agent)?.is_some() || store.seat_of(agent)?.is_some()
-        };
-        if known {
+        let all = self.store.lock().unwrap().recorded()?;
+        if delivery::known_session(&all, agent) {
             return Ok(agent.to_string());
         }
         if let Some(machines) = &self.machines {

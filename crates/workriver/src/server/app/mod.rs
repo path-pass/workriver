@@ -69,7 +69,7 @@ pub(super) struct App {
     /// it holds `appointing` or a writer.
     pub(in crate::server) discussing: Mutex<()>,
     /// Orders every send `App::hand` makes but a discussion's (the user's message's last check
-    /// of its appointment, and every notice, duty, question or review) against a seat change's
+    /// of its appointment, and every notice, note, question or review) against a seat change's
     /// record: whichever comes first, the other sees it (`App::hand`, `App::record`). The send
     /// finds its place under it (`App::place_of`, which for a seat on another machine reads
     /// over ssh), so a seat change waits for a send under way, a slow machine's too. Taken
@@ -213,38 +213,18 @@ impl App {
     }
 
     /// Sends a message to an agent, given by its session or by its name: one try, nothing
-    /// kept. One on another machine cannot open files of this machine: paths into the
-    /// attachment store become links through its tunnel (`type_at`).
-    ///
-    /// A session is decided before any name (`names_a_session`): an agent that takes a
-    /// session id as its name is not it (`send_by_session`). Only a `to` the records know no
-    /// session by is a name, turned into its session in a fresh read: exactly one live agent
-    /// by it (`named`).
+    /// kept. Found as everything given is (`App::receiver`): a session the records know by
+    /// that session alone (an agent that takes a session id as its name is not it), anything
+    /// else as a name, exactly one live agent by it; read now. One on another machine cannot
+    /// open files of this machine: paths into the attachment store become links through its
+    /// tunnel (`type_at`).
     pub(super) fn send(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        if self.names_a_session(to) {
-            return self.send_by_session(to, text);
-        }
         let live = self.runtime.agents().map_err(untyped)?;
-        match named(&live, to)[..] {
-            [a] => self.type_at(&a.session, a.machine.as_deref(), text),
-            [] => Err(RuntimeError::NoAgent(to.into())),
-            ref more => Err(RuntimeError::Ambiguous(format!("{} live agents are {to}", more.len()))),
-        }
-    }
-
-    /// Sends a message to the agent with session `to`, found by that session alone: a seated
-    /// one at its seat's place on the seat's machine (`place_of`), any other on the one
-    /// machine that lists it now. One that is not listed is not replaced by an agent going by
-    /// its name; one listed on two machines gets nothing (which is meant cannot be told).
-    pub(in crate::server) fn send_by_session(&self, to: &str, text: &str) -> Result<(), RuntimeError> {
-        if let Some(machine) = self.seat_machine(to)? {
-            return self.type_at(to, machine.as_deref(), text);
-        }
-        let live = self.runtime.agents().map_err(untyped)?;
-        match live.iter().filter(|a| a.session == to).collect::<Vec<_>>()[..] {
-            [a] => self.type_at(to, a.machine.as_deref(), text),
-            [] => Err(RuntimeError::NoAgent(to.into())),
-            ref more => Err(RuntimeError::Ambiguous(format!("{to} is listed on {} machines", more.len()))),
+        let read = got(self.store.lock().unwrap().recorded());
+        let all = read.map_err(|Unread(why)| RuntimeError::Unreachable(why))?.ok_or_else(|| RuntimeError::Unreachable("the records cannot be read now".into()))?;
+        match self.receiver(&all, to, true, &live)? {
+            Some(a) => self.type_at(&a.session, a.machine.as_deref(), text),
+            None => Err(RuntimeError::NoAgent(to.into())),
         }
     }
 

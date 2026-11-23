@@ -44,7 +44,7 @@ impl App {
                 Ok(all) => all.as_ref().and_then(|all| all.question(id).ok().map(|q| prompts::follow_up(all, q, &self.home))).unwrap_or_default(),
                 Err(Unread(why)) => return self.fail_started(id, name, &why),
             };
-            self.hand(Held { question: id.into(), kind: For::Question, to: name.clone(), name, text, not_ready: None, about: None, seat: None });
+            self.hand(Held::temporary(For::Question, id, name, text));
             return;
         }
         let read = got(self.store.lock().unwrap().recorded());
@@ -119,21 +119,13 @@ impl App {
         // A harness opening a folder it has not seen first asks a person (trust this folder,
         // approve the directory): the prompt waits for that, it is never answered for them.
         // The agent may come back not ready yet (Unknown): `hand` holds the prompt.
-        self.hand(Held { question: id.into(), kind: For::Question, to: agent.name.clone(), name: agent.name, text: prompt, not_ready: None, about: None, seat: None });
+        self.hand(Held::temporary(For::Question, id, agent.name, prompt));
     }
 
-    /// Gives `h` now, against a read of the agents made now (`give`), or holds it. A planned
-    /// notice that is held is recorded so, with why: the page shows it held, and a restart
-    /// before it is given records it not delivered (`recover`).
+    /// Gives `h` now, against a read of the agents made now (`give`), or holds it.
     pub(in crate::server) fn hand(&self, h: Held) -> Outcome {
         let live = self.runtime.agents();
-        let plan = h.about.clone().map(|plan| (plan, h.to.clone()));
-        let out = self.give(h, live.as_deref());
-        if let (Outcome::Held(why), Some((plan, to))) = (&out, plan) {
-            let delivery = Delivery { step: DeliveryStep::Held, to: Some(to), reason_code: None, reason: Some(why.clone()), message: plan.message.clone() };
-            self.record_delivery(&plan, delivery);
-        }
-        out
+        self.give(h, live.as_deref())
     }
 
     /// One try at giving `h` against `live`, one read of the agents (the poll gives everything
@@ -142,31 +134,29 @@ impl App {
     /// record ends in it; what has none is never dropped while it is still wanted.
     pub(in crate::server) fn give(&self, mut h: Held, live: Result<&[RuntimeAgent], &RuntimeError>) -> Outcome {
         let p = h.kind.policy();
+        let read = got(self.store.lock().unwrap().recorded());
+        let Ok(Some(all)) = read else { return self.hold(h, UNREAD.into()) };
         // 1. Still wanted: its appointment, its question, its task.
-        match self.wanted(&h, live.ok()) {
-            None => return self.hold(h, "the records cannot be read now".into()),
-            Some(Err((code, why))) => return self.ended(h, code, why),
-            Some(Ok(())) => {}
+        if let Err((code, why)) = wanted(&all, &h, live.ok()) {
+            return self.ended(h, code, why);
         }
-        // 2. Nothing of other work for an agent on a blind task (a note of that task itself is
-        // its own). Records that cannot be read say neither.
-        let last = self.live().unwrap_or_default();
-        if p.by_session
-            && !self.own_blind(&h, live.ok())
-            && let Some(why) = self.held_because(&h.to, live.unwrap_or(&last))
-        {
-            return self.hold(h, why);
-        }
-        // 3. Its receiver in this read.
         let live = match live {
             Ok(live) => live,
             Err(e) => return self.hold(h, e.to_string()),
         };
-        let row = match self.receiver(&h, live) {
+        // 2. Nothing of other work for an agent on a blind task (a note of that task itself is
+        // its own).
+        if p.by_session && !own_blind(&all, &h, live) && delivery::blind(&all, live, &h.to) {
+            let why = format!("{} is on a blind task: it is told once that task is delivered", h.name);
+            return self.hold(h, why);
+        }
+        // 3. Its receiver in this read.
+        let row = match self.receiver(&all, &h.to, p.by_session, live) {
             Ok(Some(row)) => row,
             Ok(None) => return self.failed(h, RuntimeError::NoAgent(String::new())),
             Err(e) => return self.failed(h, e),
         };
+        drop(all);
         if h.kind == For::Discussion {
             h.name = row.name.clone();
         }
@@ -180,38 +170,38 @@ impl App {
             _ => {}
         }
         // 5. Typed, in order with a gate's record (a discussion's question: `discussing`) or a
-        // seat change (everything else: `appointing`), and still wanted under that lock:
-        // whichever comes first, the other sees it. The lock, then where the receiver is
-        // (`place_of`, in `type_at`), then its writer; a seat change waits for this send,
+        // seat change (everything else: `appointing`), and still wanted under that lock, read
+        // again: whichever comes first, the other sees it. The lock, then where the receiver
+        // is (`place_of`, in `type_at`), then its writer; a seat change waits for this send,
         // over ssh too.
         let _order = match h.kind {
             For::Discussion => self.discussing.lock().unwrap(),
             _ => self.appointing.lock().unwrap(),
         };
-        match self.wanted(&h, Some(live)) {
-            None => return self.hold(h, "the records cannot be read now".into()),
-            Some(Err((code, why))) => return self.ended(h, code, why),
-            Some(Ok(())) => {}
+        let read = got(self.store.lock().unwrap().recorded());
+        let Ok(Some(all)) = read else { return self.hold(h, UNREAD.into()) };
+        if let Err((code, why)) = wanted(&all, &h, Some(live)) {
+            return self.ended(h, code, why);
         }
-        // What is for a session is typed at that session, never at whatever row was found.
-        let at = if p.by_session { h.to.clone() } else { row.session.clone() };
-        match self.type_at(&at, row.machine.as_deref(), &h.text) {
+        drop(all);
+        match self.type_at(&row.session, row.machine.as_deref(), &h.text) {
             Ok(()) => self.given(h),
             Err(e) => self.failed(h, e),
         }
     }
 
-    /// Who `h` goes to in `live`: its session (a temporary agent's question and review: the
-    /// name workriver gave it, `named`). A seated session is listed only at the place its seat
-    /// is held to; a seat the last read of its machine did not find there (lost, or not read)
-    /// is read again now (`place_of`) before it counts as not listed. A session no seat holds that two machines
-    /// list: `Ambiguous`. Records or a seat not read: that error.
-    fn receiver(&self, h: &Held, live: &[RuntimeAgent]) -> Result<Option<RuntimeAgent>, RuntimeError> {
-        let rows: Vec<&RuntimeAgent> = if h.kind.policy().by_session { live.iter().filter(|a| a.session == h.to).collect() } else { delivery::named(live, &h.to) };
-        if let Some(seat) = self.seat_machine(&h.to)? {
-            let at = match self.place_as_read(&h.to, seat.as_deref(), seat.as_deref()) {
+    /// Who `to` is in `live`. A session the records know (`delivery::known_session`) is that
+    /// session alone, when `by_session`; anything else is a name (a temporary agent's, or a
+    /// task's agent given as a name): the live agents `named` by it. A seated session is
+    /// listed only at the place its seat is held to; a seat the last read of its machine did
+    /// not find there (lost, or not read) is read again now (`place_of`) before it counts as
+    /// not listed. Several: `Ambiguous`. A seat not read: that error.
+    pub(in crate::server) fn receiver(&self, all: &core::State, to: &str, by_session: bool, live: &[RuntimeAgent]) -> Result<Option<RuntimeAgent>, RuntimeError> {
+        let rows: Vec<&RuntimeAgent> = if by_session && delivery::known_session(all, to) { live.iter().filter(|a| a.session == to).collect() } else { delivery::named(live, to) };
+        if let Some(seat) = all.seat_of(to).filter(|w| !w.closed).and_then(|w| w.manager.as_ref()).map(|m| m.machine.clone()) {
+            let at = match self.place_as_read(to, seat.as_deref(), seat.as_deref()) {
                 Ok(place) => Ok(place),
-                Err(_) => self.place_of(&h.to, seat.as_deref()),
+                Err(_) => self.place_of(to, seat.as_deref()),
             };
             return match at {
                 Ok(_) => Ok(rows.into_iter().find(|a| a.machine == seat).cloned()),
@@ -222,50 +212,8 @@ impl App {
         match rows[..] {
             [] => Ok(None),
             [one] => Ok(Some(one.clone())),
-            _ => Err(RuntimeError::Ambiguous(format!("{} is listed on {} machines", h.name, rows.len()))),
+            _ => Err(RuntimeError::Ambiguous(format!("{} live agents are {to}", rows.len()))),
         }
-    }
-
-    /// Whether `h` is still wanted, from the records now: the appointment `to` held when it
-    /// was handed (`Held::seat`); a message's own appointment; a discussion's question still
-    /// open with its gate not submitted; a note's task still started and with `to` (`live`:
-    /// this try's read, for a task given to a name). None: the records cannot be read. Err:
-    /// why it is over.
-    fn wanted(&self, h: &Held, live: Option<&[RuntimeAgent]>) -> Option<Result<(), (ReasonCode, String)>> {
-        let all = got(self.store.lock().unwrap().recorded()).ok()??;
-        let message = matches!(h.kind, For::Message | For::Broadcast);
-        let appointed = match &h.seat {
-            Some((w, since)) => all.appointed(w, &h.to, *since),
-            None => true,
-        };
-        let mine = || match all.message(&h.question) {
-            Ok(m) => match m.to.iter().find(|r| r.manager == h.to) {
-                Some(r) => all.appointed(&r.workspace, &r.manager, r.since),
-                None => m.manager == h.to && all.appointed(&m.workspace, &m.manager, m.since),
-            },
-            Err(_) => false,
-        };
-        if !appointed || message && !mine() {
-            let words = if message { "the message; write to the manager again" } else { "it" };
-            return Some(Err((ReasonCode::SeatChanged, format!("the seat was given anew before {} could be given {words}", h.name))));
-        }
-        Some(match h.kind {
-            For::Discussion => match all.question(&h.question) {
-                Ok(q) if q.open() => super::discussions::over(&all, q).map_or(Ok(()), |why| Err((ReasonCode::GateSubmitted, why))),
-                _ => Err((ReasonCode::GateSubmitted, "the discussion's question is closed".into())),
-            },
-            For::Note => match note_task(&all, h).filter(|t| t.state == core::TaskState::Running && holds(&all, live, t, &h.to)) {
-                Some(_) => Ok(()),
-                None => Err((ReasonCode::RuntimeError, format!("{} is not started and with {} any more", h.question, h.name))),
-            },
-            _ => Ok(()),
-        })
-    }
-
-    /// A note of the receiver's own blind task: it hears of it, blind as it is.
-    fn own_blind(&self, h: &Held, live: Option<&[RuntimeAgent]>) -> bool {
-        let all = got(self.store.lock().unwrap().recorded()).ok().flatten();
-        all.is_some_and(|all| note_task(&all, h).is_some_and(|t| t.blind && holds(&all, live, t, &h.to)))
     }
 
     /// What a try that typed nothing, or may have, comes to. Not free (waits for a person, not
@@ -274,7 +222,7 @@ impl App {
     /// none is held (and typed again). A discussion's question is gone only by
     /// `discussions_gone`.
     fn failed(&self, h: Held, e: RuntimeError) -> Outcome {
-        let ends = h.recorded() && (h.kind.policy().gone_unlisted || !matches!(e, RuntimeError::NoAgent(_)));
+        let ends = h.recorded() && (h.kind != For::Discussion || !matches!(e, RuntimeError::NoAgent(_)));
         match e {
             RuntimeError::Blocked(why) => self.hold(h, why),
             RuntimeError::NotReady(why) => self.not_ready(h, why),
@@ -315,7 +263,15 @@ impl App {
         self.park(h, why)
     }
 
-    fn park(&self, h: Held, why: String) -> Outcome {
+    /// Into `App.held`. A planned delivery is recorded held, with why, before it first goes
+    /// there: the page shows it held, and a restart before it is given records it not
+    /// delivered (`recover`).
+    fn park(&self, mut h: Held, why: String) -> Outcome {
+        if let Some(plan) = h.about.as_ref().filter(|_| !h.recorded_held) {
+            let delivery = Delivery { step: DeliveryStep::Held, to: Some(h.to.clone()), reason_code: None, reason: Some(why.clone()), message: plan.message.clone() };
+            self.record_delivery(plan, delivery);
+            h.recorded_held = true;
+        }
         self.held.lock().unwrap().push(h);
         let _ = self.changed.send(());
         Outcome::Held(why)
@@ -349,21 +305,6 @@ impl App {
             },
         }
         Outcome::Ended(why)
-    }
-
-    /// Why nothing of other work may be given to `session` now, in the service's words: it
-    /// is on a blind task in progress, or the records that would say cannot be read. `live`:
-    /// who runs (a task may be its by a name only).
-    pub(in crate::server) fn held_because(&self, session: &str, live: &[RuntimeAgent]) -> Option<String> {
-        let read = got(self.store.lock().unwrap().recorded());
-        match read {
-            Ok(Some(s)) if !delivery::blind(&s, live, session) => None,
-            Ok(Some(s)) => {
-                let name = s.name_of(session).or_else(|| live.iter().find(|a| a.session == session).map(|a| a.name.as_str())).unwrap_or(session);
-                Some(format!("{name} is on a blind task: it is told once that task is delivered"))
-            }
-            Ok(None) | Err(_) => Some("the records cannot be read now: it is told once they can".into()),
-        }
     }
 
     /// The thread a question belongs to, as recorded now.
@@ -443,4 +384,43 @@ fn note_task<'a>(all: &'a core::State, h: &Held) -> Option<&'a core::Task> {
 /// it by (`delivery::running`). Not read: as given.
 fn holds(all: &core::State, live: Option<&[RuntimeAgent]>, t: &core::Task, to: &str) -> bool {
     t.agent.as_deref().is_some_and(|a| a == to || live.is_none_or(|l| delivery::running(all, l, a).is_some_and(|x| x.session == to)))
+}
+
+/// What `give` holds for when the records cannot be read.
+const UNREAD: &str = "the records cannot be read now";
+
+/// Whether `h` is still wanted, by the records `all`: the appointment `to` held when it was
+/// handed (`Held::seat`); a message's own appointment; a discussion's question still open
+/// with its gate not submitted; a note's task still started and with `to` (`live`: this
+/// try's read, for a task given to a name). Err: why it is over.
+fn wanted(all: &core::State, h: &Held, live: Option<&[RuntimeAgent]>) -> Result<(), (ReasonCode, String)> {
+    let message = matches!(h.kind, For::Message | For::Broadcast);
+    let appointed = h.seat.as_ref().is_none_or(|(w, since)| all.appointed(w, &h.to, *since));
+    let mine = || match all.message(&h.question) {
+        Ok(m) => match m.to.iter().find(|r| r.manager == h.to) {
+            Some(r) => all.appointed(&r.workspace, &r.manager, r.since),
+            None => m.manager == h.to && all.appointed(&m.workspace, &m.manager, m.since),
+        },
+        Err(_) => false,
+    };
+    if !appointed || message && !mine() {
+        let words = if message { "the message; write to the manager again" } else { "it" };
+        return Err((ReasonCode::SeatChanged, format!("the seat was given anew before {} could be given {words}", h.name)));
+    }
+    match h.kind {
+        For::Discussion => match all.question(&h.question) {
+            Ok(q) if q.open() => super::discussions::over(all, q).map_or(Ok(()), |why| Err((ReasonCode::GateSubmitted, why))),
+            _ => Err((ReasonCode::GateSubmitted, "the discussion's question is closed".into())),
+        },
+        For::Note => match note_task(all, h).filter(|t| t.state == core::TaskState::Running && holds(all, live, t, &h.to)) {
+            Some(_) => Ok(()),
+            None => Err((ReasonCode::RuntimeError, format!("{} is not started and with {} any more", h.question, h.name))),
+        },
+        _ => Ok(()),
+    }
+}
+
+/// A note of the receiver's own blind task: it hears of it, blind as it is.
+fn own_blind(all: &core::State, h: &Held, live: &[RuntimeAgent]) -> bool {
+    note_task(all, h).is_some_and(|t| t.blind && holds(all, Some(live), t, &h.to))
 }

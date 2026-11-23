@@ -131,7 +131,7 @@ impl App {
         }
         let text = review::review_prompt(id, &r.command, &r.dir, &by, r.step_text.as_deref(), r.lang.as_deref());
         // As a question's prompt: held while the agent waits for a person (a first-run prompt).
-        self.hand(Held { question: id.into(), kind: For::Review, to: agent.name.clone(), name: agent.name, text, not_ready: None, about: None, seat: None });
+        self.hand(Held::temporary(For::Review, id, agent.name, text));
     }
 
     /// There will be no review of run `id`: why, for the page; its agent goes.

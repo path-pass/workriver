@@ -48,13 +48,11 @@ impl App {
         self.see_roots(now.as_deref());
         // A held question's new agent still not ready after its window waits for the user
         // (e.g. on a first-run prompt the runtime does not report): shown blocked.
-        {
+        if let Some(now) = now.as_mut() {
             let at = std::time::Instant::now();
-            let held = self.held.lock().unwrap();
-            for a in now.iter_mut().flatten().filter(|a| a.state == AgentState::Unknown) {
-                if held.iter().any(|h| (a.session == h.to || a.name == h.to) && h.not_ready.is_some_and(|end| end <= at)) {
-                    a.state = AgentState::Blocked;
-                }
+            let late: Vec<String> = self.held.lock().unwrap().iter().filter(|h| h.not_ready.is_some_and(|end| end <= at)).flat_map(|h| delivery::named(now, &h.to).into_iter().map(|a| a.session.clone())).collect();
+            for a in now.iter_mut().filter(|a| a.state == AgentState::Unknown && late.contains(&a.session)) {
+                a.state = AgentState::Blocked;
             }
         }
         // What the runtime misses, the screen may show: such an agent is counted as blocked.

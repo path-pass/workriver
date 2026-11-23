@@ -383,14 +383,6 @@ impl App {
         Ok(w.and_then(|w| w.manager).map(|m| m.machine))
     }
 
-    /// Whether `to` is a session as recorded (`delivery::known_session`): then it is found by
-    /// that session alone, never by an agent's name. Records that cannot be read: taken to be
-    /// one, so no name stands in for it.
-    pub(in crate::server) fn names_a_session(&self, to: &str) -> bool {
-        let read = got(self.store.lock().unwrap().recorded());
-        read.ok().flatten().is_none_or(|all| crate::server::delivery::known_session(&all, to))
-    }
-
     /// The place on `machine` (none: this one) that holds `session` now: the one answer for
     /// whatever types into or presses at a session's terminal. A session that holds a seat is
     /// at the place it is held to and nowhere else (`see_roots_on`: its pin, while that root

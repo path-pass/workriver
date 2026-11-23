@@ -24,6 +24,8 @@ pub(in crate::server) struct Held {
     /// The seat `to` held when this was handed, from the records read that built the text:
     /// its workspace and the appointment's `since`. Nothing goes on past that appointment.
     pub(in crate::server) seat: Option<(String, u64)>,
+    /// A planned delivery was recorded held (`App::park`, once, before it first waits).
+    pub(in crate::server) recorded_held: bool,
 }
 
 impl Held {
@@ -31,7 +33,13 @@ impl Held {
     pub(in crate::server) fn new(all: &core::State, kind: For, question: &str, to: &str, text: String, about: Option<delivery::Plan>) -> Held {
         let seat = all.seat_of(to).filter(|w| !w.closed).and_then(|w| Some((w.id.clone(), w.manager.as_ref()?.since)));
         let name = all.name_of(to).unwrap_or(to).to_string();
-        Held { question: question.into(), kind, to: to.into(), name, text, not_ready: None, about, seat }
+        Held { question: question.into(), kind, to: to.into(), name, text, not_ready: None, about, seat, recorded_held: false }
+    }
+
+    /// For a temporary agent workriver started (a question, a review), by the name it gave
+    /// it: it holds no seat.
+    pub(in crate::server) fn temporary(kind: For, question: &str, name: String, text: String) -> Held {
+        Held { question: question.into(), kind, to: name.clone(), name, text, not_ready: None, about: None, seat: None, recorded_held: false }
     }
 
     /// What workriver tells an agent (`For::Notice`).
@@ -81,17 +89,15 @@ pub(in crate::server) struct Policy {
     /// Found by its session alone, never by a name: all but a temporary agent's question and
     /// review, which go by the name workriver gave it.
     pub(in crate::server) by_session: bool,
-    /// Typed into an agent at work: all but a discussion's question.
+    /// Typed into an agent at work: all but a discussion's question, which is also not ended
+    /// by a read that does not list it (only `discussions_gone` ends it, from a complete read).
     pub(in crate::server) working: bool,
-    /// Ended (in its record) by a read that does not list it: those with a record of their own,
-    /// but a discussion's question, which only `discussions_gone` ends, from a complete read.
-    pub(in crate::server) gone_unlisted: bool,
 }
 
 impl For {
     pub(in crate::server) fn policy(self) -> Policy {
         let temporary = matches!(self, For::Question | For::Review);
-        Policy { by_session: !temporary, working: self != For::Discussion, gone_unlisted: !matches!(self, For::Discussion | For::Note) }
+        Policy { by_session: !temporary, working: self != For::Discussion }
     }
 }
 
@@ -304,17 +310,16 @@ impl App {
 mod tests {
     use super::{For, Policy};
 
-    /// What differs by kind, cell by cell: found by session, typed while at work, ended by a
-    /// read that does not list it (with a record of its own).
+    /// What differs by kind, cell by cell: found by session, typed while at work.
     #[test]
     fn the_policy_table() {
-        let p = |by_session, working, gone_unlisted| Policy { by_session, working, gone_unlisted };
-        assert_eq!(For::Question.policy(), p(false, true, true));
-        assert_eq!(For::Review.policy(), p(false, true, true));
-        assert_eq!(For::Message.policy(), p(true, true, true));
-        assert_eq!(For::Broadcast.policy(), p(true, true, true));
-        assert_eq!(For::Discussion.policy(), p(true, false, false));
-        assert_eq!(For::Notice.policy(), p(true, true, true));
-        assert_eq!(For::Note.policy(), p(true, true, false));
+        let p = |by_session, working| Policy { by_session, working };
+        assert_eq!(For::Question.policy(), p(false, true));
+        assert_eq!(For::Review.policy(), p(false, true));
+        assert_eq!(For::Message.policy(), p(true, true));
+        assert_eq!(For::Broadcast.policy(), p(true, true));
+        assert_eq!(For::Discussion.policy(), p(true, false));
+        assert_eq!(For::Notice.policy(), p(true, true));
+        assert_eq!(For::Note.policy(), p(true, true));
     }
 }
