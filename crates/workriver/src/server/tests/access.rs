@@ -409,6 +409,14 @@ fn blind_reviews() {
     std::fs::write(repo.join("auth.rs"), "fn check() {}\n").unwrap();
     let board = crate::cli::board_text(&sec, None).unwrap();
     assert!(board.starts_with("blind review: other work is hidden until you deliver.") && board.contains("#2 running  review (security-review) [blind]") && board.contains("Find ways around the token check") && board.contains("diff main...feat/f") && !board.contains("#1 ") && !board.contains("Check tokens\n"), "{board}");
+    assert!(state.get("intent_took").is_none());
+    let took = sec.get("/api/state?took=true").unwrap();
+    let rows = took["intent_took"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "only the task's intent is visible");
+    assert_eq!(rows[0]["tasks_by_kind"], json!({"review": 1}));
+    assert_eq!(rows[0]["review_rounds"], json!({"u1": 0}), "the review's input is hidden");
+    let full = user.get("/api/state?took=true").unwrap();
+    assert_eq!(full["intent_took"][0]["review_rounds"], json!({"u1": 1}));
     // Files: its own, not others'.
     let mine = sec.upload(&shot, "", None).unwrap()["id"].as_str().unwrap().to_string();
     assert_eq!(theirs, mine, "the same bytes are one stored file");

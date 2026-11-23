@@ -182,6 +182,24 @@ pub struct Intent {
     /// is not what every read of the state should carry.
     #[serde(skip)]
     pub edits: Edits,
+    /// The start and end of each active interval, derived in event order. The last end is
+    /// unset while the intent is active.
+    #[serde(skip)]
+    pub(crate) active_intervals: Vec<(String, Option<String>)>,
+}
+
+impl Intent {
+    fn change_state(&mut self, state: IntentState, at: &str) {
+        if self.state != state {
+            if state == IntentState::Active {
+                self.active_intervals.push((at.to_string(), None));
+            } else if self.state == IntentState::Active && let Some((_, end)) = self.active_intervals.last_mut() {
+                *end = Some(at.to_string());
+            }
+        }
+        self.state = state;
+        self.closed = state.over().then(|| at.to_string());
+    }
 }
 
 /// Where an intent's text stands: its last version, who made it and when, and the version
@@ -485,6 +503,7 @@ impl State {
                     tags: tags.clone(),
                     closed: state.over().then(|| at.clone()),
                     edits: Edits::default(),
+                    active_intervals: if *state == IntentState::Active { vec![(at.clone(), None)] } else { vec![] },
                 });
                 if let Some(i) = self.intents.last_mut() {
                     // Kind, size and tags only when given: an intent without them is as before.
@@ -499,8 +518,7 @@ impl State {
                 let before = self.intents[k].workspace.clone();
                 {
                     let i = &mut self.intents[k];
-                    i.state = *state;
-                    i.closed = state.over().then(|| at.clone());
+                    i.change_state(*state, at);
                     if reason.is_some() {
                         i.reason = reason.clone();
                     }
@@ -547,8 +565,7 @@ impl State {
                     if let Some(x) = self.intents.iter_mut().find(|i| &i.id == f) {
                         blocks.push(merged_note(x));
                         tags.extend(x.tags.iter().cloned());
-                        x.state = IntentState::Dropped;
-                        x.closed = Some(at.clone());
+                        x.change_state(IntentState::Dropped, at);
                         x.reason = Some(format!("merged into {intent}"));
                     }
                     self.roadmap.retain(|r| r != f);

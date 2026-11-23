@@ -845,3 +845,56 @@ fn the_history_holds_kind_size_and_tags() {
     let t = intent_text(all, "i1", 4).unwrap();
     assert_eq!((t.kind, t.size), (None, Some(IntentSize::M)));
 }
+
+#[test]
+fn intent_took_measures_only_active_intervals_on_replay() {
+    let mut state = State::default();
+    let mut apply = |day: u32, hour: u32, kind: &str, fields: serde_json::Value| {
+        let at = format!("2026-01-{day:02}T{hour:02}:00:00Z");
+        state.apply(&Event { seq: 0, at, actor: "user".into(), body: body(json!({ "kind": kind, "body": fields })) });
+    };
+    apply(1, 0, "intent.created", json!({"id": "i1", "title": "Search", "state": "planned", "kind": "feature", "size": "m"}));
+    apply(2, 0, "intent.created", json!({"id": "i2", "title": "Legacy active"}));
+    apply(2, 0, "intent.created", json!({"id": "i3", "title": "Never started", "state": "planned"}));
+    apply(2, 0, "intent.created", json!({"id": "i4", "title": "Ongoing", "state": "planned"}));
+    apply(3, 0, "intent.state_changed", json!({"intent": "i1", "state": "active"}));
+    apply(3, 12, "intent.state_changed", json!({"intent": "i1", "state": "planned"}));
+    apply(4, 0, "intent.state_changed", json!({"intent": "i2", "state": "dropped", "reason": "closed"}));
+    apply(4, 0, "intent.state_changed", json!({"intent": "i3", "state": "dropped", "reason": "closed"}));
+    apply(5, 0, "intent.state_changed", json!({"intent": "i1", "state": "active"}));
+    apply(5, 0, "intent.state_changed", json!({"intent": "i4", "state": "active"}));
+    apply(6, 6, "intent.state_changed", json!({"intent": "i1", "state": "done"}));
+    let now = humantime::parse_rfc3339("2026-01-07T00:00:00Z").unwrap();
+    let rows: Vec<_> = state.intents.iter().map(|i| state.intent_took(i, now).unwrap()).collect();
+    assert_eq!(rows.iter().map(|r| r.active_days).collect::<Vec<_>>(), [1.75, 2.0, 0.0, 2.0]);
+    assert_eq!(rows[0].closed.as_deref(), Some("2026-01-06T06:00:00Z"));
+    assert_eq!(rows[2].closed.as_deref(), Some("2026-01-04T00:00:00Z"));
+    assert_eq!(rows[3].closed, None);
+    assert_eq!(rows[0].created, "2026-01-01T00:00:00Z");
+    assert_eq!((rows[0].kind, rows[0].size), (Some(IntentKind::Feature), Some(IntentSize::M)));
+    assert_eq!((rows[1].kind, rows[1].size), (None, None));
+}
+
+#[test]
+fn intent_took_counts_one_round_per_reviewed_work_task() {
+    let mut records = Records::default();
+    seeded(&mut records);
+    for event in [
+        json!({"kind": "unit.created", "body": {"intent": "i1", "title": "Measure", "kind": "research", "template": "bare-research"}}),
+        json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "1"}]}}),
+        json!({"kind": "task.created", "body": {"unit": "u1", "kind": "design", "title": "Design a follow-up", "inputs": [{"from": "2"}]}}),
+        json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "4"}], "reviewer": "architecture-review"}}),
+        json!({"kind": "task.created", "body": {"unit": "u1", "kind": "implement", "title": "Try again", "inputs": [{"from": "2"}]}}),
+        json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "6"}]}}),
+        json!({"kind": "task.dropped", "body": {"unit": "u1", "task": 7, "reason": "not needed"}}),
+        json!({"kind": "task.created", "body": {"unit": "u1", "kind": "review", "inputs": [{"from": "5"}]}}),
+    ] {
+        add(&mut records, "user", event).unwrap();
+    }
+    let state = records.state();
+    let got = serde_json::to_value(state.intent_took(state.intent("i1").unwrap(), std::time::SystemTime::now()).unwrap()).unwrap();
+    assert_eq!(got["units_by_kind"], json!({"code": 1, "research": 1}));
+    assert_eq!(got["tasks_by_kind"], json!({"design": 1, "implement": 2, "review": 5}));
+    assert_eq!(got["dropped_tasks"], 1);
+    assert_eq!(got["review_rounds"], json!({"u1": 2, "u2": 0}));
+}

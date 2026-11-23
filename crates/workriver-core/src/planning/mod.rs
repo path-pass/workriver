@@ -6,12 +6,14 @@ mod history;
 mod intents;
 mod projects;
 mod templates;
+mod took;
 mod units;
 
 pub use history::*;
 pub use intents::*;
 pub use projects::*;
 pub use templates::*;
+pub use took::IntentTook;
 pub use units::*;
 
 #[cfg(test)]

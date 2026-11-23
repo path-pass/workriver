@@ -1883,6 +1883,101 @@
       "kind": "attachment.restored"
     }
   ],
+  "intent_took": [
+    {
+      "active_days": 2.5416666666666665,
+      "closed": "2025-12-03T13:00:00Z",
+      "created": "2025-12-01T00:00:00Z",
+      "dropped_tasks": 0,
+      "intent": "i1",
+      "kind": null,
+      "review_rounds": {
+        "u1": 1
+      },
+      "size": null,
+      "tasks": 2,
+      "tasks_by_kind": {
+        "implement": 1,
+        "review": 1
+      },
+      "units": 1,
+      "units_by_kind": {
+        "code": 1
+      }
+    },
+    {
+      "active_days": 40.666666666666664,
+      "closed": null,
+      "created": "2025-12-02T02:00:00Z",
+      "dropped_tasks": 2,
+      "intent": "i2",
+      "kind": null,
+      "review_rounds": {
+        "u2": 1,
+        "u3": 0,
+        "u4": 0,
+        "u5": 0
+      },
+      "size": null,
+      "tasks": 13,
+      "tasks_by_kind": {
+        "design": 1,
+        "gate": 3,
+        "implement": 3,
+        "research": 2,
+        "review": 2,
+        "tests": 2
+      },
+      "units": 4,
+      "units_by_kind": {
+        "code": 2,
+        "research": 1,
+        "spike": 1
+      }
+    },
+    {
+      "active_days": 0.0,
+      "closed": "2025-12-02T06:00:00Z",
+      "created": "2025-12-02T03:00:00Z",
+      "dropped_tasks": 0,
+      "intent": "i3",
+      "kind": null,
+      "review_rounds": {},
+      "size": null,
+      "tasks": 0,
+      "tasks_by_kind": {},
+      "units": 0,
+      "units_by_kind": {}
+    },
+    {
+      "active_days": 0.0,
+      "closed": "2025-12-03T13:01:00Z",
+      "created": "2025-12-02T04:00:00Z",
+      "dropped_tasks": 0,
+      "intent": "i4",
+      "kind": null,
+      "review_rounds": {},
+      "size": null,
+      "tasks": 0,
+      "tasks_by_kind": {},
+      "units": 0,
+      "units_by_kind": {}
+    },
+    {
+      "active_days": 0.0,
+      "closed": null,
+      "created": "2025-12-03T13:02:00Z",
+      "dropped_tasks": 0,
+      "intent": "i5",
+      "kind": null,
+      "review_rounds": {},
+      "size": null,
+      "tasks": 0,
+      "tasks_by_kind": {},
+      "units": 0,
+      "units_by_kind": {}
+    }
+  ],
   "managers": {
     "i1": "s-boss",
     "i2": "s-boss2"

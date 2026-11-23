@@ -12,7 +12,7 @@ vi.mock('@/workspace/source', () => ({ MOCK: false, watchWorkspace: vi.fn() }))
 const at = '2026-11-21T09:00:00Z'
 const firstNote = '[This intent](/i1)'
 const ws: Workspace = {
-  repos: [], builtAt: at, runtime: 'herdr', sessions: [],
+  repos: [], builtAt: at, runtime: 'Runner', sessions: [],
   projects: [{ id: '/project', title: 'Project', repos: [] }],
   intents: [
     { id: 'i1', title: 'First intent', project: '/project', workspace: 'ws1', units: [], chores: [], note: firstNote, version: 2, edited: { at, by: null } },

@@ -13,6 +13,41 @@ fn s(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
 }
 
+fn intent_took(d: &Daemon, target: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let mut read = d.get("/api/state?took=true")?;
+    let mut rows: Vec<core::IntentTook> = serde_json::from_value(read["intent_took"].take()).context("the service did not return intent statistics")?;
+    if let Some(intent) = target.filter(|id| id.starts_with('i')) {
+        rows.retain(|row| row.intent == intent);
+        if rows.is_empty() {
+            bail!("no intent {intent}");
+        }
+    } else {
+        let state: core::State = serde_json::from_value(read)?;
+        let project = match target {
+            Some(id) => state.projects.iter().find(|p| p.id == id),
+            None => state.project_of(&cwd_folder()?),
+        }.ok_or_else(|| anyhow!("no project {}; see `workriver project list`", target.unwrap_or("for the current directory")))?;
+        rows.retain(|row| state.intent(&row.intent).is_ok_and(|i| state.intent_project(i) == project.path));
+    }
+    let counts = |counts: &std::collections::BTreeMap<String, usize>| {
+        counts.iter().map(|(key, n)| format!("{key} {n}")).collect::<Vec<_>>().join(", ")
+    };
+    for row in rows {
+        if json {
+            println!("{}", serde_json::to_string(&row)?);
+        } else {
+            let kind = row.kind.map_or("-".into(), |k| name(&k));
+            let size = row.size.map_or("-".into(), |s| name(&s).to_uppercase());
+            println!("{}  {kind} {size}  {:.3} active days", row.intent, row.active_days);
+            println!("  created {}  closed {}", row.created, row.closed.as_deref().unwrap_or("-"));
+            println!("  units {} [{}]", row.units, counts(&row.units_by_kind));
+            println!("  tasks {} [{}], dropped {}", row.tasks, counts(&row.tasks_by_kind), row.dropped_tasks);
+            println!("  review rounds [{}]", counts(&row.review_rounds));
+        }
+    }
+    Ok(())
+}
+
 fn external(v: &Value) -> String {
     match v.get("external") {
         Some(e) if e.is_object() => format!(" [{}:{}]", s(&e["system"]), s(&e["key"])),
@@ -255,6 +290,7 @@ pub(super) fn run(cmd: Cmd, cx: &Cx) -> anyhow::Result<Option<Value>> {
             print!("{}", intent_history_text(d, &intent, version, diff)?);
             return Ok(None);
         }
+        Cmd::Intent(IntentCmd::Took { target, json }) => return intent_took(d, target.as_deref(), json).map(|()| None),
         Cmd::Unit(UnitCmd::Add { intent, kind, title, purpose, repo, branch, base, machine, template }) if kind == "research" => {
             if repo.is_some() || branch.is_some() || base.is_some() || machine.is_some() {
                 bail!("a research unit has no repository, branch, base or machine: leave out --repo, --branch, --base and --machine");
@@ -422,6 +458,14 @@ pub(crate) enum IntentCmd {
         /// Print what version N changed, against the one before it.
         #[arg(long, value_name = "N")]
         diff: Option<u32>,
+    },
+    /// Show recorded work and active days for an intent or a project.
+    Took {
+        /// An intent (i1…) or project (p1…). Default: the current directory's project.
+        target: Option<String>,
+        /// Print one JSON object per intent, one per line.
+        #[arg(long)]
+        json: bool,
     },
 }
 
