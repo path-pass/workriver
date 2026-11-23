@@ -9,7 +9,6 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use workriver_core::{MAX_ATTACHMENT, Target};
 
 use crate::server::files::store;
@@ -31,16 +30,31 @@ fn path_of(t: &Target) -> Result<PathBuf, String> {
     t.rest.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(PathBuf::from).ok_or_else(|| "a folder target needs its path".to_string())
 }
 
-/// Whether `bytes` are the content of attachment `id` (its id is a short SHA-256 of them).
+/// Whether `bytes` are the content of attachment `id`: the store's own id of them.
 fn matches(id: &str, bytes: &[u8]) -> bool {
-    let hash: String = Sha256::digest(bytes).iter().take(8).map(|b| format!("{b:02x}")).collect();
-    hash == id
+    store::id(bytes) == id
+}
+
+/// Whether folder `dir` (canonical) is the data directory or inside it, by what the folders
+/// are (device and inode), not by how their paths are spelled: one folder can have several
+/// names that `canonicalize` keeps apart (on macOS the data volume's firmlink,
+/// `/System/Volumes/Data/…`; a bind mount elsewhere).
+fn inside(dir: &Path, home: &Path) -> Result<bool, String> {
+    use std::os::unix::fs::MetadataExt;
+    let data = std::fs::metadata(home).map_err(|e| format!("the data directory cannot be read: {e}"))?;
+    for d in dir.ancestors() {
+        let m = std::fs::metadata(d).map_err(|e| format!("the folder {} cannot be read: {e}", d.display()))?;
+        if (m.dev(), m.ino()) == (data.dev(), data.ino()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Everything that makes `t` a usable target, and the value as it is saved and recorded.
 /// A folder: an absolute path to a folder that exists (never made here: a folder that is
-/// missing is a drive that is not mounted), outside the data directory once its links are
-/// resolved, and writable (a probe file of a random name is made and removed); the canonical
+/// missing is a drive that is not mounted), not the data directory nor inside it by what the
+/// folders are, whatever the path's spelling (`inside`), and writable (a probe file of a random name is made and removed); the canonical
 /// path is given back. Saving the rule calls it, and every run, which goes on only if it
 /// gives back the saved value.
 pub(in crate::server) fn check(t: &Target, home: &Path) -> Result<Target, String> {
@@ -55,8 +69,7 @@ pub(in crate::server) fn check(t: &Target, home: &Path) -> Result<Target, String
                 return Err(format!("{} is not a folder", path.display()));
             }
             let canonical = path.canonicalize().map_err(|e| format!("the folder {} cannot be read: {e}", path.display()))?;
-            let data = home.canonicalize().map_err(|e| format!("the data directory cannot be read: {e}"))?;
-            if canonical.starts_with(&data) {
+            if inside(&canonical, home)? {
                 return Err(format!("the folder {} is inside workriver's data directory; pick one outside it", canonical.display()));
             }
             let mut probe = tempfile::NamedTempFile::new_in(&canonical).map_err(|e| format!("the folder {} cannot be written: {e}", canonical.display()))?;

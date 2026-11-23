@@ -31,6 +31,8 @@ struct Done {
     failed: Vec<String>,
     /// Files the rule took this run.
     due: u64,
+    /// Files a move took that had no bytes in the store: recorded as deleted.
+    empty: u64,
     stopped: bool,
 }
 
@@ -157,10 +159,17 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
     let how = if rule.after == After::Move { Removed::Moved } else { Removed::Deleted };
     let to = (how == Removed::Moved).then(|| rule.target.clone()).flatten();
     let mut ready: Vec<&Attachment> = vec![];
+    // A move's files that have no bytes in the store (recorded with no upload, deleted by
+    // hand): there is nothing to move, so they are recorded as a delete rule records them.
+    let mut empty: Vec<&Attachment> = vec![];
     for a in due {
         if stopping(app) {
             done.stopped = true;
             break;
+        }
+        if to.is_some() && local.get(&a.id).is_none_or(Vec::is_empty) {
+            empty.push(a);
+            continue;
         }
         if let Some(to) = &to {
             let copied = bytes_of(&app.home, a, local.get(&a.id).map_or(&[], Vec::as_slice)).map_err(|e| e.to_string()).and_then(|b| target::put(to, &a.id, &a.name, &b));
@@ -171,7 +180,7 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
         }
         ready.push(a);
     }
-    if ready.is_empty() {
+    if ready.is_empty() && empty.is_empty() {
         return;
     }
     let _held = app.attachments.lock().unwrap();
@@ -183,7 +192,18 @@ fn take(app: &App, rule: &Rule, state: &State, local: &mut HashMap<String, Vec<P
         }
     };
     let still: Vec<&str> = now.attachments_due(&conditions, SystemTime::now()).iter().map(|a| a.id.as_str()).collect();
-    let ids: Vec<String> = ready.iter().filter(|a| still.contains(&a.id.as_str())).map(|a| a.id.clone()).collect();
+    let still = |list: &[&Attachment]| -> Vec<String> { list.iter().filter(|a| still.contains(&a.id.as_str())).map(|a| a.id.clone()).collect() };
+    // What has no bytes is taken only while it still has none (an upload under this lock
+    // has stored it again, and named it, so it is not due any more anyway).
+    let gone_empty: Vec<String> = still(&empty).into_iter().filter(|id| local.get(id).is_none_or(Vec::is_empty)).collect();
+    if !gone_empty.is_empty() {
+        let body = Body::AttachmentRemoved { ids: gone_empty.clone(), how: Removed::Deleted, to: None, rule: conditions };
+        match app.record(&Principal::Service, body) {
+            Ok(_) => done.empty = gone_empty.len() as u64,
+            Err(e) => done.failed.push(format!("the removal could not be recorded: {}", e.1)),
+        }
+    }
+    let ids = still(&ready);
     if ids.is_empty() {
         return;
     }
@@ -212,11 +232,16 @@ fn report(done: Done) -> Report {
     };
     let mb = done.bytes as f64 / 1_048_576.0;
     let mut words = match (done.files, done.failed.len()) {
+        (0, 0) if done.empty > 0 => String::new(),
         (0, 0) => "nothing due".to_string(),
         (n, 0) => format!("{n} files, {mb:.1} MB {how}"),
         (0, f) => format!("{f} failed: {}", done.failed.join("; ")),
-        (n, f) => format!("{n} of {} {}; {f} failed: {}", done.due.max(n + f as u64), if how.is_empty() { "removed" } else { how }, done.failed.join("; ")),
+        (n, f) => format!("{n} of {} {}; {f} failed: {}", (done.due - done.empty).max(n + f as u64), if how.is_empty() { "removed" } else { how }, done.failed.join("; ")),
     };
+    if done.empty > 0 {
+        let empty = format!("{} with no file in the store, recorded as removed", done.empty);
+        words = if words.is_empty() { empty } else { format!("{words}; {empty}") };
+    }
     if done.stopped {
         words += "; stopped with the service, the rest at the next run";
     }

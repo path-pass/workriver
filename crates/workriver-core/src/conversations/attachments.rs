@@ -84,9 +84,10 @@ pub enum Only {
 }
 
 impl Conditions {
-    /// Whether the rule takes this file, by its type and size (not by time).
+    /// Whether the rule takes this file, by its type and size (not by time). A minimum of 0
+    /// is any size, an empty file too; else the file is over it.
     pub fn takes(&self, a: &Attachment) -> bool {
-        (self.only == Only::All || a.mime.starts_with("image/")) && a.size > u64::from(self.min_mb) * 1024 * 1024
+        (self.only == Only::All || a.mime.starts_with("image/")) && (self.min_mb == 0 || a.size > u64::from(self.min_mb) * 1024 * 1024)
     }
 }
 

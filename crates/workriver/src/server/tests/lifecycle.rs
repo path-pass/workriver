@@ -527,3 +527,61 @@ fn an_agents_record_of_a_gone_file_leaves_it_gone() {
     }
     assert!(bodies(&home.join("w.db"), "attachment.restored").is_empty());
 }
+
+/// The data directory under another name of the same folder (on macOS, the data volume's
+/// firmlink `/System/Volumes/Data/…`, which `canonicalize` keeps as given) is the data
+/// directory: refused as a target, so a move never writes the store's files over themselves
+/// and then deletes them. Where the system has no such name, there is nothing to probe.
+#[test]
+fn the_data_directory_by_another_name_is_not_a_target() {
+    let s = setup(vec![lifecycle::JOB]);
+    let a = s.store("a.png", b"picture a");
+    let store = crate::common::home::attachments_dir(&s.home).canonicalize().unwrap();
+    let alias = Path::new("/System/Volumes/Data").join(store.strip_prefix("/").unwrap());
+    if !alias.is_dir() {
+        eprintln!("no firmlink of the data volume here: {} is not a folder", alias.display());
+        return;
+    }
+    for target in [&store, &alias, &alias.parent().unwrap().to_path_buf()] {
+        let (code, said) = s.rule(json!({ "after": "move", "days": 1, "target": folder(target) }));
+        assert_eq!(code, 422, "{}: {said}", target.display());
+        assert!(said.as_str().unwrap().contains("inside workriver's data directory"), "{said}");
+    }
+    // Saved by hand all the same (a settings file edited), every run refuses it.
+    let settings = s.home.join(crate::common::home::SETTINGS);
+    let mut all: Value = std::fs::read(&settings).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(json!({}));
+    all["attachments"] = json!({ "after": "move", "days": 1, "target": folder(&alias) });
+    std::fs::write(&settings, serde_json::to_vec(&all).unwrap()).unwrap();
+    s.age(2);
+    let (_, ran) = s.run();
+    assert_eq!(ran["ok"], false, "{ran}");
+    assert!(ran["words"].as_str().unwrap().contains("nothing was moved"), "{ran}");
+    assert_eq!(s.stored(), [format!("{a}.png")]);
+    assert!(s.removals().is_empty());
+}
+
+/// A file recorded and due whose bytes are not in the store (recorded with no upload, or
+/// deleted by hand) has nothing to move: under a move rule it is recorded as deleted, as a
+/// delete rule records it, and the run is not a failure that comes back every hour.
+#[test]
+fn a_due_file_with_no_bytes_does_not_fail_every_move() {
+    let s = setup(vec![lifecycle::JOB]);
+    let out = tempfile::tempdir().unwrap();
+    let a = s.store("a.png", b"picture a");
+    let b = s.store("b.png", b"picture b");
+    std::fs::remove_file(crate::common::home::attachments_dir(&s.home).join(format!("{b}.png"))).unwrap();
+    assert_eq!(s.rule(json!({ "after": "move", "days": 1, "target": folder(out.path()) })).0, 200);
+    s.age(2);
+    let (_, ran) = s.run();
+    assert_eq!(ran["ok"], true, "{ran}");
+    assert_eq!((ran["detail"]["how"].clone(), ran["detail"]["files"].clone(), ran["detail"]["failed"].clone()), (json!("moved"), json!(1), json!(0)), "{ran}");
+    assert!(ran["words"].as_str().unwrap().contains("1 with no file in the store, recorded as removed"), "{ran}");
+    let mut removals: Vec<(Value, Value)> = s.removals().iter().map(|r| (r["how"].clone(), r["ids"].clone())).collect();
+    removals.sort_by_key(|r| r.0.to_string());
+    assert_eq!(removals, [(json!("deleted"), json!([b])), (json!("moved"), json!([a]))]);
+    assert!(out.path().join(format!("{a}.png")).is_file());
+    assert_eq!(s.read(&b).0, 410);
+    // Nothing is left due: the next run is quiet.
+    let (_, ran) = s.run();
+    assert_eq!((ran["ok"].clone(), ran["words"].clone()), (json!(true), json!("nothing due")), "{ran}");
+}

@@ -96,6 +96,16 @@ fn a_file_named_by_nothing_is_free_by_its_own_time_and_the_filters_apply() {
     assert!(due(&s, &Conditions { min_mb: 3, ..rule(2) }, after(3)).is_empty(), "over the size, not at it");
 }
 
+/// "minMb: 0" is any size: an empty file goes too; a size over 0 MB is never asked of it.
+#[test]
+fn a_rule_of_no_minimum_takes_an_empty_file() {
+    let mut s = Records::default();
+    seeded(&mut s);
+    stored(&mut s, "agent-a", A, 0);
+    assert_eq!(due(&s, &rule(2), after(3)), [A]);
+    assert!(due(&s, &Conditions { min_mb: 1, ..rule(2) }, after(3)).is_empty(), "with a minimum, it is over it or kept");
+}
+
 #[test]
 fn only_the_service_removes_and_only_what_is_stored_free_and_not_gone() {
     let mut s = Records::default();
